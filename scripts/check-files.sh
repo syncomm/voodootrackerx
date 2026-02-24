@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
 MISSING=0
 for f in LICENSE AGENTS.md README.md; do
   if [ ! -f "$f" ]; then
@@ -15,4 +18,3 @@ if [ $MISSING -ne 0 ]; then
 fi
 
 echo "Basic file check passed."
-exit 0

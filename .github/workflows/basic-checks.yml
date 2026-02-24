@@ -2,18 +2,14 @@ name: basic-checks
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   macos-checks:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Run basic file checks
-      run: |
-        chmod +x ./scripts/check-files.sh
-        ./scripts/check-files.sh
-    - name: Swift version (sanity)
-      run: swift --version || true
+      - uses: actions/checkout@v4
+      - name: Run basic file checks
+        run: bash ./scripts/check-files.sh

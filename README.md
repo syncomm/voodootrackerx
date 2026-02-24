@@ -35,7 +35,6 @@ open voodootrackerx/App/VoodooTrackerX.xcodeproj
 * /docs/ — design notes, format notes, contributor guide
 * /assets/ — sample modules, themes
 * /tools/ — scripts, build helpers
-* /legacy/ — (optional) pointer/submodule to the original VoodooTracker archive for provenance
 
 ## Contributing
 We welcome help. Please read `AGENTS.md` for the project’s required automation & contribution rules — it also describes the expectations for agentic contributors.

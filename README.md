@@ -25,7 +25,28 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 # clone
 git clone git@github.com:syncomm/voodootrackerx.git
 cd voodootrackerx
-open voodootrackerx/App/VoodooTrackerX.xcodeproj
+open app/VoodooTrackerX/VoodooTrackerX.xcodeproj
+```
+
+## Build and test (CLI)
+```bash
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath .derivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath .derivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  test
 ```
 
 ## Project structure

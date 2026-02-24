@@ -1,0 +1,3 @@
+[submodule "legacy/voodootracker-classic"]
+	path = legacy/voodootracker-classic
+	url = https://github.com/syncomm/voodootracker

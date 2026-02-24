@@ -49,6 +49,16 @@ xcodebuild \
   test
 ```
 
+## Core Parser Smoke Tests
+```bash
+swift test --filter ModuleParserTests
+
+swift run vtxmoddump tests/Fixtures/minimal.mod
+swift run vtxmoddump tests/Fixtures/minimal.xm
+```
+
+The parser smoke harness is header-only for now (metadata extraction only; no playback or DSP).
+
 ## Project structure
 * /app/ — Xcode project & macOS app code (AppKit/Swift)
 * /core/ — playback engine, DSP (C/C++ or Swift)

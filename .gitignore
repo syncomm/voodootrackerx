@@ -1,0 +1,87 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon?
+Icon?
+._*
+
+# Thumbnails
+._*
+
+# Files that might appear at project root
+*.swp
+*~.nib
+
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xcuserdatad
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode Archives
+*.xcarchive
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Carthage
+Carthage/Build/
+
+# SPM / IDE artifacts
+.swift-version
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+
+# Temporary files
+*.tmp
+*.temp
+
+# Editor files
+*.sublime-project
+*.sublime-workspace
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Secret env files
+.env
+.env.local
+.env.*.local
+
+# macOS Finder/Thumbnail files
+._*
+
+# Binaries / build outputs
+bin/
+dist/
+dist-*/
+
+# Other OS files
+Thumbs.db
+ehthumbs.db
+
+# Audio & large assets (optional — you may want these under /assets)
+*.wav
+*.aiff
+*.flac
+*.mp3
+
+# CI caches
+.cache/

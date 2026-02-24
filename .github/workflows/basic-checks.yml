@@ -13,3 +13,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run basic file checks
         run: bash ./scripts/check-files.sh
+      - name: Build app target
+        run: >
+          xcodebuild
+          -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj
+          -scheme VoodooTrackerX
+          -configuration Debug
+          -destination 'platform=macOS'
+          -derivedDataPath .derivedData
+          CODE_SIGNING_ALLOWED=NO
+          build
+      - name: Run unit tests
+        run: >
+          xcodebuild
+          -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj
+          -scheme VoodooTrackerX
+          -configuration Debug
+          -destination 'platform=macOS'
+          -derivedDataPath .derivedData
+          CODE_SIGNING_ALLOWED=NO
+          test

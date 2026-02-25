@@ -7,29 +7,30 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .library(name: "VTXModuleCore", targets: ["VTXModuleCore"]),
-        .executable(name: "vtxmoddump", targets: ["vtxmoddump"]),
+        .library(name: "ModuleCore", targets: ["ModuleCore"]),
+        .executable(name: "mc_dump", targets: ["mc_dump"]),
     ],
     targets: [
         .target(
-            name: "VTXModuleCore",
-            path: "core",
+            name: "ModuleCore",
+            path: "core/ModuleCore",
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("include")
             ]
         ),
         .executableTarget(
-            name: "vtxmoddump",
-            dependencies: ["VTXModuleCore"],
-            path: "tools/vtxmoddump"
+            name: "mc_dump",
+            dependencies: ["ModuleCore"],
+            path: "tools/mc_dump"
         ),
         .testTarget(
-            name: "VTXModuleCoreTests",
-            dependencies: ["VTXModuleCore"],
+            name: "ModuleCoreTests",
+            dependencies: ["ModuleCore"],
             path: "tests",
+            sources: ["core"],
             resources: [
-                .copy("Fixtures")
+                .copy("fixtures")
             ]
         ),
     ]

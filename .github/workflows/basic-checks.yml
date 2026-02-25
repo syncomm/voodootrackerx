@@ -33,3 +33,5 @@ jobs:
           -derivedDataPath .derivedData
           CODE_SIGNING_ALLOWED=NO
           test
+      - name: Run core parser tests
+        run: swift test --filter ModuleCoreTests

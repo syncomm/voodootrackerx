@@ -49,6 +49,22 @@ xcodebuild \
   test
 ```
 
+## Run the app (CLI verification)
+```bash
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath .derivedData \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+
+open .derivedData/Build/Products/Debug/VoodooTrackerX.app
+```
+
+Expected result: a single frontmost window titled `VoodooTracker X` opens at a visible default size (about `1000x700`) with a simple label and metadata area.
+
 ## Core Parser Smoke Tests
 ```bash
 swift test --filter ModuleCoreTests

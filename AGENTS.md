@@ -69,6 +69,12 @@ Suggested labels:
 - Public functions must include doc comments.
 - Complex logic must include inline explanation comments.
 
+### Documentation rules
+- Update `docs/roadmap.md` when milestone scope, sequencing, or verification expectations change.
+- Update `docs/legacy-map.md` when understanding of legacy behavior improves or new legacy code areas are mapped.
+- For major architectural choices, add a short decision note under `docs/decisions/` (ADR-style, lightweight).
+- Any architectural change PR must include or update a decision note in `docs/decisions/`.
+
 ---
 
 ## Commit Style
@@ -94,6 +100,7 @@ When operating autonomously, an agent MUST:
    - Test verification
    - Manual validation steps
 6. NEVER merge its own PRs.
+7. Read `docs/roadmap.md` and `docs/legacy-map.md` at the start of work (when present) to maintain continuity.
 
 ---
 
@@ -107,6 +114,13 @@ For architectural or large-scale changes:
 4. Open PR titled: `proposal: <short title>`.
 
 No large refactors without prior discussion.
+
+## Decision Log (Lightweight ADRs)
+
+- Store short architecture decision notes in `docs/decisions/`.
+- Keep each note concise (problem, decision, rationale, impact/tradeoffs).
+- Use this for major choices such as UI toolkit, audio engine approach, parser/file format strategy, and persistence/compatibility decisions.
+- If a later PR changes a prior decision, add a new note that supersedes the old one rather than rewriting history.
 
 ---
 

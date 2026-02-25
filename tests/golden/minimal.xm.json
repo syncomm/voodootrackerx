@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "type": "XM",
+  "error": "",
+  "warning": "",
+  "title": "TEST XM",
+  "version": { "major": 1, "minor": 4 },
+  "channels": 4,
+  "patterns": 1,
+  "instruments": 1,
+  "song_length": 3,
+  "restart_position": 1,
+  "default_tempo": 6,
+  "default_bpm": 125,
+  "order_table_length": 3,
+  "order_table": [0, 0, 0],
+  "pattern_row_counts": [32],
+  "first_instrument_name": "BASS",
+  "first_mod_sample": {
+    "name": "",
+    "length_bytes": 0,
+    "finetune": 0,
+    "volume": 0
+  }
+}

@@ -55,9 +55,13 @@ swift test --filter ModuleCoreTests
 
 swift run mc_dump tests/fixtures/minimal.mod
 swift run mc_dump tests/fixtures/minimal.xm
+swift run mc_dump --json tests/fixtures/minimal.xm
+
+./scripts/run-golden.sh
 ```
 
 The core parser smoke harness is header-only for now (metadata extraction only; no playback or DSP).
+See `docs/testing.md` for fixture rules and golden snapshot workflow.
 
 ## Project structure
 * /app/ — Xcode project & macOS app code (AppKit/Swift)

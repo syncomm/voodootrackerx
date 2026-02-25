@@ -30,7 +30,8 @@ let package = Package(
             path: "tests",
             sources: ["core"],
             resources: [
-                .copy("fixtures")
+                .copy("fixtures"),
+                .copy("golden")
             ]
         ),
     ]

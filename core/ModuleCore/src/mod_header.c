@@ -1,6 +1,7 @@
 #include "mod_header.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
 static void copy_trimmed(char *dst, size_t dst_size, const uint8_t *src, size_t src_size) {
@@ -47,6 +48,18 @@ static uint16_t channels_from_sig(const uint8_t *sig) {
     return 0;
 }
 
+static uint32_t read_be_u16_words_as_bytes(const uint8_t *p) {
+    return (uint32_t)(((uint16_t)p[0] << 8) | p[1]) * 2u;
+}
+
+static int8_t mod_finetune_from_nibble(uint8_t v) {
+    v &= 0x0F;
+    if (v >= 8) {
+        return (int8_t)(v - 16);
+    }
+    return (int8_t)v;
+}
+
 int mc_parse_mod_header_bytes(const uint8_t *data, size_t size, mc_module_info *out_info) {
     const size_t mod_header_size = 1084;
     const uint8_t *sig;
@@ -71,8 +84,23 @@ int mc_parse_mod_header_bytes(const uint8_t *data, size_t size, mc_module_info *
     out_info->ok = 1;
     copy_trimmed(out_info->title, sizeof(out_info->title), data, 20);
     out_info->channels = channels_from_sig(sig);
+    if (out_info->channels == 0) {
+        out_info->channels = 4;
+        snprintf(out_info->warning, sizeof(out_info->warning), "unknown MOD signature, defaulting to 4 channels");
+    }
     out_info->instruments = 31;
     out_info->song_length = data[950];
+    out_info->restart_position = data[951];
+    out_info->order_table_length = out_info->song_length;
+    if (out_info->order_table_length == 0 || out_info->order_table_length > 128) {
+        out_info->order_table_length = 128;
+    }
+    memcpy(out_info->order_table, data + 952, out_info->order_table_length);
+
+    copy_trimmed(out_info->first_mod_sample.name, sizeof(out_info->first_mod_sample.name), data + 20, 22);
+    out_info->first_mod_sample.length_bytes = read_be_u16_words_as_bytes(data + 42);
+    out_info->first_mod_sample.finetune = mod_finetune_from_nibble(data[44]);
+    out_info->first_mod_sample.volume = data[45];
 
     entries = out_info->song_length;
     if (entries == 0 || entries > 128) {

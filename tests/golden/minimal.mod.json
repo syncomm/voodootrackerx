@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "type": "MOD",
+  "error": "",
+  "warning": "",
+  "title": "TEST MOD",
+  "version": { "major": 0, "minor": 0 },
+  "channels": 4,
+  "patterns": 2,
+  "instruments": 31,
+  "song_length": 2,
+  "restart_position": 127,
+  "default_tempo": 0,
+  "default_bpm": 0,
+  "order_table_length": 2,
+  "order_table": [0, 1],
+  "pattern_row_counts": [],
+  "first_instrument_name": "",
+  "first_mod_sample": {
+    "name": "KICK",
+    "length_bytes": 16,
+    "finetune": -1,
+    "volume": 40
+  }
+}

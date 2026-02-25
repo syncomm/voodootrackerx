@@ -11,11 +11,21 @@
 		A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* VoodooTrackerXTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
+		A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* ModuleMetadataLoader.swift */; };
+		A00000000000000000000017 /* module_types.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* module_types.c */; };
+		A00000000000000000000018 /* xm_header.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* xm_header.c */; };
+		A00000000000000000000019 /* mod_header.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* mod_header.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
+		A00000000000000000000025 /* module_types.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = module_types.c; path = ../../core/ModuleCore/src/module_types.c; sourceTree = "<group>"; };
+		A00000000000000000000026 /* xm_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = xm_header.c; path = ../../core/ModuleCore/src/xm_header.c; sourceTree = "<group>"; };
+		A00000000000000000000027 /* mod_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = mod_header.c; path = ../../core/ModuleCore/src/mod_header.c; sourceTree = "<group>"; };
+		A00000000000000000000028 /* ModuleCoreBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ModuleCoreBridge.h; sourceTree = "<group>"; };
+		A00000000000000000000029 /* ModuleCoreHeaders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ModuleCoreHeaders; path = ../../core/ModuleCore/include; sourceTree = "<group>"; };
 		A00000000000000000000031 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
 		A00000000000000000000032 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		A00000000000000000000041 /* VoodooTrackerX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoodooTrackerX.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -47,6 +57,7 @@
 			children = (
 				A00000000000000000000062 /* VoodooTrackerX */,
 				A00000000000000000000063 /* VoodooTrackerXTests */,
+				A00000000000000000000066 /* ModuleCore */,
 				A00000000000000000000064 /* Frameworks */,
 				A00000000000000000000065 /* Products */,
 			);
@@ -58,6 +69,8 @@
 			sourceTree = "<group>";
 			children = (
 				A00000000000000000000021 /* AppDelegate.swift */,
+				A00000000000000000000023 /* ModuleMetadataLoader.swift */,
+				A00000000000000000000028 /* ModuleCoreBridge.h */,
 			);
 		};
 		A00000000000000000000063 /* VoodooTrackerXTests */ = {
@@ -67,6 +80,17 @@
 			children = (
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
 			);
+		};
+		A00000000000000000000066 /* ModuleCore */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000029 /* ModuleCoreHeaders */,
+				A00000000000000000000025 /* module_types.c */,
+				A00000000000000000000026 /* xm_header.c */,
+				A00000000000000000000027 /* mod_header.c */,
+			);
+			name = ModuleCore;
+			sourceTree = "<group>";
 		};
 		A00000000000000000000064 /* Frameworks */ = {
 			isa = PBXGroup;
@@ -183,6 +207,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
+				A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */,
+				A00000000000000000000017 /* module_types.c in Sources */,
+				A00000000000000000000018 /* xm_header.c in Sources */,
+				A00000000000000000000019 /* mod_header.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,6 +268,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../core/ModuleCore/include",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -248,6 +280,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.syncomm.VoodooTrackerX;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = VoodooTrackerX/ModuleCoreBridge.h;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -259,6 +292,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../core/ModuleCore/include",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -267,6 +304,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.syncomm.VoodooTrackerX;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = VoodooTrackerX/ModuleCoreBridge.h;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;

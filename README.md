@@ -35,7 +35,7 @@ xcodebuild \
   -scheme VoodooTrackerX \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath .derivedData \
+  -derivedDataPath build \
   CODE_SIGNING_ALLOWED=NO \
   build
 
@@ -44,7 +44,7 @@ xcodebuild \
   -scheme VoodooTrackerX \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath .derivedData \
+  -derivedDataPath build \
   CODE_SIGNING_ALLOWED=NO \
   test
 ```
@@ -56,11 +56,11 @@ xcodebuild \
   -scheme VoodooTrackerX \
   -configuration Debug \
   -destination 'platform=macOS' \
-  -derivedDataPath .derivedData \
+  -derivedDataPath build \
   CODE_SIGNING_ALLOWED=NO \
   build
 
-open .derivedData/Build/Products/Debug/VoodooTrackerX.app
+open build/Build/Products/Debug/VoodooTrackerX.app
 ```
 
 Expected result: a single frontmost window titled `VoodooTracker X` opens at a visible default size (about `1000x700`) with a simple label and metadata area.

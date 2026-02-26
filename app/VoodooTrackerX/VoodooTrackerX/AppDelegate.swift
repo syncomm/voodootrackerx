@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
+    private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
@@ -108,12 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.contentView = contentView
 
-        self.window = window
+        self.mainWindow = window
     }
 
     private func showAndActivateMainWindow() {
-        guard let window else { return }
-        window.makeKeyAndOrderFront(nil)
+        guard let mainWindow else { return }
+        mainWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -144,8 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.alertStyle = .warning
             alert.messageText = "Unable to Open Module"
             alert.informativeText = error.localizedDescription
-            if let window {
-                alert.beginSheetModal(for: window)
+            if let mainWindow {
+                alert.beginSheetModal(for: mainWindow)
             } else {
                 alert.runModal()
             }

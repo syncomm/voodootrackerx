@@ -1,4 +1,4 @@
-These fixtures are tiny synthetic module headers generated specifically for VoodooTracker X tests.
-They contain only minimal metadata/header bytes (no song content) and are safe to redistribute.
+These fixtures are tiny synthetic module files generated specifically for VoodooTracker X tests.
+They contain minimal metadata and small synthetic pattern data blocks only, and are safe to redistribute.
 
 Do not add copyrighted songs or third-party module music here.

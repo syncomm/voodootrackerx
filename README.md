@@ -83,7 +83,7 @@ swift run mc_dump --json tests/fixtures/minimal.xm
 ./scripts/run-golden.sh
 ```
 
-The core parser smoke harness is header-only for now (metadata extraction only; no playback or DSP).
+The core parser smoke harness is read-only for now (header metadata plus XM pattern event decode; no playback or DSP).
 See `docs/testing.md` for fixture rules and golden snapshot workflow.
 
 ## Project structure

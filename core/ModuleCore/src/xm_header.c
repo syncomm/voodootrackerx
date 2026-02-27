@@ -25,6 +25,68 @@ static void copy_trimmed(char *dst, size_t dst_size, const uint8_t *src, size_t 
     dst[count] = '\0';
 }
 
+static int decode_xm_event(
+    const uint8_t *data,
+    size_t size,
+    size_t *offset,
+    uint8_t *note,
+    uint8_t *instrument,
+    uint8_t *volume,
+    uint8_t *effect_type,
+    uint8_t *effect_param
+) {
+    uint8_t b;
+    size_t o;
+
+    if (offset == NULL || data == NULL || *offset >= size) {
+        return 0;
+    }
+
+    o = *offset;
+    b = data[o++];
+
+    *note = 0;
+    *instrument = 0;
+    *volume = 0;
+    *effect_type = 0;
+    *effect_param = 0;
+
+    if (b & 0x80) {
+        if ((b & 0x01) != 0) {
+            if (o >= size) { return 0; }
+            *note = data[o++];
+        }
+        if ((b & 0x02) != 0) {
+            if (o >= size) { return 0; }
+            *instrument = data[o++];
+        }
+        if ((b & 0x04) != 0) {
+            if (o >= size) { return 0; }
+            *volume = data[o++];
+        }
+        if ((b & 0x08) != 0) {
+            if (o >= size) { return 0; }
+            *effect_type = data[o++];
+        }
+        if ((b & 0x10) != 0) {
+            if (o >= size) { return 0; }
+            *effect_param = data[o++];
+        }
+    } else {
+        if (o + 4 > size) {
+            return 0;
+        }
+        *note = b;
+        *instrument = data[o++];
+        *volume = data[o++];
+        *effect_type = data[o++];
+        *effect_param = data[o++];
+    }
+
+    *offset = o;
+    return 1;
+}
+
 int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *out_info) {
     const size_t min_header = 80;
     const uint8_t *ptr;
@@ -90,6 +152,10 @@ int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *o
         uint32_t pat_header_len;
         uint16_t row_count;
         uint16_t packed_size;
+        const uint8_t *pat_data;
+        size_t pat_offset = 0;
+        uint16_t row;
+        uint16_t ch;
 
         if (remaining < 9) {
             return 0;
@@ -103,9 +169,61 @@ int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *o
         if (i < out_info->pattern_row_count_count) {
             out_info->pattern_row_counts[i] = row_count;
         }
+        if (i < MC_MAX_PATTERN_ROW_COUNTS) {
+            out_info->pattern_packed_size_count = i + 1;
+            out_info->pattern_packed_sizes[i] = packed_size;
+        }
         if (remaining < (size_t)pat_header_len + (size_t)packed_size) {
             return 0;
         }
+
+        pat_data = ptr + pat_header_len;
+        for (row = 0; row < row_count; row++) {
+            for (ch = 0; ch < out_info->channels; ch++) {
+                uint8_t note;
+                uint8_t instrument;
+                uint8_t volume;
+                uint8_t effect_type;
+                uint8_t effect_param;
+
+                if (packed_size > 0) {
+                    if (!decode_xm_event(
+                            pat_data,
+                            packed_size,
+                            &pat_offset,
+                            &note,
+                            &instrument,
+                            &volume,
+                            &effect_type,
+                            &effect_param)) {
+                        return 0;
+                    }
+                } else {
+                    note = 0;
+                    instrument = 0;
+                    volume = 0;
+                    effect_type = 0;
+                    effect_param = 0;
+                }
+
+                if (out_info->xm_event_count < MC_MAX_XM_EVENTS) {
+                    mc_xm_event *event = &out_info->xm_events[out_info->xm_event_count];
+                    event->pattern = i;
+                    event->row = row;
+                    event->channel = ch;
+                    event->note = note;
+                    event->instrument = instrument;
+                    event->volume = volume;
+                    event->effect_type = effect_type;
+                    event->effect_param = effect_param;
+                    out_info->xm_event_count++;
+                }
+            }
+        }
+        if (pat_offset != packed_size) {
+            return 0;
+        }
+
         ptr += pat_header_len + packed_size;
         remaining -= pat_header_len + packed_size;
     }

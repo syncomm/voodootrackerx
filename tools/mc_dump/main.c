@@ -77,6 +77,30 @@ static void print_json(const mc_module_info *info) {
         printf("%u", info->pattern_row_counts[i]);
     }
     printf("],\n");
+    printf("  \"pattern_packed_sizes\": [");
+    for (i = 0; i < info->pattern_packed_size_count; i++) {
+        if (i > 0) {
+            printf(", ");
+        }
+        printf("%u", info->pattern_packed_sizes[i]);
+    }
+    printf("],\n");
+    printf("  \"xm_events\": [");
+    for (i = 0; i < info->xm_event_count; i++) {
+        if (i > 0) {
+            printf(", ");
+        }
+        printf("{ \"pattern\": %u, \"row\": %u, \"channel\": %u, \"note\": %u, \"instrument\": %u, \"volume\": %u, \"effect_type\": %u, \"effect_param\": %u }",
+            info->xm_events[i].pattern,
+            info->xm_events[i].row,
+            info->xm_events[i].channel,
+            info->xm_events[i].note,
+            info->xm_events[i].instrument,
+            info->xm_events[i].volume,
+            info->xm_events[i].effect_type,
+            info->xm_events[i].effect_param);
+    }
+    printf("],\n");
     printf("  \"first_instrument_name\": ");
     print_json_string(info->first_instrument_name);
     printf(",\n");
@@ -153,6 +177,29 @@ int main(int argc, char **argv) {
             printf("%s%u", i == 0 ? " " : ",", info.pattern_row_counts[i]);
         }
         printf("\n");
+    }
+    if (info.pattern_packed_size_count > 0) {
+        int i;
+        printf("pattern_packed_sizes:");
+        for (i = 0; i < info.pattern_packed_size_count; i++) {
+            printf("%s%u", i == 0 ? " " : ",", info.pattern_packed_sizes[i]);
+        }
+        printf("\n");
+    }
+    if (info.xm_event_count > 0) {
+        int i;
+        printf("xm_events:\n");
+        for (i = 0; i < info.xm_event_count; i++) {
+            printf("  p%u r%u c%u: note=%u instrument=%u volume=%u effect=%u param=%u\n",
+                info.xm_events[i].pattern,
+                info.xm_events[i].row,
+                info.xm_events[i].channel,
+                info.xm_events[i].note,
+                info.xm_events[i].instrument,
+                info.xm_events[i].volume,
+                info.xm_events[i].effect_type,
+                info.xm_events[i].effect_param);
+        }
     }
     if (info.first_instrument_name[0]) {
         printf("first_instrument_name: %s\n", info.first_instrument_name);

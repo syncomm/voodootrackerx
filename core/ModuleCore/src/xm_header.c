@@ -1,5 +1,6 @@
 #include "xm_header.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static uint16_t read_le_u16(const uint8_t *p) {
@@ -206,7 +207,8 @@ int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *o
                     effect_param = 0;
                 }
 
-                if (out_info->xm_event_count < MC_MAX_XM_EVENTS) {
+                if (note != 0 || instrument != 0 || volume != 0 || effect_type != 0 || effect_param != 0) {
+                    if (out_info->xm_event_count < MC_MAX_XM_EVENTS) {
                     mc_xm_event *event = &out_info->xm_events[out_info->xm_event_count];
                     event->pattern = i;
                     event->row = row;
@@ -217,6 +219,14 @@ int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *o
                     event->effect_type = effect_type;
                     event->effect_param = effect_param;
                     out_info->xm_event_count++;
+                    } else if (out_info->warning[0] == '\0') {
+                        snprintf(
+                            out_info->warning,
+                            sizeof(out_info->warning),
+                            "xm events truncated at %u entries",
+                            (unsigned)MC_MAX_XM_EVENTS
+                        );
+                    }
                 }
             }
         }

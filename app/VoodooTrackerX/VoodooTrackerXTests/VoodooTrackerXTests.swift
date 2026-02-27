@@ -100,7 +100,7 @@ private func buildPatternSelection(
             )
         }
     } else {
-        for patternIndex in usedUnique {
+        for patternIndex in usedUnique.sorted() {
             let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
             entries.append(
                 PatternSelectionEntry(
@@ -131,7 +131,7 @@ final class VoodooTrackerXTests: XCTestCase {
             showAllPatterns: false
         )
 
-        XCTAssertEqual(result.entries.map(\.patternIndex), [0, 2, 1])
+        XCTAssertEqual(result.entries.map(\.patternIndex), [0, 1, 2])
         XCTAssertEqual(result.entries.map(\.isUsed), [true, true, true])
         XCTAssertEqual(result.invalidReferencedPatterns, [5])
     }

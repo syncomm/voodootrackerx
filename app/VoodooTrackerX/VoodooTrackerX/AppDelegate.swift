@@ -160,6 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var retainedDelegate: AppDelegate?
     private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
+    private var patternHeaderTextView: NSTextView?
+    private var patternHeaderScrollView: NSScrollView?
     private var patternSelector: NSPopUpButton?
     private var showAllPatternsCheckbox: NSButton?
     private var loadedMetadata: ParsedModuleMetadata?
@@ -284,7 +286,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(showAllCheckbox)
         showAllPatternsCheckbox = showAllCheckbox
 
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: initialWindowSize.width - 40, height: initialWindowSize.height - 96))
+        let headerHeight: CGFloat = 24
+        let headerY = initialWindowSize.height - 102
+        let headerScrollView = NSScrollView(frame: NSRect(x: 20, y: headerY, width: initialWindowSize.width - 40, height: headerHeight))
+        headerScrollView.autoresizingMask = [.width, .minYMargin]
+        headerScrollView.hasVerticalScroller = false
+        headerScrollView.hasHorizontalScroller = false
+        headerScrollView.borderType = .bezelBorder
+        headerScrollView.drawsBackground = true
+        headerScrollView.backgroundColor = .windowBackgroundColor
+
+        let headerTextView = NSTextView(frame: headerScrollView.bounds)
+        headerTextView.autoresizingMask = []
+        headerTextView.isEditable = false
+        headerTextView.isRichText = false
+        headerTextView.isSelectable = false
+        headerTextView.isHorizontallyResizable = true
+        headerTextView.isVerticallyResizable = false
+        headerTextView.minSize = NSSize(width: 0, height: 0)
+        headerTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: headerHeight)
+        headerTextView.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
+        headerTextView.textContainerInset = NSSize(width: 4, height: 2)
+        headerTextView.textContainer?.widthTracksTextView = false
+        headerTextView.textContainer?.heightTracksTextView = true
+        headerTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: headerHeight)
+        headerTextView.textContainer?.lineBreakMode = .byClipping
+        headerTextView.string = ""
+
+        headerScrollView.documentView = headerTextView
+        headerScrollView.isHidden = true
+        contentView.addSubview(headerScrollView)
+        patternHeaderTextView = headerTextView
+        patternHeaderScrollView = headerScrollView
+
+        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: initialWindowSize.width - 40, height: initialWindowSize.height - 128))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -313,6 +348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         File > Open… to load a .mod or .xm file and inspect parsed header metadata.
         """
         scrollView.documentView = textView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(gridClipViewBoundsDidChange(_:)),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
         contentView.addSubview(scrollView)
         metadataTextView = textView
 
@@ -361,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
                 showAllPatternsCheckbox?.isHidden = false
+                patternHeaderScrollView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
                 renderCurrentPattern(metadata: metadata)
             } else {
@@ -368,6 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 patternSelector?.removeAllItems()
                 patternSelector?.isHidden = true
                 showAllPatternsCheckbox?.isHidden = true
+                patternHeaderScrollView?.isHidden = true
                 metadataTextView?.string = """
                 File: \(url.lastPathComponent)
                 Path: \(url.path)
@@ -456,6 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         cursor.clamp(rowCount: pattern.rowCount, channelCount: pattern.channels)
+        updatePatternHeader(channels: pattern.channels)
         let rendered = ModuleMetadataLoader.renderXMPattern(
             pattern,
             highlightedRow: cursor.row,
@@ -490,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let shifted = NSRange(location: range.location + rowRangeOffset, length: range.length)
             attributed.addAttribute(.backgroundColor, value: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35), range: shifted)
         }
+        applyChannelSeparatorStyling(attributed, channels: pattern.channels, rowRangeOffset: rowRangeOffset)
         metadataTextView?.textStorage?.setAttributedString(attributed)
         updateActiveFieldRange(rowRangeOffset: rowRangeOffset)
         updateMetadataTextViewDocumentSize()
@@ -562,6 +608,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             height: max(viewport.height, contentHeight)
         )
         textView.setFrameSize(targetSize)
+        updatePatternHeaderDocumentSize(documentWidth: targetSize.width)
+    }
+
+    private func applyChannelSeparatorStyling(_ attributed: NSMutableAttributedString, channels: Int, rowRangeOffset: Int) {
+        guard channels > 1 else {
+            return
+        }
+
+        for rowRange in rowRanges {
+            let rowStart = rowRange.location + rowRangeOffset
+            for separatorIndex in 0..<(channels - 1) {
+                let separatorStart = rowStart + ModuleMetadataLoader.xmRenderedRowPrefixWidth +
+                    ((separatorIndex + 1) * ModuleMetadataLoader.xmRenderedCellWidth) +
+                    (separatorIndex * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+                let separatorRange = NSRange(location: separatorStart, length: ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+                guard separatorRange.location + separatorRange.length <= attributed.length else {
+                    continue
+                }
+                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: separatorRange)
+            }
+        }
+    }
+
+    private func updatePatternHeader(channels: Int) {
+        guard let headerTextView = patternHeaderTextView else {
+            return
+        }
+        let headerText = ModuleMetadataLoader.renderXMChannelHeader(channels: channels)
+        let attributed = NSMutableAttributedString(string: headerText)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byClipping
+        attributed.addAttributes(
+            [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .medium),
+                .ligature: 0,
+                .paragraphStyle: paragraphStyle,
+                .foregroundColor: NSColor.secondaryLabelColor
+            ],
+            range: NSRange(location: 0, length: attributed.length)
+        )
+        headerTextView.textStorage?.setAttributedString(attributed)
+    }
+
+    private func updatePatternHeaderDocumentSize(documentWidth: CGFloat) {
+        guard let headerTextView = patternHeaderTextView,
+              let headerScrollView = patternHeaderScrollView else {
+            return
+        }
+        let targetWidth = max(documentWidth, headerScrollView.contentView.bounds.width)
+        let currentHeight = max(22, headerTextView.frame.height)
+        headerTextView.setFrameSize(NSSize(width: targetWidth, height: currentHeight))
+        syncHeaderScrollWithGrid()
+    }
+
+    private func syncHeaderScrollWithGrid() {
+        guard let gridScrollView = metadataTextView?.enclosingScrollView,
+              let headerScrollView = patternHeaderScrollView else {
+            return
+        }
+        let x = gridScrollView.contentView.bounds.origin.x
+        headerScrollView.contentView.scroll(to: NSPoint(x: x, y: 0))
+        headerScrollView.reflectScrolledClipView(headerScrollView.contentView)
+    }
+
+    @objc
+    private func gridClipViewBoundsDidChange(_ notification: Notification) {
+        syncHeaderScrollWithGrid()
     }
 
     private func debugLog(_ message: String) {

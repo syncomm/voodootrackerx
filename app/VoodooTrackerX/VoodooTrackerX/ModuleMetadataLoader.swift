@@ -158,6 +158,23 @@ public struct ModuleMetadataLoader {
         return (lines.joined(separator: "\n"), rowRanges)
     }
 
+    static func renderXMChannelHeader(channels: Int) -> String {
+        let clampedChannels = max(0, channels)
+        let leading = String(repeating: " ", count: xmRenderedRowPrefixWidth)
+        guard clampedChannels > 0 else {
+            return leading
+        }
+
+        var cells = [String]()
+        cells.reserveCapacity(clampedChannels)
+        for channelIndex in 0..<clampedChannels {
+            let label = String(format: "CH%02d", channelIndex + 1)
+            let padded = label.padding(toLength: xmRenderedCellWidth, withPad: " ", startingAt: 0)
+            cells.append(String(padded.prefix(xmRenderedCellWidth)))
+        }
+        return leading + cells.joined(separator: " | ")
+    }
+
     static var xmRenderedCellWidth: Int {
         formatXMCell(.empty).utf16.count
     }

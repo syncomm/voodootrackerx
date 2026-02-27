@@ -6,6 +6,10 @@ private enum PatternNavigationCommand {
     case down
     case pageUp
     case pageDown
+    case home
+    case end
+    case left
+    case right
 }
 
 private final class PatternTextView: NSTextView {
@@ -21,6 +25,14 @@ private final class PatternTextView: NSTextView {
             navigationHandler?(.pageUp)
         case 121:
             navigationHandler?(.pageDown)
+        case 115:
+            navigationHandler?(.home)
+        case 119:
+            navigationHandler?(.end)
+        case 123:
+            navigationHandler?(.left)
+        case 124:
+            navigationHandler?(.right)
         default:
             super.keyDown(with: event)
         }
@@ -34,10 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
     private var patternSelector: NSPopUpButton?
+    private var showAllPatternsCheckbox: NSButton?
     private var loadedMetadata: ParsedModuleMetadata?
-    private var selectedPatternIndex = 0
+    private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
+    private var invalidReferencedPatternIndices = [Int]()
+    private var selectedDropdownIndex = 0
+    private var currentPatternIndex = 0
     private var highlightedRowIndex = 0
-    private var rowTextOffsets = [Int]()
+    private var currentChannelIndex = 0
+    private var rowRanges = [NSRange]()
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
 
@@ -62,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             createMainWindow()
         }
         showAndActivateMainWindow()
+        if let metadataTextView {
+            mainWindow?.makeFirstResponder(metadataTextView)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -134,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         titleLabel.autoresizingMask = [.maxXMargin, .minYMargin]
         contentView.addSubview(titleLabel)
 
-        let selector = NSPopUpButton(frame: NSRect(x: 20, y: initialWindowSize.height - 68, width: 180, height: 28))
+        let selector = NSPopUpButton(frame: NSRect(x: 20, y: initialWindowSize.height - 68, width: 220, height: 28))
         selector.autoresizingMask = [.maxXMargin, .minYMargin]
         selector.target = self
         selector.action = #selector(patternSelectionChanged(_:))
@@ -142,17 +162,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(selector)
         patternSelector = selector
 
+        let showAllCheckbox = NSButton(checkboxWithTitle: "Show all patterns", target: self, action: #selector(showAllPatternsToggled(_:)))
+        showAllCheckbox.frame = NSRect(x: 250, y: initialWindowSize.height - 68, width: 180, height: 28)
+        showAllCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
+        showAllCheckbox.state = .off
+        showAllCheckbox.isHidden = true
+        contentView.addSubview(showAllCheckbox)
+        showAllPatternsCheckbox = showAllCheckbox
+
         let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: initialWindowSize.width - 40, height: initialWindowSize.height - 96))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.borderType = .bezelBorder
 
         let textView = PatternTextView(frame: scrollView.bounds)
+        textView.autoresizingMask = []
         textView.isEditable = false
         textView.isRichText = false
         textView.isSelectable = true
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.lineBreakMode = .byClipping
         textView.navigationHandler = { [weak self] command in
             self?.handlePatternNavigation(command)
         }
@@ -204,15 +241,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
-            selectedPatternIndex = 0
+            selectedDropdownIndex = 0
+            currentPatternIndex = 0
             highlightedRowIndex = 0
+            currentChannelIndex = 0
 
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
-                updatePatternSelector(for: metadata)
-                renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+                showAllPatternsCheckbox?.isHidden = false
+                updatePatternSelector(for: metadata, keepPattern: nil)
+                renderCurrentPattern(metadata: metadata)
             } else {
                 patternSelector?.removeAllItems()
                 patternSelector?.isHidden = true
+                showAllPatternsCheckbox?.isHidden = true
                 metadataTextView?.string = """
                 File: \(url.lastPathComponent)
                 Path: \(url.path)
@@ -238,53 +279,120 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let metadata = loadedMetadata else {
             return
         }
-        selectedPatternIndex = max(0, sender.indexOfSelectedItem)
+        selectedDropdownIndex = max(0, sender.indexOfSelectedItem)
+        guard displayedPatternEntries.indices.contains(selectedDropdownIndex) else {
+            return
+        }
+        currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
         highlightedRowIndex = 0
-        renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+        currentChannelIndex = 0
+        renderCurrentPattern(metadata: metadata)
     }
 
-    private func updatePatternSelector(for metadata: ParsedModuleMetadata) {
+    @objc
+    private func showAllPatternsToggled(_ sender: NSButton) {
+        guard let metadata = loadedMetadata else {
+            return
+        }
+        updatePatternSelector(for: metadata, keepPattern: currentPatternIndex)
+        renderCurrentPattern(metadata: metadata)
+    }
+
+    private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?) {
         guard let selector = patternSelector else {
             return
         }
+        let rowCounts = metadata.xmPatterns.map(\.rowCount)
+        let selection = ModuleMetadataLoader.buildPatternSelection(
+            orderTable: metadata.orderTable,
+            patternCount: metadata.xmPatterns.count,
+            rowCounts: rowCounts,
+            showAllPatterns: showAllPatternsCheckbox?.state == .on
+        )
+        displayedPatternEntries = selection.entries
+        invalidReferencedPatternIndices = selection.invalidReferencedPatterns
+
         selector.removeAllItems()
-        for pattern in metadata.xmPatterns {
-            selector.addItem(withTitle: "Pattern \(pattern.index)")
+        for entry in displayedPatternEntries {
+            let status = entry.isUsed ? "used" : "all"
+            selector.addItem(withTitle: String(format: "P%02d (%@, %d rows)", entry.patternIndex, status, entry.rowCount))
         }
-        selector.selectItem(at: selectedPatternIndex)
+        guard !displayedPatternEntries.isEmpty else {
+            selector.isHidden = true
+            return
+        }
+
+        if let keepPattern, let index = displayedPatternEntries.firstIndex(where: { $0.patternIndex == keepPattern }) {
+            selectedDropdownIndex = index
+        } else {
+            selectedDropdownIndex = 0
+        }
+        currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
+        selector.selectItem(at: selectedDropdownIndex)
         selector.isHidden = false
     }
 
-    private func renderPattern(
-        metadata: ParsedModuleMetadata,
-        selectedPattern: Int
-    ) {
-        guard metadata.type == "XM", metadata.xmPatterns.indices.contains(selectedPattern) else {
+    private func renderCurrentPattern(metadata: ParsedModuleMetadata) {
+        guard metadata.type == "XM", metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
         }
-        let pattern = metadata.xmPatterns[selectedPattern]
+        let pattern = metadata.xmPatterns[currentPatternIndex]
         if pattern.rowCount == 0 {
             metadataTextView?.string = "Pattern \(pattern.index) is empty."
             return
         }
 
         highlightedRowIndex = min(max(0, highlightedRowIndex), pattern.rowCount - 1)
-        let rendered = ModuleMetadataLoader.renderXMPattern(pattern, highlightedRow: highlightedRowIndex)
-        rowTextOffsets = rendered.rowOffsets
-        metadataTextView?.string = rendered.text
+        currentChannelIndex = min(max(0, currentChannelIndex), pattern.channels - 1)
+        let rendered = ModuleMetadataLoader.renderXMPattern(
+            pattern,
+            highlightedRow: highlightedRowIndex,
+            focusedChannel: currentChannelIndex
+        )
+        rowRanges = rendered.rowRanges
+
+        let fullText: String
+        let rowRangeOffset: Int
+        if invalidReferencedPatternIndices.isEmpty {
+            fullText = rendered.text
+            rowRangeOffset = 0
+        } else {
+            let invalidList = invalidReferencedPatternIndices.map(String.init).joined(separator: ", ")
+            let warning = "Warning: Ignored out-of-range order entries: \(invalidList)\n\n"
+            fullText = warning + rendered.text
+            rowRangeOffset = warning.utf16.count
+        }
+
+        let attributed = NSMutableAttributedString(string: fullText)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byClipping
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .ligature: 0,
+            .paragraphStyle: paragraphStyle,
+            .foregroundColor: NSColor.labelColor
+        ]
+        attributed.addAttributes(baseAttributes, range: NSRange(location: 0, length: attributed.length))
+        if rowRanges.indices.contains(highlightedRowIndex) {
+            let range = rowRanges[highlightedRowIndex]
+            let shifted = NSRange(location: range.location + rowRangeOffset, length: range.length)
+            attributed.addAttribute(.backgroundColor, value: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35), range: shifted)
+        }
+        metadataTextView?.textStorage?.setAttributedString(attributed)
+        updateMetadataTextViewDocumentSize()
         if let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
-        scrollHighlightedRowIntoView()
+        scrollHighlightedRowIntoView(offset: rowRangeOffset)
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
         guard let metadata = loadedMetadata, metadata.type == "XM",
-              metadata.xmPatterns.indices.contains(selectedPatternIndex) else {
+              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
         }
 
-        let pattern = metadata.xmPatterns[selectedPatternIndex]
+        let pattern = metadata.xmPatterns[currentPatternIndex]
         let pageStep = 16
         switch command {
         case .up:
@@ -295,19 +403,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             highlightedRowIndex = max(0, highlightedRowIndex - pageStep)
         case .pageDown:
             highlightedRowIndex = min(pattern.rowCount - 1, highlightedRowIndex + pageStep)
+        case .home:
+            highlightedRowIndex = 0
+        case .end:
+            highlightedRowIndex = pattern.rowCount - 1
+        case .left:
+            currentChannelIndex = max(0, currentChannelIndex - 1)
+        case .right:
+            currentChannelIndex = min(pattern.channels - 1, currentChannelIndex + 1)
         }
 
-        renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+        renderCurrentPattern(metadata: metadata)
     }
 
-    private func scrollHighlightedRowIntoView() {
-        guard rowTextOffsets.indices.contains(highlightedRowIndex),
+    private func scrollHighlightedRowIntoView(offset: Int) {
+        guard rowRanges.indices.contains(highlightedRowIndex),
               let textView = metadataTextView else {
             return
         }
-        let start = rowTextOffsets[highlightedRowIndex]
-        let range = NSRange(location: start, length: 1)
+        let rowRange = rowRanges[highlightedRowIndex]
+        let clampedChannel = max(0, currentChannelIndex)
+        let channelOffset = ModuleMetadataLoader.xmRenderedRowPrefixWidth +
+            clampedChannel * (ModuleMetadataLoader.xmRenderedCellWidth + ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let maxLocation = rowRange.location + max(0, rowRange.length - 1)
+        let targetLocation = min(maxLocation, rowRange.location + channelOffset)
+        let range = NSRange(location: targetLocation + offset, length: max(1, ModuleMetadataLoader.xmRenderedCellWidth))
         textView.scrollRangeToVisible(range)
+    }
+
+    private func updateMetadataTextViewDocumentSize() {
+        guard let textView = metadataTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            return
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer).integral
+        let inset = textView.textContainerInset
+        let contentWidth = usedRect.width + inset.width * 2 + 8
+        let contentHeight = usedRect.height + inset.height * 2 + 8
+        let viewport = textView.enclosingScrollView?.contentView.bounds.size ?? .zero
+
+        let targetSize = NSSize(
+            width: max(viewport.width, contentWidth),
+            height: max(viewport.height, contentHeight)
+        )
+        textView.setFrameSize(targetSize)
     }
 
     private func debugLog(_ message: String) {

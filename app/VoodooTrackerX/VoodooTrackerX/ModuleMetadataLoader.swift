@@ -32,7 +32,7 @@ struct ParsedModuleMetadata: Equatable {
     let instruments: Int
     let songLength: Int
     let orderTable: [Int]
-    let xmPatterns: [XMPatternData]
+    var xmPatterns: [XMPatternData]
 
     var displayText: String {
         var lines = [

@@ -42,6 +42,83 @@ enum PatternNavigationCommand {
     case right
 }
 
+enum PatternEditInput {
+    case clearField
+    case hexDigit(UInt8)
+}
+
+enum PatternEditEngine {
+    static func hexNibble(from character: Character) -> UInt8? {
+        guard let scalar = String(character).unicodeScalars.first else {
+            return nil
+        }
+        switch scalar.value {
+        case 48...57:
+            return UInt8(scalar.value - 48)
+        case 65...70:
+            return UInt8(scalar.value - 55)
+        case 97...102:
+            return UInt8(scalar.value - 87)
+        default:
+            return nil
+        }
+    }
+
+    static func apply(
+        input: PatternEditInput,
+        to cell: XMPatternEventCell,
+        field: PatternCursorField,
+        editModeEnabled: Bool
+    ) -> XMPatternEventCell? {
+        guard editModeEnabled else {
+            return nil
+        }
+
+        switch input {
+        case .clearField:
+            return cleared(cell: cell, field: field)
+        case let .hexDigit(nibble):
+            guard nibble <= 0x0F else {
+                return nil
+            }
+            return applyingHexNibble(nibble, to: cell, field: field)
+        }
+    }
+
+    private static func cleared(cell: XMPatternEventCell, field: PatternCursorField) -> XMPatternEventCell {
+        switch field {
+        case .note:
+            return XMPatternEventCell(note: 0, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+        case .instrument:
+            return XMPatternEventCell(note: cell.note, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+        case .volume:
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: 0, effectType: cell.effectType, effectParam: cell.effectParam)
+        case .effectType:
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: 0, effectParam: cell.effectParam)
+        case .effectParam:
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: 0)
+        }
+    }
+
+    private static func applyingHexNibble(_ nibble: UInt8, to cell: XMPatternEventCell, field: PatternCursorField) -> XMPatternEventCell? {
+        switch field {
+        case .note:
+            return nil
+        case .instrument:
+            let value = ((cell.instrument & 0x0F) << 4) | nibble
+            return XMPatternEventCell(note: cell.note, instrument: value, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+        case .volume:
+            let value = ((cell.volumeColumn & 0x0F) << 4) | nibble
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: value, effectType: cell.effectType, effectParam: cell.effectParam)
+        case .effectType:
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: nibble, effectParam: cell.effectParam)
+        case .effectParam:
+            let value = ((cell.effectParam & 0x0F) << 4) | nibble
+            return XMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: value)
+        }
+    }
+}
+
 enum PatternCursorField: Int, CaseIterable {
     case note
     case instrument
@@ -131,6 +208,7 @@ struct PatternCursor: Equatable {
 
 private final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
+    var editInputHandler: ((PatternEditInput) -> Bool)?
     var theme = TrackerTheme.legacyDark
     var dividerCharacterIndices = [Int]() {
         didSet {
@@ -166,7 +244,22 @@ private final class PatternTextView: NSTextView {
             navigationHandler?(.left)
         case 124:
             navigationHandler?(.right)
+        case 51, 117:
+            if editInputHandler?(.clearField) == true {
+                return
+            }
+            super.keyDown(with: event)
         default:
+            if let characters = event.charactersIgnoringModifiers, let character = characters.first {
+                if character == "." {
+                    if editInputHandler?(.clearField) == true {
+                        return
+                    }
+                } else if let nibble = PatternEditEngine.hexNibble(from: character),
+                          editInputHandler?(.hexDigit(nibble)) == true {
+                    return
+                }
+            }
             super.keyDown(with: event)
         }
     }
@@ -251,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var rowNumberScrollView: NSScrollView?
     private var patternSelector: NSPopUpButton?
     private var showAllPatternsCheckbox: NSButton?
+    private var editModeCheckbox: NSButton?
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
@@ -263,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let initialWindowSize = NSSize(width: 1000, height: 700)
     private let rowNumberColumnWidth: CGFloat = 36
     private var isSyncingScroll = false
+    private var isEditModeEnabled = false
 
     static func main() {
         let app = NSApplication.shared
@@ -442,6 +537,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(showAllCheckbox)
         showAllPatternsCheckbox = showAllCheckbox
 
+        let editModeCheckbox = NSButton(checkboxWithTitle: "Edit mode", target: self, action: #selector(editModeToggled(_:)))
+        editModeCheckbox.frame = NSRect(x: sideInset + 410, y: controlsY, width: 120, height: 28)
+        editModeCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
+        editModeCheckbox.appearance = NSAppearance(named: .darkAqua)
+        editModeCheckbox.contentTintColor = theme.accent
+        editModeCheckbox.attributedTitle = NSAttributedString(
+            string: "Edit mode",
+            attributes: [
+                .foregroundColor: theme.text,
+                .font: NSFont.systemFont(ofSize: 12, weight: .regular)
+            ]
+        )
+        editModeCheckbox.state = .off
+        editModeCheckbox.isHidden = true
+        contentView.addSubview(editModeCheckbox)
+        self.editModeCheckbox = editModeCheckbox
+
         let infoLabel = NSTextField(labelWithString: "")
         infoLabel.frame = NSRect(x: sideInset, y: infoY, width: initialWindowSize.width - (sideInset * 2), height: 20)
         infoLabel.autoresizingMask = [.width, .minYMargin]
@@ -587,6 +699,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.navigationHandler = { [weak self] command in
             self?.handlePatternNavigation(command)
         }
+        textView.editInputHandler = { [weak self] input in
+            self?.handlePatternEditInput(input) ?? false
+        }
         let introText = """
         VoodooTracker X
 
@@ -677,9 +792,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             selectedDropdownIndex = 0
             currentPatternIndex = 0
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
+            isEditModeEnabled = false
+            editModeCheckbox?.state = .off
 
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
                 showAllPatternsCheckbox?.isHidden = false
+                editModeCheckbox?.isHidden = false
                 patternInfoLabel?.isHidden = false
                 patternHeaderScrollView?.isHidden = false
                 rowNumberScrollView?.isHidden = false
@@ -698,6 +816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 patternSelector?.removeAllItems()
                 patternSelector?.isHidden = true
                 showAllPatternsCheckbox?.isHidden = true
+                editModeCheckbox?.isHidden = true
                 patternHeaderScrollView?.isHidden = true
                 rowNumberScrollView?.isHidden = true
                 topLeftHeaderSpacer?.isHidden = true
@@ -742,6 +861,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         updatePatternSelector(for: metadata, keepPattern: currentPatternIndex, showAllPatterns: sender.state == .on)
         renderCurrentPattern(metadata: metadata)
+    }
+
+    @objc
+    private func editModeToggled(_ sender: NSButton) {
+        isEditModeEnabled = sender.state == .on
     }
 
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?, showAllPatterns: Bool? = nil) {
@@ -856,6 +980,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pattern = metadata.xmPatterns[currentPatternIndex]
         cursor.move(command, rowCount: pattern.rowCount, channelCount: pattern.channels)
         renderCurrentPattern(metadata: metadata)
+    }
+
+    private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
+        guard isEditModeEnabled,
+              var metadata = loadedMetadata,
+              metadata.type == "XM",
+              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+            return false
+        }
+
+        var pattern = metadata.xmPatterns[currentPatternIndex]
+        guard pattern.rows.indices.contains(cursor.row),
+              pattern.rows[cursor.row].indices.contains(cursor.channel) else {
+            return false
+        }
+
+        let currentCell = pattern.rows[cursor.row][cursor.channel]
+        guard let updatedCell = PatternEditEngine.apply(
+            input: input,
+            to: currentCell,
+            field: cursor.field,
+            editModeEnabled: isEditModeEnabled
+        ) else {
+            return false
+        }
+
+        pattern.rows[cursor.row][cursor.channel] = updatedCell
+        metadata.xmPatterns[currentPatternIndex] = pattern
+        loadedMetadata = metadata
+        renderCurrentPattern(metadata: metadata)
+        return true
     }
 
     private func scrollCursorIntoView(offset: Int) {

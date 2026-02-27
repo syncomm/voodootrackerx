@@ -65,6 +65,13 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 Expected result: a single frontmost window titled `VoodooTracker X` opens at a visible default size (about `1000x700`) with a simple label and metadata area.
 
+To run the executable directly and see DEBUG startup logs:
+```bash
+build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Expected DEBUG lines include `[VTX DEBUG] applicationDidFinishLaunching entered` and window creation/show details.
+
 ## Core Parser Smoke Tests
 ```bash
 swift test --filter ModuleCoreTests

@@ -1,5 +1,28 @@
 import Foundation
 
+struct XMPatternEventCell: Equatable {
+    let note: UInt8
+    let instrument: UInt8
+    let volumeColumn: UInt8
+    let effectType: UInt8
+    let effectParam: UInt8
+
+    static let empty = XMPatternEventCell(
+        note: 0,
+        instrument: 0,
+        volumeColumn: 0,
+        effectType: 0,
+        effectParam: 0
+    )
+}
+
+struct XMPatternData: Equatable {
+    let index: Int
+    let rowCount: Int
+    let channels: Int
+    var rows: [[XMPatternEventCell]]
+}
+
 struct ParsedModuleMetadata: Equatable {
     let type: String
     let title: String
@@ -8,6 +31,7 @@ struct ParsedModuleMetadata: Equatable {
     let patterns: Int
     let instruments: Int
     let songLength: Int
+    let xmPatterns: [XMPatternData]
 
     var displayText: String {
         var lines = [
@@ -50,6 +74,7 @@ struct ModuleMetadataLoader {
         } else {
             version = nil
         }
+        let xmPatterns = Self.parseXMPatterns(from: info)
 
         return ParsedModuleMetadata(
             type: typeName,
@@ -58,8 +83,61 @@ struct ModuleMetadataLoader {
             channels: Int(info.channels),
             patterns: Int(info.patterns),
             instruments: Int(info.instruments),
-            songLength: Int(info.song_length)
+            songLength: Int(info.song_length),
+            xmPatterns: xmPatterns
         )
+    }
+
+    static func formatXMCell(_ cell: XMPatternEventCell) -> String {
+        let note = formatXMNote(cell.note)
+        let instrument = cell.instrument == 0 ? ".." : String(format: "%02X", cell.instrument)
+        let volume = cell.volumeColumn == 0 ? ".." : String(format: "%02X", cell.volumeColumn)
+        let effect: String
+        if cell.effectType == 0 && cell.effectParam == 0 {
+            effect = "..."
+        } else {
+            effect = String(format: "%1X%02X", cell.effectType, cell.effectParam)
+        }
+        return "\(note) \(instrument) \(volume) \(effect)"
+    }
+
+    static func formatXMNote(_ note: UInt8) -> String {
+        if note == 0 {
+            return "..."
+        }
+        if note == 97 {
+            return "==="
+        }
+        guard note <= 96 else {
+            return "???"
+        }
+        let names = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
+        let value = Int(note) - 1
+        let name = names[value % 12]
+        let octave = value / 12
+        return "\(name)\(octave)"
+    }
+
+    static func renderXMPattern(
+        _ pattern: XMPatternData,
+        highlightedRow: Int? = nil
+    ) -> (text: String, rowOffsets: [Int]) {
+        var lines = [String]()
+        var rowOffsets = [Int]()
+        lines.append("Pattern \(pattern.index)  Rows: \(pattern.rowCount)  Channels: \(pattern.channels)")
+        lines.append("")
+
+        for rowIndex in 0..<pattern.rowCount {
+            let marker = highlightedRow == rowIndex ? ">" : " "
+            let rowCells = pattern.rows[rowIndex].map(Self.formatXMCell).joined(separator: " | ")
+            let rowLine = "\(marker)\(String(format: "%03d", rowIndex)) | \(rowCells)"
+            let prefixLength = lines.joined(separator: "\n").utf16.count
+            let offset = lines.isEmpty ? 0 : prefixLength + 1
+            rowOffsets.append(offset)
+            lines.append(rowLine)
+        }
+
+        return (lines.joined(separator: "\n"), rowOffsets)
     }
 
     private static func string<T>(from tuple: T) -> String {
@@ -69,5 +147,74 @@ struct ModuleMetadataLoader {
                 String(cString: $0)
             }
         }
+    }
+
+    private static func parseXMPatterns(from info: mc_module_info) -> [XMPatternData] {
+        guard info.type == MC_MODULE_TYPE_XM else {
+            return []
+        }
+
+        let channelCount = max(1, Int(info.channels))
+        let patternCount = Int(info.patterns)
+        guard patternCount > 0 else {
+            return []
+        }
+
+        let rowCounts: [UInt16] = withUnsafePointer(to: info.pattern_row_counts) {
+            $0.withMemoryRebound(to: UInt16.self, capacity: Int(MC_MAX_PATTERN_ROW_COUNTS)) {
+                Array(UnsafeBufferPointer(start: $0, count: Int(MC_MAX_PATTERN_ROW_COUNTS)))
+            }
+        }
+
+        var patterns = [XMPatternData]()
+        patterns.reserveCapacity(patternCount)
+
+        for patternIndex in 0..<patternCount {
+            let rowCount = patternIndex < Int(info.pattern_row_count_count) ? max(1, Int(rowCounts[patternIndex])) : 64
+            let rows = Array(
+                repeating: Array(repeating: XMPatternEventCell.empty, count: channelCount),
+                count: rowCount
+            )
+            patterns.append(
+                XMPatternData(
+                    index: patternIndex,
+                    rowCount: rowCount,
+                    channels: channelCount,
+                    rows: rows
+                )
+            )
+        }
+
+        let xmEvents: [mc_xm_event] = withUnsafePointer(to: info.xm_events) {
+            $0.withMemoryRebound(to: mc_xm_event.self, capacity: Int(MC_MAX_XM_EVENTS)) {
+                Array(UnsafeBufferPointer(start: $0, count: Int(MC_MAX_XM_EVENTS)))
+            }
+        }
+
+        for event in xmEvents.prefix(Int(info.xm_event_count)) {
+            let patternIndex = Int(event.pattern)
+            let rowIndex = Int(event.row)
+            let channelIndex = Int(event.channel)
+
+            guard patterns.indices.contains(patternIndex) else {
+                continue
+            }
+            guard rowIndex >= 0, rowIndex < patterns[patternIndex].rowCount else {
+                continue
+            }
+            guard channelIndex >= 0, channelIndex < patterns[patternIndex].channels else {
+                continue
+            }
+
+            patterns[patternIndex].rows[rowIndex][channelIndex] = XMPatternEventCell(
+                note: event.note,
+                instrument: event.instrument,
+                volumeColumn: event.volume,
+                effectType: event.effect_type,
+                effectParam: event.effect_param
+            )
+        }
+
+        return patterns
     }
 }

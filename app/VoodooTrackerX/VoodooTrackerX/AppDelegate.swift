@@ -4,15 +4,32 @@ import UniformTypeIdentifiers
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static var retainedDelegate: AppDelegate?
     private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
 
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        retainedDelegate = delegate
+        app.delegate = delegate
+        app.run()
+    }
+
+    override init() {
+        super.init()
+        debugLog("AppDelegate initialized")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        debugLog("applicationDidFinishLaunching entered")
         NSApp.setActivationPolicy(.regular)
         configureMenu()
-        createMainWindow()
+        if mainWindow == nil {
+            createMainWindow()
+        }
         showAndActivateMainWindow()
     }
 
@@ -71,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createMainWindow() {
+        debugLog("createMainWindow called")
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
 
         let titleLabel = NSTextField(labelWithString: "VoodooTracker X")
@@ -109,12 +127,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = contentView
 
         self.mainWindow = window
+        debugLog("window created object=\(String(describing: mainWindow)) frame=\(window.frame) isVisible=\(window.isVisible)")
     }
 
     private func showAndActivateMainWindow() {
         guard let mainWindow else { return }
         mainWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        debugLog("window shown frame=\(mainWindow.frame) isVisible=\(mainWindow.isVisible)")
     }
 
     @objc
@@ -150,5 +171,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 alert.runModal()
             }
         }
+    }
+
+    private func debugLog(_ message: String) {
+#if DEBUG
+        guard let data = "[VTX DEBUG] \(message)\n".data(using: .utf8) else { return }
+        FileHandle.standardError.write(data)
+        let logURL = URL(fileURLWithPath: "/tmp/vtx-debug-runtime.log")
+        if FileManager.default.fileExists(atPath: logURL.path),
+           let handle = try? FileHandle(forWritingTo: logURL) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+        } else {
+            try? data.write(to: logURL)
+        }
+#endif
     }
 }

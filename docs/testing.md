@@ -22,6 +22,7 @@ swift test --filter ModuleCoreTests
 
 Golden snapshot checks are part of `ModuleCoreTests`.
 They compare parser output against stable JSON snapshots in `tests/golden/`.
+XM coverage includes a summary snapshot and a single-pattern event snapshot.
 
 Run them with:
 
@@ -35,6 +36,14 @@ When parser behavior changes intentionally, regenerate snapshots and review the 
 
 ```bash
 ./scripts/run-golden.sh
+```
+
+Manual equivalent commands:
+
+```bash
+swift run mc_dump --json tests/fixtures/minimal.mod > tests/golden/minimal.mod.json
+swift run mc_dump --json tests/fixtures/minimal.xm > tests/golden/minimal.xm.json
+swift run mc_dump --json --pattern 1 tests/fixtures/minimal.xm > tests/golden/minimal.xm.pattern1.json
 ```
 
 Then:

@@ -31,6 +31,7 @@ struct ParsedModuleMetadata: Equatable {
     let patterns: Int
     let instruments: Int
     let songLength: Int
+    let orderTable: [Int]
     let xmPatterns: [XMPatternData]
 
     var displayText: String {
@@ -60,7 +61,18 @@ enum ModuleMetadataLoaderError: LocalizedError {
     }
 }
 
-struct ModuleMetadataLoader {
+public struct ModuleMetadataLoader {
+    public struct PatternSelectionEntry: Equatable {
+        public let patternIndex: Int
+        public let isUsed: Bool
+        public let rowCount: Int
+    }
+
+    public struct PatternSelectionResult: Equatable {
+        public let entries: [PatternSelectionEntry]
+        public let invalidReferencedPatterns: [Int]
+    }
+
     func load(fromPath path: String) throws -> ParsedModuleMetadata {
         let info = mc_parse_file(path)
         guard info.ok != 0 else {
@@ -74,6 +86,7 @@ struct ModuleMetadataLoader {
         } else {
             version = nil
         }
+        let orderTable = Self.parseOrderTable(from: info)
         let xmPatterns = Self.parseXMPatterns(from: info)
 
         return ParsedModuleMetadata(
@@ -84,6 +97,7 @@ struct ModuleMetadataLoader {
             patterns: Int(info.patterns),
             instruments: Int(info.instruments),
             songLength: Int(info.song_length),
+            orderTable: orderTable,
             xmPatterns: xmPatterns
         )
     }
@@ -120,24 +134,97 @@ struct ModuleMetadataLoader {
 
     static func renderXMPattern(
         _ pattern: XMPatternData,
-        highlightedRow: Int? = nil
-    ) -> (text: String, rowOffsets: [Int]) {
+        highlightedRow: Int? = nil,
+        focusedChannel: Int = 0
+    ) -> (text: String, rowRanges: [NSRange]) {
         var lines = [String]()
-        var rowOffsets = [Int]()
-        lines.append("Pattern \(pattern.index)  Rows: \(pattern.rowCount)  Channels: \(pattern.channels)")
+        var rowRanges = [NSRange]()
+        let safeFocusedChannel = max(0, min(pattern.channels - 1, focusedChannel))
+        lines.append("Pattern \(pattern.index)  Rows: \(pattern.rowCount)  Channels: \(pattern.channels)  Focus: CH\(String(format: "%02d", safeFocusedChannel + 1))")
         lines.append("")
 
+        var currentOffset = 0
+        currentOffset += lines[0].utf16.count + 1
+        currentOffset += lines[1].utf16.count + 1
+
         for rowIndex in 0..<pattern.rowCount {
-            let marker = highlightedRow == rowIndex ? ">" : " "
             let rowCells = pattern.rows[rowIndex].map(Self.formatXMCell).joined(separator: " | ")
-            let rowLine = "\(marker)\(String(format: "%03d", rowIndex)) | \(rowCells)"
-            let prefixLength = lines.joined(separator: "\n").utf16.count
-            let offset = lines.isEmpty ? 0 : prefixLength + 1
-            rowOffsets.append(offset)
+            let rowLine = "\(String(format: "%03d", rowIndex)) | \(rowCells)"
+            rowRanges.append(NSRange(location: currentOffset, length: rowLine.utf16.count))
             lines.append(rowLine)
+            currentOffset += rowLine.utf16.count + 1
         }
 
-        return (lines.joined(separator: "\n"), rowOffsets)
+        return (lines.joined(separator: "\n"), rowRanges)
+    }
+
+    static var xmRenderedCellWidth: Int {
+        formatXMCell(.empty).utf16.count
+    }
+
+    static let xmRenderedRowPrefixWidth = "000 | ".utf16.count
+    static let xmRenderedCellSeparatorWidth = " | ".utf16.count
+
+    public static func buildPatternSelection(
+        orderTable: [Int],
+        patternCount: Int,
+        rowCounts: [Int],
+        showAllPatterns: Bool
+    ) -> PatternSelectionResult {
+        let safePatternCount = max(0, patternCount)
+        var usedUnique = [Int]()
+        var usedSeen = Set<Int>()
+        var invalidReferenced = [Int]()
+
+        for patternIndex in orderTable {
+            if patternIndex >= 0 && patternIndex < safePatternCount {
+                if !usedSeen.contains(patternIndex) {
+                    usedSeen.insert(patternIndex)
+                    usedUnique.append(patternIndex)
+                }
+            } else {
+                invalidReferenced.append(patternIndex)
+            }
+        }
+
+        var entries = [PatternSelectionEntry]()
+        if showAllPatterns {
+            entries.reserveCapacity(safePatternCount)
+            for patternIndex in 0..<safePatternCount {
+                let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
+                entries.append(
+                    PatternSelectionEntry(
+                        patternIndex: patternIndex,
+                        isUsed: usedSeen.contains(patternIndex),
+                        rowCount: rowCount
+                    )
+                )
+            }
+        } else {
+            entries.reserveCapacity(usedUnique.count)
+            for patternIndex in usedUnique {
+                let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
+                entries.append(
+                    PatternSelectionEntry(
+                        patternIndex: patternIndex,
+                        isUsed: true,
+                        rowCount: rowCount
+                    )
+                )
+            }
+            if entries.isEmpty && safePatternCount > 0 {
+                let rowCount = rowCounts.isEmpty ? 64 : max(1, rowCounts[0])
+                entries.append(
+                    PatternSelectionEntry(
+                        patternIndex: 0,
+                        isUsed: false,
+                        rowCount: rowCount
+                    )
+                )
+            }
+        }
+
+        return PatternSelectionResult(entries: entries, invalidReferencedPatterns: invalidReferenced)
     }
 
     private static func string<T>(from tuple: T) -> String {
@@ -216,5 +303,18 @@ struct ModuleMetadataLoader {
         }
 
         return patterns
+    }
+
+    private static func parseOrderTable(from info: mc_module_info) -> [Int] {
+        let count = Int(info.order_table_length)
+        guard count > 0 else {
+            return []
+        }
+        let values: [UInt8] = withUnsafePointer(to: info.order_table) {
+            $0.withMemoryRebound(to: UInt8.self, capacity: Int(MC_MAX_ORDER_ENTRIES)) {
+                Array(UnsafeBufferPointer(start: $0, count: Int(MC_MAX_ORDER_ENTRIES)))
+            }
+        }
+        return values.prefix(count).map(Int.init)
     }
 }

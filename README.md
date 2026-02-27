@@ -65,7 +65,8 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 Expected result: a single frontmost window titled `VoodooTracker X` opens at a visible default size (about `1000x700`) with a read-only module display.
 For XM files, use `File > Open…` and you should see Pattern 0 in a monospaced tracker-style grid.
-Navigation: `Up`/`Down` moves the highlighted row, `Page Up`/`Page Down` jumps by a page, and the pattern dropdown switches patterns.
+Navigation: `Up`/`Down` moves the highlighted row, `Page Up`/`Page Down` jumps by 16 rows, `Home`/`End` jumps to first/last row, and `Left`/`Right` changes the focused channel indicator.
+Pattern dropdown defaults to used patterns from the song order; enable `Show all patterns` to include full pattern count.
 
 To run the executable directly and see DEBUG startup logs:
 ```bash

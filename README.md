@@ -1,4 +1,4 @@
-# VoodooTracker X
+![VoodooTracker X](./assets/logo/vtx-logo.png)
 
 **Voodoo Tracker X: A modern resurrection of the classic 1990s FastTracker-style demo scene tracker.**
 

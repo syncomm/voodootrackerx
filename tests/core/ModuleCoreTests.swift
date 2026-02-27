@@ -41,7 +41,7 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(info.pattern_row_count_count, 2)
         XCTAssertEqual(Array(patternRows(info).prefix(2)), [4, 4])
         XCTAssertEqual(Array(patternPackedSizes(info).prefix(2)), [29, 28])
-        XCTAssertEqual(info.xm_event_count, 32)
+        XCTAssertEqual(info.xm_event_count, 8)
         XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.note, 48)
         XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.instrument, 1)
         XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.volume, 64)

@@ -1,6 +1,36 @@
 import AppKit
 import UniformTypeIdentifiers
 
+private enum PatternGridPreferences {
+    static let beatAccentIntervalKey = "PatternGridBeatAccentInterval"
+    static let defaultBeatAccentInterval = 4
+
+    static var beatAccentInterval: Int {
+        let stored = UserDefaults.standard.integer(forKey: beatAccentIntervalKey)
+        return stored > 0 ? stored : defaultBeatAccentInterval
+    }
+}
+
+private struct TrackerTheme {
+    let background: NSColor
+    let text: NSColor
+    let accent: NSColor
+    let beatAccent: NSColor
+    let cursorOutline: NSColor
+    let rowHighlight: NSColor
+    let separator: NSColor
+
+    static let legacyDark = TrackerTheme(
+        background: NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.10, alpha: 1.0),
+        text: NSColor(calibratedRed: 0.96, green: 0.97, blue: 0.93, alpha: 1.0),
+        accent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.35, alpha: 1.0),
+        beatAccent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.28, alpha: 0.24),
+        cursorOutline: NSColor(calibratedRed: 1.0, green: 0.26, blue: 0.18, alpha: 1.0),
+        rowHighlight: NSColor(calibratedRed: 0.27, green: 0.31, blue: 0.41, alpha: 0.95),
+        separator: NSColor(calibratedRed: 0.97, green: 0.84, blue: 0.42, alpha: 0.72)
+    )
+}
+
 enum PatternNavigationCommand {
     case up
     case down
@@ -101,6 +131,7 @@ struct PatternCursor: Equatable {
 
 private final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
+    var theme = TrackerTheme.legacyDark
     var activeFieldRange: NSRange? {
         didSet {
             needsDisplay = true
@@ -147,7 +178,7 @@ private final class PatternTextView: NSTextView {
         rect.origin.x += textContainerOrigin.x
         rect.origin.y += textContainerOrigin.y
         let strokeRect = rect.insetBy(dx: -1, dy: -1)
-        NSColor.systemRed.setStroke()
+        theme.cursorOutline.setStroke()
         let path = NSBezierPath(rect: strokeRect)
         path.lineWidth = 2
         path.stroke()
@@ -171,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentPatternIndex = 0
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var rowRanges = [NSRange]()
+    private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
 
@@ -263,15 +295,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createMainWindow() {
         debugLog("createMainWindow called")
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = theme.background.cgColor
 
         let titleLabel = NSTextField(labelWithString: "VoodooTracker X")
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = theme.text
         titleLabel.frame = NSRect(x: 20, y: initialWindowSize.height - 42, width: 400, height: 24)
         titleLabel.autoresizingMask = [.maxXMargin, .minYMargin]
         contentView.addSubview(titleLabel)
 
         let selector = NSPopUpButton(frame: NSRect(x: 20, y: initialWindowSize.height - 68, width: 220, height: 28))
         selector.autoresizingMask = [.maxXMargin, .minYMargin]
+        selector.appearance = NSAppearance(named: .darkAqua)
+        selector.contentTintColor = theme.text
+        selector.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         selector.target = self
         selector.action = #selector(patternSelectionChanged(_:))
         selector.isHidden = true
@@ -281,6 +319,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let showAllCheckbox = NSButton(checkboxWithTitle: "Show all patterns", target: self, action: #selector(showAllPatternsToggled(_:)))
         showAllCheckbox.frame = NSRect(x: 250, y: initialWindowSize.height - 68, width: 180, height: 28)
         showAllCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
+        showAllCheckbox.appearance = NSAppearance(named: .darkAqua)
+        showAllCheckbox.contentTintColor = theme.accent
+        showAllCheckbox.attributedTitle = NSAttributedString(
+            string: "Show all patterns",
+            attributes: [
+                .foregroundColor: theme.text,
+                .font: NSFont.systemFont(ofSize: 12, weight: .regular)
+            ]
+        )
         showAllCheckbox.state = .off
         showAllCheckbox.isHidden = true
         contentView.addSubview(showAllCheckbox)
@@ -294,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerScrollView.hasHorizontalScroller = false
         headerScrollView.borderType = .bezelBorder
         headerScrollView.drawsBackground = true
-        headerScrollView.backgroundColor = .windowBackgroundColor
+        headerScrollView.backgroundColor = theme.background
 
         let headerTextView = NSTextView(frame: headerScrollView.bounds)
         headerTextView.autoresizingMask = []
@@ -307,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: headerHeight)
         headerTextView.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
         headerTextView.textContainerInset = NSSize(width: 4, height: 2)
+        headerTextView.drawsBackground = true
+        headerTextView.backgroundColor = theme.background
         headerTextView.textContainer?.widthTracksTextView = false
         headerTextView.textContainer?.heightTracksTextView = true
         headerTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: headerHeight)
@@ -324,6 +373,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.borderType = .bezelBorder
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = theme.background
 
         let textView = PatternTextView(frame: scrollView.bounds)
         textView.autoresizingMask = []
@@ -335,6 +386,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.drawsBackground = true
+        textView.backgroundColor = theme.background
+        textView.textColor = theme.text
+        textView.theme = theme
         textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -342,11 +397,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.navigationHandler = { [weak self] command in
             self?.handlePatternNavigation(command)
         }
-        textView.string = """
+        let introText = """
         VoodooTracker X
 
         File > Open… to load a .mod or .xm file and inspect parsed header metadata.
         """
+        textView.textStorage?.setAttributedString(
+            NSAttributedString(
+                string: introText,
+                attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                    .foregroundColor: theme.text
+                ]
+            )
+        )
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -365,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "VoodooTracker X"
+        window.appearance = NSAppearance(named: .darkAqua)
         window.center()
         window.contentView = contentView
 
@@ -527,13 +592,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
             .ligature: 0,
             .paragraphStyle: paragraphStyle,
-            .foregroundColor: NSColor.labelColor
+            .foregroundColor: theme.text
         ]
         attributed.addAttributes(baseAttributes, range: NSRange(location: 0, length: attributed.length))
+        applyBeatAccentStyling(attributed, rowRangeOffset: rowRangeOffset)
         if rowRanges.indices.contains(cursor.row) {
             let range = rowRanges[cursor.row]
             let shifted = NSRange(location: range.location + rowRangeOffset, length: range.length)
-            attributed.addAttribute(.backgroundColor, value: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35), range: shifted)
+            attributed.addAttribute(.backgroundColor, value: theme.rowHighlight, range: shifted)
         }
         applyChannelSeparatorStyling(attributed, channels: pattern.channels, rowRangeOffset: rowRangeOffset)
         metadataTextView?.textStorage?.setAttributedString(attributed)
@@ -626,7 +692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard separatorRange.location + separatorRange.length <= attributed.length else {
                     continue
                 }
-                attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: separatorRange)
+                attributed.addAttribute(.foregroundColor, value: theme.separator, range: separatorRange)
             }
         }
     }
@@ -644,7 +710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .medium),
                 .ligature: 0,
                 .paragraphStyle: paragraphStyle,
-                .foregroundColor: NSColor.secondaryLabelColor
+                .foregroundColor: theme.accent
             ],
             range: NSRange(location: 0, length: attributed.length)
         )
@@ -660,6 +726,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let currentHeight = max(22, headerTextView.frame.height)
         headerTextView.setFrameSize(NSSize(width: targetWidth, height: currentHeight))
         syncHeaderScrollWithGrid()
+    }
+
+    private func applyBeatAccentStyling(_ attributed: NSMutableAttributedString, rowRangeOffset: Int) {
+        let interval = PatternGridPreferences.beatAccentInterval
+        guard interval > 0 else { return }
+
+        for (rowIndex, rowRange) in rowRanges.enumerated() where rowIndex % interval == 0 {
+            let shifted = NSRange(location: rowRange.location + rowRangeOffset, length: rowRange.length)
+            guard shifted.location + shifted.length <= attributed.length else {
+                continue
+            }
+            attributed.addAttribute(
+                .backgroundColor,
+                value: theme.beatAccent,
+                range: shifted
+            )
+            attributed.addAttribute(
+                .foregroundColor,
+                value: theme.text,
+                range: shifted
+            )
+        }
     }
 
     private func syncHeaderScrollWithGrid() {

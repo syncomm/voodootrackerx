@@ -15,7 +15,7 @@ typedef enum {
 
 enum {
     MC_MAX_ORDER_ENTRIES = 256,
-    MC_MAX_PATTERN_ROW_COUNTS = 64,
+    MC_MAX_PATTERN_ROW_COUNTS = 256,
     MC_MAX_XM_EVENTS = 2048,
 };
 

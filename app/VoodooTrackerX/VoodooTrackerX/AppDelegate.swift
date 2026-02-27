@@ -70,6 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(openModuleFile(_:)),
             keyEquivalent: "o"
         )
+        fileMenu.addItem(NSMenuItem.separator())
+        fileMenu.addItem(
+            withTitle: "Close Window",
+            action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
 
         let windowMenuItem = NSMenuItem()
         windowMenuItem.title = "Window"

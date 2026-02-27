@@ -15,6 +15,8 @@
   "order_table_length": 2,
   "order_table": [0, 1],
   "pattern_row_counts": [],
+  "pattern_packed_sizes": [],
+  "xm_events": [],
   "first_instrument_name": "",
   "first_mod_sample": {
     "name": "KICK",

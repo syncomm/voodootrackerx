@@ -16,6 +16,7 @@ typedef enum {
 enum {
     MC_MAX_ORDER_ENTRIES = 256,
     MC_MAX_PATTERN_ROW_COUNTS = 64,
+    MC_MAX_XM_EVENTS = 2048,
 };
 
 typedef struct {
@@ -24,6 +25,17 @@ typedef struct {
     int8_t finetune;
     uint8_t volume;
 } mc_mod_sample_metadata;
+
+typedef struct {
+    uint16_t pattern;
+    uint16_t row;
+    uint16_t channel;
+    uint8_t note;
+    uint8_t instrument;
+    uint8_t volume;
+    uint8_t effect_type;
+    uint8_t effect_param;
+} mc_xm_event;
 
 typedef struct {
     mc_module_type type;
@@ -49,6 +61,10 @@ typedef struct {
 
     uint16_t pattern_row_count_count;
     uint16_t pattern_row_counts[MC_MAX_PATTERN_ROW_COUNTS];
+    uint16_t pattern_packed_size_count;
+    uint16_t pattern_packed_sizes[MC_MAX_PATTERN_ROW_COUNTS];
+    uint16_t xm_event_count;
+    mc_xm_event xm_events[MC_MAX_XM_EVENTS];
 
     mc_mod_sample_metadata first_mod_sample;
 } mc_module_info;

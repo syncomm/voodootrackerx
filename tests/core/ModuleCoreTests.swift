@@ -30,16 +30,26 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(info.version_major, 1)
         XCTAssertEqual(info.version_minor, 4)
         XCTAssertEqual(info.channels, 4)
-        XCTAssertEqual(info.patterns, 1)
+        XCTAssertEqual(info.patterns, 2)
         XCTAssertEqual(info.instruments, 1)
         XCTAssertEqual(info.song_length, 3)
         XCTAssertEqual(info.restart_position, 1)
         XCTAssertEqual(info.default_tempo, 6)
         XCTAssertEqual(info.default_bpm, 125)
         XCTAssertEqual(info.order_table_length, 3)
-        XCTAssertEqual(Array(orderTable(info).prefix(3)), [0, 0, 0])
-        XCTAssertEqual(info.pattern_row_count_count, 1)
-        XCTAssertEqual(Array(patternRows(info).prefix(1)), [32])
+        XCTAssertEqual(Array(orderTable(info).prefix(3)), [0, 1, 0])
+        XCTAssertEqual(info.pattern_row_count_count, 2)
+        XCTAssertEqual(Array(patternRows(info).prefix(2)), [4, 4])
+        XCTAssertEqual(Array(patternPackedSizes(info).prefix(2)), [29, 28])
+        XCTAssertEqual(info.xm_event_count, 32)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.note, 48)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.instrument, 1)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.volume, 64)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.effect_type, 15)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.effect_param, 6)
+        XCTAssertEqual(xmEvent(info, pattern: 1, row: 1, channel: 2)?.note, 59)
+        XCTAssertEqual(xmEvent(info, pattern: 1, row: 2, channel: 0)?.effect_type, 11)
+        XCTAssertEqual(xmEvent(info, pattern: 1, row: 2, channel: 0)?.effect_param, 2)
         XCTAssertEqual(cString(info.first_instrument_name), "BASS")
     }
 
@@ -143,12 +153,42 @@ final class ModuleCoreTests: XCTestCase {
         }
     }
 
+    private func patternPackedSizes(_ info: mc_module_info) -> [UInt16] {
+        var copy = info.pattern_packed_sizes
+        return withUnsafePointer(to: &copy) {
+            $0.withMemoryRebound(to: UInt16.self, capacity: Int(MC_MAX_PATTERN_ROW_COUNTS)) {
+                Array(UnsafeBufferPointer(start: $0, count: Int(MC_MAX_PATTERN_ROW_COUNTS)))
+            }
+        }
+    }
+
+    private func xmEvents(_ info: mc_module_info) -> [mc_xm_event] {
+        var copy = info.xm_events
+        return withUnsafePointer(to: &copy) {
+            $0.withMemoryRebound(to: mc_xm_event.self, capacity: Int(MC_MAX_XM_EVENTS)) {
+                Array(UnsafeBufferPointer(start: $0, count: Int(MC_MAX_XM_EVENTS)))
+            }
+        }
+    }
+
+    private func xmEvent(_ info: mc_module_info, pattern: UInt16, row: UInt16, channel: UInt16) -> mc_xm_event? {
+        xmEvents(info)
+            .prefix(Int(info.xm_event_count))
+            .first { $0.pattern == pattern && $0.row == row && $0.channel == channel }
+    }
+
     private func snapshotJSON(_ info: mc_module_info) -> String {
         let order = Array(orderTable(info).prefix(Int(info.order_table_length)))
         let rows = Array(patternRows(info).prefix(Int(info.pattern_row_count_count)))
+        let packedSizes = Array(patternPackedSizes(info).prefix(Int(info.pattern_packed_size_count)))
+        let events = Array(xmEvents(info).prefix(Int(info.xm_event_count)))
 
         let orderList = order.map(String.init).joined(separator: ", ")
         let rowList = rows.map(String.init).joined(separator: ", ")
+        let packedSizeList = packedSizes.map(String.init).joined(separator: ", ")
+        let eventList = events.map {
+            "{ \"pattern\": \($0.pattern), \"row\": \($0.row), \"channel\": \($0.channel), \"note\": \($0.note), \"instrument\": \($0.instrument), \"volume\": \($0.volume), \"effect_type\": \($0.effect_type), \"effect_param\": \($0.effect_param) }"
+        }.joined(separator: ", ")
 
         return """
         {
@@ -168,6 +208,8 @@ final class ModuleCoreTests: XCTestCase {
           "order_table_length": \(info.order_table_length),
           "order_table": [\(orderList)],
           "pattern_row_counts": [\(rowList)],
+          "pattern_packed_sizes": [\(packedSizeList)],
+          "xm_events": [\(eventList)],
           "first_instrument_name": \(jsonString(cString(info.first_instrument_name))),
           "first_mod_sample": {
             "name": \(jsonString(cString(info.first_mod_sample.name))),

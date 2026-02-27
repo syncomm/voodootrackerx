@@ -1,12 +1,43 @@
 import AppKit
 import UniformTypeIdentifiers
 
+private enum PatternNavigationCommand {
+    case up
+    case down
+    case pageUp
+    case pageDown
+}
+
+private final class PatternTextView: NSTextView {
+    var navigationHandler: ((PatternNavigationCommand) -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 126:
+            navigationHandler?(.up)
+        case 125:
+            navigationHandler?(.down)
+        case 116:
+            navigationHandler?(.pageUp)
+        case 121:
+            navigationHandler?(.pageDown)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var retainedDelegate: AppDelegate?
     private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
+    private var patternSelector: NSPopUpButton?
+    private var loadedMetadata: ParsedModuleMetadata?
+    private var selectedPatternIndex = 0
+    private var highlightedRowIndex = 0
+    private var rowTextOffsets = [Int]()
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
 
@@ -103,16 +134,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         titleLabel.autoresizingMask = [.maxXMargin, .minYMargin]
         contentView.addSubview(titleLabel)
 
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: initialWindowSize.width - 40, height: initialWindowSize.height - 74))
+        let selector = NSPopUpButton(frame: NSRect(x: 20, y: initialWindowSize.height - 68, width: 180, height: 28))
+        selector.autoresizingMask = [.maxXMargin, .minYMargin]
+        selector.target = self
+        selector.action = #selector(patternSelectionChanged(_:))
+        selector.isHidden = true
+        contentView.addSubview(selector)
+        patternSelector = selector
+
+        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 20, width: initialWindowSize.width - 40, height: initialWindowSize.height - 96))
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .bezelBorder
 
-        let textView = NSTextView(frame: scrollView.bounds)
+        let textView = PatternTextView(frame: scrollView.bounds)
         textView.isEditable = false
         textView.isRichText = false
+        textView.isSelectable = true
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.navigationHandler = { [weak self] command in
+            self?.handlePatternNavigation(command)
+        }
         textView.string = """
         VoodooTracker X
 
@@ -160,12 +203,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
-            metadataTextView?.string = """
-            File: \(url.lastPathComponent)
-            Path: \(url.path)
+            loadedMetadata = metadata
+            selectedPatternIndex = 0
+            highlightedRowIndex = 0
 
-            \(metadata.displayText)
-            """
+            if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
+                updatePatternSelector(for: metadata)
+                renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+            } else {
+                patternSelector?.removeAllItems()
+                patternSelector?.isHidden = true
+                metadataTextView?.string = """
+                File: \(url.lastPathComponent)
+                Path: \(url.path)
+
+                \(metadata.displayText)
+                """
+            }
         } catch {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -177,6 +231,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 alert.runModal()
             }
         }
+    }
+
+    @objc
+    private func patternSelectionChanged(_ sender: NSPopUpButton) {
+        guard let metadata = loadedMetadata else {
+            return
+        }
+        selectedPatternIndex = max(0, sender.indexOfSelectedItem)
+        highlightedRowIndex = 0
+        renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+    }
+
+    private func updatePatternSelector(for metadata: ParsedModuleMetadata) {
+        guard let selector = patternSelector else {
+            return
+        }
+        selector.removeAllItems()
+        for pattern in metadata.xmPatterns {
+            selector.addItem(withTitle: "Pattern \(pattern.index)")
+        }
+        selector.selectItem(at: selectedPatternIndex)
+        selector.isHidden = false
+    }
+
+    private func renderPattern(
+        metadata: ParsedModuleMetadata,
+        selectedPattern: Int
+    ) {
+        guard metadata.type == "XM", metadata.xmPatterns.indices.contains(selectedPattern) else {
+            return
+        }
+        let pattern = metadata.xmPatterns[selectedPattern]
+        if pattern.rowCount == 0 {
+            metadataTextView?.string = "Pattern \(pattern.index) is empty."
+            return
+        }
+
+        highlightedRowIndex = min(max(0, highlightedRowIndex), pattern.rowCount - 1)
+        let rendered = ModuleMetadataLoader.renderXMPattern(pattern, highlightedRow: highlightedRowIndex)
+        rowTextOffsets = rendered.rowOffsets
+        metadataTextView?.string = rendered.text
+        if let textView = metadataTextView {
+            mainWindow?.makeFirstResponder(textView)
+        }
+        scrollHighlightedRowIntoView()
+    }
+
+    private func handlePatternNavigation(_ command: PatternNavigationCommand) {
+        guard let metadata = loadedMetadata, metadata.type == "XM",
+              metadata.xmPatterns.indices.contains(selectedPatternIndex) else {
+            return
+        }
+
+        let pattern = metadata.xmPatterns[selectedPatternIndex]
+        let pageStep = 16
+        switch command {
+        case .up:
+            highlightedRowIndex = max(0, highlightedRowIndex - 1)
+        case .down:
+            highlightedRowIndex = min(pattern.rowCount - 1, highlightedRowIndex + 1)
+        case .pageUp:
+            highlightedRowIndex = max(0, highlightedRowIndex - pageStep)
+        case .pageDown:
+            highlightedRowIndex = min(pattern.rowCount - 1, highlightedRowIndex + pageStep)
+        }
+
+        renderPattern(metadata: metadata, selectedPattern: selectedPatternIndex)
+    }
+
+    private func scrollHighlightedRowIntoView() {
+        guard rowTextOffsets.indices.contains(highlightedRowIndex),
+              let textView = metadataTextView else {
+            return
+        }
+        let start = rowTextOffsets[highlightedRowIndex]
+        let range = NSRange(location: start, length: 1)
+        textView.scrollRangeToVisible(range)
     }
 
     private func debugLog(_ message: String) {

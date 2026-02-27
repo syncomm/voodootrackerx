@@ -1,7 +1,7 @@
 import AppKit
 import UniformTypeIdentifiers
 
-private enum PatternNavigationCommand {
+enum PatternNavigationCommand {
     case up
     case down
     case pageUp
@@ -12,8 +12,100 @@ private enum PatternNavigationCommand {
     case right
 }
 
+enum PatternCursorField: Int, CaseIterable {
+    case note
+    case instrument
+    case volume
+    case effectType
+    case effectParam
+
+    var textOffset: Int {
+        switch self {
+        case .note:
+            return 0
+        case .instrument:
+            return 4
+        case .volume:
+            return 7
+        case .effectType:
+            return 10
+        case .effectParam:
+            return 11
+        }
+    }
+
+    var textLength: Int {
+        switch self {
+        case .note:
+            return 3
+        case .instrument, .volume, .effectParam:
+            return 2
+        case .effectType:
+            return 1
+        }
+    }
+}
+
+struct PatternCursor: Equatable {
+    var row: Int
+    var channel: Int
+    var field: PatternCursorField
+
+    mutating func clamp(rowCount: Int, channelCount: Int) {
+        row = min(max(0, row), max(0, rowCount - 1))
+        channel = min(max(0, channel), max(0, channelCount - 1))
+    }
+
+    mutating func move(_ command: PatternNavigationCommand, rowCount: Int, channelCount: Int, pageStep: Int = 16) {
+        clamp(rowCount: rowCount, channelCount: channelCount)
+        switch command {
+        case .up:
+            row = max(0, row - 1)
+        case .down:
+            row = min(max(0, rowCount - 1), row + 1)
+        case .pageUp:
+            row = max(0, row - pageStep)
+        case .pageDown:
+            row = min(max(0, rowCount - 1), row + pageStep)
+        case .home:
+            row = 0
+        case .end:
+            row = max(0, rowCount - 1)
+        case .left:
+            moveLeft(channelCount: channelCount)
+        case .right:
+            moveRight(channelCount: channelCount)
+        }
+    }
+
+    private mutating func moveLeft(channelCount: Int) {
+        if let previousField = PatternCursorField(rawValue: field.rawValue - 1) {
+            field = previousField
+            return
+        }
+        guard channelCount > 0, channel > 0 else { return }
+        channel -= 1
+        field = .effectParam
+    }
+
+    private mutating func moveRight(channelCount: Int) {
+        if let nextField = PatternCursorField(rawValue: field.rawValue + 1) {
+            field = nextField
+            return
+        }
+        guard channelCount > 0, channel < channelCount - 1 else { return }
+        channel += 1
+        field = .note
+    }
+}
+
 private final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
+    var activeFieldRange: NSRange? {
+        didSet {
+            needsDisplay = true
+        }
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -37,6 +129,29 @@ private final class PatternTextView: NSTextView {
             super.keyDown(with: event)
         }
     }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let activeFieldRange,
+              activeFieldRange.location != NSNotFound,
+              let layoutManager,
+              let textContainer else {
+            return
+        }
+
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: activeFieldRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else { return }
+
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        rect.origin.x += textContainerOrigin.x
+        rect.origin.y += textContainerOrigin.y
+        let strokeRect = rect.insetBy(dx: -1, dy: -1)
+        NSColor.systemRed.setStroke()
+        let path = NSBezierPath(rect: strokeRect)
+        path.lineWidth = 2
+        path.stroke()
+    }
 }
 
 @main
@@ -52,8 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedDropdownIndex = 0
     private var currentPatternIndex = 0
-    private var highlightedRowIndex = 0
-    private var currentChannelIndex = 0
+    private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var rowRanges = [NSRange]()
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
@@ -243,14 +357,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             loadedMetadata = metadata
             selectedDropdownIndex = 0
             currentPatternIndex = 0
-            highlightedRowIndex = 0
-            currentChannelIndex = 0
+            cursor = PatternCursor(row: 0, channel: 0, field: .note)
 
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
                 showAllPatternsCheckbox?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
                 renderCurrentPattern(metadata: metadata)
             } else {
+                (metadataTextView as? PatternTextView)?.activeFieldRange = nil
                 patternSelector?.removeAllItems()
                 patternSelector?.isHidden = true
                 showAllPatternsCheckbox?.isHidden = true
@@ -284,8 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
-        highlightedRowIndex = 0
-        currentChannelIndex = 0
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
     }
 
@@ -342,12 +455,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        highlightedRowIndex = min(max(0, highlightedRowIndex), pattern.rowCount - 1)
-        currentChannelIndex = min(max(0, currentChannelIndex), pattern.channels - 1)
+        cursor.clamp(rowCount: pattern.rowCount, channelCount: pattern.channels)
         let rendered = ModuleMetadataLoader.renderXMPattern(
             pattern,
-            highlightedRow: highlightedRowIndex,
-            focusedChannel: currentChannelIndex
+            highlightedRow: cursor.row,
+            focusedChannel: cursor.channel
         )
         rowRanges = rendered.rowRanges
 
@@ -373,17 +485,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .foregroundColor: NSColor.labelColor
         ]
         attributed.addAttributes(baseAttributes, range: NSRange(location: 0, length: attributed.length))
-        if rowRanges.indices.contains(highlightedRowIndex) {
-            let range = rowRanges[highlightedRowIndex]
+        if rowRanges.indices.contains(cursor.row) {
+            let range = rowRanges[cursor.row]
             let shifted = NSRange(location: range.location + rowRangeOffset, length: range.length)
             attributed.addAttribute(.backgroundColor, value: NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35), range: shifted)
         }
         metadataTextView?.textStorage?.setAttributedString(attributed)
+        updateActiveFieldRange(rowRangeOffset: rowRangeOffset)
         updateMetadataTextViewDocumentSize()
         if let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
-        scrollHighlightedRowIntoView(offset: rowRangeOffset)
+        scrollCursorIntoView(offset: rowRangeOffset)
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
@@ -393,42 +506,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let pattern = metadata.xmPatterns[currentPatternIndex]
-        let pageStep = 16
-        switch command {
-        case .up:
-            highlightedRowIndex = max(0, highlightedRowIndex - 1)
-        case .down:
-            highlightedRowIndex = min(pattern.rowCount - 1, highlightedRowIndex + 1)
-        case .pageUp:
-            highlightedRowIndex = max(0, highlightedRowIndex - pageStep)
-        case .pageDown:
-            highlightedRowIndex = min(pattern.rowCount - 1, highlightedRowIndex + pageStep)
-        case .home:
-            highlightedRowIndex = 0
-        case .end:
-            highlightedRowIndex = pattern.rowCount - 1
-        case .left:
-            currentChannelIndex = max(0, currentChannelIndex - 1)
-        case .right:
-            currentChannelIndex = min(pattern.channels - 1, currentChannelIndex + 1)
-        }
-
+        cursor.move(command, rowCount: pattern.rowCount, channelCount: pattern.channels)
         renderCurrentPattern(metadata: metadata)
     }
 
-    private func scrollHighlightedRowIntoView(offset: Int) {
-        guard rowRanges.indices.contains(highlightedRowIndex),
+    private func scrollCursorIntoView(offset: Int) {
+        guard rowRanges.indices.contains(cursor.row),
               let textView = metadataTextView else {
             return
         }
-        let rowRange = rowRanges[highlightedRowIndex]
-        let clampedChannel = max(0, currentChannelIndex)
+        let rowRange = rowRanges[cursor.row]
+        let clampedChannel = max(0, cursor.channel)
         let channelOffset = ModuleMetadataLoader.xmRenderedRowPrefixWidth +
             clampedChannel * (ModuleMetadataLoader.xmRenderedCellWidth + ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let fieldOffset = cursor.field.textOffset
+        let fieldLength = cursor.field.textLength
         let maxLocation = rowRange.location + max(0, rowRange.length - 1)
-        let targetLocation = min(maxLocation, rowRange.location + channelOffset)
-        let range = NSRange(location: targetLocation + offset, length: max(1, ModuleMetadataLoader.xmRenderedCellWidth))
+        let targetLocation = min(maxLocation, rowRange.location + channelOffset + fieldOffset)
+        let range = NSRange(location: targetLocation + offset, length: max(1, fieldLength))
         textView.scrollRangeToVisible(range)
+    }
+
+    private func updateActiveFieldRange(rowRangeOffset: Int) {
+        guard rowRanges.indices.contains(cursor.row),
+              let textView = metadataTextView as? PatternTextView else {
+            return
+        }
+
+        let rowRange = rowRanges[cursor.row]
+        let channelOffset = ModuleMetadataLoader.xmRenderedRowPrefixWidth +
+            cursor.channel * (ModuleMetadataLoader.xmRenderedCellWidth + ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let fieldOffset = cursor.field.textOffset
+        let location = rowRange.location + channelOffset + fieldOffset + rowRangeOffset
+        let maxLocation = rowRange.location + rowRangeOffset + max(0, rowRange.length - 1)
+        let clampedLocation = min(location, maxLocation)
+        textView.activeFieldRange = NSRange(location: clampedLocation, length: max(1, cursor.field.textLength))
     }
 
     private func updateMetadataTextViewDocumentSize() {

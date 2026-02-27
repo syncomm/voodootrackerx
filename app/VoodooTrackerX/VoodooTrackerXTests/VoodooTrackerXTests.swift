@@ -1,5 +1,64 @@
 import XCTest
 
+private enum PatternNavigationCommand {
+    case up
+    case down
+    case pageUp
+    case pageDown
+    case home
+    case end
+    case left
+    case right
+}
+
+private enum PatternCursorField: Int {
+    case note
+    case instrument
+    case volume
+    case effectType
+    case effectParam
+}
+
+private struct PatternCursor: Equatable {
+    var row: Int
+    var channel: Int
+    var field: PatternCursorField
+
+    mutating func move(_ command: PatternNavigationCommand, rowCount: Int, channelCount: Int, pageStep: Int = 16) {
+        row = min(max(0, row), max(0, rowCount - 1))
+        channel = min(max(0, channel), max(0, channelCount - 1))
+
+        switch command {
+        case .up:
+            row = max(0, row - 1)
+        case .down:
+            row = min(max(0, rowCount - 1), row + 1)
+        case .pageUp:
+            row = max(0, row - pageStep)
+        case .pageDown:
+            row = min(max(0, rowCount - 1), row + pageStep)
+        case .home:
+            row = 0
+        case .end:
+            row = max(0, rowCount - 1)
+        case .left:
+            if let previousField = PatternCursorField(rawValue: field.rawValue - 1) {
+                field = previousField
+            } else if channel > 0 {
+                channel -= 1
+                field = .effectParam
+            }
+        case .right:
+            if let nextField = PatternCursorField(rawValue: field.rawValue + 1) {
+                field = nextField
+            } else if channel < channelCount - 1 {
+                channel += 1
+                field = .note
+            }
+        }
+    }
+}
+
 private struct PatternSelectionEntry: Equatable {
     let patternIndex: Int
     let isUsed: Bool
@@ -87,5 +146,23 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(result.entries.map(\.patternIndex), [0, 1, 2, 3])
         XCTAssertEqual(result.entries.map(\.isUsed), [true, false, true, false])
+    }
+
+    func testCursorHorizontalFieldWrappingAcrossChannelsAndBounds() {
+        var cursor = PatternCursor(row: 10, channel: 0, field: .note)
+        cursor.move(.left, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor, PatternCursor(row: 10, channel: 0, field: .note))
+
+        cursor = PatternCursor(row: 10, channel: 0, field: .effectParam)
+        cursor.move(.right, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor, PatternCursor(row: 10, channel: 1, field: .note))
+
+        cursor = PatternCursor(row: 10, channel: 3, field: .note)
+        cursor.move(.left, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor, PatternCursor(row: 10, channel: 2, field: .effectParam))
+
+        cursor = PatternCursor(row: 10, channel: 3, field: .effectParam)
+        cursor.move(.right, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor, PatternCursor(row: 10, channel: 3, field: .effectParam))
     }
 }

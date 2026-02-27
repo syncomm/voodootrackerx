@@ -7,8 +7,8 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 ---
 
 ## Quick links
-- Repo: `https://github.com/syncomm/voodootrackerx`
-- License: MIT
+- *Repo:* `https://github.com/syncomm/voodootrackerx`
+- **License:** MIT
 
 ---
 

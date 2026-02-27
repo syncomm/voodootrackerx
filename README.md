@@ -105,11 +105,12 @@ High-level rules:
 * When in doubt, open an issue and reference the related milestone.
 
 ## Roadmap (first milestones)
-1. Scaffolding & CI (macOS build checks)
-2. Module loader smoke test (read XM/MOD & checksum sample data)
-3. Audio playback harness (play/stop, tempo)
-4. Pattern editor skeleton (keyboard navigation)
-5. Theme to match the classic tracker look
+Current baseline delivered:
+1. macOS CI + local CLI build/test workflow
+2. AppKit app shell with reliable launch window, `File > Open…`, and standard window actions
+3. Core MOD/XM header parser with synthetic fixtures, golden snapshots, and `mc_dump`
+
+For detailed, PR-by-PR milestones, see `docs/roadmap.md`.
 
 ## License
 MIT — see `LICENSE` for details.

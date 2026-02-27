@@ -17,16 +17,19 @@ Long-term goals:
 ### PR 0.2 — Minimal AppKit app skeleton
 - Scope: app project, window, unit test target, CLI `xcodebuild` commands
 - Verification: `xcodebuild build`, `xcodebuild test`, CI green
+Status: done (including launch-window reliability fixes and standard `File` menu window actions).
 
 ### PR 0.3 — Core parser harness scaffold
 - Scope: `ModuleCore`, synthetic fixtures, parser tests, `mc_dump`
 - Verification: `swift test --filter ModuleCoreTests`, `swift run mc_dump ...`, CI green
+Status: done.
 
 ## Milestone 1: Core Parsing (Read-Only Compatibility First)
 
 ### PR 1.1 — MOD/XM header metadata (done baseline)
 - Scope: deterministic header parsing only (title/name, version, channels, counts)
 - Verification: synthetic fixture tests + `mc_dump` output snapshot checks
+Status: done (includes golden JSON snapshots and deterministic `mc_dump --json` output).
 
 ### PR 1.2 — XM pattern header parsing
 - Scope: parse XM pattern headers (length/count/packed sizes), no note decoding yet

@@ -63,6 +63,11 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(normalize(snapshotJSON(info)), normalize(try goldenString("minimal.xm.json")))
     }
 
+    func testGoldenSnapshotXMPattern1Events() throws {
+        let info = mc_parse_file(try fixturePath("minimal.xm"))
+        XCTAssertEqual(normalize(snapshotJSON(info, includeEvents: true, pattern: 1)), normalize(try goldenString("minimal.xm.pattern1.json")))
+    }
+
     func testUnknownMODSignatureDefaultsTo4ChannelsWithWarning() throws {
         var bytes = Data(count: 1084)
         bytes.replaceSubrange(0..<7, with: Data("ODD MOD".utf8))
@@ -177,11 +182,23 @@ final class ModuleCoreTests: XCTestCase {
             .first { $0.pattern == pattern && $0.row == row && $0.channel == channel }
     }
 
-    private func snapshotJSON(_ info: mc_module_info) -> String {
+    private func snapshotJSON(_ info: mc_module_info, includeEvents: Bool = false, pattern: UInt16? = nil) -> String {
         let order = Array(orderTable(info).prefix(Int(info.order_table_length)))
         let rows = Array(patternRows(info).prefix(Int(info.pattern_row_count_count)))
         let packedSizes = Array(patternPackedSizes(info).prefix(Int(info.pattern_packed_size_count)))
-        let events = Array(xmEvents(info).prefix(Int(info.xm_event_count)))
+        let events = Array(
+            xmEvents(info)
+                .prefix(Int(info.xm_event_count))
+                .filter { event in
+                    if !includeEvents {
+                        return false
+                    }
+                    if let pattern {
+                        return event.pattern == pattern
+                    }
+                    return true
+                }
+        )
 
         let orderList = order.map(String.init).joined(separator: ", ")
         let rowList = rows.map(String.init).joined(separator: ", ")
@@ -189,6 +206,37 @@ final class ModuleCoreTests: XCTestCase {
         let eventList = events.map {
             "{ \"pattern\": \($0.pattern), \"row\": \($0.row), \"channel\": \($0.channel), \"note\": \($0.note), \"instrument\": \($0.instrument), \"volume\": \($0.volume), \"effect_type\": \($0.effect_type), \"effect_param\": \($0.effect_param) }"
         }.joined(separator: ", ")
+        if includeEvents {
+            return """
+            {
+              "ok": \(info.ok != 0 ? "true" : "false"),
+              "type": \(jsonString(typeName(info.type))),
+              "error": \(jsonString(cString(info.error))),
+              "warning": \(jsonString(cString(info.warning))),
+              "title": \(jsonString(cString(info.title))),
+              "version": { "major": \(info.version_major), "minor": \(info.version_minor) },
+              "channels": \(info.channels),
+              "patterns": \(info.patterns),
+              "instruments": \(info.instruments),
+              "song_length": \(info.song_length),
+              "restart_position": \(info.restart_position),
+              "default_tempo": \(info.default_tempo),
+              "default_bpm": \(info.default_bpm),
+              "order_table_length": \(info.order_table_length),
+              "order_table": [\(orderList)],
+              "pattern_row_counts": [\(rowList)],
+              "pattern_packed_sizes": [\(packedSizeList)],
+              "xm_events": [\(eventList)],
+              "first_instrument_name": \(jsonString(cString(info.first_instrument_name))),
+              "first_mod_sample": {
+                "name": \(jsonString(cString(info.first_mod_sample.name))),
+                "length_bytes": \(info.first_mod_sample.length_bytes),
+                "finetune": \(info.first_mod_sample.finetune),
+                "volume": \(info.first_mod_sample.volume)
+              }
+            }
+            """
+        }
 
         return """
         {
@@ -209,7 +257,6 @@ final class ModuleCoreTests: XCTestCase {
           "order_table": [\(orderList)],
           "pattern_row_counts": [\(rowList)],
           "pattern_packed_sizes": [\(packedSizeList)],
-          "xm_events": [\(eventList)],
           "first_instrument_name": \(jsonString(cString(info.first_instrument_name))),
           "first_mod_sample": {
             "name": \(jsonString(cString(info.first_mod_sample.name))),

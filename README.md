@@ -79,6 +79,8 @@ swift test --filter ModuleCoreTests
 swift run mc_dump tests/fixtures/minimal.mod
 swift run mc_dump tests/fixtures/minimal.xm
 swift run mc_dump --json tests/fixtures/minimal.xm
+swift run mc_dump --json --include-patterns tests/fixtures/minimal.xm
+swift run mc_dump --json --pattern 1 tests/fixtures/minimal.xm
 
 ./scripts/run-golden.sh
 ```

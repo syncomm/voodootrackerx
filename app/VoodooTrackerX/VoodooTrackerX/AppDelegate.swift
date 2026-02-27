@@ -21,7 +21,7 @@ private struct TrackerTheme {
     let separator: NSColor
 
     static let legacyDark = TrackerTheme(
-        background: NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.10, alpha: 1.0),
+        background: NSColor(srgbRed: 0x1C / 255.0, green: 0x1C / 255.0, blue: 0x1C / 255.0, alpha: 1.0),
         text: NSColor(calibratedRed: 0.96, green: 0.97, blue: 0.93, alpha: 1.0),
         accent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.35, alpha: 1.0),
         beatAccent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.28, alpha: 0.24),
@@ -189,7 +189,8 @@ private final class PatternTextView: NSTextView {
         var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         rect.origin.x += textContainerOrigin.x
         rect.origin.y += textContainerOrigin.y
-        let strokeRect = rect.insetBy(dx: -1, dy: -1)
+        let strokeRect = rect.insetBy(dx: -1, dy: -1).intersection(bounds.insetBy(dx: 1, dy: 1))
+        guard !strokeRect.isNull else { return }
         theme.cursorOutline.setStroke()
         let path = NSBezierPath(rect: strokeRect)
         path.lineWidth = 2
@@ -260,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
-    private let rowNumberColumnWidth: CGFloat = 54
+    private let rowNumberColumnWidth: CGFloat = 36
     private var isSyncingScroll = false
 
     static func main() {
@@ -354,15 +355,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = theme.background.cgColor
+        let topInset: CGFloat = 6
+        let sideInset: CGFloat = 20
+        let controlSpacing: CGFloat = 8
+        let headerBarHeight: CGFloat = 124
+        let headerTopY = initialWindowSize.height - topInset
+        let headerBarY = headerTopY - headerBarHeight
+        let controlsY = headerBarY - controlSpacing - 28
+        let infoY = controlsY - 6 - 20
+        let headerY = infoY - 8 - 24
 
-        let titleLabel = NSTextField(labelWithString: "VoodooTracker X")
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        titleLabel.textColor = theme.text
-        titleLabel.frame = NSRect(x: 20, y: initialWindowSize.height - 42, width: 400, height: 24)
-        titleLabel.autoresizingMask = [.maxXMargin, .minYMargin]
-        contentView.addSubview(titleLabel)
+        let headerBar = NSBox(
+            frame: NSRect(
+                x: sideInset,
+                y: headerBarY,
+                width: initialWindowSize.width - (sideInset * 2),
+                height: headerBarHeight
+            )
+        )
+        headerBar.autoresizingMask = [.width, .minYMargin]
+        headerBar.boxType = .custom
+        headerBar.borderWidth = 0
+        headerBar.fillColor = theme.background
+        headerBar.contentViewMargins = NSSize(width: 8, height: 4)
+        contentView.addSubview(headerBar)
 
-        let selector = NSPopUpButton(frame: NSRect(x: 20, y: initialWindowSize.height - 68, width: 220, height: 28))
+        if let logoImage = trackerLogoImage() {
+            let maxLogoWidth = min(headerBar.bounds.width - 24, 920)
+            let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
+            var logoWidth = maxLogoWidth
+            var logoHeight = logoWidth * logoAspect
+            let maxLogoHeight = headerBar.bounds.height - 12
+            if logoHeight > maxLogoHeight, logoAspect > 0 {
+                logoHeight = maxLogoHeight
+                logoWidth = logoHeight / logoAspect
+            }
+
+            let imageView = NSImageView(frame: NSRect(
+                x: (headerBar.bounds.width - logoWidth) * 0.5,
+                y: (headerBar.bounds.height - logoHeight) * 0.5,
+                width: logoWidth,
+                height: logoHeight
+            ))
+            imageView.autoresizingMask = [.minXMargin, .maxXMargin]
+            imageView.image = logoImage
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.wantsLayer = true
+            imageView.layer?.magnificationFilter = .nearest
+            imageView.layer?.minificationFilter = .nearest
+            headerBar.addSubview(imageView)
+        } else {
+            let fallbackTitle = NSTextField(labelWithString: "VoodooTracker X")
+            fallbackTitle.frame = headerBar.bounds.insetBy(dx: 8, dy: 4)
+            fallbackTitle.autoresizingMask = [.width, .height]
+            fallbackTitle.alignment = .center
+            fallbackTitle.font = .systemFont(ofSize: 16, weight: .semibold)
+            fallbackTitle.textColor = theme.text
+            headerBar.addSubview(fallbackTitle)
+        }
+
+        let selector = NSPopUpButton(frame: NSRect(x: sideInset, y: controlsY, width: 220, height: 28))
         selector.autoresizingMask = [.maxXMargin, .minYMargin]
         selector.appearance = NSAppearance(named: .darkAqua)
         selector.contentTintColor = theme.text
@@ -374,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         patternSelector = selector
 
         let showAllCheckbox = NSButton(checkboxWithTitle: "Show all patterns", target: self, action: #selector(showAllPatternsToggled(_:)))
-        showAllCheckbox.frame = NSRect(x: 250, y: initialWindowSize.height - 68, width: 180, height: 28)
+        showAllCheckbox.frame = NSRect(x: sideInset + 230, y: controlsY, width: 180, height: 28)
         showAllCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
         showAllCheckbox.appearance = NSAppearance(named: .darkAqua)
         showAllCheckbox.contentTintColor = theme.accent
@@ -391,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showAllPatternsCheckbox = showAllCheckbox
 
         let infoLabel = NSTextField(labelWithString: "")
-        infoLabel.frame = NSRect(x: 20, y: initialWindowSize.height - 98, width: initialWindowSize.width - 40, height: 20)
+        infoLabel.frame = NSRect(x: sideInset, y: infoY, width: initialWindowSize.width - (sideInset * 2), height: 20)
         infoLabel.autoresizingMask = [.width, .minYMargin]
         infoLabel.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         infoLabel.textColor = theme.text
@@ -400,12 +452,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(infoLabel)
         patternInfoLabel = infoLabel
 
-        let headerY = initialWindowSize.height - 126
-        let topLeftSpacer = NSBox(frame: NSRect(x: 20, y: headerY, width: rowNumberColumnWidth, height: 24))
+        let topLeftSpacer = NSBox(frame: NSRect(x: sideInset, y: headerY, width: rowNumberColumnWidth, height: 24))
         topLeftSpacer.autoresizingMask = [.minYMargin]
         topLeftSpacer.boxType = .custom
-        topLeftSpacer.borderType = .lineBorder
-        topLeftSpacer.borderColor = NSColor(calibratedWhite: 0.22, alpha: 1.0)
+        topLeftSpacer.borderWidth = 0
         topLeftSpacer.fillColor = theme.background
         topLeftSpacer.contentViewMargins = .zero
         topLeftSpacer.isHidden = true
@@ -420,12 +470,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 height: 24
             )
         )
+        headerScrollView.frame.origin.x = sideInset + rowNumberColumnWidth
+        headerScrollView.frame.size.width = initialWindowSize.width - (sideInset * 2) - rowNumberColumnWidth
         headerScrollView.autoresizingMask = [.width, .minYMargin]
         headerScrollView.hasVerticalScroller = false
         headerScrollView.hasHorizontalScroller = false
         headerScrollView.verticalScrollElasticity = .none
         headerScrollView.horizontalScrollElasticity = .none
-        headerScrollView.borderType = .bezelBorder
+        headerScrollView.borderType = .noBorder
         headerScrollView.drawsBackground = true
         headerScrollView.backgroundColor = theme.background
 
@@ -456,15 +508,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         patternHeaderTextView = headerTextView
 
         let bodyY: CGFloat = 20
-        let bodyHeight = initialWindowSize.height - 152
+        let bodyHeight = headerY - bodyY - 6
 
-        let rowScrollView = NSScrollView(frame: NSRect(x: 20, y: bodyY, width: rowNumberColumnWidth, height: bodyHeight))
+        let rowScrollView = NSScrollView(frame: NSRect(x: sideInset, y: bodyY, width: rowNumberColumnWidth, height: bodyHeight))
         rowScrollView.autoresizingMask = [.height]
         rowScrollView.hasVerticalScroller = false
         rowScrollView.hasHorizontalScroller = false
         rowScrollView.verticalScrollElasticity = .none
         rowScrollView.horizontalScrollElasticity = .none
-        rowScrollView.borderType = .bezelBorder
+        rowScrollView.borderType = .noBorder
         rowScrollView.drawsBackground = true
         rowScrollView.backgroundColor = theme.background
 
@@ -482,7 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rowTextView.drawsBackground = true
         rowTextView.backgroundColor = theme.background
         rowTextView.textColor = theme.text
-        rowTextView.textContainerInset = NSSize(width: 4, height: 0)
+        rowTextView.textContainerInset = NSSize(width: 4, height: 2)
         rowTextView.textContainer?.lineFragmentPadding = 0
         rowTextView.textContainer?.widthTracksTextView = true
         rowTextView.textContainer?.heightTracksTextView = false
@@ -496,12 +548,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let scrollView = NSScrollView(
             frame: NSRect(
-                x: 20 + rowNumberColumnWidth,
-                y: bodyY,
-                width: initialWindowSize.width - 40 - rowNumberColumnWidth,
+                x: sideInset + rowNumberColumnWidth,
+                y: headerY,
+                width: initialWindowSize.width - (sideInset * 2) - rowNumberColumnWidth,
                 height: bodyHeight
             )
         )
+        scrollView.frame.origin.y = bodyY
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -525,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.backgroundColor = theme.background
         textView.textColor = theme.text
         textView.theme = theme
-        textView.textContainerInset = NSSize(width: 4, height: 0)
+        textView.textContainerInset = NSSize(width: 4, height: 2)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.heightTracksTextView = false
@@ -575,11 +628,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "VoodooTracker X"
         window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = theme.background
+        window.titlebarAppearsTransparent = true
         window.center()
         window.contentView = contentView
 
         self.mainWindow = window
         debugLog("window created object=\(String(describing: mainWindow)) frame=\(window.frame) isVisible=\(window.isVisible)")
+    }
+
+    private func trackerLogoImage() -> NSImage? {
+        if let direct = Bundle.main.url(forResource: "vtx-logo1", withExtension: "png"),
+           let image = NSImage(contentsOf: direct) {
+            return image
+        }
+        if let fallback = Bundle.main.url(forResource: "vtx-logo-ascii", withExtension: "png"),
+           let image = NSImage(contentsOf: fallback) {
+            return image
+        }
+        return nil
     }
 
     private func showAndActivateMainWindow() {
@@ -793,7 +860,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func scrollCursorIntoView(offset: Int) {
         guard rowRanges.indices.contains(cursor.row),
-              let textView = metadataTextView else {
+              let textView = metadataTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
             return
         }
         let rowRange = rowRanges[cursor.row]
@@ -804,7 +873,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let maxLocation = rowRange.location + max(0, rowRange.length - 1)
         let targetLocation = min(maxLocation, rowRange.location + channelOffset + fieldOffset)
         let range = NSRange(location: targetLocation + offset, length: max(1, fieldLength))
-        textView.scrollRangeToVisible(range)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else {
+            textView.scrollRangeToVisible(range)
+            return
+        }
+        var cursorRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        cursorRect.origin.x += textView.textContainerOrigin.x
+        cursorRect.origin.y += textView.textContainerOrigin.y
+        textView.scrollToVisible(cursorRect.insetBy(dx: -8, dy: -4))
     }
 
     private func updateActiveFieldRange(rowRangeOffset: Int) {
@@ -906,7 +983,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rowStart = firstRowRange.location + rowRangeOffset
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels - 1))
+        indices.reserveCapacity(max(0, channels))
+        indices.append(rowStart)
 
         for divider in 1..<channels {
             let separatorStart = rowStart + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
@@ -938,7 +1016,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.setFrameSize(NSSize(width: max(viewportWidth, attributed.size().width + 16), height: 24))
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels - 1))
+        indices.reserveCapacity(max(0, channels))
+        indices.append(0)
         for divider in 1..<channels {
             let separatorStart = (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
                 ((divider - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)

@@ -12,6 +12,7 @@
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
 		A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* ModuleMetadataLoader.swift */; };
+		A0000000000000000000001A /* vtx-logo-ascii.png in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* vtx-logo-ascii.png */; };
 		A00000000000000000000017 /* module_types.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* module_types.c */; };
 		A00000000000000000000018 /* xm_header.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000026 /* xm_header.c */; };
 		A00000000000000000000019 /* mod_header.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000027 /* mod_header.c */; };
@@ -21,6 +22,7 @@
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
+		A0000000000000000000002A /* vtx-logo-ascii.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "vtx-logo-ascii.png"; path = ../../../assets/logo/vtx-logo-ascii.png; sourceTree = "<group>"; };
 		A00000000000000000000025 /* module_types.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = module_types.c; path = ../../core/ModuleCore/src/module_types.c; sourceTree = "<group>"; };
 		A00000000000000000000026 /* xm_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = xm_header.c; path = ../../core/ModuleCore/src/xm_header.c; sourceTree = "<group>"; };
 		A00000000000000000000027 /* mod_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = mod_header.c; path = ../../core/ModuleCore/src/mod_header.c; sourceTree = "<group>"; };
@@ -71,6 +73,7 @@
 				A00000000000000000000021 /* AppDelegate.swift */,
 				A00000000000000000000023 /* ModuleMetadataLoader.swift */,
 				A00000000000000000000028 /* ModuleCoreBridge.h */,
+				A0000000000000000000002A /* vtx-logo-ascii.png */,
 			);
 		};
 		A00000000000000000000063 /* VoodooTrackerXTests */ = {
@@ -189,6 +192,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000001A /* vtx-logo-ascii.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

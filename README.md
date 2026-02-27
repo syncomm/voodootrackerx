@@ -1,4 +1,4 @@
-![VoodooTracker X](./assets/logo/vtx-logo.png)
+![VoodooTracker X](./assets/logo/vtx-logo-ascii.png)
 
 **Voodoo Tracker X: A modern resurrection of the classic 1990s FastTracker-style demo scene tracker.**
 
@@ -7,7 +7,7 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 ---
 
 ## Quick links
-- *Repo:* `https://github.com/syncomm/voodootrackerx`
+- **Repo:** `https://github.com/syncomm/voodootrackerx`
 - **License:** MIT
 
 ---

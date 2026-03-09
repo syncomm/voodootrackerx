@@ -133,6 +133,8 @@ If a UI bug persists after model tests pass:
 
 Screenshots are strongly recommended for visual regressions.
 
+When tooling permissions allow it, agents should capture their own screenshots during UI debugging instead of relying only on textual reports.
+
 When debugging tracker UI, prefer manual GUI verification early instead of repeated speculative code changes.
 
 Acceptable debugging artifacts:

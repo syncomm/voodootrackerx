@@ -818,9 +818,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rowScrollView.hasHorizontalScroller = false
         rowScrollView.verticalScrollElasticity = .none
         rowScrollView.horizontalScrollElasticity = .none
-        rowScrollView.borderType = .noBorder
+        rowScrollView.borderType = .bezelBorder
         rowScrollView.drawsBackground = true
         rowScrollView.backgroundColor = theme.background
+        rowScrollView.contentInsets = NSEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: NSScroller.scrollerWidth(for: .regular, scrollerStyle: rowScrollView.scrollerStyle),
+            right: 0
+        )
 
         let rowTextView = PatternTextView(frame: rowScrollView.bounds)
         rowTextView.autoresizingMask = []

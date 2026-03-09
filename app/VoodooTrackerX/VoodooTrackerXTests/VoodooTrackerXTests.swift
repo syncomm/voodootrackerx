@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 private enum TestPatternNavigationCommand {
@@ -254,12 +255,17 @@ private struct TestPatternViewportState: Equatable {
 }
 
 private struct TestPatternViewportTextLayout: Equatable {
-    let gutterSlotRows: [Int?]
-    let bodySlotRows: [Int?]
+    static let rowNumberPrefixLength = 3
+
+    let slotRows: [Int?]
+    let renderedLines: [String]
 
     init(state: TestPatternViewportState) {
-        self.gutterSlotRows = state.slotRows
-        self.bodySlotRows = state.slotRows
+        slotRows = state.slotRows
+        renderedLines = state.slotRows.map { row in
+            let rowNumber = row.map { String(format: "%02X", $0) } ?? "  "
+            return rowNumber + " " + "CELL"
+        }
     }
 }
 
@@ -340,8 +346,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let state = TestPatternViewportState(currentRow: 12, rowCount: 64, metrics: metrics)
         let layout = TestPatternViewportTextLayout(state: state)
 
-        XCTAssertEqual(layout.gutterSlotRows, layout.bodySlotRows)
-        XCTAssertEqual(layout.gutterSlotRows[state.anchorRowIndex], 12)
+        XCTAssertEqual(layout.slotRows, state.slotRows)
+        XCTAssertEqual(layout.slotRows[state.anchorRowIndex], 12)
     }
 
     func testViewportLeavesBlankSlotsAboveRowZeroOnInitialLoad() {
@@ -390,8 +396,16 @@ final class VoodooTrackerXTests: XCTestCase {
         let layout = TestPatternViewportTextLayout(state: state)
 
         let blankTailCount = state.visibleRowCount - state.anchorRowIndex - 1
-        XCTAssertEqual(Array(layout.gutterSlotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
-        XCTAssertEqual(Array(layout.bodySlotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
+        XCTAssertEqual(Array(layout.slotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
+    }
+
+    func testRenderedTextPlacesAnchorRowNumberOnSameLineAsBodyContent() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
+
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "00 CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "   CELL")
     }
 
     func testFieldCursorSurvivesRowNavigation() {

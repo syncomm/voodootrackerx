@@ -30,9 +30,9 @@ private struct TestPatternCursor: Equatable {
 
         switch command {
         case .up:
-            row = max(0, row - 1)
+            row = rowCount > 0 ? (row == 0 ? rowCount - 1 : row - 1) : 0
         case .down:
-            row = min(max(0, rowCount - 1), row + 1)
+            row = rowCount > 0 ? (row == rowCount - 1 ? 0 : row + 1) : 0
         case .pageUp:
             row = max(0, row - pageStep)
         case .pageDown:
@@ -135,7 +135,7 @@ private enum TestPatternEditEngine {
     }
 }
 
-private struct PatternSelectionEntry: Equatable {
+private struct TestPatternSelectionEntry: Equatable {
     let patternIndex: Int
     let isUsed: Bool
     let rowCount: Int
@@ -146,7 +146,7 @@ private func buildPatternSelection(
     patternCount: Int,
     rowCounts: [Int],
     showAllPatterns: Bool
-) -> (entries: [PatternSelectionEntry], invalidReferencedPatterns: [Int]) {
+) -> (entries: [TestPatternSelectionEntry], invalidReferencedPatterns: [Int]) {
     let safePatternCount = max(0, patternCount)
     var usedUnique = [Int]()
     var usedSeen = Set<Int>()
@@ -163,12 +163,12 @@ private func buildPatternSelection(
         }
     }
 
-    var entries = [PatternSelectionEntry]()
+    var entries = [TestPatternSelectionEntry]()
     if showAllPatterns {
         for patternIndex in 0..<safePatternCount {
             let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
             entries.append(
-                PatternSelectionEntry(
+                TestPatternSelectionEntry(
                     patternIndex: patternIndex,
                     isUsed: usedSeen.contains(patternIndex),
                     rowCount: rowCount
@@ -179,7 +179,7 @@ private func buildPatternSelection(
         for patternIndex in usedUnique.sorted() {
             let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
             entries.append(
-                PatternSelectionEntry(
+                TestPatternSelectionEntry(
                     patternIndex: patternIndex,
                     isUsed: true,
                     rowCount: rowCount
@@ -188,17 +188,42 @@ private func buildPatternSelection(
         }
         if entries.isEmpty && safePatternCount > 0 {
             let rowCount = rowCounts.isEmpty ? 64 : max(1, rowCounts[0])
-            entries.append(PatternSelectionEntry(patternIndex: 0, isUsed: false, rowCount: rowCount))
+            entries.append(TestPatternSelectionEntry(patternIndex: 0, isUsed: false, rowCount: rowCount))
         }
     }
     return (entries, invalidReferenced)
 }
 
-final class VoodooTrackerXTests: XCTestCase {
-    func testExamplePasses() {
-        XCTAssertTrue(true)
+private struct TestPatternViewportMetrics: Equatable {
+    let rowHeight: CGFloat
+    let viewportHeight: CGFloat
+
+    var bottomContentPadding: CGFloat {
+        max(2, viewportHeight - rowHeight)
     }
 
+    func scrollOffset(forRow row: Int, rowCount: Int) -> CGFloat {
+        guard rowCount > 0 else { return 0 }
+        let clampedRow = min(max(0, row), rowCount - 1)
+        return CGFloat(clampedRow) * rowHeight
+    }
+
+    func contentHeight(forBaseHeight baseHeight: CGFloat) -> CGFloat {
+        baseHeight + bottomContentPadding
+    }
+}
+
+private enum TestPatternCursorOutlineGeometry {
+    static func strokeRect(for fieldRect: CGRect) -> CGRect {
+        fieldRect.insetBy(dx: -2, dy: -2)
+    }
+
+    static func minimumVisibleBounds(for bounds: CGRect) -> CGRect {
+        bounds.insetBy(dx: 2, dy: 2)
+    }
+}
+
+final class VoodooTrackerXTests: XCTestCase {
     func testUsedPatternsSelectionDeduplicatesByOrderAndTracksInvalidReferences() {
         let result = buildPatternSelection(
             orderTable: [0, 2, 2, 5, 1, 0],
@@ -224,6 +249,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(result.entries.map(\.isUsed), [true, false, true, false])
     }
 
+    func testCursorVerticalNavigationWrapsAtPatternBounds() {
+        var cursor = TestPatternCursor(row: 0, channel: 1, field: .note)
+        cursor.move(.up, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor.row, 63)
+
+        cursor.move(.down, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor.row, 0)
+    }
+
     func testCursorHorizontalFieldWrappingAcrossChannelsAndBounds() {
         var cursor = TestPatternCursor(row: 10, channel: 0, field: .note)
         cursor.move(.left, rowCount: 64, channelCount: 4)
@@ -240,6 +274,32 @@ final class VoodooTrackerXTests: XCTestCase {
         cursor = TestPatternCursor(row: 10, channel: 3, field: .effectParam)
         cursor.move(.right, rowCount: 64, channelCount: 4)
         XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 3, field: .effectParam))
+    }
+
+    func testViewportAnchorsEachRowToStaticScrollPosition() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+
+        XCTAssertEqual(metrics.scrollOffset(forRow: 0, rowCount: 64), 0)
+        XCTAssertEqual(metrics.scrollOffset(forRow: 1, rowCount: 64), 17)
+        XCTAssertEqual(metrics.scrollOffset(forRow: 32, rowCount: 64), 544)
+        XCTAssertEqual(metrics.scrollOffset(forRow: 63, rowCount: 64), 1071)
+    }
+
+    func testViewportAddsBottomPaddingSoLastRowCanReachStaticHighlight() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+
+        XCTAssertEqual(metrics.bottomContentPadding, 263)
+        XCTAssertEqual(metrics.contentHeight(forBaseHeight: 1088), 1351)
+    }
+
+    func testCursorOutlineGeometryExpandsFieldRectAndReservesVisibleBounds() {
+        let fieldRect = CGRect(x: 100, y: 8, width: 18, height: 15)
+        let strokeRect = TestPatternCursorOutlineGeometry.strokeRect(for: fieldRect)
+        let clipRect = TestPatternCursorOutlineGeometry.minimumVisibleBounds(for: CGRect(x: 0, y: 0, width: 320, height: 200))
+
+        XCTAssertEqual(strokeRect, CGRect(x: 98, y: 6, width: 22, height: 19))
+        XCTAssertEqual(clipRect, CGRect(x: 2, y: 2, width: 316, height: 196))
+        XCTAssertTrue(clipRect.contains(CGPoint(x: strokeRect.minX, y: strokeRect.minY)))
     }
 
     func testEditEngineClearFieldByCursorField() {

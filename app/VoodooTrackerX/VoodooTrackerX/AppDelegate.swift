@@ -31,6 +31,48 @@ private struct TrackerTheme {
     )
 }
 
+enum TrackerInteractionMode: Equatable {
+    case navigation
+    case playOnly
+    case edit
+}
+
+struct PatternCursorOutlineGeometry {
+    static let strokeWidth: CGFloat = 2
+    static let outwardPadding: CGFloat = 2
+    static let scrollMargin = NSSize(width: 10, height: 4)
+
+    static func strokeRect(for fieldRect: NSRect) -> NSRect {
+        fieldRect.insetBy(dx: -outwardPadding, dy: -outwardPadding)
+    }
+
+    static func minimumVisibleBounds(for bounds: NSRect) -> NSRect {
+        bounds.insetBy(dx: outwardPadding, dy: outwardPadding)
+    }
+}
+
+struct PatternViewportMetrics: Equatable {
+    static let trailingContentPadding: CGFloat = 12
+    static let minimumBottomPadding: CGFloat = 2
+
+    let rowHeight: CGFloat
+    let viewportHeight: CGFloat
+
+    var bottomContentPadding: CGFloat {
+        max(Self.minimumBottomPadding, viewportHeight - rowHeight)
+    }
+
+    func scrollOffset(forRow row: Int, rowCount: Int) -> CGFloat {
+        guard rowCount > 0 else { return 0 }
+        let clampedRow = min(max(0, row), rowCount - 1)
+        return CGFloat(clampedRow) * rowHeight
+    }
+
+    func contentHeight(forBaseHeight baseHeight: CGFloat) -> CGFloat {
+        baseHeight + bottomContentPadding
+    }
+}
+
 enum PatternNavigationCommand {
     case up
     case down
@@ -167,9 +209,9 @@ struct PatternCursor: Equatable {
         clamp(rowCount: rowCount, channelCount: channelCount)
         switch command {
         case .up:
-            row = max(0, row - 1)
+            moveUp(rowCount: rowCount)
         case .down:
-            row = min(max(0, rowCount - 1), row + 1)
+            moveDown(rowCount: rowCount)
         case .pageUp:
             row = max(0, row - pageStep)
         case .pageDown:
@@ -183,6 +225,22 @@ struct PatternCursor: Equatable {
         case .right:
             moveRight(channelCount: channelCount)
         }
+    }
+
+    private mutating func moveUp(rowCount: Int) {
+        guard rowCount > 0 else {
+            row = 0
+            return
+        }
+        row = row == 0 ? rowCount - 1 : row - 1
+    }
+
+    private mutating func moveDown(rowCount: Int) {
+        guard rowCount > 0 else {
+            row = 0
+            return
+        }
+        row = row == rowCount - 1 ? 0 : row + 1
     }
 
     private mutating func moveLeft(channelCount: Int) {
@@ -282,11 +340,16 @@ private final class PatternTextView: NSTextView {
         var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         rect.origin.x += textContainerOrigin.x
         rect.origin.y += textContainerOrigin.y
-        let strokeRect = rect.insetBy(dx: -1, dy: -1).intersection(bounds.insetBy(dx: 1, dy: 1))
+        let strokeRect = PatternCursorOutlineGeometry.strokeRect(for: rect)
+        let clipRect = PatternCursorOutlineGeometry.minimumVisibleBounds(for: bounds)
         guard !strokeRect.isNull else { return }
+        guard clipRect.intersects(strokeRect) else { return }
+        NSGraphicsContext.current?.saveGraphicsState()
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
+        NSBezierPath(rect: clipRect).addClip()
         theme.cursorOutline.setStroke()
         let path = NSBezierPath(rect: strokeRect)
-        path.lineWidth = 2
+        path.lineWidth = PatternCursorOutlineGeometry.strokeWidth
         path.stroke()
     }
 
@@ -358,6 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rowNumberColumnWidth: CGFloat = 36
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
+    private var isPlaybackModeActive = false
 
     static func main() {
         let app = NSApplication.shared
@@ -868,6 +932,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isEditModeEnabled = sender.state == .on
     }
 
+    private var interactionMode: TrackerInteractionMode {
+        if isEditModeEnabled {
+            return .edit
+        }
+        if isPlaybackModeActive {
+            return .playOnly
+        }
+        return .navigation
+    }
+
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?, showAllPatterns: Bool? = nil) {
         guard let selector = patternSelector else {
             return
@@ -962,13 +1036,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         metadataTextView?.textStorage?.setAttributedString(attributed)
         rowNumberTextView?.textStorage?.setAttributedString(rowAttributed)
         updateActiveFieldRange(rowRangeOffset: 0)
-        updateMetadataTextViewDocumentSize()
-        updateRowNumberTextViewDocumentSize()
-        syncStickyPanesToGrid()
+        updateMetadataTextViewDocumentSize(rowCount: pattern.rowCount)
+        updateRowNumberTextViewDocumentSize(rowCount: pattern.rowCount)
+        syncTrackerViewport(rowCount: pattern.rowCount)
         if let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
-        scrollCursorIntoView(offset: 0)
+        scrollCursorFieldHorizontallyIntoView(offset: 0)
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
@@ -983,7 +1057,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
-        guard isEditModeEnabled,
+        guard interactionMode == .edit,
               var metadata = loadedMetadata,
               metadata.type == "XM",
               metadata.xmPatterns.indices.contains(currentPatternIndex) else {
@@ -1013,9 +1087,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func scrollCursorIntoView(offset: Int) {
+    private func scrollCursorFieldHorizontallyIntoView(offset: Int) {
         guard rowRanges.indices.contains(cursor.row),
               let textView = metadataTextView,
+              let scrollView = gridScrollView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
             return
@@ -1030,13 +1105,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let range = NSRange(location: targetLocation + offset, length: max(1, fieldLength))
         let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphRange.length > 0 else {
-            textView.scrollRangeToVisible(range)
             return
         }
         var cursorRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         cursorRect.origin.x += textView.textContainerOrigin.x
         cursorRect.origin.y += textView.textContainerOrigin.y
-        textView.scrollToVisible(cursorRect.insetBy(dx: -8, dy: -4))
+        let visibleRect = scrollView.contentView.bounds
+        let horizontalMargin = PatternCursorOutlineGeometry.scrollMargin.width
+        let targetMinX = cursorRect.minX - horizontalMargin
+        let targetMaxX = cursorRect.maxX + horizontalMargin
+        var targetOrigin = visibleRect.origin
+        if targetMinX < visibleRect.minX {
+            targetOrigin.x = max(0, targetMinX)
+        } else if targetMaxX > visibleRect.maxX {
+            let maxOriginX = max(0, textView.frame.width - visibleRect.width)
+            targetOrigin.x = min(maxOriginX, targetMaxX - visibleRect.width)
+        }
+        scrollView.contentView.scroll(to: targetOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        syncStickyPanesToGrid()
     }
 
     private func updateActiveFieldRange(rowRangeOffset: Int) {
@@ -1054,7 +1141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.activeFieldRange = NSRange(location: clampedLocation, length: max(1, cursor.field.textLength))
     }
 
-    private func updateMetadataTextViewDocumentSize() {
+    private func updateMetadataTextViewDocumentSize(rowCount: Int) {
         guard let textView = metadataTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
@@ -1064,9 +1151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer).integral
         let inset = textView.textContainerInset
-        let contentWidth = usedRect.width + inset.width * 2 + 2
-        let contentHeight = usedRect.height + inset.height * 2 + 2
+        let contentWidth = usedRect.width + inset.width * 2 + 2 + PatternViewportMetrics.trailingContentPadding
+        let baseContentHeight = usedRect.height + inset.height * 2 + 2
         let viewport = textView.enclosingScrollView?.contentView.bounds.size ?? .zero
+        let metrics = viewportMetrics(rowCount: rowCount)
+        let contentHeight = metrics.contentHeight(forBaseHeight: baseContentHeight)
 
         let targetSize = NSSize(
             width: max(viewport.width, contentWidth),
@@ -1075,7 +1164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.setFrameSize(targetSize)
     }
 
-    private func updateRowNumberTextViewDocumentSize() {
+    private func updateRowNumberTextViewDocumentSize(rowCount: Int) {
         guard let rowTextView = rowNumberTextView,
               let layoutManager = rowTextView.layoutManager,
               let textContainer = rowTextView.textContainer else {
@@ -1084,9 +1173,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer).integral
         let inset = rowTextView.textContainerInset
-        let contentHeight = usedRect.height + inset.height * 2 + 2
+        let baseContentHeight = usedRect.height + inset.height * 2 + 2
         let viewportHeight = rowTextView.enclosingScrollView?.contentView.bounds.height ?? .zero
+        let metrics = viewportMetrics(rowCount: rowCount)
+        let contentHeight = metrics.contentHeight(forBaseHeight: baseContentHeight)
         rowTextView.setFrameSize(NSSize(width: rowNumberColumnWidth, height: max(viewportHeight, contentHeight)))
+    }
+
+    private func viewportMetrics(rowCount: Int) -> PatternViewportMetrics {
+        PatternViewportMetrics(
+            rowHeight: max(1, measuredPatternRowHeight(rowCount: rowCount)),
+            viewportHeight: gridScrollView?.contentView.bounds.height ?? 0
+        )
+    }
+
+    private func measuredPatternRowHeight(rowCount: Int) -> CGFloat {
+        guard rowCount > 0,
+              rowRanges.indices.contains(0),
+              let textView = metadataTextView,
+              let layoutManager = textView.layoutManager else {
+            return 17
+        }
+
+        let firstRange = rowRanges[0]
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: firstRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else {
+            return 17
+        }
+        let lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphRange.location, effectiveRange: nil, withoutAdditionalLayout: true)
+        return max(1, lineRect.height)
+    }
+
+    private func syncTrackerViewport(rowCount: Int) {
+        guard let scrollView = gridScrollView else { return }
+        let metrics = viewportMetrics(rowCount: rowCount)
+        let verticalOffset = metrics.scrollOffset(forRow: cursor.row, rowCount: rowCount)
+        let currentOrigin = scrollView.contentView.bounds.origin
+        scrollView.contentView.scroll(to: NSPoint(x: currentOrigin.x, y: verticalOffset))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        syncStickyPanesToGrid()
     }
 
     private func syncStickyPanesToGrid() {

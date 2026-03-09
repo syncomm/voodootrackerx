@@ -198,18 +198,68 @@ private struct TestPatternViewportMetrics: Equatable {
     let rowHeight: CGFloat
     let viewportHeight: CGFloat
 
-    var bottomContentPadding: CGFloat {
-        max(2, viewportHeight - rowHeight)
+    var visibleRowCount: Int {
+        guard rowHeight > 0 else { return 1 }
+        let rows = max(1, Int(ceil(viewportHeight / rowHeight)) + 2)
+        if rows % 2 == 0 {
+            return rows + 1
+        }
+        return rows
     }
 
-    func scrollOffset(forRow row: Int, rowCount: Int) -> CGFloat {
-        guard rowCount > 0 else { return 0 }
-        let clampedRow = min(max(0, row), rowCount - 1)
-        return CGFloat(clampedRow) * rowHeight
+    var anchorRowIndex: Int {
+        visibleRowCount / 2
     }
 
-    func contentHeight(forBaseHeight baseHeight: CGFloat) -> CGFloat {
-        baseHeight + bottomContentPadding
+    func contentHeight(forRenderedRowCount renderedRowCount: Int, insetHeight: CGFloat) -> CGFloat {
+        CGFloat(max(0, renderedRowCount)) * rowHeight + insetHeight * 2 + 2
+    }
+}
+
+private struct TestPatternViewportState: Equatable {
+    let currentRow: Int
+    let anchorRowIndex: Int
+    let visibleTopRow: Int
+    let visibleBottomRow: Int
+    let rowHeight: CGFloat
+    let visibleRowCount: Int
+    let rowCount: Int
+
+    init(currentRow: Int, rowCount: Int, metrics: TestPatternViewportMetrics) {
+        let safeRowCount = max(0, rowCount)
+        let clampedRow = safeRowCount > 0 ? min(max(0, currentRow), safeRowCount - 1) : 0
+        let visibleRowCount = max(1, metrics.visibleRowCount)
+        let anchorRowIndex = min(metrics.anchorRowIndex, visibleRowCount - 1)
+        let visibleTopRow = clampedRow - anchorRowIndex
+
+        self.currentRow = clampedRow
+        self.anchorRowIndex = anchorRowIndex
+        self.visibleTopRow = visibleTopRow
+        self.visibleBottomRow = visibleTopRow + visibleRowCount - 1
+        self.rowHeight = metrics.rowHeight
+        self.visibleRowCount = visibleRowCount
+        self.rowCount = safeRowCount
+    }
+
+    func rowIndex(forSlot slotIndex: Int) -> Int? {
+        guard (0..<visibleRowCount).contains(slotIndex) else { return nil }
+        let rowIndex = visibleTopRow + slotIndex
+        guard (0..<rowCount).contains(rowIndex) else { return nil }
+        return rowIndex
+    }
+
+    var slotRows: [Int?] {
+        (0..<visibleRowCount).map(rowIndex(forSlot:))
+    }
+}
+
+private struct TestPatternViewportTextLayout: Equatable {
+    let gutterSlotRows: [Int?]
+    let bodySlotRows: [Int?]
+
+    init(state: TestPatternViewportState) {
+        self.gutterSlotRows = state.slotRows
+        self.bodySlotRows = state.slotRows
     }
 }
 
@@ -276,20 +326,82 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 3, field: .effectParam))
     }
 
-    func testViewportAnchorsEachRowToStaticScrollPosition() {
+    func testViewportDefinesStaticAnchorRowNearViewportMiddle() {
         let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
 
-        XCTAssertEqual(metrics.scrollOffset(forRow: 0, rowCount: 64), 0)
-        XCTAssertEqual(metrics.scrollOffset(forRow: 1, rowCount: 64), 17)
-        XCTAssertEqual(metrics.scrollOffset(forRow: 32, rowCount: 64), 544)
-        XCTAssertEqual(metrics.scrollOffset(forRow: 63, rowCount: 64), 1071)
+        XCTAssertEqual(metrics.visibleRowCount, 19)
+        XCTAssertEqual(state.anchorRowIndex, 9)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
     }
 
-    func testViewportAddsBottomPaddingSoLastRowCanReachStaticHighlight() {
+    func testViewportUsesOneSharedSlotListForGutterAndPatternBody() {
         let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 12, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
 
-        XCTAssertEqual(metrics.bottomContentPadding, 263)
-        XCTAssertEqual(metrics.contentHeight(forBaseHeight: 1088), 1351)
+        XCTAssertEqual(layout.gutterSlotRows, layout.bodySlotRows)
+        XCTAssertEqual(layout.gutterSlotRows[state.anchorRowIndex], 12)
+    }
+
+    func testViewportLeavesBlankSlotsAboveRowZeroOnInitialLoad() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(Array(state.slotRows.prefix(state.anchorRowIndex)), Array(repeating: nil, count: state.anchorRowIndex))
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
+    }
+
+    func testViewportContentHeightUsesVisibleSlotCount() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(state.visibleRowCount, 19)
+        XCTAssertEqual(metrics.contentHeight(forRenderedRowCount: state.visibleRowCount, insetHeight: 2), 329)
+    }
+
+    func testDownFromLastRowWrapsRowZeroIntoAnchorSlot() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        var cursor = TestPatternCursor(row: 63, channel: 0, field: .note)
+
+        cursor.move(.down, rowCount: 64, channelCount: 4)
+        let state = TestPatternViewportState(currentRow: cursor.row, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(cursor.row, 0)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
+        XCTAssertEqual(Array(state.slotRows.prefix(state.anchorRowIndex)), Array(repeating: nil, count: state.anchorRowIndex))
+    }
+
+    func testUpFromRowZeroWrapsLastRowIntoAnchorSlot() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        var cursor = TestPatternCursor(row: 0, channel: 0, field: .note)
+
+        cursor.move(.up, rowCount: 64, channelCount: 4)
+        let state = TestPatternViewportState(currentRow: cursor.row, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(cursor.row, 63)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 63)
+        XCTAssertEqual(Array(state.slotRows.suffix(state.visibleRowCount - state.anchorRowIndex - 1)), Array(repeating: nil, count: state.visibleRowCount - state.anchorRowIndex - 1))
+    }
+
+    func testBlankSlotsRemainBlankInBothGutterAndBodyAtPatternBottom() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 63, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
+
+        let blankTailCount = state.visibleRowCount - state.anchorRowIndex - 1
+        XCTAssertEqual(Array(layout.gutterSlotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
+        XCTAssertEqual(Array(layout.bodySlotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
+    }
+
+    func testFieldCursorSurvivesRowNavigation() {
+        var cursor = TestPatternCursor(row: 10, channel: 2, field: .effectParam)
+
+        cursor.move(.down, rowCount: 64, channelCount: 8)
+        XCTAssertEqual(cursor, TestPatternCursor(row: 11, channel: 2, field: .effectParam))
+
+        cursor.move(.up, rowCount: 64, channelCount: 8)
+        XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 2, field: .effectParam))
     }
 
     func testCursorOutlineGeometryExpandsFieldRectAndReservesVisibleBounds() {

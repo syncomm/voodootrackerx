@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 private enum TestPatternNavigationCommand {
@@ -30,9 +31,9 @@ private struct TestPatternCursor: Equatable {
 
         switch command {
         case .up:
-            row = max(0, row - 1)
+            row = rowCount > 0 ? (row == 0 ? rowCount - 1 : row - 1) : 0
         case .down:
-            row = min(max(0, rowCount - 1), row + 1)
+            row = rowCount > 0 ? (row == rowCount - 1 ? 0 : row + 1) : 0
         case .pageUp:
             row = max(0, row - pageStep)
         case .pageDown:
@@ -135,7 +136,7 @@ private enum TestPatternEditEngine {
     }
 }
 
-private struct PatternSelectionEntry: Equatable {
+private struct TestPatternSelectionEntry: Equatable {
     let patternIndex: Int
     let isUsed: Bool
     let rowCount: Int
@@ -146,7 +147,7 @@ private func buildPatternSelection(
     patternCount: Int,
     rowCounts: [Int],
     showAllPatterns: Bool
-) -> (entries: [PatternSelectionEntry], invalidReferencedPatterns: [Int]) {
+) -> (entries: [TestPatternSelectionEntry], invalidReferencedPatterns: [Int]) {
     let safePatternCount = max(0, patternCount)
     var usedUnique = [Int]()
     var usedSeen = Set<Int>()
@@ -163,12 +164,12 @@ private func buildPatternSelection(
         }
     }
 
-    var entries = [PatternSelectionEntry]()
+    var entries = [TestPatternSelectionEntry]()
     if showAllPatterns {
         for patternIndex in 0..<safePatternCount {
             let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
             entries.append(
-                PatternSelectionEntry(
+                TestPatternSelectionEntry(
                     patternIndex: patternIndex,
                     isUsed: usedSeen.contains(patternIndex),
                     rowCount: rowCount
@@ -179,7 +180,7 @@ private func buildPatternSelection(
         for patternIndex in usedUnique.sorted() {
             let rowCount = patternIndex < rowCounts.count ? max(1, rowCounts[patternIndex]) : 64
             entries.append(
-                PatternSelectionEntry(
+                TestPatternSelectionEntry(
                     patternIndex: patternIndex,
                     isUsed: true,
                     rowCount: rowCount
@@ -188,17 +189,97 @@ private func buildPatternSelection(
         }
         if entries.isEmpty && safePatternCount > 0 {
             let rowCount = rowCounts.isEmpty ? 64 : max(1, rowCounts[0])
-            entries.append(PatternSelectionEntry(patternIndex: 0, isUsed: false, rowCount: rowCount))
+            entries.append(TestPatternSelectionEntry(patternIndex: 0, isUsed: false, rowCount: rowCount))
         }
     }
     return (entries, invalidReferenced)
 }
 
-final class VoodooTrackerXTests: XCTestCase {
-    func testExamplePasses() {
-        XCTAssertTrue(true)
+private struct TestPatternViewportMetrics: Equatable {
+    let rowHeight: CGFloat
+    let viewportHeight: CGFloat
+
+    var visibleRowCount: Int {
+        guard rowHeight > 0 else { return 1 }
+        let rows = max(1, Int(ceil(viewportHeight / rowHeight)) + 2)
+        if rows % 2 == 0 {
+            return rows + 1
+        }
+        return rows
     }
 
+    var anchorRowIndex: Int {
+        visibleRowCount / 2
+    }
+
+    func contentHeight(forRenderedRowCount renderedRowCount: Int, insetHeight: CGFloat) -> CGFloat {
+        CGFloat(max(0, renderedRowCount)) * rowHeight + insetHeight * 2 + 2
+    }
+}
+
+private struct TestPatternViewportState: Equatable {
+    let currentRow: Int
+    let anchorRowIndex: Int
+    let visibleTopRow: Int
+    let visibleBottomRow: Int
+    let rowHeight: CGFloat
+    let visibleRowCount: Int
+    let rowCount: Int
+
+    init(currentRow: Int, rowCount: Int, metrics: TestPatternViewportMetrics) {
+        let safeRowCount = max(0, rowCount)
+        let clampedRow = safeRowCount > 0 ? min(max(0, currentRow), safeRowCount - 1) : 0
+        let visibleRowCount = max(1, metrics.visibleRowCount)
+        let anchorRowIndex = min(metrics.anchorRowIndex, visibleRowCount - 1)
+        let visibleTopRow = clampedRow - anchorRowIndex
+
+        self.currentRow = clampedRow
+        self.anchorRowIndex = anchorRowIndex
+        self.visibleTopRow = visibleTopRow
+        self.visibleBottomRow = visibleTopRow + visibleRowCount - 1
+        self.rowHeight = metrics.rowHeight
+        self.visibleRowCount = visibleRowCount
+        self.rowCount = safeRowCount
+    }
+
+    func rowIndex(forSlot slotIndex: Int) -> Int? {
+        guard (0..<visibleRowCount).contains(slotIndex) else { return nil }
+        let rowIndex = visibleTopRow + slotIndex
+        guard (0..<rowCount).contains(rowIndex) else { return nil }
+        return rowIndex
+    }
+
+    var slotRows: [Int?] {
+        (0..<visibleRowCount).map(rowIndex(forSlot:))
+    }
+}
+
+private struct TestPatternViewportTextLayout: Equatable {
+    static let rowNumberPrefixLength = 3
+
+    let slotRows: [Int?]
+    let renderedLines: [String]
+
+    init(state: TestPatternViewportState) {
+        slotRows = state.slotRows
+        renderedLines = state.slotRows.map { row in
+            let rowNumber = row.map { String(format: "%02X", $0) } ?? "  "
+            return rowNumber + " " + "CELL"
+        }
+    }
+}
+
+private enum TestPatternCursorOutlineGeometry {
+    static func strokeRect(for fieldRect: CGRect) -> CGRect {
+        fieldRect.insetBy(dx: -2, dy: -2)
+    }
+
+    static func minimumVisibleBounds(for bounds: CGRect) -> CGRect {
+        bounds.insetBy(dx: 2, dy: 2)
+    }
+}
+
+final class VoodooTrackerXTests: XCTestCase {
     func testUsedPatternsSelectionDeduplicatesByOrderAndTracksInvalidReferences() {
         let result = buildPatternSelection(
             orderTable: [0, 2, 2, 5, 1, 0],
@@ -224,6 +305,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(result.entries.map(\.isUsed), [true, false, true, false])
     }
 
+    func testCursorVerticalNavigationWrapsAtPatternBounds() {
+        var cursor = TestPatternCursor(row: 0, channel: 1, field: .note)
+        cursor.move(.up, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor.row, 63)
+
+        cursor.move(.down, rowCount: 64, channelCount: 4)
+        XCTAssertEqual(cursor.row, 0)
+    }
+
     func testCursorHorizontalFieldWrappingAcrossChannelsAndBounds() {
         var cursor = TestPatternCursor(row: 10, channel: 0, field: .note)
         cursor.move(.left, rowCount: 64, channelCount: 4)
@@ -240,6 +330,102 @@ final class VoodooTrackerXTests: XCTestCase {
         cursor = TestPatternCursor(row: 10, channel: 3, field: .effectParam)
         cursor.move(.right, rowCount: 64, channelCount: 4)
         XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 3, field: .effectParam))
+    }
+
+    func testViewportDefinesStaticAnchorRowNearViewportMiddle() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(metrics.visibleRowCount, 19)
+        XCTAssertEqual(state.anchorRowIndex, 9)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
+    }
+
+    func testViewportUsesOneSharedSlotListForGutterAndPatternBody() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 12, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
+
+        XCTAssertEqual(layout.slotRows, state.slotRows)
+        XCTAssertEqual(layout.slotRows[state.anchorRowIndex], 12)
+    }
+
+    func testViewportLeavesBlankSlotsAboveRowZeroOnInitialLoad() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(Array(state.slotRows.prefix(state.anchorRowIndex)), Array(repeating: nil, count: state.anchorRowIndex))
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
+    }
+
+    func testViewportContentHeightUsesVisibleSlotCount() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(state.visibleRowCount, 19)
+        XCTAssertEqual(metrics.contentHeight(forRenderedRowCount: state.visibleRowCount, insetHeight: 2), 329)
+    }
+
+    func testDownFromLastRowWrapsRowZeroIntoAnchorSlot() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        var cursor = TestPatternCursor(row: 63, channel: 0, field: .note)
+
+        cursor.move(.down, rowCount: 64, channelCount: 4)
+        let state = TestPatternViewportState(currentRow: cursor.row, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(cursor.row, 0)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 0)
+        XCTAssertEqual(Array(state.slotRows.prefix(state.anchorRowIndex)), Array(repeating: nil, count: state.anchorRowIndex))
+    }
+
+    func testUpFromRowZeroWrapsLastRowIntoAnchorSlot() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        var cursor = TestPatternCursor(row: 0, channel: 0, field: .note)
+
+        cursor.move(.up, rowCount: 64, channelCount: 4)
+        let state = TestPatternViewportState(currentRow: cursor.row, rowCount: 64, metrics: metrics)
+
+        XCTAssertEqual(cursor.row, 63)
+        XCTAssertEqual(state.slotRows[state.anchorRowIndex], 63)
+        XCTAssertEqual(Array(state.slotRows.suffix(state.visibleRowCount - state.anchorRowIndex - 1)), Array(repeating: nil, count: state.visibleRowCount - state.anchorRowIndex - 1))
+    }
+
+    func testBlankSlotsRemainBlankInBothGutterAndBodyAtPatternBottom() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 63, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
+
+        let blankTailCount = state.visibleRowCount - state.anchorRowIndex - 1
+        XCTAssertEqual(Array(layout.slotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
+    }
+
+    func testRenderedTextPlacesAnchorRowNumberOnSameLineAsBodyContent() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
+        let layout = TestPatternViewportTextLayout(state: state)
+
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "00 CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "   CELL")
+    }
+
+    func testFieldCursorSurvivesRowNavigation() {
+        var cursor = TestPatternCursor(row: 10, channel: 2, field: .effectParam)
+
+        cursor.move(.down, rowCount: 64, channelCount: 8)
+        XCTAssertEqual(cursor, TestPatternCursor(row: 11, channel: 2, field: .effectParam))
+
+        cursor.move(.up, rowCount: 64, channelCount: 8)
+        XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 2, field: .effectParam))
+    }
+
+    func testCursorOutlineGeometryExpandsFieldRectAndReservesVisibleBounds() {
+        let fieldRect = CGRect(x: 100, y: 8, width: 18, height: 15)
+        let strokeRect = TestPatternCursorOutlineGeometry.strokeRect(for: fieldRect)
+        let clipRect = TestPatternCursorOutlineGeometry.minimumVisibleBounds(for: CGRect(x: 0, y: 0, width: 320, height: 200))
+
+        XCTAssertEqual(strokeRect, CGRect(x: 98, y: 6, width: 22, height: 19))
+        XCTAssertEqual(clipRect, CGRect(x: 2, y: 2, width: 316, height: 196))
+        XCTAssertTrue(clipRect.contains(CGPoint(x: strokeRect.minX, y: strokeRect.minY)))
     }
 
     func testEditEngineClearFieldByCursorField() {

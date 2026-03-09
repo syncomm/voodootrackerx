@@ -31,6 +31,148 @@ private struct TrackerTheme {
     )
 }
 
+enum TrackerInteractionMode: Equatable {
+    case navigation
+    case playOnly
+    case edit
+}
+
+struct PatternCursorOutlineGeometry {
+    static let strokeWidth: CGFloat = 2
+    static let outwardPadding: CGFloat = 2
+    static let scrollMargin = NSSize(width: 10, height: 4)
+
+    static func strokeRect(for fieldRect: NSRect) -> NSRect {
+        fieldRect.insetBy(dx: -outwardPadding, dy: -outwardPadding)
+    }
+
+    static func minimumVisibleBounds(for bounds: NSRect) -> NSRect {
+        bounds.insetBy(dx: outwardPadding, dy: outwardPadding)
+    }
+}
+
+struct PatternViewportMetrics: Equatable {
+    static let trailingContentPadding: CGFloat = 12
+
+    let rowHeight: CGFloat
+    let viewportHeight: CGFloat
+
+    var visibleRowCount: Int {
+        guard rowHeight > 0 else { return 1 }
+        let rows = max(1, Int(ceil(viewportHeight / rowHeight)) + 2)
+        if rows % 2 == 0 {
+            return rows + 1
+        }
+        return rows
+    }
+
+    var anchorRowIndex: Int {
+        visibleRowCount / 2
+    }
+
+    func contentHeight(forRenderedRowCount renderedRowCount: Int, insetHeight: CGFloat) -> CGFloat {
+        let renderedHeight = CGFloat(max(0, renderedRowCount)) * rowHeight
+        return renderedHeight + insetHeight * 2 + 2
+    }
+}
+
+struct PatternViewportState: Equatable {
+    let currentRow: Int
+    let anchorRowIndex: Int
+    let visibleTopRow: Int
+    let visibleBottomRow: Int
+    let rowHeight: CGFloat
+    let visibleRowCount: Int
+    let rowCount: Int
+
+    init(currentRow: Int, rowCount: Int, metrics: PatternViewportMetrics) {
+        let safeRowCount = max(0, rowCount)
+        let clampedRow = safeRowCount > 0 ? min(max(0, currentRow), safeRowCount - 1) : 0
+        let visibleRowCount = max(1, metrics.visibleRowCount)
+        let anchorRowIndex = min(metrics.anchorRowIndex, visibleRowCount - 1)
+        let visibleTopRow = clampedRow - anchorRowIndex
+
+        self.currentRow = clampedRow
+        self.anchorRowIndex = anchorRowIndex
+        self.visibleTopRow = visibleTopRow
+        self.visibleBottomRow = visibleTopRow + visibleRowCount - 1
+        self.rowHeight = metrics.rowHeight
+        self.visibleRowCount = visibleRowCount
+        self.rowCount = safeRowCount
+    }
+
+    func rowIndex(forSlot slotIndex: Int) -> Int? {
+        guard (0..<visibleRowCount).contains(slotIndex) else { return nil }
+        let rowIndex = visibleTopRow + slotIndex
+        guard (0..<rowCount).contains(rowIndex) else { return nil }
+        return rowIndex
+    }
+
+    var slotRows: [Int?] {
+        (0..<visibleRowCount).map(rowIndex(forSlot:))
+    }
+}
+
+struct PatternViewportTextLayout: Equatable {
+    static let rowNumberPrefixLength = 3
+
+    let renderedText: String
+    let slotRows: [Int?]
+    let slotGridRanges: [NSRange]
+    let gridRangesByRow: [Int: NSRange]
+    let fullRangesByRow: [Int: NSRange]
+
+    init(
+        pattern: XMPatternData,
+        state: PatternViewportState
+    ) {
+        let separator = String(repeating: " ", count: ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let gridWidth = max(0, pattern.channels) * ModuleMetadataLoader.xmRenderedCellWidth +
+            max(0, pattern.channels - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth
+        let gridBlank = String(repeating: " ", count: gridWidth)
+
+        var renderedLines = [String]()
+        var slotGridRanges = [NSRange]()
+        var gridRangesByRow = [Int: NSRange]()
+        var fullRangesByRow = [Int: NSRange]()
+        var gridOffset = 0
+
+        for slotIndex in 0..<state.visibleRowCount {
+            let rowIndex = state.rowIndex(forSlot: slotIndex)
+            let gridLine: String
+            let rowNumber = rowIndex.map { String(format: "%02X", $0) } ?? "  "
+
+            if let rowIndex {
+                gridLine = pattern.rows[rowIndex].map(ModuleMetadataLoader.formatXMCell).joined(separator: separator)
+            } else {
+                gridLine = gridBlank
+            }
+
+            let renderedLine = rowNumber + " " + gridLine
+            let fullRange = NSRange(location: gridOffset, length: renderedLine.utf16.count)
+            let gridRange = NSRange(
+                location: gridOffset + Self.rowNumberPrefixLength,
+                length: gridLine.utf16.count
+            )
+            slotGridRanges.append(gridRange)
+
+            if let rowIndex {
+                gridRangesByRow[rowIndex] = gridRange
+                fullRangesByRow[rowIndex] = fullRange
+            }
+
+            renderedLines.append(renderedLine)
+            gridOffset += renderedLine.utf16.count + 1
+        }
+
+        self.renderedText = renderedLines.joined(separator: "\n")
+        self.slotRows = state.slotRows
+        self.slotGridRanges = slotGridRanges
+        self.gridRangesByRow = gridRangesByRow
+        self.fullRangesByRow = fullRangesByRow
+    }
+}
+
 enum PatternNavigationCommand {
     case up
     case down
@@ -167,9 +309,9 @@ struct PatternCursor: Equatable {
         clamp(rowCount: rowCount, channelCount: channelCount)
         switch command {
         case .up:
-            row = max(0, row - 1)
+            moveUp(rowCount: rowCount)
         case .down:
-            row = min(max(0, rowCount - 1), row + 1)
+            moveDown(rowCount: rowCount)
         case .pageUp:
             row = max(0, row - pageStep)
         case .pageDown:
@@ -183,6 +325,22 @@ struct PatternCursor: Equatable {
         case .right:
             moveRight(channelCount: channelCount)
         }
+    }
+
+    private mutating func moveUp(rowCount: Int) {
+        guard rowCount > 0 else {
+            row = 0
+            return
+        }
+        row = row == 0 ? rowCount - 1 : row - 1
+    }
+
+    private mutating func moveDown(rowCount: Int) {
+        guard rowCount > 0 else {
+            row = 0
+            return
+        }
+        row = row == rowCount - 1 ? 0 : row + 1
     }
 
     private mutating func moveLeft(channelCount: Int) {
@@ -209,6 +367,7 @@ struct PatternCursor: Equatable {
 private final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
     var editInputHandler: ((PatternEditInput) -> Bool)?
+    var wheelNavigationHandler: ((CGFloat) -> Void)?
     var theme = TrackerTheme.legacyDark
     var dividerCharacterIndices = [Int]() {
         didSet {
@@ -264,6 +423,21 @@ private final class PatternTextView: NSTextView {
         }
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        guard let wheelNavigationHandler else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY * 10
+        guard abs(deltaY) > 0.01, abs(deltaY) >= abs(event.scrollingDeltaX) else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        wheelNavigationHandler(deltaY)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
@@ -282,11 +456,16 @@ private final class PatternTextView: NSTextView {
         var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         rect.origin.x += textContainerOrigin.x
         rect.origin.y += textContainerOrigin.y
-        let strokeRect = rect.insetBy(dx: -1, dy: -1).intersection(bounds.insetBy(dx: 1, dy: 1))
+        let strokeRect = PatternCursorOutlineGeometry.strokeRect(for: rect)
+        let clipRect = PatternCursorOutlineGeometry.minimumVisibleBounds(for: bounds)
         guard !strokeRect.isNull else { return }
+        guard clipRect.intersects(strokeRect) else { return }
+        NSGraphicsContext.current?.saveGraphicsState()
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
+        NSBezierPath(rect: clipRect).addClip()
         theme.cursorOutline.setStroke()
         let path = NSBezierPath(rect: strokeRect)
-        path.lineWidth = 2
+        path.lineWidth = PatternCursorOutlineGeometry.strokeWidth
         path.stroke()
     }
 
@@ -335,13 +514,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var retainedDelegate: AppDelegate?
     private var mainWindow: NSWindow?
     private var metadataTextView: NSTextView?
-    private var rowNumberTextView: NSTextView?
     private var patternInfoLabel: NSTextField?
     private var patternHeaderTextView: PatternTextView?
     private var patternHeaderScrollView: NSScrollView?
-    private var topLeftHeaderSpacer: NSBox?
     private var gridScrollView: NSScrollView?
-    private var rowNumberScrollView: NSScrollView?
     private var patternSelector: NSPopUpButton?
     private var showAllPatternsCheckbox: NSButton?
     private var editModeCheckbox: NSButton?
@@ -351,13 +527,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedDropdownIndex = 0
     private var currentPatternIndex = 0
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
-    private var rowRanges = [NSRange]()
+    private var visibleGridRangesByRow = [Int: NSRange]()
+    private var currentViewportState: PatternViewportState?
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1000, height: 700)
-    private let rowNumberColumnWidth: CGFloat = 36
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
+    private var isPlaybackModeActive = false
+    private var lastGridViewportSize = NSSize.zero
 
     static func main() {
         let app = NSApplication.shared
@@ -367,13 +545,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.run()
     }
 
-    override init() {
-        super.init()
-        debugLog("AppDelegate initialized")
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
-        debugLog("applicationDidFinishLaunching entered")
         NSApp.setActivationPolicy(.regular)
         configureMenu()
         if mainWindow == nil {
@@ -382,6 +554,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showAndActivateMainWindow()
         if let metadataTextView {
             mainWindow?.makeFirstResponder(metadataTextView)
+        }
+        let debugOpenPath = ProcessInfo.processInfo.environment["VTX_OPEN_PATH"] ?? ""
+        if !debugOpenPath.isEmpty {
+            loadModule(from: URL(fileURLWithPath: debugOpenPath))
+            return
         }
     }
 
@@ -446,7 +623,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createMainWindow() {
-        debugLog("createMainWindow called")
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = theme.background.cgColor
@@ -564,26 +740,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(infoLabel)
         patternInfoLabel = infoLabel
 
-        let topLeftSpacer = NSBox(frame: NSRect(x: sideInset, y: headerY, width: rowNumberColumnWidth, height: 24))
-        topLeftSpacer.autoresizingMask = [.minYMargin]
-        topLeftSpacer.boxType = .custom
-        topLeftSpacer.borderWidth = 0
-        topLeftSpacer.fillColor = theme.background
-        topLeftSpacer.contentViewMargins = .zero
-        topLeftSpacer.isHidden = true
-        contentView.addSubview(topLeftSpacer)
-        topLeftHeaderSpacer = topLeftSpacer
-
         let headerScrollView = NSScrollView(
             frame: NSRect(
-                x: 20 + rowNumberColumnWidth,
+                x: 20,
                 y: headerY,
-                width: initialWindowSize.width - 40 - rowNumberColumnWidth,
+                width: initialWindowSize.width - 40,
                 height: 24
             )
         )
-        headerScrollView.frame.origin.x = sideInset + rowNumberColumnWidth
-        headerScrollView.frame.size.width = initialWindowSize.width - (sideInset * 2) - rowNumberColumnWidth
+        headerScrollView.frame.origin.x = sideInset
+        headerScrollView.frame.size.width = initialWindowSize.width - (sideInset * 2)
         headerScrollView.autoresizingMask = [.width, .minYMargin]
         headerScrollView.hasVerticalScroller = false
         headerScrollView.hasHorizontalScroller = false
@@ -622,53 +788,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let bodyY: CGFloat = 20
         let bodyHeight = headerY - bodyY - 6
 
-        let rowScrollView = NSScrollView(frame: NSRect(x: sideInset, y: bodyY, width: rowNumberColumnWidth, height: bodyHeight))
-        rowScrollView.autoresizingMask = [.height]
-        rowScrollView.hasVerticalScroller = false
-        rowScrollView.hasHorizontalScroller = false
-        rowScrollView.verticalScrollElasticity = .none
-        rowScrollView.horizontalScrollElasticity = .none
-        rowScrollView.borderType = .noBorder
-        rowScrollView.drawsBackground = true
-        rowScrollView.backgroundColor = theme.background
-
-        let rowTextView = NSTextView(frame: rowScrollView.bounds)
-        rowTextView.autoresizingMask = []
-        rowTextView.isEditable = false
-        rowTextView.isRichText = false
-        rowTextView.isSelectable = false
-        rowTextView.isHorizontallyResizable = false
-        rowTextView.isVerticallyResizable = true
-        rowTextView.minSize = NSSize(width: rowNumberColumnWidth, height: 0)
-        rowTextView.maxSize = NSSize(width: rowNumberColumnWidth, height: CGFloat.greatestFiniteMagnitude)
-        rowTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        rowTextView.alignment = .right
-        rowTextView.drawsBackground = true
-        rowTextView.backgroundColor = theme.background
-        rowTextView.textColor = theme.text
-        rowTextView.textContainerInset = NSSize(width: 4, height: 2)
-        rowTextView.textContainer?.lineFragmentPadding = 0
-        rowTextView.textContainer?.widthTracksTextView = true
-        rowTextView.textContainer?.heightTracksTextView = false
-        rowTextView.textContainer?.containerSize = NSSize(width: rowNumberColumnWidth, height: CGFloat.greatestFiniteMagnitude)
-        rowTextView.textContainer?.lineBreakMode = .byClipping
-        rowScrollView.documentView = rowTextView
-        rowScrollView.isHidden = true
-        contentView.addSubview(rowScrollView)
-        rowNumberTextView = rowTextView
-        rowNumberScrollView = rowScrollView
-
         let scrollView = NSScrollView(
             frame: NSRect(
-                x: sideInset + rowNumberColumnWidth,
+                x: sideInset,
                 y: headerY,
-                width: initialWindowSize.width - (sideInset * 2) - rowNumberColumnWidth,
+                width: initialWindowSize.width - (sideInset * 2),
                 height: bodyHeight
             )
         )
         scrollView.frame.origin.y = bodyY
         scrollView.autoresizingMask = [.width, .height]
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
         scrollView.verticalScrollElasticity = .none
         scrollView.horizontalScrollElasticity = .none
@@ -702,6 +832,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.editInputHandler = { [weak self] input in
             self?.handlePatternEditInput(input) ?? false
         }
+        textView.wheelNavigationHandler = { [weak self] deltaY in
+            self?.handlePatternWheel(deltaY: deltaY)
+        }
         let introText = """
         VoodooTracker X
 
@@ -718,22 +851,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         scrollView.documentView = textView
         scrollView.contentView.postsBoundsChangedNotifications = true
-        rowScrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(gridClipViewBoundsDidChange(_:)),
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(rowNumberClipViewBoundsDidChange(_:)),
-            name: NSView.boundsDidChangeNotification,
-            object: rowScrollView.contentView
-        )
         contentView.addSubview(scrollView)
         metadataTextView = textView
         gridScrollView = scrollView
+        lastGridViewportSize = scrollView.contentView.bounds.size
 
         let window = NSWindow(
             contentRect: contentView.frame,
@@ -749,7 +876,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = contentView
 
         self.mainWindow = window
-        debugLog("window created object=\(String(describing: mainWindow)) frame=\(window.frame) isVisible=\(window.isVisible)")
     }
 
     private func trackerLogoImage() -> NSImage? {
@@ -769,7 +895,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        debugLog("window shown frame=\(mainWindow.frame) isVisible=\(mainWindow.isVisible)")
     }
 
     @objc
@@ -786,6 +911,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        loadModule(from: url)
+    }
+
+    private func loadModule(from url: URL) {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
@@ -800,26 +929,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 editModeCheckbox?.isHidden = false
                 patternInfoLabel?.isHidden = false
                 patternHeaderScrollView?.isHidden = false
-                rowNumberScrollView?.isHidden = false
-                topLeftHeaderSpacer?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
                 renderCurrentPattern(metadata: metadata)
             } else {
                 (metadataTextView as? PatternTextView)?.activeFieldRange = nil
                 (metadataTextView as? PatternTextView)?.dividerCharacterIndices = []
                 (metadataTextView as? PatternTextView)?.dividerTopCharacterIndex = nil
+                visibleGridRangesByRow = [:]
+                currentViewportState = nil
                 patternInfoLabel?.stringValue = ""
                 patternInfoLabel?.isHidden = true
                 patternHeaderTextView?.string = ""
                 patternHeaderTextView?.dividerCharacterIndices = []
-                rowNumberTextView?.string = ""
                 patternSelector?.removeAllItems()
                 patternSelector?.isHidden = true
                 showAllPatternsCheckbox?.isHidden = true
                 editModeCheckbox?.isHidden = true
                 patternHeaderScrollView?.isHidden = true
-                rowNumberScrollView?.isHidden = true
-                topLeftHeaderSpacer?.isHidden = true
                 metadataTextView?.string = """
                 File: \(url.lastPathComponent)
                 Path: \(url.path)
@@ -866,6 +992,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func editModeToggled(_ sender: NSButton) {
         isEditModeEnabled = sender.state == .on
+    }
+
+    private var interactionMode: TrackerInteractionMode {
+        if isEditModeEnabled {
+            return .edit
+        }
+        if isPlaybackModeActive {
+            return .playOnly
+        }
+        return .navigation
     }
 
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?, showAllPatterns: Bool? = nil) {
@@ -930,17 +1066,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cursor.clamp(rowCount: pattern.rowCount, channelCount: pattern.channels)
         patternInfoLabel?.stringValue = ModuleMetadataLoader.renderXMPatternInfoLine(pattern, focusedChannel: cursor.channel)
         let channelHeader = ModuleMetadataLoader.renderXMChannelHeader(channels: pattern.channels)
-        let rendered = ModuleMetadataLoader.renderXMPatternRows(pattern)
-        rowRanges = rendered.rowRanges
+        let metrics = viewportMetrics()
+        let viewportState = PatternViewportState(currentRow: cursor.row, rowCount: pattern.rowCount, metrics: metrics)
+        let viewportLayout = PatternViewportTextLayout(pattern: pattern, state: viewportState)
+        currentViewportState = viewportState
+        visibleGridRangesByRow = viewportLayout.gridRangesByRow
 
         updatePatternHeader(channelHeader, channels: pattern.channels)
-        updatePatternDividerIndices(
-            channels: pattern.channels,
-            rowRangeOffset: 0
-        )
+        updatePatternDividerIndices(channels: pattern.channels, layout: viewportLayout)
 
-        let attributed = NSMutableAttributedString(string: rendered.gridText)
-        let rowAttributed = NSMutableAttributedString(string: rendered.rowNumberText)
+        let attributed = NSMutableAttributedString(string: viewportLayout.renderedText)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byClipping
         let baseAttributes: [NSAttributedString.Key: Any] = [
@@ -950,25 +1085,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .foregroundColor: theme.text
         ]
         attributed.addAttributes(baseAttributes, range: NSRange(location: 0, length: attributed.length))
-        rowAttributed.addAttributes(baseAttributes, range: NSRange(location: 0, length: rowAttributed.length))
-        applyBeatAccentStyling(attributed, rowRangeOffset: 0)
-        applyBeatAccentStyling(rowAttributed, rowRanges: rendered.rowNumberRanges, rowRangeOffset: 0)
-        if rowRanges.indices.contains(cursor.row) {
-            let range = rowRanges[cursor.row]
+        applyBeatAccentStyling(attributed, layout: viewportLayout)
+        if let range = viewportLayout.fullRangesByRow[cursor.row] {
             attributed.addAttribute(.backgroundColor, value: theme.rowHighlight, range: range)
-            let rowNumberRange = rendered.rowNumberRanges[cursor.row]
-            rowAttributed.addAttribute(.backgroundColor, value: theme.rowHighlight, range: rowNumberRange)
         }
         metadataTextView?.textStorage?.setAttributedString(attributed)
-        rowNumberTextView?.textStorage?.setAttributedString(rowAttributed)
-        updateActiveFieldRange(rowRangeOffset: 0)
-        updateMetadataTextViewDocumentSize()
-        updateRowNumberTextViewDocumentSize()
-        syncStickyPanesToGrid()
+        updateActiveFieldRange()
+        updateMetadataTextViewDocumentSize(renderedRowCount: viewportState.visibleRowCount)
+        syncTrackerViewport()
         if let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
-        scrollCursorIntoView(offset: 0)
+        scrollCursorFieldHorizontallyIntoView(offset: 0)
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
@@ -983,7 +1111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
-        guard isEditModeEnabled,
+        guard interactionMode == .edit,
               var metadata = loadedMetadata,
               metadata.type == "XM",
               metadata.xmPatterns.indices.contains(currentPatternIndex) else {
@@ -1013,14 +1141,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func scrollCursorIntoView(offset: Int) {
-        guard rowRanges.indices.contains(cursor.row),
+    private func handlePatternWheel(deltaY: CGFloat) {
+        guard let metadata = loadedMetadata,
+              metadata.type == "XM",
+              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+            return
+        }
+
+        let command: PatternNavigationCommand = deltaY < 0 ? .down : .up
+        handlePatternNavigation(command)
+    }
+
+    private func scrollCursorFieldHorizontallyIntoView(offset: Int) {
+        guard let rowRange = visibleGridRangesByRow[cursor.row],
               let textView = metadataTextView,
+              let scrollView = gridScrollView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
             return
         }
-        let rowRange = rowRanges[cursor.row]
         let clampedChannel = max(0, cursor.channel)
         let channelOffset = clampedChannel * (ModuleMetadataLoader.xmRenderedCellWidth + ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
         let fieldOffset = cursor.field.textOffset
@@ -1030,31 +1169,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let range = NSRange(location: targetLocation + offset, length: max(1, fieldLength))
         let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
         guard glyphRange.length > 0 else {
-            textView.scrollRangeToVisible(range)
             return
         }
         var cursorRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         cursorRect.origin.x += textView.textContainerOrigin.x
         cursorRect.origin.y += textView.textContainerOrigin.y
-        textView.scrollToVisible(cursorRect.insetBy(dx: -8, dy: -4))
+        let visibleRect = scrollView.contentView.bounds
+        let horizontalMargin = PatternCursorOutlineGeometry.scrollMargin.width
+        let targetMinX = cursorRect.minX - horizontalMargin
+        let targetMaxX = cursorRect.maxX + horizontalMargin
+        var targetOrigin = visibleRect.origin
+        if targetMinX < visibleRect.minX {
+            targetOrigin.x = max(0, targetMinX)
+        } else if targetMaxX > visibleRect.maxX {
+            let maxOriginX = max(0, textView.frame.width - visibleRect.width)
+            targetOrigin.x = min(maxOriginX, targetMaxX - visibleRect.width)
+        }
+        scrollView.contentView.scroll(to: targetOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        syncStickyPanesToGrid()
     }
 
-    private func updateActiveFieldRange(rowRangeOffset: Int) {
-        guard rowRanges.indices.contains(cursor.row),
+    private func updateActiveFieldRange() {
+        guard let rowRange = visibleGridRangesByRow[cursor.row],
               let textView = metadataTextView as? PatternTextView else {
             return
         }
 
-        let rowRange = rowRanges[cursor.row]
         let channelOffset = cursor.channel * (ModuleMetadataLoader.xmRenderedCellWidth + ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
         let fieldOffset = cursor.field.textOffset
-        let location = rowRange.location + channelOffset + fieldOffset + rowRangeOffset
-        let maxLocation = rowRange.location + rowRangeOffset + max(0, rowRange.length - 1)
+        let location = rowRange.location + channelOffset + fieldOffset
+        let maxLocation = rowRange.location + max(0, rowRange.length - 1)
         let clampedLocation = min(location, maxLocation)
         textView.activeFieldRange = NSRange(location: clampedLocation, length: max(1, cursor.field.textLength))
     }
 
-    private func updateMetadataTextViewDocumentSize() {
+    private func updateMetadataTextViewDocumentSize(renderedRowCount: Int) {
         guard let textView = metadataTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
@@ -1064,9 +1214,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer).integral
         let inset = textView.textContainerInset
-        let contentWidth = usedRect.width + inset.width * 2 + 2
-        let contentHeight = usedRect.height + inset.height * 2 + 2
+        let contentWidth = usedRect.width + inset.width * 2 + 2 + PatternViewportMetrics.trailingContentPadding
         let viewport = textView.enclosingScrollView?.contentView.bounds.size ?? .zero
+        let metrics = viewportMetrics()
+        let contentHeight = metrics.contentHeight(forRenderedRowCount: renderedRowCount, insetHeight: inset.height)
 
         let targetSize = NSSize(
             width: max(viewport.width, contentWidth),
@@ -1075,67 +1226,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.setFrameSize(targetSize)
     }
 
-    private func updateRowNumberTextViewDocumentSize() {
-        guard let rowTextView = rowNumberTextView,
-              let layoutManager = rowTextView.layoutManager,
-              let textContainer = rowTextView.textContainer else {
-            return
+    private func viewportMetrics() -> PatternViewportMetrics {
+        PatternViewportMetrics(
+            rowHeight: max(1, measuredPatternRowHeight()),
+            viewportHeight: gridScrollView?.contentView.bounds.height ?? 0
+        )
+    }
+
+    private func measuredPatternRowHeight() -> CGFloat {
+        guard let firstRange = visibleGridRangesByRow.keys.sorted().first.flatMap({ visibleGridRangesByRow[$0] }),
+              let textView = metadataTextView,
+              let layoutManager = textView.layoutManager else {
+            return 17
         }
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer).integral
-        let inset = rowTextView.textContainerInset
-        let contentHeight = usedRect.height + inset.height * 2 + 2
-        let viewportHeight = rowTextView.enclosingScrollView?.contentView.bounds.height ?? .zero
-        rowTextView.setFrameSize(NSSize(width: rowNumberColumnWidth, height: max(viewportHeight, contentHeight)))
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: firstRange, actualCharacterRange: nil)
+        guard glyphRange.length > 0 else {
+            return 17
+        }
+        let lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphRange.location, effectiveRange: nil, withoutAdditionalLayout: true)
+        return max(1, lineRect.height)
+    }
+
+    private func syncTrackerViewport() {
+        guard let scrollView = gridScrollView else { return }
+        let currentOrigin = scrollView.contentView.bounds.origin
+        scrollView.contentView.scroll(to: NSPoint(x: currentOrigin.x, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        syncStickyPanesToGrid()
     }
 
     private func syncStickyPanesToGrid() {
         guard let gridClipView = gridScrollView?.contentView else { return }
         let origin = gridClipView.bounds.origin
-        if let rowNumberScrollView {
-            let baselineAdjustedY = adjustedRowNumberOriginY(forGridOriginY: origin.y)
-            rowNumberScrollView.contentView.scroll(to: NSPoint(x: 0, y: baselineAdjustedY))
-            rowNumberScrollView.reflectScrolledClipView(rowNumberScrollView.contentView)
-        }
         if let patternHeaderScrollView {
             patternHeaderScrollView.contentView.scroll(to: NSPoint(x: origin.x, y: 0))
             patternHeaderScrollView.reflectScrolledClipView(patternHeaderScrollView.contentView)
         }
     }
 
-    private func adjustedRowNumberOriginY(forGridOriginY gridOriginY: CGFloat) -> CGFloat {
-        guard let gridTextView = metadataTextView,
-              let rowTextView = rowNumberTextView,
-              let gridLayoutManager = gridTextView.layoutManager,
-              let rowLayoutManager = rowTextView.layoutManager else {
-            return gridOriginY
-        }
-        let gridLength = (gridTextView.string as NSString).length
-        let rowLength = (rowTextView.string as NSString).length
-        guard gridLength > 0, rowLength > 0 else {
-            return gridOriginY
-        }
-
-        let gridGlyph = gridLayoutManager.glyphIndexForCharacter(at: 0)
-        let rowGlyph = rowLayoutManager.glyphIndexForCharacter(at: 0)
-        let gridLineRect = gridLayoutManager.lineFragmentUsedRect(forGlyphAt: gridGlyph, effectiveRange: nil, withoutAdditionalLayout: true)
-        let rowLineRect = rowLayoutManager.lineFragmentUsedRect(forGlyphAt: rowGlyph, effectiveRange: nil, withoutAdditionalLayout: true)
-        let gridBaselineY = gridLineRect.minY + gridTextView.textContainerOrigin.y
-        let rowBaselineY = rowLineRect.minY + rowTextView.textContainerOrigin.y
-        let delta = rowBaselineY - gridBaselineY
-        return max(0, gridOriginY + delta)
-    }
-
-    private func updatePatternDividerIndices(channels: Int, rowRangeOffset: Int) {
+    private func updatePatternDividerIndices(channels: Int, layout: PatternViewportTextLayout) {
         guard let textView = metadataTextView as? PatternTextView,
               channels > 0,
-              let firstRowRange = rowRanges.first else {
+              let firstVisibleRowRange = layout.slotGridRanges.first else {
             (metadataTextView as? PatternTextView)?.dividerCharacterIndices = []
             (metadataTextView as? PatternTextView)?.dividerTopCharacterIndex = nil
             return
         }
 
-        let rowStart = firstRowRange.location + rowRangeOffset
+        let rowStart = firstVisibleRowRange.location
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
         indices.reserveCapacity(max(0, channels))
@@ -1147,14 +1285,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             indices.append(separatorStart + separatorMidOffset)
         }
         textView.dividerCharacterIndices = indices
-        textView.dividerTopCharacterIndex = rowRanges.first?.location
+        textView.dividerTopCharacterIndex = nil
     }
 
     private func updatePatternHeader(_ headerText: String, channels: Int) {
         guard let headerTextView = patternHeaderTextView else {
             return
         }
-        let attributed = NSMutableAttributedString(string: headerText)
+        let headerPrefixLength = PatternViewportTextLayout.rowNumberPrefixLength
+        let attributed = NSMutableAttributedString(string: String(repeating: " ", count: headerPrefixLength) + headerText)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byClipping
         attributed.addAttributes(
@@ -1172,9 +1311,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
         indices.reserveCapacity(max(0, channels))
-        indices.append(0)
+        indices.append(headerPrefixLength)
         for divider in 1..<channels {
-            let separatorStart = (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
+            let separatorStart = headerPrefixLength + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
                 ((divider - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
             indices.append(separatorStart + separatorMidOffset)
         }
@@ -1182,39 +1321,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.dividerTopCharacterIndex = nil
     }
 
-    private func applyBeatAccentStyling(_ attributed: NSMutableAttributedString, rowRangeOffset: Int) {
+    private func applyBeatAccentStyling(_ attributed: NSMutableAttributedString, layout: PatternViewportTextLayout) {
         let interval = PatternGridPreferences.beatAccentInterval
         guard interval > 0 else { return }
 
-        for (rowIndex, rowRange) in rowRanges.enumerated() where rowIndex % interval == 0 {
-            let shifted = NSRange(location: rowRange.location + rowRangeOffset, length: rowRange.length)
-            guard shifted.location + shifted.length <= attributed.length else {
+        for rowIndex in layout.slotRows.compactMap({ $0 }) where rowIndex % interval == 0 {
+            guard let rowRange = layout.fullRangesByRow[rowIndex] else { continue }
+            guard rowRange.location + rowRange.length <= attributed.length else {
                 continue
             }
-            attributed.addAttribute(
-                .backgroundColor,
-                value: theme.beatAccent,
-                range: shifted
-            )
-            attributed.addAttribute(
-                .foregroundColor,
-                value: theme.text,
-                range: shifted
-            )
-        }
-    }
-
-    private func applyBeatAccentStyling(_ attributed: NSMutableAttributedString, rowRanges: [NSRange], rowRangeOffset: Int) {
-        let interval = PatternGridPreferences.beatAccentInterval
-        guard interval > 0 else { return }
-
-        for (rowIndex, rowRange) in rowRanges.enumerated() where rowIndex % interval == 0 {
-            let shifted = NSRange(location: rowRange.location + rowRangeOffset, length: rowRange.length)
-            guard shifted.location + shifted.length <= attributed.length else {
-                continue
-            }
-            attributed.addAttribute(.backgroundColor, value: theme.beatAccent, range: shifted)
-            attributed.addAttribute(.foregroundColor, value: theme.text, range: shifted)
+            attributed.addAttribute(.backgroundColor, value: theme.beatAccent, range: rowRange)
+            attributed.addAttribute(.foregroundColor, value: theme.text, range: rowRange)
         }
     }
 
@@ -1227,38 +1344,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         isSyncingScroll = true
         defer { isSyncingScroll = false }
+        let viewportSize = clipView.bounds.size
+        if viewportSize != lastGridViewportSize,
+           let metadata = loadedMetadata,
+           metadata.type == "XM",
+           metadata.xmPatterns.indices.contains(currentPatternIndex) {
+            lastGridViewportSize = viewportSize
+            renderCurrentPattern(metadata: metadata)
+            return
+        }
         syncStickyPanesToGrid()
     }
 
-    @objc
-    private func rowNumberClipViewBoundsDidChange(_ notification: Notification) {
-        guard !isSyncingScroll,
-              let clipView = notification.object as? NSClipView,
-              clipView === rowNumberScrollView?.contentView else {
-            return
-        }
-        isSyncingScroll = true
-        defer { isSyncingScroll = false }
-
-        let origin = clipView.bounds.origin
-        guard let gridClipView = gridScrollView?.contentView else { return }
-        gridClipView.scroll(to: NSPoint(x: gridClipView.bounds.origin.x, y: origin.y))
-        gridScrollView?.reflectScrolledClipView(gridClipView)
-    }
-
-    private func debugLog(_ message: String) {
-#if DEBUG
-        guard let data = "[VTX DEBUG] \(message)\n".data(using: .utf8) else { return }
-        FileHandle.standardError.write(data)
-        let logURL = URL(fileURLWithPath: "/tmp/vtx-debug-runtime.log")
-        if FileManager.default.fileExists(atPath: logURL.path),
-           let handle = try? FileHandle(forWritingTo: logURL) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-            try? handle.close()
-        } else {
-            try? data.write(to: logURL)
-        }
-#endif
-    }
 }

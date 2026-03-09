@@ -124,6 +124,12 @@ No large refactors without prior discussion.
 
 ---
 
+When modifying the tracker editor or viewport behavior, always follow:
+
+docs/tracker-behavior-spec.md
+
+---
+
 ## Automation Hooks
 
 - Scripts in `/scripts/` must be idempotent.

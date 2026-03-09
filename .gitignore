@@ -32,5 +32,6 @@ xcuserdata/
 
 # Logs / temp
 *.log
+*.profraw
 *.tmp
 *.temp

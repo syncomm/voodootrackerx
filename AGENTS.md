@@ -17,6 +17,26 @@ This document defines the rules and expectations for any automated agent (Codex 
 
 ---
 
+## Tracker UI Rules
+
+- For tracker viewport work, read:
+  - docs/dev-session-bootstrap.md
+  - docs/tracker-behavior-spec.md
+  - docs/ui-debugging.md
+  - docs/visual-verification.md
+  - docs/architecture.md
+- For visual bugs, do manual GUI verification early.
+- If model tests pass but UI is wrong, inspect rendered geometry immediately.
+- Use screenshots for tracker UI regressions whenever possible.
+- Do not rely only on unit tests for viewport/alignment bugs.
+- Gutter and pattern body must share one slot model and one rendered geometry path whenever possible.
+- Prefer architectural simplification over adding offset corrections.
+- Do not commit debugging artifacts, screenshots, or local copyrighted test modules.
+- For tracker viewport changes, verify: anchor row, gutter alignment, wraparound, and no phantom rows.
+- Keep tracker UI PRs narrowly scoped and visually verified before commit.
+
+---
+
 ## Branching & PR rules
 
 - Default branch: `main`
@@ -101,6 +121,7 @@ When operating autonomously, an agent MUST:
    - Manual validation steps
 6. NEVER merge its own PRs.
 7. Read `docs/roadmap.md` and `docs/legacy-map.md` at the start of work (when present) to maintain continuity.
+8. Begin all development sessions by loading `docs/dev-session-bootstrap.md`.
 
 ---
 
@@ -108,13 +129,20 @@ When operating autonomously, an agent MUST:
 
 Future agents should load only the documents needed for the current task.
 
+All development sessions should begin by loading:
+- `docs/dev-session-bootstrap.md`
+
 For tracker UI work:
+- `docs/dev-session-bootstrap.md`
 - `docs/tracker-behavior-spec.md`
 - `docs/architecture.md`
 - `docs/ui-debugging.md`
+- `docs/visual-verification.md`
 
 For general development:
 - `docs/dev-roadmap.md`
+
+Load `docs/task-templates.md` only when it helps structure a new task or clarify expected deliverables. Do not load it by default for every session.
 
 Avoid loading unnecessary documentation when it does not help the task, to reduce token usage and preserve focus.
 

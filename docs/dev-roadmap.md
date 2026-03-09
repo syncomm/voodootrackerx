@@ -20,6 +20,12 @@ Tasks:
 
 Status: In progress
 
+Checkpoint: Tracker Editor Static Row Milestone
+- static highlight row implemented
+- wrap behavior implemented
+- shared viewport slot mapping implemented
+- unified layout fix applied for gutter/body alignment
+
 ---
 
 # Phase 2 — Pattern Editing

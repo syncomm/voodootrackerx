@@ -104,6 +104,52 @@ When operating autonomously, an agent MUST:
 
 ---
 
+## Context Loading Guidelines
+
+Future agents should load only the documents needed for the current task.
+
+For tracker UI work:
+- `docs/tracker-behavior-spec.md`
+- `docs/architecture.md`
+- `docs/ui-debugging.md`
+
+For general development:
+- `docs/dev-roadmap.md`
+
+Avoid loading unnecessary documentation when it does not help the task, to reduce token usage and preserve focus.
+
+---
+
+## UI Debugging Protocol
+
+When debugging UI alignment issues, always distinguish between:
+- data/model correctness
+- rendered geometry correctness
+
+If a UI bug persists after model tests pass:
+- inspect rendered geometry immediately
+- log or compare actual draw Y positions
+- do not assume model correctness implies visual correctness
+
+Screenshots are strongly recommended for visual regressions.
+
+When debugging tracker UI, prefer manual GUI verification early instead of repeated speculative code changes.
+
+Acceptable debugging artifacts:
+- screenshots
+- local fixture files
+- temporary logging
+
+Debugging artifacts must not be committed into the repository.
+
+When working on tracker viewport logic, verify these invariants manually:
+- gutter rows align with pattern rows
+- highlight row remains static
+- wrap behavior works at the top and bottom
+- no phantom blank rows appear early
+
+---
+
 ## Large Change Protocol
 
 For architectural or large-scale changes:

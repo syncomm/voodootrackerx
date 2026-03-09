@@ -223,6 +223,37 @@ Correct behavior:
 
 ---
 
+# Tracker UI Invariants
+
+These invariants define the expected rendered behavior of the tracker viewport.
+
+## Static Highlight Row
+
+The highlight row remains fixed in the viewport while pattern rows scroll behind it.
+
+## Shared Row Mapping
+
+Gutter numbers and pattern body must be rendered from the same slot-to-row mapping.
+
+## Geometry Invariant
+
+The rendered Y position for a row must be identical between:
+- gutter label
+- pattern body row
+- highlight bar
+
+## Initial Load Behavior
+
+- Row 00 appears on the highlight row.
+- Blank rows may appear above Row 00.
+- Rows below the highlight row are real pattern rows until the end of the pattern is reached.
+
+## Wrap Behavior
+
+Cursor navigation wraps from the last row to the first row and from the first row to the last row.
+
+---
+
 # Editing Modes
 
 Track editor supports multiple interaction modes.
@@ -257,4 +288,3 @@ Preferred approach:
 
 - custom view drawing
 - minimal layout recalculation
-

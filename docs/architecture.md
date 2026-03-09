@@ -106,6 +106,13 @@ Rendering approach:
 - custom NSView drawing
 - minimal subviews
 
+## Tracker Editor Architecture Principles
+
+- Use a single viewport model for tracker row visibility and navigation state.
+- Build one canonical visible slot list for the viewport.
+- Share rendered geometry between gutter, pattern body, and highlight behavior when possible.
+- Avoid split layout pipelines that independently compute row positioning for gutter and body.
+
 ---
 
 # Audio Engine (Future)

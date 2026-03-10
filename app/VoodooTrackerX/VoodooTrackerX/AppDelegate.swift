@@ -531,7 +531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentViewportState: PatternViewportState?
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
-    private let initialWindowSize = NSSize(width: 1000, height: 700)
+    private let initialWindowSize = NSSize(width: 1120, height: 900)
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
     private var isPlaybackModeActive = false
@@ -629,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let topInset: CGFloat = 6
         let sideInset: CGFloat = 20
         let controlSpacing: CGFloat = 8
-        let headerBarHeight: CGFloat = 124
+        let headerBarHeight: CGFloat = 380
         let headerTopY = initialWindowSize.height - topInset
         let headerBarY = headerTopY - headerBarHeight
         let controlsY = headerBarY - controlSpacing - 28
@@ -652,7 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(headerBar)
 
         if let logoImage = trackerLogoImage() {
-            let maxLogoWidth = min(headerBar.bounds.width - 24, 1800)
+            let maxLogoWidth = min(headerBar.bounds.width - 24, 1000)
             let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
             var logoWidth = maxLogoWidth
             var logoHeight = logoWidth * logoAspect

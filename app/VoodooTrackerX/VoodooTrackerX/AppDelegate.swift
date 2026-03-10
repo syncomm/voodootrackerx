@@ -652,7 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(headerBar)
 
         if let logoImage = trackerLogoImage() {
-            let maxLogoWidth = min(headerBar.bounds.width - 24, 920)
+            let maxLogoWidth = min(headerBar.bounds.width - 24, 1800)
             let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
             var logoWidth = maxLogoWidth
             var logoHeight = logoWidth * logoAspect
@@ -662,19 +662,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 logoWidth = logoHeight / logoAspect
             }
 
+            let containerPadding = NSSize(width: 12, height: 6)
+            let containerFrame = NSRect(
+                x: (headerBar.bounds.width - (logoWidth + (containerPadding.width * 2))) * 0.5,
+                y: (headerBar.bounds.height - (logoHeight + (containerPadding.height * 2))) * 0.5,
+                width: logoWidth + (containerPadding.width * 2),
+                height: logoHeight + (containerPadding.height * 2)
+            )
+            let logoContainer = NSBox(frame: containerFrame)
+            logoContainer.autoresizingMask = [.minXMargin, .maxXMargin]
+            logoContainer.boxType = .custom
+            logoContainer.borderWidth = 0
+            logoContainer.fillColor = .white
+            logoContainer.contentViewMargins = .zero
+            headerBar.addSubview(logoContainer)
+
             let imageView = NSImageView(frame: NSRect(
-                x: (headerBar.bounds.width - logoWidth) * 0.5,
-                y: (headerBar.bounds.height - logoHeight) * 0.5,
+                x: containerPadding.width,
+                y: containerPadding.height,
                 width: logoWidth,
                 height: logoHeight
             ))
-            imageView.autoresizingMask = [.minXMargin, .maxXMargin]
+            imageView.autoresizingMask = [.width, .height]
             imageView.image = logoImage
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.wantsLayer = true
             imageView.layer?.magnificationFilter = .nearest
             imageView.layer?.minificationFilter = .nearest
-            headerBar.addSubview(imageView)
+            logoContainer.addSubview(imageView)
         } else {
             let fallbackTitle = NSTextField(labelWithString: "VoodooTracker X")
             fallbackTitle.frame = headerBar.bounds.insetBy(dx: 8, dy: 4)
@@ -879,11 +894,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func trackerLogoImage() -> NSImage? {
-        if let direct = Bundle.main.url(forResource: "vtx-logo1", withExtension: "png"),
-           let image = NSImage(contentsOf: direct) {
+        if let svg = Bundle.main.url(forResource: "vtx-logo", withExtension: "svg"),
+           let image = NSImage(contentsOf: svg) {
             return image
         }
-        if let fallback = Bundle.main.url(forResource: "vtx-logo-ascii", withExtension: "png"),
+        if let fallback = Bundle.main.url(forResource: "vtx-logo", withExtension: "png"),
            let image = NSImage(contentsOf: fallback) {
             return image
         }

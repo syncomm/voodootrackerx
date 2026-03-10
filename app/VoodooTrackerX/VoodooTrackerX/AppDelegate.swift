@@ -663,10 +663,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             let containerPadding = NSSize(width: 20, height: 6)
+            let containerInsetX: CGFloat = 8
             let containerFrame = NSRect(
-                x: 0,
+                x: containerInsetX,
                 y: (headerBar.bounds.height - (logoHeight + (containerPadding.height * 2))) * 0.5,
-                width: headerBar.bounds.width,
+                width: headerBar.bounds.width - (containerInsetX * 2),
                 height: logoHeight + (containerPadding.height * 2)
             )
             let logoContainer = NSBox(frame: containerFrame)

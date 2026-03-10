@@ -652,7 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         contentView.addSubview(headerBar)
 
         if let logoImage = trackerLogoImage() {
-            let maxLogoWidth = min(headerBar.bounds.width - 24, 1000)
+            let maxLogoWidth = min(headerBar.bounds.width - 40, 800)
             let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
             var logoWidth = maxLogoWidth
             var logoHeight = logoWidth * logoAspect
@@ -662,15 +662,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 logoWidth = logoHeight / logoAspect
             }
 
-            let containerPadding = NSSize(width: 12, height: 6)
+            let containerPadding = NSSize(width: 20, height: 6)
             let containerFrame = NSRect(
-                x: (headerBar.bounds.width - (logoWidth + (containerPadding.width * 2))) * 0.5,
+                x: 0,
                 y: (headerBar.bounds.height - (logoHeight + (containerPadding.height * 2))) * 0.5,
-                width: logoWidth + (containerPadding.width * 2),
+                width: headerBar.bounds.width,
                 height: logoHeight + (containerPadding.height * 2)
             )
             let logoContainer = NSBox(frame: containerFrame)
-            logoContainer.autoresizingMask = [.minXMargin, .maxXMargin]
+            logoContainer.autoresizingMask = [.width, .minYMargin]
             logoContainer.boxType = .custom
             logoContainer.borderWidth = 0
             logoContainer.fillColor = .white
@@ -678,12 +678,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             headerBar.addSubview(logoContainer)
 
             let imageView = NSImageView(frame: NSRect(
-                x: containerPadding.width,
+                x: (containerFrame.width - logoWidth) * 0.5,
                 y: containerPadding.height,
                 width: logoWidth,
                 height: logoHeight
             ))
-            imageView.autoresizingMask = [.width, .height]
+            imageView.autoresizingMask = [.minXMargin, .maxXMargin]
             imageView.image = logoImage
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.wantsLayer = true

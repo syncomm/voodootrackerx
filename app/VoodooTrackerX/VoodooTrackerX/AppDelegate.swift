@@ -625,62 +625,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createMainWindow() {
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
         contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = theme.background.cgColor
-        let topInset: CGFloat = 6
-        let sideInset: CGFloat = 20
-        let controlSpacing: CGFloat = 8
-        let headerBarHeight: CGFloat = 380
-        let headerTopY = initialWindowSize.height - topInset
-        let headerBarY = headerTopY - headerBarHeight
-        let controlsY = headerBarY - controlSpacing - 28
-        let infoY = controlsY - 6 - 20
-        let headerY = infoY - 8 - 24
+        let windowBackground = NSColor(srgbRed: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0, alpha: 1.0)
+        let controlBarBackground = NSColor(srgbRed: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x26 / 255.0, alpha: 1.0)
+        let trackerBackground = NSColor.black
+        contentView.layer?.backgroundColor = windowBackground.cgColor
+
+        let rootPadding: CGFloat = 24
+        let sectionSpacing: CGFloat = 12
+        let logoPanelHeight: CGFloat = 260
+        let controlBarHeight: CGFloat = 56
+        let trackerHeaderHeight: CGFloat = 52
+        let channelHeaderHeight: CGFloat = 24
+        let contentWidth = initialWindowSize.width - (rootPadding * 2)
+
+        let logoPanelY = initialWindowSize.height - rootPadding - logoPanelHeight
+        let controlBarY = logoPanelY - sectionSpacing - controlBarHeight
+        let trackerPanelY = rootPadding
+        let trackerPanelHeight = max(220, controlBarY - sectionSpacing - trackerPanelY)
 
         let headerBar = NSBox(
             frame: NSRect(
-                x: sideInset,
-                y: headerBarY,
-                width: initialWindowSize.width - (sideInset * 2),
-                height: headerBarHeight
+                x: rootPadding,
+                y: logoPanelY,
+                width: contentWidth,
+                height: logoPanelHeight
             )
         )
         headerBar.autoresizingMask = [.width, .minYMargin]
         headerBar.boxType = .custom
         headerBar.borderWidth = 0
-        headerBar.fillColor = theme.background
-        headerBar.contentViewMargins = NSSize(width: 8, height: 4)
+        headerBar.fillColor = .white
+        headerBar.contentViewMargins = .zero
         contentView.addSubview(headerBar)
 
         if let logoImage = trackerLogoImage() {
-            let maxLogoWidth = min(headerBar.bounds.width - 40, 800)
+            let maxLogoWidth = min(headerBar.bounds.width - 48, 800)
             let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
             var logoWidth = maxLogoWidth
             var logoHeight = logoWidth * logoAspect
-            let maxLogoHeight = headerBar.bounds.height - 12
+            let maxLogoHeight = headerBar.bounds.height - 24
             if logoHeight > maxLogoHeight, logoAspect > 0 {
                 logoHeight = maxLogoHeight
                 logoWidth = logoHeight / logoAspect
             }
 
-            let containerPadding = NSSize(width: 20, height: 6)
-            let containerInsetX: CGFloat = 8
-            let containerFrame = NSRect(
-                x: containerInsetX,
-                y: (headerBar.bounds.height - (logoHeight + (containerPadding.height * 2))) * 0.5,
-                width: headerBar.bounds.width - (containerInsetX * 2),
-                height: logoHeight + (containerPadding.height * 2)
-            )
-            let logoContainer = NSBox(frame: containerFrame)
-            logoContainer.autoresizingMask = [.width, .minYMargin]
-            logoContainer.boxType = .custom
-            logoContainer.borderWidth = 0
-            logoContainer.fillColor = .white
-            logoContainer.contentViewMargins = .zero
-            headerBar.addSubview(logoContainer)
-
             let imageView = NSImageView(frame: NSRect(
-                x: (containerFrame.width - logoWidth) * 0.5,
-                y: containerPadding.height,
+                x: (headerBar.bounds.width - logoWidth) * 0.5,
+                y: (headerBar.bounds.height - logoHeight) * 0.5,
                 width: logoWidth,
                 height: logoHeight
             ))
@@ -690,7 +681,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             imageView.wantsLayer = true
             imageView.layer?.magnificationFilter = .nearest
             imageView.layer?.minificationFilter = .nearest
-            logoContainer.addSubview(imageView)
+            headerBar.addSubview(imageView)
         } else {
             let fallbackTitle = NSTextField(labelWithString: "VoodooTracker X")
             fallbackTitle.frame = headerBar.bounds.insetBy(dx: 8, dy: 4)
@@ -701,20 +692,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             headerBar.addSubview(fallbackTitle)
         }
 
-        let selector = NSPopUpButton(frame: NSRect(x: sideInset, y: controlsY, width: 220, height: 28))
-        selector.autoresizingMask = [.maxXMargin, .minYMargin]
+        let controlBar = NSBox(
+            frame: NSRect(
+                x: rootPadding,
+                y: controlBarY,
+                width: contentWidth,
+                height: controlBarHeight
+            )
+        )
+        controlBar.autoresizingMask = [.width, .minYMargin]
+        controlBar.boxType = .custom
+        controlBar.borderWidth = 0
+        controlBar.fillColor = controlBarBackground
+        controlBar.contentViewMargins = .zero
+        contentView.addSubview(controlBar)
+
+        let selector = NSPopUpButton(frame: NSRect(x: 0, y: 14, width: 220, height: 28))
+        selector.autoresizingMask = [.maxXMargin]
         selector.appearance = NSAppearance(named: .darkAqua)
         selector.contentTintColor = theme.text
         selector.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         selector.target = self
         selector.action = #selector(patternSelectionChanged(_:))
         selector.isHidden = true
-        contentView.addSubview(selector)
+        controlBar.addSubview(selector)
         patternSelector = selector
 
         let showAllCheckbox = NSButton(checkboxWithTitle: "Show all patterns", target: self, action: #selector(showAllPatternsToggled(_:)))
-        showAllCheckbox.frame = NSRect(x: sideInset + 230, y: controlsY, width: 180, height: 28)
-        showAllCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
+        showAllCheckbox.frame = NSRect(x: 230, y: 14, width: 180, height: 28)
+        showAllCheckbox.autoresizingMask = [.maxXMargin]
         showAllCheckbox.appearance = NSAppearance(named: .darkAqua)
         showAllCheckbox.contentTintColor = theme.accent
         showAllCheckbox.attributedTitle = NSAttributedString(
@@ -726,12 +732,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         showAllCheckbox.state = .off
         showAllCheckbox.isHidden = true
-        contentView.addSubview(showAllCheckbox)
+        controlBar.addSubview(showAllCheckbox)
         showAllPatternsCheckbox = showAllCheckbox
 
         let editModeCheckbox = NSButton(checkboxWithTitle: "Edit mode", target: self, action: #selector(editModeToggled(_:)))
-        editModeCheckbox.frame = NSRect(x: sideInset + 410, y: controlsY, width: 120, height: 28)
-        editModeCheckbox.autoresizingMask = [.maxXMargin, .minYMargin]
+        editModeCheckbox.frame = NSRect(x: 410, y: 14, width: 120, height: 28)
+        editModeCheckbox.autoresizingMask = [.maxXMargin]
         editModeCheckbox.appearance = NSAppearance(named: .darkAqua)
         editModeCheckbox.contentTintColor = theme.accent
         editModeCheckbox.attributedTitle = NSAttributedString(
@@ -743,29 +749,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         editModeCheckbox.state = .off
         editModeCheckbox.isHidden = true
-        contentView.addSubview(editModeCheckbox)
+        controlBar.addSubview(editModeCheckbox)
         self.editModeCheckbox = editModeCheckbox
 
+        let trackerPanel = NSBox(
+            frame: NSRect(
+                x: rootPadding,
+                y: trackerPanelY,
+                width: contentWidth,
+                height: trackerPanelHeight
+            )
+        )
+        trackerPanel.autoresizingMask = [.width, .height]
+        trackerPanel.boxType = .custom
+        trackerPanel.borderWidth = 0
+        trackerPanel.fillColor = trackerBackground
+        trackerPanel.contentViewMargins = .zero
+        contentView.addSubview(trackerPanel)
+
         let infoLabel = NSTextField(labelWithString: "")
-        infoLabel.frame = NSRect(x: sideInset, y: infoY, width: initialWindowSize.width - (sideInset * 2), height: 20)
+        infoLabel.frame = NSRect(x: 0, y: trackerPanel.bounds.height - 24, width: trackerPanel.bounds.width, height: 20)
         infoLabel.autoresizingMask = [.width, .minYMargin]
         infoLabel.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         infoLabel.textColor = theme.text
         infoLabel.lineBreakMode = .byTruncatingTail
+        infoLabel.backgroundColor = .clear
         infoLabel.isHidden = true
-        contentView.addSubview(infoLabel)
+        trackerPanel.addSubview(infoLabel)
         patternInfoLabel = infoLabel
 
         let headerScrollView = NSScrollView(
             frame: NSRect(
-                x: 20,
-                y: headerY,
-                width: initialWindowSize.width - 40,
-                height: 24
+                x: 0,
+                y: trackerPanel.bounds.height - trackerHeaderHeight,
+                width: trackerPanel.bounds.width,
+                height: channelHeaderHeight
             )
         )
-        headerScrollView.frame.origin.x = sideInset
-        headerScrollView.frame.size.width = initialWindowSize.width - (sideInset * 2)
         headerScrollView.autoresizingMask = [.width, .minYMargin]
         headerScrollView.hasVerticalScroller = false
         headerScrollView.hasHorizontalScroller = false
@@ -773,7 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerScrollView.horizontalScrollElasticity = .none
         headerScrollView.borderType = .noBorder
         headerScrollView.drawsBackground = true
-        headerScrollView.backgroundColor = theme.background
+        headerScrollView.backgroundColor = trackerBackground
 
         let headerTextView = PatternTextView(frame: headerScrollView.bounds)
         headerTextView.autoresizingMask = []
@@ -787,7 +807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
         headerTextView.textContainerInset = NSSize(width: 4, height: 2)
         headerTextView.drawsBackground = true
-        headerTextView.backgroundColor = theme.background
+        headerTextView.backgroundColor = trackerBackground
         headerTextView.textColor = theme.accent
         headerTextView.textContainer?.lineFragmentPadding = 0
         headerTextView.textContainer?.widthTracksTextView = false
@@ -797,22 +817,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.theme = theme
         headerScrollView.documentView = headerTextView
         headerScrollView.isHidden = true
-        contentView.addSubview(headerScrollView)
+        trackerPanel.addSubview(headerScrollView)
         patternHeaderScrollView = headerScrollView
         patternHeaderTextView = headerTextView
 
-        let bodyY: CGFloat = 20
-        let bodyHeight = headerY - bodyY - 6
+        let bodyY: CGFloat = 0
+        let bodyHeight = trackerPanel.bounds.height - trackerHeaderHeight - 8
 
         let scrollView = NSScrollView(
             frame: NSRect(
-                x: sideInset,
-                y: headerY,
-                width: initialWindowSize.width - (sideInset * 2),
+                x: 0,
+                y: bodyY,
+                width: trackerPanel.bounds.width,
                 height: bodyHeight
             )
         )
-        scrollView.frame.origin.y = bodyY
         scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
@@ -820,7 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scrollView.horizontalScrollElasticity = .none
         scrollView.borderType = .bezelBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = theme.background
+        scrollView.backgroundColor = trackerBackground
 
         let textView = PatternTextView(frame: scrollView.bounds)
         textView.autoresizingMask = []
@@ -833,7 +852,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.drawsBackground = true
-        textView.backgroundColor = theme.background
+        textView.backgroundColor = trackerBackground
         textView.textColor = theme.text
         textView.theme = theme
         textView.textContainerInset = NSSize(width: 4, height: 2)
@@ -873,7 +892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
-        contentView.addSubview(scrollView)
+        trackerPanel.addSubview(scrollView)
         metadataTextView = textView
         gridScrollView = scrollView
         lastGridViewportSize = scrollView.contentView.bounds.size
@@ -886,7 +905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "VoodooTracker X"
         window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = theme.background
+        window.backgroundColor = windowBackground
         window.titlebarAppearsTransparent = true
         window.center()
         window.contentView = contentView

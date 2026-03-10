@@ -1,4 +1,4 @@
-![VoodooTracker X](./assets/logo/vtx-logo-ascii.png)
+<img src="./assets/logo/vtx-logo.png" alt="VoodooTracker X" width="800" />
 
 **Voodoo Tracker X: A modern resurrection of the classic 1990s FastTracker-style demo scene tracker.**
 

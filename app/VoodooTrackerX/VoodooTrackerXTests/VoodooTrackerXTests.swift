@@ -255,7 +255,7 @@ private struct TestPatternViewportState: Equatable {
 }
 
 private struct TestPatternViewportTextLayout: Equatable {
-    static let rowNumberPrefixLength = 3
+    static let rowNumberPrefixLength = 4
 
     let slotRows: [Int?]
     let renderedLines: [String]
@@ -263,9 +263,19 @@ private struct TestPatternViewportTextLayout: Equatable {
     init(state: TestPatternViewportState) {
         slotRows = state.slotRows
         renderedLines = state.slotRows.map { row in
-            let rowNumber = row.map { String(format: "%02X", $0) } ?? "  "
-            return rowNumber + " " + "CELL"
+            let rowPrefix = String(repeating: " ", count: Self.rowNumberPrefixLength)
+            return rowPrefix + "CELL"
         }
+    }
+}
+
+private enum TestTrackerChromeGeometry {
+    static func pinnedGutterRowMinY(bodyMinY: CGFloat, insetHeight: CGFloat, slotIndex: Int, rowHeight: CGFloat) -> CGFloat {
+        bodyMinY + insetHeight + CGFloat(slotIndex) * rowHeight
+    }
+
+    static func bodyRowMinY(bodyMinY: CGFloat, insetHeight: CGFloat, slotIndex: Int, rowHeight: CGFloat) -> CGFloat {
+        bodyMinY + insetHeight + CGFloat(slotIndex) * rowHeight
     }
 }
 
@@ -399,13 +409,25 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(Array(layout.slotRows.suffix(blankTailCount)), Array(repeating: nil, count: blankTailCount))
     }
 
-    func testRenderedTextPlacesAnchorRowNumberOnSameLineAsBodyContent() {
+    func testRenderedTextReservesBlankRowPrefixForPinnedGutter() {
         let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
         let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
         let layout = TestPatternViewportTextLayout(state: state)
 
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "00 CELL")
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "   CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "    CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "    CELL")
+    }
+
+    func testPinnedGutterUsesSameSlotYAsBodyRows() {
+        let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
+        let state = TestPatternViewportState(currentRow: 12, rowCount: 64, metrics: metrics)
+        let anchorSlot = state.anchorRowIndex
+
+        let gutterY = TestTrackerChromeGeometry.pinnedGutterRowMinY(bodyMinY: 0, insetHeight: 2, slotIndex: anchorSlot, rowHeight: state.rowHeight)
+        let bodyY = TestTrackerChromeGeometry.bodyRowMinY(bodyMinY: 0, insetHeight: 2, slotIndex: anchorSlot, rowHeight: state.rowHeight)
+
+        XCTAssertEqual(state.slotRows[anchorSlot], 12)
+        XCTAssertEqual(gutterY, bodyY)
     }
 
     func testFieldCursorSurvivesRowNavigation() {

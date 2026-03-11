@@ -116,6 +116,23 @@ When debugging tracker UI, use this document as the fast session bootstrap and t
 - `docs/ui-debugging.md` for debugging workflow
 - `docs/visual-verification.md` for required visual checks
 
+Use the repo's canonical local build/run workflow before trying alternate launch methods:
+
+```bash
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -derivedDataPath build \
+  build
+```
+
+Then run:
+
+```bash
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
 When debugging tracker UI:
 
 ### Step 1 — Reproduce the problem
@@ -125,6 +142,8 @@ Load a real module file if necessary.
 ### Step 2 — Capture a screenshot
 
 Visual confirmation is often faster than code inspection.
+
+When permissions allow, agents should capture screenshots themselves and compare before/after states for the same reproduction path.
 
 ### Step 3 — Confirm expected vs actual behavior
 
@@ -194,8 +213,11 @@ These **must not be committed to the repository.**
 3. confirm expected vs actual behavior
 4. inspect model state
 5. inspect rendered geometry
-6. simplify architecture if needed
-7. verify visually
+6. automate reproduction if possible
+7. simplify architecture if needed
+8. verify visually
+
+Before high-risk UI iteration, create a checkpoint commit or tag so the session can safely return to the last known-good state.
 
 ---
 

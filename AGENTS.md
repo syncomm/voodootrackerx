@@ -34,6 +34,9 @@ This document defines the rules and expectations for any automated agent (Codex 
 - Do not commit debugging artifacts, screenshots, or local copyrighted test modules.
 - For tracker viewport changes, verify: anchor row, gutter alignment, wraparound, and no phantom rows.
 - Keep tracker UI PRs narrowly scoped and visually verified before commit.
+- Use the repo's canonical local build/run workflow before inventing alternate launch methods.
+- When permissions allow, reproduce the issue, capture screenshots, and iterate independently before asking for repeated manual checks.
+- Create a checkpoint commit or tag before risky UI refactors or multi-step viewport changes.
 
 ---
 
@@ -164,6 +167,15 @@ Screenshots are strongly recommended for visual regressions.
 When tooling permissions allow it, agents should capture their own screenshots during UI debugging instead of relying only on textual reports.
 
 When debugging tracker UI, prefer manual GUI verification early instead of repeated speculative code changes.
+
+When debugging app behavior, use the project's canonical local build/run path first.
+
+When reproduction can be automated, agents should:
+- launch the app themselves
+- drive the UI with keyboard or mouse automation when possible
+- compare before/after screenshots for the same scenario
+
+Before risky UI iteration, create a checkpoint commit or tag so the session can safely return to the last known-good state.
 
 Acceptable debugging artifacts:
 - screenshots

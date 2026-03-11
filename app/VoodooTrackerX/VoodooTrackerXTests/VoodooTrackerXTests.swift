@@ -256,6 +256,7 @@ private struct TestPatternViewportState: Equatable {
 
 private struct TestPatternViewportTextLayout: Equatable {
     static let rowNumberPrefixLength = 4
+    static let leadingChannelPaddingLength = 1
 
     let slotRows: [Int?]
     let renderedLines: [String]
@@ -264,18 +265,46 @@ private struct TestPatternViewportTextLayout: Equatable {
         slotRows = state.slotRows
         renderedLines = state.slotRows.map { row in
             let rowPrefix = String(repeating: " ", count: Self.rowNumberPrefixLength)
-            return rowPrefix + "CELL"
+            let leadingChannelPadding = String(repeating: " ", count: Self.leadingChannelPaddingLength)
+            return rowPrefix + leadingChannelPadding + "CELL"
         }
     }
 }
 
 private enum TestTrackerChromeGeometry {
+    static let dividerClearance: CGFloat = 4
+    static let rowNumberPadding: CGFloat = 2
+
     static func pinnedGutterRowMinY(bodyMinY: CGFloat, insetHeight: CGFloat, slotIndex: Int, rowHeight: CGFloat) -> CGFloat {
         bodyMinY + insetHeight + CGFloat(slotIndex) * rowHeight
     }
 
     static func bodyRowMinY(bodyMinY: CGFloat, insetHeight: CGFloat, slotIndex: Int, rowHeight: CGFloat) -> CGFloat {
         bodyMinY + insetHeight + CGFloat(slotIndex) * rowHeight
+    }
+
+    static func visibleGutterWidth(for dividerX: CGFloat, rowNumberWidth: CGFloat) -> CGFloat {
+        let maxWidthBeforeDivider = max(0, floor(dividerX - dividerClearance))
+        let preferredWidth = ceil(rowNumberWidth) + rowNumberPadding
+        return min(maxWidthBeforeDivider, preferredWidth)
+    }
+
+    static func targetOriginXForCursorVisibility(
+        visibleMinX: CGFloat,
+        visibleMaxX: CGFloat,
+        leftObstructionWidth: CGFloat,
+        targetMinX: CGFloat,
+        targetMaxX: CGFloat,
+        maxOriginX: CGFloat
+    ) -> CGFloat {
+        let effectiveVisibleMinX = visibleMinX + leftObstructionWidth
+        if targetMinX < effectiveVisibleMinX {
+            return max(0, targetMinX - leftObstructionWidth)
+        }
+        if targetMaxX > visibleMaxX {
+            return min(maxOriginX, targetMaxX - (visibleMaxX - visibleMinX))
+        }
+        return visibleMinX
     }
 }
 
@@ -414,8 +443,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
         let layout = TestPatternViewportTextLayout(state: state)
 
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "    CELL")
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "    CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "     CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "     CELL")
     }
 
     func testPinnedGutterUsesSameSlotYAsBodyRows() {
@@ -428,6 +457,29 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(state.slotRows[anchorSlot], 12)
         XCTAssertEqual(gutterY, bodyY)
+    }
+
+    func testPinnedGutterLeavesClearanceBeforeGridBoundary() {
+        XCTAssertEqual(TestTrackerChromeGeometry.visibleGutterWidth(for: 36, rowNumberWidth: 16), 18)
+        XCTAssertEqual(TestTrackerChromeGeometry.visibleGutterWidth(for: 4, rowNumberWidth: 16), 0)
+    }
+
+    func testPinnedGutterPrefersTwoDigitColumnWidthOverHiddenRowPrefixWidth() {
+        XCTAssertEqual(TestTrackerChromeGeometry.visibleGutterWidth(for: 80, rowNumberWidth: 16), 18)
+        XCTAssertEqual(TestTrackerChromeGeometry.visibleGutterWidth(for: 12, rowNumberWidth: 16), 8)
+    }
+
+    func testHorizontalCursorVisibilityAccountsForPinnedGutterObstruction() {
+        let targetOriginX = TestTrackerChromeGeometry.targetOriginXForCursorVisibility(
+            visibleMinX: 40,
+            visibleMaxX: 240,
+            leftObstructionWidth: 18,
+            targetMinX: 50,
+            targetMaxX: 70,
+            maxOriginX: 400
+        )
+
+        XCTAssertEqual(targetOriginX, 32)
     }
 
     func testFieldCursorSurvivesRowNavigation() {

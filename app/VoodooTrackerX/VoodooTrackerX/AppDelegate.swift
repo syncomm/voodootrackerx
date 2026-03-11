@@ -31,6 +31,17 @@ private struct TrackerTheme {
     )
 }
 
+private enum TrackerPinnedGutterGeometry {
+    static let dividerClearance: CGFloat = PatternCursorOutlineGeometry.outwardPadding + 2
+    static let rowNumberPadding: CGFloat = 2
+
+    static func visibleWidth(for dividerX: CGFloat, rowNumberWidth: CGFloat) -> CGFloat {
+        let maxWidthBeforeDivider = max(0, floor(dividerX - dividerClearance))
+        let preferredWidth = ceil(rowNumberWidth) + rowNumberPadding
+        return min(maxWidthBeforeDivider, preferredWidth)
+    }
+}
+
 enum TrackerInteractionMode: Equatable {
     case navigation
     case playOnly
@@ -120,6 +131,7 @@ struct PatternViewportState: Equatable {
 
 struct PatternViewportTextLayout: Equatable {
     static let rowNumberPrefixLength = 4
+    static let leadingChannelPaddingLength = max(1, ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2)
 
     let renderedText: String
     let slotRows: [Int?]
@@ -133,6 +145,7 @@ struct PatternViewportTextLayout: Equatable {
         state: PatternViewportState
     ) {
         let separator = String(repeating: " ", count: ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let leadingChannelPadding = String(repeating: " ", count: Self.leadingChannelPaddingLength)
         let gridWidth = max(0, pattern.channels) * ModuleMetadataLoader.xmRenderedCellWidth +
             max(0, pattern.channels - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth
         let gridBlank = String(repeating: " ", count: gridWidth)
@@ -155,11 +168,11 @@ struct PatternViewportTextLayout: Equatable {
                 gridLine = gridBlank
             }
 
-            let renderedLine = rowPrefix + gridLine
+            let renderedLine = rowPrefix + leadingChannelPadding + gridLine
             let fullRange = NSRange(location: gridOffset, length: renderedLine.utf16.count)
             slotFullRanges.append(fullRange)
             let gridRange = NSRange(
-                location: gridOffset + Self.rowNumberPrefixLength,
+                location: gridOffset + Self.rowNumberPrefixLength + Self.leadingChannelPaddingLength,
                 length: gridLine.utf16.count
             )
             slotGridRanges.append(gridRange)
@@ -248,7 +261,7 @@ private final class TrackerChromeOverlayView: NSView {
 
         let boundaryPath = NSBezierPath()
         boundaryPath.lineWidth = 1
-        let boundaryX = max(dividerX, gutterRect.maxX) + 0.5
+        let boundaryX = gutterRect.maxX + 0.5
         boundaryPath.move(to: NSPoint(x: boundaryX, y: bodyFrame.minY))
         boundaryPath.line(to: NSPoint(x: boundaryX, y: headerFrame.maxY))
         theme.separator.setStroke()
@@ -284,7 +297,7 @@ private final class TrackerChromeOverlayView: NSView {
             let textRect = NSRect(
                 x: rowRect.minX,
                 y: rowRect.minY + floor((rowRect.height - textSize.height) * 0.5),
-                width: max(0, rowRect.width - 4),
+                width: max(0, rowRect.width - 1),
                 height: textSize.height
             )
             string.draw(in: textRect, withAttributes: textAttributes)
@@ -1460,9 +1473,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let horizontalMargin = PatternCursorOutlineGeometry.scrollMargin.width
         let targetMinX = cursorRect.minX - horizontalMargin
         let targetMaxX = cursorRect.maxX + horizontalMargin
+        let leftObstructionWidth = trackerChromeOverlayView?.dividerX ?? 0
         var targetOrigin = visibleRect.origin
-        if targetMinX < visibleRect.minX {
-            targetOrigin.x = max(0, targetMinX)
+        let visibleMinX = visibleRect.minX + leftObstructionWidth
+        if targetMinX < visibleMinX {
+            targetOrigin.x = max(0, targetMinX - leftObstructionWidth)
         } else if targetMaxX > visibleRect.maxX {
             let maxOriginX = max(0, textView.frame.width - visibleRect.width)
             targetOrigin.x = min(maxOriginX, targetMaxX - visibleRect.width)
@@ -1576,7 +1591,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let headerPrefixLength = PatternViewportTextLayout.rowNumberPrefixLength
-        let attributed = NSMutableAttributedString(string: String(repeating: " ", count: headerPrefixLength) + headerText)
+        let headerLeadingPadding = String(repeating: " ", count: PatternViewportTextLayout.leadingChannelPaddingLength)
+        let attributed = NSMutableAttributedString(
+            string: String(repeating: " ", count: headerPrefixLength) + headerLeadingPadding + headerText
+        )
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byClipping
         attributed.addAttributes(
@@ -1595,7 +1613,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var indices = [Int]()
         indices.reserveCapacity(max(0, channels - 1))
         for divider in 1..<channels {
-            let separatorStart = headerPrefixLength + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
+            let separatorStart = headerPrefixLength + PatternViewportTextLayout.leadingChannelPaddingLength +
+                (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
                 ((divider - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
             indices.append(separatorStart + separatorMidOffset)
         }
@@ -1652,8 +1671,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let gridGlyphRange = layoutManager.glyphRange(forCharacterRange: firstGridRange, actualCharacterRange: nil)
         let firstGridGlyphIndex = gridGlyphRange.location
         let firstGridGlyphLocation = layoutManager.location(forGlyphAt: firstGridGlyphIndex)
-        let gutterBoundaryX = floor(textView.textContainerOrigin.x + firstGridGlyphLocation.x)
-        let visibleDividerX = max(0, gutterBoundaryX - 2)
+        let leadingChannelPaddingWidth = NSString(
+            string: String(repeating: " ", count: PatternViewportTextLayout.leadingChannelPaddingLength)
+        ).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+        let gutterBoundaryX = floor(textView.textContainerOrigin.x + firstGridGlyphLocation.x - leadingChannelPaddingWidth)
+        let rowNumberWidth = NSString(string: "00").size(
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]
+        ).width
+        let visibleDividerX = TrackerPinnedGutterGeometry.visibleWidth(for: gutterBoundaryX, rowNumberWidth: rowNumberWidth)
 
         trackerChromeOverlayView.viewportState = viewportState
         trackerChromeOverlayView.currentRow = cursor.row

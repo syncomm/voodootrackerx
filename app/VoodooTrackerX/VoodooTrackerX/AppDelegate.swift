@@ -47,7 +47,12 @@ struct PatternCursorOutlineGeometry {
     }
 
     static func minimumVisibleBounds(for bounds: NSRect) -> NSRect {
-        bounds.insetBy(dx: outwardPadding, dy: outwardPadding)
+        NSRect(
+            x: bounds.minX,
+            y: bounds.minY + outwardPadding,
+            width: max(0, bounds.width - outwardPadding),
+            height: max(0, bounds.height - (outwardPadding * 2))
+        )
     }
 }
 
@@ -207,6 +212,9 @@ private final class TrackerChromeOverlayView: NSView {
     var gutterWidth: CGFloat = 0 {
         didSet { needsDisplay = true }
     }
+    var dividerX: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
     var beatInterval: Int = PatternGridPreferences.defaultBeatAccentInterval {
         didSet { needsDisplay = true }
     }
@@ -237,6 +245,14 @@ private final class TrackerChromeOverlayView: NSView {
         let headerCornerRect = NSRect(x: headerFrame.minX, y: headerFrame.minY, width: gutterWidth, height: headerFrame.height)
         chromeBackgroundColor.setFill()
         headerCornerRect.fill()
+
+        let boundaryPath = NSBezierPath()
+        boundaryPath.lineWidth = 1
+        let boundaryX = max(dividerX, gutterRect.maxX) + 0.5
+        boundaryPath.move(to: NSPoint(x: boundaryX, y: bodyFrame.minY))
+        boundaryPath.line(to: NSPoint(x: boundaryX, y: headerFrame.maxY))
+        theme.separator.setStroke()
+        boundaryPath.stroke()
 
         NSGraphicsContext.current?.saveGraphicsState()
         NSBezierPath(rect: gutterRect).addClip()
@@ -277,10 +293,10 @@ private final class TrackerChromeOverlayView: NSView {
 }
 
 private final class TrackerDividerUnderlayView: NSView {
-    weak var headerTextView: PatternTextView? {
+    weak var headerScrollView: NSScrollView? {
         didSet { needsDisplay = true }
     }
-    weak var headerScrollView: NSScrollView? {
+    weak var bodyTextView: PatternTextView? {
         didSet { needsDisplay = true }
     }
     weak var bodyScrollView: NSScrollView? {
@@ -292,26 +308,30 @@ private final class TrackerDividerUnderlayView: NSView {
     var gutterWidth: CGFloat = 0 {
         didSet { needsDisplay = true }
     }
+    var dividerX: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let headerTextView,
-              let headerScrollView,
+        guard let bodyTextView,
               let bodyScrollView,
-              let layoutManager = headerTextView.layoutManager else {
+              let headerScrollView,
+              let layoutManager = bodyTextView.layoutManager else {
             return
         }
 
-        let textLength = (headerTextView.string as NSString).length
+        let textLength = (bodyTextView.string as NSString).length
         guard textLength > 0 else { return }
 
         let headerFrame = headerScrollView.frame
         let bodyFrame = bodyScrollView.frame
-        let minimumDividerX = bodyFrame.minX + gutterWidth + 0.5
-        let visibleHeaderX = headerScrollView.contentView.bounds.origin.x
+        let minimumDividerX = bodyFrame.minX + max(dividerX, gutterWidth) + 0.5
+
+        let visibleBodyX = bodyScrollView.contentView.bounds.origin.x
         let path = NSBezierPath()
         path.lineWidth = 1
 
@@ -325,11 +345,11 @@ private final class TrackerDividerUnderlayView: NSView {
         NSBezierPath(rect: clipRect).addClip()
         defer { NSGraphicsContext.current?.restoreGraphicsState() }
 
-        for characterIndex in headerTextView.dividerCharacterIndices {
+        for characterIndex in bodyTextView.dividerCharacterIndices {
             let clampedIndex = min(max(0, characterIndex), textLength - 1)
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: clampedIndex)
             let location = layoutManager.location(forGlyphAt: glyphIndex)
-            let x = headerFrame.minX + headerTextView.textContainerOrigin.x + location.x - visibleHeaderX + 0.5
+            let x = bodyFrame.minX + bodyTextView.textContainerOrigin.x + location.x - visibleBodyX + 0.5
             guard x >= minimumDividerX else { continue }
             path.move(to: NSPoint(x: x, y: bodyFrame.minY))
             path.line(to: NSPoint(x: x, y: headerFrame.maxY))
@@ -1012,7 +1032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 24)
         headerTextView.textContainer?.lineBreakMode = .byClipping
         headerTextView.theme = theme
-        headerTextView.drawsDividers = true
+        headerTextView.drawsDividers = false
         headerScrollView.documentView = headerTextView
         headerScrollView.isHidden = true
         trackerPanel.addSubview(headerScrollView)
@@ -1053,7 +1073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.backgroundColor = trackerBackground
         textView.textColor = theme.text
         textView.theme = theme
-        textView.drawsDividers = true
+        textView.drawsDividers = false
         textView.textContainerInset = NSSize(width: 4, height: 2)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = false
@@ -1094,13 +1114,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dividerUnderlay = TrackerDividerUnderlayView(frame: trackerPanel.bounds)
         dividerUnderlay.autoresizingMask = [.width, .height]
         dividerUnderlay.theme = theme
-        dividerUnderlay.headerTextView = headerTextView
         dividerUnderlay.headerScrollView = headerScrollView
+        dividerUnderlay.bodyTextView = textView
         dividerUnderlay.bodyScrollView = scrollView
         dividerUnderlay.isHidden = true
-        trackerPanel.addSubview(dividerUnderlay)
-        trackerDividerUnderlayView = dividerUnderlay
-
         trackerPanel.addSubview(scrollView)
         metadataTextView = textView
         gridScrollView = scrollView
@@ -1116,6 +1133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         chromeOverlay.isHidden = true
         trackerPanel.addSubview(chromeOverlay)
         trackerChromeOverlayView = chromeOverlay
+        trackerPanel.addSubview(dividerUnderlay, positioned: .below, relativeTo: chromeOverlay)
+        trackerDividerUnderlayView = dividerUnderlay
 
         let window = NSWindow(
             contentRect: contentView.frame,
@@ -1184,7 +1203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 editModeCheckbox?.isHidden = false
                 patternInfoLabel?.isHidden = false
                 patternHeaderScrollView?.isHidden = false
-                trackerDividerUnderlayView?.isHidden = true
+                trackerDividerUnderlayView?.isHidden = false
                 trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
                 renderCurrentPattern(metadata: metadata)
@@ -1541,8 +1560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rowStart = firstVisibleRowRange.location
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels))
-        indices.append(rowStart)
+        indices.reserveCapacity(max(0, channels - 1))
 
         for divider in 1..<channels {
             let separatorStart = rowStart + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
@@ -1575,8 +1593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.setFrameSize(NSSize(width: max(viewportWidth, attributed.size().width + 16), height: 24))
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels))
-        indices.append(headerPrefixLength)
+        indices.reserveCapacity(max(0, channels - 1))
         for divider in 1..<channels {
             let separatorStart = headerPrefixLength + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
                 ((divider - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
@@ -1636,11 +1653,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let firstGridGlyphIndex = gridGlyphRange.location
         let firstGridGlyphLocation = layoutManager.location(forGlyphAt: firstGridGlyphIndex)
         let gutterBoundaryX = floor(textView.textContainerOrigin.x + firstGridGlyphLocation.x)
+        let visibleDividerX = max(0, gutterBoundaryX - 2)
 
         trackerChromeOverlayView.viewportState = viewportState
         trackerChromeOverlayView.currentRow = cursor.row
-        trackerChromeOverlayView.gutterWidth = max(0, gutterBoundaryX)
-        trackerDividerUnderlayView?.gutterWidth = max(0, gutterBoundaryX)
+        trackerChromeOverlayView.gutterWidth = visibleDividerX
+        trackerChromeOverlayView.dividerX = gutterBoundaryX
+        trackerDividerUnderlayView?.gutterWidth = visibleDividerX
+        trackerDividerUnderlayView?.dividerX = gutterBoundaryX
         trackerChromeOverlayView.beatInterval = PatternGridPreferences.beatAccentInterval
         trackerChromeOverlayView.rowEntries = layout.slotRows.enumerated().compactMap { slotIndex, rowIndex in
             let characterRange = layout.slotFullRanges[slotIndex]

@@ -308,6 +308,13 @@ private enum TestTrackerChromeGeometry {
     }
 }
 
+private enum TestTrackerViewportScrollGeometry {
+    static func clampedHorizontalOrigin(preferredOriginX: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
+        let maxOriginX = max(0, contentWidth - viewportWidth)
+        return min(max(0, preferredOriginX), maxOriginX)
+    }
+}
+
 private enum TestPatternCursorOutlineGeometry {
     static func strokeRect(for fieldRect: CGRect) -> CGRect {
         fieldRect.insetBy(dx: -2, dy: -2)
@@ -480,6 +487,26 @@ final class VoodooTrackerXTests: XCTestCase {
         )
 
         XCTAssertEqual(targetOriginX, 32)
+    }
+
+    func testResizeKeepsLastStableHorizontalViewportOriginWhenPossible() {
+        let originX = TestTrackerViewportScrollGeometry.clampedHorizontalOrigin(
+            preferredOriginX: 120,
+            contentWidth: 480,
+            viewportWidth: 240
+        )
+
+        XCTAssertEqual(originX, 120)
+    }
+
+    func testResizeClampsLastStableHorizontalViewportOriginWhenViewportWidens() {
+        let originX = TestTrackerViewportScrollGeometry.clampedHorizontalOrigin(
+            preferredOriginX: 300,
+            contentWidth: 480,
+            viewportWidth: 320
+        )
+
+        XCTAssertEqual(originX, 160)
     }
 
     func testFieldCursorSurvivesRowNavigation() {

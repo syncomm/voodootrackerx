@@ -92,6 +92,17 @@ struct PatternViewportMetrics: Equatable {
     }
 }
 
+private enum TrackerViewportScrollGeometry {
+    static func clampedHorizontalOrigin(
+        preferredOriginX: CGFloat,
+        contentWidth: CGFloat,
+        viewportWidth: CGFloat
+    ) -> CGFloat {
+        let maxOriginX = max(0, contentWidth - viewportWidth)
+        return min(max(0, preferredOriginX), maxOriginX)
+    }
+}
+
 struct PatternViewportState: Equatable {
     let currentRow: Int
     let anchorRowIndex: Int
@@ -766,6 +777,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isEditModeEnabled = false
     private var isPlaybackModeActive = false
     private var lastGridViewportSize = NSSize.zero
+    private var lastStableGridHorizontalOrigin: CGFloat = 0
+    private var pendingHorizontalViewportOrigin: CGFloat?
 
     static func main() {
         let app = NSApplication.shared
@@ -1545,9 +1558,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func syncTrackerViewport() {
-        guard let scrollView = gridScrollView else { return }
+        guard let scrollView = gridScrollView,
+              let documentView = scrollView.documentView else { return }
         let currentOrigin = scrollView.contentView.bounds.origin
-        scrollView.contentView.scroll(to: NSPoint(x: currentOrigin.x, y: 0))
+        let preferredOriginX = pendingHorizontalViewportOrigin ?? currentOrigin.x
+        let clampedOriginX = TrackerViewportScrollGeometry.clampedHorizontalOrigin(
+            preferredOriginX: preferredOriginX,
+            contentWidth: documentView.frame.width,
+            viewportWidth: scrollView.contentView.bounds.width
+        )
+        pendingHorizontalViewportOrigin = nil
+        scrollView.contentView.scroll(to: NSPoint(x: clampedOriginX, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         syncStickyPanesToGrid()
     }
@@ -1555,6 +1576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func syncStickyPanesToGrid() {
         guard let gridClipView = gridScrollView?.contentView else { return }
         let origin = gridClipView.bounds.origin
+        lastStableGridHorizontalOrigin = origin.x
         if let patternHeaderScrollView {
             patternHeaderScrollView.contentView.scroll(to: NSPoint(x: origin.x, y: 0))
             patternHeaderScrollView.reflectScrolledClipView(patternHeaderScrollView.contentView)
@@ -1650,6 +1672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let metadata = loadedMetadata,
            metadata.type == "XM",
            metadata.xmPatterns.indices.contains(currentPatternIndex) {
+            pendingHorizontalViewportOrigin = lastStableGridHorizontalOrigin
             lastGridViewportSize = viewportSize
             renderCurrentPattern(metadata: metadata)
             return

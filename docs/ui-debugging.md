@@ -14,12 +14,15 @@ Unit tests may pass while the visual output is still incorrect.
 # General Debugging Workflow
 
 1. Reproduce the issue consistently.
-2. Capture a screenshot of the current UI state. When tooling permissions allow it, agents should capture their own screenshots instead of relying only on textual reports.
-3. Describe the expected behavior.
-4. Compare the expected result with the actual result.
-5. Verify the underlying model and viewport state.
-6. If the model is correct, inspect the rendered geometry.
-7. If multiple render paths exist, simplify the layout and remove duplicated geometry logic where possible.
+2. Use the project's canonical local build/run workflow before inventing alternate launch methods.
+3. Capture a screenshot of the current UI state. When tooling permissions allow it, agents should capture their own screenshots instead of relying only on textual reports.
+4. If reproduction can be automated, drive the UI with keyboard or mouse automation so the same scenario can be replayed repeatedly.
+5. Describe the expected behavior.
+6. Compare the expected result with the actual result.
+7. Verify the underlying model and viewport state.
+8. If the model is correct, inspect the rendered geometry.
+9. Compare before/after screenshots for the same scenario after each meaningful change.
+10. If multiple render paths exist, simplify the layout and remove duplicated geometry logic where possible.
 
 ---
 
@@ -82,8 +85,11 @@ When debugging visual issues:
 Do:
 
 - capture screenshots early
+- use the repo-standard build/run path
 - verify expected vs actual behavior
 - inspect rendered geometry
+- automate reproduction when possible
+- compare before/after screenshots
 - simplify layout if possible
 
 Do not:
@@ -91,6 +97,8 @@ Do not:
 - repeatedly tweak offsets blindly
 - assume passing tests guarantee correct rendering
 - maintain parallel layout logic for the same rows
+
+Before risky UI iteration, create a checkpoint commit or tag so the last known-good state is easy to restore.
 
 ---
 

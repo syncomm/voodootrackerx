@@ -24,6 +24,8 @@ Always verify visually when modifying:
 1. Build and launch the application.
 2. Load a real tracker module.
 3. Capture screenshots of key states. When tooling permissions allow it, agents should capture their own screenshots instead of relying only on textual reports.
+4. Prefer a known-good reference screenshot when one exists.
+5. Compare before/after screenshots for the same reproduction path.
 
 ---
 
@@ -67,11 +69,30 @@ Expected:
 
 ---
 
+5. **Resize Behavior**
+
+Expected:
+- enlarging the window preserves the current horizontal viewport
+- the tracker does not jump to the far-right channels
+
+---
+
+6. **Overlay / Clipping Behavior**
+
+Expected:
+- pinned gutter and pinned headers remain visible
+- cursor remains visible near the left edge
+- no hidden duplicate text peeks out under overlays
+
+---
+
 # Screenshot Guidelines
 
 Screenshots should be used for debugging but must not be committed.
 
 If needed they may be temporarily saved locally during development.
+
+When reproduction can be automated, agents should also capture screenshots before and after the automated interaction.
 
 ---
 

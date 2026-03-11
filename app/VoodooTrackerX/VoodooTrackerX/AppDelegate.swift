@@ -23,12 +23,23 @@ private struct TrackerTheme {
     static let legacyDark = TrackerTheme(
         background: NSColor(srgbRed: 0x1C / 255.0, green: 0x1C / 255.0, blue: 0x1C / 255.0, alpha: 1.0),
         text: NSColor(calibratedRed: 0.96, green: 0.97, blue: 0.93, alpha: 1.0),
-        accent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.35, alpha: 1.0),
-        beatAccent: NSColor(calibratedRed: 1.0, green: 0.90, blue: 0.28, alpha: 0.24),
+        accent: NSColor(srgbRed: 0xC9 / 255.0, green: 0xA7 / 255.0, blue: 0x4A / 255.0, alpha: 1.0),
+        beatAccent: NSColor(srgbRed: 0xC9 / 255.0, green: 0xA7 / 255.0, blue: 0x4A / 255.0, alpha: 0.22),
         cursorOutline: NSColor(calibratedRed: 1.0, green: 0.26, blue: 0.18, alpha: 1.0),
         rowHighlight: NSColor(calibratedRed: 0.27, green: 0.31, blue: 0.41, alpha: 0.95),
-        separator: NSColor(calibratedRed: 0.97, green: 0.84, blue: 0.42, alpha: 0.72)
+        separator: NSColor(srgbRed: 0xC9 / 255.0, green: 0xA7 / 255.0, blue: 0x4A / 255.0, alpha: 0.74)
     )
+}
+
+private enum TrackerPinnedGutterGeometry {
+    static let dividerClearance: CGFloat = PatternCursorOutlineGeometry.outwardPadding + 2
+    static let rowNumberPadding: CGFloat = 2
+
+    static func visibleWidth(for dividerX: CGFloat, rowNumberWidth: CGFloat) -> CGFloat {
+        let maxWidthBeforeDivider = max(0, floor(dividerX - dividerClearance))
+        let preferredWidth = ceil(rowNumberWidth) + rowNumberPadding
+        return min(maxWidthBeforeDivider, preferredWidth)
+    }
 }
 
 enum TrackerInteractionMode: Equatable {
@@ -47,7 +58,12 @@ struct PatternCursorOutlineGeometry {
     }
 
     static func minimumVisibleBounds(for bounds: NSRect) -> NSRect {
-        bounds.insetBy(dx: outwardPadding, dy: outwardPadding)
+        NSRect(
+            x: bounds.minX,
+            y: bounds.minY + outwardPadding,
+            width: max(0, bounds.width - outwardPadding),
+            height: max(0, bounds.height - (outwardPadding * 2))
+        )
     }
 }
 
@@ -73,6 +89,17 @@ struct PatternViewportMetrics: Equatable {
     func contentHeight(forRenderedRowCount renderedRowCount: Int, insetHeight: CGFloat) -> CGFloat {
         let renderedHeight = CGFloat(max(0, renderedRowCount)) * rowHeight
         return renderedHeight + insetHeight * 2 + 2
+    }
+}
+
+private enum TrackerViewportScrollGeometry {
+    static func clampedHorizontalOrigin(
+        preferredOriginX: CGFloat,
+        contentWidth: CGFloat,
+        viewportWidth: CGFloat
+    ) -> CGFloat {
+        let maxOriginX = max(0, contentWidth - viewportWidth)
+        return min(max(0, preferredOriginX), maxOriginX)
     }
 }
 
@@ -114,10 +141,12 @@ struct PatternViewportState: Equatable {
 }
 
 struct PatternViewportTextLayout: Equatable {
-    static let rowNumberPrefixLength = 3
+    static let rowNumberPrefixLength = 4
+    static let leadingChannelPaddingLength = 0
 
     let renderedText: String
     let slotRows: [Int?]
+    let slotFullRanges: [NSRange]
     let slotGridRanges: [NSRange]
     let gridRangesByRow: [Int: NSRange]
     let fullRangesByRow: [Int: NSRange]
@@ -127,11 +156,13 @@ struct PatternViewportTextLayout: Equatable {
         state: PatternViewportState
     ) {
         let separator = String(repeating: " ", count: ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
+        let leadingChannelPadding = String(repeating: " ", count: Self.leadingChannelPaddingLength)
         let gridWidth = max(0, pattern.channels) * ModuleMetadataLoader.xmRenderedCellWidth +
             max(0, pattern.channels - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth
         let gridBlank = String(repeating: " ", count: gridWidth)
 
         var renderedLines = [String]()
+        var slotFullRanges = [NSRange]()
         var slotGridRanges = [NSRange]()
         var gridRangesByRow = [Int: NSRange]()
         var fullRangesByRow = [Int: NSRange]()
@@ -140,7 +171,7 @@ struct PatternViewportTextLayout: Equatable {
         for slotIndex in 0..<state.visibleRowCount {
             let rowIndex = state.rowIndex(forSlot: slotIndex)
             let gridLine: String
-            let rowNumber = rowIndex.map { String(format: "%02X", $0) } ?? "  "
+            let rowPrefix = String(repeating: " ", count: Self.rowNumberPrefixLength)
 
             if let rowIndex {
                 gridLine = pattern.rows[rowIndex].map(ModuleMetadataLoader.formatXMCell).joined(separator: separator)
@@ -148,10 +179,11 @@ struct PatternViewportTextLayout: Equatable {
                 gridLine = gridBlank
             }
 
-            let renderedLine = rowNumber + " " + gridLine
+            let renderedLine = rowPrefix + leadingChannelPadding + gridLine
             let fullRange = NSRange(location: gridOffset, length: renderedLine.utf16.count)
+            slotFullRanges.append(fullRange)
             let gridRange = NSRange(
-                location: gridOffset + Self.rowNumberPrefixLength,
+                location: gridOffset + Self.rowNumberPrefixLength + Self.leadingChannelPaddingLength,
                 length: gridLine.utf16.count
             )
             slotGridRanges.append(gridRange)
@@ -167,9 +199,188 @@ struct PatternViewportTextLayout: Equatable {
 
         self.renderedText = renderedLines.joined(separator: "\n")
         self.slotRows = state.slotRows
+        self.slotFullRanges = slotFullRanges
         self.slotGridRanges = slotGridRanges
         self.gridRangesByRow = gridRangesByRow
         self.fullRangesByRow = fullRangesByRow
+    }
+}
+
+private final class TrackerChromeOverlayView: NSView {
+    struct RowEntry {
+        let rowIndex: Int?
+        let rect: NSRect
+    }
+
+    weak var headerScrollView: NSScrollView? {
+        didSet { needsDisplay = true }
+    }
+    weak var bodyTextView: PatternTextView? {
+        didSet { needsDisplay = true }
+    }
+    weak var bodyScrollView: NSScrollView? {
+        didSet { needsDisplay = true }
+    }
+    var theme = TrackerTheme.legacyDark {
+        didSet { needsDisplay = true }
+    }
+    var chromeBackgroundColor = NSColor.black {
+        didSet { needsDisplay = true }
+    }
+    var viewportState: PatternViewportState? {
+        didSet { needsDisplay = true }
+    }
+    var currentRow: Int = 0 {
+        didSet { needsDisplay = true }
+    }
+    var gutterWidth: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
+    var dividerX: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
+    var beatInterval: Int = PatternGridPreferences.defaultBeatAccentInterval {
+        didSet { needsDisplay = true }
+    }
+    var rowEntries = [RowEntry]() {
+        didSet { needsDisplay = true }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let viewportState,
+              let bodyScrollView,
+              let headerScrollView,
+              gutterWidth > 0 else {
+            return
+        }
+
+        drawPinnedGutter(in: bodyScrollView.frame, headerFrame: headerScrollView.frame, viewportState: viewportState)
+    }
+
+    private func drawPinnedGutter(in bodyFrame: NSRect, headerFrame: NSRect, viewportState: PatternViewportState) {
+        let gutterRect = NSRect(x: bodyFrame.minX, y: bodyFrame.minY, width: gutterWidth, height: bodyFrame.height)
+        chromeBackgroundColor.setFill()
+        gutterRect.fill()
+
+        let headerCornerRect = NSRect(x: headerFrame.minX, y: headerFrame.minY, width: gutterWidth, height: headerFrame.height)
+        chromeBackgroundColor.setFill()
+        headerCornerRect.fill()
+
+        let boundaryPath = NSBezierPath()
+        boundaryPath.lineWidth = 1
+        let boundaryX = gutterRect.maxX + 0.5
+        boundaryPath.move(to: NSPoint(x: boundaryX, y: bodyFrame.minY))
+        boundaryPath.line(to: NSPoint(x: boundaryX, y: headerFrame.maxY))
+        theme.separator.setStroke()
+        boundaryPath.stroke()
+
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSBezierPath(rect: gutterRect).addClip()
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .right
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: theme.text,
+            .paragraphStyle: paragraphStyle
+        ]
+
+        for entry in rowEntries where gutterRect.intersects(entry.rect) {
+            let rowRect = NSRect(x: gutterRect.minX, y: entry.rect.minY, width: gutterRect.width, height: entry.rect.height)
+            let rowIndex = entry.rowIndex
+            if let rowIndex, beatInterval > 0, rowIndex % beatInterval == 0 {
+                theme.beatAccent.setFill()
+                rowRect.fill()
+            }
+            if rowIndex == currentRow {
+                theme.rowHighlight.setFill()
+                rowRect.fill()
+            }
+            guard let rowIndex else { continue }
+
+            let string = NSString(string: String(format: "%02X", rowIndex))
+            let textSize = string.size(withAttributes: textAttributes)
+            let textRect = NSRect(
+                x: rowRect.minX,
+                y: rowRect.minY + floor((rowRect.height - textSize.height) * 0.5),
+                width: max(0, rowRect.width - 1),
+                height: textSize.height
+            )
+            string.draw(in: textRect, withAttributes: textAttributes)
+        }
+    }
+}
+
+private final class TrackerDividerUnderlayView: NSView {
+    weak var headerScrollView: NSScrollView? {
+        didSet { needsDisplay = true }
+    }
+    weak var bodyTextView: PatternTextView? {
+        didSet { needsDisplay = true }
+    }
+    weak var bodyScrollView: NSScrollView? {
+        didSet { needsDisplay = true }
+    }
+    var theme = TrackerTheme.legacyDark {
+        didSet { needsDisplay = true }
+    }
+    var gutterWidth: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
+    var dividerX: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let bodyTextView,
+              let bodyScrollView,
+              let headerScrollView,
+              let layoutManager = bodyTextView.layoutManager else {
+            return
+        }
+
+        let textLength = (bodyTextView.string as NSString).length
+        guard textLength > 0 else { return }
+
+        let headerFrame = headerScrollView.frame
+        let bodyFrame = bodyScrollView.frame
+        let minimumDividerX = bodyFrame.minX + max(dividerX, gutterWidth) + 0.5
+
+        let visibleBodyX = bodyScrollView.contentView.bounds.origin.x
+        let path = NSBezierPath()
+        path.lineWidth = 1
+
+        NSGraphicsContext.current?.saveGraphicsState()
+        let clipRect = NSRect(
+            x: minimumDividerX,
+            y: bodyFrame.minY,
+            width: max(0, bodyFrame.maxX - minimumDividerX),
+            height: headerFrame.maxY - bodyFrame.minY
+        )
+        NSBezierPath(rect: clipRect).addClip()
+        defer { NSGraphicsContext.current?.restoreGraphicsState() }
+
+        for characterIndex in bodyTextView.dividerCharacterIndices {
+            let clampedIndex = min(max(0, characterIndex), textLength - 1)
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: clampedIndex)
+            let location = layoutManager.location(forGlyphAt: glyphIndex)
+            let x = bodyFrame.minX + bodyTextView.textContainerOrigin.x + location.x - visibleBodyX + 0.5
+            guard x >= minimumDividerX else { continue }
+            path.move(to: NSPoint(x: x, y: bodyFrame.minY))
+            path.line(to: NSPoint(x: x, y: headerFrame.maxY))
+        }
+
+        theme.separator.setStroke()
+        path.stroke()
     }
 }
 
@@ -368,8 +579,14 @@ private final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
     var editInputHandler: ((PatternEditInput) -> Bool)?
     var wheelNavigationHandler: ((CGFloat) -> Void)?
+    private var preciseVerticalWheelAccumulator: CGFloat = 0
     var theme = TrackerTheme.legacyDark
     var dividerCharacterIndices = [Int]() {
+        didSet {
+            needsDisplay = true
+        }
+    }
+    var drawsDividers = true {
         didSet {
             needsDisplay = true
         }
@@ -429,9 +646,29 @@ private final class PatternTextView: NSTextView {
             return
         }
 
+        if event.phase == .ended || event.momentumPhase == .ended || event.momentumPhase == .cancelled {
+            preciseVerticalWheelAccumulator = 0
+        }
+
         let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY * 10
         guard abs(deltaY) > 0.01, abs(deltaY) >= abs(event.scrollingDeltaX) else {
             super.scrollWheel(with: event)
+            return
+        }
+
+        if event.hasPreciseScrollingDeltas {
+            preciseVerticalWheelAccumulator += deltaY
+            let stepThreshold: CGFloat = 18
+
+            while preciseVerticalWheelAccumulator <= -stepThreshold {
+                wheelNavigationHandler(-stepThreshold)
+                preciseVerticalWheelAccumulator += stepThreshold
+            }
+
+            while preciseVerticalWheelAccumulator >= stepThreshold {
+                wheelNavigationHandler(stepThreshold)
+                preciseVerticalWheelAccumulator -= stepThreshold
+            }
             return
         }
 
@@ -470,7 +707,8 @@ private final class PatternTextView: NSTextView {
     }
 
     private func drawChannelDividers() {
-        guard !dividerCharacterIndices.isEmpty,
+        guard drawsDividers,
+              !dividerCharacterIndices.isEmpty,
               let layoutManager else {
             return
         }
@@ -518,6 +756,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var patternHeaderTextView: PatternTextView?
     private var patternHeaderScrollView: NSScrollView?
     private var gridScrollView: NSScrollView?
+    private var trackerDividerUnderlayView: TrackerDividerUnderlayView?
+    private var trackerChromeOverlayView: TrackerChromeOverlayView?
     private var patternSelector: NSPopUpButton?
     private var showAllPatternsCheckbox: NSButton?
     private var editModeCheckbox: NSButton?
@@ -529,6 +769,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var visibleGridRangesByRow = [Int: NSRange]()
     private var currentViewportState: PatternViewportState?
+    private var currentViewportLayout: PatternViewportTextLayout?
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let initialWindowSize = NSSize(width: 1120, height: 900)
@@ -536,6 +777,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isEditModeEnabled = false
     private var isPlaybackModeActive = false
     private var lastGridViewportSize = NSSize.zero
+    private var lastStableGridHorizontalOrigin: CGFloat = 0
+    private var pendingHorizontalViewportOrigin: CGFloat?
 
     static func main() {
         let app = NSApplication.shared
@@ -815,6 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 24)
         headerTextView.textContainer?.lineBreakMode = .byClipping
         headerTextView.theme = theme
+        headerTextView.drawsDividers = false
         headerScrollView.documentView = headerTextView
         headerScrollView.isHidden = true
         trackerPanel.addSubview(headerScrollView)
@@ -855,6 +1099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textView.backgroundColor = trackerBackground
         textView.textColor = theme.text
         textView.theme = theme
+        textView.drawsDividers = false
         textView.textContainerInset = NSSize(width: 4, height: 2)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = false
@@ -892,10 +1137,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+        let dividerUnderlay = TrackerDividerUnderlayView(frame: trackerPanel.bounds)
+        dividerUnderlay.autoresizingMask = [.width, .height]
+        dividerUnderlay.theme = theme
+        dividerUnderlay.headerScrollView = headerScrollView
+        dividerUnderlay.bodyTextView = textView
+        dividerUnderlay.bodyScrollView = scrollView
+        dividerUnderlay.isHidden = true
         trackerPanel.addSubview(scrollView)
         metadataTextView = textView
         gridScrollView = scrollView
         lastGridViewportSize = scrollView.contentView.bounds.size
+
+        let chromeOverlay = TrackerChromeOverlayView(frame: trackerPanel.bounds)
+        chromeOverlay.autoresizingMask = [.width, .height]
+        chromeOverlay.theme = theme
+        chromeOverlay.chromeBackgroundColor = trackerBackground
+        chromeOverlay.headerScrollView = headerScrollView
+        chromeOverlay.bodyTextView = textView
+        chromeOverlay.bodyScrollView = scrollView
+        chromeOverlay.isHidden = true
+        trackerPanel.addSubview(chromeOverlay)
+        trackerChromeOverlayView = chromeOverlay
+        trackerPanel.addSubview(dividerUnderlay, positioned: .below, relativeTo: chromeOverlay)
+        trackerDividerUnderlayView = dividerUnderlay
 
         let window = NSWindow(
             contentRect: contentView.frame,
@@ -964,6 +1229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 editModeCheckbox?.isHidden = false
                 patternInfoLabel?.isHidden = false
                 patternHeaderScrollView?.isHidden = false
+                trackerDividerUnderlayView?.isHidden = false
+                trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
                 renderCurrentPattern(metadata: metadata)
             } else {
@@ -972,6 +1239,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 (metadataTextView as? PatternTextView)?.dividerTopCharacterIndex = nil
                 visibleGridRangesByRow = [:]
                 currentViewportState = nil
+                currentViewportLayout = nil
+                trackerDividerUnderlayView?.isHidden = true
+                trackerChromeOverlayView?.viewportState = nil
+                trackerChromeOverlayView?.isHidden = true
                 patternInfoLabel?.stringValue = ""
                 patternInfoLabel?.isHidden = true
                 patternHeaderTextView?.string = ""
@@ -1105,6 +1376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewportState = PatternViewportState(currentRow: cursor.row, rowCount: pattern.rowCount, metrics: metrics)
         let viewportLayout = PatternViewportTextLayout(pattern: pattern, state: viewportState)
         currentViewportState = viewportState
+        currentViewportLayout = viewportLayout
         visibleGridRangesByRow = viewportLayout.gridRangesByRow
 
         updatePatternHeader(channelHeader, channels: pattern.channels)
@@ -1132,6 +1404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mainWindow?.makeFirstResponder(textView)
         }
         scrollCursorFieldHorizontallyIntoView(offset: 0)
+        refreshTrackerChromeOverlay()
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
@@ -1213,9 +1486,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let horizontalMargin = PatternCursorOutlineGeometry.scrollMargin.width
         let targetMinX = cursorRect.minX - horizontalMargin
         let targetMaxX = cursorRect.maxX + horizontalMargin
+        let leftObstructionWidth = trackerChromeOverlayView?.dividerX ?? 0
         var targetOrigin = visibleRect.origin
-        if targetMinX < visibleRect.minX {
-            targetOrigin.x = max(0, targetMinX)
+        let visibleMinX = visibleRect.minX + leftObstructionWidth
+        if targetMinX < visibleMinX {
+            targetOrigin.x = max(0, targetMinX - leftObstructionWidth)
         } else if targetMaxX > visibleRect.maxX {
             let maxOriginX = max(0, textView.frame.width - visibleRect.width)
             targetOrigin.x = min(maxOriginX, targetMaxX - visibleRect.width)
@@ -1283,9 +1558,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func syncTrackerViewport() {
-        guard let scrollView = gridScrollView else { return }
+        guard let scrollView = gridScrollView,
+              let documentView = scrollView.documentView else { return }
         let currentOrigin = scrollView.contentView.bounds.origin
-        scrollView.contentView.scroll(to: NSPoint(x: currentOrigin.x, y: 0))
+        let preferredOriginX = pendingHorizontalViewportOrigin ?? currentOrigin.x
+        let clampedOriginX = TrackerViewportScrollGeometry.clampedHorizontalOrigin(
+            preferredOriginX: preferredOriginX,
+            contentWidth: documentView.frame.width,
+            viewportWidth: scrollView.contentView.bounds.width
+        )
+        pendingHorizontalViewportOrigin = nil
+        scrollView.contentView.scroll(to: NSPoint(x: clampedOriginX, y: 0))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         syncStickyPanesToGrid()
     }
@@ -1293,10 +1576,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func syncStickyPanesToGrid() {
         guard let gridClipView = gridScrollView?.contentView else { return }
         let origin = gridClipView.bounds.origin
+        lastStableGridHorizontalOrigin = origin.x
         if let patternHeaderScrollView {
             patternHeaderScrollView.contentView.scroll(to: NSPoint(x: origin.x, y: 0))
             patternHeaderScrollView.reflectScrolledClipView(patternHeaderScrollView.contentView)
         }
+        refreshTrackerChromeOverlay()
+        trackerChromeOverlayView?.needsDisplay = true
     }
 
     private func updatePatternDividerIndices(channels: Int, layout: PatternViewportTextLayout) {
@@ -1311,8 +1597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rowStart = firstVisibleRowRange.location
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels))
-        indices.append(rowStart)
+        indices.reserveCapacity(max(0, channels - 1))
 
         for divider in 1..<channels {
             let separatorStart = rowStart + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
@@ -1328,7 +1613,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let headerPrefixLength = PatternViewportTextLayout.rowNumberPrefixLength
-        let attributed = NSMutableAttributedString(string: String(repeating: " ", count: headerPrefixLength) + headerText)
+        let headerLeadingPadding = String(repeating: " ", count: PatternViewportTextLayout.leadingChannelPaddingLength)
+        let attributed = NSMutableAttributedString(
+            string: String(repeating: " ", count: headerPrefixLength) + headerLeadingPadding + headerText
+        )
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byClipping
         attributed.addAttributes(
@@ -1345,10 +1633,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         headerTextView.setFrameSize(NSSize(width: max(viewportWidth, attributed.size().width + 16), height: 24))
         let separatorMidOffset = ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2
         var indices = [Int]()
-        indices.reserveCapacity(max(0, channels))
-        indices.append(headerPrefixLength)
+        indices.reserveCapacity(max(0, channels - 1))
         for divider in 1..<channels {
-            let separatorStart = headerPrefixLength + (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
+            let separatorStart = headerPrefixLength + PatternViewportTextLayout.leadingChannelPaddingLength +
+                (divider * ModuleMetadataLoader.xmRenderedCellWidth) +
                 ((divider - 1) * ModuleMetadataLoader.xmRenderedCellSeparatorWidth)
             indices.append(separatorStart + separatorMidOffset)
         }
@@ -1384,11 +1672,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let metadata = loadedMetadata,
            metadata.type == "XM",
            metadata.xmPatterns.indices.contains(currentPatternIndex) {
+            pendingHorizontalViewportOrigin = lastStableGridHorizontalOrigin
             lastGridViewportSize = viewportSize
             renderCurrentPattern(metadata: metadata)
             return
         }
         syncStickyPanesToGrid()
+    }
+
+    private func updateTrackerChromeOverlay(layout: PatternViewportTextLayout, viewportState: PatternViewportState) {
+        guard let trackerChromeOverlayView,
+              let textView = metadataTextView as? PatternTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let firstGridRange = layout.slotGridRanges.first else {
+            return
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        textView.layoutSubtreeIfNeeded()
+        let gridGlyphRange = layoutManager.glyphRange(forCharacterRange: firstGridRange, actualCharacterRange: nil)
+        let firstGridGlyphIndex = gridGlyphRange.location
+        let firstGridGlyphLocation = layoutManager.location(forGlyphAt: firstGridGlyphIndex)
+        let leadingChannelPaddingWidth = NSString(
+            string: String(repeating: " ", count: PatternViewportTextLayout.leadingChannelPaddingLength)
+        ).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]).width
+        let gutterBoundaryX = floor(textView.textContainerOrigin.x + firstGridGlyphLocation.x - leadingChannelPaddingWidth)
+        let rowNumberWidth = NSString(string: "00").size(
+            withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]
+        ).width
+        let visibleDividerX = TrackerPinnedGutterGeometry.visibleWidth(for: gutterBoundaryX, rowNumberWidth: rowNumberWidth)
+
+        trackerChromeOverlayView.viewportState = viewportState
+        trackerChromeOverlayView.currentRow = cursor.row
+        trackerChromeOverlayView.gutterWidth = visibleDividerX
+        trackerChromeOverlayView.dividerX = gutterBoundaryX
+        trackerDividerUnderlayView?.gutterWidth = visibleDividerX
+        trackerDividerUnderlayView?.dividerX = gutterBoundaryX
+        trackerChromeOverlayView.beatInterval = PatternGridPreferences.beatAccentInterval
+        trackerChromeOverlayView.rowEntries = layout.slotRows.enumerated().compactMap { slotIndex, rowIndex in
+            let characterRange = layout.slotFullRanges[slotIndex]
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { return nil }
+
+            var lineRect = layoutManager.lineFragmentUsedRect(
+                forGlyphAt: glyphRange.location,
+                effectiveRange: nil,
+                withoutAdditionalLayout: true
+            )
+            lineRect.origin.x += textView.textContainerOrigin.x
+            lineRect.origin.y += textView.textContainerOrigin.y
+            let overlayRect = trackerChromeOverlayView.convert(lineRect, from: textView)
+            return TrackerChromeOverlayView.RowEntry(rowIndex: rowIndex, rect: overlayRect)
+        }
+        trackerChromeOverlayView.isHidden = false
+        trackerChromeOverlayView.needsDisplay = true
+    }
+
+    private func refreshTrackerChromeOverlay() {
+        guard let layout = currentViewportLayout,
+              let viewportState = currentViewportState else {
+            return
+        }
+        updateTrackerChromeOverlay(layout: layout, viewportState: viewportState)
     }
 
 }

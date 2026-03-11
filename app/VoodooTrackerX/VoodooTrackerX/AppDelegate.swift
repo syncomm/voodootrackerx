@@ -131,7 +131,7 @@ struct PatternViewportState: Equatable {
 
 struct PatternViewportTextLayout: Equatable {
     static let rowNumberPrefixLength = 4
-    static let leadingChannelPaddingLength = max(1, ModuleMetadataLoader.xmRenderedCellSeparatorWidth / 2)
+    static let leadingChannelPaddingLength = 0
 
     let renderedText: String
     let slotRows: [Int?]

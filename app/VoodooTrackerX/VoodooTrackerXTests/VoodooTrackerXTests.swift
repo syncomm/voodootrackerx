@@ -256,7 +256,7 @@ private struct TestPatternViewportState: Equatable {
 
 private struct TestPatternViewportTextLayout: Equatable {
     static let rowNumberPrefixLength = 4
-    static let leadingChannelPaddingLength = 1
+    static let leadingChannelPaddingLength = 0
 
     let slotRows: [Int?]
     let renderedLines: [String]
@@ -443,8 +443,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
         let layout = TestPatternViewportTextLayout(state: state)
 
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "     CELL")
-        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "     CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex], "    CELL")
+        XCTAssertEqual(layout.renderedLines[state.anchorRowIndex - 1], "    CELL")
     }
 
     func testPinnedGutterUsesSameSlotYAsBodyRows() {

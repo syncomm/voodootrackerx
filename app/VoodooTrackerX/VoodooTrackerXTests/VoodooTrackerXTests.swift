@@ -315,6 +315,16 @@ private enum TestTrackerViewportScrollGeometry {
     }
 }
 
+private enum TestTrackerViewportResizeBehavior {
+    static func shouldCaptureStableHorizontalOrigin(isLiveResize: Bool) -> Bool {
+        !isLiveResize
+    }
+
+    static func shouldRevealCursorHorizontally(isViewportResizeRerender: Bool) -> Bool {
+        !isViewportResizeRerender
+    }
+}
+
 private enum TestPatternCursorOutlineGeometry {
     static func strokeRect(for fieldRect: CGRect) -> CGRect {
         fieldRect.insetBy(dx: -2, dy: -2)
@@ -323,6 +333,19 @@ private enum TestPatternCursorOutlineGeometry {
     static func minimumVisibleBounds(for bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: 2, dy: 2)
     }
+}
+
+private func displayedPatternIndex(orderTable: [Int], songLength: Int, songPosition: Int) -> Int? {
+    let safeSongLength = min(songLength, orderTable.count)
+    guard safeSongLength > 0 else {
+        return nil
+    }
+    let clampedPosition = min(max(0, songPosition), safeSongLength - 1)
+    return orderTable[clampedPosition]
+}
+
+private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> String {
+    String(format: "P%02X", patternIndex)
 }
 
 final class VoodooTrackerXTests: XCTestCase {
@@ -509,6 +532,16 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(originX, 160)
     }
 
+    func testResizeDoesNotReplaceStableHorizontalOriginDuringLiveResize() {
+        XCTAssertFalse(TestTrackerViewportResizeBehavior.shouldCaptureStableHorizontalOrigin(isLiveResize: true))
+        XCTAssertTrue(TestTrackerViewportResizeBehavior.shouldCaptureStableHorizontalOrigin(isLiveResize: false))
+    }
+
+    func testResizeRerenderDoesNotRevealCursorHorizontally() {
+        XCTAssertFalse(TestTrackerViewportResizeBehavior.shouldRevealCursorHorizontally(isViewportResizeRerender: true))
+        XCTAssertTrue(TestTrackerViewportResizeBehavior.shouldRevealCursorHorizontally(isViewportResizeRerender: false))
+    }
+
     func testFieldCursorSurvivesRowNavigation() {
         var cursor = TestPatternCursor(row: 10, channel: 2, field: .effectParam)
 
@@ -571,5 +604,22 @@ final class VoodooTrackerXTests: XCTestCase {
         let source = TestXMPatternEventCell(note: 10, instrument: 0x12, volumeColumn: 0x34, effectType: 0x05, effectParam: 0x67)
         XCTAssertNil(TestPatternEditEngine.apply(input: .clearField, to: source, field: .instrument, editModeEnabled: false))
         XCTAssertNil(TestPatternEditEngine.apply(input: .hexDigit(0x0A), to: source, field: .effectParam, editModeEnabled: false))
+    }
+
+    func testSongPositionDrivesDisplayedPatternSelection() {
+        XCTAssertEqual(displayedPatternIndex(orderTable: [3, 7, 3, 9], songLength: 4, songPosition: 0), 3)
+        XCTAssertEqual(displayedPatternIndex(orderTable: [3, 7, 3, 9], songLength: 4, songPosition: 1), 7)
+        XCTAssertEqual(displayedPatternIndex(orderTable: [3, 7, 3, 9], songLength: 4, songPosition: 3), 9)
+    }
+
+    func testSongPositionClampsToSongLengthBounds() {
+        XCTAssertEqual(displayedPatternIndex(orderTable: [1, 4, 6], songLength: 3, songPosition: -1), 1)
+        XCTAssertEqual(displayedPatternIndex(orderTable: [1, 4, 6], songLength: 3, songPosition: 99), 6)
+    }
+
+    func testPatternSelectorUsesHexPatternLabels() {
+        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x00, rowCount: 64), "P00")
+        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x0A, rowCount: 32), "P0A")
+        XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x1F, rowCount: 16), "P1F")
     }
 }

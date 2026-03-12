@@ -31,6 +31,378 @@ private struct TrackerTheme {
     )
 }
 
+private enum TrackerChromePalette {
+    static let windowBackground = NSColor(srgbRed: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0, alpha: 1.0)
+    static let controlPanelBackground = NSColor(srgbRed: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x26 / 255.0, alpha: 1.0)
+    static let recessedFieldBackground = NSColor(srgbRed: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0, alpha: 1.0)
+    static let subtleBorder = NSColor(srgbRed: 0xC9 / 255.0, green: 0xA7 / 255.0, blue: 0x4A / 255.0, alpha: 0.22)
+    static let separatorLine = NSColor(srgbRed: 0xC9 / 255.0, green: 0xA7 / 255.0, blue: 0x4A / 255.0, alpha: 0.38)
+}
+
+private final class TrackerCenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        let baselineRect = super.drawingRect(forBounds: rect)
+        let textSize = cellSize(forBounds: rect)
+        let delta = max(0, floor((rect.height - textSize.height) * 0.5) - 1)
+        return baselineRect.offsetBy(dx: 0, dy: delta)
+    }
+}
+
+private struct TrackerControlPanelContent: Equatable {
+    var songTitle = "No Module Loaded"
+    var songLength = "--"
+    var currentPosition = "--"
+    var restartPosition = "--"
+    var patternLength = "--"
+    var channelCount = "--"
+    var tempo = "125"
+    var speed = "06"
+    var selectedOctave = 4
+    var currentSongPosition = 0
+    var maxSongPosition = 0
+    var isLoopEnabled = false
+    var isEditModeEnabled = false
+    var isPlaybackActive = false
+    var isSongPositionEnabled = false
+    var isPatternControlsEnabled = false
+    var instrumentPlaceholder = "No Inst"
+    var samplePlaceholder = "No Sample"
+    var areInstrumentPlaceholdersEnabled = false
+}
+
+private final class TrackerControlPanelView: NSView {
+    let playButton = TrackerControlPanelView.makeButton(title: "PLAY", symbolName: "play.fill")
+    let stopButton = TrackerControlPanelView.makeButton(title: "STOP", symbolName: "stop.fill")
+    let loopButton = TrackerControlPanelView.makeToggleButton(title: "LOOP", symbolName: "repeat")
+    let editModeButton = TrackerControlPanelView.makeToggleButton(title: "EDIT", symbolName: "record.circle")
+    let songTitleField = TrackerControlPanelView.makeReadoutField(width: nil, minimumWidth: 340, alignment: .center)
+    let songLengthField = TrackerControlPanelView.makeReadoutField(width: 50, alignment: .center)
+    let currentPositionField = TrackerControlPanelView.makeReadoutField(width: 40, alignment: .center)
+    let currentPositionStepper = TrackerControlPanelView.makeStepper()
+    let restartPositionField = TrackerControlPanelView.makeReadoutField(width: 50, alignment: .center)
+    let patternSelector = TrackerControlPanelView.makePopupButton(width: 88)
+    let patternLengthField = TrackerControlPanelView.makeReadoutField(width: 58, alignment: .center)
+    let instrumentSelector = TrackerControlPanelView.makePopupButton(width: 118)
+    let sampleSelector = TrackerControlPanelView.makePopupButton(width: 122)
+    let tempoField = TrackerControlPanelView.makeReadoutField(width: 48, alignment: .center)
+    let speedField = TrackerControlPanelView.makeReadoutField(width: 48, alignment: .center)
+    let octaveSelector = TrackerControlPanelView.makePopupButton(width: 68)
+    let channelsField = TrackerControlPanelView.makeReadoutField(width: 46, alignment: .center)
+
+    private let contentInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+    private let interRowSpacing: CGFloat = 10
+    private let interGroupSpacing: CGFloat = 14
+    private let controlStackSpacing: CGFloat = 8
+    private let titleLeadSpacing: CGFloat = 18
+    private let titleTrailSpacing: CGFloat = 20
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = TrackerChromePalette.controlPanelBackground.cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = TrackerChromePalette.subtleBorder.cgColor
+
+        buildHierarchy()
+        configureDefaults()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func apply(_ content: TrackerControlPanelContent) {
+        songTitleField.stringValue = content.songTitle
+        songLengthField.stringValue = content.songLength
+        currentPositionField.stringValue = content.currentPosition
+        restartPositionField.stringValue = content.restartPosition
+        patternLengthField.stringValue = content.patternLength
+        channelsField.stringValue = content.channelCount
+        tempoField.stringValue = content.tempo
+        speedField.stringValue = content.speed
+        octaveSelector.selectItem(withTitle: String(content.selectedOctave))
+        loopButton.state = content.isLoopEnabled ? .on : .off
+        editModeButton.state = content.isEditModeEnabled ? .on : .off
+        playButton.isEnabled = !content.isPlaybackActive
+        stopButton.isEnabled = content.isPlaybackActive
+        currentPositionStepper.integerValue = content.currentSongPosition
+        currentPositionStepper.maxValue = Double(content.maxSongPosition)
+        currentPositionStepper.isEnabled = content.isSongPositionEnabled
+        patternSelector.isEnabled = content.isPatternControlsEnabled
+        instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
+        sampleSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
+    }
+
+    private func buildHierarchy() {
+        let rootStack = NSStackView()
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.orientation = .vertical
+        rootStack.alignment = .width
+        rootStack.distribution = .fill
+        rootStack.spacing = interRowSpacing
+        addSubview(rootStack)
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: contentInsets.left),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInsets.right),
+            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: contentInsets.top),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -contentInsets.bottom)
+        ])
+
+        rootStack.addArrangedSubview(makeTopRow())
+        rootStack.addArrangedSubview(makeBottomRow())
+    }
+
+    private func configureDefaults() {
+        octaveSelector.addItems(withTitles: (0...8).map(String.init))
+        octaveSelector.selectItem(withTitle: "4")
+        instrumentSelector.addItem(withTitle: "No Inst")
+        sampleSelector.addItem(withTitle: "No Sample")
+        tempoField.stringValue = "125"
+        speedField.stringValue = "06"
+        songTitleField.stringValue = "No Module Loaded"
+        songLengthField.stringValue = "--"
+        currentPositionField.stringValue = "--"
+        restartPositionField.stringValue = "--"
+        patternLengthField.stringValue = "--"
+        channelsField.stringValue = "--"
+        playButton.toolTip = "Playback UI placeholder"
+        stopButton.toolTip = "Playback UI placeholder"
+        loopButton.toolTip = "Loop toggle placeholder"
+        restartPositionField.toolTip = "Restart position placeholder until playback state exists"
+        tempoField.toolTip = "Tempo placeholder until audio engine integration"
+        speedField.toolTip = "Speed placeholder until audio engine integration"
+        songTitleField.toolTip = "Song title metadata"
+        instrumentSelector.toolTip = "Instrument selector placeholder until instrument editor exists"
+        sampleSelector.toolTip = "Sample selector placeholder until sample editor exists"
+    }
+
+    private func makeTopRow() -> NSStackView {
+        let transportButtons = NSStackView(views: [playButton, stopButton, loopButton, editModeButton])
+        transportButtons.translatesAutoresizingMaskIntoConstraints = false
+        transportButtons.orientation = .horizontal
+        transportButtons.alignment = .centerY
+        transportButtons.spacing = controlStackSpacing
+
+        let songMetaControls = NSStackView(views: [
+            makeInlineGroup(label: "LEN", content: songLengthField),
+            makeInlineGroup(label: "POS", content: makeStepperFieldPair(field: currentPositionField, stepper: currentPositionStepper)),
+            makeInlineGroup(label: "RST", content: restartPositionField)
+        ])
+        songMetaControls.translatesAutoresizingMaskIntoConstraints = false
+        songMetaControls.orientation = .horizontal
+        songMetaControls.alignment = .centerY
+        songMetaControls.spacing = controlStackSpacing
+
+        let titleGroup = makeInlineGroup(label: "TITLE", content: songTitleField)
+        titleGroup.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleGroup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [
+            transportButtons,
+            makeFixedSpacer(width: titleLeadSpacing),
+            titleGroup,
+            makeFixedSpacer(width: titleTrailSpacing),
+            songMetaControls,
+            makeFlexibleSpacer()
+        ])
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = interGroupSpacing
+        return row
+    }
+
+    private func makeBottomRow() -> NSStackView {
+        songTitleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        songTitleField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let patternControls = NSStackView(views: [
+            makeInlineGroup(label: "PATTERN", content: patternSelector),
+            makeInlineGroup(label: "ROWS", content: patternLengthField)
+        ])
+        patternControls.translatesAutoresizingMaskIntoConstraints = false
+        patternControls.orientation = .horizontal
+        patternControls.alignment = .centerY
+        patternControls.spacing = controlStackSpacing
+
+        let sourceControls = NSStackView(views: [
+            makeInlineGroup(label: "INST", content: instrumentSelector),
+            makeInlineGroup(label: "SMP", content: sampleSelector)
+        ])
+        sourceControls.translatesAutoresizingMaskIntoConstraints = false
+        sourceControls.orientation = .horizontal
+        sourceControls.alignment = .centerY
+        sourceControls.spacing = controlStackSpacing
+
+        let editControls = NSStackView(views: [
+            makeInlineGroup(label: "TEMPO", content: tempoField),
+            makeInlineGroup(label: "SPEED", content: speedField),
+            makeInlineGroup(label: "OCT", content: octaveSelector),
+            makeInlineGroup(label: "CHN", content: channelsField)
+        ])
+        editControls.translatesAutoresizingMaskIntoConstraints = false
+        editControls.orientation = .horizontal
+        editControls.alignment = .centerY
+        editControls.spacing = controlStackSpacing
+
+        let row = NSStackView(views: [
+            patternControls,
+            sourceControls,
+            editControls,
+            makeFlexibleSpacer()
+        ])
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.distribution = .fill
+        row.spacing = interGroupSpacing
+        return row
+    }
+
+    private func makeInlineGroup(label title: String, content: NSView) -> NSView {
+        let label = NSTextField(labelWithString: title)
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        label.textColor = TrackerTheme.legacyDark.accent
+        label.alignment = .left
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let stack = NSStackView(views: [label, content])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.distribution = .fill
+        stack.spacing = 7
+        return stack
+    }
+
+    private func makeFlexibleSpacer() -> NSView {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return spacer
+    }
+
+    private func makeFixedSpacer(width: CGFloat) -> NSView {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.widthAnchor.constraint(equalToConstant: width).isActive = true
+        spacer.setContentHuggingPriority(.required, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return spacer
+    }
+
+    private func makeStepperFieldPair(field: NSTextField, stepper: NSStepper) -> NSView {
+        let pair = NSStackView(views: [field, stepper])
+        pair.translatesAutoresizingMaskIntoConstraints = false
+        pair.orientation = .horizontal
+        pair.alignment = .centerY
+        pair.spacing = 4
+        return pair
+    }
+
+    private static func makeButton(title: String, symbolName: String? = nil) -> NSButton {
+        let button = NSButton(title: title, target: nil, action: nil)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setButtonType(.momentaryPushIn)
+        button.bezelStyle = .shadowlessSquare
+        button.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        button.contentTintColor = TrackerTheme.legacyDark.text
+        button.appearance = NSAppearance(named: .darkAqua)
+        button.bezelColor = TrackerChromePalette.recessedFieldBackground
+        applySymbol(symbolName, to: button)
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+        return button
+    }
+
+    private static func makeToggleButton(title: String, symbolName: String? = nil, compact: Bool = false) -> NSButton {
+        let button = NSButton(title: title, target: nil, action: nil)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setButtonType(.pushOnPushOff)
+        button.bezelStyle = .shadowlessSquare
+        button.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        button.contentTintColor = TrackerTheme.legacyDark.accent
+        button.appearance = NSAppearance(named: .darkAqua)
+        button.bezelColor = TrackerChromePalette.recessedFieldBackground
+        applySymbol(symbolName, to: button)
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? 42 : 56).isActive = true
+        return button
+    }
+
+    private static func makePopupButton(width: CGFloat) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.appearance = NSAppearance(named: .darkAqua)
+        button.contentTintColor = TrackerTheme.legacyDark.text
+        button.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        button.bezelColor = TrackerChromePalette.recessedFieldBackground
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        button.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return button
+    }
+
+    private static func makeReadoutField(width: CGFloat?, minimumWidth: CGFloat? = nil, alignment: NSTextAlignment) -> NSTextField {
+        let field = NSTextField(string: "")
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.cell = TrackerCenteredTextFieldCell(textCell: "")
+        field.isEditable = false
+        field.isSelectable = true
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        field.textColor = TrackerTheme.legacyDark.text
+        field.alignment = alignment
+        field.lineBreakMode = .byTruncatingTail
+        field.wantsLayer = true
+        field.layer?.backgroundColor = TrackerChromePalette.recessedFieldBackground.cgColor
+        field.layer?.borderWidth = 1
+        field.layer?.borderColor = TrackerChromePalette.subtleBorder.cgColor
+        field.layer?.cornerRadius = 0
+        field.cell?.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        if let minimumWidth {
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth).isActive = true
+        }
+        if let width {
+            field.widthAnchor.constraint(equalToConstant: width).isActive = true
+        } else {
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth ?? 220).isActive = true
+        }
+        return field
+    }
+
+    private static func makeStepper() -> NSStepper {
+        let stepper = NSStepper()
+        stepper.translatesAutoresizingMaskIntoConstraints = false
+        stepper.controlSize = .small
+        stepper.increment = 1
+        stepper.valueWraps = false
+        stepper.autorepeat = true
+        stepper.maxValue = 0
+        stepper.minValue = 0
+        stepper.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        stepper.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        return stepper
+    }
+
+    private static func applySymbol(_ symbolName: String?, to button: NSButton) {
+        guard let symbolName,
+              let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+            return
+        }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        button.image = image.withSymbolConfiguration(configuration)
+        button.imagePosition = .imageLeading
+        button.imageHugsTitle = true
+    }
+}
+
 private enum TrackerPinnedGutterGeometry {
     static let dividerClearance: CGFloat = PatternCursorOutlineGeometry.outwardPadding + 2
     static let rowNumberPadding: CGFloat = 2
@@ -100,6 +472,16 @@ private enum TrackerViewportScrollGeometry {
     ) -> CGFloat {
         let maxOriginX = max(0, contentWidth - viewportWidth)
         return min(max(0, preferredOriginX), maxOriginX)
+    }
+}
+
+private enum TrackerViewportResizeBehavior {
+    static func shouldCaptureStableHorizontalOrigin(isLiveResize: Bool) -> Bool {
+        !isLiveResize
+    }
+
+    static func shouldRevealCursorHorizontally(isViewportResizeRerender: Bool) -> Bool {
+        !isViewportResizeRerender
     }
 }
 
@@ -748,9 +1130,10 @@ private final class PatternTextView: NSTextView {
 
 @main
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static var retainedDelegate: AppDelegate?
     private var mainWindow: NSWindow?
+    private var controlPanelView: TrackerControlPanelView?
     private var metadataTextView: NSTextView?
     private var patternInfoLabel: NSTextField?
     private var patternHeaderTextView: PatternTextView?
@@ -759,12 +1142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var trackerDividerUnderlayView: TrackerDividerUnderlayView?
     private var trackerChromeOverlayView: TrackerChromeOverlayView?
     private var patternSelector: NSPopUpButton?
-    private var showAllPatternsCheckbox: NSButton?
     private var editModeCheckbox: NSButton?
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedDropdownIndex = 0
+    private var currentSongPositionIndex = 0
     private var currentPatternIndex = 0
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var visibleGridRangesByRow = [Int: NSRange]()
@@ -776,9 +1159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
     private var isPlaybackModeActive = false
+    private var isLoopPlaybackEnabled = false
+    private var selectedOctave = 4
     private var lastGridViewportSize = NSSize.zero
     private var lastStableGridHorizontalOrigin: CGFloat = 0
     private var pendingHorizontalViewportOrigin: CGFloat?
+    private var isLiveResizingTrackerViewport = false
+    private var liveResizeHorizontalOrigin: CGFloat?
 
     static func main() {
         let app = NSApplication.shared
@@ -868,16 +1255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createMainWindow() {
         let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
         contentView.wantsLayer = true
-        let windowBackground = NSColor(srgbRed: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0, alpha: 1.0)
-        let controlBarBackground = NSColor(srgbRed: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x26 / 255.0, alpha: 1.0)
         let trackerBackground = NSColor.black
-        contentView.layer?.backgroundColor = windowBackground.cgColor
+        contentView.layer?.backgroundColor = TrackerChromePalette.windowBackground.cgColor
 
         let rootPadding: CGFloat = 24
         let sectionSpacing: CGFloat = 12
         let logoPanelHeight: CGFloat = 260
-        let controlBarHeight: CGFloat = 56
-        let trackerHeaderHeight: CGFloat = 52
+        let controlBarHeight: CGFloat = 112
+        let trackerHeaderHeight: CGFloat = 24
         let channelHeaderHeight: CGFloat = 24
         let contentWidth = initialWindowSize.width - (rootPadding * 2)
 
@@ -935,7 +1320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             headerBar.addSubview(fallbackTitle)
         }
 
-        let controlBar = NSBox(
+        let controlBar = TrackerControlPanelView(
             frame: NSRect(
                 x: rootPadding,
                 y: controlBarY,
@@ -944,56 +1329,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         controlBar.autoresizingMask = [.width, .minYMargin]
-        controlBar.boxType = .custom
-        controlBar.borderWidth = 0
-        controlBar.fillColor = controlBarBackground
-        controlBar.contentViewMargins = .zero
         contentView.addSubview(controlBar)
-
-        let selector = NSPopUpButton(frame: NSRect(x: 0, y: 14, width: 220, height: 28))
-        selector.autoresizingMask = [.maxXMargin]
-        selector.appearance = NSAppearance(named: .darkAqua)
-        selector.contentTintColor = theme.text
-        selector.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        selector.target = self
-        selector.action = #selector(patternSelectionChanged(_:))
-        selector.isHidden = true
-        controlBar.addSubview(selector)
-        patternSelector = selector
-
-        let showAllCheckbox = NSButton(checkboxWithTitle: "Show all patterns", target: self, action: #selector(showAllPatternsToggled(_:)))
-        showAllCheckbox.frame = NSRect(x: 230, y: 14, width: 180, height: 28)
-        showAllCheckbox.autoresizingMask = [.maxXMargin]
-        showAllCheckbox.appearance = NSAppearance(named: .darkAqua)
-        showAllCheckbox.contentTintColor = theme.accent
-        showAllCheckbox.attributedTitle = NSAttributedString(
-            string: "Show all patterns",
-            attributes: [
-                .foregroundColor: theme.text,
-                .font: NSFont.systemFont(ofSize: 12, weight: .regular)
-            ]
-        )
-        showAllCheckbox.state = .off
-        showAllCheckbox.isHidden = true
-        controlBar.addSubview(showAllCheckbox)
-        showAllPatternsCheckbox = showAllCheckbox
-
-        let editModeCheckbox = NSButton(checkboxWithTitle: "Edit mode", target: self, action: #selector(editModeToggled(_:)))
-        editModeCheckbox.frame = NSRect(x: 410, y: 14, width: 120, height: 28)
-        editModeCheckbox.autoresizingMask = [.maxXMargin]
-        editModeCheckbox.appearance = NSAppearance(named: .darkAqua)
-        editModeCheckbox.contentTintColor = theme.accent
-        editModeCheckbox.attributedTitle = NSAttributedString(
-            string: "Edit mode",
-            attributes: [
-                .foregroundColor: theme.text,
-                .font: NSFont.systemFont(ofSize: 12, weight: .regular)
-            ]
-        )
-        editModeCheckbox.state = .off
-        editModeCheckbox.isHidden = true
-        controlBar.addSubview(editModeCheckbox)
-        self.editModeCheckbox = editModeCheckbox
+        controlPanelView = controlBar
+        controlBar.playButton.target = self
+        controlBar.playButton.action = #selector(playPressed(_:))
+        controlBar.stopButton.target = self
+        controlBar.stopButton.action = #selector(stopPressed(_:))
+        controlBar.loopButton.target = self
+        controlBar.loopButton.action = #selector(loopToggled(_:))
+        controlBar.editModeButton.target = self
+        controlBar.editModeButton.action = #selector(editModeToggled(_:))
+        controlBar.patternSelector.target = self
+        controlBar.patternSelector.action = #selector(patternSelectionChanged(_:))
+        controlBar.currentPositionStepper.target = self
+        controlBar.currentPositionStepper.action = #selector(currentSongPositionStepperChanged(_:))
+        controlBar.octaveSelector.target = self
+        controlBar.octaveSelector.action = #selector(octaveSelectionChanged(_:))
+        patternSelector = controlBar.patternSelector
+        editModeCheckbox = controlBar.editModeButton
 
         let trackerPanel = NSBox(
             frame: NSRect(
@@ -1170,12 +1523,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "VoodooTracker X"
         window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = windowBackground
+        window.backgroundColor = TrackerChromePalette.windowBackground
         window.titlebarAppearsTransparent = true
+        window.delegate = self
         window.center()
         window.contentView = contentView
 
         self.mainWindow = window
+        refreshControlPanel()
     }
 
     private func trackerLogoImage() -> NSImage? {
@@ -1219,19 +1574,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
             selectedDropdownIndex = 0
+            currentSongPositionIndex = 0
             currentPatternIndex = 0
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
+            isPlaybackModeActive = false
+            isLoopPlaybackEnabled = false
             editModeCheckbox?.state = .off
 
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
-                showAllPatternsCheckbox?.isHidden = false
-                editModeCheckbox?.isHidden = false
-                patternInfoLabel?.isHidden = false
+                patternInfoLabel?.isHidden = true
                 patternHeaderScrollView?.isHidden = false
                 trackerDividerUnderlayView?.isHidden = false
                 trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
+                applySongPosition(currentSongPositionIndex, in: metadata, resetCursor: false)
                 renderCurrentPattern(metadata: metadata)
             } else {
                 (metadataTextView as? PatternTextView)?.activeFieldRange = nil
@@ -1248,9 +1605,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 patternHeaderTextView?.string = ""
                 patternHeaderTextView?.dividerCharacterIndices = []
                 patternSelector?.removeAllItems()
-                patternSelector?.isHidden = true
-                showAllPatternsCheckbox?.isHidden = true
-                editModeCheckbox?.isHidden = true
                 patternHeaderScrollView?.isHidden = true
                 metadataTextView?.string = """
                 File: \(url.lastPathComponent)
@@ -1259,6 +1613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 \(metadata.displayText)
                 """
             }
+            refreshControlPanel()
         } catch {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -1284,20 +1639,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
+        refreshControlPanel()
     }
 
     @objc
-    private func showAllPatternsToggled(_ sender: NSButton) {
+    private func currentSongPositionStepperChanged(_ sender: NSStepper) {
         guard let metadata = loadedMetadata else {
             return
         }
-        updatePatternSelector(for: metadata, keepPattern: currentPatternIndex, showAllPatterns: sender.state == .on)
+        applySongPosition(sender.integerValue, in: metadata)
         renderCurrentPattern(metadata: metadata)
+        refreshControlPanel()
     }
 
     @objc
     private func editModeToggled(_ sender: NSButton) {
         isEditModeEnabled = sender.state == .on
+        refreshControlPanel()
+    }
+
+    @objc
+    private func playPressed(_ sender: NSButton) {
+        isPlaybackModeActive = true
+        refreshControlPanel()
+    }
+
+    @objc
+    private func stopPressed(_ sender: NSButton) {
+        isPlaybackModeActive = false
+        refreshControlPanel()
+    }
+
+    @objc
+    private func loopToggled(_ sender: NSButton) {
+        isLoopPlaybackEnabled = sender.state == .on
+        refreshControlPanel()
+    }
+
+    @objc
+    private func octaveSelectionChanged(_ sender: NSPopUpButton) {
+        selectedOctave = max(0, sender.indexOfSelectedItem)
+        refreshControlPanel()
     }
 
     private var interactionMode: TrackerInteractionMode {
@@ -1310,11 +1692,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .navigation
     }
 
-    private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?, showAllPatterns: Bool? = nil) {
+    private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?) {
         guard let selector = patternSelector else {
             return
         }
-        let shouldShowAllPatterns = showAllPatterns ?? (showAllPatternsCheckbox?.state == .on)
         let referencedPatterns = Set(
             metadata.orderTable.filter { $0 >= 0 && $0 < metadata.xmPatterns.count }
         )
@@ -1333,7 +1714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             orderTable: metadata.orderTable,
             patternCount: metadata.xmPatterns.count,
             rowCounts: rowCounts,
-            showAllPatterns: shouldShowAllPatterns,
+            showAllPatterns: false,
             usedPatternIndices: effectiveUsedPatterns
         )
         displayedPatternEntries = selection.entries
@@ -1341,11 +1722,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         selector.removeAllItems()
         for entry in displayedPatternEntries {
-            let status = entry.isUsed ? "used" : "all"
-            selector.addItem(withTitle: String(format: "P%02d (%@, %d rows)", entry.patternIndex, status, entry.rowCount))
+            selector.addItem(withTitle: formattedPatternSelectorTitle(patternIndex: entry.patternIndex, rowCount: entry.rowCount))
         }
         guard !displayedPatternEntries.isEmpty else {
-            selector.isHidden = true
+            selector.isEnabled = false
             return
         }
 
@@ -1356,10 +1736,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
         selector.selectItem(at: selectedDropdownIndex)
-        selector.isHidden = false
+        selector.isEnabled = true
     }
 
-    private func renderCurrentPattern(metadata: ParsedModuleMetadata) {
+    private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata, resetCursor: Bool = true) {
+        let clampedPosition = clampedSongPosition(proposedPosition, songLength: metadata.songLength)
+        currentSongPositionIndex = clampedPosition
+        if let patternIndex = displayedPatternIndex(in: metadata, songPosition: clampedPosition) {
+            currentPatternIndex = patternIndex
+            if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == patternIndex }) {
+                selectedDropdownIndex = selectorIndex
+                patternSelector?.selectItem(at: selectorIndex)
+            }
+        }
+        if resetCursor {
+            cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        }
+    }
+
+    private func displayedPatternIndex(in metadata: ParsedModuleMetadata, songPosition: Int) -> Int? {
+        let safeSongLength = min(metadata.songLength, metadata.orderTable.count)
+        guard safeSongLength > 0 else { return nil }
+        let clampedPosition = min(max(0, songPosition), safeSongLength - 1)
+        let patternIndex = metadata.orderTable[clampedPosition]
+        guard metadata.xmPatterns.indices.contains(patternIndex) else {
+            return nil
+        }
+        return patternIndex
+    }
+
+    private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> String {
+        String(format: "P%02X", patternIndex)
+    }
+
+    private func clampedSongPosition(_ proposedPosition: Int, songLength: Int) -> Int {
+        guard songLength > 0 else { return 0 }
+        return min(max(0, proposedPosition), songLength - 1)
+    }
+
+    private func renderCurrentPattern(metadata: ParsedModuleMetadata, isViewportResizeRerender: Bool = false) {
         guard metadata.type == "XM", metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
         }
@@ -1370,7 +1785,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         cursor.clamp(rowCount: pattern.rowCount, channelCount: pattern.channels)
-        patternInfoLabel?.stringValue = ModuleMetadataLoader.renderXMPatternInfoLine(pattern, focusedChannel: cursor.channel)
+        patternInfoLabel?.stringValue = ""
+        patternInfoLabel?.isHidden = true
         let channelHeader = ModuleMetadataLoader.renderXMChannelHeader(channels: pattern.channels)
         let metrics = viewportMetrics()
         let viewportState = PatternViewportState(currentRow: cursor.row, rowCount: pattern.rowCount, metrics: metrics)
@@ -1403,7 +1819,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
-        scrollCursorFieldHorizontallyIntoView(offset: 0)
+        if TrackerViewportResizeBehavior.shouldRevealCursorHorizontally(
+            isViewportResizeRerender: isViewportResizeRerender
+        ) {
+            scrollCursorFieldHorizontallyIntoView(offset: 0)
+        }
         refreshTrackerChromeOverlay()
     }
 
@@ -1576,7 +1996,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func syncStickyPanesToGrid() {
         guard let gridClipView = gridScrollView?.contentView else { return }
         let origin = gridClipView.bounds.origin
-        lastStableGridHorizontalOrigin = origin.x
+        let isLiveResize = isLiveResizingTrackerViewport || (mainWindow?.inLiveResize ?? false)
+        if TrackerViewportResizeBehavior.shouldCaptureStableHorizontalOrigin(isLiveResize: isLiveResize) {
+            lastStableGridHorizontalOrigin = origin.x
+        }
         if let patternHeaderScrollView {
             patternHeaderScrollView.contentView.scroll(to: NSPoint(x: origin.x, y: 0))
             patternHeaderScrollView.reflectScrolledClipView(patternHeaderScrollView.contentView)
@@ -1672,12 +2095,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let metadata = loadedMetadata,
            metadata.type == "XM",
            metadata.xmPatterns.indices.contains(currentPatternIndex) {
-            pendingHorizontalViewportOrigin = lastStableGridHorizontalOrigin
+            pendingHorizontalViewportOrigin = liveResizeHorizontalOrigin ?? lastStableGridHorizontalOrigin
             lastGridViewportSize = viewportSize
-            renderCurrentPattern(metadata: metadata)
+            renderCurrentPattern(metadata: metadata, isViewportResizeRerender: true)
             return
         }
         syncStickyPanesToGrid()
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        guard let scrollView = gridScrollView else { return }
+        isLiveResizingTrackerViewport = true
+        liveResizeHorizontalOrigin = scrollView.contentView.bounds.origin.x
+        pendingHorizontalViewportOrigin = liveResizeHorizontalOrigin
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        isLiveResizingTrackerViewport = false
+        if let scrollView = gridScrollView {
+            lastGridViewportSize = scrollView.contentView.bounds.size
+            lastStableGridHorizontalOrigin = scrollView.contentView.bounds.origin.x
+        }
+        liveResizeHorizontalOrigin = nil
     }
 
     private func updateTrackerChromeOverlay(layout: PatternViewportTextLayout, viewportState: PatternViewportState) {
@@ -1735,6 +2174,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         updateTrackerChromeOverlay(layout: layout, viewportState: viewportState)
+    }
+
+    private func refreshControlPanel() {
+        var content = TrackerControlPanelContent()
+        content.selectedOctave = selectedOctave
+        content.isLoopEnabled = isLoopPlaybackEnabled
+        content.isEditModeEnabled = isEditModeEnabled
+        content.isPlaybackActive = isPlaybackModeActive
+
+        if let metadata = loadedMetadata {
+            content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title
+            content.songLength = String(format: "%02d", metadata.songLength)
+            content.currentPosition = String(format: "%02d", currentSongPositionIndex)
+            content.currentSongPosition = currentSongPositionIndex
+            content.maxSongPosition = max(0, metadata.songLength - 1)
+            content.isSongPositionEnabled = metadata.songLength > 0
+            if metadata.type == "XM",
+               metadata.xmPatterns.indices.contains(currentPatternIndex) {
+                let pattern = metadata.xmPatterns[currentPatternIndex]
+                content.patternLength = "\(pattern.rowCount)"
+                content.channelCount = "\(pattern.channels)"
+                content.isPatternControlsEnabled = true
+                content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
+            } else {
+                content.patternLength = "--"
+                content.channelCount = String(format: "%02d", metadata.channels)
+                content.isPatternControlsEnabled = false
+                content.areInstrumentPlaceholdersEnabled = false
+            }
+            updateInstrumentPlaceholders(for: metadata)
+        } else {
+            updateInstrumentPlaceholders(for: nil)
+        }
+
+        controlPanelView?.apply(content)
+    }
+
+    private func updateInstrumentPlaceholders(for metadata: ParsedModuleMetadata?) {
+        guard let controlPanelView else {
+            return
+        }
+        controlPanelView.instrumentSelector.removeAllItems()
+        controlPanelView.sampleSelector.removeAllItems()
+
+        guard let metadata, metadata.type == "XM", metadata.instruments > 0 else {
+            controlPanelView.instrumentSelector.addItem(withTitle: "No Inst")
+            controlPanelView.sampleSelector.addItem(withTitle: "No Sample")
+            return
+        }
+
+        let visibleInstrumentCount = min(metadata.instruments, 32)
+        let instrumentTitles = (0..<visibleInstrumentCount).map { index in
+            String(format: "I%02X", index + 1)
+        }
+        controlPanelView.instrumentSelector.addItems(withTitles: instrumentTitles)
+        controlPanelView.instrumentSelector.selectItem(at: 0)
+        controlPanelView.sampleSelector.addItem(withTitle: "Sample Map")
     }
 
 }

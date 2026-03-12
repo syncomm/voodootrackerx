@@ -236,6 +236,27 @@ If an agent introduces breaking changes:
 
 ---
 
+## Branch Safety Rules
+
+- Never work directly on `main`.
+- For any non-trivial change, create or switch to a feature branch before editing files.
+- Branch names should be concise and task-specific, e.g.:
+  - `feature/control-panel-layout`
+  - `feature/tracker-gutter-pin`
+  - `fix/track-editor-regression`
+- If currently on `main`, stop and create a feature branch before making changes.
+- Do not ask the user to name the branch unless the task is ambiguous.
+
+---
+
+## Regression Safety
+
+- Before changing tracker UI, identify the last known-good commit or PR for that area.
+- If a new task introduces a regression, restore known-good behavior first before continuing feature work.
+- Never leave tracker viewport behavior regressed while working on unrelated UI polish.
+
+---
+
 ## Maintainer
 
 Primary maintainer: Gregory Hayes (`syncomm`)

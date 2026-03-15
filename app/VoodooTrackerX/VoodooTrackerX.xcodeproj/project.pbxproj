@@ -16,6 +16,7 @@
 		A0000000000000000000001C /* ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* ControlPanelView.swift */; };
 		A0000000000000000000001D /* LogoPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* LogoPanelView.swift */; };
 		A0000000000000000000001E /* TrackerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* TrackerWindowController.swift */; };
+		A0000000000000000000001F /* TrackerEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002F /* TrackerEditorView.swift */; };
 		A0000000000000000000001A /* vtx-logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* vtx-logo.svg */; };
 		A0000000000000000000001B /* vtx-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* vtx-logo.png */; };
 		A00000000000000000000017 /* module_types.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* module_types.c */; };
@@ -33,6 +34,7 @@
 		A0000000000000000000002C /* ControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelView.swift; sourceTree = "<group>"; };
 		A0000000000000000000002D /* LogoPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogoPanelView.swift; sourceTree = "<group>"; };
 		A0000000000000000000002E /* TrackerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerWindowController.swift; sourceTree = "<group>"; };
+		A0000000000000000000002F /* TrackerEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerEditorView.swift; sourceTree = "<group>"; };
 		A00000000000000000000025 /* module_types.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = module_types.c; path = ../../core/ModuleCore/src/module_types.c; sourceTree = "<group>"; };
 		A00000000000000000000026 /* xm_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = xm_header.c; path = ../../core/ModuleCore/src/xm_header.c; sourceTree = "<group>"; };
 		A00000000000000000000027 /* mod_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = mod_header.c; path = ../../core/ModuleCore/src/mod_header.c; sourceTree = "<group>"; };
@@ -86,6 +88,7 @@
 				A0000000000000000000002C /* ControlPanelView.swift */,
 				A0000000000000000000002D /* LogoPanelView.swift */,
 				A0000000000000000000002E /* TrackerWindowController.swift */,
+				A0000000000000000000002F /* TrackerEditorView.swift */,
 				A00000000000000000000028 /* ModuleCoreBridge.h */,
 				A0000000000000000000002A /* vtx-logo.svg */,
 				A0000000000000000000002B /* vtx-logo.png */,
@@ -232,6 +235,7 @@
 				A0000000000000000000001C /* ControlPanelView.swift in Sources */,
 				A0000000000000000000001D /* LogoPanelView.swift in Sources */,
 				A0000000000000000000001E /* TrackerWindowController.swift in Sources */,
+				A0000000000000000000001F /* TrackerEditorView.swift in Sources */,
 				A00000000000000000000017 /* module_types.c in Sources */,
 				A00000000000000000000018 /* xm_header.c in Sources */,
 				A00000000000000000000019 /* mod_header.c in Sources */,

@@ -14,53 +14,53 @@ final class TrackerCenteredTextFieldCell: NSTextFieldCell {
 struct ControlPanelContent: Equatable {
     var songTitle = "No Module Loaded"
     var songLength = "--"
-    var currentPosition = "--"
+    var songPosition = "--"
     var restartPosition = "--"
-    var patternLength = "--"
+    var patternRowCount = "--"
     var channelCount = "--"
     var tempo = "125"
     var speed = "06"
     var selectedOctave = 4
-    var currentSongPosition = 0
-    var maxSongPosition = 0
+    var songPositionValue = 0
+    var maximumSongPosition = 0
     var isLoopEnabled = false
     var isEditModeEnabled = false
     var isPlaybackActive = false
     var isSongPositionEnabled = false
     var isPatternControlsEnabled = false
-    var instrumentPlaceholder = "No Inst"
-    var samplePlaceholder = "No Sample"
     var areInstrumentPlaceholdersEnabled = false
 }
 
 final class ControlPanelView: NSView {
+    private typealias Layout = TrackerThemeMetrics.ControlPanelLayout
+    private typealias Sizing = TrackerThemeMetrics.ControlPanelSizing
+
     let playButton = ControlPanelView.makeButton(title: "PLAY", symbolName: "play.fill")
     let stopButton = ControlPanelView.makeButton(title: "STOP", symbolName: "stop.fill")
     let loopButton = ControlPanelView.makeToggleButton(title: "LOOP", symbolName: "repeat")
     let editModeButton = ControlPanelView.makeToggleButton(title: "EDIT", symbolName: "record.circle")
-    let songTitleField = ControlPanelView.makeReadoutField(width: nil, minimumWidth: 340, alignment: .center)
-    let songLengthField = ControlPanelView.makeReadoutField(width: 50, alignment: .center)
-    let currentPositionField = ControlPanelView.makeReadoutField(width: 40, alignment: .center)
-    let currentPositionStepper = ControlPanelView.makeStepper()
-    let restartPositionField = ControlPanelView.makeReadoutField(width: 50, alignment: .center)
-    let patternSelector = ControlPanelView.makePopupButton(width: 88)
-    let patternLengthField = ControlPanelView.makeReadoutField(width: 58, alignment: .center)
-    let instrumentSelector = ControlPanelView.makePopupButton(width: 118)
-    let sampleSelector = ControlPanelView.makePopupButton(width: 122)
-    let tempoField = ControlPanelView.makeReadoutField(width: 48, alignment: .center)
-    let speedField = ControlPanelView.makeReadoutField(width: 48, alignment: .center)
-    let octaveSelector = ControlPanelView.makePopupButton(width: 68)
-    let channelsField = ControlPanelView.makeReadoutField(width: 46, alignment: .center)
+    let songTitleField = ControlPanelView.makeReadoutField(width: nil, minimumWidth: Sizing.songTitleMinimumWidth, alignment: .center)
+    let songLengthField = ControlPanelView.makeReadoutField(width: Sizing.songLengthWidth, alignment: .center)
+    let songPositionField = ControlPanelView.makeReadoutField(width: Sizing.songPositionWidth, alignment: .center)
+    let songPositionStepper = ControlPanelView.makeStepper()
+    let restartPositionField = ControlPanelView.makeReadoutField(width: Sizing.restartPositionWidth, alignment: .center)
+    let patternSelector = ControlPanelView.makePopupButton(width: Sizing.patternSelectorWidth)
+    let patternRowCountField = ControlPanelView.makeReadoutField(width: Sizing.rowCountWidth, alignment: .center)
+    let instrumentSelector = ControlPanelView.makePopupButton(width: Sizing.instrumentSelectorWidth)
+    let sampleSelector = ControlPanelView.makePopupButton(width: Sizing.sampleSelectorWidth)
+    let tempoField = ControlPanelView.makeReadoutField(width: Sizing.tempoWidth, alignment: .center)
+    let speedField = ControlPanelView.makeReadoutField(width: Sizing.speedWidth, alignment: .center)
+    let octaveSelector = ControlPanelView.makePopupButton(width: Sizing.octaveSelectorWidth)
+    let channelCountField = ControlPanelView.makeReadoutField(width: Sizing.channelCountWidth, alignment: .center)
 
     private let theme: TrackerTheme
-    private let layout = TrackerThemeMetrics.ControlPanelLayout.self
 
     init(frame frameRect: NSRect, theme: TrackerTheme = .legacyDark) {
         self.theme = theme
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = TrackerChromePalette.controlPanelBackground.cgColor
-        layer?.borderWidth = TrackerThemeMetrics.controlBorderWidth
+        layer?.borderWidth = Sizing.borderWidth
         layer?.borderColor = TrackerChromePalette.subtleBorder.cgColor
 
         buildHierarchy()
@@ -75,10 +75,10 @@ final class ControlPanelView: NSView {
     func apply(_ content: ControlPanelContent) {
         songTitleField.stringValue = content.songTitle
         songLengthField.stringValue = content.songLength
-        currentPositionField.stringValue = content.currentPosition
+        songPositionField.stringValue = content.songPosition
         restartPositionField.stringValue = content.restartPosition
-        patternLengthField.stringValue = content.patternLength
-        channelsField.stringValue = content.channelCount
+        patternRowCountField.stringValue = content.patternRowCount
+        channelCountField.stringValue = content.channelCount
         tempoField.stringValue = content.tempo
         speedField.stringValue = content.speed
         octaveSelector.selectItem(withTitle: String(content.selectedOctave))
@@ -86,9 +86,9 @@ final class ControlPanelView: NSView {
         editModeButton.state = content.isEditModeEnabled ? .on : .off
         playButton.isEnabled = !content.isPlaybackActive
         stopButton.isEnabled = content.isPlaybackActive
-        currentPositionStepper.integerValue = content.currentSongPosition
-        currentPositionStepper.maxValue = Double(content.maxSongPosition)
-        currentPositionStepper.isEnabled = content.isSongPositionEnabled
+        songPositionStepper.integerValue = content.songPositionValue
+        songPositionStepper.maxValue = Double(content.maximumSongPosition)
+        songPositionStepper.isEnabled = content.isSongPositionEnabled
         patternSelector.isEnabled = content.isPatternControlsEnabled
         instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
         sampleSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
@@ -100,14 +100,14 @@ final class ControlPanelView: NSView {
         rootStack.orientation = .vertical
         rootStack.alignment = .width
         rootStack.distribution = .fill
-        rootStack.spacing = layout.interRowSpacing
+        rootStack.spacing = Layout.interRowSpacing
         addSubview(rootStack)
 
         NSLayoutConstraint.activate([
-            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.contentInsets.left),
-            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -layout.contentInsets.right),
-            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: layout.contentInsets.top),
-            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -layout.contentInsets.bottom)
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Layout.contentInsets.left),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Layout.contentInsets.right),
+            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: Layout.contentInsets.top),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Layout.contentInsets.bottom)
         ])
 
         rootStack.addArrangedSubview(makeTopRow())
@@ -123,10 +123,10 @@ final class ControlPanelView: NSView {
         speedField.stringValue = "06"
         songTitleField.stringValue = "No Module Loaded"
         songLengthField.stringValue = "--"
-        currentPositionField.stringValue = "--"
+        songPositionField.stringValue = "--"
         restartPositionField.stringValue = "--"
-        patternLengthField.stringValue = "--"
-        channelsField.stringValue = "--"
+        patternRowCountField.stringValue = "--"
+        channelCountField.stringValue = "--"
         playButton.toolTip = "Playback UI placeholder"
         stopButton.toolTip = "Playback UI placeholder"
         loopButton.toolTip = "Loop toggle placeholder"
@@ -143,17 +143,17 @@ final class ControlPanelView: NSView {
         transportButtons.translatesAutoresizingMaskIntoConstraints = false
         transportButtons.orientation = .horizontal
         transportButtons.alignment = .centerY
-        transportButtons.spacing = layout.controlStackSpacing
+        transportButtons.spacing = Layout.controlStackSpacing
 
         let songMetaControls = NSStackView(views: [
             makeInlineGroup(label: "LEN", content: songLengthField),
-            makeInlineGroup(label: "POS", content: makeStepperFieldPair(field: currentPositionField, stepper: currentPositionStepper)),
+            makeInlineGroup(label: "POS", content: makeStepperFieldPair(field: songPositionField, stepper: songPositionStepper)),
             makeInlineGroup(label: "RST", content: restartPositionField)
         ])
         songMetaControls.translatesAutoresizingMaskIntoConstraints = false
         songMetaControls.orientation = .horizontal
         songMetaControls.alignment = .centerY
-        songMetaControls.spacing = layout.controlStackSpacing
+        songMetaControls.spacing = Layout.controlStackSpacing
 
         let titleGroup = makeInlineGroup(label: "TITLE", content: songTitleField)
         titleGroup.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -161,9 +161,9 @@ final class ControlPanelView: NSView {
 
         let row = NSStackView(views: [
             transportButtons,
-            makeFixedSpacer(width: layout.titleLeadSpacing),
+            makeFixedSpacer(width: Layout.titleLeadSpacing),
             titleGroup,
-            makeFixedSpacer(width: layout.titleTrailSpacing),
+            makeFixedSpacer(width: Layout.titleTrailSpacing),
             songMetaControls,
             makeFlexibleSpacer()
         ])
@@ -171,7 +171,7 @@ final class ControlPanelView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.distribution = .fill
-        row.spacing = layout.interGroupSpacing
+        row.spacing = Layout.interGroupSpacing
         return row
     }
 
@@ -181,12 +181,12 @@ final class ControlPanelView: NSView {
 
         let patternControls = NSStackView(views: [
             makeInlineGroup(label: "PATTERN", content: patternSelector),
-            makeInlineGroup(label: "ROWS", content: patternLengthField)
+            makeInlineGroup(label: "ROWS", content: patternRowCountField)
         ])
         patternControls.translatesAutoresizingMaskIntoConstraints = false
         patternControls.orientation = .horizontal
         patternControls.alignment = .centerY
-        patternControls.spacing = layout.controlStackSpacing
+        patternControls.spacing = Layout.controlStackSpacing
 
         let sourceControls = NSStackView(views: [
             makeInlineGroup(label: "INST", content: instrumentSelector),
@@ -195,18 +195,18 @@ final class ControlPanelView: NSView {
         sourceControls.translatesAutoresizingMaskIntoConstraints = false
         sourceControls.orientation = .horizontal
         sourceControls.alignment = .centerY
-        sourceControls.spacing = layout.controlStackSpacing
+        sourceControls.spacing = Layout.controlStackSpacing
 
         let editControls = NSStackView(views: [
             makeInlineGroup(label: "TEMPO", content: tempoField),
             makeInlineGroup(label: "SPEED", content: speedField),
             makeInlineGroup(label: "OCT", content: octaveSelector),
-            makeInlineGroup(label: "CHN", content: channelsField)
+            makeInlineGroup(label: "CHN", content: channelCountField)
         ])
         editControls.translatesAutoresizingMaskIntoConstraints = false
         editControls.orientation = .horizontal
         editControls.alignment = .centerY
-        editControls.spacing = layout.controlStackSpacing
+        editControls.spacing = Layout.controlStackSpacing
 
         let row = NSStackView(views: [
             patternControls,
@@ -218,7 +218,7 @@ final class ControlPanelView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.distribution = .fill
-        row.spacing = layout.interGroupSpacing
+        row.spacing = Layout.interGroupSpacing
         return row
     }
 
@@ -228,7 +228,7 @@ final class ControlPanelView: NSView {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
-        stack.spacing = layout.labelSpacing
+        stack.spacing = Layout.labelSpacing
         return stack
     }
 
@@ -254,7 +254,7 @@ final class ControlPanelView: NSView {
         pair.translatesAutoresizingMaskIntoConstraints = false
         pair.orientation = .horizontal
         pair.alignment = .centerY
-        pair.spacing = layout.stepperSpacing
+        pair.spacing = Layout.stepperSpacing
         return pair
     }
 
@@ -263,7 +263,7 @@ final class ControlPanelView: NSView {
         button.setButtonType(.momentaryPushIn)
         TrackerThemeStyling.applyButtonChrome(button, accentColor: TrackerTheme.legacyDark.text)
         applySymbol(symbolName, to: button)
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: Sizing.primaryButtonMinimumWidth).isActive = true
         return button
     }
 
@@ -272,7 +272,7 @@ final class ControlPanelView: NSView {
         button.setButtonType(.pushOnPushOff)
         TrackerThemeStyling.applyButtonChrome(button, accentColor: TrackerTheme.legacyDark.accent)
         applySymbol(symbolName, to: button)
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? 42 : 56).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: compact ? Sizing.compactToggleButtonMinimumWidth : Sizing.toggleButtonMinimumWidth).isActive = true
         return button
     }
 
@@ -298,8 +298,8 @@ final class ControlPanelView: NSView {
         stepper.autorepeat = true
         stepper.maxValue = 0
         stepper.minValue = 0
-        stepper.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.controlHeight).isActive = true
-        stepper.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        stepper.heightAnchor.constraint(equalToConstant: Sizing.controlHeight).isActive = true
+        stepper.widthAnchor.constraint(equalToConstant: Sizing.stepperWidth).isActive = true
         return stepper
     }
 

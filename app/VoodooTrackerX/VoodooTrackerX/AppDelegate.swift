@@ -746,8 +746,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
-    private var selectedDropdownIndex = 0
-    private var currentSongPositionIndex = 0
+    private var selectedPatternSelectionIndex = 0
+    private var selectedSongPositionIndex = 0
     private var currentPatternIndex = 0
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var visibleGridRangesByRow = [Int: NSRange]()
@@ -791,35 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureMenu()
         if windowController == nil {
             let controller = TrackerWindowController(theme: theme)
-            controller.metadataTextView.navigationHandler = { [weak self] command in
-                self?.handlePatternNavigation(command)
-            }
-            controller.metadataTextView.editInputHandler = { [weak self] input in
-                self?.handlePatternEditInput(input) ?? false
-            }
-            controller.metadataTextView.wheelNavigationHandler = { [weak self] deltaY in
-                self?.handlePatternWheel(deltaY: deltaY)
-            }
-            controller.controlPanelView.playButton.target = self
-            controller.controlPanelView.playButton.action = #selector(playPressed(_:))
-            controller.controlPanelView.stopButton.target = self
-            controller.controlPanelView.stopButton.action = #selector(stopPressed(_:))
-            controller.controlPanelView.loopButton.target = self
-            controller.controlPanelView.loopButton.action = #selector(loopToggled(_:))
-            controller.controlPanelView.editModeButton.target = self
-            controller.controlPanelView.editModeButton.action = #selector(editModeToggled(_:))
-            controller.controlPanelView.patternSelector.target = self
-            controller.controlPanelView.patternSelector.action = #selector(patternSelectionChanged(_:))
-            controller.controlPanelView.currentPositionStepper.target = self
-            controller.controlPanelView.currentPositionStepper.action = #selector(currentSongPositionStepperChanged(_:))
-            controller.controlPanelView.octaveSelector.target = self
-            controller.controlPanelView.octaveSelector.action = #selector(octaveSelectionChanged(_:))
-            controller.onWillStartLiveResize = { [weak self] in
-                self?.trackerWindowWillStartLiveResize()
-            }
-            controller.onDidEndLiveResize = { [weak self] in
-                self?.trackerWindowDidEndLiveResize()
-            }
+            wireTrackerWindowController(controller)
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(gridClipViewBoundsDidChange(_:)),
@@ -828,9 +800,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             windowController = controller
             lastGridViewportSize = controller.gridScrollView.contentView.bounds.size
-            refreshControlPanel()
+            syncControlPanelView()
         }
-        windowController?.showAndActivate()
+        windowController?.showWindowAndActivate()
         if let metadataTextView {
             mainWindow?.makeFirstResponder(metadataTextView)
         }
@@ -843,6 +815,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    // AppDelegate owns mutable tracker/module state and pushes view updates into the window-controller tree.
+    private func wireTrackerWindowController(_ controller: TrackerWindowController) {
+        controller.metadataTextView.navigationHandler = { [weak self] command in
+            self?.handlePatternNavigation(command)
+        }
+        controller.metadataTextView.editInputHandler = { [weak self] input in
+            self?.handlePatternEditInput(input) ?? false
+        }
+        controller.metadataTextView.wheelNavigationHandler = { [weak self] deltaY in
+            self?.handlePatternWheel(deltaY: deltaY)
+        }
+
+        controller.controlPanelView.playButton.target = self
+        controller.controlPanelView.playButton.action = #selector(playPressed(_:))
+        controller.controlPanelView.stopButton.target = self
+        controller.controlPanelView.stopButton.action = #selector(stopPressed(_:))
+        controller.controlPanelView.loopButton.target = self
+        controller.controlPanelView.loopButton.action = #selector(loopToggled(_:))
+        controller.controlPanelView.editModeButton.target = self
+        controller.controlPanelView.editModeButton.action = #selector(editModeToggled(_:))
+        controller.controlPanelView.patternSelector.target = self
+        controller.controlPanelView.patternSelector.action = #selector(patternSelectionChanged(_:))
+        controller.controlPanelView.songPositionStepper.target = self
+        controller.controlPanelView.songPositionStepper.action = #selector(currentSongPositionStepperChanged(_:))
+        controller.controlPanelView.octaveSelector.target = self
+        controller.controlPanelView.octaveSelector.action = #selector(octaveSelectionChanged(_:))
+
+        controller.liveResizeWillStartHandler = { [weak self] in
+            self?.trackerWindowWillStartLiveResize()
+        }
+        controller.liveResizeDidEndHandler = { [weak self] in
+            self?.trackerWindowDidEndLiveResize()
+        }
     }
 
     private func configureMenu() {
@@ -921,8 +928,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
-            selectedDropdownIndex = 0
-            currentSongPositionIndex = 0
+            selectedPatternSelectionIndex = 0
+            selectedSongPositionIndex = 0
             currentPatternIndex = 0
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
@@ -936,7 +943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 trackerDividerUnderlayView?.isHidden = false
                 trackerChromeOverlayView?.isHidden = false
                 updatePatternSelector(for: metadata, keepPattern: nil)
-                applySongPosition(currentSongPositionIndex, in: metadata, resetCursor: false)
+                applySongPosition(selectedSongPositionIndex, in: metadata, resetCursor: false)
                 renderCurrentPattern(metadata: metadata)
             } else {
                 metadataTextView?.activeFieldRange = nil
@@ -961,7 +968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 \(metadata.displayText)
                 """
             }
-            refreshControlPanel()
+            syncControlPanelView()
         } catch {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -980,14 +987,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let metadata = loadedMetadata else {
             return
         }
-        selectedDropdownIndex = max(0, sender.indexOfSelectedItem)
-        guard displayedPatternEntries.indices.contains(selectedDropdownIndex) else {
+        selectedPatternSelectionIndex = max(0, sender.indexOfSelectedItem)
+        guard displayedPatternEntries.indices.contains(selectedPatternSelectionIndex) else {
             return
         }
-        currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
+        currentPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
@@ -997,37 +1004,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         applySongPosition(sender.integerValue, in: metadata)
         renderCurrentPattern(metadata: metadata)
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
     private func editModeToggled(_ sender: NSButton) {
         isEditModeEnabled = sender.state == .on
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
     private func playPressed(_ sender: NSButton) {
         isPlaybackModeActive = true
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
     private func stopPressed(_ sender: NSButton) {
         isPlaybackModeActive = false
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
     private func loopToggled(_ sender: NSButton) {
         isLoopPlaybackEnabled = sender.state == .on
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     @objc
     private func octaveSelectionChanged(_ sender: NSPopUpButton) {
         selectedOctave = max(0, sender.indexOfSelectedItem)
-        refreshControlPanel()
+        syncControlPanelView()
     }
 
     private var interactionMode: TrackerInteractionMode {
@@ -1078,22 +1085,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let keepPattern, let index = displayedPatternEntries.firstIndex(where: { $0.patternIndex == keepPattern }) {
-            selectedDropdownIndex = index
+            selectedPatternSelectionIndex = index
         } else {
-            selectedDropdownIndex = 0
+            selectedPatternSelectionIndex = 0
         }
-        currentPatternIndex = displayedPatternEntries[selectedDropdownIndex].patternIndex
-        selector.selectItem(at: selectedDropdownIndex)
+        currentPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
+        selector.selectItem(at: selectedPatternSelectionIndex)
         selector.isEnabled = true
     }
 
     private func applySongPosition(_ proposedPosition: Int, in metadata: ParsedModuleMetadata, resetCursor: Bool = true) {
         let clampedPosition = clampedSongPosition(proposedPosition, songLength: metadata.songLength)
-        currentSongPositionIndex = clampedPosition
+        selectedSongPositionIndex = clampedPosition
         if let patternIndex = displayedPatternIndex(in: metadata, songPosition: clampedPosition) {
             currentPatternIndex = patternIndex
             if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == patternIndex }) {
-                selectedDropdownIndex = selectorIndex
+                selectedPatternSelectionIndex = selectorIndex
                 patternSelector?.selectItem(at: selectorIndex)
             }
         }
@@ -1524,7 +1531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTrackerChromeOverlay(layout: layout, viewportState: viewportState)
     }
 
-    private func refreshControlPanel() {
+    private func syncControlPanelView() {
         var content = ControlPanelContent()
         content.selectedOctave = selectedOctave
         content.isLoopEnabled = isLoopPlaybackEnabled
@@ -1534,32 +1541,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let metadata = loadedMetadata {
             content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title
             content.songLength = String(format: "%02d", metadata.songLength)
-            content.currentPosition = String(format: "%02d", currentSongPositionIndex)
-            content.currentSongPosition = currentSongPositionIndex
-            content.maxSongPosition = max(0, metadata.songLength - 1)
+            content.songPosition = String(format: "%02d", selectedSongPositionIndex)
+            content.songPositionValue = selectedSongPositionIndex
+            content.maximumSongPosition = max(0, metadata.songLength - 1)
             content.isSongPositionEnabled = metadata.songLength > 0
             if metadata.type == "XM",
                metadata.xmPatterns.indices.contains(currentPatternIndex) {
                 let pattern = metadata.xmPatterns[currentPatternIndex]
-                content.patternLength = "\(pattern.rowCount)"
+                content.patternRowCount = "\(pattern.rowCount)"
                 content.channelCount = "\(pattern.channels)"
                 content.isPatternControlsEnabled = true
                 content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
             } else {
-                content.patternLength = "--"
+                content.patternRowCount = "--"
                 content.channelCount = String(format: "%02d", metadata.channels)
                 content.isPatternControlsEnabled = false
                 content.areInstrumentPlaceholdersEnabled = false
             }
-            updateInstrumentPlaceholders(for: metadata)
+            reloadInstrumentPlaceholders(for: metadata)
         } else {
-            updateInstrumentPlaceholders(for: nil)
+            reloadInstrumentPlaceholders(for: nil)
         }
 
         controlPanelView?.apply(content)
     }
 
-    private func updateInstrumentPlaceholders(for metadata: ParsedModuleMetadata?) {
+    // These selectors remain placeholder-driven until instrument/sample editors own real state.
+    private func reloadInstrumentPlaceholders(for metadata: ParsedModuleMetadata?) {
         guard let controlPanelView else {
             return
         }

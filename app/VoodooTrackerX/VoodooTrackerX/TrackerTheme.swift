@@ -51,31 +51,33 @@ enum TrackerThemeMetrics {
         static let stepperSpacing: CGFloat = 4
     }
 
+    enum ControlPanelSizing {
+        static let controlHeight: CGFloat = 28
+        static let borderWidth: CGFloat = 1
+        static let primaryButtonMinimumWidth: CGFloat = 58
+        static let toggleButtonMinimumWidth: CGFloat = 56
+        static let compactToggleButtonMinimumWidth: CGFloat = 42
+        static let songTitleMinimumWidth: CGFloat = 340
+        static let songLengthWidth: CGFloat = 50
+        static let songPositionWidth: CGFloat = 40
+        static let restartPositionWidth: CGFloat = 50
+        static let patternSelectorWidth: CGFloat = 88
+        static let rowCountWidth: CGFloat = 58
+        static let instrumentSelectorWidth: CGFloat = 118
+        static let sampleSelectorWidth: CGFloat = 122
+        static let tempoWidth: CGFloat = 48
+        static let speedWidth: CGFloat = 48
+        static let octaveSelectorWidth: CGFloat = 68
+        static let channelCountWidth: CGFloat = 46
+        static let stepperWidth: CGFloat = 20
+    }
+
     enum LogoLayout {
         static let horizontalPadding: CGFloat = 48
         static let verticalPadding: CGFloat = 24
         static let maximumWidth: CGFloat = 800
     }
 
-    static let rootPadding: CGFloat = 24
-    static let sectionSpacing: CGFloat = 12
-    static let logoPanelHeight: CGFloat = 260
-    static let controlPanelHeight: CGFloat = 112
-    static let trackerHeaderHeight: CGFloat = 24
-    static let channelHeaderHeight: CGFloat = 24
-    static let controlHeight: CGFloat = 28
-    static let contentInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
-    static let interRowSpacing: CGFloat = 10
-    static let interGroupSpacing: CGFloat = 14
-    static let controlStackSpacing: CGFloat = 8
-    static let titleLeadSpacing: CGFloat = 18
-    static let titleTrailSpacing: CGFloat = 20
-    static let labelSpacing: CGFloat = 7
-    static let stepperSpacing: CGFloat = 4
-    static let controlBorderWidth: CGFloat = 1
-    static let logoHorizontalPadding: CGFloat = 48
-    static let logoVerticalPadding: CGFloat = 24
-    static let maximumLogoWidth: CGFloat = 800
 }
 
 @MainActor
@@ -98,7 +100,7 @@ enum TrackerThemeStyling {
         button.contentTintColor = accentColor
         button.appearance = NSAppearance(named: .darkAqua)
         button.bezelColor = TrackerChromePalette.recessedFieldBackground
-        button.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.controlHeight).isActive = true
+        button.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.ControlPanelSizing.controlHeight).isActive = true
     }
 
     static func applyPopupChrome(_ button: NSPopUpButton, width: CGFloat, theme: TrackerTheme) {
@@ -107,7 +109,7 @@ enum TrackerThemeStyling {
         button.contentTintColor = theme.text
         button.font = TrackerThemeFonts.popup
         button.bezelColor = TrackerChromePalette.recessedFieldBackground
-        button.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.controlHeight).isActive = true
+        button.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.ControlPanelSizing.controlHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: width).isActive = true
     }
 
@@ -130,12 +132,12 @@ enum TrackerThemeStyling {
         field.lineBreakMode = .byTruncatingTail
         field.wantsLayer = true
         field.layer?.backgroundColor = TrackerChromePalette.recessedFieldBackground.cgColor
-        field.layer?.borderWidth = TrackerThemeMetrics.controlBorderWidth
+        field.layer?.borderWidth = TrackerThemeMetrics.ControlPanelSizing.borderWidth
         field.layer?.borderColor = TrackerChromePalette.subtleBorder.cgColor
         field.layer?.cornerRadius = 0
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
-        field.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.controlHeight).isActive = true
+        field.heightAnchor.constraint(equalToConstant: TrackerThemeMetrics.ControlPanelSizing.controlHeight).isActive = true
         if let minimumWidth {
             field.widthAnchor.constraint(greaterThanOrEqualToConstant: minimumWidth).isActive = true
         }

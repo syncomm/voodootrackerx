@@ -3,6 +3,8 @@
 import AppKit
 
 final class TrackerWindowController: NSWindowController, NSWindowDelegate {
+    private typealias WindowLayout = TrackerThemeMetrics.WindowLayout
+
     let theme: TrackerTheme
     let defaultWindowSize: NSSize
 
@@ -15,8 +17,8 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
     let trackerDividerUnderlayView: TrackerDividerUnderlayView
     let trackerChromeOverlayView: TrackerChromeOverlayView
 
-    var onWillStartLiveResize: (() -> Void)?
-    var onDidEndLiveResize: (() -> Void)?
+    var liveResizeWillStartHandler: (() -> Void)?
+    var liveResizeDidEndHandler: (() -> Void)?
 
     init(theme: TrackerTheme = .legacyDark, defaultWindowSize: NSSize = NSSize(width: 1120, height: 900)) {
         self.theme = theme
@@ -27,19 +29,18 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = TrackerChromePalette.windowBackground.cgColor
 
-        let windowLayout = TrackerThemeMetrics.WindowLayout.self
-        let contentWidth = defaultWindowSize.width - (windowLayout.rootPadding * 2)
-        let logoPanelY = defaultWindowSize.height - windowLayout.rootPadding - windowLayout.logoPanelHeight
-        let controlBarY = logoPanelY - windowLayout.sectionSpacing - windowLayout.controlPanelHeight
-        let trackerPanelY = windowLayout.rootPadding
-        let trackerPanelHeight = max(220, controlBarY - windowLayout.sectionSpacing - trackerPanelY)
+        let contentWidth = defaultWindowSize.width - (WindowLayout.rootPadding * 2)
+        let logoPanelY = defaultWindowSize.height - WindowLayout.rootPadding - WindowLayout.logoPanelHeight
+        let controlPanelY = logoPanelY - WindowLayout.sectionSpacing - WindowLayout.controlPanelHeight
+        let trackerPanelY = WindowLayout.rootPadding
+        let trackerPanelHeight = max(220, controlPanelY - WindowLayout.sectionSpacing - trackerPanelY)
 
         let logoPanel = LogoPanelView(
             frame: NSRect(
-                x: windowLayout.rootPadding,
+                x: WindowLayout.rootPadding,
                 y: logoPanelY,
                 width: contentWidth,
-                height: windowLayout.logoPanelHeight
+                height: WindowLayout.logoPanelHeight
             ),
             theme: theme
         )
@@ -48,10 +49,10 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
 
         controlPanelView = ControlPanelView(
             frame: NSRect(
-                x: windowLayout.rootPadding,
-                y: controlBarY,
+                x: WindowLayout.rootPadding,
+                y: controlPanelY,
                 width: contentWidth,
-                height: windowLayout.controlPanelHeight
+                height: WindowLayout.controlPanelHeight
             ),
             theme: theme
         )
@@ -60,7 +61,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
 
         let trackerPanel = NSBox(
             frame: NSRect(
-                x: windowLayout.rootPadding,
+                x: WindowLayout.rootPadding,
                 y: trackerPanelY,
                 width: contentWidth,
                 height: trackerPanelHeight
@@ -86,9 +87,9 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderScrollView = NSScrollView(
             frame: NSRect(
                 x: 0,
-                y: trackerPanel.bounds.height - windowLayout.trackerHeaderHeight,
+                y: trackerPanel.bounds.height - WindowLayout.trackerHeaderHeight,
                 width: trackerPanel.bounds.width,
-                height: windowLayout.channelHeaderHeight
+                height: WindowLayout.channelHeaderHeight
             )
         )
         patternHeaderScrollView.autoresizingMask = [.width, .minYMargin]
@@ -108,7 +109,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderTextView.isHorizontallyResizable = true
         patternHeaderTextView.isVerticallyResizable = false
         patternHeaderTextView.minSize = NSSize(width: 0, height: 0)
-        patternHeaderTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: windowLayout.trackerHeaderHeight)
+        patternHeaderTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: WindowLayout.trackerHeaderHeight)
         patternHeaderTextView.font = TrackerThemeFonts.trackerHeader
         patternHeaderTextView.textContainerInset = NSSize(width: 4, height: 2)
         patternHeaderTextView.drawsBackground = true
@@ -117,7 +118,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderTextView.textContainer?.lineFragmentPadding = 0
         patternHeaderTextView.textContainer?.widthTracksTextView = false
         patternHeaderTextView.textContainer?.heightTracksTextView = true
-        patternHeaderTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: windowLayout.trackerHeaderHeight)
+        patternHeaderTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: WindowLayout.trackerHeaderHeight)
         patternHeaderTextView.textContainer?.lineBreakMode = .byClipping
         patternHeaderTextView.theme = theme
         patternHeaderTextView.drawsDividers = false
@@ -125,7 +126,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderScrollView.isHidden = true
         trackerPanel.addSubview(patternHeaderScrollView)
 
-        let bodyHeight = trackerPanel.bounds.height - windowLayout.trackerHeaderHeight - 8
+        let bodyHeight = trackerPanel.bounds.height - WindowLayout.trackerHeaderHeight - 8
         gridScrollView = NSScrollView(
             frame: NSRect(
                 x: 0,
@@ -223,7 +224,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func showAndActivate() {
+    func showWindowAndActivate() {
         guard let window else { return }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -231,10 +232,10 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillStartLiveResize(_ notification: Notification) {
-        onWillStartLiveResize?()
+        liveResizeWillStartHandler?()
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
-        onDidEndLiveResize?()
+        liveResizeDidEndHandler?()
     }
 }

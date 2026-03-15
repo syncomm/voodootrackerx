@@ -12,6 +12,10 @@
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
 		A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* ModuleMetadataLoader.swift */; };
+		A00000000000000000000016 /* TrackerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* TrackerTheme.swift */; };
+		A0000000000000000000001C /* ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* ControlPanelView.swift */; };
+		A0000000000000000000001D /* LogoPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002D /* LogoPanelView.swift */; };
+		A0000000000000000000001E /* TrackerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002E /* TrackerWindowController.swift */; };
 		A0000000000000000000001A /* vtx-logo.svg in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002A /* vtx-logo.svg */; };
 		A0000000000000000000001B /* vtx-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002B /* vtx-logo.png */; };
 		A00000000000000000000017 /* module_types.c in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000025 /* module_types.c */; };
@@ -23,8 +27,12 @@
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
+		A00000000000000000000024 /* TrackerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerTheme.swift; sourceTree = "<group>"; };
 		A0000000000000000000002A /* vtx-logo.svg */ = {isa = PBXFileReference; lastKnownFileType = image.svg; name = "vtx-logo.svg"; path = ../../../assets/logo/vtx-logo.svg; sourceTree = "<group>"; };
 		A0000000000000000000002B /* vtx-logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "vtx-logo.png"; path = ../../../assets/logo/vtx-logo.png; sourceTree = "<group>"; };
+		A0000000000000000000002C /* ControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelView.swift; sourceTree = "<group>"; };
+		A0000000000000000000002D /* LogoPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogoPanelView.swift; sourceTree = "<group>"; };
+		A0000000000000000000002E /* TrackerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerWindowController.swift; sourceTree = "<group>"; };
 		A00000000000000000000025 /* module_types.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = module_types.c; path = ../../core/ModuleCore/src/module_types.c; sourceTree = "<group>"; };
 		A00000000000000000000026 /* xm_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = xm_header.c; path = ../../core/ModuleCore/src/xm_header.c; sourceTree = "<group>"; };
 		A00000000000000000000027 /* mod_header.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = mod_header.c; path = ../../core/ModuleCore/src/mod_header.c; sourceTree = "<group>"; };
@@ -74,6 +82,10 @@
 			children = (
 				A00000000000000000000021 /* AppDelegate.swift */,
 				A00000000000000000000023 /* ModuleMetadataLoader.swift */,
+				A00000000000000000000024 /* TrackerTheme.swift */,
+				A0000000000000000000002C /* ControlPanelView.swift */,
+				A0000000000000000000002D /* LogoPanelView.swift */,
+				A0000000000000000000002E /* TrackerWindowController.swift */,
 				A00000000000000000000028 /* ModuleCoreBridge.h */,
 				A0000000000000000000002A /* vtx-logo.svg */,
 				A0000000000000000000002B /* vtx-logo.png */,
@@ -216,6 +228,10 @@
 			files = (
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
 				A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */,
+				A00000000000000000000016 /* TrackerTheme.swift in Sources */,
+				A0000000000000000000001C /* ControlPanelView.swift in Sources */,
+				A0000000000000000000001D /* LogoPanelView.swift in Sources */,
+				A0000000000000000000001E /* TrackerWindowController.swift in Sources */,
 				A00000000000000000000017 /* module_types.c in Sources */,
 				A00000000000000000000018 /* xm_header.c in Sources */,
 				A00000000000000000000019 /* mod_header.c in Sources */,

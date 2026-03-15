@@ -1,6 +1,11 @@
 # VoodooTracker X — Development Roadmap
 
-This document outlines the planned milestones for the project.
+This document is the lightweight, phase-based roadmap.
+
+Primary roadmap:
+- Use `docs/roadmap.md` for the detailed PR-by-PR plan and current sequencing.
+
+Use this file when you want a short phase summary rather than the full implementation roadmap.
 
 ---
 

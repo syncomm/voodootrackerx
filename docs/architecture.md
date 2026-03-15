@@ -57,6 +57,34 @@ Pattern
 Row  
 ChannelEvent
 
+## Current Parsing Strategy
+
+Module loading currently uses a hybrid parsing approach.
+
+- `core/ModuleCore` in C handles core parsing responsibilities such as module headers, metadata extraction, and lower-level parsing support.
+- The Swift app layer still performs additional parsing and full-loading work where the current workflow needs richer in-memory data for the UI.
+- Some overlap between the C and Swift parsing paths is currently intentional, or at least tolerated, so the app can keep moving without blocking on a full parser consolidation.
+
+Agents should treat this as an active architecture boundary, not cleanup debt that can be removed opportunistically.
+
+Rules for current work:
+
+- Correct behavior comes first.
+- Do not remove the Swift parser just because similar responsibilities exist in `ModuleCore`.
+- Do not force parser unification during unrelated cleanup or UI work.
+- Any attempt to make one parser path the sole source of truth should be treated as a separate, explicit architecture decision.
+
+## Future Parser Direction
+
+The long-term source-of-truth direction is still open.
+
+Open design question:
+
+- `ModuleCore` may eventually become the full source of truth for module loading.
+- The Swift layer may remain responsible for some higher-level loading or UI-facing transformation responsibilities.
+
+This should be resolved deliberately in a future design pass, with behavior preservation and migration risk reviewed explicitly.
+
 ---
 
 # Pattern Model

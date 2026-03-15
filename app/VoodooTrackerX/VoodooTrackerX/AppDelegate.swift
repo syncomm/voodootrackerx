@@ -1,3 +1,5 @@
+// Owns app lifecycle, menu/setup, module loading, and top-level coordination between state and the main window.
+// It intentionally does not build the window hierarchy directly, but it still owns tracker state/render coordination for now.
 import AppKit
 import UniformTypeIdentifiers
 

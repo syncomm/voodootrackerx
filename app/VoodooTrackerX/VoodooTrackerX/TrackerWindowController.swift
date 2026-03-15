@@ -1,8 +1,10 @@
+// Owns main-window composition and the top-level view hierarchy for the logo, controls, and tracker region.
+// It does not own module-loading decisions, tracker state mutations, or parsing behavior.
 import AppKit
 
 final class TrackerWindowController: NSWindowController, NSWindowDelegate {
     let theme: TrackerTheme
-    let initialWindowSize: NSSize
+    let defaultWindowSize: NSSize
 
     let controlPanelView: ControlPanelView
     let patternInfoLabel: NSTextField
@@ -16,27 +18,28 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
     var onWillStartLiveResize: (() -> Void)?
     var onDidEndLiveResize: (() -> Void)?
 
-    init(theme: TrackerTheme = .legacyDark, initialWindowSize: NSSize = NSSize(width: 1120, height: 900)) {
+    init(theme: TrackerTheme = .legacyDark, defaultWindowSize: NSSize = NSSize(width: 1120, height: 900)) {
         self.theme = theme
-        self.initialWindowSize = initialWindowSize
+        self.defaultWindowSize = defaultWindowSize
 
         let trackerBackground = NSColor.black
-        let contentView = NSView(frame: NSRect(origin: .zero, size: initialWindowSize))
+        let contentView = NSView(frame: NSRect(origin: .zero, size: defaultWindowSize))
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = TrackerChromePalette.windowBackground.cgColor
 
-        let contentWidth = initialWindowSize.width - (TrackerThemeMetrics.rootPadding * 2)
-        let logoPanelY = initialWindowSize.height - TrackerThemeMetrics.rootPadding - TrackerThemeMetrics.logoPanelHeight
-        let controlBarY = logoPanelY - TrackerThemeMetrics.sectionSpacing - TrackerThemeMetrics.controlPanelHeight
-        let trackerPanelY = TrackerThemeMetrics.rootPadding
-        let trackerPanelHeight = max(220, controlBarY - TrackerThemeMetrics.sectionSpacing - trackerPanelY)
+        let windowLayout = TrackerThemeMetrics.WindowLayout.self
+        let contentWidth = defaultWindowSize.width - (windowLayout.rootPadding * 2)
+        let logoPanelY = defaultWindowSize.height - windowLayout.rootPadding - windowLayout.logoPanelHeight
+        let controlBarY = logoPanelY - windowLayout.sectionSpacing - windowLayout.controlPanelHeight
+        let trackerPanelY = windowLayout.rootPadding
+        let trackerPanelHeight = max(220, controlBarY - windowLayout.sectionSpacing - trackerPanelY)
 
         let logoPanel = LogoPanelView(
             frame: NSRect(
-                x: TrackerThemeMetrics.rootPadding,
+                x: windowLayout.rootPadding,
                 y: logoPanelY,
                 width: contentWidth,
-                height: TrackerThemeMetrics.logoPanelHeight
+                height: windowLayout.logoPanelHeight
             ),
             theme: theme
         )
@@ -45,10 +48,10 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
 
         controlPanelView = ControlPanelView(
             frame: NSRect(
-                x: TrackerThemeMetrics.rootPadding,
+                x: windowLayout.rootPadding,
                 y: controlBarY,
                 width: contentWidth,
-                height: TrackerThemeMetrics.controlPanelHeight
+                height: windowLayout.controlPanelHeight
             ),
             theme: theme
         )
@@ -57,7 +60,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
 
         let trackerPanel = NSBox(
             frame: NSRect(
-                x: TrackerThemeMetrics.rootPadding,
+                x: windowLayout.rootPadding,
                 y: trackerPanelY,
                 width: contentWidth,
                 height: trackerPanelHeight
@@ -83,9 +86,9 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderScrollView = NSScrollView(
             frame: NSRect(
                 x: 0,
-                y: trackerPanel.bounds.height - TrackerThemeMetrics.trackerHeaderHeight,
+                y: trackerPanel.bounds.height - windowLayout.trackerHeaderHeight,
                 width: trackerPanel.bounds.width,
-                height: TrackerThemeMetrics.channelHeaderHeight
+                height: windowLayout.channelHeaderHeight
             )
         )
         patternHeaderScrollView.autoresizingMask = [.width, .minYMargin]
@@ -105,7 +108,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderTextView.isHorizontallyResizable = true
         patternHeaderTextView.isVerticallyResizable = false
         patternHeaderTextView.minSize = NSSize(width: 0, height: 0)
-        patternHeaderTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: TrackerThemeMetrics.trackerHeaderHeight)
+        patternHeaderTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: windowLayout.trackerHeaderHeight)
         patternHeaderTextView.font = TrackerThemeFonts.trackerHeader
         patternHeaderTextView.textContainerInset = NSSize(width: 4, height: 2)
         patternHeaderTextView.drawsBackground = true
@@ -114,7 +117,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderTextView.textContainer?.lineFragmentPadding = 0
         patternHeaderTextView.textContainer?.widthTracksTextView = false
         patternHeaderTextView.textContainer?.heightTracksTextView = true
-        patternHeaderTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: TrackerThemeMetrics.trackerHeaderHeight)
+        patternHeaderTextView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: windowLayout.trackerHeaderHeight)
         patternHeaderTextView.textContainer?.lineBreakMode = .byClipping
         patternHeaderTextView.theme = theme
         patternHeaderTextView.drawsDividers = false
@@ -122,7 +125,7 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         patternHeaderScrollView.isHidden = true
         trackerPanel.addSubview(patternHeaderScrollView)
 
-        let bodyHeight = trackerPanel.bounds.height - TrackerThemeMetrics.trackerHeaderHeight - 8
+        let bodyHeight = trackerPanel.bounds.height - windowLayout.trackerHeaderHeight - 8
         gridScrollView = NSScrollView(
             frame: NSRect(
                 x: 0,

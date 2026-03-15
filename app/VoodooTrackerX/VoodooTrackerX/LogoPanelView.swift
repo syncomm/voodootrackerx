@@ -1,3 +1,5 @@
+// Owns the logo panel container, including its white panel background and centered logo image.
+// It does not own window layout, state wiring, or any control-panel/tracker behavior.
 import AppKit
 
 final class LogoPanelView: NSBox {
@@ -19,12 +21,12 @@ final class LogoPanelView: NSBox {
     }
 
     private func buildLogoPresentation() {
-        if let logoImage = trackerLogoImage() {
-            let maxLogoWidth = min(bounds.width - TrackerThemeMetrics.logoHorizontalPadding, TrackerThemeMetrics.maximumLogoWidth)
+        if let logoImage = loadBundledLogoImage() {
+            let maxLogoWidth = min(bounds.width - TrackerThemeMetrics.LogoLayout.horizontalPadding, TrackerThemeMetrics.LogoLayout.maximumWidth)
             let logoAspect = logoImage.size.width > 0 ? (logoImage.size.height / logoImage.size.width) : 0.15
             var logoWidth = maxLogoWidth
             var logoHeight = logoWidth * logoAspect
-            let maxLogoHeight = bounds.height - TrackerThemeMetrics.logoVerticalPadding
+            let maxLogoHeight = bounds.height - TrackerThemeMetrics.LogoLayout.verticalPadding
             if logoHeight > maxLogoHeight, logoAspect > 0 {
                 logoHeight = maxLogoHeight
                 logoWidth = logoHeight / logoAspect
@@ -55,7 +57,7 @@ final class LogoPanelView: NSBox {
         addSubview(fallbackTitle)
     }
 
-    private func trackerLogoImage() -> NSImage? {
+    private func loadBundledLogoImage() -> NSImage? {
         if let svg = Bundle.main.url(forResource: "vtx-logo", withExtension: "svg"),
            let image = NSImage(contentsOf: svg) {
             return image

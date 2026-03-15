@@ -1,3 +1,5 @@
+// Owns the two-row control panel UI and its local chrome/layout rules.
+// It does not own app state, module loading, or tracker rendering behavior.
 import AppKit
 
 final class TrackerCenteredTextFieldCell: NSTextFieldCell {
@@ -51,6 +53,7 @@ final class ControlPanelView: NSView {
     let channelsField = ControlPanelView.makeReadoutField(width: 46, alignment: .center)
 
     private let theme: TrackerTheme
+    private let layout = TrackerThemeMetrics.ControlPanelLayout.self
 
     init(frame frameRect: NSRect, theme: TrackerTheme = .legacyDark) {
         self.theme = theme
@@ -97,14 +100,14 @@ final class ControlPanelView: NSView {
         rootStack.orientation = .vertical
         rootStack.alignment = .width
         rootStack.distribution = .fill
-        rootStack.spacing = TrackerThemeMetrics.interRowSpacing
+        rootStack.spacing = layout.interRowSpacing
         addSubview(rootStack)
 
         NSLayoutConstraint.activate([
-            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TrackerThemeMetrics.contentInsets.left),
-            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -TrackerThemeMetrics.contentInsets.right),
-            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: TrackerThemeMetrics.contentInsets.top),
-            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -TrackerThemeMetrics.contentInsets.bottom)
+            rootStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: layout.contentInsets.left),
+            rootStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -layout.contentInsets.right),
+            rootStack.topAnchor.constraint(equalTo: topAnchor, constant: layout.contentInsets.top),
+            rootStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -layout.contentInsets.bottom)
         ])
 
         rootStack.addArrangedSubview(makeTopRow())
@@ -140,7 +143,7 @@ final class ControlPanelView: NSView {
         transportButtons.translatesAutoresizingMaskIntoConstraints = false
         transportButtons.orientation = .horizontal
         transportButtons.alignment = .centerY
-        transportButtons.spacing = TrackerThemeMetrics.controlStackSpacing
+        transportButtons.spacing = layout.controlStackSpacing
 
         let songMetaControls = NSStackView(views: [
             makeInlineGroup(label: "LEN", content: songLengthField),
@@ -150,7 +153,7 @@ final class ControlPanelView: NSView {
         songMetaControls.translatesAutoresizingMaskIntoConstraints = false
         songMetaControls.orientation = .horizontal
         songMetaControls.alignment = .centerY
-        songMetaControls.spacing = TrackerThemeMetrics.controlStackSpacing
+        songMetaControls.spacing = layout.controlStackSpacing
 
         let titleGroup = makeInlineGroup(label: "TITLE", content: songTitleField)
         titleGroup.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -158,9 +161,9 @@ final class ControlPanelView: NSView {
 
         let row = NSStackView(views: [
             transportButtons,
-            makeFixedSpacer(width: TrackerThemeMetrics.titleLeadSpacing),
+            makeFixedSpacer(width: layout.titleLeadSpacing),
             titleGroup,
-            makeFixedSpacer(width: TrackerThemeMetrics.titleTrailSpacing),
+            makeFixedSpacer(width: layout.titleTrailSpacing),
             songMetaControls,
             makeFlexibleSpacer()
         ])
@@ -168,7 +171,7 @@ final class ControlPanelView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.distribution = .fill
-        row.spacing = TrackerThemeMetrics.interGroupSpacing
+        row.spacing = layout.interGroupSpacing
         return row
     }
 
@@ -183,7 +186,7 @@ final class ControlPanelView: NSView {
         patternControls.translatesAutoresizingMaskIntoConstraints = false
         patternControls.orientation = .horizontal
         patternControls.alignment = .centerY
-        patternControls.spacing = TrackerThemeMetrics.controlStackSpacing
+        patternControls.spacing = layout.controlStackSpacing
 
         let sourceControls = NSStackView(views: [
             makeInlineGroup(label: "INST", content: instrumentSelector),
@@ -192,7 +195,7 @@ final class ControlPanelView: NSView {
         sourceControls.translatesAutoresizingMaskIntoConstraints = false
         sourceControls.orientation = .horizontal
         sourceControls.alignment = .centerY
-        sourceControls.spacing = TrackerThemeMetrics.controlStackSpacing
+        sourceControls.spacing = layout.controlStackSpacing
 
         let editControls = NSStackView(views: [
             makeInlineGroup(label: "TEMPO", content: tempoField),
@@ -203,7 +206,7 @@ final class ControlPanelView: NSView {
         editControls.translatesAutoresizingMaskIntoConstraints = false
         editControls.orientation = .horizontal
         editControls.alignment = .centerY
-        editControls.spacing = TrackerThemeMetrics.controlStackSpacing
+        editControls.spacing = layout.controlStackSpacing
 
         let row = NSStackView(views: [
             patternControls,
@@ -215,7 +218,7 @@ final class ControlPanelView: NSView {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.distribution = .fill
-        row.spacing = TrackerThemeMetrics.interGroupSpacing
+        row.spacing = layout.interGroupSpacing
         return row
     }
 
@@ -225,7 +228,7 @@ final class ControlPanelView: NSView {
         stack.orientation = .horizontal
         stack.alignment = .centerY
         stack.distribution = .fill
-        stack.spacing = TrackerThemeMetrics.labelSpacing
+        stack.spacing = layout.labelSpacing
         return stack
     }
 
@@ -251,7 +254,7 @@ final class ControlPanelView: NSView {
         pair.translatesAutoresizingMaskIntoConstraints = false
         pair.orientation = .horizontal
         pair.alignment = .centerY
-        pair.spacing = TrackerThemeMetrics.stepperSpacing
+        pair.spacing = layout.stepperSpacing
         return pair
     }
 

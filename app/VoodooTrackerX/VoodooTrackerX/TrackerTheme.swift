@@ -1,3 +1,5 @@
+// Owns shared main-window UI colors, sizing, fonts, and small AppKit styling helpers.
+// It does not own window composition, control wiring, or tracker viewport behavior.
 import AppKit
 
 struct TrackerTheme {
@@ -29,6 +31,32 @@ enum TrackerChromePalette {
 }
 
 enum TrackerThemeMetrics {
+    enum WindowLayout {
+        static let rootPadding: CGFloat = 24
+        static let sectionSpacing: CGFloat = 12
+        static let logoPanelHeight: CGFloat = 260
+        static let controlPanelHeight: CGFloat = 112
+        static let trackerHeaderHeight: CGFloat = 24
+        static let channelHeaderHeight: CGFloat = 24
+    }
+
+    enum ControlPanelLayout {
+        static let contentInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        static let interRowSpacing: CGFloat = 10
+        static let interGroupSpacing: CGFloat = 14
+        static let controlStackSpacing: CGFloat = 8
+        static let titleLeadSpacing: CGFloat = 18
+        static let titleTrailSpacing: CGFloat = 20
+        static let labelSpacing: CGFloat = 7
+        static let stepperSpacing: CGFloat = 4
+    }
+
+    enum LogoLayout {
+        static let horizontalPadding: CGFloat = 48
+        static let verticalPadding: CGFloat = 24
+        static let maximumWidth: CGFloat = 800
+    }
+
     static let rootPadding: CGFloat = 24
     static let sectionSpacing: CGFloat = 12
     static let logoPanelHeight: CGFloat = 260

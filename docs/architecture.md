@@ -57,6 +57,46 @@ Pattern
 Row  
 ChannelEvent
 
+## Current Parsing Strategy
+
+Module loading currently uses a hybrid parsing approach.
+
+- `core/ModuleCore` in C handles core parsing responsibilities such as module headers, metadata extraction, pattern row counts, packed pattern sizes, order data, and a bounded summary of decoded XM events.
+- The Swift app layer still performs additional parsing and full-loading work where the current workflow needs richer in-memory data for the UI, especially the complete pattern grid consumed by the tracker editor.
+- In the current app flow, Swift first calls `mc_parse_file(...)` for canonical module metadata, then reparses XM pattern data from disk when it needs a complete in-memory pattern model.
+- If that full Swift-side XM decode fails, the app can still fall back to the bounded event summary emitted by `ModuleCore`.
+- Some overlap between the C and Swift parsing paths is currently intentional, or at least tolerated, so the app can keep moving without blocking on a full parser consolidation.
+
+Agents should treat this as an active architecture boundary, not cleanup debt that can be removed opportunistically.
+
+Rules for current work:
+
+- Correct behavior comes first.
+- Do not remove the Swift parser just because similar responsibilities exist in `ModuleCore`.
+- Do not force parser unification during unrelated cleanup or UI work.
+- Any attempt to make one parser path the sole source of truth should be treated as a separate, explicit architecture decision.
+
+Practical implication:
+
+- `ModuleCore` is currently the source of truth for shared metadata and CLI/test-facing parser output.
+- Swift is currently the source of truth for the full XM pattern model used by the tracker UI.
+- This split is acceptable for now, but only if it stays documented and deliberate.
+
+## Future Parser Direction
+
+The long-term source-of-truth direction is still open.
+
+Open design question:
+
+- `ModuleCore` may eventually become the full source of truth for module loading.
+- The Swift layer may remain responsible for some higher-level loading or UI-facing transformation responsibilities.
+
+This should be resolved deliberately in a future design pass, with behavior preservation and migration risk reviewed explicitly.
+
+For a focused evaluation of the current tradeoffs and recommended direction, see:
+
+- `docs/decisions/001-xm-parsing-responsibilities.md`
+
 ---
 
 # Pattern Model

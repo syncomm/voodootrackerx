@@ -8,6 +8,29 @@ struct PlaybackCell: Equatable {
     let effectParam: UInt8
 }
 
+struct PlaybackSample: Equatable {
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let pcm: [Float]
+    let volume: Float
+    let relativeNote: Int
+    let finetune: Int
+    let baseSampleRate: Double
+
+    var isPlayable: Bool {
+        !pcm.isEmpty && volume > 0
+    }
+}
+
+struct PlaybackInstrument: Equatable {
+    let index: Int
+    let samples: [PlaybackSample]
+
+    var firstPlayableSample: PlaybackSample? {
+        samples.first { $0.isPlayable }
+    }
+}
+
 struct PlaybackRow: Equatable {
     let index: Int
     let cells: [PlaybackCell]
@@ -47,6 +70,7 @@ struct PlaybackSong: Equatable {
     let title: String
     let orders: [PlaybackOrderEntry]
     let patternsByIndex: [Int: PlaybackPattern]
+    let instrumentsByIndex: [Int: PlaybackInstrument]
     let restartOrderIndex: Int
     let endBehavior: PlaybackEndBehavior
 
@@ -68,6 +92,13 @@ struct PlaybackSong: Equatable {
             return nil
         }
         return pattern.rows[position.rowIndex]
+    }
+
+    func sample(forInstrument instrumentIndex: Int) -> PlaybackSample? {
+        guard instrumentIndex > 0 else {
+            return nil
+        }
+        return instrumentsByIndex[instrumentIndex]?.firstPlayableSample
     }
 
     func position(orderIndex: Int, rowIndex: Int) -> PlaybackPosition? {

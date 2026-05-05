@@ -351,6 +351,7 @@ private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> 
 private func makePlaybackSong(
     orderPatternIndices: [Int],
     patternRowCounts: [Int: Int],
+    instrumentsByIndex: [Int: PlaybackInstrument] = [:],
     endBehavior: PlaybackEndBehavior = .stopAtEnd
 ) -> PlaybackSong {
     let patterns = patternRowCounts.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
@@ -366,6 +367,7 @@ private func makePlaybackSong(
         title: "test",
         orders: orderPatternIndices.enumerated().map { PlaybackOrderEntry(orderIndex: $0.offset, patternIndex: $0.element) },
         patternsByIndex: patterns,
+        instrumentsByIndex: instrumentsByIndex,
         restartOrderIndex: 0,
         endBehavior: endBehavior
     )
@@ -478,6 +480,20 @@ final class VoodooTrackerXTests: XCTestCase {
             song.position(after: position),
             .ended(restartPosition: PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
         )
+    }
+
+    func testPlaybackSongFindsFirstPlayableInstrumentSample() {
+        let silent = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        let playable = PlaybackSample(instrumentIndex: 1, sampleIndex: 1, pcm: [0, 0.5, -0.5], volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [silent, playable])]
+        )
+
+        XCTAssertEqual(song.sample(forInstrument: 1), playable)
+        XCTAssertNil(song.sample(forInstrument: 0))
+        XCTAssertNil(song.sample(forInstrument: 2))
     }
 
     func testPlaybackTimingUsesXMDefaultTickDuration() {

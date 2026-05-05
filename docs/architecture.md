@@ -155,18 +155,30 @@ Rendering approach:
 
 ---
 
-# Audio Engine (Future)
+# Audio Engine
 
-Planned architecture:
+Current first-pass architecture:
+
+PlaybackAudioEngine  
+AVAudioEngine  
+AVAudioPlayerNode  
+
+The current audible playback path uses scheduled `AVAudioPlayerNode` buffers as a stabilization-oriented backend. This is intended to prove sample triggering, transport start/stop behavior, and tracker follow integration without putting Swift playback logic on a CoreAudio render callback.
+
+Planned long-term architecture:
 
 AudioEngine  
 PatternPlayer  
 ChannelMixer  
 SampleVoice
 
-Possible backend:
+Future backend direction:
 
-AVAudioEngine
+A dedicated tracker mixer/render path may be introduced when XM effects, loops, envelopes, interpolation, and sample-accurate channel mixing become active scope. Audio and DSP logic should remain behind playback/audio boundaries and out of AppKit view/controller code.
+
+For the accepted first-pass backend decision and future mixer path, see:
+
+- `docs/decisions/002-first-pass-audio-backend.md`
 
 ---
 

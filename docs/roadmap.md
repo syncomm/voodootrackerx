@@ -53,6 +53,11 @@ Status: done (includes golden JSON snapshots and deterministic `mc_dump --json` 
 
 ## Milestone 2: Audio Bring-Up (Reference Tones to Module Playback)
 
+Current stabilization note:
+- First audible XM playback currently uses `AVAudioPlayerNode` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
+- This is not the final tracker-accurate mixer architecture; XM effects, loops, envelopes, interpolation, and sample-accurate channel mixing remain future work.
+- See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
+
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
 - Verification: unit tests for ring-buffer/state logic + manual “engine starts/stops” check

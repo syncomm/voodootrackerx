@@ -348,7 +348,74 @@ private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> 
     String(format: "P%02X", patternIndex)
 }
 
+private enum TestPlaybackMode: Equatable {
+    case stopped
+    case playing
+    case paused
+}
+
+private struct TestPlaybackStartContext: Equatable {
+    let moduleTitle: String?
+    let songPosition: Int
+    let patternIndex: Int
+    let row: Int
+}
+
+private struct TestPlaybackState: Equatable {
+    var mode: TestPlaybackMode
+    var context: TestPlaybackStartContext?
+
+    static let stopped = TestPlaybackState(mode: .stopped, context: nil)
+}
+
+private final class TestPlaybackEngine {
+    private(set) var state: TestPlaybackState = .stopped
+
+    func play(from context: TestPlaybackStartContext?) {
+        state = TestPlaybackState(mode: .playing, context: context)
+    }
+
+    func stop() {
+        state = .stopped
+    }
+
+    func pause() {
+        guard state.mode == .playing else {
+            return
+        }
+        state = TestPlaybackState(mode: .paused, context: state.context)
+    }
+}
+
 final class VoodooTrackerXTests: XCTestCase {
+    func testPlaybackEngineStartsPlayingFromContext() {
+        let engine = TestPlaybackEngine()
+        let context = TestPlaybackStartContext(moduleTitle: "example", songPosition: 3, patternIndex: 2, row: 16)
+
+        engine.play(from: context)
+
+        XCTAssertEqual(engine.state, TestPlaybackState(mode: .playing, context: context))
+    }
+
+    func testPlaybackEngineStopsAndClearsContext() {
+        let engine = TestPlaybackEngine()
+        engine.play(from: TestPlaybackStartContext(moduleTitle: "example", songPosition: 3, patternIndex: 2, row: 16))
+
+        engine.stop()
+
+        XCTAssertEqual(engine.state, .stopped)
+    }
+
+    func testPlaybackEnginePausePreservesContext() {
+        let engine = TestPlaybackEngine()
+        let context = TestPlaybackStartContext(moduleTitle: "example", songPosition: 3, patternIndex: 2, row: 16)
+        engine.play(from: context)
+
+        engine.pause()
+
+        XCTAssertEqual(engine.state, TestPlaybackState(mode: .paused, context: context))
+    }
+
     func testUsedPatternsSelectionDeduplicatesByOrderAndTracksInvalidReferences() {
         let result = buildPatternSelection(
             orderTable: [0, 2, 2, 5, 1, 0],

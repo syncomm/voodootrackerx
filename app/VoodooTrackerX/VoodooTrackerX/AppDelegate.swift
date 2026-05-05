@@ -20,9 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentViewportLayout: PatternViewportTextLayout?
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
+    private let playbackEngine = PlaybackEngine()
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
-    private var isPlaybackModeActive = false
     private var isLoopPlaybackEnabled = false
     private var selectedOctave = 4
     private var lastGridViewportSize = NSSize.zero
@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             currentPatternIndex = 0
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
-            isPlaybackModeActive = false
+            playbackEngine.stop()
             isLoopPlaybackEnabled = false
             editModeCheckbox?.state = .off
 
@@ -281,13 +281,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func playPressed(_ sender: NSButton) {
-        isPlaybackModeActive = true
+        playbackEngine.play(from: currentPlaybackStartContext())
         syncControlPanelView()
     }
 
     @objc
     private func stopPressed(_ sender: NSButton) {
-        isPlaybackModeActive = false
+        playbackEngine.stop()
         syncControlPanelView()
     }
 
@@ -307,10 +307,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isEditModeEnabled {
             return .edit
         }
-        if isPlaybackModeActive {
+        if playbackEngine.state.isPlaying {
             return .playOnly
         }
         return .navigation
+    }
+
+    private func currentPlaybackStartContext() -> PlaybackStartContext? {
+        guard let metadata = loadedMetadata else {
+            return nil
+        }
+        return PlaybackStartContext(
+            moduleTitle: metadata.title.isEmpty ? nil : metadata.title,
+            songPosition: selectedSongPositionIndex,
+            patternIndex: currentPatternIndex,
+            row: cursor.row
+        )
     }
 
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?) {
@@ -802,7 +814,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.selectedOctave = selectedOctave
         content.isLoopEnabled = isLoopPlaybackEnabled
         content.isEditModeEnabled = isEditModeEnabled
-        content.isPlaybackActive = isPlaybackModeActive
+        content.isPlaybackActive = playbackEngine.state.isPlaying
 
         if let metadata = loadedMetadata {
             content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title

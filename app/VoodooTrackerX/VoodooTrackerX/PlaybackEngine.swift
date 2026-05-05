@@ -4,6 +4,7 @@ import os
 @MainActor
 final class PlaybackEngine: PlaybackTransport {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
+    private let audioEngine = PlaybackAudioEngine()
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -37,6 +38,7 @@ final class PlaybackEngine: PlaybackTransport {
         tickState.reset()
         if let currentPosition {
             positionDidChange?(currentPosition)
+            triggerAudio(at: currentPosition)
         }
         restartTimer()
         apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))
@@ -50,6 +52,7 @@ final class PlaybackEngine: PlaybackTransport {
         timer?.invalidate()
         timer = nil
         tickState.reset()
+        audioEngine.stopAll()
         currentPosition = song?.startPosition
         apply(action: .stop, nextState: .stopped)
         if notify {
@@ -104,12 +107,28 @@ final class PlaybackEngine: PlaybackTransport {
         case let .advanced(nextPosition):
             currentPosition = nextPosition
             positionDidChange?(nextPosition)
+            triggerAudio(at: nextPosition)
         case let .ended(restartPosition):
             if let restartPosition {
                 currentPosition = restartPosition
                 positionDidChange?(restartPosition)
             }
             stop()
+        }
+    }
+
+    private func triggerAudio(at position: PlaybackPosition) {
+        guard let song,
+              let row = song.row(at: position) else {
+            return
+        }
+        for (channelIndex, cell) in row.cells.enumerated() {
+            guard cell.note > 0,
+                  cell.note <= 96,
+                  let sample = song.sample(forInstrument: Int(cell.instrument)) else {
+                continue
+            }
+            audioEngine.trigger(AudioVoiceRequest(sample: sample, note: cell.note, channel: channelIndex))
         }
     }
 

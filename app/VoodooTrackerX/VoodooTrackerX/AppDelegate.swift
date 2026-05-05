@@ -205,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
-            playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata))
+            playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path))
             selectedPatternSelectionIndex = 0
             selectedSongPositionIndex = 0
             currentPatternIndex = 0

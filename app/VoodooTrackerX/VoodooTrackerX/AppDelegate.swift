@@ -110,6 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.controlPanelView.octaveSelector.target = self
         controller.controlPanelView.octaveSelector.action = #selector(octaveSelectionChanged(_:))
 
+        playbackEngine.positionDidChange = { [weak self] position in
+            self?.applyPlaybackPosition(position)
+        }
+        playbackEngine.playbackDidStop = { [weak self] in
+            guard let position = self?.playbackEngine.currentPosition else {
+                self?.syncControlPanelView()
+                return
+            }
+            self?.applyPlaybackPosition(position)
+        }
+
         controller.liveResizeWillStartHandler = { [weak self] in
             self?.trackerWindowWillStartLiveResize()
         }
@@ -323,6 +334,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             patternIndex: currentPatternIndex,
             row: cursor.row
         )
+    }
+
+    private func applyPlaybackPosition(_ position: PlaybackPosition) {
+        guard let metadata = loadedMetadata,
+              metadata.type == "XM",
+              metadata.xmPatterns.indices.contains(position.patternIndex) else {
+            syncControlPanelView()
+            return
+        }
+
+        selectedSongPositionIndex = clampedSongPosition(position.orderIndex, songLength: metadata.songLength)
+        currentPatternIndex = position.patternIndex
+        if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == position.patternIndex }) {
+            selectedPatternSelectionIndex = selectorIndex
+            patternSelector?.selectItem(at: selectorIndex)
+        }
+        cursor.row = position.rowIndex
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
     }
 
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?) {

@@ -480,6 +480,23 @@ final class VoodooTrackerXTests: XCTestCase {
         )
     }
 
+    func testPlaybackTimingUsesXMDefaultTickDuration() {
+        let timing = PlaybackTiming.xmDefault
+
+        XCTAssertEqual(timing.ticksPerRow, 6)
+        XCTAssertEqual(timing.tickDuration, 0.02, accuracy: 0.0001)
+    }
+
+    func testPlaybackTickStateAdvancesRowsAfterConfiguredSpeed() {
+        let timing = PlaybackTiming(speed: 3, bpm: 125)
+        var tickState = PlaybackTickState()
+
+        XCTAssertFalse(tickState.advance(timing: timing))
+        XCTAssertFalse(tickState.advance(timing: timing))
+        XCTAssertTrue(tickState.advance(timing: timing))
+        XCTAssertEqual(tickState, PlaybackTickState(tickInRow: 0))
+    }
+
     func testUsedPatternsSelectionDeduplicatesByOrderAndTracksInvalidReferences() {
         let result = buildPatternSelection(
             orderTable: [0, 2, 2, 5, 1, 0],

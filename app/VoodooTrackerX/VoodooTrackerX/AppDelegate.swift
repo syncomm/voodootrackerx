@@ -194,12 +194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
             loadedMetadata = metadata
+            playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata))
             selectedPatternSelectionIndex = 0
             selectedSongPositionIndex = 0
             currentPatternIndex = 0
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
-            playbackEngine.stop()
             isLoopPlaybackEnabled = false
             editModeCheckbox?.state = .off
 

@@ -1,0 +1,108 @@
+import Foundation
+
+struct PlaybackCell: Equatable {
+    let note: UInt8
+    let instrument: UInt8
+    let volumeColumn: UInt8
+    let effectType: UInt8
+    let effectParam: UInt8
+}
+
+struct PlaybackRow: Equatable {
+    let index: Int
+    let cells: [PlaybackCell]
+}
+
+struct PlaybackPattern: Equatable {
+    let index: Int
+    let rows: [PlaybackRow]
+
+    var rowCount: Int {
+        rows.count
+    }
+}
+
+struct PlaybackOrderEntry: Equatable {
+    let orderIndex: Int
+    let patternIndex: Int
+}
+
+struct PlaybackPosition: Equatable {
+    let orderIndex: Int
+    let patternIndex: Int
+    let rowIndex: Int
+}
+
+enum PlaybackEndBehavior: Equatable {
+    case stopAtEnd
+    case restartFromBeginning
+}
+
+enum PlaybackStepResult: Equatable {
+    case advanced(PlaybackPosition)
+    case ended(restartPosition: PlaybackPosition?)
+}
+
+struct PlaybackSong: Equatable {
+    let title: String
+    let orders: [PlaybackOrderEntry]
+    let patternsByIndex: [Int: PlaybackPattern]
+    let restartOrderIndex: Int
+    let endBehavior: PlaybackEndBehavior
+
+    var startPosition: PlaybackPosition? {
+        position(orderIndex: 0, rowIndex: 0)
+    }
+
+    func pattern(for orderIndex: Int) -> PlaybackPattern? {
+        guard orders.indices.contains(orderIndex) else {
+            return nil
+        }
+        return patternsByIndex[orders[orderIndex].patternIndex]
+    }
+
+    func row(at position: PlaybackPosition) -> PlaybackRow? {
+        guard let pattern = pattern(for: position.orderIndex),
+              pattern.index == position.patternIndex,
+              pattern.rows.indices.contains(position.rowIndex) else {
+            return nil
+        }
+        return pattern.rows[position.rowIndex]
+    }
+
+    func position(orderIndex: Int, rowIndex: Int) -> PlaybackPosition? {
+        guard let pattern = pattern(for: orderIndex), !pattern.rows.isEmpty else {
+            return nil
+        }
+        let safeRowIndex = min(max(0, rowIndex), pattern.rows.count - 1)
+        return PlaybackPosition(orderIndex: orderIndex, patternIndex: pattern.index, rowIndex: safeRowIndex)
+    }
+
+    func position(after position: PlaybackPosition) -> PlaybackStepResult {
+        guard let pattern = pattern(for: position.orderIndex),
+              pattern.index == position.patternIndex else {
+            return endResult()
+        }
+
+        let nextRowIndex = position.rowIndex + 1
+        if nextRowIndex < pattern.rows.count {
+            return .advanced(PlaybackPosition(orderIndex: position.orderIndex, patternIndex: pattern.index, rowIndex: nextRowIndex))
+        }
+
+        let nextOrderIndex = position.orderIndex + 1
+        if let nextPosition = self.position(orderIndex: nextOrderIndex, rowIndex: 0) {
+            return .advanced(nextPosition)
+        }
+
+        return endResult()
+    }
+
+    private func endResult() -> PlaybackStepResult {
+        switch endBehavior {
+        case .stopAtEnd:
+            return .ended(restartPosition: nil)
+        case .restartFromBeginning:
+            return .ended(restartPosition: position(orderIndex: restartOrderIndex, rowIndex: 0) ?? startPosition)
+        }
+    }
+}

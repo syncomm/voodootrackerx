@@ -348,6 +348,29 @@ private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> 
     String(format: "P%02X", patternIndex)
 }
 
+private func makePlaybackSong(
+    orderPatternIndices: [Int],
+    patternRowCounts: [Int: Int],
+    endBehavior: PlaybackEndBehavior = .stopAtEnd
+) -> PlaybackSong {
+    let patterns = patternRowCounts.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
+        let rows = (0..<entry.value).map { rowIndex in
+            PlaybackRow(
+                index: rowIndex,
+                cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+            )
+        }
+        partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: rows)
+    }
+    return PlaybackSong(
+        title: "test",
+        orders: orderPatternIndices.enumerated().map { PlaybackOrderEntry(orderIndex: $0.offset, patternIndex: $0.element) },
+        patternsByIndex: patterns,
+        restartOrderIndex: 0,
+        endBehavior: endBehavior
+    )
+}
+
 private enum TestPlaybackMode: Equatable {
     case stopped
     case playing
@@ -414,6 +437,47 @@ final class VoodooTrackerXTests: XCTestCase {
         engine.pause()
 
         XCTAssertEqual(engine.state, TestPlaybackState(mode: .paused, context: context))
+    }
+
+    func testPlaybackSongStartsAtFirstOrderFirstRow() {
+        let song = makePlaybackSong(orderPatternIndices: [2, 5], patternRowCounts: [2: 4, 5: 8])
+
+        XCTAssertEqual(song.startPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+    }
+
+    func testPlaybackSongStepsRowsWithinCurrentPattern() {
+        let song = makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 4])
+        let position = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+
+        XCTAssertEqual(song.position(after: position), .advanced(PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2)))
+    }
+
+    func testPlaybackSongStepsFromPatternEndToNextOrderPattern() {
+        let song = makePlaybackSong(orderPatternIndices: [2, 5], patternRowCounts: [2: 2, 5: 4])
+        let position = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+
+        XCTAssertEqual(song.position(after: position), .advanced(PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 0)))
+    }
+
+    func testPlaybackSongEndsExplicitlyAtSongEnd() {
+        let song = makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 2])
+        let position = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+
+        XCTAssertEqual(song.position(after: position), .ended(restartPosition: nil))
+    }
+
+    func testPlaybackSongCanReturnRestartPlaceholderAtSongEnd() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            endBehavior: .restartFromBeginning
+        )
+        let position = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+
+        XCTAssertEqual(
+            song.position(after: position),
+            .ended(restartPosition: PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        )
     }
 
     func testUsedPatternsSelectionDeduplicatesByOrderAndTracksInvalidReferences() {

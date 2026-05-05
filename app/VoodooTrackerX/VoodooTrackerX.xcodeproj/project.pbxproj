@@ -11,6 +11,9 @@
 		A00000000000000000000030 /* PlaybackTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* PlaybackTypes.swift */; };
 		A00000000000000000000034 /* PlaybackTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* PlaybackTransport.swift */; };
 		A00000000000000000000035 /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* PlaybackEngine.swift */; };
+		A00000000000000000000039 /* PlaybackSong.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000003B /* PlaybackSong.swift */; };
+		A0000000000000000000003A /* PlaybackSongBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000003C /* PlaybackSongBuilder.swift */; };
+		A0000000000000000000003D /* PlaybackSong.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000003B /* PlaybackSong.swift */; };
 		A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* VoodooTrackerXTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
@@ -32,6 +35,8 @@
 		A00000000000000000000036 /* PlaybackTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTypes.swift; sourceTree = "<group>"; };
 		A00000000000000000000037 /* PlaybackTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000038 /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
+		A0000000000000000000003B /* PlaybackSong.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSong.swift; sourceTree = "<group>"; };
+		A0000000000000000000003C /* PlaybackSongBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongBuilder.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
 		A00000000000000000000024 /* TrackerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerTheme.swift; sourceTree = "<group>"; };
@@ -91,6 +96,8 @@
 				A00000000000000000000021 /* AppDelegate.swift */,
 				A00000000000000000000023 /* ModuleMetadataLoader.swift */,
 				A00000000000000000000038 /* PlaybackEngine.swift */,
+				A0000000000000000000003B /* PlaybackSong.swift */,
+				A0000000000000000000003C /* PlaybackSongBuilder.swift */,
 				A00000000000000000000037 /* PlaybackTransport.swift */,
 				A00000000000000000000036 /* PlaybackTypes.swift */,
 				A00000000000000000000024 /* TrackerTheme.swift */,
@@ -241,6 +248,8 @@
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
 				A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */,
 				A00000000000000000000035 /* PlaybackEngine.swift in Sources */,
+				A00000000000000000000039 /* PlaybackSong.swift in Sources */,
+				A0000000000000000000003A /* PlaybackSongBuilder.swift in Sources */,
 				A00000000000000000000034 /* PlaybackTransport.swift in Sources */,
 				A00000000000000000000030 /* PlaybackTypes.swift in Sources */,
 				A00000000000000000000016 /* TrackerTheme.swift in Sources */,
@@ -258,6 +267,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000003D /* PlaybackSong.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

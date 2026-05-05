@@ -6,6 +6,12 @@ final class PlaybackEngine: PlaybackTransport {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
 
     private(set) var state: PlaybackState = .stopped
+    private(set) var song: PlaybackSong?
+
+    func load(song: PlaybackSong?) {
+        self.song = song
+        stop()
+    }
 
     func play(from context: PlaybackStartContext?) {
         apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))

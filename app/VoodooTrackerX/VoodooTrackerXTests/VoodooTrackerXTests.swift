@@ -605,6 +605,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0C, effectParam: 0x7F), .setVolume(1.0))
     }
 
+    func testPlaybackEffectHandlerDecodesGlobalVolumeAndPatternDelay() {
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x10, effectParam: 0x20), .setGlobalVolume(0.5))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x10, effectParam: 0x40), .setGlobalVolume(1.0))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x10, effectParam: 0x7F), .setGlobalVolume(1.0))
+
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0E, effectParam: 0xE2), .patternDelay(rowDurations: 2))
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xE0), .patternDelay(rowDurations: 0))
+    }
+
     func testPlaybackEffectHandlerDecodesContinuousEffectsWithMemory() {
         XCTAssertEqual(PlaybackEffectHandler.arpeggio(effectParam: 0x37, memory: nil), .arpeggio(x: 3, y: 7))
         XCTAssertEqual(PlaybackEffectHandler.arpeggio(effectParam: 0x00, memory: 0x37), .arpeggio(x: 3, y: 7))
@@ -631,6 +640,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(PlaybackEffectHandler.vibrato(effectParam: 0x00, memory: 0x25), .vibrato(speed: 2, depth: 5))
         XCTAssertNil(PlaybackEffectHandler.vibrato(effectParam: 0x00, memory: nil))
 
+        XCTAssertEqual(PlaybackEffectHandler.tremolo(effectParam: 0x47, memory: nil), .tremolo(speed: 4, depth: 7))
+        XCTAssertEqual(PlaybackEffectHandler.tremolo(effectParam: 0x00, memory: 0x25), .tremolo(speed: 2, depth: 5))
+        XCTAssertNil(PlaybackEffectHandler.tremolo(effectParam: 0x00, memory: nil))
+
         XCTAssertEqual(
             PlaybackEffectHandler.combinedTonePortamentoVolumeSlide(
                 toneEffect: .tonePortamento(amount: 8),
@@ -655,7 +668,16 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0x90), .retrigger(interval: 0))
         XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xC2), .noteCut(tick: 2))
         XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xD4), .noteDelay(tick: 4))
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xE2), .patternDelay(rowDurations: 2))
         XCTAssertNil(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xA1))
+    }
+
+    func testPlaybackEffectHandlerDecodesGlobalVolumeSlideWithMemory() {
+        XCTAssertEqual(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x20, memory: nil), PlaybackGlobalVolumeSlide(up: 2, down: 0))
+        XCTAssertEqual(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x05, memory: nil), PlaybackGlobalVolumeSlide(up: 0, down: 5))
+        XCTAssertEqual(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x25, memory: nil), PlaybackGlobalVolumeSlide(up: 2, down: 0))
+        XCTAssertEqual(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x00, memory: 0x05), PlaybackGlobalVolumeSlide(up: 0, down: 5))
+        XCTAssertNil(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x00, memory: nil))
     }
 
     func testPlaybackChannelStateTreatsZeroedSupportedEffectsWithoutMemoryAsNoOps() {
@@ -665,6 +687,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(state.apply(effectType: 0x04, effectParam: 0x00))
         XCTAssertTrue(state.apply(effectType: 0x05, effectParam: 0x00))
         XCTAssertTrue(state.apply(effectType: 0x06, effectParam: 0x00))
+        XCTAssertTrue(state.apply(effectType: 0x07, effectParam: 0x00))
         XCTAssertNil(state.activeEffect)
     }
 
@@ -710,6 +733,26 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(portamentoState.apply(effectType: 0x02, effectParam: 0x10))
         portamentoState.advanceContinuousEffect(tickInRow: 2)
         XCTAssertEqual(portamentoState.pitchOffsetSemitones, -0.125, accuracy: 0.0001)
+
+        var tremoloState = PlaybackChannelState(volume: 0.5)
+        XCTAssertTrue(tremoloState.apply(effectType: 0x07, effectParam: 0x48))
+        tremoloState.advanceContinuousEffect(tickInRow: 1)
+        let firstTremoloVolume = tremoloState.audioControls.volumeScale
+        XCTAssertGreaterThan(firstTremoloVolume, 0.5)
+        tremoloState.advanceContinuousEffect(tickInRow: 2)
+        XCTAssertNotEqual(tremoloState.audioControls.volumeScale, firstTremoloVolume)
+    }
+
+    func testPlaybackGlobalStateAppliesVolumeSlideWithBounds() {
+        var upwardState = PlaybackGlobalState(volume: 0.95)
+        XCTAssertTrue(upwardState.applyVolumeSlide(effectParam: 0x40))
+        upwardState.advanceContinuousEffects()
+        XCTAssertEqual(upwardState.volume, 1.0, accuracy: 0.0001)
+
+        var downwardState = PlaybackGlobalState(volume: 0.05)
+        XCTAssertTrue(downwardState.applyVolumeSlide(effectParam: 0x04))
+        downwardState.advanceContinuousEffects()
+        XCTAssertEqual(downwardState.volume, 0.0, accuracy: 0.0001)
     }
 
     func testPlaybackChannelStateClampsRepeatedPortamentoPitchOffset() {
@@ -863,6 +906,24 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineAppliesGxxGlobalVolumeToTriggeredVoice() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x10, effectParam: 0x20)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.volumeScale, 0.5)
+    }
+
+    @MainActor
     func testPlaybackEngineAppliesArpeggioAcrossTicks() {
         let audioOutput = TestPlaybackAudioOutput()
         let engine = PlaybackEngine(audioEngine: audioOutput)
@@ -967,6 +1028,58 @@ final class VoodooTrackerXTests: XCTestCase {
 
         let vibratoOffsets = audioOutput.updatedControls.map { $0.controls.pitchOffsetSemitones }.filter { abs($0) > 0.0001 }
         XCTAssertFalse(vibratoOffsets.isEmpty)
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesTremoloAcrossTicks() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0C, effectParam: 0x20),
+                    makePlaybackRow(index: 1, effectType: 0x07, effectParam: 0x48),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && $0.controls.volumeScale > 0.5 && $0.controls.volumeScale < 1.0 })
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesHxyGlobalVolumeSlideAcrossTicks() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x10, effectParam: 0x20),
+                    makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x10),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.volumeScale - 0.515625) < 0.0001 })
     }
 
     @MainActor
@@ -1086,6 +1199,37 @@ final class VoodooTrackerXTests: XCTestCase {
         engine.advanceOneTick()
 
         XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesPatternDelayBeforeAdvancingRows() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0xE2),
+                    makePlaybackRow(index: 1)
+                ]
+            ]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        for _ in 0..<5 {
+            engine.advanceOneTick()
+        }
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(positions, [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+        ])
     }
 
     func testPlaybackSongStartsAtFirstOrderFirstRow() {

@@ -32,10 +32,14 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
 - Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
 - Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
+- Confirm modules with `7xy` tremolo commands produce audible volume modulation.
 - Confirm modules with `9xx` sample offset commands start sample playback later in the sample without crashing on out-of-range offsets.
+- Confirm modules with `Gxx` global volume commands safely change overall playback volume without breaking per-channel volume behavior.
+- Confirm modules with `Hxy` global volume slide commands change overall playback volume progressively across ticks.
 - Confirm modules with `E9x` retrigger commands repeat active notes at the configured tick interval without runaway stacked audio.
 - Confirm modules with `ECx` note cut commands stop active notes cleanly on the configured tick.
 - Confirm modules with `EDx` note delay commands trigger notes later in the row, and invalid delay values fail safely.
+- Confirm modules with `EEx` pattern delay commands hold tracker follow on the current row for the configured additional row durations.
 - Confirm modules with `Axy` volume slide commands change volume progressively across ticks.
 - Press Play again while already playing and confirm playback does not stack, restart unexpectedly, or create doubled audio.
 - Press Stop and confirm tracker progression stops and audio stops immediately.

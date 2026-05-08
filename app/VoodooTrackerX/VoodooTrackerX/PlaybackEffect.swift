@@ -6,6 +6,8 @@ enum PlaybackEffectCommand: Equatable {
     case positionJump(orderIndex: Int)
     case patternBreak(rowIndex: Int)
     case setVolume(Float)
+    case setGlobalVolume(Float)
+    case patternDelay(rowDurations: Int)
 }
 
 enum PlaybackContinuousEffect: Equatable {
@@ -15,15 +17,60 @@ enum PlaybackContinuousEffect: Equatable {
     case portamentoDown(amount: Int)
     case tonePortamento(amount: Int)
     case vibrato(speed: Int, depth: Int)
+    case tremolo(speed: Int, depth: Int)
     case tonePortamentoVolumeSlide(amount: Int, up: Int, down: Int)
     case vibratoVolumeSlide(speed: Int, depth: Int, up: Int, down: Int)
+}
+
+struct PlaybackGlobalState: Equatable {
+    var volume: Float = 1
+    var activeVolumeSlide: PlaybackGlobalVolumeSlide?
+    var lastVolumeSlideParam: UInt8?
+
+    mutating func beginRow() {
+        activeVolumeSlide = nil
+    }
+
+    mutating func setVolume(_ volume: Float) {
+        self.volume = Self.clampedVolume(volume)
+    }
+
+    mutating func applyVolumeSlide(effectParam: UInt8) -> Bool {
+        guard let slide = PlaybackEffectHandler.globalVolumeSlide(effectParam: effectParam, memory: lastVolumeSlideParam) else {
+            return effectParam == 0
+        }
+        activeVolumeSlide = slide
+        if effectParam != 0 {
+            lastVolumeSlideParam = effectParam
+        }
+        return true
+    }
+
+    mutating func advanceContinuousEffects() {
+        guard let activeVolumeSlide else {
+            return
+        }
+        let delta = Float(activeVolumeSlide.up - activeVolumeSlide.down) / 64.0
+        volume = Self.clampedVolume(volume + delta)
+    }
+
+    private static func clampedVolume(_ value: Float) -> Float {
+        min(1, max(0, value))
+    }
+}
+
+struct PlaybackGlobalVolumeSlide: Equatable {
+    let up: Int
+    let down: Int
 }
 
 struct PlaybackChannelState: Equatable {
     static let pitchOffsetRange = -48.0...48.0
     static let vibratoOffsetRange = -12.0...12.0
+    static let tremoloOffsetRange: ClosedRange<Float> = -1.0...1.0
 
     var volume: Float = 1
+    var tremoloVolumeOffset: Float = 0
     var pitchOffsetSemitones: Double = 0
     var vibratoOffsetSemitones: Double = 0
     var activeEffect: PlaybackContinuousEffect?
@@ -40,10 +87,15 @@ struct PlaybackChannelState: Equatable {
     var lastPortamentoDownParam: UInt8?
     var lastTonePortamentoParam: UInt8?
     var lastVibratoParam: UInt8?
+    var lastTremoloParam: UInt8?
     var vibratoPhase = 0.0
+    var tremoloPhase = 0.0
 
     var audioControls: AudioChannelControls {
-        AudioChannelControls(volumeScale: volume, pitchOffsetSemitones: Self.clampedPitchOffset(pitchOffsetSemitones + vibratoOffsetSemitones))
+        AudioChannelControls(
+            volumeScale: Self.clampedVolume(volume + tremoloVolumeOffset),
+            pitchOffsetSemitones: Self.clampedPitchOffset(pitchOffsetSemitones + vibratoOffsetSemitones)
+        )
     }
 
     var hasActiveNote: Bool {
@@ -59,6 +111,9 @@ struct PlaybackChannelState: Equatable {
         }
         if case .vibratoVolumeSlide = activeEffect {
             vibratoOffsetSemitones = 0
+        }
+        if case .tremolo = activeEffect {
+            tremoloVolumeOffset = 0
         }
         activeEffect = nil
         suppressesNoteTrigger = false
@@ -76,6 +131,7 @@ struct PlaybackChannelState: Equatable {
         tonePortamentoTargetNote = nil
         pitchOffsetSemitones = 0
         vibratoOffsetSemitones = 0
+        tremoloVolumeOffset = 0
     }
 
     mutating func setTonePortamentoTarget(note: UInt8) {
@@ -154,6 +210,15 @@ struct PlaybackChannelState: Equatable {
             }
             activeEffect = PlaybackEffectHandler.combinedVibratoVolumeSlide(vibratoEffect: vibratoEffect, slideEffect: slideEffect)
             return activeEffect != nil || effectParam == 0
+        case 0x07:
+            guard let effect = PlaybackEffectHandler.tremolo(effectParam: effectParam, memory: lastTremoloParam) else {
+                return effectParam == 0
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastTremoloParam = effectParam
+            }
+            return true
         case 0x09:
             sampleStartOffset = PlaybackEffectHandler.sampleOffset(effectParam: effectParam)
             return true
@@ -188,6 +253,8 @@ struct PlaybackChannelState: Equatable {
             noteDelayTick = tick
             suppressesNoteTrigger = tick > 0
             return true
+        case .patternDelay:
+            return true
         case .none:
             return false
         }
@@ -217,6 +284,8 @@ struct PlaybackChannelState: Equatable {
             applyTonePortamento(amount: amount)
         case let .vibrato(speed, depth):
             applyVibrato(speed: speed, depth: depth)
+        case let .tremolo(speed, depth):
+            applyTremolo(speed: speed, depth: depth)
         case let .tonePortamentoVolumeSlide(amount, up, down):
             applyTonePortamento(amount: amount)
             applyVolumeSlide(up: up, down: down)
@@ -252,6 +321,20 @@ struct PlaybackChannelState: Equatable {
         vibratoOffsetSemitones = Self.clampedVibratoOffset(offset)
     }
 
+    private mutating func applyTremolo(speed: Int, depth: Int) {
+        tremoloPhase += Double(max(0, speed)) * (.pi / 32.0)
+        let offset = Float(sin(tremoloPhase) * (Double(max(0, depth)) / 64.0))
+        tremoloVolumeOffset = Self.clampedTremoloOffset(offset)
+    }
+
+    private static func clampedVolume(_ value: Float) -> Float {
+        min(1, max(0, value))
+    }
+
+    private static func clampedTremoloOffset(_ value: Float) -> Float {
+        min(tremoloOffsetRange.upperBound, max(tremoloOffsetRange.lowerBound, value))
+    }
+
     private static func clampedPitchOffset(_ value: Double) -> Double {
         min(pitchOffsetRange.upperBound, max(pitchOffsetRange.lowerBound, value))
     }
@@ -266,6 +349,7 @@ enum PlaybackEffectHandler {
         case retrigger(interval: Int)
         case noteCut(tick: Int)
         case noteDelay(tick: Int)
+        case patternDelay(rowDurations: Int)
     }
 
     static func command(effectType: UInt8, effectParam: UInt8) -> PlaybackEffectCommand? {
@@ -276,8 +360,15 @@ enum PlaybackEffectHandler {
             return .setVolume(Float(min(effectParam, 0x40)) / 64.0)
         case 0x0D:
             return patternBreakCommand(effectParam)
+        case 0x0E:
+            guard case let .patternDelay(rowDurations)? = extendedTimingEffect(effectParam: effectParam) else {
+                return nil
+            }
+            return .patternDelay(rowDurations: rowDurations)
         case 0x0F:
             return timingCommand(effectParam)
+        case 0x10:
+            return .setGlobalVolume(Float(min(effectParam, 0x40)) / 64.0)
         default:
             return nil
         }
@@ -340,6 +431,29 @@ enum PlaybackEffectHandler {
         return .vibrato(speed: speed, depth: depth)
     }
 
+    static func tremolo(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        let speed = Int((param & 0xF0) >> 4)
+        let depth = Int(param & 0x0F)
+        return .tremolo(speed: speed, depth: depth)
+    }
+
+    static func globalVolumeSlide(effectParam: UInt8, memory: UInt8?) -> PlaybackGlobalVolumeSlide? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        let up = Int((param & 0xF0) >> 4)
+        let down = Int(param & 0x0F)
+        if up > 0 {
+            return PlaybackGlobalVolumeSlide(up: up, down: 0)
+        }
+        return PlaybackGlobalVolumeSlide(up: 0, down: down)
+    }
+
     static func combinedTonePortamentoVolumeSlide(toneEffect: PlaybackContinuousEffect?, slideEffect: PlaybackContinuousEffect?) -> PlaybackContinuousEffect? {
         switch (toneEffect, slideEffect) {
         case let (.tonePortamento(amount)?, .volumeSlide(up, down)?):
@@ -388,6 +502,8 @@ enum PlaybackEffectHandler {
             return .noteCut(tick: value)
         case 0x0D:
             return .noteDelay(tick: value)
+        case 0x0E:
+            return .patternDelay(rowDurations: value)
         default:
             return nil
         }

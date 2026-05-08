@@ -14,6 +14,8 @@ final class PlaybackEngine: PlaybackTransport {
     private var timer: Timer?
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var channelStates = [Int: PlaybackChannelState]()
+    private var globalState = PlaybackGlobalState()
+    private var rowDelayDurationsRemaining = 0
     private var lastVoiceRequests = [Int: AudioVoiceRequest]()
     private var delayedVoiceRequests = [Int: AudioVoiceRequest]()
 
@@ -31,6 +33,8 @@ final class PlaybackEngine: PlaybackTransport {
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
+        globalState = PlaybackGlobalState()
+        rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
@@ -56,6 +60,8 @@ final class PlaybackEngine: PlaybackTransport {
         tickState.reset()
         pendingPositionCommand = nil
         channelStates.removeAll()
+        globalState = PlaybackGlobalState()
+        rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         if let currentPosition {
@@ -86,6 +92,8 @@ final class PlaybackEngine: PlaybackTransport {
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
+        globalState = PlaybackGlobalState()
+        rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         timing = .xmDefault
@@ -140,6 +148,10 @@ final class PlaybackEngine: PlaybackTransport {
             applyTickEffects(tickInRow: tickState.tickInRow)
             return
         }
+        guard rowDelayDurationsRemaining <= 0 else {
+            rowDelayDurationsRemaining -= 1
+            return
+        }
         switch nextStep(after: position, in: song) {
         case let .advanced(nextPosition):
             currentPosition = nextPosition
@@ -187,6 +199,8 @@ final class PlaybackEngine: PlaybackTransport {
               let row = song.row(at: position) else {
             return
         }
+        globalState.beginRow()
+        rowDelayDurationsRemaining = 0
         for (channelIndex, cell) in row.cells.enumerated() {
             var channelState = channelStates[channelIndex] ?? PlaybackChannelState()
             channelState.beginRow()
@@ -198,13 +212,17 @@ final class PlaybackEngine: PlaybackTransport {
 
             if let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) {
                 apply(command, channelIndex: channelIndex, channelState: &channelState)
+            } else if cell.effectType == 0x11 {
+                if !globalState.applyVolumeSlide(effectParam: cell.effectParam) {
+                    logUnsupportedEffectIfNeeded(cell)
+                }
             } else if !channelState.apply(effectType: cell.effectType, effectParam: cell.effectParam) {
                 logUnsupportedEffectIfNeeded(cell)
             }
 
             channelStates[channelIndex] = channelState
-            audioEngine.update(channel: channelIndex, controls: channelState.audioControls)
         }
+        updateActiveChannelControls()
     }
 
     private func apply(_ command: PlaybackEffectCommand, channelIndex: Int, channelState: inout PlaybackChannelState) {
@@ -219,10 +237,16 @@ final class PlaybackEngine: PlaybackTransport {
             pendingPositionCommand = .patternBreak(rowIndex: rowIndex)
         case let .setVolume(volume):
             channelState.volume = volume
+        case let .setGlobalVolume(volume):
+            globalState.setVolume(volume)
+        case let .patternDelay(rowDurations):
+            rowDelayDurationsRemaining = max(rowDelayDurationsRemaining, rowDurations)
         }
     }
 
     private func applyTickEffects(tickInRow: Int) {
+        let oldGlobalVolume = globalState.volume
+        globalState.advanceContinuousEffects()
         for channelIndex in channelStates.keys.sorted() {
             guard var channelState = channelStates[channelIndex] else {
                 continue
@@ -231,8 +255,11 @@ final class PlaybackEngine: PlaybackTransport {
                 channelState.advanceContinuousEffect(tickInRow: tickInRow)
             }
             channelStates[channelIndex] = channelState
-            audioEngine.update(channel: channelIndex, controls: channelState.audioControls)
+            audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
             applyTimingEffects(channelIndex: channelIndex, channelState: channelState, tickInRow: tickInRow)
+        }
+        if oldGlobalVolume != globalState.volume, channelStates.isEmpty {
+            logger.debug("Applied global volume slide without active channels")
         }
     }
 
@@ -282,7 +309,7 @@ final class PlaybackEngine: PlaybackTransport {
                 continue
             }
             let channelState = channelStates[channelIndex] ?? PlaybackChannelState()
-            let controls = channelState.audioControls
+            let controls = effectiveControls(for: channelState)
             let request = AudioVoiceRequest(
                 sample: sample,
                 note: cell.note,
@@ -308,6 +335,21 @@ final class PlaybackEngine: PlaybackTransport {
     private func trigger(_ request: AudioVoiceRequest, channelIndex: Int) {
         audioEngine.trigger(request)
         lastVoiceRequests[channelIndex] = request
+    }
+
+    private func updateActiveChannelControls() {
+        for channelIndex in channelStates.keys.sorted() {
+            guard let channelState = channelStates[channelIndex] else {
+                continue
+            }
+            audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
+        }
+    }
+
+    private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {
+        var controls = channelState.audioControls
+        controls.volumeScale = min(1, max(0, controls.volumeScale * globalState.volume))
+        return controls
     }
 
     private func playbackStartPosition(from context: PlaybackStartContext?, in song: PlaybackSong) -> PlaybackPosition? {

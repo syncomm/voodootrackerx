@@ -14,6 +14,8 @@ final class PlaybackEngine: PlaybackTransport {
     private var timer: Timer?
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var channelStates = [Int: PlaybackChannelState]()
+    private var lastVoiceRequests = [Int: AudioVoiceRequest]()
+    private var delayedVoiceRequests = [Int: AudioVoiceRequest]()
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
@@ -29,6 +31,8 @@ final class PlaybackEngine: PlaybackTransport {
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
+        lastVoiceRequests.removeAll()
+        delayedVoiceRequests.removeAll()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -52,6 +56,8 @@ final class PlaybackEngine: PlaybackTransport {
         tickState.reset()
         pendingPositionCommand = nil
         channelStates.removeAll()
+        lastVoiceRequests.removeAll()
+        delayedVoiceRequests.removeAll()
         if let currentPosition {
             enter(position: currentPosition)
         }
@@ -80,6 +86,8 @@ final class PlaybackEngine: PlaybackTransport {
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
+        lastVoiceRequests.removeAll()
+        delayedVoiceRequests.removeAll()
         timing = .xmDefault
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
@@ -129,7 +137,7 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         guard tickState.advance(timing: timing) else {
-            applyContinuousEffects(tickInRow: tickState.tickInRow)
+            applyTickEffects(tickInRow: tickState.tickInRow)
             return
         }
         switch nextStep(after: position, in: song) {
@@ -150,6 +158,7 @@ final class PlaybackEngine: PlaybackTransport {
         positionDidChange?(position)
         prepareRowPlaybackState(at: position)
         triggerAudio(at: position)
+        applyImmediateTimingEffects()
     }
 
     private func nextStep(after position: PlaybackPosition, in song: PlaybackSong) -> PlaybackStepResult {
@@ -213,15 +222,44 @@ final class PlaybackEngine: PlaybackTransport {
         }
     }
 
-    private func applyContinuousEffects(tickInRow: Int) {
+    private func applyTickEffects(tickInRow: Int) {
         for channelIndex in channelStates.keys.sorted() {
-            guard var channelState = channelStates[channelIndex],
-                  channelState.activeEffect != nil else {
+            guard var channelState = channelStates[channelIndex] else {
                 continue
             }
-            channelState.advanceContinuousEffect(tickInRow: tickInRow)
+            if channelState.activeEffect != nil {
+                channelState.advanceContinuousEffect(tickInRow: tickInRow)
+            }
             channelStates[channelIndex] = channelState
             audioEngine.update(channel: channelIndex, controls: channelState.audioControls)
+            applyTimingEffects(channelIndex: channelIndex, channelState: channelState, tickInRow: tickInRow)
+        }
+    }
+
+    private func applyImmediateTimingEffects() {
+        for channelIndex in channelStates.keys.sorted() {
+            guard let channelState = channelStates[channelIndex],
+                  channelState.noteCutTick == 0 else {
+                continue
+            }
+            audioEngine.stop(channel: channelIndex)
+        }
+    }
+
+    private func applyTimingEffects(channelIndex: Int, channelState: PlaybackChannelState, tickInRow: Int) {
+        if channelState.noteCutTick == tickInRow {
+            audioEngine.stop(channel: channelIndex)
+        }
+        if let delayedRequest = delayedVoiceRequests[channelIndex],
+           channelState.noteDelayTick == tickInRow {
+            trigger(delayedRequest, channelIndex: channelIndex)
+            delayedVoiceRequests[channelIndex] = nil
+        }
+        if let interval = channelState.retriggerInterval,
+           interval > 0,
+           tickInRow.isMultiple(of: interval),
+           let request = lastVoiceRequests[channelIndex] {
+            trigger(request, channelIndex: channelIndex)
         }
     }
 
@@ -240,19 +278,36 @@ final class PlaybackEngine: PlaybackTransport {
         for (channelIndex, cell) in row.cells.enumerated() {
             guard cell.note > 0,
                   cell.note <= 96,
-                  channelStates[channelIndex]?.suppressesNoteTrigger != true,
                   let sample = song.sample(forInstrument: Int(cell.instrument)) else {
                 continue
             }
-            let controls = (channelStates[channelIndex] ?? PlaybackChannelState()).audioControls
-            audioEngine.trigger(AudioVoiceRequest(
+            let channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            let controls = channelState.audioControls
+            let request = AudioVoiceRequest(
                 sample: sample,
                 note: cell.note,
                 channel: channelIndex,
                 volumeScale: controls.volumeScale,
-                pitchOffsetSemitones: controls.pitchOffsetSemitones
-            ))
+                pitchOffsetSemitones: controls.pitchOffsetSemitones,
+                sampleStartOffset: channelState.sampleStartOffset
+            )
+            if let delayTick = channelState.noteDelayTick,
+               delayTick > 0 {
+                if delayTick < timing.ticksPerRow {
+                    delayedVoiceRequests[channelIndex] = request
+                }
+                continue
+            }
+            guard channelState.suppressesNoteTrigger != true else {
+                continue
+            }
+            trigger(request, channelIndex: channelIndex)
         }
+    }
+
+    private func trigger(_ request: AudioVoiceRequest, channelIndex: Int) {
+        audioEngine.trigger(request)
+        lastVoiceRequests[channelIndex] = request
     }
 
     private func playbackStartPosition(from context: PlaybackStartContext?, in song: PlaybackSong) -> PlaybackPosition? {

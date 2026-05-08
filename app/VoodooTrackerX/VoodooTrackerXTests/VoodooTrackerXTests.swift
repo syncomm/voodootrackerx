@@ -452,6 +452,7 @@ private final class TestPlaybackEngine {
 private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
     private(set) var triggeredRequests = [AudioVoiceRequest]()
     private(set) var updatedControls = [(channel: Int, controls: AudioChannelControls)]()
+    private(set) var stoppedChannels = [Int]()
     private(set) var stopAllCount = 0
     private(set) var resetCount = 0
 
@@ -461,6 +462,10 @@ private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
 
     func update(channel: Int, controls: AudioChannelControls) {
         updatedControls.append((channel: channel, controls: controls))
+    }
+
+    func stop(channel: Int) {
+        stoppedChannels.append(channel)
     }
 
     func stopAll() {
@@ -642,6 +647,17 @@ final class VoodooTrackerXTests: XCTestCase {
         )
     }
 
+    func testPlaybackEffectHandlerDecodesSampleTimingEffects() {
+        XCTAssertEqual(PlaybackEffectHandler.sampleOffset(effectParam: 0x02), 512)
+        XCTAssertEqual(PlaybackEffectHandler.sampleOffset(effectParam: 0x00), 0)
+
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0x93), .retrigger(interval: 3))
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0x90), .retrigger(interval: 0))
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xC2), .noteCut(tick: 2))
+        XCTAssertEqual(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xD4), .noteDelay(tick: 4))
+        XCTAssertNil(PlaybackEffectHandler.extendedTimingEffect(effectParam: 0xA1))
+    }
+
     func testPlaybackChannelStateTreatsZeroedSupportedEffectsWithoutMemoryAsNoOps() {
         var state = PlaybackChannelState()
 
@@ -650,6 +666,26 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(state.apply(effectType: 0x05, effectParam: 0x00))
         XCTAssertTrue(state.apply(effectType: 0x06, effectParam: 0x00))
         XCTAssertNil(state.activeEffect)
+    }
+
+    func testPlaybackChannelStateAppliesSampleTimingEffects() {
+        var state = PlaybackChannelState()
+
+        XCTAssertTrue(state.apply(effectType: 0x09, effectParam: 0x02))
+        XCTAssertEqual(state.sampleStartOffset, 512)
+
+        XCTAssertTrue(state.apply(effectType: 0x0E, effectParam: 0x93))
+        XCTAssertEqual(state.retriggerInterval, 3)
+
+        XCTAssertTrue(state.apply(effectType: 0x0E, effectParam: 0x90))
+        XCTAssertEqual(state.retriggerInterval, 3)
+
+        XCTAssertTrue(state.apply(effectType: 0x0E, effectParam: 0xC2))
+        XCTAssertEqual(state.noteCutTick, 2)
+
+        XCTAssertTrue(state.apply(effectType: 0x0E, effectParam: 0xD4))
+        XCTAssertEqual(state.noteDelayTick, 4)
+        XCTAssertTrue(state.suppressesNoteTrigger)
     }
 
     func testPlaybackChannelStateAppliesContinuousEffectsAcrossTicks() {
@@ -931,6 +967,125 @@ final class VoodooTrackerXTests: XCTestCase {
 
         let vibratoOffsets = audioOutput.updatedControls.map { $0.controls.pitchOffsetSemitones }.filter { abs($0) > 0.0001 }
         XCTAssertFalse(vibratoOffsets.isEmpty)
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesSampleOffsetToTriggeredVoice() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: Array(repeating: 0.25, count: 1024), volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x02)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.sampleStartOffset, 512)
+    }
+
+    @MainActor
+    func testPlaybackEngineRetriggersCurrentVoiceOnConfiguredTicks() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.note), [49, 49])
+    }
+
+    @MainActor
+    func testPlaybackEngineCutsNoteOnConfiguredTick() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
+        XCTAssertEqual(audioOutput.stoppedChannels, [0])
+    }
+
+    @MainActor
+    func testPlaybackEngineDelaysNoteUntilConfiguredTick() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 4, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+
+        engine.advanceOneTick()
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+
+        engine.advanceOneTick()
+        XCTAssertEqual(audioOutput.triggeredRequests.map(\.note), [49])
+    }
+
+    @MainActor
+    func testPlaybackEngineSkipsNoteDelayBeyondCurrentRowSpeed() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD3),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
     }
 
     func testPlaybackSongStartsAtFirstOrderFirstRow() {

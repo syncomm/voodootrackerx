@@ -354,13 +354,15 @@ private func makePlaybackSong(
     instrumentsByIndex: [Int: PlaybackInstrument] = [:],
     note: UInt8 = 0,
     instrument: UInt8 = 0,
+    effectType: UInt8 = 0,
+    effectParam: UInt8 = 0,
     endBehavior: PlaybackEndBehavior = .stopAtEnd
 ) -> PlaybackSong {
     let patterns = patternRowCounts.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
         let rows = (0..<entry.value).map { rowIndex in
             PlaybackRow(
                 index: rowIndex,
-                cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: 0, effectParam: 0)]
+                cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: effectType, effectParam: effectParam)]
             )
         }
         partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: rows)
@@ -372,6 +374,38 @@ private func makePlaybackSong(
         instrumentsByIndex: instrumentsByIndex,
         restartOrderIndex: 0,
         endBehavior: endBehavior
+    )
+}
+
+private func makePlaybackSong(
+    orderPatternIndices: [Int],
+    patternRowsByIndex: [Int: [PlaybackRow]],
+    instrumentsByIndex: [Int: PlaybackInstrument] = [:],
+    endBehavior: PlaybackEndBehavior = .stopAtEnd
+) -> PlaybackSong {
+    let patterns = patternRowsByIndex.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
+        partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: entry.value)
+    }
+    return PlaybackSong(
+        title: "test",
+        orders: orderPatternIndices.enumerated().map { PlaybackOrderEntry(orderIndex: $0.offset, patternIndex: $0.element) },
+        patternsByIndex: patterns,
+        instrumentsByIndex: instrumentsByIndex,
+        restartOrderIndex: 0,
+        endBehavior: endBehavior
+    )
+}
+
+private func makePlaybackRow(
+    index: Int,
+    note: UInt8 = 0,
+    instrument: UInt8 = 0,
+    effectType: UInt8 = 0,
+    effectParam: UInt8 = 0
+) -> PlaybackRow {
+    PlaybackRow(
+        index: index,
+        cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: effectType, effectParam: effectParam)]
     )
 }
 
@@ -538,6 +572,126 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(engine.state, PlaybackState(mode: .playing, context: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 1)))
         XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
         XCTAssertEqual(positions, [PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)])
+    }
+
+    func testPlaybackEffectHandlerDecodesSpeedAndBPM() {
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0F, effectParam: 0x06), .setSpeed(6))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0F, effectParam: 0x1F), .setSpeed(31))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0F, effectParam: 0x20), .setBPM(32))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0F, effectParam: 0x7D), .setBPM(125))
+        XCTAssertNil(PlaybackEffectHandler.command(effectType: 0x0F, effectParam: 0x00))
+    }
+
+    func testPlaybackEffectHandlerDecodesPositionJumpAndPatternBreak() {
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0B, effectParam: 0x03), .positionJump(orderIndex: 3))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0D, effectParam: 0x12), .patternBreak(rowIndex: 12))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0D, effectParam: 0x09), .patternBreak(rowIndex: 9))
+        XCTAssertNil(PlaybackEffectHandler.command(effectType: 0x0D, effectParam: 0x1A))
+    }
+
+    func testPlaybackEffectHandlerDecodesSetVolumeWithClamp() {
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0C, effectParam: 0x20), .setVolume(0.5))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0C, effectParam: 0x40), .setVolume(1.0))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0C, effectParam: 0x7F), .setVolume(1.0))
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesFxxTimingOnRowEntry() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            effectType: 0x0F,
+            effectParam: 0x03
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(engine.timing, PlaybackTiming(speed: 3, bpm: 125))
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesBxxPositionJumpOnNextRowAdvance() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3, 4],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x02)],
+                3: [makePlaybackRow(index: 0)],
+                4: [makePlaybackRow(index: 0)]
+            ]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 1, bpm: 125))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 2, patternIndex: 4, rowIndex: 0))
+        XCTAssertEqual(positions, [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+            PlaybackPosition(orderIndex: 2, patternIndex: 4, rowIndex: 0)
+        ])
+    }
+
+    @MainActor
+    func testPlaybackEngineIgnoresOutOfBoundsBxxPositionJump() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x7F)],
+                3: [makePlaybackRow(index: 0)]
+            ]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 1, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0))
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesDxxPatternBreakOnNextRowAdvance() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0D, effectParam: 0x02)],
+                3: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1),
+                    makePlaybackRow(index: 2),
+                    makePlaybackRow(index: 3)
+                ]
+            ]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 1, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 2))
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesCxxVolumeToTriggeredVoice() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0C, effectParam: 0x20)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.volumeScale, 0.5)
     }
 
     func testPlaybackSongStartsAtFirstOrderFirstRow() {

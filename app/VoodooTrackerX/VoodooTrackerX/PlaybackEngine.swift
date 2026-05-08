@@ -4,7 +4,7 @@ import os
 @MainActor
 final class PlaybackEngine: PlaybackTransport {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
-    private let audioEngine = PlaybackAudioEngine()
+    private let audioEngine: PlaybackAudioOutput
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -16,10 +16,16 @@ final class PlaybackEngine: PlaybackTransport {
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
 
+    init(audioEngine: PlaybackAudioOutput = PlaybackAudioEngine()) {
+        self.audioEngine = audioEngine
+    }
+
     func load(song: PlaybackSong?) {
-        stop(notify: false)
+        let wasPlaying = state.isPlaying
+        stop(notify: false, resetAudio: true)
         self.song = song
         currentPosition = song?.startPosition
+        logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
     func configureTiming(_ timing: PlaybackTiming) {
@@ -30,6 +36,10 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?) {
+        guard !state.isPlaying else {
+            logger.debug("Ignoring play request because playback is already active")
+            return
+        }
         guard let song else {
             stop()
             return
@@ -45,17 +55,26 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func stop() {
-        stop(notify: true)
+        stop(notify: true, resetAudio: false)
     }
 
-    private func stop(notify: Bool) {
+    private func stop(notify: Bool, resetAudio: Bool) {
+        let wasActive = state.mode != .stopped || timer != nil
+        guard wasActive || resetAudio else {
+            logger.debug("Ignoring stop request because playback is already stopped")
+            return
+        }
         timer?.invalidate()
         timer = nil
         tickState.reset()
-        audioEngine.stopAll()
+        if resetAudio {
+            audioEngine.reset()
+        } else {
+            audioEngine.stopAll()
+        }
         currentPosition = song?.startPosition
         apply(action: .stop, nextState: .stopped)
-        if notify {
+        if notify, wasActive {
             playbackDidStop?()
         }
     }
@@ -66,6 +85,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         timer?.invalidate()
         timer = nil
+        audioEngine.stopAll()
         apply(action: .pause, nextState: PlaybackState(mode: .paused, context: state.context))
     }
 
@@ -74,7 +94,7 @@ final class PlaybackEngine: PlaybackTransport {
         case .playing:
             pause()
         case .paused, .stopped:
-            apply(action: .togglePlayPause, nextState: PlaybackState(mode: .playing, context: context ?? state.context))
+            play(from: context ?? state.context)
         }
     }
 
@@ -113,6 +133,7 @@ final class PlaybackEngine: PlaybackTransport {
                 currentPosition = restartPosition
                 positionDidChange?(restartPosition)
             }
+            logger.debug("Playback reached end of song; stopping cleanly")
             stop()
         }
     }

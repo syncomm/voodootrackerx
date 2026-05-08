@@ -3,7 +3,14 @@ import Foundation
 import os
 
 @MainActor
-final class PlaybackAudioEngine {
+protocol PlaybackAudioOutput: AnyObject {
+    func trigger(_ request: AudioVoiceRequest)
+    func stopAll()
+    func reset()
+}
+
+@MainActor
+final class PlaybackAudioEngine: PlaybackAudioOutput {
     private final class ChannelVoice {
         let player = AVAudioPlayerNode()
     }
@@ -38,6 +45,16 @@ final class PlaybackAudioEngine {
             voice.player.stop()
         }
         engine.pause()
+    }
+
+    func reset() {
+        stopAll()
+        for voice in voicesByChannel.values {
+            engine.detach(voice.player)
+        }
+        voicesByChannel.removeAll()
+        engine.reset()
+        isPrepared = false
     }
 
     private func prepareIfNeeded() {

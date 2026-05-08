@@ -16,6 +16,10 @@ VoodooTracker X now has audible XM playback, stable Play/Stop lifecycle behavior
 - `Axy` volume slide
 - `1xx` portamento up
 - `2xx` portamento down
+- `3xx` tone portamento
+- `4xy` vibrato
+- `5xy` tone portamento plus volume slide
+- `6xy` vibrato plus volume slide
 
 The current audio backend uses `AVAudioEngine`, `AVAudioPlayerNode`, and per-channel `AVAudioUnitVarispeed`. This keeps playback stable and avoids running Swift tracker logic inside a CoreAudio render callback.
 
@@ -42,7 +46,9 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 ## Known Approximation Areas
 
 - Portamento uses a semitone-per-tick approximation, not XM period math.
+- Tone portamento slides toward note targets in semitone space rather than FT2 period space.
 - Arpeggio cycles semitone offsets through the current varispeed path rather than recalculating exact tracker periods.
+- Vibrato uses a first-pass sine waveform through varispeed pitch offsets; alternate waveforms and FT2 waveform quirks are not implemented.
 - Sample looping is not implemented.
 - Instrument envelopes are not implemented.
 - Interpolation is minimal and not tracker-accurate.

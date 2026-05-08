@@ -5,6 +5,7 @@ import os
 @MainActor
 protocol PlaybackAudioOutput: AnyObject {
     func trigger(_ request: AudioVoiceRequest)
+    func update(channel: Int, controls: AudioChannelControls)
     func stopAll()
     func reset()
 }
@@ -13,6 +14,7 @@ protocol PlaybackAudioOutput: AnyObject {
 final class PlaybackAudioEngine: PlaybackAudioOutput {
     private final class ChannelVoice {
         let player = AVAudioPlayerNode()
+        let varispeed = AVAudioUnitVarispeed()
     }
 
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
@@ -35,9 +37,17 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return
         }
 
+        apply(AudioChannelControls(volumeScale: request.volumeScale, pitchOffsetSemitones: request.pitchOffsetSemitones), to: voice)
         voice.player.stop()
         voice.player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         voice.player.play()
+    }
+
+    func update(channel: Int, controls: AudioChannelControls) {
+        guard let voice = voicesByChannel[channel] else {
+            return
+        }
+        apply(controls, to: voice)
     }
 
     func stopAll() {
@@ -51,6 +61,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         stopAll()
         for voice in voicesByChannel.values {
             engine.detach(voice.player)
+            engine.detach(voice.varispeed)
         }
         voicesByChannel.removeAll()
         engine.reset()
@@ -84,9 +95,17 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         }
         let voice = ChannelVoice()
         engine.attach(voice.player)
-        engine.connect(voice.player, to: engine.mainMixerNode, format: format)
+        engine.attach(voice.varispeed)
+        engine.connect(voice.player, to: voice.varispeed, format: format)
+        engine.connect(voice.varispeed, to: engine.mainMixerNode, format: format)
         voicesByChannel[channel] = voice
         return voice
+    }
+
+    private func apply(_ controls: AudioChannelControls, to voice: ChannelVoice) {
+        voice.player.volume = min(1, max(0, controls.volumeScale))
+        let rate = Float(pow(2.0, controls.pitchOffsetSemitones / 12.0))
+        voice.varispeed.rate = min(4, max(0.25, rate))
     }
 
     private func makeBuffer(for request: AudioVoiceRequest) -> AVAudioPCMBuffer? {
@@ -109,7 +128,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         }
 
         var samplePosition = 0.0
-        let gain = min(0.8, request.sample.volume * max(0, request.volumeScale))
+        let gain = min(0.8, max(0, request.sample.volume))
         for frame in 0..<frameCount {
             let sampleIndex = min(request.sample.pcm.count - 1, Int(samplePosition))
             output[frame] = request.sample.pcm[sampleIndex] * gain

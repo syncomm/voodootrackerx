@@ -29,6 +29,9 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Confirm modules with `Bxx` position jumps or `Dxx` pattern breaks continue safely without crashes or corrupted tracker state.
 - Confirm modules with `0xy` arpeggio commands produce audible tick-cycled pitch changes.
 - Confirm modules with `1xx` or `2xx` portamento commands produce smooth first-pass pitch slides without destabilizing playback.
+- Confirm modules with `3xx` tone portamento commands slide active notes toward target notes without doubled retriggers.
+- Confirm modules with `4xy` vibrato commands produce audible pitch modulation.
+- Confirm modules with `5xy` or `6xy` combined volume-slide commands keep the pitch effect active while changing volume.
 - Confirm modules with `Axy` volume slide commands change volume progressively across ticks.
 - Press Play again while already playing and confirm playback does not stack, restart unexpectedly, or create doubled audio.
 - Press Stop and confirm tracker progression stops and audio stops immediately.

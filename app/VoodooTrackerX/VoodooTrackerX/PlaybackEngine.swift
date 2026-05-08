@@ -181,7 +181,11 @@ final class PlaybackEngine: PlaybackTransport {
         for (channelIndex, cell) in row.cells.enumerated() {
             var channelState = channelStates[channelIndex] ?? PlaybackChannelState()
             channelState.beginRow()
-            channelState.start(note: cell.note)
+            if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) {
+                channelState.setTonePortamentoTarget(note: cell.note)
+            } else {
+                channelState.start(note: cell.note)
+            }
 
             if let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) {
                 apply(command, channelIndex: channelIndex, channelState: &channelState)
@@ -236,6 +240,7 @@ final class PlaybackEngine: PlaybackTransport {
         for (channelIndex, cell) in row.cells.enumerated() {
             guard cell.note > 0,
                   cell.note <= 96,
+                  channelStates[channelIndex]?.suppressesNoteTrigger != true,
                   let sample = song.sample(forInstrument: Int(cell.instrument)) else {
                 continue
             }

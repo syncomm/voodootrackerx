@@ -20,6 +20,10 @@ VoodooTracker X now has audible XM playback, stable Play/Stop lifecycle behavior
 - `4xy` vibrato
 - `5xy` tone portamento plus volume slide
 - `6xy` vibrato plus volume slide
+- `9xx` sample offset
+- `E9x` retrigger note
+- `ECx` note cut
+- `EDx` note delay
 
 The current audio backend uses `AVAudioEngine`, `AVAudioPlayerNode`, and per-channel `AVAudioUnitVarispeed`. This keeps playback stable and avoids running Swift tracker logic inside a CoreAudio render callback.
 
@@ -49,6 +53,9 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 - Tone portamento slides toward note targets in semitone space rather than FT2 period space.
 - Arpeggio cycles semitone offsets through the current varispeed path rather than recalculating exact tracker periods.
 - Vibrato uses a first-pass sine waveform through varispeed pitch offsets; alternate waveforms and FT2 waveform quirks are not implemented.
+- Sample offset uses a clamped PCM sample-index offset of `xx * 256`, not exact byte-level FT2 sample-address semantics.
+- Retrigger, note cut, and note delay are applied on playback ticks through the existing timer-driven engine, not sample-accurate audio scheduling.
+- Note delay values outside the current row speed are skipped safely instead of being carried into later rows.
 - Sample looping is not implemented.
 - Instrument envelopes are not implemented.
 - Interpolation is minimal and not tracker-accurate.

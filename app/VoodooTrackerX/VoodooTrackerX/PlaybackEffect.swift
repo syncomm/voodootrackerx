@@ -30,6 +30,10 @@ struct PlaybackChannelState: Equatable {
     var baseNote: UInt8?
     var tonePortamentoTargetNote: UInt8?
     var suppressesNoteTrigger = false
+    var sampleStartOffset = 0
+    var retriggerInterval: Int?
+    var noteCutTick: Int?
+    var noteDelayTick: Int?
     var lastArpeggioParam: UInt8?
     var lastVolumeSlideParam: UInt8?
     var lastPortamentoUpParam: UInt8?
@@ -58,6 +62,10 @@ struct PlaybackChannelState: Equatable {
         }
         activeEffect = nil
         suppressesNoteTrigger = false
+        sampleStartOffset = 0
+        retriggerInterval = nil
+        noteCutTick = nil
+        noteDelayTick = nil
     }
 
     mutating func start(note: UInt8) {
@@ -146,6 +154,11 @@ struct PlaybackChannelState: Equatable {
             }
             activeEffect = PlaybackEffectHandler.combinedVibratoVolumeSlide(vibratoEffect: vibratoEffect, slideEffect: slideEffect)
             return activeEffect != nil || effectParam == 0
+        case 0x09:
+            sampleStartOffset = PlaybackEffectHandler.sampleOffset(effectParam: effectParam)
+            return true
+        case 0x0E:
+            return applyExtendedEffect(effectParam: effectParam)
         case 0x0A:
             guard let effect = PlaybackEffectHandler.volumeSlide(effectParam: effectParam, memory: lastVolumeSlideParam) else {
                 return false
@@ -156,6 +169,26 @@ struct PlaybackChannelState: Equatable {
             }
             return true
         default:
+            return false
+        }
+    }
+
+    private mutating func applyExtendedEffect(effectParam: UInt8) -> Bool {
+        switch PlaybackEffectHandler.extendedTimingEffect(effectParam: effectParam) {
+        case let .retrigger(interval):
+            guard interval > 0 else {
+                return true
+            }
+            retriggerInterval = interval
+            return true
+        case let .noteCut(tick):
+            noteCutTick = tick
+            return true
+        case let .noteDelay(tick):
+            noteDelayTick = tick
+            suppressesNoteTrigger = tick > 0
+            return true
+        case .none:
             return false
         }
     }
@@ -229,6 +262,12 @@ struct PlaybackChannelState: Equatable {
 }
 
 enum PlaybackEffectHandler {
+    enum ExtendedTimingEffect: Equatable {
+        case retrigger(interval: Int)
+        case noteCut(tick: Int)
+        case noteDelay(tick: Int)
+    }
+
     static func command(effectType: UInt8, effectParam: UInt8) -> PlaybackEffectCommand? {
         switch effectType {
         case 0x0B:
@@ -333,6 +372,25 @@ enum PlaybackEffectHandler {
 
     static func isTonePortamentoEffect(_ effectType: UInt8) -> Bool {
         effectType == 0x03 || effectType == 0x05
+    }
+
+    static func sampleOffset(effectParam: UInt8) -> Int {
+        Int(effectParam) * 256
+    }
+
+    static func extendedTimingEffect(effectParam: UInt8) -> ExtendedTimingEffect? {
+        let subcommand = (effectParam & 0xF0) >> 4
+        let value = Int(effectParam & 0x0F)
+        switch subcommand {
+        case 0x09:
+            return .retrigger(interval: value)
+        case 0x0C:
+            return .noteCut(tick: value)
+        case 0x0D:
+            return .noteDelay(tick: value)
+        default:
+            return nil
+        }
     }
 
     private static func timingCommand(_ effectParam: UInt8) -> PlaybackEffectCommand? {

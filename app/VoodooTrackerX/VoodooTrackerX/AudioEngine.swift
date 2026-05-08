@@ -6,6 +6,7 @@ import os
 protocol PlaybackAudioOutput: AnyObject {
     func trigger(_ request: AudioVoiceRequest)
     func update(channel: Int, controls: AudioChannelControls)
+    func stop(channel: Int)
     func stopAll()
     func reset()
 }
@@ -48,6 +49,10 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return
         }
         apply(controls, to: voice)
+    }
+
+    func stop(channel: Int) {
+        voicesByChannel[channel]?.player.stop()
     }
 
     func stopAll() {
@@ -118,7 +123,12 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         let finetuneOffset = Double(request.sample.finetune) / (128.0 * 12.0)
         let pitchRatio = pow(2.0, (noteOffset / 12.0) + finetuneOffset)
         let increment = max(0.001, (request.sample.baseSampleRate / format.sampleRate) * pitchRatio)
-        let frameCount = max(1, Int(Double(request.sample.pcm.count) / increment))
+        let startOffset = min(max(0, request.sampleStartOffset), request.sample.pcm.count)
+        guard startOffset < request.sample.pcm.count else {
+            return nil
+        }
+        let availableSampleCount = request.sample.pcm.count - startOffset
+        let frameCount = max(1, Int(Double(availableSampleCount) / increment))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
             return nil
         }
@@ -127,7 +137,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return nil
         }
 
-        var samplePosition = 0.0
+        var samplePosition = Double(startOffset)
         let gain = min(0.8, max(0, request.sample.volume))
         for frame in 0..<frameCount {
             let sampleIndex = min(request.sample.pcm.count - 1, Int(samplePosition))

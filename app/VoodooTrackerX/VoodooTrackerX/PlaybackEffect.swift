@@ -8,6 +8,109 @@ enum PlaybackEffectCommand: Equatable {
     case setVolume(Float)
 }
 
+enum PlaybackContinuousEffect: Equatable {
+    case arpeggio(x: Int, y: Int)
+    case volumeSlide(up: Int, down: Int)
+    case portamentoUp(amount: Int)
+    case portamentoDown(amount: Int)
+}
+
+struct PlaybackChannelState: Equatable {
+    var volume: Float = 1
+    var pitchOffsetSemitones: Double = 0
+    var activeEffect: PlaybackContinuousEffect?
+    var lastArpeggioParam: UInt8?
+    var lastVolumeSlideParam: UInt8?
+    var lastPortamentoUpParam: UInt8?
+    var lastPortamentoDownParam: UInt8?
+
+    var audioControls: AudioChannelControls {
+        AudioChannelControls(volumeScale: volume, pitchOffsetSemitones: pitchOffsetSemitones)
+    }
+
+    mutating func beginRow() {
+        if case .arpeggio = activeEffect {
+            pitchOffsetSemitones = 0
+        }
+        activeEffect = nil
+    }
+
+    mutating func start(note: UInt8) {
+        guard note > 0, note <= 96 else {
+            return
+        }
+        pitchOffsetSemitones = 0
+    }
+
+    mutating func apply(effectType: UInt8, effectParam: UInt8) -> Bool {
+        switch effectType {
+        case 0x00:
+            guard let effect = PlaybackEffectHandler.arpeggio(effectParam: effectParam, memory: lastArpeggioParam) else {
+                return effectParam == 0
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastArpeggioParam = effectParam
+            }
+            pitchOffsetSemitones = 0
+            return true
+        case 0x01:
+            guard let effect = PlaybackEffectHandler.portamentoUp(effectParam: effectParam, memory: lastPortamentoUpParam) else {
+                return false
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastPortamentoUpParam = effectParam
+            }
+            return true
+        case 0x02:
+            guard let effect = PlaybackEffectHandler.portamentoDown(effectParam: effectParam, memory: lastPortamentoDownParam) else {
+                return false
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastPortamentoDownParam = effectParam
+            }
+            return true
+        case 0x0A:
+            guard let effect = PlaybackEffectHandler.volumeSlide(effectParam: effectParam, memory: lastVolumeSlideParam) else {
+                return false
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastVolumeSlideParam = effectParam
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    mutating func advanceContinuousEffect(tickInRow: Int) {
+        guard let activeEffect else {
+            return
+        }
+        switch activeEffect {
+        case let .arpeggio(x, y):
+            switch tickInRow % 3 {
+            case 1:
+                pitchOffsetSemitones = Double(x)
+            case 2:
+                pitchOffsetSemitones = Double(y)
+            default:
+                pitchOffsetSemitones = 0
+            }
+        case let .volumeSlide(up, down):
+            let delta = Float(up - down) / 64.0
+            volume = min(1, max(0, volume + delta))
+        case let .portamentoUp(amount):
+            pitchOffsetSemitones += PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount)
+        case let .portamentoDown(amount):
+            pitchOffsetSemitones -= PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount)
+        }
+    }
+}
+
 enum PlaybackEffectHandler {
     static func command(effectType: UInt8, effectParam: UInt8) -> PlaybackEffectCommand? {
         switch effectType {
@@ -22,6 +125,49 @@ enum PlaybackEffectHandler {
         default:
             return nil
         }
+    }
+
+    static func arpeggio(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        let x = Int((param & 0xF0) >> 4)
+        let y = Int(param & 0x0F)
+        return .arpeggio(x: x, y: y)
+    }
+
+    static func volumeSlide(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        let up = Int((param & 0xF0) >> 4)
+        let down = Int(param & 0x0F)
+        if up > 0 {
+            return .volumeSlide(up: up, down: 0)
+        }
+        return .volumeSlide(up: 0, down: down)
+    }
+
+    static func portamentoUp(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        return .portamentoUp(amount: Int(param))
+    }
+
+    static func portamentoDown(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        return .portamentoDown(amount: Int(param))
+    }
+
+    static func pitchSlideSemitonesPerTick(amount: Int) -> Double {
+        Double(max(0, amount)) / 64.0
     }
 
     private static func timingCommand(_ effectParam: UInt8) -> PlaybackEffectCommand? {

@@ -13,7 +13,7 @@ final class PlaybackEngine: PlaybackTransport {
     private var tickState = PlaybackTickState()
     private var timer: Timer?
     private var pendingPositionCommand: PlaybackPositionCommand?
-    private var channelVolumes = [Int: Float]()
+    private var channelStates = [Int: PlaybackChannelState]()
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
@@ -28,7 +28,7 @@ final class PlaybackEngine: PlaybackTransport {
         self.song = song
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
-        channelVolumes.removeAll()
+        channelStates.removeAll()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -51,7 +51,7 @@ final class PlaybackEngine: PlaybackTransport {
         currentPosition = playbackStartPosition(from: context, in: song) ?? song.startPosition
         tickState.reset()
         pendingPositionCommand = nil
-        channelVolumes.removeAll()
+        channelStates.removeAll()
         if let currentPosition {
             enter(position: currentPosition)
         }
@@ -79,7 +79,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
-        channelVolumes.removeAll()
+        channelStates.removeAll()
         timing = .xmDefault
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
@@ -129,6 +129,7 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         guard tickState.advance(timing: timing) else {
+            applyContinuousEffects(tickInRow: tickState.tickInRow)
             return
         }
         switch nextStep(after: position, in: song) {
@@ -147,7 +148,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func enter(position: PlaybackPosition) {
         positionDidChange?(position)
-        applyEffects(at: position)
+        prepareRowPlaybackState(at: position)
         triggerAudio(at: position)
     }
 
@@ -172,21 +173,28 @@ final class PlaybackEngine: PlaybackTransport {
         }
     }
 
-    private func applyEffects(at position: PlaybackPosition) {
+    private func prepareRowPlaybackState(at position: PlaybackPosition) {
         guard let song,
               let row = song.row(at: position) else {
             return
         }
         for (channelIndex, cell) in row.cells.enumerated() {
-            guard let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) else {
+            var channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            channelState.beginRow()
+            channelState.start(note: cell.note)
+
+            if let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) {
+                apply(command, channelIndex: channelIndex, channelState: &channelState)
+            } else if !channelState.apply(effectType: cell.effectType, effectParam: cell.effectParam) {
                 logUnsupportedEffectIfNeeded(cell)
-                continue
             }
-            apply(command, channelIndex: channelIndex)
+
+            channelStates[channelIndex] = channelState
+            audioEngine.update(channel: channelIndex, controls: channelState.audioControls)
         }
     }
 
-    private func apply(_ command: PlaybackEffectCommand, channelIndex: Int) {
+    private func apply(_ command: PlaybackEffectCommand, channelIndex: Int, channelState: inout PlaybackChannelState) {
         switch command {
         case let .setSpeed(speed):
             configureTiming(PlaybackTiming(speed: speed, bpm: timing.bpm))
@@ -197,7 +205,19 @@ final class PlaybackEngine: PlaybackTransport {
         case let .patternBreak(rowIndex):
             pendingPositionCommand = .patternBreak(rowIndex: rowIndex)
         case let .setVolume(volume):
-            channelVolumes[channelIndex] = volume
+            channelState.volume = volume
+        }
+    }
+
+    private func applyContinuousEffects(tickInRow: Int) {
+        for channelIndex in channelStates.keys.sorted() {
+            guard var channelState = channelStates[channelIndex],
+                  channelState.activeEffect != nil else {
+                continue
+            }
+            channelState.advanceContinuousEffect(tickInRow: tickInRow)
+            channelStates[channelIndex] = channelState
+            audioEngine.update(channel: channelIndex, controls: channelState.audioControls)
         }
     }
 
@@ -219,7 +239,14 @@ final class PlaybackEngine: PlaybackTransport {
                   let sample = song.sample(forInstrument: Int(cell.instrument)) else {
                 continue
             }
-            audioEngine.trigger(AudioVoiceRequest(sample: sample, note: cell.note, channel: channelIndex, volumeScale: channelVolumes[channelIndex] ?? 1))
+            let controls = (channelStates[channelIndex] ?? PlaybackChannelState()).audioControls
+            audioEngine.trigger(AudioVoiceRequest(
+                sample: sample,
+                note: cell.note,
+                channel: channelIndex,
+                volumeScale: controls.volumeScale,
+                pitchOffsetSemitones: controls.pitchOffsetSemitones
+            ))
         }
     }
 

@@ -27,6 +27,9 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Press Play and confirm audio plays while the tracker follows rows.
 - Confirm modules with `Fxx` speed/tempo commands visibly change playback pace when those rows are reached.
 - Confirm modules with `Bxx` position jumps or `Dxx` pattern breaks continue safely without crashes or corrupted tracker state.
+- Confirm modules with `0xy` arpeggio commands produce audible tick-cycled pitch changes.
+- Confirm modules with `1xx` or `2xx` portamento commands produce smooth first-pass pitch slides without destabilizing playback.
+- Confirm modules with `Axy` volume slide commands change volume progressively across ticks.
 - Press Play again while already playing and confirm playback does not stack, restart unexpectedly, or create doubled audio.
 - Press Stop and confirm tracker progression stops and audio stops immediately.
 - Press Stop again and confirm there is no crash or bad state.

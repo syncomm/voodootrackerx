@@ -12,6 +12,8 @@ final class PlaybackEngine: PlaybackTransport {
     private(set) var timing = PlaybackTiming.xmDefault
     private var tickState = PlaybackTickState()
     private var timer: Timer?
+    private var pendingPositionCommand: PlaybackPositionCommand?
+    private var channelVolumes = [Int: Float]()
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
@@ -25,6 +27,8 @@ final class PlaybackEngine: PlaybackTransport {
         stop(notify: false, resetAudio: true)
         self.song = song
         currentPosition = song?.startPosition
+        pendingPositionCommand = nil
+        channelVolumes.removeAll()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -46,9 +50,10 @@ final class PlaybackEngine: PlaybackTransport {
         }
         currentPosition = playbackStartPosition(from: context, in: song) ?? song.startPosition
         tickState.reset()
+        pendingPositionCommand = nil
+        channelVolumes.removeAll()
         if let currentPosition {
-            positionDidChange?(currentPosition)
-            triggerAudio(at: currentPosition)
+            enter(position: currentPosition)
         }
         restartTimer()
         apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))
@@ -73,6 +78,9 @@ final class PlaybackEngine: PlaybackTransport {
             audioEngine.stopAll()
         }
         currentPosition = song?.startPosition
+        pendingPositionCommand = nil
+        channelVolumes.removeAll()
+        timing = .xmDefault
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
@@ -114,7 +122,7 @@ final class PlaybackEngine: PlaybackTransport {
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func advanceOneTick() {
+    func advanceOneTick() {
         guard state.isPlaying,
               let song,
               let position = currentPosition else {
@@ -123,11 +131,10 @@ final class PlaybackEngine: PlaybackTransport {
         guard tickState.advance(timing: timing) else {
             return
         }
-        switch song.position(after: position) {
+        switch nextStep(after: position, in: song) {
         case let .advanced(nextPosition):
             currentPosition = nextPosition
-            positionDidChange?(nextPosition)
-            triggerAudio(at: nextPosition)
+            enter(position: nextPosition)
         case let .ended(restartPosition):
             if let restartPosition {
                 currentPosition = restartPosition
@@ -136,6 +143,69 @@ final class PlaybackEngine: PlaybackTransport {
             logger.debug("Playback reached end of song; stopping cleanly")
             stop()
         }
+    }
+
+    private func enter(position: PlaybackPosition) {
+        positionDidChange?(position)
+        applyEffects(at: position)
+        triggerAudio(at: position)
+    }
+
+    private func nextStep(after position: PlaybackPosition, in song: PlaybackSong) -> PlaybackStepResult {
+        guard let pendingPositionCommand else {
+            return song.position(after: position)
+        }
+        self.pendingPositionCommand = nil
+        switch pendingPositionCommand {
+        case let .positionJump(orderIndex):
+            guard song.orders.indices.contains(orderIndex) else {
+                logger.debug("Ignoring out-of-bounds position jump: \(orderIndex, privacy: .public)")
+                return song.position(after: position)
+            }
+            return song.position(orderIndex: orderIndex, rowIndex: 0).map(PlaybackStepResult.advanced) ?? .ended(restartPosition: nil)
+        case let .patternBreak(rowIndex):
+            let nextOrderIndex = position.orderIndex + 1
+            guard song.orders.indices.contains(nextOrderIndex) else {
+                return .ended(restartPosition: nil)
+            }
+            return song.position(orderIndex: nextOrderIndex, rowIndex: rowIndex).map(PlaybackStepResult.advanced) ?? .ended(restartPosition: nil)
+        }
+    }
+
+    private func applyEffects(at position: PlaybackPosition) {
+        guard let song,
+              let row = song.row(at: position) else {
+            return
+        }
+        for (channelIndex, cell) in row.cells.enumerated() {
+            guard let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) else {
+                logUnsupportedEffectIfNeeded(cell)
+                continue
+            }
+            apply(command, channelIndex: channelIndex)
+        }
+    }
+
+    private func apply(_ command: PlaybackEffectCommand, channelIndex: Int) {
+        switch command {
+        case let .setSpeed(speed):
+            configureTiming(PlaybackTiming(speed: speed, bpm: timing.bpm))
+        case let .setBPM(bpm):
+            configureTiming(PlaybackTiming(speed: timing.speed, bpm: bpm))
+        case let .positionJump(orderIndex):
+            pendingPositionCommand = .positionJump(orderIndex: orderIndex)
+        case let .patternBreak(rowIndex):
+            pendingPositionCommand = .patternBreak(rowIndex: rowIndex)
+        case let .setVolume(volume):
+            channelVolumes[channelIndex] = volume
+        }
+    }
+
+    private func logUnsupportedEffectIfNeeded(_ cell: PlaybackCell) {
+        guard cell.effectType != 0 || cell.effectParam != 0 else {
+            return
+        }
+        logger.debug("Deferred XM effect \(cell.effectType, privacy: .public) param \(cell.effectParam, privacy: .public)")
     }
 
     private func triggerAudio(at position: PlaybackPosition) {
@@ -149,7 +219,7 @@ final class PlaybackEngine: PlaybackTransport {
                   let sample = song.sample(forInstrument: Int(cell.instrument)) else {
                 continue
             }
-            audioEngine.trigger(AudioVoiceRequest(sample: sample, note: cell.note, channel: channelIndex))
+            audioEngine.trigger(AudioVoiceRequest(sample: sample, note: cell.note, channel: channelIndex, volumeScale: channelVolumes[channelIndex] ?? 1))
         }
     }
 
@@ -166,4 +236,9 @@ final class PlaybackEngine: PlaybackTransport {
         }
         return song.startPosition
     }
+}
+
+private enum PlaybackPositionCommand: Equatable {
+    case positionJump(orderIndex: Int)
+    case patternBreak(rowIndex: Int)
 }

@@ -109,7 +109,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         }
 
         var samplePosition = 0.0
-        let gain = min(0.8, request.sample.volume)
+        let gain = min(0.8, request.sample.volume * max(0, request.volumeScale))
         for frame in 0..<frameCount {
             let sampleIndex = min(request.sample.pcm.count - 1, Int(samplePosition))
             output[frame] = request.sample.pcm[sampleIndex] * gain

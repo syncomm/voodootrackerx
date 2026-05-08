@@ -18,6 +18,11 @@
 		A0000000000000000000003F /* PlaybackTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000040 /* PlaybackTiming.swift */; };
 		A00000000000000000000043 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000045 /* AudioEngine.swift */; };
 		A00000000000000000000044 /* AudioTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000046 /* AudioTypes.swift */; };
+		A00000000000000000000047 /* AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000045 /* AudioEngine.swift */; };
+		A00000000000000000000048 /* AudioTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000046 /* AudioTypes.swift */; };
+		A00000000000000000000049 /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* PlaybackEngine.swift */; };
+		A0000000000000000000004A /* PlaybackTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* PlaybackTransport.swift */; };
+		A0000000000000000000004B /* PlaybackTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* PlaybackTypes.swift */; };
 		A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* VoodooTrackerXTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
@@ -280,8 +285,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000047 /* AudioEngine.swift in Sources */,
+				A00000000000000000000048 /* AudioTypes.swift in Sources */,
+				A00000000000000000000049 /* PlaybackEngine.swift in Sources */,
 				A0000000000000000000003D /* PlaybackSong.swift in Sources */,
 				A0000000000000000000003F /* PlaybackTiming.swift in Sources */,
+				A0000000000000000000004A /* PlaybackTransport.swift in Sources */,
+				A0000000000000000000004B /* PlaybackTypes.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

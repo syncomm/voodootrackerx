@@ -352,13 +352,15 @@ private func makePlaybackSong(
     orderPatternIndices: [Int],
     patternRowCounts: [Int: Int],
     instrumentsByIndex: [Int: PlaybackInstrument] = [:],
+    note: UInt8 = 0,
+    instrument: UInt8 = 0,
     endBehavior: PlaybackEndBehavior = .stopAtEnd
 ) -> PlaybackSong {
     let patterns = patternRowCounts.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
         let rows = (0..<entry.value).map { rowIndex in
             PlaybackRow(
                 index: rowIndex,
-                cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]
+                cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: 0, effectParam: 0)]
             )
         }
         partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: rows)
@@ -412,6 +414,25 @@ private final class TestPlaybackEngine {
     }
 }
 
+@MainActor
+private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
+    private(set) var triggeredRequests = [AudioVoiceRequest]()
+    private(set) var stopAllCount = 0
+    private(set) var resetCount = 0
+
+    func trigger(_ request: AudioVoiceRequest) {
+        triggeredRequests.append(request)
+    }
+
+    func stopAll() {
+        stopAllCount += 1
+    }
+
+    func reset() {
+        resetCount += 1
+    }
+}
+
 final class VoodooTrackerXTests: XCTestCase {
     func testPlaybackEngineStartsPlayingFromContext() {
         let engine = TestPlaybackEngine()
@@ -439,6 +460,84 @@ final class VoodooTrackerXTests: XCTestCase {
         engine.pause()
 
         XCTAssertEqual(engine.state, TestPlaybackState(mode: .paused, context: context))
+    }
+
+    @MainActor
+    func testPlaybackEngineIgnoresPlayWhileAlreadyPlaying() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 4],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            note: 49,
+            instrument: 1
+        ))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        let firstContext = PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0)
+        let secondContext = PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 2)
+        engine.play(from: firstContext)
+        engine.play(from: secondContext)
+
+        XCTAssertEqual(engine.state, PlaybackState(mode: .playing, context: firstContext))
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(positions, [PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0)])
+        XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineStopIsIdempotentAfterPlayback() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        engine.load(song: makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 4]))
+        var stopNotificationCount = 0
+        engine.playbackDidStop = { stopNotificationCount += 1 }
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.stop()
+        engine.stop()
+
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(stopNotificationCount, 1)
+        XCTAssertEqual(audioOutput.stopAllCount, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineLoadWhilePlayingStopsAndReplacesSong() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let firstSong = makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 4])
+        let secondSong = makePlaybackSong(orderPatternIndices: [7], patternRowCounts: [7: 8])
+        var stopNotificationCount = 0
+        engine.playbackDidStop = { stopNotificationCount += 1 }
+
+        engine.load(song: firstSong)
+        engine.play(from: PlaybackStartContext(moduleTitle: "first", songPosition: 0, patternIndex: 2, row: 0))
+        engine.load(song: secondSong)
+
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 7, rowIndex: 0))
+        XCTAssertEqual(stopNotificationCount, 0)
+        XCTAssertEqual(audioOutput.resetCount, 2)
+    }
+
+    @MainActor
+    func testPlaybackEngineToggleStartsThroughPlaybackPath() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        engine.load(song: makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 4]))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.togglePlayPause(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 1))
+
+        XCTAssertEqual(engine.state, PlaybackState(mode: .playing, context: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 1)))
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(positions, [PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)])
     }
 
     func testPlaybackSongStartsAtFirstOrderFirstRow() {

@@ -18,6 +18,22 @@ Rules:
 swift test --filter ModuleCoreTests
 ```
 
+## Manual Playback Stabilization Checklist
+
+Use a local, known-good XM file. Do not commit copyrighted module files.
+
+- Launch the app.
+- Load the XM file.
+- Press Play and confirm audio plays while the tracker follows rows.
+- Press Play again while already playing and confirm playback does not stack, restart unexpectedly, or create doubled audio.
+- Press Stop and confirm tracker progression stops and audio stops immediately.
+- Press Stop again and confirm there is no crash or bad state.
+- Repeat Play/Stop several times and confirm there are no stuck notes, stale timers, or hangs.
+- Load another XM while stopped and confirm playback state resets cleanly.
+- Load another XM while playing and confirm the old playback stops before the new module is shown.
+- Let playback reach the end if practical and confirm it stops predictably.
+- Confirm tracker viewport alignment remains stable.
+
 ## Golden Snapshot Tests
 
 Golden snapshot checks are part of `ModuleCoreTests`.

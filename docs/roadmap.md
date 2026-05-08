@@ -55,8 +55,9 @@ Status: done (includes golden JSON snapshots and deterministic `mc_dump --json` 
 
 Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
-- This is not the final tracker-accurate mixer architecture; XM effects, loops, envelopes, interpolation, and sample-accurate channel mixing remain future work.
+- This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate, and loops, envelopes, interpolation, full effect behavior, and sample-accurate channel mixing remain future work.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
+- See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path

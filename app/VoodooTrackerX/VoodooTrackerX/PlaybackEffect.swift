@@ -16,6 +16,8 @@ enum PlaybackContinuousEffect: Equatable {
 }
 
 struct PlaybackChannelState: Equatable {
+    static let pitchOffsetRange = -48.0...48.0
+
     var volume: Float = 1
     var pitchOffsetSemitones: Double = 0
     var activeEffect: PlaybackContinuousEffect?
@@ -104,10 +106,14 @@ struct PlaybackChannelState: Equatable {
             let delta = Float(up - down) / 64.0
             volume = min(1, max(0, volume + delta))
         case let .portamentoUp(amount):
-            pitchOffsetSemitones += PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount)
+            pitchOffsetSemitones = Self.clampedPitchOffset(pitchOffsetSemitones + PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount))
         case let .portamentoDown(amount):
-            pitchOffsetSemitones -= PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount)
+            pitchOffsetSemitones = Self.clampedPitchOffset(pitchOffsetSemitones - PlaybackEffectHandler.pitchSlideSemitonesPerTick(amount: amount))
         }
+    }
+
+    private static func clampedPitchOffset(_ value: Double) -> Double {
+        min(pitchOffsetRange.upperBound, max(pitchOffsetRange.lowerBound, value))
     }
 }
 

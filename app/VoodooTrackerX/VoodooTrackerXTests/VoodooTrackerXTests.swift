@@ -607,10 +607,14 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(PlaybackEffectHandler.volumeSlide(effectParam: 0x40, memory: nil), .volumeSlide(up: 4, down: 0))
         XCTAssertEqual(PlaybackEffectHandler.volumeSlide(effectParam: 0x05, memory: nil), .volumeSlide(up: 0, down: 5))
+        XCTAssertEqual(PlaybackEffectHandler.volumeSlide(effectParam: 0x45, memory: nil), .volumeSlide(up: 4, down: 0))
         XCTAssertEqual(PlaybackEffectHandler.volumeSlide(effectParam: 0x00, memory: 0x05), .volumeSlide(up: 0, down: 5))
+        XCTAssertNil(PlaybackEffectHandler.volumeSlide(effectParam: 0x00, memory: nil))
 
         XCTAssertEqual(PlaybackEffectHandler.portamentoUp(effectParam: 0x08, memory: nil), .portamentoUp(amount: 8))
         XCTAssertEqual(PlaybackEffectHandler.portamentoDown(effectParam: 0x00, memory: 0x09), .portamentoDown(amount: 9))
+        XCTAssertNil(PlaybackEffectHandler.portamentoUp(effectParam: 0x00, memory: nil))
+        XCTAssertNil(PlaybackEffectHandler.portamentoDown(effectParam: 0x00, memory: nil))
     }
 
     func testPlaybackChannelStateAppliesContinuousEffectsAcrossTicks() {
@@ -635,6 +639,22 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(portamentoState.apply(effectType: 0x02, effectParam: 0x10))
         portamentoState.advanceContinuousEffect(tickInRow: 2)
         XCTAssertEqual(portamentoState.pitchOffsetSemitones, -0.125, accuracy: 0.0001)
+    }
+
+    func testPlaybackChannelStateClampsRepeatedPortamentoPitchOffset() {
+        var upwardState = PlaybackChannelState()
+        XCTAssertTrue(upwardState.apply(effectType: 0x01, effectParam: 0xFF))
+        for tick in 1...20 {
+            upwardState.advanceContinuousEffect(tickInRow: tick)
+        }
+        XCTAssertEqual(upwardState.pitchOffsetSemitones, PlaybackChannelState.pitchOffsetRange.upperBound)
+
+        var downwardState = PlaybackChannelState()
+        XCTAssertTrue(downwardState.apply(effectType: 0x02, effectParam: 0xFF))
+        for tick in 1...20 {
+            downwardState.advanceContinuousEffect(tickInRow: tick)
+        }
+        XCTAssertEqual(downwardState.pitchOffsetSemitones, PlaybackChannelState.pitchOffsetRange.lowerBound)
     }
 
     @MainActor

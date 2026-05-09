@@ -50,6 +50,23 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Let playback reach the end if practical and confirm it stops predictably.
 - Confirm tracker viewport alignment remains stable.
 
+## Audio Reference Comparison
+
+Use `docs/audio-comparison.md` when comparing VoodooTracker X playback against a
+reference WAV from a local renderer such as `openmpt123` or MikMod.
+
+Example:
+
+```bash
+./scripts/audio-compare.py \
+  --reference /tmp/reference.wav \
+  --candidate /tmp/voodootrackerx.wav \
+  --seconds 30 \
+  --report /tmp/audio-compare.txt
+```
+
+Run its focused regression tests with `python3 -m unittest tools/audio_compare_tests.py`.
+
 ## Golden Snapshot Tests
 
 Golden snapshot checks are part of `ModuleCoreTests`.

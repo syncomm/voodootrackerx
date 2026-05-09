@@ -30,6 +30,10 @@ xcuserdata/
 .swiftpm/
 .package/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Logs / temp
 *.log
 *.profraw

@@ -10,6 +10,10 @@ struct PlaybackTiming: Equatable {
         2.5 / Double(max(1, bpm))
     }
 
+    var rowDuration: TimeInterval {
+        tickDuration * Double(ticksPerRow)
+    }
+
     var ticksPerRow: Int {
         max(1, speed)
     }

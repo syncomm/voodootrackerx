@@ -32,6 +32,7 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(info.channels, 4)
         XCTAssertEqual(info.patterns, 2)
         XCTAssertEqual(info.instruments, 1)
+        XCTAssertEqual(info.xm_flags, 0)
         XCTAssertEqual(info.song_length, 3)
         XCTAssertEqual(info.restart_position, 1)
         XCTAssertEqual(info.default_tempo, 6)
@@ -218,6 +219,7 @@ final class ModuleCoreTests: XCTestCase {
               "channels": \(info.channels),
               "patterns": \(info.patterns),
               "instruments": \(info.instruments),
+              "xm_flags": \(info.xm_flags),
               "song_length": \(info.song_length),
               "restart_position": \(info.restart_position),
               "default_tempo": \(info.default_tempo),
@@ -249,6 +251,7 @@ final class ModuleCoreTests: XCTestCase {
           "channels": \(info.channels),
           "patterns": \(info.patterns),
           "instruments": \(info.instruments),
+          "xm_flags": \(info.xm_flags),
           "song_length": \(info.song_length),
           "restart_position": \(info.restart_position),
           "default_tempo": \(info.default_tempo),

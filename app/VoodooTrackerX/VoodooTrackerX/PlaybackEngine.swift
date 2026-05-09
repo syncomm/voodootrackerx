@@ -36,6 +36,7 @@ final class PlaybackEngine: PlaybackTransport {
         let wasPlaying = state.isPlaying
         stop(notify: false, resetAudio: true)
         self.song = song
+        timing = song?.initialTiming ?? .xmDefault
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
@@ -104,7 +105,7 @@ final class PlaybackEngine: PlaybackTransport {
         rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
-        timing = .xmDefault
+        timing = song?.initialTiming ?? .xmDefault
         traceWriter.flush()
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
@@ -178,6 +179,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func enter(position: PlaybackPosition) {
         positionDidChange?(position)
+        traceRowTiming(at: position, reason: "row_timing_before_effects")
         prepareRowPlaybackState(at: position)
         triggerAudio(at: position)
         applyImmediateTimingEffects()
@@ -555,6 +557,26 @@ final class PlaybackEngine: PlaybackTransport {
         ))
     }
 
+    private func traceRowTiming(at position: PlaybackPosition, reason: String) {
+        guard traceWriter.isEnabled else {
+            return
+        }
+        traceWriter.record(makeTraceEvent(
+            position: position,
+            tickInRow: tickState.tickInRow,
+            channelIndex: -1,
+            cell: nil,
+            noteValue: nil,
+            instrumentIndex: nil,
+            sampleIndex: nil,
+            controls: AudioChannelControls(),
+            sample: nil,
+            sampleOffset: nil,
+            decision: .observed,
+            reason: reason
+        ))
+    }
+
     private func makeTraceEvent(
         position: PlaybackPosition,
         tickInRow: Int,
@@ -574,6 +596,11 @@ final class PlaybackEngine: PlaybackTransport {
             sample: sample,
             pitchOffsetSemitones: controls.pitchOffsetSemitones
         )
+        let pitchCalculation = pitchCalculation(
+            note: noteValue,
+            sample: sample,
+            pitchOffsetSemitones: controls.pitchOffsetSemitones
+        )
         return PlaybackTraceEvent(
             tickIndex: traceTickIndex,
             orderIndex: position.orderIndex,
@@ -581,9 +608,17 @@ final class PlaybackEngine: PlaybackTransport {
             rowIndex: position.rowIndex,
             tickInRow: tickInRow,
             channelIndex: channelIndex,
+            speed: timing.speed,
+            bpm: timing.bpm,
+            tickDuration: timing.tickDuration,
+            rowDuration: timing.rowDuration,
+            usesLinearFrequencyTable: song?.usesLinearFrequencyTable,
             noteValue: noteValue,
             instrumentIndex: instrumentIndex,
             sampleIndex: sampleIndex,
+            relativeNote: sample?.relativeNote,
+            finetune: sample?.finetune,
+            sourceSampleRate: sample?.baseSampleRate,
             effectCommand: effectCommandString(for: cell),
             effectParameter: effectParameterString(for: cell),
             effect: effectString(for: cell),
@@ -591,8 +626,14 @@ final class PlaybackEngine: PlaybackTransport {
             computedPanning: controls.panning,
             computedPitchSemitones: controls.pitchOffsetSemitones,
             computedRate: computedRate,
+            computedFrequency: pitchCalculation?.frequency,
+            computedVarispeedRate: pitchCalculation?.varispeedRate,
             computedPeriodApproximation: computedRate.map { 1.0 / max(0.000001, $0) },
             sampleOffset: sampleOffset,
+            sampleLength: sample?.sampleLength,
+            loopStart: sample?.loopStart,
+            loopLength: sample?.loopLength,
+            loopType: sample?.loopType,
             decision: decision,
             decisionReason: reason
         )
@@ -629,9 +670,25 @@ final class PlaybackEngine: PlaybackTransport {
               let sample else {
             return controlRate
         }
-        let noteOffset = Double(Int(note) + sample.relativeNote - 49)
-        let finetuneOffset = Double(sample.finetune) / (128.0 * 12.0)
-        return max(0.001, (sample.baseSampleRate / 44_100.0) * pow(2.0, (noteOffset / 12.0) + finetuneOffset)) * controlRate
+        return PlaybackPitchCalculator.calculation(
+            note: note,
+            sample: sample,
+            pitchOffsetSemitones: pitchOffsetSemitones,
+            outputSampleRate: 44_100
+        ).playbackRate
+    }
+
+    private func pitchCalculation(note: UInt8?, sample: PlaybackSample?, pitchOffsetSemitones: Double) -> PlaybackPitchCalculation? {
+        guard let note,
+              let sample else {
+            return nil
+        }
+        return PlaybackPitchCalculator.calculation(
+            note: note,
+            sample: sample,
+            pitchOffsetSemitones: pitchOffsetSemitones,
+            outputSampleRate: 44_100
+        )
     }
 
     private func effectCommandString(for cell: PlaybackCell?) -> String {

@@ -44,28 +44,37 @@ filtered with `jq`, diffed, or imported into a spreadsheet.
 Example:
 
 ```json
-{"channelIndex":0,"computedPanning":-0.4980392,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","instrumentIndex":1,"noteValue":49,"orderIndex":0,"patternIndex":2,"rowIndex":0,"sampleIndex":0,"sampleOffset":512,"schemaVersion":1,"tickIndex":0,"tickInRow":0}
+{"bpm":183,"channelIndex":0,"computedFrequency":8363,"computedPanning":-0.4980392,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVarispeedRate":1,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","finetune":0,"instrumentIndex":1,"loopLength":0,"loopStart":0,"loopType":0,"noteValue":49,"orderIndex":0,"patternIndex":2,"relativeNote":0,"rowDuration":0.0273224,"rowIndex":0,"sampleIndex":0,"sampleLength":1024,"sampleOffset":512,"schemaVersion":1,"sourceSampleRate":8363,"speed":2,"tickDuration":0.0136612,"tickIndex":0,"tickInRow":0,"usesLinearFrequencyTable":true}
 ```
 
 Recorded fields include:
 
 - `tickIndex`, `orderIndex`, `patternIndex`, `rowIndex`, `tickInRow`
+- `speed`, `bpm`, `tickDuration`, `rowDuration`
 - `channelIndex`
-- `noteValue`, `instrumentIndex`, `sampleIndex`
+- `usesLinearFrequencyTable`
+- `noteValue`, `instrumentIndex`, `sampleIndex`, `relativeNote`, `finetune`
 - `effectCommand`, `effectParameter`, `effect`
 - `computedVolume`
 - `computedPanning` (current AVAudio pan value in the `-1...1` range when known)
-- `computedPitchSemitones`, `computedRate`, `computedPeriodApproximation`
-- `sampleOffset`
-- `decision`: `triggered`, `delayed`, `cut`, `retriggered`, `ignored`, or `updated`
+- `sourceSampleRate`, `computedPitchSemitones`, `computedFrequency`,
+  `computedVarispeedRate`, `computedRate`, `computedPeriodApproximation`
+- `sampleOffset`, `sampleLength`, `loopStart`, `loopLength`, `loopType`
+- `decision`: `observed`, `triggered`, `delayed`, `cut`, `retriggered`,
+  `ignored`, or `updated`
 - `decisionReason`: short machine-readable context for the decision
+
+The engine emits an `observed` event with
+`decisionReason == "row_timing_before_effects"` before applying row-level timing
+commands. This captures header timing such as `_DARKL.XM`'s `speed=2` and
+`bpm=183` before a row `Fxx` command changes speed or BPM.
 
 ## Inspecting A Trace
 
 Show the first few trigger decisions:
 
 ```bash
-jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, noteValue, instrumentIndex, effect, computedVolume, computedPanning, computedRate, sampleOffset}' \
+jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, computedFrequency, computedRate, sampleOffset, sampleLength, loopStart, loopLength, loopType}' \
   /tmp/darkl-vtx-playback.jsonl | head -80
 ```
 
@@ -85,8 +94,9 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - Trace export is an observability tool only; it does not make playback more
   compatible.
 - The current backend uses `AVAudioPlayerNode` and `AVAudioUnitVarispeed`, so
-  pitch and period fields are approximations of current scheduling decisions,
-  not FastTracker II period math.
+  pitch and period fields are approximations of current scheduling decisions.
+  Linear-frequency modules use note/relative-note/finetune frequency
+  calculations, but the backend is still not a FastTracker II mixer.
 - Panning is first-pass only: XM `0...255` channel state maps to the current
   AVAudio `-1...1` pan control, not a tracker-accurate custom mixer.
 - The trace records current effect handling. Unsupported XM effects are still
@@ -101,8 +111,9 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - Press Play for 10-30 seconds.
 - Press Stop.
 - Confirm the JSONL file exists and contains order, pattern, row, tick,
-  channel, note, instrument, effect, volume, panning, pitch/rate, sample offset,
-  and decision fields.
+  speed, BPM, tick and row duration, channel, note, instrument, effect, volume,
+  panning, pitch/rate/frequency, sample offset, sample loop metadata, and
+  decision fields.
 - Launch without `VTX_PLAYBACK_TRACE_PATH` and confirm normal playback still
   works.
 - Confirm tracker viewport behavior was not modified or regressed.

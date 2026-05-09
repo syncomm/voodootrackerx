@@ -51,6 +51,7 @@ typedef struct {
     uint16_t channels;
     uint16_t patterns;
     uint16_t instruments;
+    uint16_t xm_flags;
     uint16_t song_length;
     uint16_t restart_position;
     uint16_t default_tempo;

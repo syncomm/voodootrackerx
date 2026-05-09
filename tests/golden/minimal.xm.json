@@ -8,6 +8,7 @@
   "channels": 4,
   "patterns": 2,
   "instruments": 1,
+  "xm_flags": 0,
   "song_length": 3,
   "restart_position": 1,
   "default_tempo": 6,

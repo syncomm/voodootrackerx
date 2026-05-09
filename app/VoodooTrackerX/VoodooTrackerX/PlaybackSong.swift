@@ -16,6 +16,36 @@ struct PlaybackSample: Equatable {
     let relativeNote: Int
     let finetune: Int
     let baseSampleRate: Double
+    let sampleLength: Int
+    let loopStart: Int
+    let loopLength: Int
+    let loopType: Int
+
+    init(
+        instrumentIndex: Int,
+        sampleIndex: Int,
+        pcm: [Float],
+        volume: Float,
+        relativeNote: Int,
+        finetune: Int,
+        baseSampleRate: Double,
+        sampleLength: Int? = nil,
+        loopStart: Int = 0,
+        loopLength: Int = 0,
+        loopType: Int = 0
+    ) {
+        self.instrumentIndex = instrumentIndex
+        self.sampleIndex = sampleIndex
+        self.pcm = pcm
+        self.volume = volume
+        self.relativeNote = relativeNote
+        self.finetune = finetune
+        self.baseSampleRate = baseSampleRate
+        self.sampleLength = sampleLength ?? pcm.count
+        self.loopStart = loopStart
+        self.loopLength = loopLength
+        self.loopType = loopType
+    }
 
     var isPlayable: Bool {
         !pcm.isEmpty && volume > 0
@@ -73,6 +103,28 @@ struct PlaybackSong: Equatable {
     let instrumentsByIndex: [Int: PlaybackInstrument]
     let restartOrderIndex: Int
     let endBehavior: PlaybackEndBehavior
+    let initialTiming: PlaybackTiming
+    let usesLinearFrequencyTable: Bool
+
+    init(
+        title: String,
+        orders: [PlaybackOrderEntry],
+        patternsByIndex: [Int: PlaybackPattern],
+        instrumentsByIndex: [Int: PlaybackInstrument],
+        restartOrderIndex: Int,
+        endBehavior: PlaybackEndBehavior,
+        initialTiming: PlaybackTiming = .xmDefault,
+        usesLinearFrequencyTable: Bool = true
+    ) {
+        self.title = title
+        self.orders = orders
+        self.patternsByIndex = patternsByIndex
+        self.instrumentsByIndex = instrumentsByIndex
+        self.restartOrderIndex = restartOrderIndex
+        self.endBehavior = endBehavior
+        self.initialTiming = initialTiming
+        self.usesLinearFrequencyTable = usesLinearFrequencyTable
+    }
 
     var startPosition: PlaybackPosition? {
         position(orderIndex: 0, rowIndex: 0)

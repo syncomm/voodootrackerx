@@ -30,9 +30,16 @@ struct ParsedModuleMetadata: Equatable {
     let channels: Int
     let patterns: Int
     let instruments: Int
+    let xmFlags: Int
+    let defaultTempo: Int
+    let defaultBPM: Int
     let songLength: Int
     let orderTable: [Int]
     var xmPatterns: [XMPatternData]
+
+    var usesLinearFrequencyTable: Bool {
+        type == "XM" && (xmFlags & 0x0001) != 0
+    }
 
     var displayText: String {
         var lines = [
@@ -45,6 +52,10 @@ struct ParsedModuleMetadata: Equatable {
         lines.append("Channels: \(channels)")
         lines.append("Patterns: \(patterns)")
         lines.append("Instruments: \(instruments)")
+        if type == "XM" {
+            lines.append("Initial Speed/BPM: \(defaultTempo)/\(defaultBPM)")
+            lines.append("Frequency Table: \(usesLinearFrequencyTable ? "Linear" : "Amiga")")
+        }
         lines.append("Song Length: \(songLength)")
         return lines.joined(separator: "\n")
     }
@@ -96,6 +107,9 @@ public struct ModuleMetadataLoader {
             channels: Int(info.channels),
             patterns: Int(info.patterns),
             instruments: Int(info.instruments),
+            xmFlags: Int(info.xm_flags),
+            defaultTempo: Int(info.default_tempo),
+            defaultBPM: Int(info.default_bpm),
             songLength: Int(info.song_length),
             orderTable: orderTable,
             xmPatterns: xmPatterns

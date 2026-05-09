@@ -132,6 +132,7 @@ int mc_parse_xm_header_bytes(const uint8_t *data, size_t size, mc_module_info *o
     out_info->channels = read_le_u16(data + 68);
     out_info->patterns = read_le_u16(data + 70);
     out_info->instruments = read_le_u16(data + 72);
+    out_info->xm_flags = read_le_u16(data + 74);
     out_info->default_tempo = read_le_u16(data + 76);
     out_info->default_bpm = read_le_u16(data + 78);
 

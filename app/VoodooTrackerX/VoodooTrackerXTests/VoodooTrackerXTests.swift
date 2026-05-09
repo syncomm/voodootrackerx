@@ -356,7 +356,9 @@ private func makePlaybackSong(
     instrument: UInt8 = 0,
     effectType: UInt8 = 0,
     effectParam: UInt8 = 0,
-    endBehavior: PlaybackEndBehavior = .stopAtEnd
+    endBehavior: PlaybackEndBehavior = .stopAtEnd,
+    initialTiming: PlaybackTiming = .xmDefault,
+    usesLinearFrequencyTable: Bool = true
 ) -> PlaybackSong {
     let patterns = patternRowCounts.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
         let rows = (0..<entry.value).map { rowIndex in
@@ -373,7 +375,9 @@ private func makePlaybackSong(
         patternsByIndex: patterns,
         instrumentsByIndex: instrumentsByIndex,
         restartOrderIndex: 0,
-        endBehavior: endBehavior
+        endBehavior: endBehavior,
+        initialTiming: initialTiming,
+        usesLinearFrequencyTable: usesLinearFrequencyTable
     )
 }
 
@@ -381,7 +385,9 @@ private func makePlaybackSong(
     orderPatternIndices: [Int],
     patternRowsByIndex: [Int: [PlaybackRow]],
     instrumentsByIndex: [Int: PlaybackInstrument] = [:],
-    endBehavior: PlaybackEndBehavior = .stopAtEnd
+    endBehavior: PlaybackEndBehavior = .stopAtEnd,
+    initialTiming: PlaybackTiming = .xmDefault,
+    usesLinearFrequencyTable: Bool = true
 ) -> PlaybackSong {
     let patterns = patternRowsByIndex.reduce(into: [Int: PlaybackPattern]()) { partialResult, entry in
         partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: entry.value)
@@ -392,7 +398,9 @@ private func makePlaybackSong(
         patternsByIndex: patterns,
         instrumentsByIndex: instrumentsByIndex,
         restartOrderIndex: 0,
-        endBehavior: endBehavior
+        endBehavior: endBehavior,
+        initialTiming: initialTiming,
+        usesLinearFrequencyTable: usesLinearFrequencyTable
     )
 }
 
@@ -502,9 +510,17 @@ final class VoodooTrackerXTests: XCTestCase {
             rowIndex: 16,
             tickInRow: 2,
             channelIndex: 0,
+            speed: 2,
+            bpm: 183,
+            tickDuration: 2.5 / 183.0,
+            rowDuration: (2.5 / 183.0) * 2.0,
+            usesLinearFrequencyTable: true,
             noteValue: 49,
             instrumentIndex: 2,
             sampleIndex: 1,
+            relativeNote: -1,
+            finetune: 16,
+            sourceSampleRate: 8_363,
             effectCommand: "09",
             effectParameter: "02",
             effect: "0902",
@@ -512,8 +528,14 @@ final class VoodooTrackerXTests: XCTestCase {
             computedPanning: nil,
             computedPitchSemitones: 0.25,
             computedRate: 1.125,
+            computedFrequency: 49_612.5,
+            computedVarispeedRate: 1.014545,
             computedPeriodApproximation: 0.8888888889,
             sampleOffset: 512,
+            sampleLength: 2048,
+            loopStart: 128,
+            loopLength: 512,
+            loopType: 1,
             decision: .triggered,
             decisionReason: "row_note"
         )
@@ -529,15 +551,27 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["rowIndex"] as? Int, 16)
         XCTAssertEqual(object["tickInRow"] as? Int, 2)
         XCTAssertEqual(object["channelIndex"] as? Int, 0)
+        XCTAssertEqual(object["speed"] as? Int, 2)
+        XCTAssertEqual(object["bpm"] as? Int, 183)
+        XCTAssertEqual(object["usesLinearFrequencyTable"] as? Bool, true)
         XCTAssertEqual(object["noteValue"] as? Int, 49)
         XCTAssertEqual(object["instrumentIndex"] as? Int, 2)
         XCTAssertEqual(object["sampleIndex"] as? Int, 1)
+        XCTAssertEqual(object["relativeNote"] as? Int, -1)
+        XCTAssertEqual(object["finetune"] as? Int, 16)
+        XCTAssertEqual(object["sourceSampleRate"] as? Int, 8_363)
         XCTAssertEqual(object["effectCommand"] as? String, "09")
         XCTAssertEqual(object["effectParameter"] as? String, "02")
         XCTAssertEqual(object["effect"] as? String, "0902")
         XCTAssertEqual(object["computedVolume"] as? Double, 0.5)
         XCTAssertTrue(object["computedPanning"] is NSNull)
+        XCTAssertEqual(object["computedFrequency"] as? Double, 49_612.5)
+        XCTAssertEqual(object["computedVarispeedRate"] as? Double ?? 0, 1.014545, accuracy: 0.000001)
         XCTAssertEqual(object["sampleOffset"] as? Int, 512)
+        XCTAssertEqual(object["sampleLength"] as? Int, 2048)
+        XCTAssertEqual(object["loopStart"] as? Int, 128)
+        XCTAssertEqual(object["loopLength"] as? Int, 512)
+        XCTAssertEqual(object["loopType"] as? Int, 1)
         XCTAssertEqual(object["decision"] as? String, "triggered")
         XCTAssertEqual(object["decisionReason"] as? String, "row_note")
     }
@@ -584,6 +618,12 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        let timingEvent = traceWriter.events.first { $0.decision == .observed && $0.decisionReason == "row_timing_before_effects" }
+        XCTAssertEqual(timingEvent?.speed, 6)
+        XCTAssertEqual(timingEvent?.bpm, 125)
+        XCTAssertEqual(timingEvent?.tickDuration ?? 0, 0.02, accuracy: 0.0001)
+        XCTAssertEqual(timingEvent?.rowDuration ?? 0, 0.12, accuracy: 0.0001)
 
         let event = traceWriter.events.first { $0.decision == .triggered }
         XCTAssertEqual(event?.tickIndex, 0)
@@ -1016,6 +1056,46 @@ final class VoodooTrackerXTests: XCTestCase {
 
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
 
+        XCTAssertEqual(engine.timing, PlaybackTiming(speed: 3, bpm: 125))
+    }
+
+    @MainActor
+    func testPlaybackEngineUsesSongInitialTimingFromXMHeader() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        let song = makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 2], initialTiming: PlaybackTiming(speed: 2, bpm: 183))
+
+        engine.load(song: song)
+
+        XCTAssertEqual(engine.timing, PlaybackTiming(speed: 2, bpm: 183))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(engine.timing, PlaybackTiming(speed: 2, bpm: 183))
+    }
+
+    @MainActor
+    func testPlaybackEngineDistinguishesFxxSpeedAndBPM() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
+                    makePlaybackRow(index: 1, effectType: 0x0F, effectParam: 0x7D),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 183)
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        XCTAssertEqual(engine.timing, PlaybackTiming(speed: 3, bpm: 183))
+
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
         XCTAssertEqual(engine.timing, PlaybackTiming(speed: 3, bpm: 125))
     }
 
@@ -1574,6 +1654,56 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(timing.ticksPerRow, 6)
         XCTAssertEqual(timing.tickDuration, 0.02, accuracy: 0.0001)
+    }
+
+    func testPlaybackTimingComputesXMRowDurationFromSpeedAndBPM() {
+        let timing = PlaybackTiming(speed: 2, bpm: 183)
+
+        XCTAssertEqual(timing.ticksPerRow, 2)
+        XCTAssertEqual(timing.tickDuration, 2.5 / 183.0, accuracy: 0.000001)
+        XCTAssertEqual(timing.rowDuration, (2.5 / 183.0) * 2.0, accuracy: 0.000001)
+    }
+
+    func testLinearPitchCalculationUsesNoteRelativeNoteAndFinetune() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25],
+            volume: 1,
+            relativeNote: 12,
+            finetune: 64,
+            baseSampleRate: 8_363
+        )
+
+        let calculation = PlaybackPitchCalculator.calculation(note: 49, sample: sample, pitchOffsetSemitones: 0, outputSampleRate: 44_100)
+        let expectedFrequency = 8_363.0 * pow(2.0, 12.5 / 12.0)
+
+        XCTAssertEqual(calculation.relativeNote, 12)
+        XCTAssertEqual(calculation.finetune, 64)
+        XCTAssertEqual(calculation.sourceSampleRate, 8_363)
+        XCTAssertEqual(calculation.frequency, expectedFrequency, accuracy: 0.0001)
+        XCTAssertEqual(calculation.playbackRate, expectedFrequency / 44_100.0, accuracy: 0.000001)
+    }
+
+    func testPlaybackSampleKeepsSafeLoopMetadataInSampleFrames() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 100,
+            loopLength: 300,
+            loopType: 1
+        )
+
+        XCTAssertEqual(sample.sampleLength, 1_000)
+        XCTAssertEqual(sample.loopStart, 100)
+        XCTAssertEqual(sample.loopLength, 300)
+        XCTAssertEqual(sample.loopType, 1)
     }
 
     func testPlaybackTickStateAdvancesRowsAfterConfiguredSpeed() {

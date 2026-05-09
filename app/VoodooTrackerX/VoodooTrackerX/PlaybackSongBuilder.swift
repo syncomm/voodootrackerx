@@ -70,7 +70,12 @@ enum PlaybackSongBuilder {
             patternsByIndex: patterns,
             instrumentsByIndex: modulePath.map { loadXMSampleInstruments(fromPath: $0, metadata: metadata) } ?? [:],
             restartOrderIndex: 0,
-            endBehavior: endBehavior
+            endBehavior: endBehavior,
+            initialTiming: PlaybackTiming(
+                speed: metadata.defaultTempo > 0 ? metadata.defaultTempo : PlaybackTiming.xmDefault.speed,
+                bpm: metadata.defaultBPM > 0 ? metadata.defaultBPM : PlaybackTiming.xmDefault.bpm
+            ),
+            usesLinearFrequencyTable: metadata.usesLinearFrequencyTable
         )
     }
 
@@ -155,7 +160,11 @@ enum PlaybackSongBuilder {
                     volume: min(1, Float(header.volume) / 64.0),
                     relativeNote: header.relativeNote,
                     finetune: header.finetune,
-                    baseSampleRate: 8_363
+                    baseSampleRate: 8_363,
+                    sampleLength: pcm.count,
+                    loopStart: header.safeLoopStartInSamples,
+                    loopLength: header.safeLoopLengthInSamples,
+                    loopType: header.loopType
                 )
             }
             instruments[instrumentIndex] = PlaybackInstrument(index: instrumentIndex, samples: samples)
@@ -166,6 +175,8 @@ enum PlaybackSongBuilder {
 
     private struct XMSampleHeader {
         let length: Int
+        let loopStart: Int
+        let loopLength: Int
         let volume: UInt8
         let finetune: Int
         let type: UInt8
@@ -174,11 +185,38 @@ enum PlaybackSongBuilder {
         var is16Bit: Bool {
             (type & 0x10) != 0
         }
+
+        var loopType: Int {
+            Int(type & 0x03)
+        }
+
+        var bytesPerSample: Int {
+            is16Bit ? 2 : 1
+        }
+
+        var lengthInSamples: Int {
+            length / bytesPerSample
+        }
+
+        var safeLoopStartInSamples: Int {
+            min(max(0, loopStart / bytesPerSample), lengthInSamples)
+        }
+
+        var safeLoopLengthInSamples: Int {
+            guard loopType != 0 else {
+                return 0
+            }
+            let start = safeLoopStartInSamples
+            let requestedLength = max(0, loopLength / bytesPerSample)
+            return min(requestedLength, max(0, lengthInSamples - start))
+        }
     }
 
     private static func readSampleHeader(_ data: Data, offset: Int) -> XMSampleHeader {
         XMSampleHeader(
             length: Int(readLE32(data, offset: offset)),
+            loopStart: Int(readLE32(data, offset: offset + 4)),
+            loopLength: Int(readLE32(data, offset: offset + 8)),
             volume: data[offset + 12],
             finetune: Int(Int8(bitPattern: data[offset + 13])),
             type: data[offset + 14],

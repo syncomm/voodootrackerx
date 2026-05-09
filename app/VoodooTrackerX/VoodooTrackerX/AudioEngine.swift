@@ -127,9 +127,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
               request.note <= 96 else {
             return nil
         }
-        let noteOffset = Double(Int(request.note) + request.sample.relativeNote - 49)
-        let finetuneOffset = Double(request.sample.finetune) / (128.0 * 12.0)
-        let pitchRatio = pow(2.0, (noteOffset / 12.0) + finetuneOffset)
+        let pitchRatio = PlaybackPitchCalculator.notePitchRatio(note: request.note, sample: request.sample)
         let increment = max(0.001, (request.sample.baseSampleRate / format.sampleRate) * pitchRatio)
         let startOffset = min(max(0, request.sampleStartOffset), request.sample.pcm.count)
         guard startOffset < request.sample.pcm.count else {

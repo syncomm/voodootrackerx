@@ -67,6 +67,7 @@ static void print_json(const mc_module_info *info, int include_patterns, int has
     printf("  \"channels\": %u,\n", info->channels);
     printf("  \"patterns\": %u,\n", info->patterns);
     printf("  \"instruments\": %u,\n", info->instruments);
+    printf("  \"xm_flags\": %u,\n", info->xm_flags);
     printf("  \"song_length\": %u,\n", info->song_length);
     printf("  \"restart_position\": %u,\n", info->restart_position);
     printf("  \"default_tempo\": %u,\n", info->default_tempo);
@@ -205,6 +206,7 @@ int main(int argc, char **argv) {
     printf("channels: %u\n", info.channels);
     printf("patterns: %u\n", info.patterns);
     printf("instruments: %u\n", info.instruments);
+    printf("xm_flags: %u\n", info.xm_flags);
     printf("song_length: %u\n", info.song_length);
     printf("restart_position: %u\n", info.restart_position);
     if (info.type == MC_MODULE_TYPE_XM) {

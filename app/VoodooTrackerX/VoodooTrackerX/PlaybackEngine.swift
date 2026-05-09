@@ -5,6 +5,7 @@ import os
 final class PlaybackEngine: PlaybackTransport {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
     private let audioEngine: PlaybackAudioOutput
+    private let traceWriter: PlaybackTraceWriting
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -18,12 +19,17 @@ final class PlaybackEngine: PlaybackTransport {
     private var rowDelayDurationsRemaining = 0
     private var lastVoiceRequests = [Int: AudioVoiceRequest]()
     private var delayedVoiceRequests = [Int: AudioVoiceRequest]()
+    private var traceTickIndex: UInt64 = 0
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
 
-    init(audioEngine: PlaybackAudioOutput = PlaybackAudioEngine()) {
+    init(
+        audioEngine: PlaybackAudioOutput = PlaybackAudioEngine(),
+        traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter()
+    ) {
         self.audioEngine = audioEngine
+        self.traceWriter = traceWriter
     }
 
     func load(song: PlaybackSong?) {
@@ -37,6 +43,7 @@ final class PlaybackEngine: PlaybackTransport {
         rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
+        traceTickIndex = 0
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -64,6 +71,7 @@ final class PlaybackEngine: PlaybackTransport {
         rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
+        traceTickIndex = 0
         if let currentPosition {
             enter(position: currentPosition)
         }
@@ -97,6 +105,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         timing = .xmDefault
+        traceWriter.flush()
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
@@ -144,8 +153,9 @@ final class PlaybackEngine: PlaybackTransport {
               let position = currentPosition else {
             return
         }
+        traceTickIndex += 1
         guard tickState.advance(timing: timing) else {
-            applyTickEffects(tickInRow: tickState.tickInRow)
+            applyTickEffects(tickInRow: tickState.tickInRow, position: position)
             return
         }
         guard rowDelayDurationsRemaining <= 0 else {
@@ -244,7 +254,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
     }
 
-    private func applyTickEffects(tickInRow: Int) {
+    private func applyTickEffects(tickInRow: Int, position: PlaybackPosition) {
         let oldGlobalVolume = globalState.volume
         globalState.advanceContinuousEffects()
         for channelIndex in channelStates.keys.sorted() {
@@ -256,7 +266,15 @@ final class PlaybackEngine: PlaybackTransport {
             }
             channelStates[channelIndex] = channelState
             audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
-            applyTimingEffects(channelIndex: channelIndex, channelState: channelState, tickInRow: tickInRow)
+            traceChannelEvent(
+                at: position,
+                tickInRow: tickInRow,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .updated,
+                reason: "tick_controls_updated"
+            )
+            applyTimingEffects(channelIndex: channelIndex, channelState: channelState, tickInRow: tickInRow, position: position)
         }
         if oldGlobalVolume != globalState.volume, channelStates.isEmpty {
             logger.debug("Applied global volume slide without active channels")
@@ -270,15 +288,40 @@ final class PlaybackEngine: PlaybackTransport {
                 continue
             }
             audioEngine.stop(channel: channelIndex)
+            traceChannelEvent(
+                at: currentPosition,
+                tickInRow: 0,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .cut,
+                reason: "note_cut_tick_0"
+            )
         }
     }
 
-    private func applyTimingEffects(channelIndex: Int, channelState: PlaybackChannelState, tickInRow: Int) {
+    private func applyTimingEffects(channelIndex: Int, channelState: PlaybackChannelState, tickInRow: Int, position: PlaybackPosition) {
         if channelState.noteCutTick == tickInRow {
             audioEngine.stop(channel: channelIndex)
+            traceChannelEvent(
+                at: position,
+                tickInRow: tickInRow,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .cut,
+                reason: "note_cut"
+            )
         }
         if let delayedRequest = delayedVoiceRequests[channelIndex],
            channelState.noteDelayTick == tickInRow {
+            traceRequest(
+                delayedRequest,
+                at: position,
+                tickInRow: tickInRow,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .triggered,
+                reason: "delayed_note_triggered"
+            )
             trigger(delayedRequest, channelIndex: channelIndex)
             delayedVoiceRequests[channelIndex] = nil
         }
@@ -286,6 +329,15 @@ final class PlaybackEngine: PlaybackTransport {
            interval > 0,
            tickInRow.isMultiple(of: interval),
            let request = lastVoiceRequests[channelIndex] {
+            traceRequest(
+                request,
+                at: position,
+                tickInRow: tickInRow,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .retriggered,
+                reason: "retrigger_interval"
+            )
             trigger(request, channelIndex: channelIndex)
         }
     }
@@ -303,12 +355,40 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         for (channelIndex, cell) in row.cells.enumerated() {
-            guard cell.note > 0,
-                  cell.note <= 96,
-                  let sample = song.sample(forInstrument: Int(cell.instrument)) else {
+            let channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            guard cell.note > 0 else {
+                traceChannelEvent(
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    decision: .ignored,
+                    reason: "no_note"
+                )
                 continue
             }
-            let channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            guard cell.note <= 96 else {
+                traceChannelEvent(
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    decision: .ignored,
+                    reason: "invalid_note"
+                )
+                continue
+            }
+            guard let sample = song.sample(forInstrument: Int(cell.instrument)) else {
+                traceChannelEvent(
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    decision: .ignored,
+                    reason: "missing_sample"
+                )
+                continue
+            }
             let controls = effectiveControls(for: channelState)
             let request = AudioVoiceRequest(
                 sample: sample,
@@ -322,12 +402,49 @@ final class PlaybackEngine: PlaybackTransport {
                delayTick > 0 {
                 if delayTick < timing.ticksPerRow {
                     delayedVoiceRequests[channelIndex] = request
+                    traceRequest(
+                        request,
+                        at: position,
+                        tickInRow: 0,
+                        channelIndex: channelIndex,
+                        channelState: channelState,
+                        decision: .delayed,
+                        reason: "note_delay"
+                    )
+                } else {
+                    traceRequest(
+                        request,
+                        at: position,
+                        tickInRow: 0,
+                        channelIndex: channelIndex,
+                        channelState: channelState,
+                        decision: .ignored,
+                        reason: "note_delay_exceeds_row_speed"
+                    )
                 }
                 continue
             }
             guard channelState.suppressesNoteTrigger != true else {
+                traceRequest(
+                    request,
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    decision: .ignored,
+                    reason: "note_trigger_suppressed"
+                )
                 continue
             }
+            traceRequest(
+                request,
+                at: position,
+                tickInRow: 0,
+                channelIndex: channelIndex,
+                channelState: channelState,
+                decision: .triggered,
+                reason: "row_note"
+            )
             trigger(request, channelIndex: channelIndex)
         }
     }
@@ -364,6 +481,167 @@ final class PlaybackEngine: PlaybackTransport {
             return song.position(orderIndex: order.orderIndex, rowIndex: context.row)
         }
         return song.startPosition
+    }
+
+    private func traceChannelEvent(
+        at position: PlaybackPosition?,
+        tickInRow: Int,
+        channelIndex: Int,
+        channelState: PlaybackChannelState,
+        decision: PlaybackTraceDecision,
+        reason: String
+    ) {
+        guard traceWriter.isEnabled,
+              let position else {
+            return
+        }
+        let cell = cell(at: position, channelIndex: channelIndex)
+        let request = lastVoiceRequests[channelIndex] ?? delayedVoiceRequests[channelIndex]
+        let controls = effectiveControls(for: channelState)
+        let noteValue = traceNoteValue(cell: cell, channelState: channelState, request: request)
+        traceWriter.record(makeTraceEvent(
+            position: position,
+            tickInRow: tickInRow,
+            channelIndex: channelIndex,
+            cell: cell,
+            noteValue: noteValue,
+            instrumentIndex: traceInstrumentIndex(cell: cell, request: request),
+            sampleIndex: request?.sample.sampleIndex,
+            controls: controls,
+            sample: request?.sample,
+            sampleOffset: channelState.sampleStartOffset,
+            decision: decision,
+            reason: reason
+        ))
+    }
+
+    private func traceRequest(
+        _ request: AudioVoiceRequest,
+        at position: PlaybackPosition,
+        tickInRow: Int,
+        channelIndex: Int,
+        channelState: PlaybackChannelState,
+        decision: PlaybackTraceDecision,
+        reason: String
+    ) {
+        guard traceWriter.isEnabled else {
+            return
+        }
+        let cell = cell(at: position, channelIndex: channelIndex)
+        traceWriter.record(makeTraceEvent(
+            position: position,
+            tickInRow: tickInRow,
+            channelIndex: channelIndex,
+            cell: cell,
+            noteValue: request.note,
+            instrumentIndex: request.sample.instrumentIndex,
+            sampleIndex: request.sample.sampleIndex,
+            controls: AudioChannelControls(
+                volumeScale: request.volumeScale,
+                pitchOffsetSemitones: request.pitchOffsetSemitones
+            ),
+            sample: request.sample,
+            sampleOffset: request.sampleStartOffset,
+            decision: decision,
+            reason: reason
+        ))
+    }
+
+    private func makeTraceEvent(
+        position: PlaybackPosition,
+        tickInRow: Int,
+        channelIndex: Int,
+        cell: PlaybackCell?,
+        noteValue: UInt8?,
+        instrumentIndex: Int?,
+        sampleIndex: Int?,
+        controls: AudioChannelControls,
+        sample: PlaybackSample?,
+        sampleOffset: Int?,
+        decision: PlaybackTraceDecision,
+        reason: String
+    ) -> PlaybackTraceEvent {
+        let computedRate = rateApproximation(
+            note: noteValue,
+            sample: sample,
+            pitchOffsetSemitones: controls.pitchOffsetSemitones
+        )
+        return PlaybackTraceEvent(
+            tickIndex: traceTickIndex,
+            orderIndex: position.orderIndex,
+            patternIndex: position.patternIndex,
+            rowIndex: position.rowIndex,
+            tickInRow: tickInRow,
+            channelIndex: channelIndex,
+            noteValue: noteValue,
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            effectCommand: effectCommandString(for: cell),
+            effectParameter: effectParameterString(for: cell),
+            effect: effectString(for: cell),
+            computedVolume: controls.volumeScale,
+            computedPanning: nil,
+            computedPitchSemitones: controls.pitchOffsetSemitones,
+            computedRate: computedRate,
+            computedPeriodApproximation: computedRate.map { 1.0 / max(0.000001, $0) },
+            sampleOffset: sampleOffset,
+            decision: decision,
+            decisionReason: reason
+        )
+    }
+
+    private func cell(at position: PlaybackPosition, channelIndex: Int) -> PlaybackCell? {
+        guard let row = song?.row(at: position),
+              row.cells.indices.contains(channelIndex) else {
+            return nil
+        }
+        return row.cells[channelIndex]
+    }
+
+    private func traceNoteValue(cell: PlaybackCell?, channelState: PlaybackChannelState, request: AudioVoiceRequest?) -> UInt8? {
+        if let note = cell?.note, note > 0 {
+            return note
+        }
+        if let note = request?.note {
+            return note
+        }
+        return channelState.baseNote
+    }
+
+    private func traceInstrumentIndex(cell: PlaybackCell?, request: AudioVoiceRequest?) -> Int? {
+        if let instrument = cell?.instrument, instrument > 0 {
+            return Int(instrument)
+        }
+        return request?.sample.instrumentIndex
+    }
+
+    private func rateApproximation(note: UInt8?, sample: PlaybackSample?, pitchOffsetSemitones: Double) -> Double? {
+        let controlRate = pow(2.0, pitchOffsetSemitones / 12.0)
+        guard let note,
+              let sample else {
+            return controlRate
+        }
+        let noteOffset = Double(Int(note) + sample.relativeNote - 49)
+        let finetuneOffset = Double(sample.finetune) / (128.0 * 12.0)
+        return max(0.001, (sample.baseSampleRate / 44_100.0) * pow(2.0, (noteOffset / 12.0) + finetuneOffset)) * controlRate
+    }
+
+    private func effectCommandString(for cell: PlaybackCell?) -> String {
+        guard let cell else {
+            return "00"
+        }
+        return String(format: "%02X", cell.effectType)
+    }
+
+    private func effectParameterString(for cell: PlaybackCell?) -> String {
+        guard let cell else {
+            return "00"
+        }
+        return String(format: "%02X", cell.effectParam)
+    }
+
+    private func effectString(for cell: PlaybackCell?) -> String {
+        "\(effectCommandString(for: cell))\(effectParameterString(for: cell))"
     }
 }
 

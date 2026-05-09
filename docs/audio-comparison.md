@@ -67,6 +67,10 @@ This is a developer diagnostic tool, not a conformance test.
 Use the report to identify large differences and guide follow-up debugging
 before adding more playback effects.
 
+For playback decision diagnostics, capture a VoodooTracker X JSONL trace with
+`docs/playback-trace.md` and compare the trace's order, row, tick, channel,
+effect, volume, and pitch/rate decisions against the audio report.
+
 ## Manual Verification
 
 - Render a short reference WAV with `openmpt123` or MikMod.

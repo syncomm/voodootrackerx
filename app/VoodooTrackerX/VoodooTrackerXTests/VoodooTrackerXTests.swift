@@ -477,7 +477,168 @@ private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
     }
 }
 
+@MainActor
+private final class TestPlaybackTraceWriter: PlaybackTraceWriting {
+    private(set) var events = [PlaybackTraceEvent]()
+    private(set) var flushCount = 0
+
+    let isEnabled = true
+
+    func record(_ event: PlaybackTraceEvent) {
+        events.append(event)
+    }
+
+    func flush() {
+        flushCount += 1
+    }
+}
+
 final class VoodooTrackerXTests: XCTestCase {
+    func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
+        let event = PlaybackTraceEvent(
+            tickIndex: 12,
+            orderIndex: 1,
+            patternIndex: 3,
+            rowIndex: 16,
+            tickInRow: 2,
+            channelIndex: 0,
+            noteValue: 49,
+            instrumentIndex: 2,
+            sampleIndex: 1,
+            effectCommand: "09",
+            effectParameter: "02",
+            effect: "0902",
+            computedVolume: 0.5,
+            computedPanning: nil,
+            computedPitchSemitones: 0.25,
+            computedRate: 1.125,
+            computedPeriodApproximation: 0.8888888889,
+            sampleOffset: 512,
+            decision: .triggered,
+            decisionReason: "row_note"
+        )
+
+        let line = try PlaybackTraceJSONLFormatter.line(for: event)
+
+        XCTAssertEqual(line.last, 0x0A)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: line) as? [String: Any])
+        XCTAssertEqual(object["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(object["tickIndex"] as? Int, 12)
+        XCTAssertEqual(object["orderIndex"] as? Int, 1)
+        XCTAssertEqual(object["patternIndex"] as? Int, 3)
+        XCTAssertEqual(object["rowIndex"] as? Int, 16)
+        XCTAssertEqual(object["tickInRow"] as? Int, 2)
+        XCTAssertEqual(object["channelIndex"] as? Int, 0)
+        XCTAssertEqual(object["noteValue"] as? Int, 49)
+        XCTAssertEqual(object["instrumentIndex"] as? Int, 2)
+        XCTAssertEqual(object["sampleIndex"] as? Int, 1)
+        XCTAssertEqual(object["effectCommand"] as? String, "09")
+        XCTAssertEqual(object["effectParameter"] as? String, "02")
+        XCTAssertEqual(object["effect"] as? String, "0902")
+        XCTAssertEqual(object["computedVolume"] as? Double, 0.5)
+        XCTAssertTrue(object["computedPanning"] is NSNull)
+        XCTAssertEqual(object["sampleOffset"] as? Int, 512)
+        XCTAssertEqual(object["decision"] as? String, "triggered")
+        XCTAssertEqual(object["decisionReason"] as? String, "row_note")
+    }
+
+    @MainActor
+    func testPlaybackTraceConfigurationIsOffWithoutDebugPath() {
+        XCTAssertFalse(PlaybackTraceConfiguration.makeWriter(environment: [:]).isEnabled)
+    }
+
+    @MainActor
+    func testPlaybackTraceConfigurationEnablesDebugPath() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-playback-trace-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let writer = PlaybackTraceConfiguration.makeWriter(environment: [
+            PlaybackTraceConfiguration.pathEnvironmentKey: url.path
+        ])
+
+        XCTAssertTrue(writer.isEnabled)
+    }
+
+    @MainActor
+    func testPlaybackEngineRecordsTraceForTriggeredNote() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1024),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x02)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        let event = traceWriter.events.first { $0.decision == .triggered }
+        XCTAssertEqual(event?.tickIndex, 0)
+        XCTAssertEqual(event?.orderIndex, 0)
+        XCTAssertEqual(event?.patternIndex, 2)
+        XCTAssertEqual(event?.rowIndex, 0)
+        XCTAssertEqual(event?.tickInRow, 0)
+        XCTAssertEqual(event?.channelIndex, 0)
+        XCTAssertEqual(event?.noteValue, 49)
+        XCTAssertEqual(event?.instrumentIndex, 1)
+        XCTAssertEqual(event?.sampleIndex, 0)
+        XCTAssertEqual(event?.effectCommand, "09")
+        XCTAssertEqual(event?.effectParameter, "02")
+        XCTAssertEqual(event?.computedVolume, 1)
+        XCTAssertNil(event?.computedPanning)
+        XCTAssertEqual(event?.computedPitchSemitones, 0)
+        XCTAssertEqual(event?.sampleOffset, 512)
+        XCTAssertEqual(event?.decisionReason, "row_note")
+        XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineRecordsTraceForDelayCutAndRetriggerDecisions() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC1),
+                    makePlaybackRow(index: 2, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x92)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 3, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(traceWriter.events.contains { $0.decision == .delayed && $0.decisionReason == "note_delay" })
+        XCTAssertTrue(traceWriter.events.contains { $0.decision == .cut && $0.decisionReason == "note_cut" })
+        XCTAssertTrue(traceWriter.events.contains { $0.decision == .retriggered && $0.decisionReason == "retrigger_interval" })
+    }
+
     func testPlaybackEngineStartsPlayingFromContext() {
         let engine = TestPlaybackEngine()
         let context = TestPlaybackStartContext(moduleTitle: "example", songPosition: 3, patternIndex: 2, row: 16)

@@ -44,7 +44,7 @@ filtered with `jq`, diffed, or imported into a spreadsheet.
 Example:
 
 ```json
-{"bpm":183,"channelIndex":0,"computedFrequency":8363,"computedPanning":-0.4980392,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVarispeedRate":1,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","finetune":0,"instrumentIndex":1,"loopLength":0,"loopStart":0,"loopType":0,"noteValue":49,"orderIndex":0,"patternIndex":2,"relativeNote":0,"rowDuration":0.0273224,"rowIndex":0,"sampleIndex":0,"sampleLength":1024,"sampleOffset":512,"schemaVersion":1,"sourceSampleRate":8363,"speed":2,"tickDuration":0.0136612,"tickIndex":0,"tickInRow":0,"usesLinearFrequencyTable":true}
+{"audioBufferSampleRate":44100,"bpm":183,"channelIndex":0,"computedFrequency":8363,"computedPanning":-0.4980392,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVarispeedRate":1,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","finetune":0,"instrumentIndex":1,"loopEnabled":false,"loopEndFrame":0,"loopLength":0,"loopLengthFrames":0,"loopStart":0,"loopStartFrame":0,"loopType":0,"loopTypeName":"none","noteValue":49,"orderIndex":0,"patternIndex":2,"rateBasis":"targetFrequency/audioBufferSampleRate","relativeNote":0,"rowDuration":0.0273224,"rowIndex":0,"sampleIndex":0,"sampleLength":1024,"sampleOffset":512,"schemaVersion":1,"sourceSampleRate":8363,"speed":2,"targetFrequency":8363,"tickDuration":0.0136612,"tickIndex":0,"tickInRow":0,"usesLinearFrequencyTable":true}
 ```
 
 Recorded fields include:
@@ -57,9 +57,12 @@ Recorded fields include:
 - `effectCommand`, `effectParameter`, `effect`
 - `computedVolume`
 - `computedPanning` (current AVAudio pan value in the `-1...1` range when known)
-- `sourceSampleRate`, `computedPitchSemitones`, `computedFrequency`,
-  `computedVarispeedRate`, `computedRate`, `computedPeriodApproximation`
-- `sampleOffset`, `sampleLength`, `loopStart`, `loopLength`, `loopType`
+- `sourceSampleRate`, `audioBufferSampleRate`, `targetFrequency`,
+  `computedPitchSemitones`, `computedFrequency`, `computedVarispeedRate`,
+  `computedRate`, `rateBasis`, `computedPeriodApproximation`
+- `sampleOffset`, `sampleLength`, `loopStart`, `loopLength`, `loopType`,
+  `loopTypeName`, `loopEnabled`, `loopStartFrame`, `loopEndFrame`,
+  `loopLengthFrames`
 - `decision`: `observed`, `triggered`, `delayed`, `cut`, `retriggered`,
   `ignored`, or `updated`
 - `decisionReason`: short machine-readable context for the decision
@@ -74,7 +77,7 @@ commands. This captures header timing such as `_DARKL.XM`'s `speed=2` and
 Show the first few trigger decisions:
 
 ```bash
-jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, computedFrequency, computedRate, sampleOffset, sampleLength, loopStart, loopLength, loopType}' \
+jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName}' \
   /tmp/darkl-vtx-playback.jsonl | head -80
 ```
 
@@ -97,6 +100,13 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
   pitch and period fields are approximations of current scheduling decisions.
   Linear-frequency modules use note/relative-note/finetune frequency
   calculations, but the backend is still not a FastTracker II mixer.
+- The current backend pre-renders scheduled sample buffers at
+  `audioBufferSampleRate` and traces `computedRate` as
+  `targetFrequency/audioBufferSampleRate`.
+- Forward sample loops are supported by scheduling the pre-loop/first-loop
+  region once and then scheduling the loop region with AVAudio's buffer loop
+  option. Ping-pong loops are detected as `ping_pong_deferred` and remain a
+  future custom-mixer/backend task.
 - Panning is first-pass only: XM `0...255` channel state maps to the current
   AVAudio `-1...1` pan control, not a tracker-accurate custom mixer.
 - The trace records current effect handling. Unsupported XM effects are still
@@ -112,8 +122,8 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - Press Stop.
 - Confirm the JSONL file exists and contains order, pattern, row, tick,
   speed, BPM, tick and row duration, channel, note, instrument, effect, volume,
-  panning, pitch/rate/frequency, sample offset, sample loop metadata, and
-  decision fields.
+  panning, pitch/rate/frequency, rate basis, sample offset, sample loop
+  metadata, loop scheduling fields, and decision fields.
 - Launch without `VTX_PLAYBACK_TRACE_PATH` and confirm normal playback still
   works.
 - Confirm tracker viewport behavior was not modified or regressed.

@@ -601,6 +601,7 @@ final class PlaybackEngine: PlaybackTransport {
             sample: sample,
             pitchOffsetSemitones: controls.pitchOffsetSemitones
         )
+        let loopRegion = sample?.loopRegion
         return PlaybackTraceEvent(
             tickIndex: traceTickIndex,
             orderIndex: position.orderIndex,
@@ -619,13 +620,16 @@ final class PlaybackEngine: PlaybackTransport {
             relativeNote: sample?.relativeNote,
             finetune: sample?.finetune,
             sourceSampleRate: sample?.baseSampleRate,
+            audioBufferSampleRate: pitchCalculation?.audioBufferSampleRate,
             effectCommand: effectCommandString(for: cell),
             effectParameter: effectParameterString(for: cell),
             effect: effectString(for: cell),
             computedVolume: controls.volumeScale,
             computedPanning: controls.panning,
             computedPitchSemitones: controls.pitchOffsetSemitones,
+            targetFrequency: pitchCalculation?.targetFrequency,
             computedRate: computedRate,
+            rateBasis: pitchCalculation?.rateBasis,
             computedFrequency: pitchCalculation?.frequency,
             computedVarispeedRate: pitchCalculation?.varispeedRate,
             computedPeriodApproximation: computedRate.map { 1.0 / max(0.000001, $0) },
@@ -634,6 +638,11 @@ final class PlaybackEngine: PlaybackTransport {
             loopStart: sample?.loopStart,
             loopLength: sample?.loopLength,
             loopType: sample?.loopType,
+            loopTypeName: loopRegion?.loopTypeName,
+            loopEnabled: loopRegion?.isEnabled,
+            loopStartFrame: loopRegion?.startFrame,
+            loopEndFrame: loopRegion?.endFrame,
+            loopLengthFrames: loopRegion?.lengthFrames,
             decision: decision,
             decisionReason: reason
         )
@@ -674,7 +683,7 @@ final class PlaybackEngine: PlaybackTransport {
             note: note,
             sample: sample,
             pitchOffsetSemitones: pitchOffsetSemitones,
-            outputSampleRate: 44_100
+            outputSampleRate: audioEngine.audioBufferSampleRate
         ).playbackRate
     }
 
@@ -687,7 +696,7 @@ final class PlaybackEngine: PlaybackTransport {
             note: note,
             sample: sample,
             pitchOffsetSemitones: pitchOffsetSemitones,
-            outputSampleRate: 44_100
+            outputSampleRate: audioEngine.audioBufferSampleRate
         )
     }
 

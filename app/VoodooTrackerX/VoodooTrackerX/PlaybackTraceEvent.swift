@@ -29,13 +29,16 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let relativeNote: Int?
     let finetune: Int?
     let sourceSampleRate: Double?
+    let audioBufferSampleRate: Double?
     let effectCommand: String
     let effectParameter: String
     let effect: String
     let computedVolume: Float?
     let computedPanning: Float?
     let computedPitchSemitones: Double?
+    let targetFrequency: Double?
     let computedRate: Double?
+    let rateBasis: String?
     let computedFrequency: Double?
     let computedVarispeedRate: Double?
     let computedPeriodApproximation: Double?
@@ -44,6 +47,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let loopStart: Int?
     let loopLength: Int?
     let loopType: Int?
+    let loopTypeName: String?
+    let loopEnabled: Bool?
+    let loopStartFrame: Int?
+    let loopEndFrame: Int?
+    let loopLengthFrames: Int?
     let decision: PlaybackTraceDecision
     let decisionReason: String?
 
@@ -66,13 +74,16 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         relativeNote: Int?,
         finetune: Int?,
         sourceSampleRate: Double?,
+        audioBufferSampleRate: Double?,
         effectCommand: String,
         effectParameter: String,
         effect: String,
         computedVolume: Float?,
         computedPanning: Float?,
         computedPitchSemitones: Double?,
+        targetFrequency: Double?,
         computedRate: Double?,
+        rateBasis: String?,
         computedFrequency: Double?,
         computedVarispeedRate: Double?,
         computedPeriodApproximation: Double?,
@@ -81,6 +92,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         loopStart: Int?,
         loopLength: Int?,
         loopType: Int?,
+        loopTypeName: String?,
+        loopEnabled: Bool?,
+        loopStartFrame: Int?,
+        loopEndFrame: Int?,
+        loopLengthFrames: Int?,
         decision: PlaybackTraceDecision,
         decisionReason: String?
     ) {
@@ -102,13 +118,16 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.relativeNote = relativeNote
         self.finetune = finetune
         self.sourceSampleRate = sourceSampleRate
+        self.audioBufferSampleRate = audioBufferSampleRate
         self.effectCommand = effectCommand
         self.effectParameter = effectParameter
         self.effect = effect
         self.computedVolume = computedVolume
         self.computedPanning = computedPanning
         self.computedPitchSemitones = computedPitchSemitones
+        self.targetFrequency = targetFrequency
         self.computedRate = computedRate
+        self.rateBasis = rateBasis
         self.computedFrequency = computedFrequency
         self.computedVarispeedRate = computedVarispeedRate
         self.computedPeriodApproximation = computedPeriodApproximation
@@ -117,6 +136,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.loopStart = loopStart
         self.loopLength = loopLength
         self.loopType = loopType
+        self.loopTypeName = loopTypeName
+        self.loopEnabled = loopEnabled
+        self.loopStartFrame = loopStartFrame
+        self.loopEndFrame = loopEndFrame
+        self.loopLengthFrames = loopLengthFrames
         self.decision = decision
         self.decisionReason = decisionReason
     }
@@ -140,13 +164,16 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case relativeNote
         case finetune
         case sourceSampleRate
+        case audioBufferSampleRate
         case effectCommand
         case effectParameter
         case effect
         case computedVolume
         case computedPanning
         case computedPitchSemitones
+        case targetFrequency
         case computedRate
+        case rateBasis
         case computedFrequency
         case computedVarispeedRate
         case computedPeriodApproximation
@@ -155,6 +182,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case loopStart
         case loopLength
         case loopType
+        case loopTypeName
+        case loopEnabled
+        case loopStartFrame
+        case loopEndFrame
+        case loopLengthFrames
         case decision
         case decisionReason
     }
@@ -179,13 +211,16 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encodeOptional(relativeNote, forKey: .relativeNote)
         try container.encodeOptional(finetune, forKey: .finetune)
         try container.encodeOptional(sourceSampleRate, forKey: .sourceSampleRate)
+        try container.encodeOptional(audioBufferSampleRate, forKey: .audioBufferSampleRate)
         try container.encode(effectCommand, forKey: .effectCommand)
         try container.encode(effectParameter, forKey: .effectParameter)
         try container.encode(effect, forKey: .effect)
         try container.encodeOptional(computedVolume, forKey: .computedVolume)
         try container.encodeOptional(computedPanning, forKey: .computedPanning)
         try container.encodeOptional(computedPitchSemitones, forKey: .computedPitchSemitones)
+        try container.encodeOptional(targetFrequency, forKey: .targetFrequency)
         try container.encodeOptional(computedRate, forKey: .computedRate)
+        try container.encodeOptional(rateBasis, forKey: .rateBasis)
         try container.encodeOptional(computedFrequency, forKey: .computedFrequency)
         try container.encodeOptional(computedVarispeedRate, forKey: .computedVarispeedRate)
         try container.encodeOptional(computedPeriodApproximation, forKey: .computedPeriodApproximation)
@@ -194,6 +229,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encodeOptional(loopStart, forKey: .loopStart)
         try container.encodeOptional(loopLength, forKey: .loopLength)
         try container.encodeOptional(loopType, forKey: .loopType)
+        try container.encodeOptional(loopTypeName, forKey: .loopTypeName)
+        try container.encodeOptional(loopEnabled, forKey: .loopEnabled)
+        try container.encodeOptional(loopStartFrame, forKey: .loopStartFrame)
+        try container.encodeOptional(loopEndFrame, forKey: .loopEndFrame)
+        try container.encodeOptional(loopLengthFrames, forKey: .loopLengthFrames)
         try container.encode(decision, forKey: .decision)
         try container.encodeOptional(decisionReason, forKey: .decisionReason)
     }

@@ -212,7 +212,7 @@ final class PlaybackEngine: PlaybackTransport {
         globalState.beginRow()
         rowDelayDurationsRemaining = 0
         for (channelIndex, cell) in row.cells.enumerated() {
-            var channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            var channelState = state(forChannel: channelIndex)
             channelState.beginRow()
             if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) {
                 channelState.setTonePortamentoTarget(note: cell.note)
@@ -247,6 +247,8 @@ final class PlaybackEngine: PlaybackTransport {
             pendingPositionCommand = .patternBreak(rowIndex: rowIndex)
         case let .setVolume(volume):
             channelState.volume = volume
+        case let .setPanning(panning):
+            channelState.panning = PlaybackEffectHandler.clampedPanning(panning)
         case let .setGlobalVolume(volume):
             globalState.setVolume(volume)
         case let .patternDelay(rowDurations):
@@ -355,7 +357,7 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         for (channelIndex, cell) in row.cells.enumerated() {
-            let channelState = channelStates[channelIndex] ?? PlaybackChannelState()
+            let channelState = state(forChannel: channelIndex)
             guard cell.note > 0 else {
                 traceChannelEvent(
                     at: position,
@@ -396,6 +398,7 @@ final class PlaybackEngine: PlaybackTransport {
                 channel: channelIndex,
                 volumeScale: controls.volumeScale,
                 pitchOffsetSemitones: controls.pitchOffsetSemitones,
+                panning: controls.panning,
                 sampleStartOffset: channelState.sampleStartOffset
             )
             if let delayTick = channelState.noteDelayTick,
@@ -469,6 +472,10 @@ final class PlaybackEngine: PlaybackTransport {
         return controls
     }
 
+    private func state(forChannel channelIndex: Int) -> PlaybackChannelState {
+        channelStates[channelIndex] ?? PlaybackChannelState.defaultState(forChannel: channelIndex)
+    }
+
     private func playbackStartPosition(from context: PlaybackStartContext?, in song: PlaybackSong) -> PlaybackPosition? {
         guard let context else {
             return song.startPosition
@@ -538,7 +545,8 @@ final class PlaybackEngine: PlaybackTransport {
             sampleIndex: request.sample.sampleIndex,
             controls: AudioChannelControls(
                 volumeScale: request.volumeScale,
-                pitchOffsetSemitones: request.pitchOffsetSemitones
+                pitchOffsetSemitones: request.pitchOffsetSemitones,
+                panning: request.panning
             ),
             sample: request.sample,
             sampleOffset: request.sampleStartOffset,
@@ -580,7 +588,7 @@ final class PlaybackEngine: PlaybackTransport {
             effectParameter: effectParameterString(for: cell),
             effect: effectString(for: cell),
             computedVolume: controls.volumeScale,
-            computedPanning: nil,
+            computedPanning: controls.panning,
             computedPitchSemitones: controls.pitchOffsetSemitones,
             computedRate: computedRate,
             computedPeriodApproximation: computedRate.map { 1.0 / max(0.000001, $0) },

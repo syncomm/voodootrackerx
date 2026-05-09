@@ -598,11 +598,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.effectCommand, "09")
         XCTAssertEqual(event?.effectParameter, "02")
         XCTAssertEqual(event?.computedVolume, 1)
-        XCTAssertNil(event?.computedPanning)
+        XCTAssertEqual(event?.computedPanning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
         XCTAssertEqual(event?.computedPitchSemitones, 0)
         XCTAssertEqual(event?.sampleOffset, 512)
         XCTAssertEqual(event?.decisionReason, "row_note")
         XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
     }
 
     @MainActor
@@ -766,6 +767,16 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x0C, effectParam: 0x7F), .setVolume(1.0))
     }
 
+    func testPlaybackEffectHandlerDecodesPanningWithClamp() {
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x08, effectParam: 0x00), .setPanning(0))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x08, effectParam: 0x80), .setPanning(128))
+        XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x08, effectParam: 0xFF), .setPanning(255))
+        XCTAssertEqual(PlaybackEffectHandler.clampedPanning(-1), 0)
+        XCTAssertEqual(PlaybackEffectHandler.clampedPanning(300), 255)
+        XCTAssertEqual(PlaybackEffectHandler.audioPanning(forXMValue: 0), -1.0, accuracy: 0.0001)
+        XCTAssertEqual(PlaybackEffectHandler.audioPanning(forXMValue: 255), 1.0, accuracy: 0.0001)
+    }
+
     func testPlaybackEffectHandlerDecodesGlobalVolumeAndPatternDelay() {
         XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x10, effectParam: 0x20), .setGlobalVolume(0.5))
         XCTAssertEqual(PlaybackEffectHandler.command(effectType: 0x10, effectParam: 0x40), .setGlobalVolume(1.0))
@@ -841,6 +852,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(PlaybackEffectHandler.globalVolumeSlide(effectParam: 0x00, memory: nil))
     }
 
+    func testPlaybackEffectHandlerDecodesPanningSlideWithMemory() {
+        XCTAssertEqual(PlaybackEffectHandler.panningSlide(effectParam: 0x20, memory: nil), .panningSlide(right: 2, left: 0))
+        XCTAssertEqual(PlaybackEffectHandler.panningSlide(effectParam: 0x05, memory: nil), .panningSlide(right: 0, left: 5))
+        XCTAssertEqual(PlaybackEffectHandler.panningSlide(effectParam: 0x25, memory: nil), .panningSlide(right: 2, left: 0))
+        XCTAssertEqual(PlaybackEffectHandler.panningSlide(effectParam: 0x00, memory: 0x05), .panningSlide(right: 0, left: 5))
+        XCTAssertNil(PlaybackEffectHandler.panningSlide(effectParam: 0x00, memory: nil))
+    }
+
     func testPlaybackChannelStateTreatsZeroedSupportedEffectsWithoutMemoryAsNoOps() {
         var state = PlaybackChannelState()
 
@@ -870,6 +889,24 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(state.apply(effectType: 0x0E, effectParam: 0xD4))
         XCTAssertEqual(state.noteDelayTick, 4)
         XCTAssertTrue(state.suppressesNoteTrigger)
+    }
+
+    func testPlaybackChannelStateAppliesPanningEffectsWithBounds() {
+        var setState = PlaybackChannelState()
+        XCTAssertEqual(setState.panning, 128)
+        setState.panning = PlaybackEffectHandler.clampedPanning(300)
+        XCTAssertEqual(setState.panning, 255)
+        XCTAssertEqual(setState.audioControls.panning, 1.0, accuracy: 0.0001)
+
+        var rightState = PlaybackChannelState(panning: 254)
+        XCTAssertTrue(rightState.apply(effectType: 0x19, effectParam: 0x20))
+        rightState.advanceContinuousEffect(tickInRow: 1)
+        XCTAssertEqual(rightState.panning, 255)
+
+        var leftState = PlaybackChannelState(panning: 1)
+        XCTAssertTrue(leftState.apply(effectType: 0x19, effectParam: 0x02))
+        leftState.advanceContinuousEffect(tickInRow: 1)
+        XCTAssertEqual(leftState.panning, 0)
     }
 
     func testPlaybackChannelStateAppliesContinuousEffectsAcrossTicks() {
@@ -1067,6 +1104,62 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineApplies8xxPanningToTriggeredVoiceAndTrace() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x08, effectParam: 0xFF)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(traceWriter.events.first { $0.decision == .triggered }?.computedPanning ?? 0, 1.0, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackEngineUsesConservativeDefaultChannelPanning() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    PlaybackRow(
+                        index: 0,
+                        cells: [
+                            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                        ]
+                    )
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(
+            audioOutput.triggeredRequests.map(\.panning),
+            [
+                PlaybackEffectHandler.audioPanning(forXMValue: 64),
+                PlaybackEffectHandler.audioPanning(forXMValue: 191),
+                PlaybackEffectHandler.audioPanning(forXMValue: 191),
+                PlaybackEffectHandler.audioPanning(forXMValue: 64)
+            ]
+        )
+    }
+
+    @MainActor
     func testPlaybackEngineAppliesGxxGlobalVolumeToTriggeredVoice() {
         let audioOutput = TestPlaybackAudioOutput()
         let engine = PlaybackEngine(audioEngine: audioOutput)
@@ -1137,6 +1230,34 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.volumeScale - 0.53125) < 0.0001 })
         XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.pitchOffsetSemitones - 0.125) < 0.0001 })
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesPxyPanningSlideAcrossTicks() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x08, effectParam: 0x80),
+                    makePlaybackRow(index: 1, effectType: 0x19, effectParam: 0x20),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(audioOutput.updatedControls.contains {
+            $0.channel == 0 && abs($0.controls.panning - PlaybackEffectHandler.audioPanning(forXMValue: 130)) < 0.0001
+        })
     }
 
     @MainActor

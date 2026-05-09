@@ -6,6 +6,7 @@ enum PlaybackEffectCommand: Equatable {
     case positionJump(orderIndex: Int)
     case patternBreak(rowIndex: Int)
     case setVolume(Float)
+    case setPanning(Int)
     case setGlobalVolume(Float)
     case patternDelay(rowDurations: Int)
 }
@@ -18,6 +19,7 @@ enum PlaybackContinuousEffect: Equatable {
     case tonePortamento(amount: Int)
     case vibrato(speed: Int, depth: Int)
     case tremolo(speed: Int, depth: Int)
+    case panningSlide(right: Int, left: Int)
     case tonePortamentoVolumeSlide(amount: Int, up: Int, down: Int)
     case vibratoVolumeSlide(speed: Int, depth: Int, up: Int, down: Int)
 }
@@ -70,6 +72,7 @@ struct PlaybackChannelState: Equatable {
     static let tremoloOffsetRange: ClosedRange<Float> = -1.0...1.0
 
     var volume: Float = 1
+    var panning: Int = PlaybackEffectHandler.centerPanning
     var tremoloVolumeOffset: Float = 0
     var pitchOffsetSemitones: Double = 0
     var vibratoOffsetSemitones: Double = 0
@@ -88,18 +91,34 @@ struct PlaybackChannelState: Equatable {
     var lastTonePortamentoParam: UInt8?
     var lastVibratoParam: UInt8?
     var lastTremoloParam: UInt8?
+    var lastPanningSlideParam: UInt8?
     var vibratoPhase = 0.0
     var tremoloPhase = 0.0
 
     var audioControls: AudioChannelControls {
         AudioChannelControls(
             volumeScale: Self.clampedVolume(volume + tremoloVolumeOffset),
-            pitchOffsetSemitones: Self.clampedPitchOffset(pitchOffsetSemitones + vibratoOffsetSemitones)
+            pitchOffsetSemitones: Self.clampedPitchOffset(pitchOffsetSemitones + vibratoOffsetSemitones),
+            panning: PlaybackEffectHandler.audioPanning(forXMValue: panning)
         )
     }
 
     var hasActiveNote: Bool {
         baseNote != nil
+    }
+
+    static func defaultPanning(forChannel channelIndex: Int) -> Int {
+        // Conservative tracker spread: L, R, R, L at about half-left/half-right, then repeat.
+        switch channelIndex % 4 {
+        case 0, 3:
+            return 64
+        default:
+            return 191
+        }
+    }
+
+    static func defaultState(forChannel channelIndex: Int) -> PlaybackChannelState {
+        PlaybackChannelState(panning: defaultPanning(forChannel: channelIndex))
     }
 
     mutating func beginRow() {
@@ -219,6 +238,15 @@ struct PlaybackChannelState: Equatable {
                 lastTremoloParam = effectParam
             }
             return true
+        case 0x19:
+            guard let effect = PlaybackEffectHandler.panningSlide(effectParam: effectParam, memory: lastPanningSlideParam) else {
+                return effectParam == 0
+            }
+            activeEffect = effect
+            if effectParam != 0 {
+                lastPanningSlideParam = effectParam
+            }
+            return true
         case 0x09:
             sampleStartOffset = PlaybackEffectHandler.sampleOffset(effectParam: effectParam)
             return true
@@ -286,6 +314,8 @@ struct PlaybackChannelState: Equatable {
             applyVibrato(speed: speed, depth: depth)
         case let .tremolo(speed, depth):
             applyTremolo(speed: speed, depth: depth)
+        case let .panningSlide(right, left):
+            applyPanningSlide(right: right, left: left)
         case let .tonePortamentoVolumeSlide(amount, up, down):
             applyTonePortamento(amount: amount)
             applyVolumeSlide(up: up, down: down)
@@ -327,6 +357,10 @@ struct PlaybackChannelState: Equatable {
         tremoloVolumeOffset = Self.clampedTremoloOffset(offset)
     }
 
+    private mutating func applyPanningSlide(right: Int, left: Int) {
+        panning = PlaybackEffectHandler.clampedPanning(panning + right - left)
+    }
+
     private static func clampedVolume(_ value: Float) -> Float {
         min(1, max(0, value))
     }
@@ -360,6 +394,8 @@ enum PlaybackEffectHandler {
             return .setVolume(Float(min(effectParam, 0x40)) / 64.0)
         case 0x0D:
             return patternBreakCommand(effectParam)
+        case 0x08:
+            return .setPanning(clampedPanning(Int(effectParam)))
         case 0x0E:
             guard case let .patternDelay(rowDurations)? = extendedTimingEffect(effectParam: effectParam) else {
                 return nil
@@ -439,6 +475,29 @@ enum PlaybackEffectHandler {
         let speed = Int((param & 0xF0) >> 4)
         let depth = Int(param & 0x0F)
         return .tremolo(speed: speed, depth: depth)
+    }
+
+    static let centerPanning = 128
+
+    static func clampedPanning(_ value: Int) -> Int {
+        min(255, max(0, value))
+    }
+
+    static func audioPanning(forXMValue value: Int) -> Float {
+        (Float(clampedPanning(value)) / 127.5) - 1.0
+    }
+
+    static func panningSlide(effectParam: UInt8, memory: UInt8?) -> PlaybackContinuousEffect? {
+        let param = effectParam == 0 ? memory : effectParam
+        guard let param, param != 0 else {
+            return nil
+        }
+        let right = Int((param & 0xF0) >> 4)
+        let left = Int(param & 0x0F)
+        if right > 0 {
+            return .panningSlide(right: right, left: 0)
+        }
+        return .panningSlide(right: 0, left: left)
     }
 
     static func globalVolumeSlide(effectParam: UInt8, memory: UInt8?) -> PlaybackGlobalVolumeSlide? {

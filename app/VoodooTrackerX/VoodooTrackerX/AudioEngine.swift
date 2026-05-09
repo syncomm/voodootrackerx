@@ -38,7 +38,14 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return
         }
 
-        apply(AudioChannelControls(volumeScale: request.volumeScale, pitchOffsetSemitones: request.pitchOffsetSemitones), to: voice)
+        apply(
+            AudioChannelControls(
+                volumeScale: request.volumeScale,
+                pitchOffsetSemitones: request.pitchOffsetSemitones,
+                panning: request.panning
+            ),
+            to: voice
+        )
         voice.player.stop()
         voice.player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
         voice.player.play()
@@ -109,6 +116,7 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
 
     private func apply(_ controls: AudioChannelControls, to voice: ChannelVoice) {
         voice.player.volume = min(1, max(0, controls.volumeScale))
+        voice.player.pan = min(1, max(-1, controls.panning))
         let rate = Float(pow(2.0, controls.pitchOffsetSemitones / 12.0))
         voice.varispeed.rate = min(4, max(0.25, rate))
     }

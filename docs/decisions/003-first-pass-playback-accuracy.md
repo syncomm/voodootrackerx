@@ -21,9 +21,11 @@ VoodooTracker X now has audible XM playback, stable Play/Stop lifecycle behavior
 - `5xy` tone portamento plus volume slide
 - `6xy` vibrato plus volume slide
 - `7xy` tremolo
+- `8xx` set panning
 - `9xx` sample offset
 - `Gxx` global volume
 - `Hxy` global volume slide
+- `Pxy` panning slide
 - `E9x` retrigger note
 - `ECx` note cut
 - `EDx` note delay
@@ -60,6 +62,8 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 - Tremolo uses a first-pass sine waveform that modulates the channel volume scale; alternate XM tremolo waveforms and FT2 waveform quirks are not implemented.
 - Global volume is applied as a safe multiplier on top of per-channel volume state.
 - Global volume slide is tick-driven and bounded to the XM `0...64` volume range, but does not emulate every FT2 memory or mixed-nibble edge case.
+- Panning uses XM `0...255` channel state and maps that to the current AVAudio `-1...1` pan control. Channels default to a conservative tracker-style spread of approximately half-left, half-right, half-right, half-left (`64, 191, 191, 64`) repeated by channel.
+- Panning slide is tick-driven with simple effect memory; the high nibble slides right and the low nibble slides left, with mixed nibbles treated conservatively by preferring the high nibble.
 - Sample offset uses a clamped PCM sample-index offset of `xx * 256`, not exact byte-level FT2 sample-address semantics.
 - Retrigger, note cut, and note delay are applied on playback ticks through the existing timer-driven engine, not sample-accurate audio scheduling.
 - Note delay values outside the current row speed are skipped safely instead of being carried into later rows.

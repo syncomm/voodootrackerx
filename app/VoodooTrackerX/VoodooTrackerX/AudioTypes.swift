@@ -3,6 +3,7 @@ import Foundation
 struct AudioChannelControls: Equatable {
     var volumeScale: Float = 1
     var pitchOffsetSemitones: Double = 0
+    var panning: Float = 0
 }
 
 struct AudioVoiceRequest: Equatable {
@@ -11,5 +12,6 @@ struct AudioVoiceRequest: Equatable {
     let channel: Int
     var volumeScale: Float = 1
     var pitchOffsetSemitones: Double = 0
+    var panning: Float = 0
     var sampleStartOffset: Int = 0
 }

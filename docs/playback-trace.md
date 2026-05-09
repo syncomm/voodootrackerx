@@ -44,7 +44,7 @@ filtered with `jq`, diffed, or imported into a spreadsheet.
 Example:
 
 ```json
-{"channelIndex":0,"computedPanning":null,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","instrumentIndex":1,"noteValue":49,"orderIndex":0,"patternIndex":2,"rowIndex":0,"sampleIndex":0,"sampleOffset":512,"schemaVersion":1,"tickIndex":0,"tickInRow":0}
+{"channelIndex":0,"computedPanning":-0.4980392,"computedPeriodApproximation":5.273184,"computedPitchSemitones":0,"computedRate":0.189639,"computedVolume":1,"decision":"triggered","decisionReason":"row_note","effect":"0902","effectCommand":"09","effectParameter":"02","instrumentIndex":1,"noteValue":49,"orderIndex":0,"patternIndex":2,"rowIndex":0,"sampleIndex":0,"sampleOffset":512,"schemaVersion":1,"tickIndex":0,"tickInRow":0}
 ```
 
 Recorded fields include:
@@ -54,7 +54,7 @@ Recorded fields include:
 - `noteValue`, `instrumentIndex`, `sampleIndex`
 - `effectCommand`, `effectParameter`, `effect`
 - `computedVolume`
-- `computedPanning` (`null` until playback has a panning model)
+- `computedPanning` (current AVAudio pan value in the `-1...1` range when known)
 - `computedPitchSemitones`, `computedRate`, `computedPeriodApproximation`
 - `sampleOffset`
 - `decision`: `triggered`, `delayed`, `cut`, `retriggered`, `ignored`, or `updated`
@@ -65,7 +65,7 @@ Recorded fields include:
 Show the first few trigger decisions:
 
 ```bash
-jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, noteValue, instrumentIndex, effect, computedVolume, computedRate, sampleOffset}' \
+jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, noteValue, instrumentIndex, effect, computedVolume, computedPanning, computedRate, sampleOffset}' \
   /tmp/darkl-vtx-playback.jsonl | head -80
 ```
 
@@ -87,8 +87,8 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - The current backend uses `AVAudioPlayerNode` and `AVAudioUnitVarispeed`, so
   pitch and period fields are approximations of current scheduling decisions,
   not FastTracker II period math.
-- `computedPanning` is currently `null`; panning is not modeled by the current
-  first-pass playback path.
+- Panning is first-pass only: XM `0...255` channel state maps to the current
+  AVAudio `-1...1` pan control, not a tracker-accurate custom mixer.
 - The trace records current effect handling. Unsupported XM effects are still
   unsupported.
 - Trace files can grow quickly because row decisions and tick updates are

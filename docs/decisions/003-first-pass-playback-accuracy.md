@@ -69,13 +69,20 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 - Linear-frequency note triggering uses note, sample relative note, and finetune
   to compute a first-pass frequency/rate for the AVAudio backend. Amiga-period
   frequency-table playback remains approximate.
-- Sample length and loop metadata are decoded into PCM sample-frame units for
-  diagnostics, but sample looping is not implemented by the current backend.
+- Scheduled AVAudio buffers are created at the backend audio buffer sample rate
+  (currently 44.1 kHz by default), so traced `computedRate` is based on
+  `targetFrequency/audioBufferSampleRate` rather than using the source sample
+  rate as the denominator.
+- Sample length and loop metadata are decoded into PCM sample-frame units.
+  Forward sample loops are implemented in the current AVAudio backend by
+  scheduling the intro/first-loop region once and then scheduling the loop
+  region with AVAudio's buffer loop option.
+- Ping-pong sample loops are detected and traced as deferred, but are not
+  implemented by the current backend.
 - Sample offset uses a clamped PCM sample-index offset of `xx * 256`, not exact byte-level FT2 sample-address semantics.
 - Retrigger, note cut, and note delay are applied on playback ticks through the existing timer-driven engine, not sample-accurate audio scheduling.
 - Note delay values outside the current row speed are skipped safely instead of being carried into later rows.
 - Pattern delay holds row advancement for additional row durations in the existing playback timer; it is not sample-accurate and does not implement full FT2 delay quirks.
-- Sample looping is not implemented.
 - Instrument envelopes are not implemented.
 - Interpolation is minimal and not tracker-accurate.
 - Effect memory supports only simple safe cases and does not emulate all FT2 edge cases.

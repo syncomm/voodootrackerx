@@ -50,6 +50,15 @@ struct PlaybackSample: Equatable {
     var isPlayable: Bool {
         !pcm.isEmpty && volume > 0
     }
+
+    var loopRegion: PlaybackSampleLoopRegion {
+        PlaybackSampleLoopRegion.clamped(
+            sampleFrameCount: min(sampleLength, pcm.count),
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType
+        )
+    }
 }
 
 struct PlaybackInstrument: Equatable {

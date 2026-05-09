@@ -458,6 +458,7 @@ private final class TestPlaybackEngine {
 
 @MainActor
 private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
+    let audioBufferSampleRate = 44_100.0
     private(set) var triggeredRequests = [AudioVoiceRequest]()
     private(set) var updatedControls = [(channel: Int, controls: AudioChannelControls)]()
     private(set) var stoppedChannels = [Int]()
@@ -521,13 +522,16 @@ final class VoodooTrackerXTests: XCTestCase {
             relativeNote: -1,
             finetune: 16,
             sourceSampleRate: 8_363,
+            audioBufferSampleRate: 44_100,
             effectCommand: "09",
             effectParameter: "02",
             effect: "0902",
             computedVolume: 0.5,
             computedPanning: nil,
             computedPitchSemitones: 0.25,
+            targetFrequency: 49_612.5,
             computedRate: 1.125,
+            rateBasis: PlaybackPitchCalculator.audioBufferSampleRateBasis,
             computedFrequency: 49_612.5,
             computedVarispeedRate: 1.014545,
             computedPeriodApproximation: 0.8888888889,
@@ -536,6 +540,11 @@ final class VoodooTrackerXTests: XCTestCase {
             loopStart: 128,
             loopLength: 512,
             loopType: 1,
+            loopTypeName: "forward",
+            loopEnabled: true,
+            loopStartFrame: 128,
+            loopEndFrame: 640,
+            loopLengthFrames: 512,
             decision: .triggered,
             decisionReason: "row_note"
         )
@@ -560,11 +569,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["relativeNote"] as? Int, -1)
         XCTAssertEqual(object["finetune"] as? Int, 16)
         XCTAssertEqual(object["sourceSampleRate"] as? Int, 8_363)
+        XCTAssertEqual(object["audioBufferSampleRate"] as? Int, 44_100)
         XCTAssertEqual(object["effectCommand"] as? String, "09")
         XCTAssertEqual(object["effectParameter"] as? String, "02")
         XCTAssertEqual(object["effect"] as? String, "0902")
         XCTAssertEqual(object["computedVolume"] as? Double, 0.5)
         XCTAssertTrue(object["computedPanning"] is NSNull)
+        XCTAssertEqual(object["targetFrequency"] as? Double, 49_612.5)
+        XCTAssertEqual(object["rateBasis"] as? String, PlaybackPitchCalculator.audioBufferSampleRateBasis)
         XCTAssertEqual(object["computedFrequency"] as? Double, 49_612.5)
         XCTAssertEqual(object["computedVarispeedRate"] as? Double ?? 0, 1.014545, accuracy: 0.000001)
         XCTAssertEqual(object["sampleOffset"] as? Int, 512)
@@ -572,6 +584,11 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["loopStart"] as? Int, 128)
         XCTAssertEqual(object["loopLength"] as? Int, 512)
         XCTAssertEqual(object["loopType"] as? Int, 1)
+        XCTAssertEqual(object["loopTypeName"] as? String, "forward")
+        XCTAssertEqual(object["loopEnabled"] as? Bool, true)
+        XCTAssertEqual(object["loopStartFrame"] as? Int, 128)
+        XCTAssertEqual(object["loopEndFrame"] as? Int, 640)
+        XCTAssertEqual(object["loopLengthFrames"] as? Int, 512)
         XCTAssertEqual(object["decision"] as? String, "triggered")
         XCTAssertEqual(object["decisionReason"] as? String, "row_note")
     }
@@ -640,6 +657,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.computedVolume, 1)
         XCTAssertEqual(event?.computedPanning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
         XCTAssertEqual(event?.computedPitchSemitones, 0)
+        XCTAssertEqual(event?.sourceSampleRate, 8_363)
+        XCTAssertEqual(event?.audioBufferSampleRate, 44_100)
+        XCTAssertEqual(event?.targetFrequency ?? 0, 8_363, accuracy: 0.0001)
+        XCTAssertEqual(event?.computedRate ?? 0, 8_363.0 / 44_100.0, accuracy: 0.000001)
+        XCTAssertEqual(event?.rateBasis, PlaybackPitchCalculator.audioBufferSampleRateBasis)
+        XCTAssertEqual(event?.loopEnabled, false)
         XCTAssertEqual(event?.sampleOffset, 512)
         XCTAssertEqual(event?.decisionReason, "row_note")
         XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
@@ -1681,8 +1704,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(calculation.relativeNote, 12)
         XCTAssertEqual(calculation.finetune, 64)
         XCTAssertEqual(calculation.sourceSampleRate, 8_363)
+        XCTAssertEqual(calculation.audioBufferSampleRate, 44_100)
+        XCTAssertEqual(calculation.targetFrequency, expectedFrequency, accuracy: 0.0001)
         XCTAssertEqual(calculation.frequency, expectedFrequency, accuracy: 0.0001)
         XCTAssertEqual(calculation.playbackRate, expectedFrequency / 44_100.0, accuracy: 0.000001)
+        XCTAssertEqual(calculation.rateBasis, PlaybackPitchCalculator.audioBufferSampleRateBasis)
+    }
+
+    func testRateCalculationUsesAudioBufferSampleRateBasisFor8363HzSample() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+
+        let base = PlaybackPitchCalculator.calculation(note: 49, sample: sample, pitchOffsetSemitones: 0, outputSampleRate: 44_100)
+        let octave = PlaybackPitchCalculator.calculation(note: 61, sample: sample, pitchOffsetSemitones: 0, outputSampleRate: 44_100)
+
+        XCTAssertEqual(base.targetFrequency, 8_363, accuracy: 0.0001)
+        XCTAssertEqual(base.playbackRate, 8_363.0 / 44_100.0, accuracy: 0.000001)
+        XCTAssertEqual(base.rateBasis, PlaybackPitchCalculator.audioBufferSampleRateBasis)
+        XCTAssertEqual(octave.targetFrequency, 16_726, accuracy: 0.0001)
+        XCTAssertEqual(octave.playbackRate, 16_726.0 / 44_100.0, accuracy: 0.000001)
     }
 
     func testPlaybackSampleKeepsSafeLoopMetadataInSampleFrames() {
@@ -1704,6 +1751,127 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(sample.loopStart, 100)
         XCTAssertEqual(sample.loopLength, 300)
         XCTAssertEqual(sample.loopType, 1)
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: true, startFrame: 100, endFrame: 400, lengthFrames: 300, loopType: 1, loopTypeName: "forward"))
+    }
+
+    func testPlaybackSampleLoopRegionClampsInvalidMetadataSafely() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 900,
+            loopLength: 500,
+            loopType: 1
+        )
+
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: true, startFrame: 900, endFrame: 1_000, lengthFrames: 100, loopType: 1, loopTypeName: "forward"))
+    }
+
+    func testPlaybackSampleLoopRegionDisablesUnsafeInvalidLoops() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 1_500,
+            loopLength: 200,
+            loopType: 1
+        )
+
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: false, startFrame: 1_000, endFrame: 1_000, lengthFrames: 0, loopType: 1, loopTypeName: "forward"))
+    }
+
+    func testPlaybackSampleLoopRegionDefersPingPongLoops() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 100,
+            loopLength: 300,
+            loopType: 2
+        )
+
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: false, startFrame: 100, endFrame: 400, lengthFrames: 300, loopType: 2, loopTypeName: "ping_pong_deferred"))
+    }
+
+    func testAudioSamplePlaybackPlannerSchedulesForwardLoopAfterIntro() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 200,
+            loopLength: 300,
+            loopType: 1
+        )
+
+        let plan = try XCTUnwrap(AudioSamplePlaybackPlanner.plan(for: sample, sampleStartOffset: 64))
+
+        XCTAssertEqual(plan.introRange, 64..<500)
+        XCTAssertEqual(plan.loopRange, 200..<500)
+        XCTAssertTrue(plan.isLooped)
+    }
+
+    func testAudioSamplePlaybackPlannerStartsInsideForwardLoopAndThenLoopsFullRegion() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 200,
+            loopLength: 300,
+            loopType: 1
+        )
+
+        let plan = try XCTUnwrap(AudioSamplePlaybackPlanner.plan(for: sample, sampleStartOffset: 350))
+
+        XCTAssertEqual(plan.introRange, 350..<500)
+        XCTAssertEqual(plan.loopRange, 200..<500)
+        XCTAssertTrue(plan.isLooped)
+    }
+
+    func testAudioSamplePlaybackPlannerFallsBackToOneShotPastLoopEnd() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 200,
+            loopLength: 300,
+            loopType: 1
+        )
+
+        let plan = try XCTUnwrap(AudioSamplePlaybackPlanner.plan(for: sample, sampleStartOffset: 600))
+
+        XCTAssertEqual(plan.introRange, 600..<1_000)
+        XCTAssertNil(plan.loopRange)
+        XCTAssertFalse(plan.isLooped)
     }
 
     func testPlaybackTickStateAdvancesRowsAfterConfiguredSpeed() {

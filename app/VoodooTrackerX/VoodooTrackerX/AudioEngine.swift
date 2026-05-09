@@ -4,6 +4,8 @@ import os
 
 @MainActor
 protocol PlaybackAudioOutput: AnyObject {
+    var audioBufferSampleRate: Double { get }
+
     func trigger(_ request: AudioVoiceRequest)
     func update(channel: Int, controls: AudioChannelControls)
     func stop(channel: Int)
@@ -28,10 +30,17 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
     }
 
+    var audioBufferSampleRate: Double {
+        format.sampleRate
+    }
+
     func trigger(_ request: AudioVoiceRequest) {
-        guard let buffer = makeBuffer(for: request) else {
+        guard let plan = AudioSamplePlaybackPlanner.plan(for: request.sample, sampleStartOffset: request.sampleStartOffset),
+              let introRange = plan.introRange,
+              let introBuffer = makeBuffer(for: request, sampleRange: introRange) else {
             return
         }
+        let loopBuffer = plan.loopRange.flatMap { makeBuffer(for: request, sampleRange: $0) }
         let voice = voice(forChannel: request.channel)
         prepareIfNeeded()
         guard startEngineIfNeeded() else {
@@ -47,7 +56,10 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             to: voice
         )
         voice.player.stop()
-        voice.player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        voice.player.scheduleBuffer(introBuffer, at: nil, options: [], completionHandler: nil)
+        if let loopBuffer {
+            voice.player.scheduleBuffer(loopBuffer, at: nil, options: .loops, completionHandler: nil)
+        }
         voice.player.play()
     }
 
@@ -121,19 +133,18 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
         voice.varispeed.rate = min(4, max(0.25, rate))
     }
 
-    private func makeBuffer(for request: AudioVoiceRequest) -> AVAudioPCMBuffer? {
+    private func makeBuffer(for request: AudioVoiceRequest, sampleRange: Range<Int>) -> AVAudioPCMBuffer? {
         guard request.sample.isPlayable,
               request.note > 0,
-              request.note <= 96 else {
+              request.note <= 96,
+              sampleRange.lowerBound >= 0,
+              sampleRange.upperBound <= request.sample.pcm.count,
+              !sampleRange.isEmpty else {
             return nil
         }
         let pitchRatio = PlaybackPitchCalculator.notePitchRatio(note: request.note, sample: request.sample)
         let increment = max(0.001, (request.sample.baseSampleRate / format.sampleRate) * pitchRatio)
-        let startOffset = min(max(0, request.sampleStartOffset), request.sample.pcm.count)
-        guard startOffset < request.sample.pcm.count else {
-            return nil
-        }
-        let availableSampleCount = request.sample.pcm.count - startOffset
+        let availableSampleCount = sampleRange.count
         let frameCount = max(1, Int(Double(availableSampleCount) / increment))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
             return nil
@@ -143,10 +154,10 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return nil
         }
 
-        var samplePosition = Double(startOffset)
+        var samplePosition = Double(sampleRange.lowerBound)
         let gain = min(0.8, max(0, request.sample.volume))
         for frame in 0..<frameCount {
-            let sampleIndex = min(request.sample.pcm.count - 1, Int(samplePosition))
+            let sampleIndex = min(sampleRange.upperBound - 1, Int(samplePosition))
             output[frame] = request.sample.pcm[sampleIndex] * gain
             samplePosition += increment
         }

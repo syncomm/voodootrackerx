@@ -24,6 +24,14 @@ The focus of the project is:
 
 The **Track Editor** is the core component of the application.
 
+Current implementation state:
+
+- AppKit tracker UI, module open/load, pattern display, keyboard navigation, and stable static-highlight viewport behavior are implemented.
+- First-pass XM playback exists and remains useful for smoke testing, but it is not yet MikMod/OpenMPT accurate.
+- Runtime playback currently remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based through `PlaybackAudioEngine`.
+- ADR 004 introduced the deterministic software mixer transition; the current `SoftwareMixer` is a silence-rendering skeleton only, not the runtime backend.
+- The next mixer step is an offline render harness for bounded PCM/WAV comparison. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
+
 ---
 
 # Core UI Principle
@@ -123,7 +131,9 @@ xcodebuild \
   -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
   -scheme VoodooTrackerX \
   -configuration Debug \
+  -destination 'platform=macOS' \
   -derivedDataPath build \
+  CODE_SIGNING_ALLOWED=NO \
   build
 ```
 

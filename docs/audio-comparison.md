@@ -40,8 +40,11 @@ When direct export is added, use the exported file as the candidate WAV.
 ## Planned Software Mixer Validation
 
 The target software mixer architecture is documented in
-`docs/decisions/004-software-mixer-transition.md`. Once an offline render
-harness exists, prefer that path over manual app capture for mixer validation:
+`docs/decisions/004-software-mixer-transition.md`. The initial software mixer
+skeleton now exists behind the playback/audio boundary, but it renders silence
+only and is not the runtime backend. The next step is an offline render harness.
+Once that harness exists, prefer it over manual app capture for mixer
+validation:
 
 - render the first N seconds of the local test module to a candidate WAV
 - render the same segment with `openmpt123` or MikMod using recorded settings

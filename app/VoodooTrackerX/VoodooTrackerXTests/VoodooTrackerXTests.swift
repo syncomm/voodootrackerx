@@ -545,6 +545,13 @@ final class VoodooTrackerXTests: XCTestCase {
             loopStartFrame: 128,
             loopEndFrame: 640,
             loopLengthFrames: 512,
+            envelopeEnabled: true,
+            envelopeTick: 4,
+            envelopeValue: 0.75,
+            envelopeSustainActive: false,
+            envelopeLoopActive: true,
+            fadeoutValue: 0.875,
+            finalAppliedVolume: 0.4375,
             decision: .triggered,
             decisionReason: "row_note"
         )
@@ -589,8 +596,130 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["loopStartFrame"] as? Int, 128)
         XCTAssertEqual(object["loopEndFrame"] as? Int, 640)
         XCTAssertEqual(object["loopLengthFrames"] as? Int, 512)
+        XCTAssertEqual(object["envelopeEnabled"] as? Bool, true)
+        XCTAssertEqual(object["envelopeTick"] as? Int, 4)
+        XCTAssertEqual(object["envelopeValue"] as? Double, 0.75)
+        XCTAssertEqual(object["envelopeSustainActive"] as? Bool, false)
+        XCTAssertEqual(object["envelopeLoopActive"] as? Bool, true)
+        XCTAssertEqual(object["fadeoutValue"] as? Double, 0.875)
+        XCTAssertEqual(object["finalAppliedVolume"] as? Double, 0.4375)
         XCTAssertEqual(object["decision"] as? String, "triggered")
         XCTAssertEqual(object["decisionReason"] as? String, "row_note")
+    }
+
+    func testPlaybackVolumeEnvelopeInterpolatesBetweenPoints() {
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 10, value: 32),
+                PlaybackEnvelopePoint(tick: 20, value: 0)
+            ],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x01,
+            fadeout: 0
+        )
+
+        XCTAssertEqual(envelope.value(at: 0), 1, accuracy: 0.0001)
+        XCTAssertEqual(envelope.value(at: 5), 0.75, accuracy: 0.0001)
+        XCTAssertEqual(envelope.value(at: 15), 0.25, accuracy: 0.0001)
+        XCTAssertEqual(envelope.value(at: 25), 0, accuracy: 0.0001)
+    }
+
+    func testPlaybackVolumeEnvelopeStateHoldsSustainUntilNoteOff() {
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 2, value: 32),
+                PlaybackEnvelopePoint(tick: 4, value: 0)
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x03,
+            fadeout: 0
+        )
+        var state = PlaybackVolumeEnvelopeState()
+        state.reset(envelope: envelope)
+
+        state.advanceTick()
+        state.advanceTick()
+        state.advanceTick()
+
+        XCTAssertEqual(state.tick, 2)
+        XCTAssertTrue(state.sustainActive)
+        XCTAssertEqual(state.envelopeValue, 0.5, accuracy: 0.0001)
+
+        state.noteOff()
+        state.advanceTick()
+
+        XCTAssertEqual(state.tick, 3)
+        XCTAssertFalse(state.sustainActive)
+        XCTAssertEqual(state.envelopeValue, 0.25, accuracy: 0.0001)
+    }
+
+    func testPlaybackVolumeEnvelopeStateLoopsBetweenLoopPoints() {
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 2, value: 32),
+                PlaybackEnvelopePoint(tick: 4, value: 16)
+            ],
+            sustainPointIndex: nil,
+            loopStartPointIndex: 1,
+            loopEndPointIndex: 2,
+            typeFlags: 0x05,
+            fadeout: 0
+        )
+        var state = PlaybackVolumeEnvelopeState()
+        state.reset(envelope: envelope)
+
+        for _ in 0..<5 {
+            state.advanceTick()
+        }
+
+        XCTAssertEqual(state.tick, 2)
+        XCTAssertTrue(state.loopActive)
+        XCTAssertEqual(state.envelopeValue, 0.5, accuracy: 0.0001)
+    }
+
+    func testPlaybackVolumeEnvelopeFadeoutClampsAfterNoteOff() {
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: false,
+            points: [],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0,
+            fadeout: 65_536
+        )
+        var state = PlaybackVolumeEnvelopeState()
+        state.reset(envelope: envelope)
+
+        state.noteOff()
+        state.advanceTick()
+        state.advanceTick()
+
+        XCTAssertEqual(state.fadeoutValue, 0, accuracy: 0.0001)
+        XCTAssertEqual(state.volumeMultiplier, 0, accuracy: 0.0001)
+        XCTAssertTrue(state.isFullyFadedOut)
+    }
+
+    func testPlaybackVolumeCalculatorCombinesAndClampsFinalVolume() {
+        let nodeVolume = PlaybackVolumeCalculator.combinedNodeVolume(
+            channelVolume: 0.5,
+            globalVolume: 0.5,
+            envelopeValue: 0.5,
+            fadeoutValue: 0.5
+        )
+
+        XCTAssertEqual(nodeVolume, 0.0625, accuracy: 0.0001)
+        XCTAssertEqual(PlaybackVolumeCalculator.finalAppliedVolume(sampleVolume: 0.5, nodeVolumeScale: nodeVolume), 0.03125, accuracy: 0.0001)
+        XCTAssertEqual(PlaybackVolumeCalculator.finalAppliedVolume(sampleVolume: 4, nodeVolumeScale: 4), 1, accuracy: 0.0001)
     }
 
     @MainActor
@@ -664,6 +793,11 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.rateBasis, PlaybackPitchCalculator.audioBufferSampleRateBasis)
         XCTAssertEqual(event?.loopEnabled, false)
         XCTAssertEqual(event?.sampleOffset, 512)
+        XCTAssertEqual(event?.envelopeEnabled, false)
+        XCTAssertEqual(event?.envelopeTick, 0)
+        XCTAssertEqual(event?.envelopeValue, 1)
+        XCTAssertEqual(event?.fadeoutValue, 1)
+        XCTAssertEqual(event?.finalAppliedVolume, 1)
         XCTAssertEqual(event?.decisionReason, "row_note")
         XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
         XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
@@ -1465,6 +1599,85 @@ final class VoodooTrackerXTests: XCTestCase {
         engine.advanceOneTick()
 
         XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.volumeScale - 0.515625) < 0.0001 })
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesVolumeEnvelopeToActiveVoice() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32)
+            ],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x01,
+            fadeout: 0
+        )
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 0.5, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 3, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.volumeScale ?? 0, 1, accuracy: 0.0001)
+        XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.volumeScale - 0.5) < 0.0001 })
+        let updatedEvent = traceWriter.events.first { $0.decision == .updated && $0.envelopeTick == 1 }
+        XCTAssertEqual(updatedEvent?.envelopeEnabled, true)
+        XCTAssertEqual(updatedEvent?.envelopeValue ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(updatedEvent?.finalAppliedVolume ?? 0, 0.25, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesFadeoutAfterKeyOff() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: false,
+            points: [],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0,
+            fadeout: 32_768
+        )
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 97),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 2, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertTrue(traceWriter.events.contains { $0.decisionReason == "key_off" && $0.noteValue == 97 })
+        XCTAssertTrue(audioOutput.updatedControls.contains { $0.channel == 0 && abs($0.controls.volumeScale - 0.5) < 0.0001 })
+        XCTAssertTrue(traceWriter.events.contains { $0.fadeoutValue.map { abs($0 - 0.5) < 0.0001 } ?? false })
     }
 
     @MainActor

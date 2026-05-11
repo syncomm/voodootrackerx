@@ -216,10 +216,13 @@ final class PlaybackEngine: PlaybackTransport {
         for (channelIndex, cell) in row.cells.enumerated() {
             var channelState = state(forChannel: channelIndex)
             channelState.beginRow()
-            if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) {
+            if cell.note == 97 {
+                channelState.noteOff()
+            } else if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) {
                 channelState.setTonePortamentoTarget(note: cell.note)
             } else {
-                channelState.start(note: cell.note)
+                let volumeEnvelope = song.instrument(forInstrument: Int(cell.instrument))?.volumeEnvelope ?? .disabled
+                channelState.start(note: cell.note, volumeEnvelope: volumeEnvelope)
             }
 
             if let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) {
@@ -268,6 +271,7 @@ final class PlaybackEngine: PlaybackTransport {
             if channelState.activeEffect != nil {
                 channelState.advanceContinuousEffect(tickInRow: tickInRow)
             }
+            channelState.advanceEnvelopeTick()
             channelStates[channelIndex] = channelState
             audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
             traceChannelEvent(
@@ -278,6 +282,11 @@ final class PlaybackEngine: PlaybackTransport {
                 decision: .updated,
                 reason: "tick_controls_updated"
             )
+            if channelState.volumeEnvelopeState.isFullyFadedOut {
+                audioEngine.stop(channel: channelIndex)
+                channelStates.removeValue(forKey: channelIndex)
+                continue
+            }
             applyTimingEffects(channelIndex: channelIndex, channelState: channelState, tickInRow: tickInRow, position: position)
         }
         if oldGlobalVolume != globalState.volume, channelStates.isEmpty {
@@ -368,6 +377,17 @@ final class PlaybackEngine: PlaybackTransport {
                     channelState: channelState,
                     decision: .ignored,
                     reason: "no_note"
+                )
+                continue
+            }
+            guard cell.note != 97 else {
+                traceChannelEvent(
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    decision: .updated,
+                    reason: "key_off"
                 )
                 continue
             }
@@ -470,7 +490,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {
         var controls = channelState.audioControls
-        controls.volumeScale = min(1, max(0, controls.volumeScale * globalState.volume))
+        controls.volumeScale = PlaybackVolumeCalculator.clamped(controls.volumeScale * globalState.volume)
         return controls
     }
 
@@ -519,6 +539,7 @@ final class PlaybackEngine: PlaybackTransport {
             controls: controls,
             sample: request?.sample,
             sampleOffset: channelState.sampleStartOffset,
+            channelState: channelState,
             decision: decision,
             reason: reason
         ))
@@ -552,6 +573,7 @@ final class PlaybackEngine: PlaybackTransport {
             ),
             sample: request.sample,
             sampleOffset: request.sampleStartOffset,
+            channelState: channelState,
             decision: decision,
             reason: reason
         ))
@@ -572,6 +594,7 @@ final class PlaybackEngine: PlaybackTransport {
             controls: AudioChannelControls(),
             sample: nil,
             sampleOffset: nil,
+            channelState: nil,
             decision: .observed,
             reason: reason
         ))
@@ -588,6 +611,7 @@ final class PlaybackEngine: PlaybackTransport {
         controls: AudioChannelControls,
         sample: PlaybackSample?,
         sampleOffset: Int?,
+        channelState: PlaybackChannelState?,
         decision: PlaybackTraceDecision,
         reason: String
     ) -> PlaybackTraceEvent {
@@ -643,6 +667,15 @@ final class PlaybackEngine: PlaybackTransport {
             loopStartFrame: loopRegion?.startFrame,
             loopEndFrame: loopRegion?.endFrame,
             loopLengthFrames: loopRegion?.lengthFrames,
+            envelopeEnabled: channelState?.volumeEnvelopeState.envelopeEnabled,
+            envelopeTick: channelState?.volumeEnvelopeState.tick,
+            envelopeValue: channelState?.volumeEnvelopeState.envelopeValue,
+            envelopeSustainActive: channelState?.volumeEnvelopeState.sustainActive,
+            envelopeLoopActive: channelState?.volumeEnvelopeState.loopActive,
+            fadeoutValue: channelState?.volumeEnvelopeState.fadeoutValue,
+            finalAppliedVolume: sample.map {
+                PlaybackVolumeCalculator.finalAppliedVolume(sampleVolume: $0.volume, nodeVolumeScale: controls.volumeScale)
+            },
             decision: decision,
             decisionReason: reason
         )

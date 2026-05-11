@@ -55,8 +55,10 @@ Recorded fields include:
 - `usesLinearFrequencyTable`
 - `noteValue`, `instrumentIndex`, `sampleIndex`, `relativeNote`, `finetune`
 - `effectCommand`, `effectParameter`, `effect`
-- `computedVolume`
+- `computedVolume`, `finalAppliedVolume`
 - `computedPanning` (current AVAudio pan value in the `-1...1` range when known)
+- `envelopeEnabled`, `envelopeTick`, `envelopeValue`,
+  `envelopeSustainActive`, `envelopeLoopActive`, `fadeoutValue`
 - `sourceSampleRate`, `audioBufferSampleRate`, `targetFrequency`,
   `computedPitchSemitones`, `computedFrequency`, `computedVarispeedRate`,
   `computedRate`, `rateBasis`, `computedPeriodApproximation`
@@ -77,7 +79,7 @@ commands. This captures header timing such as `_DARKL.XM`'s `speed=2` and
 Show the first few trigger decisions:
 
 ```bash
-jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName}' \
+jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, computedVolume, envelopeEnabled, envelopeTick, envelopeValue, envelopeSustainActive, envelopeLoopActive, fadeoutValue, finalAppliedVolume, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName}' \
   /tmp/darkl-vtx-playback.jsonl | head -80
 ```
 
@@ -109,6 +111,11 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
   future custom-mixer/backend task.
 - Panning is first-pass only: XM `0...255` channel state maps to the current
   AVAudio `-1...1` pan control, not a tracker-accurate custom mixer.
+- Volume envelopes are first-pass playback state. Envelope points are linearly
+  interpolated per tick, sustain and loop points use deterministic basic
+  handling, and volume fadeout advances after XM key-off (`noteValue == 97`).
+  Exact FastTracker II envelope quirks and sample-accurate timing remain future
+  custom-mixer work.
 - The trace records current effect handling. Unsupported XM effects are still
   unsupported.
 - Trace files can grow quickly because row decisions and tick updates are
@@ -122,8 +129,8 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - Press Stop.
 - Confirm the JSONL file exists and contains order, pattern, row, tick,
   speed, BPM, tick and row duration, channel, note, instrument, effect, volume,
-  panning, pitch/rate/frequency, rate basis, sample offset, sample loop
-  metadata, loop scheduling fields, and decision fields.
+  panning, pitch/rate/frequency, rate basis, envelope/fadeout fields, sample
+  offset, sample loop metadata, loop scheduling fields, and decision fields.
 - Launch without `VTX_PLAYBACK_TRACE_PATH` and confirm normal playback still
   works.
 - Confirm tracker viewport behavior was not modified or regressed.

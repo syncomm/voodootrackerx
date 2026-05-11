@@ -127,6 +127,7 @@ enum PlaybackSongBuilder {
             guard offset + 33 <= data.count else {
                 break
             }
+            let volumeEnvelope = readVolumeEnvelope(data, instrumentOffset: offset, instrumentHeaderSize: instrumentHeaderSize)
             let sampleHeaderSize = max(40, Int(readLE32(data, offset: offset + 29)))
             let sampleHeaderOffset = offset + instrumentHeaderSize
             let sampleDataOffset = sampleHeaderOffset + (sampleHeaderSize * sampleCount)
@@ -167,10 +168,55 @@ enum PlaybackSongBuilder {
                     loopType: header.loopType
                 )
             }
-            instruments[instrumentIndex] = PlaybackInstrument(index: instrumentIndex, samples: samples)
+            instruments[instrumentIndex] = PlaybackInstrument(index: instrumentIndex, samples: samples, volumeEnvelope: volumeEnvelope)
             offset = dataOffset
         }
         return instruments
+    }
+
+    private static func readVolumeEnvelope(
+        _ data: Data,
+        instrumentOffset: Int,
+        instrumentHeaderSize: Int
+    ) -> PlaybackVolumeEnvelope {
+        let envelopePointOffset = instrumentOffset + 129
+        let minimumEnvelopeHeaderSize = 241
+        guard instrumentHeaderSize >= minimumEnvelopeHeaderSize,
+              instrumentOffset + minimumEnvelopeHeaderSize <= data.count,
+              instrumentOffset + instrumentHeaderSize <= data.count else {
+            return .disabled
+        }
+
+        let pointCount = min(12, Int(data[instrumentOffset + 225]))
+        var points = [PlaybackEnvelopePoint]()
+        points.reserveCapacity(pointCount)
+        for pointIndex in 0..<pointCount {
+            let pointOffset = envelopePointOffset + (pointIndex * 4)
+            guard pointOffset + 4 <= instrumentOffset + instrumentHeaderSize,
+                  pointOffset + 4 <= data.count else {
+                break
+            }
+            points.append(PlaybackEnvelopePoint(
+                tick: Int(readLE16(data, offset: pointOffset)),
+                value: Int(readLE16(data, offset: pointOffset + 2))
+            ))
+        }
+
+        let typeFlags = data[instrumentOffset + 233]
+        let sustainIndex = Int(data[instrumentOffset + 227])
+        let loopStartIndex = Int(data[instrumentOffset + 228])
+        let loopEndIndex = Int(data[instrumentOffset + 229])
+        let fadeout = Int(readLE16(data, offset: instrumentOffset + 239))
+
+        return PlaybackVolumeEnvelope(
+            enabled: (typeFlags & 0x01) != 0 && !points.isEmpty,
+            points: points,
+            sustainPointIndex: points.indices.contains(sustainIndex) ? sustainIndex : nil,
+            loopStartPointIndex: points.indices.contains(loopStartIndex) ? loopStartIndex : nil,
+            loopEndPointIndex: points.indices.contains(loopEndIndex) && loopEndIndex >= loopStartIndex ? loopEndIndex : nil,
+            typeFlags: typeFlags,
+            fadeout: max(0, min(65_536, fadeout))
+        )
     }
 
     private struct XMSampleHeader {

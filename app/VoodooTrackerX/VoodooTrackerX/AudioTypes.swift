@@ -16,6 +16,25 @@ struct AudioVoiceRequest: Equatable {
     var sampleStartOffset: Int = 0
 }
 
+enum PlaybackVolumeCalculator {
+    static func clamped(_ value: Float) -> Float {
+        min(1, max(0, value))
+    }
+
+    static func combinedNodeVolume(
+        channelVolume: Float,
+        globalVolume: Float,
+        envelopeValue: Float,
+        fadeoutValue: Float
+    ) -> Float {
+        clamped(channelVolume * globalVolume * envelopeValue * fadeoutValue)
+    }
+
+    static func finalAppliedVolume(sampleVolume: Float, nodeVolumeScale: Float) -> Float {
+        clamped(sampleVolume * nodeVolumeScale)
+    }
+}
+
 struct PlaybackSampleLoopRegion: Equatable {
     let isEnabled: Bool
     let startFrame: Int

@@ -215,15 +215,18 @@ final class PlaybackEngine: PlaybackTransport {
         rowDelayDurationsRemaining = 0
         for (channelIndex, cell) in row.cells.enumerated() {
             var channelState = state(forChannel: channelIndex)
+            let volumeColumnCommand = PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn)
             channelState.beginRow()
             if cell.note == 97 {
                 channelState.noteOff()
-            } else if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) {
+            } else if PlaybackEffectHandler.isTonePortamentoEffect(cell.effectType) || isVolumeColumnTonePortamento(volumeColumnCommand) {
                 channelState.setTonePortamentoTarget(note: cell.note)
             } else {
                 let volumeEnvelope = song.instrument(forInstrument: Int(cell.instrument))?.volumeEnvelope ?? .disabled
                 channelState.start(note: cell.note, volumeEnvelope: volumeEnvelope)
             }
+
+            _ = channelState.apply(volumeColumnCommand: volumeColumnCommand)
 
             if let command = PlaybackEffectHandler.command(effectType: cell.effectType, effectParam: cell.effectParam) {
                 apply(command, channelIndex: channelIndex, channelState: &channelState)
@@ -238,6 +241,13 @@ final class PlaybackEngine: PlaybackTransport {
             channelStates[channelIndex] = channelState
         }
         updateActiveChannelControls()
+    }
+
+    private func isVolumeColumnTonePortamento(_ command: PlaybackVolumeColumnCommand) -> Bool {
+        if case .tonePortamento = command {
+            return true
+        }
+        return false
     }
 
     private func apply(_ command: PlaybackEffectCommand, channelIndex: Int, channelState: inout PlaybackChannelState) {
@@ -645,6 +655,11 @@ final class PlaybackEngine: PlaybackTransport {
             finetune: sample?.finetune,
             sourceSampleRate: sample?.baseSampleRate,
             audioBufferSampleRate: pitchCalculation?.audioBufferSampleRate,
+            rawVolumeColumn: rawVolumeColumnString(for: cell),
+            decodedVolumeColumnCommand: decodedVolumeColumnCommandString(for: cell),
+            volumeColumnApplied: volumeColumnApplied(for: cell),
+            volumeColumnVolume: volumeColumnVolume(for: cell),
+            volumeColumnPanning: volumeColumnPanning(for: cell),
             effectCommand: effectCommandString(for: cell),
             effectParameter: effectParameterString(for: cell),
             effect: effectString(for: cell),
@@ -749,6 +764,54 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func effectString(for cell: PlaybackCell?) -> String {
         "\(effectCommandString(for: cell))\(effectParameterString(for: cell))"
+    }
+
+    private func rawVolumeColumnString(for cell: PlaybackCell?) -> String? {
+        guard let cell else {
+            return nil
+        }
+        return String(format: "%02X", cell.volumeColumn)
+    }
+
+    private func decodedVolumeColumnCommandString(for cell: PlaybackCell?) -> String? {
+        guard let cell else {
+            return nil
+        }
+        return PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn).traceName
+    }
+
+    private func volumeColumnApplied(for cell: PlaybackCell?) -> Bool? {
+        guard let cell else {
+            return nil
+        }
+        switch PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn) {
+        case .none, .setVibratoSpeed, .vibrato:
+            return false
+        case let .volumeSlideDown(amount),
+             let .volumeSlideUp(amount),
+             let .fineVolumeSlideDown(amount),
+             let .fineVolumeSlideUp(amount),
+             let .panningSlideLeft(amount),
+             let .panningSlideRight(amount),
+             let .tonePortamento(amount):
+            return amount > 0
+        case .setVolume, .setPanning:
+            return true
+        }
+    }
+
+    private func volumeColumnVolume(for cell: PlaybackCell?) -> Int? {
+        guard let cell else {
+            return nil
+        }
+        return PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn).volumeValue
+    }
+
+    private func volumeColumnPanning(for cell: PlaybackCell?) -> Int? {
+        guard let cell else {
+            return nil
+        }
+        return PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn).panningValue
     }
 }
 

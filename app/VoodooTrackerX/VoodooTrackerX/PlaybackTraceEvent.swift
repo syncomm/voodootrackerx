@@ -30,6 +30,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let finetune: Int?
     let sourceSampleRate: Double?
     let audioBufferSampleRate: Double?
+    let rawVolumeColumn: String?
+    let decodedVolumeColumnCommand: String?
+    let volumeColumnApplied: Bool?
+    let volumeColumnVolume: Int?
+    let volumeColumnPanning: Int?
     let effectCommand: String
     let effectParameter: String
     let effect: String
@@ -82,6 +87,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         finetune: Int?,
         sourceSampleRate: Double?,
         audioBufferSampleRate: Double?,
+        rawVolumeColumn: String? = nil,
+        decodedVolumeColumnCommand: String? = nil,
+        volumeColumnApplied: Bool? = nil,
+        volumeColumnVolume: Int? = nil,
+        volumeColumnPanning: Int? = nil,
         effectCommand: String,
         effectParameter: String,
         effect: String,
@@ -133,6 +143,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.finetune = finetune
         self.sourceSampleRate = sourceSampleRate
         self.audioBufferSampleRate = audioBufferSampleRate
+        self.rawVolumeColumn = rawVolumeColumn
+        self.decodedVolumeColumnCommand = decodedVolumeColumnCommand
+        self.volumeColumnApplied = volumeColumnApplied
+        self.volumeColumnVolume = volumeColumnVolume
+        self.volumeColumnPanning = volumeColumnPanning
         self.effectCommand = effectCommand
         self.effectParameter = effectParameter
         self.effect = effect
@@ -186,6 +201,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case finetune
         case sourceSampleRate
         case audioBufferSampleRate
+        case rawVolumeColumn
+        case decodedVolumeColumnCommand
+        case volumeColumnApplied
+        case volumeColumnVolume
+        case volumeColumnPanning
         case effectCommand
         case effectParameter
         case effect
@@ -240,6 +260,11 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encodeOptional(finetune, forKey: .finetune)
         try container.encodeOptional(sourceSampleRate, forKey: .sourceSampleRate)
         try container.encodeOptional(audioBufferSampleRate, forKey: .audioBufferSampleRate)
+        try container.encodeOptional(rawVolumeColumn, forKey: .rawVolumeColumn)
+        try container.encodeOptional(decodedVolumeColumnCommand, forKey: .decodedVolumeColumnCommand)
+        try container.encodeOptional(volumeColumnApplied, forKey: .volumeColumnApplied)
+        try container.encodeOptional(volumeColumnVolume, forKey: .volumeColumnVolume)
+        try container.encodeOptional(volumeColumnPanning, forKey: .volumeColumnPanning)
         try container.encode(effectCommand, forKey: .effectCommand)
         try container.encode(effectParameter, forKey: .effectParameter)
         try container.encode(effect, forKey: .effect)

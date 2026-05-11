@@ -66,6 +66,96 @@ struct PlaybackGlobalVolumeSlide: Equatable {
     let down: Int
 }
 
+struct PlaybackVolumeEnvelopeState: Equatable {
+    private(set) var envelope: PlaybackVolumeEnvelope = .disabled
+    private(set) var tick = 0
+    private(set) var fadeoutValue: Float = 1
+    private(set) var isKeyReleased = false
+
+    var envelopeEnabled: Bool {
+        envelope.enabled && !envelope.points.isEmpty
+    }
+
+    var envelopeValue: Float {
+        envelope.value(at: tick)
+    }
+
+    var sustainActive: Bool {
+        guard envelopeEnabled,
+              envelope.sustainEnabled,
+              !isKeyReleased,
+              let sustainPoint = envelope.sustainPoint else {
+            return false
+        }
+        return tick >= sustainPoint.tick
+    }
+
+    var loopActive: Bool {
+        guard envelopeEnabled,
+              envelope.loopEnabled,
+              let loopStart = envelope.loopStartPoint,
+              let loopEnd = envelope.loopEndPoint else {
+            return false
+        }
+        return tick >= loopStart.tick && tick <= loopEnd.tick
+    }
+
+    var volumeMultiplier: Float {
+        PlaybackVolumeCalculator.clamped(envelopeValue * fadeoutValue)
+    }
+
+    var isFullyFadedOut: Bool {
+        isKeyReleased && fadeoutValue <= 0
+    }
+
+    mutating func reset(envelope: PlaybackVolumeEnvelope) {
+        self.envelope = envelope
+        tick = 0
+        fadeoutValue = 1
+        isKeyReleased = false
+    }
+
+    mutating func noteOff() {
+        isKeyReleased = true
+    }
+
+    mutating func advanceTick() {
+        if envelopeEnabled {
+            advanceEnvelopeTick()
+        }
+        advanceFadeout()
+    }
+
+    private mutating func advanceEnvelopeTick() {
+        if sustainActive,
+           let sustainPoint = envelope.sustainPoint {
+            tick = sustainPoint.tick
+            return
+        }
+
+        tick += 1
+
+        guard envelope.loopEnabled,
+              let loopStart = envelope.loopStartPoint,
+              let loopEnd = envelope.loopEndPoint,
+              loopEnd.tick >= loopStart.tick,
+              tick > loopEnd.tick else {
+            return
+        }
+
+        let loopLength = max(1, loopEnd.tick - loopStart.tick + 1)
+        tick = loopStart.tick + ((tick - loopEnd.tick - 1) % loopLength)
+    }
+
+    private mutating func advanceFadeout() {
+        guard isKeyReleased, envelope.fadeout > 0 else {
+            return
+        }
+        let decrement = Float(envelope.fadeout) / 65_536.0
+        fadeoutValue = PlaybackVolumeCalculator.clamped(fadeoutValue - decrement)
+    }
+}
+
 struct PlaybackChannelState: Equatable {
     static let pitchOffsetRange = -48.0...48.0
     static let vibratoOffsetRange = -12.0...12.0
@@ -74,6 +164,7 @@ struct PlaybackChannelState: Equatable {
     var volume: Float = 1
     var panning: Int = PlaybackEffectHandler.centerPanning
     var tremoloVolumeOffset: Float = 0
+    var volumeEnvelopeState = PlaybackVolumeEnvelopeState()
     var pitchOffsetSemitones: Double = 0
     var vibratoOffsetSemitones: Double = 0
     var activeEffect: PlaybackContinuousEffect?
@@ -97,7 +188,7 @@ struct PlaybackChannelState: Equatable {
 
     var audioControls: AudioChannelControls {
         AudioChannelControls(
-            volumeScale: Self.clampedVolume(volume + tremoloVolumeOffset),
+            volumeScale: Self.clampedVolume(volume + tremoloVolumeOffset) * volumeEnvelopeState.volumeMultiplier,
             pitchOffsetSemitones: Self.clampedPitchOffset(pitchOffsetSemitones + vibratoOffsetSemitones),
             panning: PlaybackEffectHandler.audioPanning(forXMValue: panning)
         )
@@ -143,6 +234,10 @@ struct PlaybackChannelState: Equatable {
     }
 
     mutating func start(note: UInt8) {
+        start(note: note, volumeEnvelope: .disabled)
+    }
+
+    mutating func start(note: UInt8, volumeEnvelope: PlaybackVolumeEnvelope) {
         guard note > 0, note <= 96 else {
             return
         }
@@ -151,6 +246,18 @@ struct PlaybackChannelState: Equatable {
         pitchOffsetSemitones = 0
         vibratoOffsetSemitones = 0
         tremoloVolumeOffset = 0
+        volumeEnvelopeState.reset(envelope: volumeEnvelope)
+    }
+
+    mutating func noteOff() {
+        volumeEnvelopeState.noteOff()
+    }
+
+    mutating func advanceEnvelopeTick() {
+        volumeEnvelopeState.advanceTick()
+        if volumeEnvelopeState.isFullyFadedOut {
+            baseNote = nil
+        }
     }
 
     mutating func setTonePortamentoTarget(note: UInt8) {

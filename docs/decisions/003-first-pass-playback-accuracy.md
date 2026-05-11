@@ -37,7 +37,7 @@ The current audio backend uses `AVAudioEngine`, `AVAudioPlayerNode`, and per-cha
 
 Current playback is first-pass XM-compatible, not FastTracker II period-accurate.
 
-The project will keep the current `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend while stabilizing playback behavior and effect state. Exact FT2 period math, sample-accurate scheduling, loop behavior, envelopes, interpolation, and full effect semantics remain future mixer work.
+The project will keep the current `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend while stabilizing playback behavior and effect state. Exact FT2 period math, sample-accurate scheduling, exact envelope quirks, interpolation, and full effect semantics remain future mixer work.
 
 ## Rationale
 
@@ -83,7 +83,12 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 - Retrigger, note cut, and note delay are applied on playback ticks through the existing timer-driven engine, not sample-accurate audio scheduling.
 - Note delay values outside the current row speed are skipped safely instead of being carried into later rows.
 - Pattern delay holds row advancement for additional row durations in the existing playback timer; it is not sample-accurate and does not implement full FT2 delay quirks.
-- Instrument envelopes are not implemented.
+- XM volume envelopes are first-pass only. Playback reads volume envelope
+  points/type flags/sustain/loop/fadeout from XM instrument headers, advances
+  one envelope tick per playback tick, interpolates linearly between points,
+  holds basic sustain until key-off, wraps basic envelope loops, and applies
+  fadeout after key-off. Panning envelopes and exact FT2 envelope quirks are
+  not implemented.
 - Interpolation is minimal and not tracker-accurate.
 - Effect memory supports only simple safe cases and does not emulate all FT2 edge cases.
 - Tick and sample scheduling are timer-driven and not sample-accurate.

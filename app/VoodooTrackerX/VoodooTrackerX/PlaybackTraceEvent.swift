@@ -52,6 +52,13 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let loopStartFrame: Int?
     let loopEndFrame: Int?
     let loopLengthFrames: Int?
+    let envelopeEnabled: Bool?
+    let envelopeTick: Int?
+    let envelopeValue: Float?
+    let envelopeSustainActive: Bool?
+    let envelopeLoopActive: Bool?
+    let fadeoutValue: Float?
+    let finalAppliedVolume: Float?
     let decision: PlaybackTraceDecision
     let decisionReason: String?
 
@@ -97,6 +104,13 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         loopStartFrame: Int?,
         loopEndFrame: Int?,
         loopLengthFrames: Int?,
+        envelopeEnabled: Bool? = nil,
+        envelopeTick: Int? = nil,
+        envelopeValue: Float? = nil,
+        envelopeSustainActive: Bool? = nil,
+        envelopeLoopActive: Bool? = nil,
+        fadeoutValue: Float? = nil,
+        finalAppliedVolume: Float? = nil,
         decision: PlaybackTraceDecision,
         decisionReason: String?
     ) {
@@ -141,6 +155,13 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.loopStartFrame = loopStartFrame
         self.loopEndFrame = loopEndFrame
         self.loopLengthFrames = loopLengthFrames
+        self.envelopeEnabled = envelopeEnabled
+        self.envelopeTick = envelopeTick
+        self.envelopeValue = envelopeValue
+        self.envelopeSustainActive = envelopeSustainActive
+        self.envelopeLoopActive = envelopeLoopActive
+        self.fadeoutValue = fadeoutValue
+        self.finalAppliedVolume = finalAppliedVolume
         self.decision = decision
         self.decisionReason = decisionReason
     }
@@ -187,6 +208,13 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case loopStartFrame
         case loopEndFrame
         case loopLengthFrames
+        case envelopeEnabled
+        case envelopeTick
+        case envelopeValue
+        case envelopeSustainActive
+        case envelopeLoopActive
+        case fadeoutValue
+        case finalAppliedVolume
         case decision
         case decisionReason
     }
@@ -234,6 +262,13 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encodeOptional(loopStartFrame, forKey: .loopStartFrame)
         try container.encodeOptional(loopEndFrame, forKey: .loopEndFrame)
         try container.encodeOptional(loopLengthFrames, forKey: .loopLengthFrames)
+        try container.encodeOptional(envelopeEnabled, forKey: .envelopeEnabled)
+        try container.encodeOptional(envelopeTick, forKey: .envelopeTick)
+        try container.encodeOptional(envelopeValue, forKey: .envelopeValue)
+        try container.encodeOptional(envelopeSustainActive, forKey: .envelopeSustainActive)
+        try container.encodeOptional(envelopeLoopActive, forKey: .envelopeLoopActive)
+        try container.encodeOptional(fadeoutValue, forKey: .fadeoutValue)
+        try container.encodeOptional(finalAppliedVolume, forKey: .finalAppliedVolume)
         try container.encode(decision, forKey: .decision)
         try container.encodeOptional(decisionReason, forKey: .decisionReason)
     }

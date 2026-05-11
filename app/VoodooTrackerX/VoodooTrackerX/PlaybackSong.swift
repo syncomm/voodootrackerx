@@ -61,9 +61,106 @@ struct PlaybackSample: Equatable {
     }
 }
 
+struct PlaybackEnvelopePoint: Equatable {
+    let tick: Int
+    let value: Int
+
+    init(tick: Int, value: Int) {
+        self.tick = max(0, tick)
+        self.value = min(64, max(0, value))
+    }
+
+    var normalizedValue: Float {
+        Float(value) / 64.0
+    }
+}
+
+struct PlaybackVolumeEnvelope: Equatable {
+    static let disabled = PlaybackVolumeEnvelope(
+        enabled: false,
+        points: [],
+        sustainPointIndex: nil,
+        loopStartPointIndex: nil,
+        loopEndPointIndex: nil,
+        typeFlags: 0,
+        fadeout: 0
+    )
+
+    let enabled: Bool
+    let points: [PlaybackEnvelopePoint]
+    let sustainPointIndex: Int?
+    let loopStartPointIndex: Int?
+    let loopEndPointIndex: Int?
+    let typeFlags: UInt8
+    let fadeout: Int
+
+    var sustainEnabled: Bool {
+        (typeFlags & 0x02) != 0 && sustainPoint != nil
+    }
+
+    var loopEnabled: Bool {
+        (typeFlags & 0x04) != 0 && loopStartPoint != nil && loopEndPoint != nil
+    }
+
+    var sustainPoint: PlaybackEnvelopePoint? {
+        guard let sustainPointIndex,
+              points.indices.contains(sustainPointIndex) else {
+            return nil
+        }
+        return points[sustainPointIndex]
+    }
+
+    var loopStartPoint: PlaybackEnvelopePoint? {
+        guard let loopStartPointIndex,
+              points.indices.contains(loopStartPointIndex) else {
+            return nil
+        }
+        return points[loopStartPointIndex]
+    }
+
+    var loopEndPoint: PlaybackEnvelopePoint? {
+        guard let loopEndPointIndex,
+              points.indices.contains(loopEndPointIndex) else {
+            return nil
+        }
+        return points[loopEndPointIndex]
+    }
+
+    func value(at tick: Int) -> Float {
+        guard enabled, !points.isEmpty else {
+            return 1
+        }
+        let safeTick = max(0, tick)
+        guard let first = points.first else {
+            return 1
+        }
+        if safeTick <= first.tick {
+            return first.normalizedValue
+        }
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let next = points[index]
+            guard safeTick <= next.tick else {
+                continue
+            }
+            let distance = max(1, next.tick - previous.tick)
+            let progress = Float(safeTick - previous.tick) / Float(distance)
+            return previous.normalizedValue + ((next.normalizedValue - previous.normalizedValue) * progress)
+        }
+        return points.last?.normalizedValue ?? 1
+    }
+}
+
 struct PlaybackInstrument: Equatable {
     let index: Int
     let samples: [PlaybackSample]
+    let volumeEnvelope: PlaybackVolumeEnvelope
+
+    init(index: Int, samples: [PlaybackSample], volumeEnvelope: PlaybackVolumeEnvelope = .disabled) {
+        self.index = index
+        self.samples = samples
+        self.volumeEnvelope = volumeEnvelope
+    }
 
     var firstPlayableSample: PlaybackSample? {
         samples.first { $0.isPlayable }
@@ -160,6 +257,13 @@ struct PlaybackSong: Equatable {
             return nil
         }
         return instrumentsByIndex[instrumentIndex]?.firstPlayableSample
+    }
+
+    func instrument(forInstrument instrumentIndex: Int) -> PlaybackInstrument? {
+        guard instrumentIndex > 0 else {
+            return nil
+        }
+        return instrumentsByIndex[instrumentIndex]
     }
 
     func position(orderIndex: Int, rowIndex: Int) -> PlaybackPosition? {

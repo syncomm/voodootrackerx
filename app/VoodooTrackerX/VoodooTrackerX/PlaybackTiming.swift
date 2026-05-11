@@ -34,4 +34,8 @@ struct PlaybackTickState: Equatable {
     mutating func reset() {
         tickInRow = 0
     }
+
+    mutating func setTickInRow(_ tickInRow: Int, timing: PlaybackTiming) {
+        self.tickInRow = min(max(0, tickInRow), max(0, timing.ticksPerRow - 1))
+    }
 }

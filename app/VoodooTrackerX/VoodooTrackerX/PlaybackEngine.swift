@@ -20,6 +20,7 @@ final class PlaybackEngine: PlaybackTransport {
     private var lastVoiceRequests = [Int: AudioVoiceRequest]()
     private var delayedVoiceRequests = [Int: AudioVoiceRequest]()
     private var traceTickIndex: UInt64 = 0
+    private var activeDebugStartTraceContext: PlaybackDebugStartTraceContext?
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
@@ -45,6 +46,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         traceTickIndex = 0
+        activeDebugStartTraceContext = nil
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -56,6 +58,10 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?) {
+        play(from: context, debugStart: nil)
+    }
+
+    func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
         guard !state.isPlaying else {
             logger.debug("Ignoring play request because playback is already active")
             return
@@ -64,20 +70,50 @@ final class PlaybackEngine: PlaybackTransport {
             stop()
             return
         }
-        currentPosition = playbackStartPosition(from: context, in: song) ?? song.startPosition
-        tickState.reset()
-        pendingPositionCommand = nil
-        channelStates.removeAll()
-        globalState = PlaybackGlobalState()
-        rowDelayDurationsRemaining = 0
-        lastVoiceRequests.removeAll()
-        delayedVoiceRequests.removeAll()
-        traceTickIndex = 0
+        let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
+        currentPosition = resolvedDebugStart?.position ?? playbackStartPosition(from: context, in: song) ?? song.startPosition
+        resetRuntimeState(resetTiming: resolvedDebugStart != nil)
+        activeDebugStartTraceContext = resolvedDebugStart.map {
+            PlaybackDebugStartTraceContext(request: $0.request, position: $0.position, actualTickInRow: $0.actualTickInRow)
+        }
         if let currentPosition {
             enter(position: currentPosition)
+            applyDebugStartTickIfNeeded(resolvedDebugStart?.actualTickInRow, at: currentPosition)
         }
         restartTimer()
         apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))
+    }
+
+    @discardableResult
+    func seek(to request: PlaybackDebugStartRequest, autoplay: Bool? = nil) -> PlaybackPosition? {
+        guard let song,
+              let resolvedStart = resolveDebugStart(request, in: song) else {
+            return nil
+        }
+        let shouldPlay = autoplay ?? state.isPlaying
+        timer?.invalidate()
+        timer = nil
+        audioEngine.stopAll()
+        currentPosition = resolvedStart.position
+        resetRuntimeState(resetTiming: true)
+        activeDebugStartTraceContext = shouldPlay
+            ? PlaybackDebugStartTraceContext(
+                request: resolvedStart.request,
+                position: resolvedStart.position,
+                actualTickInRow: resolvedStart.actualTickInRow
+            )
+            : nil
+
+        if shouldPlay {
+            enter(position: resolvedStart.position)
+            applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
+            restartTimer()
+            apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
+        } else {
+            positionDidChange?(resolvedStart.position)
+            apply(action: .stop, nextState: .stopped)
+        }
+        return resolvedStart.position
     }
 
     func stop() {
@@ -106,6 +142,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         timing = song?.initialTiming ?? .xmDefault
+        activeDebugStartTraceContext = nil
         traceWriter.flush()
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
@@ -135,6 +172,21 @@ final class PlaybackEngine: PlaybackTransport {
     private func apply(action: PlaybackTransportAction, nextState: PlaybackState) {
         state = nextState
         logger.debug("Playback transport action: \(String(describing: action), privacy: .public)")
+    }
+
+    private func resetRuntimeState(resetTiming: Bool) {
+        tickState.reset()
+        pendingPositionCommand = nil
+        channelStates.removeAll()
+        globalState = PlaybackGlobalState()
+        rowDelayDurationsRemaining = 0
+        lastVoiceRequests.removeAll()
+        delayedVoiceRequests.removeAll()
+        traceTickIndex = 0
+        if resetTiming {
+            timing = song?.initialTiming ?? .xmDefault
+        }
+        activeDebugStartTraceContext = nil
     }
 
     private func restartTimer() {
@@ -183,6 +235,22 @@ final class PlaybackEngine: PlaybackTransport {
         prepareRowPlaybackState(at: position)
         triggerAudio(at: position)
         applyImmediateTimingEffects()
+    }
+
+    private func applyDebugStartTickIfNeeded(_ requestedTickInRow: Int?, at position: PlaybackPosition) {
+        guard let requestedTickInRow,
+              requestedTickInRow > 0 else {
+            return
+        }
+        let actualTickInRow = min(requestedTickInRow, max(0, timing.ticksPerRow - 1))
+        guard actualTickInRow > 0 else {
+            return
+        }
+        for tick in 1...actualTickInRow {
+            traceTickIndex += 1
+            applyTickEffects(tickInRow: tick, position: position)
+        }
+        tickState.setTickInRow(actualTickInRow, timing: timing)
     }
 
     private func nextStep(after position: PlaybackPosition, in song: PlaybackSong) -> PlaybackStepResult {
@@ -522,6 +590,23 @@ final class PlaybackEngine: PlaybackTransport {
         return song.startPosition
     }
 
+    private func resolveDebugStart(_ request: PlaybackDebugStartRequest, in song: PlaybackSong) -> PlaybackResolvedDebugStart? {
+        let position: PlaybackPosition?
+        if let orderIndex = request.requestedOrderIndex {
+            position = song.position(orderIndex: orderIndex, rowIndex: request.requestedRowIndex)
+        } else if let patternIndex = request.requestedPatternIndex {
+            position = song.position(patternIndex: patternIndex, rowIndex: request.requestedRowIndex)
+        } else {
+            position = song.position(orderIndex: 0, rowIndex: request.requestedRowIndex)
+        }
+        guard let position else {
+            logger.debug("Ignoring debug seek because no matching playback position was found")
+            return nil
+        }
+        let actualTickInRow = request.requestedTickInRow.map { min($0, max(0, song.initialTiming.ticksPerRow - 1)) }
+        return PlaybackResolvedDebugStart(request: request, position: position, actualTickInRow: actualTickInRow)
+    }
+
     private func traceChannelEvent(
         at position: PlaybackPosition?,
         tickInRow: Int,
@@ -636,6 +721,7 @@ final class PlaybackEngine: PlaybackTransport {
             pitchOffsetSemitones: controls.pitchOffsetSemitones
         )
         let loopRegion = sample?.loopRegion
+        let debugTrace = activeDebugStartTraceContext
         return PlaybackTraceEvent(
             tickIndex: traceTickIndex,
             orderIndex: position.orderIndex,
@@ -648,6 +734,15 @@ final class PlaybackEngine: PlaybackTransport {
             tickDuration: timing.tickDuration,
             rowDuration: timing.rowDuration,
             usesLinearFrequencyTable: song?.usesLinearFrequencyTable,
+            startedFromDebugSeek: debugTrace != nil,
+            requestedStartOrder: debugTrace?.requestedStartOrder,
+            requestedStartPattern: debugTrace?.requestedStartPattern,
+            requestedStartRow: debugTrace?.requestedStartRow,
+            requestedStartTick: debugTrace?.requestedStartTick,
+            actualStartOrder: debugTrace?.actualStartOrder,
+            actualStartPattern: debugTrace?.actualStartPattern,
+            actualStartRow: debugTrace?.actualStartRow,
+            actualStartTick: debugTrace?.actualStartTick,
             noteValue: noteValue,
             instrumentIndex: instrumentIndex,
             sampleIndex: sampleIndex,
@@ -813,6 +908,34 @@ final class PlaybackEngine: PlaybackTransport {
             return nil
         }
         return PlaybackEffectHandler.volumeColumnCommand(cell.volumeColumn).panningValue
+    }
+}
+
+private struct PlaybackResolvedDebugStart: Equatable {
+    let request: PlaybackDebugStartRequest
+    let position: PlaybackPosition
+    let actualTickInRow: Int?
+}
+
+private struct PlaybackDebugStartTraceContext: Equatable {
+    let requestedStartOrder: Int?
+    let requestedStartPattern: Int?
+    let requestedStartRow: Int
+    let requestedStartTick: Int?
+    let actualStartOrder: Int
+    let actualStartPattern: Int
+    let actualStartRow: Int
+    let actualStartTick: Int?
+
+    init(request: PlaybackDebugStartRequest, position: PlaybackPosition, actualTickInRow: Int?) {
+        requestedStartOrder = request.requestedOrderIndex
+        requestedStartPattern = request.requestedPatternIndex
+        requestedStartRow = request.requestedRowIndex
+        requestedStartTick = request.requestedTickInRow
+        actualStartOrder = position.orderIndex
+        actualStartPattern = position.patternIndex
+        actualStartRow = position.rowIndex
+        actualStartTick = actualTickInRow ?? 0
     }
 }
 

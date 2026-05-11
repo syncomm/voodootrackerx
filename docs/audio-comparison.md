@@ -37,6 +37,22 @@ capture setup and save it as PCM WAV outside the repository, for example:
 
 When direct export is added, use the exported file as the candidate WAV.
 
+## Planned Software Mixer Validation
+
+The target software mixer architecture is documented in
+`docs/decisions/004-software-mixer-transition.md`. Once an offline render
+harness exists, prefer that path over manual app capture for mixer validation:
+
+- render the first N seconds of the local test module to a candidate WAV
+- render the same segment with `openmpt123` or MikMod using recorded settings
+- compare both WAV files with `scripts/audio-compare.py`
+- capture a playback trace for the same segment when audio metrics point to a
+  timing, loop, envelope, panning, or effect-state mismatch
+- keep the local module, WAVs, traces, and reports outside the repository
+
+Runtime playback should not switch to the software mixer until this offline
+workflow can produce useful, reproducible comparison reports.
+
 ## Compare WAV Files
 
 ```bash

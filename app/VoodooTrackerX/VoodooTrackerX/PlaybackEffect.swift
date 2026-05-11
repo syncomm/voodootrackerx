@@ -24,6 +24,77 @@ enum PlaybackContinuousEffect: Equatable {
     case vibratoVolumeSlide(speed: Int, depth: Int, up: Int, down: Int)
 }
 
+enum PlaybackVolumeColumnCommand: Equatable {
+    case none
+    case setVolume(value: Int)
+    case volumeSlideDown(amount: Int)
+    case volumeSlideUp(amount: Int)
+    case fineVolumeSlideDown(amount: Int)
+    case fineVolumeSlideUp(amount: Int)
+    case setVibratoSpeed(amount: Int)
+    case vibrato(amount: Int)
+    case setPanning(value: Int)
+    case panningSlideLeft(amount: Int)
+    case panningSlideRight(amount: Int)
+    case tonePortamento(amount: Int)
+
+    var traceName: String {
+        switch self {
+        case .none:
+            return "none"
+        case .setVolume:
+            return "setVolume"
+        case .volumeSlideDown:
+            return "volumeSlideDown"
+        case .volumeSlideUp:
+            return "volumeSlideUp"
+        case .fineVolumeSlideDown:
+            return "fineVolumeSlideDown"
+        case .fineVolumeSlideUp:
+            return "fineVolumeSlideUp"
+        case .setVibratoSpeed:
+            return "setVibratoSpeed"
+        case .vibrato:
+            return "vibrato"
+        case .setPanning:
+            return "setPanning"
+        case .panningSlideLeft:
+            return "panningSlideLeft"
+        case .panningSlideRight:
+            return "panningSlideRight"
+        case .tonePortamento:
+            return "tonePortamento"
+        }
+    }
+
+    var isSupported: Bool {
+        switch self {
+        case .none, .setVibratoSpeed, .vibrato:
+            return false
+        default:
+            return true
+        }
+    }
+
+    var volumeValue: Int? {
+        switch self {
+        case let .setVolume(value):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    var panningValue: Int? {
+        switch self {
+        case let .setPanning(value):
+            return value
+        default:
+            return nil
+        }
+    }
+}
+
 struct PlaybackGlobalState: Equatable {
     var volume: Float = 1
     var activeVolumeSlide: PlaybackGlobalVolumeSlide?
@@ -231,6 +302,57 @@ struct PlaybackChannelState: Equatable {
         retriggerInterval = nil
         noteCutTick = nil
         noteDelayTick = nil
+    }
+
+    mutating func apply(volumeColumnCommand command: PlaybackVolumeColumnCommand) -> Bool {
+        switch command {
+        case .none:
+            return false
+        case let .setVolume(value):
+            volume = Float(min(64, max(0, value))) / 64.0
+            return true
+        case let .volumeSlideDown(amount):
+            guard amount > 0 else {
+                return false
+            }
+            activeEffect = .volumeSlide(up: 0, down: amount)
+            return true
+        case let .volumeSlideUp(amount):
+            guard amount > 0 else {
+                return false
+            }
+            activeEffect = .volumeSlide(up: amount, down: 0)
+            return true
+        case let .fineVolumeSlideDown(amount):
+            applyVolumeSlide(up: 0, down: amount)
+            return amount > 0
+        case let .fineVolumeSlideUp(amount):
+            applyVolumeSlide(up: amount, down: 0)
+            return amount > 0
+        case .setVibratoSpeed, .vibrato:
+            return false
+        case let .setPanning(value):
+            panning = PlaybackEffectHandler.clampedPanning(value)
+            return true
+        case let .panningSlideLeft(amount):
+            guard amount > 0 else {
+                return false
+            }
+            activeEffect = .panningSlide(right: 0, left: amount)
+            return true
+        case let .panningSlideRight(amount):
+            guard amount > 0 else {
+                return false
+            }
+            activeEffect = .panningSlide(right: amount, left: 0)
+            return true
+        case let .tonePortamento(amount):
+            guard amount > 0 else {
+                return false
+            }
+            activeEffect = .tonePortamento(amount: amount)
+            return true
+        }
     }
 
     mutating func start(note: UInt8) {
@@ -514,6 +636,35 @@ enum PlaybackEffectHandler {
             return .setGlobalVolume(Float(min(effectParam, 0x40)) / 64.0)
         default:
             return nil
+        }
+    }
+
+    static func volumeColumnCommand(_ rawValue: UInt8) -> PlaybackVolumeColumnCommand {
+        switch rawValue {
+        case 0x10...0x50:
+            return .setVolume(value: Int(rawValue - 0x10))
+        case 0x60...0x6F:
+            return .volumeSlideDown(amount: Int(rawValue & 0x0F))
+        case 0x70...0x7F:
+            return .volumeSlideUp(amount: Int(rawValue & 0x0F))
+        case 0x80...0x8F:
+            return .fineVolumeSlideDown(amount: Int(rawValue & 0x0F))
+        case 0x90...0x9F:
+            return .fineVolumeSlideUp(amount: Int(rawValue & 0x0F))
+        case 0xA0...0xAF:
+            return .setVibratoSpeed(amount: Int(rawValue & 0x0F))
+        case 0xB0...0xBF:
+            return .vibrato(amount: Int(rawValue & 0x0F))
+        case 0xC0...0xCF:
+            return .setPanning(value: clampedPanning(Int(rawValue & 0x0F) * 17))
+        case 0xD0...0xDF:
+            return .panningSlideLeft(amount: Int(rawValue & 0x0F))
+        case 0xE0...0xEF:
+            return .panningSlideRight(amount: Int(rawValue & 0x0F))
+        case 0xF0...0xFF:
+            return .tonePortamento(amount: Int(rawValue & 0x0F))
+        default:
+            return .none
         }
     }
 

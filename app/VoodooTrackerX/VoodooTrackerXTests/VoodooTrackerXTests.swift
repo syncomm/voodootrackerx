@@ -354,6 +354,7 @@ private func makePlaybackSong(
     instrumentsByIndex: [Int: PlaybackInstrument] = [:],
     note: UInt8 = 0,
     instrument: UInt8 = 0,
+    volumeColumn: UInt8 = 0,
     effectType: UInt8 = 0,
     effectParam: UInt8 = 0,
     endBehavior: PlaybackEndBehavior = .stopAtEnd,
@@ -364,7 +365,7 @@ private func makePlaybackSong(
         let rows = (0..<entry.value).map { rowIndex in
             PlaybackRow(
                 index: rowIndex,
-                cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: effectType, effectParam: effectParam)]
+                cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: volumeColumn, effectType: effectType, effectParam: effectParam)]
             )
         }
         partialResult[entry.key] = PlaybackPattern(index: entry.key, rows: rows)
@@ -408,12 +409,13 @@ private func makePlaybackRow(
     index: Int,
     note: UInt8 = 0,
     instrument: UInt8 = 0,
+    volumeColumn: UInt8 = 0,
     effectType: UInt8 = 0,
     effectParam: UInt8 = 0
 ) -> PlaybackRow {
     PlaybackRow(
         index: index,
-        cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: 0, effectType: effectType, effectParam: effectParam)]
+        cells: [PlaybackCell(note: note, instrument: instrument, volumeColumn: volumeColumn, effectType: effectType, effectParam: effectParam)]
     )
 }
 
@@ -835,6 +837,146 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(traceWriter.events.contains { $0.decision == .delayed && $0.decisionReason == "note_delay" })
         XCTAssertTrue(traceWriter.events.contains { $0.decision == .cut && $0.decisionReason == "note_cut" })
         XCTAssertTrue(traceWriter.events.contains { $0.decision == .retriggered && $0.decisionReason == "retrigger_interval" })
+    }
+
+    @MainActor
+    func testPlaybackEngineAppliesVolumeColumnSetVolume() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x3D)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.volumeScale ?? 0, Float(45) / 64.0, accuracy: 0.0001)
+        let event = traceWriter.events.first { $0.decision == .triggered }
+        XCTAssertEqual(event?.rawVolumeColumn, "3D")
+        XCTAssertEqual(event?.decodedVolumeColumnCommand, "setVolume")
+        XCTAssertEqual(event?.volumeColumnApplied, true)
+        XCTAssertEqual(event?.volumeColumnVolume, 45)
+        XCTAssertEqual(event?.computedVolume ?? 0, Float(45) / 64.0, accuracy: 0.0001)
+        XCTAssertEqual(event?.finalAppliedVolume ?? 0, Float(45) / 64.0, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackEngineMapsVolumeColumnPanning() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xCC)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 204), accuracy: 0.0001)
+        let event = traceWriter.events.first { $0.decision == .triggered }
+        XCTAssertEqual(event?.rawVolumeColumn, "CC")
+        XCTAssertEqual(event?.decodedVolumeColumnCommand, "setPanning")
+        XCTAssertEqual(event?.volumeColumnApplied, true)
+        XCTAssertEqual(event?.volumeColumnPanning, 204)
+        XCTAssertEqual(event?.computedPanning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 204), accuracy: 0.0001)
+    }
+
+    func testPlaybackVolumeColumnPanningMappingAndClamp() {
+        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xC0), .setPanning(value: 0))
+        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xCC), .setPanning(value: 204))
+        XCTAssertEqual(PlaybackEffectHandler.volumeColumnCommand(0xCF), .setPanning(value: 255))
+
+        var state = PlaybackChannelState(panning: 128)
+        XCTAssertTrue(state.apply(volumeColumnCommand: PlaybackEffectHandler.volumeColumnCommand(0xCF)))
+        XCTAssertEqual(state.panning, 255)
+        XCTAssertEqual(state.audioControls.panning, 1.0, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackVolumeColumnSetVolumePreservesCxxOverride() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x0C, effectParam: 0x30)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.volumeScale ?? 0, 0.75, accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackVolumeColumnPanningPreserves8xxOverride() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xCC, effectType: 0x08, effectParam: 0x40)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackTraceDecodesCommonVolumeColumnValues() {
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput(), traceWriter: traceWriter)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, volumeColumn: 0x20),
+                    makePlaybackRow(index: 1, volumeColumn: 0x3D),
+                    makePlaybackRow(index: 2, volumeColumn: 0x50),
+                    makePlaybackRow(index: 3, volumeColumn: 0xC0),
+                    makePlaybackRow(index: 4, volumeColumn: 0xCC),
+                    makePlaybackRow(index: 5, volumeColumn: 0xCF)
+                ]
+            ]
+        ))
+        engine.configureTiming(PlaybackTiming(speed: 1, bpm: 125))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        for _ in 0..<5 {
+            engine.advanceOneTick()
+        }
+
+        let rowEvents = traceWriter.events.filter { $0.channelIndex == 0 && $0.tickInRow == 0 }
+        let decodedByRaw = Dictionary(uniqueKeysWithValues: rowEvents.compactMap { event -> (String, PlaybackTraceEvent)? in
+            guard let raw = event.rawVolumeColumn else {
+                return nil
+            }
+            return (raw, event)
+        })
+
+        XCTAssertEqual(decodedByRaw["20"]?.decodedVolumeColumnCommand, "setVolume")
+        XCTAssertEqual(decodedByRaw["20"]?.volumeColumnVolume, 16)
+        XCTAssertEqual(decodedByRaw["3D"]?.volumeColumnVolume, 45)
+        XCTAssertEqual(decodedByRaw["50"]?.volumeColumnVolume, 64)
+        XCTAssertEqual(decodedByRaw["C0"]?.decodedVolumeColumnCommand, "setPanning")
+        XCTAssertEqual(decodedByRaw["C0"]?.volumeColumnPanning, 0)
+        XCTAssertEqual(decodedByRaw["CC"]?.volumeColumnPanning, 204)
+        XCTAssertEqual(decodedByRaw["CF"]?.volumeColumnPanning, 255)
     }
 
     func testPlaybackEngineStartsPlayingFromContext() {

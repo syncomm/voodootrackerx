@@ -505,6 +505,59 @@ private final class TestPlaybackTraceWriter: PlaybackTraceWriting {
 }
 
 final class VoodooTrackerXTests: XCTestCase {
+    func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {
+        let mixer = SoftwareMixer()
+
+        XCTAssertEqual(mixer.config, MixerRenderConfig())
+        XCTAssertEqual(mixer.config.sampleRate, 44_100)
+        XCTAssertEqual(mixer.config.channelCount, 2)
+        XCTAssertTrue(mixer.config.isInterleaved)
+    }
+
+    func testSoftwareMixerRenderReturnsRequestedFrameCount() {
+        let mixer = SoftwareMixer()
+
+        let block = mixer.render(frames: 16)
+
+        XCTAssertEqual(block.frameCount, 16)
+        XCTAssertEqual(block.sampleCount, 32)
+        XCTAssertEqual(block.interleavedPCM.count, 16 * mixer.config.channelCount)
+    }
+
+    func testSoftwareMixerSilenceRenderingIsDeterministicAfterReset() {
+        let mixer = SoftwareMixer()
+
+        let first = mixer.render(frames: 8)
+        mixer.reset()
+        let second = mixer.render(frames: 8)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.interleavedPCM, Array(repeating: Float(0), count: 16))
+    }
+
+    func testSoftwareMixerResetReturnsToInitialDeterministicState() {
+        let mixer = SoftwareMixer()
+        mixer.configure(sampleRate: 48_000, channelCount: 2)
+        let configuredBlock = mixer.render(frames: 4)
+
+        mixer.reset()
+        let resetBlock = mixer.render(frames: 4)
+
+        XCTAssertEqual(configuredBlock, resetBlock)
+        XCTAssertTrue(mixer.voices.isEmpty)
+    }
+
+    func testSoftwareMixerHandlesZeroAndInvalidFrameRequestsSafely() {
+        let mixer = SoftwareMixer()
+
+        XCTAssertEqual(mixer.render(frames: 0), MixerRenderBlock(config: mixer.config, frameCount: 0, interleavedPCM: []))
+        XCTAssertEqual(mixer.render(frames: -12), MixerRenderBlock(config: mixer.config, frameCount: 0, interleavedPCM: []))
+
+        mixer.configure(sampleRate: -1, channelCount: 0)
+        XCTAssertEqual(mixer.config, MixerRenderConfig())
+        XCTAssertEqual(mixer.render(frames: 0).sampleCount, 0)
+    }
+
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
         let event = PlaybackTraceEvent(
             tickIndex: 12,

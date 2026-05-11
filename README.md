@@ -18,6 +18,15 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 3. Ship small, verifiable PRs with automated checks and tests so the project can be iterated by agentic tools and humans alike.
 4. Keep the core engine open-source while enabling a future commercial “Pro” edition with additional features.
 
+## Current State
+VoodooTracker X is now a working macOS AppKit tracker prototype, not just a parser scaffold. The app can open modules, display tracker-style patterns with a static highlight row, navigate the pattern grid from the keyboard, and play XM modules through the current first-pass playback path.
+
+Playback is useful for development and smoke testing, but it is not yet MikMod/OpenMPT accurate. The current runtime playback remains `AVAudioPlayerNode`-based through `AVAudioEngine` and `AVAudioUnitVarispeed`, with implemented passes for transport stabilization, timing and pitch corrections, sample loops including ping-pong loops, panning/stereo placement, volume column semantics, instrument volume envelopes/fadeout, debug seeking, and playback trace export.
+
+A deterministic software mixer path has begun behind the existing audio boundary. The mixer skeleton currently renders deterministic Float32 silence for future offline rendering and comparison work; it does not play samples and is not the runtime backend yet. The next playback-accuracy step is an offline render harness for bounded PCM/WAV comparison against MikMod/OpenMPT.
+
+The app is still under active development and should not be treated as production-ready.
+
 ---
 
 ## Getting started
@@ -88,7 +97,7 @@ swift run mc_dump --json --pattern 1 tests/fixtures/minimal.xm
 ./scripts/run-golden.sh
 ```
 
-The core parser smoke harness is read-only for now (header metadata plus XM pattern event decode; no playback or DSP).
+The core parser smoke harness remains focused on deterministic parser coverage and golden snapshots. Playback and mixer work live behind the app audio/playback boundary rather than in the parser module.
 See `docs/testing.md` for fixture rules and golden snapshot workflow.
 
 ## Project structure
@@ -110,10 +119,13 @@ High-level rules:
 * When in doubt, open an issue and reference the related milestone.
 
 ## Roadmap (first milestones)
-Current baseline delivered:
-1. macOS CI + local CLI build/test workflow
-2. AppKit app shell with reliable launch window, `File > Open…`, and standard window actions
-3. Core MOD/XM header parser with synthetic fixtures, golden snapshots, and `mc_dump`
+Current state summary:
+1. AppKit tracker UI, module open/load flow, and tracker-style pattern display are in place.
+2. Static highlight row behavior, keyboard navigation, and stable tracker viewport behavior are implemented.
+3. First-pass XM playback exists through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, with several timing, loop, panning, envelope, and volume-column compatibility passes.
+4. Audio comparison and playback trace diagnostics exist for local reference work.
+5. ADR 004 accepted the deterministic software mixer transition, and the software mixer skeleton has been introduced as groundwork only.
+6. Offline software mixer rendering and MikMod/OpenMPT accuracy work remain upcoming.
 
 For detailed, PR-by-PR milestones, see `docs/roadmap.md`.
 

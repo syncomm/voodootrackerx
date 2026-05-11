@@ -9,6 +9,32 @@ Use this file when you want a short phase summary rather than the full implement
 
 ---
 
+# Current State Snapshot
+
+VoodooTracker X has moved beyond the original parser and early pattern-editor
+baseline. The current app has a working AppKit tracker shell, module open/load
+flow, tracker-style pattern display, static highlight row behavior, stable
+viewport navigation, first-pass XM playback, playback diagnostics, and an
+initial deterministic software mixer skeleton.
+
+Runtime playback still uses the `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
+backend. The software mixer skeleton is groundwork for offline rendering and
+future reference comparison; it does not yet play samples or drive live
+playback.
+
+Immediate audio accuracy sequence:
+
+1. Software Mixer Skeleton Behind AudioEngine — done
+2. Offline Render Harness for Software Mixer — next
+3. One-shot sample rendering
+4. Forward and ping-pong loop rendering
+5. Volume, panning, and envelope rendering
+6. Timing and effect integration
+7. Feature-flagged runtime backend switch
+8. Reference comparison stabilization against MikMod/OpenMPT
+
+---
+
 # Phase 1 — Core Tracker
 
 Goal: fully functional pattern editor.
@@ -31,6 +57,10 @@ Checkpoint: Tracker Editor Static Row Milestone
 - shared viewport slot mapping implemented
 - unified layout fix applied for gutter/body alignment
 
+Current note:
+- read-only tracker display, stable viewport behavior, keyboard navigation, and pattern selection are implemented
+- full editing remains future work
+
 ---
 
 # Phase 2 — Pattern Editing
@@ -48,22 +78,26 @@ Features:
 
 ---
 
-# Phase 3 — Audio Engine
+# Phase 3 — Audio Engine and Playback Accuracy
 
-Implement playback.
+Improve first-pass playback into deterministic, reference-comparable playback.
 
 Components:
 
-PatternPlayer  
-ChannelState  
-SampleMixer  
-AudioEngine
+- PlaybackEngine
+- PlaybackAudioEngine
+- SoftwareMixer
+- Playback trace diagnostics
+- Audio comparison tooling
 
 Features:
 
-- pattern playback
-- tempo control
-- channel muting
+- first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
+- transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
+- playback debug seek and trace export
+- local reference comparison workflow against MikMod/OpenMPT
+- deterministic software mixer skeleton for future offline rendering
+- offline render harness and mixer sample rendering still pending
 
 ---
 

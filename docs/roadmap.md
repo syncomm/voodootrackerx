@@ -54,10 +54,13 @@ Status: done (includes golden JSON snapshots and deterministic `mc_dump --json` 
 ## Milestone 2: Audio Bring-Up (Reference Tones to Module Playback)
 
 Current stabilization note:
-- First audible XM playback currently uses `AVAudioPlayerNode` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
-- This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate, and loops, envelopes, interpolation, full effect behavior, and sample-accurate channel mixing remain future work.
+- First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
+- This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
+- Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer skeleton now exists behind the playback/audio boundary. It renders silence only and is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
+- See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -82,6 +85,50 @@ Current stabilization note:
 ### PR 2.6 — Effect/envelope compatibility passes
 - Scope: iterate effect support and XM envelopes toward legacy behavior
 - Verification: regression tests vs expected state transitions/audio metrics, manual comparison runs
+
+## Milestone 2.7: Deterministic Software Mixer Transition
+
+The current runtime playback remains `AVAudioPlayerNode`-based. The software
+mixer work should continue in small PRs and prove itself through offline renders
+and reference comparison before any runtime backend switch.
+
+### PR 2.7.1 — Software Mixer Skeleton Behind AudioEngine
+- Scope: add deterministic mixer types and silence rendering behind the existing audio/playback boundary
+- Verification: focused mixer tests plus existing app/parser checks
+- Status: done.
+
+### PR 2.7.2 — Offline Render Harness for Software Mixer
+- Scope: add a local/offline bounded-frame render path suitable for future PCM/WAV comparison
+- Verification: deterministic render tests with synthetic data only; no copyrighted module fixtures
+- Status: next.
+
+### PR 2.7.3 — Software Mixer One-Shot Sample Rendering
+- Scope: render simple one-shot sample playback with deterministic sample-position accumulators
+- Verification: synthetic PCM fixtures for stepping, clamping, and deterministic output
+
+### PR 2.7.4 — Software Mixer Forward and Ping-Pong Loop Rendering
+- Scope: implement forward and ping-pong loop behavior in mixer-owned sample stepping
+- Verification: loop edge-case tests for loop start, length, sample offset, and turnaround frames
+
+### PR 2.7.5 — Software Mixer Volume / Panning / Envelopes
+- Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the mixer
+- Verification: deterministic synthetic tests for gain, stereo placement, envelope ticks, and fadeout
+
+### PR 2.7.6 — Software Mixer Timing and Effect Integration
+- Scope: connect existing row/tick playback decisions to mixer-owned rendering boundaries
+- Verification: bounded render/trace tests for tick, row, delay, cut, retrigger, and supported effect timing
+
+### PR 2.7.7 — Feature-Flagged Runtime Backend Switch
+- Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available
+- Verification: app playback smoke tests, backend selection tests, and fallback validation
+
+### PR 2.7.8 — Reference Comparison Stabilization Against MikMod/OpenMPT
+- Scope: compare bounded local renders against reference renderers and close major audible gaps
+- Verification: documented local comparison reports kept out of the repository
+
+### PR 2.7.9 — Remaining FT2/effect quirks after deterministic rendering exists
+- Scope: target remaining XM/FT2 effect and compatibility gaps once deterministic rendering is available
+- Verification: issue-based regression tests and local reference comparison
 
 ## Milestone 3: UI / Tracker Feel (Read-Only to Editing)
 

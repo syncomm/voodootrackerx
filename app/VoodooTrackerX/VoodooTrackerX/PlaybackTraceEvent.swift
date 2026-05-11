@@ -57,6 +57,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let loopStartFrame: Int?
     let loopEndFrame: Int?
     let loopLengthFrames: Int?
+    let pingPongLoopApplied: Bool?
     let envelopeEnabled: Bool?
     let envelopeTick: Int?
     let envelopeValue: Float?
@@ -114,6 +115,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         loopStartFrame: Int?,
         loopEndFrame: Int?,
         loopLengthFrames: Int?,
+        pingPongLoopApplied: Bool?,
         envelopeEnabled: Bool? = nil,
         envelopeTick: Int? = nil,
         envelopeValue: Float? = nil,
@@ -170,6 +172,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.loopStartFrame = loopStartFrame
         self.loopEndFrame = loopEndFrame
         self.loopLengthFrames = loopLengthFrames
+        self.pingPongLoopApplied = pingPongLoopApplied
         self.envelopeEnabled = envelopeEnabled
         self.envelopeTick = envelopeTick
         self.envelopeValue = envelopeValue
@@ -228,6 +231,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case loopStartFrame
         case loopEndFrame
         case loopLengthFrames
+        case pingPongLoopApplied
         case envelopeEnabled
         case envelopeTick
         case envelopeValue
@@ -287,6 +291,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encodeOptional(loopStartFrame, forKey: .loopStartFrame)
         try container.encodeOptional(loopEndFrame, forKey: .loopEndFrame)
         try container.encodeOptional(loopLengthFrames, forKey: .loopLengthFrames)
+        try container.encodeOptional(pingPongLoopApplied, forKey: .pingPongLoopApplied)
         try container.encodeOptional(envelopeEnabled, forKey: .envelopeEnabled)
         try container.encodeOptional(envelopeTick, forKey: .envelopeTick)
         try container.encodeOptional(envelopeValue, forKey: .envelopeValue)

@@ -54,7 +54,7 @@ The current backend is intentionally incomplete:
 - playback is not sample-accurate tracker mixing
 - sample triggering is limited and first-pass
 - pitch handling is approximate
-- sample loops are not implemented
+- sample loops are limited to first-pass AVAudio scheduling approximations
 - envelopes are not implemented
 - interpolation is minimal
 - panning and volume/effect command semantics are incomplete

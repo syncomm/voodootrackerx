@@ -64,7 +64,7 @@ Recorded fields include:
   `computedRate`, `rateBasis`, `computedPeriodApproximation`
 - `sampleOffset`, `sampleLength`, `loopStart`, `loopLength`, `loopType`,
   `loopTypeName`, `loopEnabled`, `loopStartFrame`, `loopEndFrame`,
-  `loopLengthFrames`
+  `loopLengthFrames`, `pingPongLoopApplied`
 - `decision`: `observed`, `triggered`, `delayed`, `cut`, `retriggered`,
   `ignored`, or `updated`
 - `decisionReason`: short machine-readable context for the decision
@@ -79,7 +79,7 @@ commands. This captures header timing such as `_DARKL.XM`'s `speed=2` and
 Show the first few trigger decisions:
 
 ```bash
-jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, computedVolume, envelopeEnabled, envelopeTick, envelopeValue, envelopeSustainActive, envelopeLoopActive, fadeoutValue, finalAppliedVolume, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName}' \
+jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, computedVolume, envelopeEnabled, envelopeTick, envelopeValue, envelopeSustainActive, envelopeLoopActive, fadeoutValue, finalAppliedVolume, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName, pingPongLoopApplied}' \
   /tmp/darkl-vtx-playback.jsonl | head -80
 ```
 
@@ -107,8 +107,12 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
   `targetFrequency/audioBufferSampleRate`.
 - Forward sample loops are supported by scheduling the pre-loop/first-loop
   region once and then scheduling the loop region with AVAudio's buffer loop
-  option. Ping-pong loops are detected as `ping_pong_deferred` and remain a
-  future custom-mixer/backend task.
+  option. Ping-pong loops are supported as a first-pass approximation by
+  scheduling pre-loop audio once and then looping a derived buffer containing
+  the forward loop frames plus the reversed loop interior. This keeps loop
+  handling inside the current AVAudio backend, avoids duplicate endpoint frames
+  at turnarounds, and does not emulate every FT2 sample-offset or loop-position
+  edge case.
 - Panning is first-pass only: XM `0...255` channel state maps to the current
   AVAudio `-1...1` pan control, not a tracker-accurate custom mixer.
 - Volume envelopes are first-pass playback state. Envelope points are linearly
@@ -130,7 +134,8 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 - Confirm the JSONL file exists and contains order, pattern, row, tick,
   speed, BPM, tick and row duration, channel, note, instrument, effect, volume,
   panning, pitch/rate/frequency, rate basis, envelope/fadeout fields, sample
-  offset, sample loop metadata, loop scheduling fields, and decision fields.
+  offset, sample loop metadata, loop scheduling fields including
+  `pingPongLoopApplied`, and decision fields.
 - Launch without `VTX_PLAYBACK_TRACE_PATH` and confirm normal playback still
   works.
 - Confirm tracker viewport behavior was not modified or regressed.

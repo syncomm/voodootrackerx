@@ -682,6 +682,7 @@ final class PlaybackEngine: PlaybackTransport {
             loopStartFrame: loopRegion?.startFrame,
             loopEndFrame: loopRegion?.endFrame,
             loopLengthFrames: loopRegion?.lengthFrames,
+            pingPongLoopApplied: loopRegion?.pingPongLoopApplied,
             envelopeEnabled: channelState?.volumeEnvelopeState.envelopeEnabled,
             envelopeTick: channelState?.volumeEnvelopeState.tick,
             envelopeValue: channelState?.volumeEnvelopeState.envelopeValue,

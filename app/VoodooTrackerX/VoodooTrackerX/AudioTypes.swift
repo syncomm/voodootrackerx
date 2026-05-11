@@ -43,6 +43,14 @@ struct PlaybackSampleLoopRegion: Equatable {
     let loopType: Int
     let loopTypeName: String
 
+    var isPingPongLoop: Bool {
+        isEnabled && loopType == 2
+    }
+
+    var pingPongLoopApplied: Bool {
+        isPingPongLoop
+    }
+
     static func clamped(sampleFrameCount: Int, loopStart: Int, loopLength: Int, loopType: Int) -> PlaybackSampleLoopRegion {
         let frameCount = max(0, sampleFrameCount)
         let startFrame = min(max(0, loopStart), frameCount)
@@ -55,12 +63,12 @@ struct PlaybackSampleLoopRegion: Equatable {
         case 1:
             loopTypeName = "forward"
         case 2:
-            loopTypeName = "ping_pong_deferred"
+            loopTypeName = "ping_pong"
         default:
             loopTypeName = "none"
         }
         return PlaybackSampleLoopRegion(
-            isEnabled: loopType == 1 && lengthFrames > 0,
+            isEnabled: (loopType == 1 || loopType == 2) && lengthFrames > 0,
             startFrame: startFrame,
             endFrame: endFrame,
             lengthFrames: lengthFrames,
@@ -70,12 +78,39 @@ struct PlaybackSampleLoopRegion: Equatable {
     }
 }
 
+enum AudioSampleLoopMode: Equatable {
+    case forward
+    case pingPong
+}
+
+enum AudioSampleLoopFrameBuilder {
+    static func pingPongFrameIndices(for loopRange: Range<Int>, sampleFrameCount: Int) -> [Int] {
+        guard sampleFrameCount > 0,
+              loopRange.lowerBound >= 0,
+              loopRange.upperBound <= sampleFrameCount,
+              !loopRange.isEmpty else {
+            return []
+        }
+
+        let forwardFrames = Array(loopRange)
+        guard forwardFrames.count > 2 else {
+            return forwardFrames
+        }
+        return forwardFrames + forwardFrames.dropFirst().dropLast().reversed()
+    }
+}
+
 struct AudioSamplePlaybackPlan: Equatable {
     let introRange: Range<Int>?
     let loopRange: Range<Int>?
+    let loopMode: AudioSampleLoopMode?
 
     var isLooped: Bool {
         loopRange != nil
+    }
+
+    var usesPingPongLoop: Bool {
+        loopMode == .pingPong
     }
 }
 
@@ -90,17 +125,30 @@ enum AudioSamplePlaybackPlanner {
 
         let loop = sample.loopRegion
         guard loop.isEnabled else {
-            return AudioSamplePlaybackPlan(introRange: startOffset..<frameCount, loopRange: nil)
+            return AudioSamplePlaybackPlan(introRange: startOffset..<frameCount, loopRange: nil, loopMode: nil)
         }
 
         guard startOffset < loop.endFrame else {
-            return AudioSamplePlaybackPlan(introRange: startOffset..<frameCount, loopRange: nil)
+            return AudioSamplePlaybackPlan(introRange: startOffset..<frameCount, loopRange: nil, loopMode: nil)
+        }
+
+        if loop.isPingPongLoop {
+            return AudioSamplePlaybackPlan(
+                introRange: rangeIfAscending(startOffset, loop.startFrame),
+                loopRange: loop.startFrame..<loop.endFrame,
+                loopMode: .pingPong
+            )
         }
 
         return AudioSamplePlaybackPlan(
             introRange: startOffset..<loop.endFrame,
-            loopRange: loop.startFrame..<loop.endFrame
+            loopRange: loop.startFrame..<loop.endFrame,
+            loopMode: .forward
         )
+    }
+
+    private static func rangeIfAscending(_ lowerBound: Int, _ upperBound: Int) -> Range<Int>? {
+        lowerBound < upperBound ? lowerBound..<upperBound : nil
     }
 }
 

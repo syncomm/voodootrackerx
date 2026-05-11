@@ -35,12 +35,18 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
     }
 
     func trigger(_ request: AudioVoiceRequest) {
-        guard let plan = AudioSamplePlaybackPlanner.plan(for: request.sample, sampleStartOffset: request.sampleStartOffset),
-              let introRange = plan.introRange,
-              let introBuffer = makeBuffer(for: request, sampleRange: introRange) else {
+        guard let plan = AudioSamplePlaybackPlanner.plan(for: request.sample, sampleStartOffset: request.sampleStartOffset) else {
             return
         }
-        let loopBuffer = plan.loopRange.flatMap { makeBuffer(for: request, sampleRange: $0) }
+        let introBuffer = plan.introRange.flatMap { makeBuffer(for: request, sampleRange: $0) }
+        let loopBuffer = plan.loopRange.flatMap { loopRange in
+            plan.usesPingPongLoop
+                ? makePingPongLoopBuffer(for: request, sampleRange: loopRange)
+                : makeBuffer(for: request, sampleRange: loopRange)
+        }
+        guard introBuffer != nil || loopBuffer != nil else {
+            return
+        }
         let voice = voice(forChannel: request.channel)
         prepareIfNeeded()
         guard startEngineIfNeeded() else {
@@ -56,7 +62,9 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             to: voice
         )
         voice.player.stop()
-        voice.player.scheduleBuffer(introBuffer, at: nil, options: [], completionHandler: nil)
+        if let introBuffer {
+            voice.player.scheduleBuffer(introBuffer, at: nil, options: [], completionHandler: nil)
+        }
         if let loopBuffer {
             voice.player.scheduleBuffer(loopBuffer, at: nil, options: .loops, completionHandler: nil)
         }
@@ -142,10 +150,39 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
               !sampleRange.isEmpty else {
             return nil
         }
+        return makeBuffer(for: request, sourceFrameCount: sampleRange.count) { sourceFrame in
+            let sampleIndex = min(sampleRange.upperBound - 1, sampleRange.lowerBound + sourceFrame)
+            return request.sample.pcm[sampleIndex]
+        }
+    }
+
+    private func makePingPongLoopBuffer(for request: AudioVoiceRequest, sampleRange: Range<Int>) -> AVAudioPCMBuffer? {
+        let frameIndices = AudioSampleLoopFrameBuilder.pingPongFrameIndices(
+            for: sampleRange,
+            sampleFrameCount: request.sample.pcm.count
+        )
+        guard !frameIndices.isEmpty else {
+            return nil
+        }
+        return makeBuffer(for: request, sourceFrameCount: frameIndices.count) { sourceFrame in
+            request.sample.pcm[frameIndices[sourceFrame]]
+        }
+    }
+
+    private func makeBuffer(
+        for request: AudioVoiceRequest,
+        sourceFrameCount: Int,
+        sampleAt: (Int) -> Float
+    ) -> AVAudioPCMBuffer? {
+        guard request.sample.isPlayable,
+              request.note > 0,
+              request.note <= 96,
+              sourceFrameCount > 0 else {
+            return nil
+        }
         let pitchRatio = PlaybackPitchCalculator.notePitchRatio(note: request.note, sample: request.sample)
         let increment = max(0.001, (request.sample.baseSampleRate / format.sampleRate) * pitchRatio)
-        let availableSampleCount = sampleRange.count
-        let frameCount = max(1, Int(Double(availableSampleCount) / increment))
+        let frameCount = max(1, Int(Double(sourceFrameCount) / increment))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)) else {
             return nil
         }
@@ -154,11 +191,11 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
             return nil
         }
 
-        var samplePosition = Double(sampleRange.lowerBound)
+        var samplePosition = 0.0
         let gain = min(0.8, max(0, request.sample.volume))
         for frame in 0..<frameCount {
-            let sampleIndex = min(sampleRange.upperBound - 1, Int(samplePosition))
-            output[frame] = request.sample.pcm[sampleIndex] * gain
+            let sourceFrame = min(sourceFrameCount - 1, Int(samplePosition))
+            output[frame] = sampleAt(sourceFrame) * gain
             samplePosition += increment
         }
         return buffer

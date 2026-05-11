@@ -77,8 +77,12 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
   Forward sample loops are implemented in the current AVAudio backend by
   scheduling the intro/first-loop region once and then scheduling the loop
   region with AVAudio's buffer loop option.
-- Ping-pong sample loops are detected and traced as deferred, but are not
-  implemented by the current backend.
+- Ping-pong sample loops are implemented as a first-pass AVAudio scheduling
+  approximation. The backend builds a derived loop buffer from the forward loop
+  frames plus the reversed loop interior, then schedules that derived buffer
+  with AVAudio's buffer loop option. This avoids duplicate turnaround endpoint
+  frames, but it is not a full FT2 mixer implementation and does not emulate
+  every loop-position/sample-offset edge case.
 - Sample offset uses a clamped PCM sample-index offset of `xx * 256`, not exact byte-level FT2 sample-address semantics.
 - Retrigger, note cut, and note delay are applied on playback ticks through the existing timer-driven engine, not sample-accurate audio scheduling.
 - Note delay values outside the current row speed are skipped safely instead of being carried into later rows.

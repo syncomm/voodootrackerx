@@ -547,6 +547,7 @@ final class VoodooTrackerXTests: XCTestCase {
             loopStartFrame: 128,
             loopEndFrame: 640,
             loopLengthFrames: 512,
+            pingPongLoopApplied: false,
             envelopeEnabled: true,
             envelopeTick: 4,
             envelopeValue: 0.75,
@@ -598,6 +599,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["loopStartFrame"] as? Int, 128)
         XCTAssertEqual(object["loopEndFrame"] as? Int, 640)
         XCTAssertEqual(object["loopLengthFrames"] as? Int, 512)
+        XCTAssertEqual(object["pingPongLoopApplied"] as? Bool, false)
         XCTAssertEqual(object["envelopeEnabled"] as? Bool, true)
         XCTAssertEqual(object["envelopeTick"] as? Int, 4)
         XCTAssertEqual(object["envelopeValue"] as? Double, 0.75)
@@ -2145,7 +2147,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: false, startFrame: 1_000, endFrame: 1_000, lengthFrames: 0, loopType: 1, loopTypeName: "forward"))
     }
 
-    func testPlaybackSampleLoopRegionDefersPingPongLoops() {
+    func testPlaybackSampleLoopRegionEnablesPingPongLoops() {
         let sample = PlaybackSample(
             instrumentIndex: 1,
             sampleIndex: 0,
@@ -2160,7 +2162,20 @@ final class VoodooTrackerXTests: XCTestCase {
             loopType: 2
         )
 
-        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: false, startFrame: 100, endFrame: 400, lengthFrames: 300, loopType: 2, loopTypeName: "ping_pong_deferred"))
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: true, startFrame: 100, endFrame: 400, lengthFrames: 300, loopType: 2, loopTypeName: "ping_pong"))
+        XCTAssertTrue(sample.loopRegion.pingPongLoopApplied)
+    }
+
+    func testPingPongLoopFrameConstructionBuildsForwardThenReverseInterior() {
+        let frameIndices = AudioSampleLoopFrameBuilder.pingPongFrameIndices(for: 2..<6, sampleFrameCount: 8)
+
+        XCTAssertEqual(frameIndices, [2, 3, 4, 5, 4, 3])
+    }
+
+    func testPingPongLoopFrameConstructionRejectsInvalidBounds() {
+        XCTAssertEqual(AudioSampleLoopFrameBuilder.pingPongFrameIndices(for: 6..<6, sampleFrameCount: 8), [])
+        XCTAssertEqual(AudioSampleLoopFrameBuilder.pingPongFrameIndices(for: 6..<9, sampleFrameCount: 8), [])
+        XCTAssertEqual(AudioSampleLoopFrameBuilder.pingPongFrameIndices(for: -1..<3, sampleFrameCount: 8), [])
     }
 
     func testAudioSamplePlaybackPlannerSchedulesForwardLoopAfterIntro() throws {
@@ -2182,7 +2197,9 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(plan.introRange, 64..<500)
         XCTAssertEqual(plan.loopRange, 200..<500)
+        XCTAssertEqual(plan.loopMode, .forward)
         XCTAssertTrue(plan.isLooped)
+        XCTAssertFalse(plan.usesPingPongLoop)
     }
 
     func testAudioSamplePlaybackPlannerStartsInsideForwardLoopAndThenLoopsFullRegion() throws {
@@ -2204,7 +2221,56 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(plan.introRange, 350..<500)
         XCTAssertEqual(plan.loopRange, 200..<500)
+        XCTAssertEqual(plan.loopMode, .forward)
         XCTAssertTrue(plan.isLooped)
+    }
+
+    func testAudioSamplePlaybackPlannerSchedulesPingPongLoopAfterIntro() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 200,
+            loopLength: 300,
+            loopType: 2
+        )
+
+        let plan = try XCTUnwrap(AudioSamplePlaybackPlanner.plan(for: sample, sampleStartOffset: 64))
+
+        XCTAssertEqual(plan.introRange, 64..<200)
+        XCTAssertEqual(plan.loopRange, 200..<500)
+        XCTAssertEqual(plan.loopMode, .pingPong)
+        XCTAssertTrue(plan.isLooped)
+        XCTAssertTrue(plan.usesPingPongLoop)
+    }
+
+    func testAudioSamplePlaybackPlannerClampsInvalidPingPongBoundsSafely() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 1_000),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sampleLength: 1_000,
+            loopStart: 1_500,
+            loopLength: 300,
+            loopType: 2
+        )
+
+        let plan = try XCTUnwrap(AudioSamplePlaybackPlanner.plan(for: sample, sampleStartOffset: 64))
+
+        XCTAssertEqual(sample.loopRegion, PlaybackSampleLoopRegion(isEnabled: false, startFrame: 1_000, endFrame: 1_000, lengthFrames: 0, loopType: 2, loopTypeName: "ping_pong"))
+        XCTAssertEqual(plan.introRange, 64..<1_000)
+        XCTAssertNil(plan.loopRange)
+        XCTAssertNil(plan.loopMode)
+        XCTAssertFalse(plan.isLooped)
     }
 
     func testAudioSamplePlaybackPlannerFallsBackToOneShotPastLoopEnd() throws {

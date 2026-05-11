@@ -558,6 +558,106 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(mixer.render(frames: 0).sampleCount, 0)
     }
 
+    func testSoftwareMixerOfflineRendererInitializesWithExistingMixer() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 8_000, channelCount: 1))
+        let renderer = SoftwareMixerOfflineRenderer(mixer: mixer, maximumFrameCount: 128)
+
+        XCTAssertEqual(renderer.config.sampleRate, 8_000)
+        XCTAssertEqual(renderer.config.channelCount, 1)
+        XCTAssertEqual(renderer.maximumFrameCount, 128)
+    }
+
+    func testSoftwareMixerOfflineRendererCreatesMixerFromRenderConfiguration() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2))
+
+        XCTAssertEqual(renderer.config.sampleRate, 48_000)
+        XCTAssertEqual(renderer.config.channelCount, 2)
+        XCTAssertEqual(renderer.maximumFrameCount, OfflineRenderRequest.defaultMaximumFrameCount)
+    }
+
+    func testSoftwareMixerOfflineRendererRendersExplicitFrameCount() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+
+        let result = renderer.render(frames: 16)
+
+        XCTAssertEqual(result.requestedFrameCount, 16)
+        XCTAssertEqual(result.renderedFrameCount, 16)
+        XCTAssertEqual(result.block.sampleCount, 32)
+        XCTAssertFalse(result.wasFrameCountBounded)
+    }
+
+    func testSoftwareMixerOfflineRendererConvertsDurationToFramesDeterministically() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+
+        let result = renderer.render(durationSeconds: 0.125)
+
+        XCTAssertEqual(result.requestedFrameCount, 125)
+        XCTAssertEqual(result.renderedFrameCount, 125)
+        XCTAssertEqual(result.block.sampleCount, 250)
+    }
+
+    func testSoftwareMixerOfflineRendererReturnsEmptyBlocksForZeroRequests() {
+        let renderer = SoftwareMixerOfflineRenderer()
+
+        XCTAssertEqual(renderer.render(frames: 0).block, MixerRenderBlock(config: renderer.config, frameCount: 0, interleavedPCM: []))
+        XCTAssertEqual(renderer.render(durationSeconds: 0).block, MixerRenderBlock(config: renderer.config, frameCount: 0, interleavedPCM: []))
+    }
+
+    func testSoftwareMixerOfflineRendererHandlesInvalidRequestsSafely() {
+        let renderer = SoftwareMixerOfflineRenderer()
+
+        XCTAssertEqual(renderer.render(frames: -64).renderedFrameCount, 0)
+        XCTAssertEqual(renderer.render(durationSeconds: -0.5).renderedFrameCount, 0)
+        XCTAssertEqual(renderer.render(durationSeconds: .nan).renderedFrameCount, 0)
+    }
+
+    func testSoftwareMixerOfflineRendererBoundsOversizedRequests() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2), maximumFrameCount: 10)
+
+        let result = renderer.render(frames: 12)
+
+        XCTAssertEqual(result.requestedFrameCount, 12)
+        XCTAssertEqual(result.renderedFrameCount, 10)
+        XCTAssertEqual(result.maximumFrameCount, 10)
+        XCTAssertTrue(result.wasFrameCountBounded)
+        XCTAssertEqual(result.block.sampleCount, 20)
+    }
+
+    func testSoftwareMixerOfflineRendererAppliesRequestConfigurationWithinRendererLimit() {
+        let renderer = SoftwareMixerOfflineRenderer(maximumFrameCount: 10)
+        let request = OfflineRenderRequest(
+            config: MixerRenderConfig(sampleRate: 2_000, channelCount: 1),
+            frames: 12,
+            maximumFrameCount: 20
+        )
+
+        let result = renderer.render(request)
+
+        XCTAssertEqual(renderer.config.sampleRate, 2_000)
+        XCTAssertEqual(renderer.config.channelCount, 1)
+        XCTAssertEqual(result.renderedFrameCount, 10)
+        XCTAssertEqual(result.maximumFrameCount, 10)
+        XCTAssertTrue(result.wasFrameCountBounded)
+    }
+
+    func testSoftwareMixerOfflineRendererRepeatedRenderAfterResetIsDeterministic() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+
+        let first = renderer.render(frames: 8)
+        renderer.reset()
+        let second = renderer.render(frames: 8)
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testSoftwareMixerOfflineRendererStillRendersSilenceOnly() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+
+        let result = renderer.render(frames: 4)
+
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 8))
+    }
+
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
         let event = PlaybackTraceEvent(
             tickIndex: 12,

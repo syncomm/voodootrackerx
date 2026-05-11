@@ -1,8 +1,8 @@
 # Audio Reference Comparison
 
-VoodooTracker X can play XM files, but it does not yet provide direct offline
-WAV export. This workflow compares a reference renderer WAV with a
-VoodooTracker X WAV capture when one is available.
+VoodooTracker X can play XM files, but it does not yet provide meaningful direct
+offline WAV export. This workflow compares a reference renderer WAV with a
+VoodooTracker X WAV capture or future offline render when one is available.
 
 Do not commit copyrighted modules or generated renders from them. Keep local
 modules and WAVs in `/tmp`, `~/Desktop`, or another untracked location.
@@ -41,10 +41,22 @@ When direct export is added, use the exported file as the candidate WAV.
 
 The target software mixer architecture is documented in
 `docs/decisions/004-software-mixer-transition.md`. The initial software mixer
-skeleton now exists behind the playback/audio boundary, but it renders silence
-only and is not the runtime backend. The next step is an offline render harness.
-Once that harness exists, prefer it over manual app capture for mixer
-validation:
+skeleton and offline render harness now exist behind the playback/audio boundary.
+The harness renders bounded deterministic Float32 PCM blocks for tests and
+future export tooling, but it still renders silence only until sample rendering
+is implemented. Requests above the configured frame maximum are clamped rather
+than allowed to render unbounded PCM.
+
+Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
+offline harness is not part of live playback and should not change audible
+behavior. WAV/reference comparison becomes meaningful only after the software
+mixer starts rendering sample data. Generated WAV files, playback traces,
+comparison reports, and local modules must remain outside the repository.
+`/Users/syncomm/Desktop/_DARKL.XM` is a local-only manual regression module and
+must not be committed or copied into fixtures.
+
+Once sample rendering exists, prefer the offline harness over manual app capture
+for mixer validation:
 
 - render the first N seconds of the local test module to a candidate WAV
 - render the same segment with `openmpt123` or MikMod using recorded settings

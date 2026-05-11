@@ -274,6 +274,13 @@ struct PlaybackSong: Equatable {
         return PlaybackPosition(orderIndex: orderIndex, patternIndex: pattern.index, rowIndex: safeRowIndex)
     }
 
+    func position(patternIndex: Int, rowIndex: Int) -> PlaybackPosition? {
+        guard let order = orders.first(where: { $0.patternIndex == patternIndex }) else {
+            return nil
+        }
+        return position(orderIndex: order.orderIndex, rowIndex: rowIndex)
+    }
+
     func position(after position: PlaybackPosition) -> PlaybackStepResult {
         guard let pattern = pattern(for: position.orderIndex),
               pattern.index == position.patternIndex else {

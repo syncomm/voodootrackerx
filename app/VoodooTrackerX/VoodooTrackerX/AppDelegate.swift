@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingHorizontalViewportOrigin: CGFloat?
     private var isLiveResizingTrackerViewport = false
     private var liveResizeHorizontalOrigin: CGFloat?
+    private var debugStopTimer: Timer?
 
     private var mainWindow: NSWindow? { windowController?.window }
     private var controlPanelView: ControlPanelView? { windowController?.controlPanelView }
@@ -169,6 +170,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "w"
         )
 
+        let debugMenuItem = NSMenuItem()
+        debugMenuItem.title = "Debug"
+        mainMenu.addItem(debugMenuItem)
+
+        let debugMenu = NSMenu(title: "Debug")
+        debugMenuItem.submenu = debugMenu
+        let previousOrderItem = debugMenu.addItem(
+            withTitle: "Jump to Previous Order",
+            action: #selector(debugJumpToPreviousOrder(_:)),
+            keyEquivalent: "["
+        )
+        previousOrderItem.keyEquivalentModifierMask = [.command, .option]
+        let nextOrderItem = debugMenu.addItem(
+            withTitle: "Jump to Next Order",
+            action: #selector(debugJumpToNextOrder(_:)),
+            keyEquivalent: "]"
+        )
+        nextOrderItem.keyEquivalentModifierMask = [.command, .option]
+        let restartOrderItem = debugMenu.addItem(
+            withTitle: "Restart Current Order",
+            action: #selector(debugRestartCurrentOrder(_:)),
+            keyEquivalent: "\\"
+        )
+        restartOrderItem.keyEquivalentModifierMask = [.command, .option]
+
         let windowMenuItem = NSMenuItem()
         windowMenuItem.title = "Window"
         mainMenu.addItem(windowMenuItem)
@@ -246,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 """
             }
             syncControlPanelView()
+            applyDebugLaunchConfigurationIfNeeded()
         } catch {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -312,6 +339,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func octaveSelectionChanged(_ sender: NSPopUpButton) {
         selectedOctave = max(0, sender.indexOfSelectedItem)
         syncControlPanelView()
+    }
+
+    @objc
+    private func debugJumpToNextOrder(_ sender: Any?) {
+        debugJumpOrder(delta: 1)
+    }
+
+    @objc
+    private func debugJumpToPreviousOrder(_ sender: Any?) {
+        debugJumpOrder(delta: -1)
+    }
+
+    @objc
+    private func debugRestartCurrentOrder(_ sender: Any?) {
+        debugSeekToOrder(currentPlaybackOrderIndex(), rowIndex: 0)
+    }
+
+    private func applyDebugLaunchConfigurationIfNeeded() {
+        let configuration = PlaybackDebugLaunchConfiguration.parse()
+        if let request = configuration.startRequest {
+            playbackEngine.seek(to: request, autoplay: configuration.autoplay)
+        } else if configuration.autoplay {
+            playbackEngine.play(from: currentPlaybackStartContext())
+        }
+        if configuration.autoplay {
+            scheduleDebugStop(after: configuration.stopAfterSeconds)
+        }
+        syncControlPanelView()
+    }
+
+    private func scheduleDebugStop(after seconds: TimeInterval?) {
+        debugStopTimer?.invalidate()
+        debugStopTimer = nil
+        guard let seconds else {
+            return
+        }
+        debugStopTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.playbackEngine.stop()
+                self?.syncControlPanelView()
+            }
+        }
+    }
+
+    private func debugJumpOrder(delta: Int) {
+        guard let song = playbackEngine.song,
+              !song.orders.isEmpty else {
+            return
+        }
+        let proposedOrderIndex = currentPlaybackOrderIndex() + delta
+        let clampedOrderIndex = min(max(0, proposedOrderIndex), song.orders.count - 1)
+        debugSeekToOrder(clampedOrderIndex, rowIndex: 0)
+    }
+
+    private func debugSeekToOrder(_ orderIndex: Int, rowIndex: Int) {
+        let shouldAutoplay = playbackEngine.state.isPlaying
+        playbackEngine.seek(
+            to: PlaybackDebugStartRequest(orderIndex: orderIndex, rowIndex: rowIndex),
+            autoplay: shouldAutoplay
+        )
+        syncControlPanelView()
+    }
+
+    private func currentPlaybackOrderIndex() -> Int {
+        playbackEngine.currentPosition?.orderIndex ?? selectedSongPositionIndex
     }
 
     private var interactionMode: TrackerInteractionMode {

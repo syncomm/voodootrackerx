@@ -23,6 +23,15 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let tickDuration: TimeInterval
     let rowDuration: TimeInterval
     let usesLinearFrequencyTable: Bool?
+    let startedFromDebugSeek: Bool
+    let requestedStartOrder: Int?
+    let requestedStartPattern: Int?
+    let requestedStartRow: Int?
+    let requestedStartTick: Int?
+    let actualStartOrder: Int?
+    let actualStartPattern: Int?
+    let actualStartRow: Int?
+    let actualStartTick: Int?
     let noteValue: UInt8?
     let instrumentIndex: Int?
     let sampleIndex: Int?
@@ -81,6 +90,15 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         tickDuration: TimeInterval,
         rowDuration: TimeInterval,
         usesLinearFrequencyTable: Bool?,
+        startedFromDebugSeek: Bool = false,
+        requestedStartOrder: Int? = nil,
+        requestedStartPattern: Int? = nil,
+        requestedStartRow: Int? = nil,
+        requestedStartTick: Int? = nil,
+        actualStartOrder: Int? = nil,
+        actualStartPattern: Int? = nil,
+        actualStartRow: Int? = nil,
+        actualStartTick: Int? = nil,
         noteValue: UInt8?,
         instrumentIndex: Int?,
         sampleIndex: Int?,
@@ -138,6 +156,15 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.tickDuration = tickDuration
         self.rowDuration = rowDuration
         self.usesLinearFrequencyTable = usesLinearFrequencyTable
+        self.startedFromDebugSeek = startedFromDebugSeek
+        self.requestedStartOrder = requestedStartOrder
+        self.requestedStartPattern = requestedStartPattern
+        self.requestedStartRow = requestedStartRow
+        self.requestedStartTick = requestedStartTick
+        self.actualStartOrder = actualStartOrder
+        self.actualStartPattern = actualStartPattern
+        self.actualStartRow = actualStartRow
+        self.actualStartTick = actualStartTick
         self.noteValue = noteValue
         self.instrumentIndex = instrumentIndex
         self.sampleIndex = sampleIndex
@@ -197,6 +224,15 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case tickDuration
         case rowDuration
         case usesLinearFrequencyTable
+        case startedFromDebugSeek
+        case requestedStartOrder
+        case requestedStartPattern
+        case requestedStartRow
+        case requestedStartTick
+        case actualStartOrder
+        case actualStartPattern
+        case actualStartRow
+        case actualStartTick
         case noteValue
         case instrumentIndex
         case sampleIndex
@@ -257,6 +293,15 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encode(tickDuration, forKey: .tickDuration)
         try container.encode(rowDuration, forKey: .rowDuration)
         try container.encodeOptional(usesLinearFrequencyTable, forKey: .usesLinearFrequencyTable)
+        try container.encode(startedFromDebugSeek, forKey: .startedFromDebugSeek)
+        try container.encodeOptional(requestedStartOrder, forKey: .requestedStartOrder)
+        try container.encodeOptional(requestedStartPattern, forKey: .requestedStartPattern)
+        try container.encodeOptional(requestedStartRow, forKey: .requestedStartRow)
+        try container.encodeOptional(requestedStartTick, forKey: .requestedStartTick)
+        try container.encodeOptional(actualStartOrder, forKey: .actualStartOrder)
+        try container.encodeOptional(actualStartPattern, forKey: .actualStartPattern)
+        try container.encodeOptional(actualStartRow, forKey: .actualStartRow)
+        try container.encodeOptional(actualStartTick, forKey: .actualStartTick)
         try container.encodeOptional(noteValue, forKey: .noteValue)
         try container.encodeOptional(instrumentIndex, forKey: .instrumentIndex)
         try container.encodeOptional(sampleIndex, forKey: .sampleIndex)

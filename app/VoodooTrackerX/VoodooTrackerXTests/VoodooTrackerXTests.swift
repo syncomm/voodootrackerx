@@ -573,6 +573,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["speed"] as? Int, 2)
         XCTAssertEqual(object["bpm"] as? Int, 183)
         XCTAssertEqual(object["usesLinearFrequencyTable"] as? Bool, true)
+        XCTAssertEqual(object["startedFromDebugSeek"] as? Bool, false)
+        XCTAssertTrue(object["requestedStartOrder"] is NSNull)
+        XCTAssertTrue(object["actualStartOrder"] is NSNull)
         XCTAssertEqual(object["noteValue"] as? Int, 49)
         XCTAssertEqual(object["instrumentIndex"] as? Int, 2)
         XCTAssertEqual(object["sampleIndex"] as? Int, 1)
@@ -745,6 +748,22 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(writer.isEnabled)
     }
 
+    func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
+        let configuration = PlaybackDebugLaunchConfiguration.parse(environment: [
+            PlaybackDebugLaunchConfiguration.startOrderEnvironmentKey: "30",
+            PlaybackDebugLaunchConfiguration.startRowEnvironmentKey: "4",
+            PlaybackDebugLaunchConfiguration.startTickEnvironmentKey: "2",
+            PlaybackDebugLaunchConfiguration.autoplayEnvironmentKey: "1",
+            PlaybackDebugLaunchConfiguration.stopAfterSecondsEnvironmentKey: "10.5"
+        ])
+
+        XCTAssertEqual(configuration.startRequest?.requestedOrderIndex, 30)
+        XCTAssertEqual(configuration.startRequest?.requestedRowIndex, 4)
+        XCTAssertEqual(configuration.startRequest?.requestedTickInRow, 2)
+        XCTAssertTrue(configuration.autoplay)
+        XCTAssertEqual(configuration.stopAfterSeconds, 10.5)
+    }
+
     @MainActor
     func testPlaybackEngineRecordsTraceForTriggeredNote() {
         let audioOutput = TestPlaybackAudioOutput()
@@ -782,6 +801,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.rowIndex, 0)
         XCTAssertEqual(event?.tickInRow, 0)
         XCTAssertEqual(event?.channelIndex, 0)
+        XCTAssertEqual(event?.startedFromDebugSeek, false)
         XCTAssertEqual(event?.noteValue, 49)
         XCTAssertEqual(event?.instrumentIndex, 1)
         XCTAssertEqual(event?.sampleIndex, 0)
@@ -805,6 +825,83 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.decisionReason, "row_note")
         XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
         XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackEngineStartsFromDebugOrderRowAndAnnotatesTrace() {
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput(), traceWriter: traceWriter)
+        engine.load(song: makePlaybackSong(orderPatternIndices: [2, 5], patternRowCounts: [2: 2, 5: 8]))
+
+        engine.play(
+            from: nil,
+            debugStart: PlaybackDebugStartRequest(orderIndex: 1, rowIndex: 3)
+        )
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 3))
+        let timingEvent = traceWriter.events.first { $0.decision == .observed && $0.decisionReason == "row_timing_before_effects" }
+        XCTAssertEqual(timingEvent?.startedFromDebugSeek, true)
+        XCTAssertEqual(timingEvent?.requestedStartOrder, 1)
+        XCTAssertNil(timingEvent?.requestedStartPattern)
+        XCTAssertEqual(timingEvent?.requestedStartRow, 3)
+        XCTAssertNil(timingEvent?.requestedStartTick)
+        XCTAssertEqual(timingEvent?.actualStartOrder, 1)
+        XCTAssertEqual(timingEvent?.actualStartPattern, 5)
+        XCTAssertEqual(timingEvent?.actualStartRow, 3)
+        XCTAssertEqual(timingEvent?.actualStartTick, 0)
+    }
+
+    @MainActor
+    func testPlaybackEngineDebugSeekCanResolvePatternIndexWithoutAutoplay() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(orderPatternIndices: [2, 5, 2], patternRowCounts: [2: 4, 5: 8]))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        let position = engine.seek(
+            to: PlaybackDebugStartRequest(patternIndex: 5, rowIndex: 6),
+            autoplay: false
+        )
+
+        XCTAssertEqual(position, PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 6))
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 6))
+        XCTAssertEqual(engine.state.mode, .stopped)
+        XCTAssertEqual(positions, [PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 6)])
+    }
+
+    @MainActor
+    func testPlaybackEngineDebugSeekWhilePlayingResetsStateAndCanStartAtTick() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestPlaybackTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, traceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 5],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+                5: [makePlaybackRow(index: 0, note: 53, instrument: 1, effectType: 0x0E, effectParam: 0xC2)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 125)
+        ))
+
+        engine.play(from: nil)
+        _ = engine.seek(
+            to: PlaybackDebugStartRequest(orderIndex: 1, rowIndex: 0, tickInRow: 2),
+            autoplay: true
+        )
+
+        XCTAssertEqual(audioOutput.stopAllCount, 1)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 5, rowIndex: 0))
+        XCTAssertTrue(audioOutput.stoppedChannels.contains(0))
+        let debugTickEvent = traceWriter.events.last { $0.startedFromDebugSeek && $0.tickInRow == 2 }
+        XCTAssertEqual(debugTickEvent?.requestedStartOrder, 1)
+        XCTAssertEqual(debugTickEvent?.requestedStartRow, 0)
+        XCTAssertEqual(debugTickEvent?.requestedStartTick, 2)
+        XCTAssertEqual(debugTickEvent?.actualStartOrder, 1)
+        XCTAssertEqual(debugTickEvent?.actualStartPattern, 5)
+        XCTAssertEqual(debugTickEvent?.actualStartRow, 0)
+        XCTAssertEqual(debugTickEvent?.actualStartTick, 2)
     }
 
     @MainActor

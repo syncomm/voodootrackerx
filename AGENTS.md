@@ -128,6 +128,24 @@ When operating autonomously, an agent MUST:
 
 ---
 
+## Agent PR Submission Protocol
+
+When the user says "submit a PR", "open a PR", or equivalent, an agent should proceed without asking for extra confirmation if the current work is on a scoped feature branch and the worktree contains only intended changes.
+
+Use this flow:
+
+1. Check `git status --short --branch` and review the staged/unstaged file list.
+2. Stage only the intended files.
+3. Commit with an imperative scoped message.
+4. Push the branch to origin.
+5. Create the PR with `gh pr create`.
+6. Write the PR body to a temporary file under `/tmp` and pass it with `--body-file` instead of embedding a long multi-line body in the shell command.
+7. After creation, run `gh pr view` or equivalent to confirm the PR URL, base branch, head branch, title, and open state.
+
+Do not merge the PR. Do not ask for confirmation unless the branch, diff, or uncommitted changes are ambiguous, unrelated changes are mixed in, or the action would be destructive. If command approval is needed, request a narrow persistent prefix such as `git push` or `gh pr create`; do not ask the user to approve one very long inline PR creation command.
+
+---
+
 ## Context Loading Guidelines
 
 Future agents should load only the documents needed for the current task.

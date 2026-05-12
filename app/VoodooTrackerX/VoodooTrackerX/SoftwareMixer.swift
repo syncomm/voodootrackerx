@@ -61,6 +61,89 @@ struct MixerRenderBlock: Equatable {
     }
 }
 
+/// Bounded offline render request for deterministic software mixer validation.
+///
+/// Frame counts are sanitized to zero for invalid input and clamped to `maximumFrameCount` before
+/// rendering. The default maximum is 60 seconds at 44.1 kHz so local comparison tooling cannot
+/// accidentally request unbounded PCM.
+struct OfflineRenderRequest: Equatable {
+    static let defaultMaximumFrameCount = Int(MixerRenderConfig.defaultSampleRate) * 60
+
+    let config: MixerRenderConfig
+    let requestedFrameCount: Int
+    let maximumFrameCount: Int
+
+    var boundedFrameCount: Int {
+        min(requestedFrameCount, maximumFrameCount)
+    }
+
+    var wasFrameCountBounded: Bool {
+        requestedFrameCount > maximumFrameCount
+    }
+
+    init(
+        config: MixerRenderConfig = MixerRenderConfig(),
+        frames: Int,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        self.config = config
+        requestedFrameCount = max(0, frames)
+        self.maximumFrameCount = max(0, maximumFrameCount)
+    }
+
+    init(
+        config: MixerRenderConfig = MixerRenderConfig(),
+        durationSeconds: Double,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        self.init(
+            config: config,
+            frames: Self.frameCount(durationSeconds: durationSeconds, sampleRate: config.sampleRate),
+            maximumFrameCount: maximumFrameCount
+        )
+    }
+
+    private static func frameCount(durationSeconds: Double, sampleRate: Double) -> Int {
+        guard durationSeconds.isFinite,
+              durationSeconds > 0,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return 0
+        }
+        let frameCount = (durationSeconds * sampleRate).rounded(.down)
+        guard frameCount.isFinite,
+              frameCount > 0 else {
+            return 0
+        }
+        guard frameCount < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(frameCount)
+    }
+}
+
+/// Result metadata for a bounded offline software mixer render.
+struct OfflineRenderResult: Equatable {
+    let request: OfflineRenderRequest
+    let block: MixerRenderBlock
+
+    var requestedFrameCount: Int {
+        request.requestedFrameCount
+    }
+
+    var renderedFrameCount: Int {
+        block.frameCount
+    }
+
+    var maximumFrameCount: Int {
+        request.maximumFrameCount
+    }
+
+    var wasFrameCountBounded: Bool {
+        request.wasFrameCountBounded
+    }
+}
+
 /// Pull-based software mixer skeleton behind the playback/audio boundary.
 ///
 /// This type is independent of AppKit, `AVAudioPlayerNode`, and CoreAudio render-thread assumptions. It
@@ -75,10 +158,15 @@ final class SoftwareMixer {
         voices = []
     }
 
+    /// Applies a complete render configuration and resets transient mixer state.
+    func configure(_ config: MixerRenderConfig) {
+        self.config = config
+        reset()
+    }
+
     /// Applies a new render configuration using safe deterministic defaults for invalid values.
     func configure(sampleRate: Double, channelCount: Int) {
-        config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
-        reset()
+        configure(MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount))
     }
 
     /// Returns an interleaved Float32 PCM block containing exactly `frames` frames for positive requests.
@@ -98,5 +186,75 @@ final class SoftwareMixer {
     /// Clears transient mixer state so repeated renders from the same inputs are deterministic.
     func reset() {
         voices.removeAll()
+    }
+}
+
+/// Offline harness for bounded deterministic renders from `SoftwareMixer`.
+///
+/// This renderer is independent of AppKit, `AVAudioPlayerNode`, and live playback. It exists for tests and
+/// future CLI/export tooling; runtime playback remains on `PlaybackAudioEngine`.
+final class SoftwareMixerOfflineRenderer {
+    private let mixer: SoftwareMixer
+    let maximumFrameCount: Int
+
+    var config: MixerRenderConfig {
+        mixer.config
+    }
+
+    init(
+        mixer: SoftwareMixer,
+        maximumFrameCount: Int = OfflineRenderRequest.defaultMaximumFrameCount
+    ) {
+        self.mixer = mixer
+        self.maximumFrameCount = max(0, maximumFrameCount)
+    }
+
+    convenience init(
+        config: MixerRenderConfig = MixerRenderConfig(),
+        maximumFrameCount: Int = OfflineRenderRequest.defaultMaximumFrameCount
+    ) {
+        self.init(
+            mixer: SoftwareMixer(config: config),
+            maximumFrameCount: maximumFrameCount
+        )
+    }
+
+    /// Renders a bounded frame count using the renderer's current mixer configuration.
+    func render(frames: Int) -> OfflineRenderResult {
+        render(OfflineRenderRequest(
+            config: mixer.config,
+            frames: frames,
+            maximumFrameCount: maximumFrameCount
+        ))
+    }
+
+    /// Converts duration to frames with deterministic floor rounding, then renders a bounded block.
+    func render(durationSeconds: Double) -> OfflineRenderResult {
+        render(OfflineRenderRequest(
+            config: mixer.config,
+            durationSeconds: durationSeconds,
+            maximumFrameCount: maximumFrameCount
+        ))
+    }
+
+    /// Renders a request after applying its configuration, clamping oversized requests to the configured maximum.
+    func render(_ request: OfflineRenderRequest) -> OfflineRenderResult {
+        let effectiveRequest = OfflineRenderRequest(
+            config: request.config,
+            frames: request.requestedFrameCount,
+            maximumFrameCount: min(request.maximumFrameCount, maximumFrameCount)
+        )
+        if mixer.config != request.config {
+            mixer.configure(request.config)
+        }
+        return OfflineRenderResult(
+            request: effectiveRequest,
+            block: mixer.render(frames: effectiveRequest.boundedFrameCount)
+        )
+    }
+
+    /// Clears mixer state so the same request can be rendered deterministically again.
+    func reset() {
+        mixer.reset()
     }
 }

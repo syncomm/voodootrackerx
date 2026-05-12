@@ -25,8 +25,8 @@ playback.
 Immediate audio accuracy sequence:
 
 1. Software Mixer Skeleton Behind AudioEngine — done
-2. Offline Render Harness for Software Mixer — next
-3. One-shot sample rendering
+2. Offline Render Harness for Software Mixer — done
+3. One-shot sample rendering — next
 4. Forward and ping-pong loop rendering
 5. Volume, panning, and envelope rendering
 6. Timing and effect integration
@@ -97,7 +97,8 @@ Features:
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT
 - deterministic software mixer skeleton for future offline rendering
-- offline render harness and mixer sample rendering still pending
+- bounded offline render harness for deterministic mixer validation
+- mixer sample rendering still pending
 
 ---
 

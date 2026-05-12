@@ -100,7 +100,7 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.2 — Offline Render Harness for Software Mixer
 - Scope: add a local/offline bounded-frame render path suitable for future PCM/WAV comparison
 - Verification: deterministic render tests with synthetic data only; no copyrighted module fixtures
-- Status: next.
+- Status: done.
 
 ### PR 2.7.3 — Software Mixer One-Shot Sample Rendering
 - Scope: render simple one-shot sample playback with deterministic sample-position accumulators

@@ -43,20 +43,23 @@ The target software mixer architecture is documented in
 `docs/decisions/004-software-mixer-transition.md`. The initial software mixer
 skeleton and offline render harness now exist behind the playback/audio boundary.
 The harness renders bounded deterministic Float32 PCM blocks for tests and
-future export tooling, but it still renders silence only until sample rendering
-is implemented. Requests above the configured frame maximum are clamped rather
-than allowed to render unbounded PCM.
+future export tooling. It can render explicitly supplied synthetic one-shot
+sample voices, but it still does not render XM instruments, patterns, song
+timing, loops, envelopes, effects, or reference WAV exports. Requests above the
+configured frame maximum are clamped rather than allowed to render unbounded
+PCM.
 
 Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
 offline harness is not part of live playback and should not change audible
-behavior. WAV/reference comparison becomes meaningful only after the software
-mixer starts rendering sample data. Generated WAV files, playback traces,
+behavior. WAV/reference comparison against real modules becomes meaningful only
+after the software mixer is connected to module-derived sample, timing, loop,
+envelope, panning, and effect decisions. Generated WAV files, playback traces,
 comparison reports, and local modules must remain outside the repository.
 `/Users/syncomm/Desktop/_DARKL.XM` is a local-only manual regression module and
 must not be committed or copied into fixtures.
 
-Once sample rendering exists, prefer the offline harness over manual app capture
-for mixer validation:
+Once module-connected sample rendering exists, prefer the offline harness over
+manual app capture for mixer validation:
 
 - render the first N seconds of the local test module to a candidate WAV
 - render the same segment with `openmpt123` or MikMod using recorded settings

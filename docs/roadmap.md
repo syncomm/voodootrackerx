@@ -57,7 +57,7 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence and synthetic one-shot sample voices offline only and is not used for runtime playback.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, and synthetic forward/ping-pong loops offline only and is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -110,6 +110,7 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.4 — Software Mixer Forward and Ping-Pong Loop Rendering
 - Scope: implement forward and ping-pong loop behavior in mixer-owned sample stepping
 - Verification: loop edge-case tests for loop start, length, sample offset, and turnaround frames
+- Status: done.
 
 ### PR 2.7.5 — Software Mixer Volume / Panning / Envelopes
 - Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the mixer

@@ -504,6 +504,10 @@ private final class TestPlaybackTraceWriter: PlaybackTraceWriting {
     }
 }
 
+private func stereoPCM(from monoPCM: [Float]) -> [Float] {
+    monoPCM.flatMap { [$0, $0] }
+}
+
 final class VoodooTrackerXTests: XCTestCase {
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {
         let mixer = SoftwareMixer()
@@ -767,6 +771,235 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(result.renderedFrameCount, 5)
         XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.5, 0.25, 0.25, -0.25, -0.25, 0, 0, 0, 0])
+    }
+
+    func testSoftwareMixerNoLoopModeStillMatchesOneShotBehavior() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]),
+            loop: MixerSampleLoop(mode: .none, startFrame: 1, endFrame: 3)
+        )
+
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [1, 0.5, -0.5, 0, 0]))
+    }
+
+    func testSoftwareMixerForwardLoopRepeatsExclusiveLoopRegion() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        let block = mixer.render(frames: 9)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2, 3, 1, 2]))
+    }
+
+    func testSoftwareMixerForwardLoopCrossesBoundaryInFirstRender() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1]))
+    }
+
+    func testSoftwareMixerForwardLoopWorksAcrossSmallRenderCalls() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        let splitPCM = mixer.render(frames: 2).interleavedPCM +
+            mixer.render(frames: 3).interleavedPCM +
+            mixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2, 3, 1, 2]))
+    }
+
+    func testSoftwareMixerPingPongLoopReversesDirectionDeterministically() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        let block = mixer.render(frames: 9)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+    }
+
+    func testSoftwareMixerPingPongLoopCrossesBoundaryInFirstRender() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2]))
+    }
+
+    func testSoftwareMixerPingPongLoopWorksAcrossSmallRenderCalls() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        let splitPCM = mixer.render(frames: 2).interleavedPCM +
+            mixer.render(frames: 3).interleavedPCM +
+            mixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+    }
+
+    func testSoftwareMixerLoopSplitRendersMatchOneLargerRender() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let forwardLoop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let pingPongLoop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+
+        for loop in [forwardLoop, pingPongLoop] {
+            let singleRenderMixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+            singleRenderMixer.addVoice(sample: sample, loop: loop)
+            let splitRenderMixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+            splitRenderMixer.addVoice(sample: sample, loop: loop)
+
+            let singleRender = singleRenderMixer.render(frames: 11)
+            let splitRender = splitRenderMixer.render(frames: 4).interleavedPCM +
+                splitRenderMixer.render(frames: 1).interleavedPCM +
+                splitRenderMixer.render(frames: 6).interleavedPCM
+
+            XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+        }
+    }
+
+    func testSoftwareMixerResetRestoresForwardLoopOutputDeterministically() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        let first = mixer.render(frames: 9)
+        mixer.reset()
+        let second = mixer.render(frames: 9)
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testSoftwareMixerResetRestoresPingPongLoopOutputDeterministically() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        let first = mixer.render(frames: 9)
+        mixer.reset()
+        let second = mixer.render(frames: 9)
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testSoftwareMixerClearVoicesReturnsLoopedMixerToSilence() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+
+        _ = mixer.render(frames: 4)
+        mixer.clearVoices()
+        let block = mixer.render(frames: 3)
+
+        XCTAssertTrue(mixer.voices.isEmpty)
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0]))
+    }
+
+    func testSoftwareMixerGainAppliesToLoopedOutput() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 2, 3]),
+            gain: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0.5, 1, 1.5, 1, 1.5]))
+    }
+
+    func testSoftwareMixerPanAppliesToLoopedOutput() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 0.5, 0.25]),
+            pan: -1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+
+        let block = mixer.render(frames: 4)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0, 0.5, 0, 0.25, 0, 0.5, 0])
+    }
+
+    func testSoftwareMixerInvalidLoopDefinitionsFallBackToOneShotPlayback() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2])
+        let invalidLoops = [
+            MixerSampleLoop(mode: .forward, startFrame: -1, endFrame: 2),
+            MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
+            MixerSampleLoop(mode: .forward, startFrame: 2, endFrame: 2),
+            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 2)
+        ]
+
+        for loop in invalidLoops {
+            let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+            mixer.addVoice(sample: sample, loop: loop)
+
+            let block = mixer.render(frames: 5)
+
+            XCTAssertEqual(mixer.voices.first?.loop, MixerSampleLoop.none)
+            XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 1, 2, 0, 0]))
+        }
+    }
+
+    func testSoftwareMixerLoopedEmptySampleRendersSilenceSafely() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: []),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 1)
+        )
+
+        let block = mixer.render(frames: 3)
+
+        XCTAssertEqual(mixer.voices.first?.loop, MixerSampleLoop.none)
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0]))
+    }
+
+    func testSoftwareMixerOfflineRendererRendersSyntheticLoopedVoices() {
+        let forwardRenderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        forwardRenderer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+        let pingPongRenderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        pingPongRenderer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        let forward = forwardRenderer.render(frames: 6)
+        let pingPong = pingPongRenderer.render(frames: 6)
+
+        XCTAssertEqual(forward.block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2]))
+        XCTAssertEqual(pingPong.block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1]))
     }
 
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {

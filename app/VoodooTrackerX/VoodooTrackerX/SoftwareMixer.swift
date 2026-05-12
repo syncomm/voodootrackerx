@@ -45,9 +45,55 @@ struct MixerSampleBuffer: Equatable {
     }
 }
 
-/// Explicit one-shot voice state for the deterministic mixer.
+/// Synthetic sample loop modes owned by the deterministic offline mixer.
+enum MixerSampleLoopMode: Equatable {
+    case none
+    case forward
+    case pingPong
+}
+
+/// Synthetic sample loop metadata for `MixerVoice`.
 ///
-/// This first pass supports bounded synthetic mono samples only: no loops, envelopes, pitch conversion,
+/// `endFrame` is exclusive. For example, `startFrame: 1, endFrame: 4` loops source frames
+/// 1, 2, and 3. Invalid loops are sanitized to `.none` so offline renders fall back to
+/// one-shot playback instead of trapping or reading outside the synthetic sample buffer.
+struct MixerSampleLoop: Equatable {
+    static let none = MixerSampleLoop(mode: .none, startFrame: 0, endFrame: 0)
+
+    let mode: MixerSampleLoopMode
+    let startFrame: Int
+    let endFrame: Int
+
+    var lengthFrames: Int {
+        max(0, endFrame - startFrame)
+    }
+
+    init(mode: MixerSampleLoopMode = .none, startFrame: Int = 0, endFrame: Int = 0) {
+        self.mode = mode
+        self.startFrame = startFrame
+        self.endFrame = endFrame
+    }
+
+    func sanitized(sampleFrameCount: Int) -> MixerSampleLoop {
+        guard mode != .none else {
+            return .none
+        }
+        guard sampleFrameCount > 0,
+              startFrame >= 0,
+              endFrame <= sampleFrameCount,
+              endFrame > startFrame else {
+            return .none
+        }
+        if mode == .pingPong && lengthFrames < 2 {
+            return .none
+        }
+        return self
+    }
+}
+
+/// Explicit synthetic sample voice state for the deterministic mixer.
+///
+/// This path supports bounded synthetic mono samples only: no envelopes, pitch conversion,
 /// pattern scheduling, or XM instrument ownership.
 struct MixerVoice: Equatable {
     let channelIndex: Int
@@ -55,8 +101,10 @@ struct MixerVoice: Equatable {
     let gain: Float
     let pan: Float
     let step: Double
+    let loop: MixerSampleLoop
     var isActive: Bool
     private(set) var samplePosition: Double
+    private(set) var pingPongDirection: Int
 
     init(
         channelIndex: Int,
@@ -64,6 +112,7 @@ struct MixerVoice: Equatable {
         gain: Float = 1,
         pan: Float = 0,
         step: Double = 1,
+        loop: MixerSampleLoop = .none,
         isActive: Bool? = nil
     ) {
         self.channelIndex = max(0, channelIndex)
@@ -71,7 +120,9 @@ struct MixerVoice: Equatable {
         self.gain = gain.isFinite ? gain : 0
         self.pan = min(1, max(-1, pan.isFinite ? pan : 0))
         self.step = step.isFinite && step > 0 ? step : 1
+        self.loop = loop.sanitized(sampleFrameCount: sample.frameCount)
         samplePosition = 0
+        pingPongDirection = 1
         self.isActive = isActive ?? !sample.monoPCM.isEmpty
     }
 
@@ -85,6 +136,7 @@ struct MixerVoice: Equatable {
 
     mutating func reset() {
         samplePosition = 0
+        pingPongDirection = 1
         isActive = !sample.monoPCM.isEmpty
     }
 
@@ -99,11 +151,73 @@ struct MixerVoice: Equatable {
         }
 
         let value = sample.monoPCM[sourceIndex] * gain
+        advanceSamplePosition()
+        return value
+    }
+
+    private mutating func advanceSamplePosition() {
+        switch loop.mode {
+        case .none:
+            advanceOneShotPosition()
+        case .forward:
+            advanceForwardLoopPosition()
+        case .pingPong:
+            advancePingPongLoopPosition()
+        }
+    }
+
+    private mutating func advanceOneShotPosition() {
         samplePosition += step
         if samplePosition >= Double(sample.frameCount) {
             isActive = false
         }
-        return value
+    }
+
+    private mutating func advanceForwardLoopPosition() {
+        samplePosition += step
+        guard samplePosition >= Double(loop.endFrame) else {
+            return
+        }
+
+        let loopLength = Double(loop.lengthFrames)
+        guard loopLength > 0 else {
+            isActive = false
+            return
+        }
+        let overflow = samplePosition - Double(loop.endFrame)
+        samplePosition = Double(loop.startFrame) + overflow.truncatingRemainder(dividingBy: loopLength)
+    }
+
+    private mutating func advancePingPongLoopPosition() {
+        samplePosition += step * Double(pingPongDirection)
+
+        let firstLoopFrame = Double(loop.startFrame)
+        let lastLoopFrame = Double(loop.endFrame - 1)
+        let span = lastLoopFrame - firstLoopFrame
+        guard span > 0 else {
+            samplePosition = firstLoopFrame
+            pingPongDirection = 1
+            return
+        }
+
+        let period = span * 2
+        if pingPongDirection > 0 && samplePosition > lastLoopFrame {
+            let overshoot = (samplePosition - lastLoopFrame).truncatingRemainder(dividingBy: period)
+            samplePosition = lastLoopFrame + overshoot
+        } else if pingPongDirection < 0 && samplePosition < firstLoopFrame {
+            let overshoot = (firstLoopFrame - samplePosition).truncatingRemainder(dividingBy: period)
+            samplePosition = firstLoopFrame - overshoot
+        }
+
+        if pingPongDirection > 0 && samplePosition > lastLoopFrame {
+            let overshoot = samplePosition - lastLoopFrame
+            samplePosition = lastLoopFrame - overshoot
+            pingPongDirection = -1
+        } else if pingPongDirection < 0 && samplePosition < firstLoopFrame {
+            let overshoot = firstLoopFrame - samplePosition
+            samplePosition = firstLoopFrame + overshoot
+            pingPongDirection = 1
+        }
     }
 }
 
@@ -206,7 +320,7 @@ struct OfflineRenderResult: Equatable {
 /// Pull-based software mixer behind the playback/audio boundary.
 ///
 /// This type is independent of AppKit, `AVAudioPlayerNode`, and CoreAudio render-thread assumptions. It
-/// currently renders deterministic interleaved Float32 PCM for explicitly supplied synthetic one-shot voices;
+/// currently renders deterministic interleaved Float32 PCM for explicitly supplied synthetic sample voices;
 /// live playback remains on `PlaybackAudioEngine` until future offline rendering and reference comparison work
 /// proves the mixer.
 final class SoftwareMixer {
@@ -229,13 +343,14 @@ final class SoftwareMixer {
         configure(MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount))
     }
 
-    /// Adds one synthetic one-shot voice for offline rendering and returns its voice array index.
+    /// Adds one synthetic sample voice for offline rendering and returns its voice array index.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
         gain: Float = 1,
         pan: Float = 0,
         step: Double = 1,
+        loop: MixerSampleLoop = .none,
         channelIndex: Int = 0
     ) -> Int {
         voices.append(MixerVoice(
@@ -243,7 +358,8 @@ final class SoftwareMixer {
             sample: sample,
             gain: gain,
             pan: pan,
-            step: step
+            step: step,
+            loop: loop
         ))
         return voices.count - 1
     }
@@ -357,13 +473,14 @@ final class SoftwareMixerOfflineRenderer {
         ))
     }
 
-    /// Adds one synthetic one-shot voice to the underlying offline mixer.
+    /// Adds one synthetic sample voice to the underlying offline mixer.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
         gain: Float = 1,
         pan: Float = 0,
         step: Double = 1,
+        loop: MixerSampleLoop = .none,
         channelIndex: Int = 0
     ) -> Int {
         mixer.addVoice(
@@ -371,6 +488,7 @@ final class SoftwareMixerOfflineRenderer {
             gain: gain,
             pan: pan,
             step: step,
+            loop: loop,
             channelIndex: channelIndex
         )
     }

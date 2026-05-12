@@ -44,10 +44,13 @@ The target software mixer architecture is documented in
 skeleton and offline render harness now exist behind the playback/audio boundary.
 The harness renders bounded deterministic Float32 PCM blocks for tests and
 future export tooling. It can render explicitly supplied synthetic one-shot
-sample voices, but it still does not render XM instruments, patterns, song
-timing, loops, envelopes, effects, or reference WAV exports. Requests above the
-configured frame maximum are clamped rather than allowed to render unbounded
-PCM.
+sample voices plus deterministic synthetic forward and ping-pong loops, but it
+still does not render XM instruments, patterns, song timing, envelopes, effects,
+or reference WAV exports. Loop support is currently limited to the synthetic
+offline mixer path; parser integration, module-derived loop metadata, envelopes,
+effects, timing, and reference WAV comparison remain future work. Requests above
+the configured frame maximum are clamped rather than allowed to render
+unbounded PCM.
 
 Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
 offline harness is not part of live playback and should not change audible

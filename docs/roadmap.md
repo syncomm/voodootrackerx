@@ -61,6 +61,7 @@ Current stabilization note:
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
+- See `docs/decisions/005-software-mixer-core-language-boundary.md` for the architecture checkpoint that clarifies the final hot-path mixer boundary before more complex envelope, timing, and effect work.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -110,6 +111,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.4 — Software Mixer Forward and Ping-Pong Loop Rendering
 - Scope: implement forward and ping-pong loop behavior in mixer-owned sample stepping
 - Verification: loop edge-case tests for loop start, length, sample offset, and turnaround frames
+- Status: done.
+
+### PR 2.7.4a — ADR: Software Mixer Core Language Boundary
+- Scope: document that the Swift `SoftwareMixer` remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
+- Verification: documentation review; no runtime behavior changes
 - Status: done.
 
 ### PR 2.7.5 — Software Mixer Volume / Panning / Envelopes

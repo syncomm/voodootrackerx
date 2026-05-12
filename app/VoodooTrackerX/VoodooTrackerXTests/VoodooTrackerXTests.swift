@@ -535,6 +535,107 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(first.interleavedPCM, Array(repeating: Float(0), count: 16))
     }
 
+    func testSoftwareMixerOneSampleBufferRendersOneFrameThenSilence() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1]))
+
+        let block = mixer.render(frames: 3)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 1, 0, 0, 0, 0])
+        XCTAssertEqual(mixer.voices.first?.isActive, false)
+    }
+
+    func testSoftwareMixerMultiSampleBufferRendersSamplesInOrder() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5, -1]))
+
+        let block = mixer.render(frames: 4)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 1, 0.5, 0.5, -0.5, -0.5, -1, -1])
+    }
+
+    func testSoftwareMixerMonoOutputUsesMonoSampleValues() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]))
+
+        let block = mixer.render(frames: 4)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0.5, -0.5, 0])
+    }
+
+    func testSoftwareMixerRendersSilenceAfterSampleEnds() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [0.25, 0.5, 0.25]))
+
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, [0.25, 0.25, 0.5, 0.5, 0.25, 0.25, 0, 0, 0, 0])
+    }
+
+    func testSoftwareMixerRepeatedRenderAfterResetRewindsVoicesDeterministically() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [0.25, 0.5, 0.25]))
+
+        let first = mixer.render(frames: 4)
+        mixer.reset()
+        let second = mixer.render(frames: 4)
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testSoftwareMixerClearVoicesReturnsToSilence() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5]))
+
+        mixer.clearVoices()
+        let block = mixer.render(frames: 2)
+
+        XCTAssertTrue(mixer.voices.isEmpty)
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0])
+    }
+
+    func testSoftwareMixerGainIsAppliedDeterministically() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, -1]), gain: 0.5)
+
+        let block = mixer.render(frames: 2)
+
+        XCTAssertEqual(block.interleavedPCM, [0.5, 0.5, -0.5, -0.5])
+    }
+
+    func testSoftwareMixerCenterMonoToStereoOutputIsDeterministic() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [0.25]), pan: 0)
+
+        let block = mixer.render(frames: 1)
+
+        XCTAssertEqual(block.interleavedPCM, [0.25, 0.25])
+    }
+
+    func testSoftwareMixerPanBehaviorIsDeterministic() {
+        let mixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1]), gain: 0.25, pan: -1)
+        mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1]), gain: 0.5, pan: 1)
+
+        let block = mixer.render(frames: 1)
+
+        XCTAssertEqual(block.interleavedPCM, [0.25, 0.5])
+    }
+
+    func testSoftwareMixerMultipleSmallRendersMatchOneLargerRender() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
+        let singleRenderMixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        singleRenderMixer.addVoice(sample: sample)
+        let splitRenderMixer = SoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        splitRenderMixer.addVoice(sample: sample)
+
+        let singleRender = singleRenderMixer.render(frames: 5)
+        let splitRender = splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 3).interleavedPCM
+
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+    }
+
     func testSoftwareMixerResetReturnsToInitialDeterministicState() {
         let mixer = SoftwareMixer()
         mixer.configure(sampleRate: 48_000, channelCount: 2)
@@ -650,12 +751,22 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
-    func testSoftwareMixerOfflineRendererStillRendersSilenceOnly() {
+    func testSoftwareMixerOfflineRendererRendersSilenceWhenNoVoicesAreLoaded() {
         let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
 
         let result = renderer.render(frames: 4)
 
         XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 8))
+    }
+
+    func testSoftwareMixerOfflineRendererRendersSyntheticOneShotVoice() {
+        let renderer = SoftwareMixerOfflineRenderer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        renderer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]), gain: 0.5)
+
+        let result = renderer.render(frames: 5)
+
+        XCTAssertEqual(result.renderedFrameCount, 5)
+        XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.5, 0.25, 0.25, -0.25, -0.25, 0, 0, 0, 0])
     }
 
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {

@@ -2,8 +2,7 @@ import Foundation
 
 /// Deterministic software mixer configuration for offline rendering and a later runtime backend migration.
 ///
-/// This skeleton intentionally describes output shape only. It does not replace the existing
-/// `AVAudioPlayerNode` playback path and currently renders silence until sample/voice rendering is added.
+/// This offline path does not replace the existing `AVAudioPlayerNode` playback path.
 struct MixerRenderConfig: Equatable {
     static let defaultSampleRate = 44_100.0
     static let defaultChannelCount = 2
@@ -33,24 +32,84 @@ struct MixerFrame: Equatable {
     }
 }
 
-/// Explicit per-channel voice state placeholder for the deterministic mixer.
+/// A mono Float32 PCM source owned by the deterministic software mixer.
+struct MixerSampleBuffer: Equatable {
+    let monoPCM: [Float]
+
+    var frameCount: Int {
+        monoPCM.count
+    }
+
+    init(monoPCM: [Float]) {
+        self.monoPCM = monoPCM.map { $0.isFinite ? $0 : 0 }
+    }
+}
+
+/// Explicit one-shot voice state for the deterministic mixer.
 ///
-/// Voices are intentionally inactive in this skeleton. Later PRs will add sample position, loop, envelope,
-/// panning, and effect state here while keeping the current runtime backend intact until the mixer is proven.
+/// This first pass supports bounded synthetic mono samples only: no loops, envelopes, pitch conversion,
+/// pattern scheduling, or XM instrument ownership.
 struct MixerVoice: Equatable {
     let channelIndex: Int
+    let sample: MixerSampleBuffer
+    let gain: Float
+    let pan: Float
+    let step: Double
     var isActive: Bool
+    private(set) var samplePosition: Double
 
-    init(channelIndex: Int, isActive: Bool = false) {
+    init(
+        channelIndex: Int,
+        sample: MixerSampleBuffer = MixerSampleBuffer(monoPCM: []),
+        gain: Float = 1,
+        pan: Float = 0,
+        step: Double = 1,
+        isActive: Bool? = nil
+    ) {
         self.channelIndex = max(0, channelIndex)
-        self.isActive = isActive
+        self.sample = sample
+        self.gain = gain.isFinite ? gain : 0
+        self.pan = min(1, max(-1, pan.isFinite ? pan : 0))
+        self.step = step.isFinite && step > 0 ? step : 1
+        samplePosition = 0
+        self.isActive = isActive ?? !sample.monoPCM.isEmpty
+    }
+
+    var leftPanGain: Float {
+        pan <= 0 ? 1 : 1 - pan
+    }
+
+    var rightPanGain: Float {
+        pan >= 0 ? 1 : 1 + pan
+    }
+
+    mutating func reset() {
+        samplePosition = 0
+        isActive = !sample.monoPCM.isEmpty
+    }
+
+    mutating func nextMonoSample() -> Float? {
+        guard isActive else {
+            return nil
+        }
+        let sourceIndex = Int(samplePosition)
+        guard sample.monoPCM.indices.contains(sourceIndex) else {
+            isActive = false
+            return nil
+        }
+
+        let value = sample.monoPCM[sourceIndex] * gain
+        samplePosition += step
+        if samplePosition >= Double(sample.frameCount) {
+            isActive = false
+        }
+        return value
     }
 }
 
 /// A deterministic Float32 PCM render block produced by `SoftwareMixer`.
 ///
-/// Samples are interleaved according to `config.channelCount`. For this initial skeleton every sample is
-/// silence; the type exists so future offline render and comparison work can share a stable data boundary.
+/// Samples are interleaved according to `config.channelCount`.
 struct MixerRenderBlock: Equatable {
     let config: MixerRenderConfig
     let frameCount: Int
@@ -144,11 +203,12 @@ struct OfflineRenderResult: Equatable {
     }
 }
 
-/// Pull-based software mixer skeleton behind the playback/audio boundary.
+/// Pull-based software mixer behind the playback/audio boundary.
 ///
 /// This type is independent of AppKit, `AVAudioPlayerNode`, and CoreAudio render-thread assumptions. It
-/// currently renders deterministic interleaved Float32 silence only; live playback remains on
-/// `PlaybackAudioEngine` until future offline rendering and reference comparison work proves the mixer.
+/// currently renders deterministic interleaved Float32 PCM for explicitly supplied synthetic one-shot voices;
+/// live playback remains on `PlaybackAudioEngine` until future offline rendering and reference comparison work
+/// proves the mixer.
 final class SoftwareMixer {
     private(set) var config: MixerRenderConfig
     private(set) var voices: [MixerVoice]
@@ -169,6 +229,30 @@ final class SoftwareMixer {
         configure(MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount))
     }
 
+    /// Adds one synthetic one-shot voice for offline rendering and returns its voice array index.
+    @discardableResult
+    func addVoice(
+        sample: MixerSampleBuffer,
+        gain: Float = 1,
+        pan: Float = 0,
+        step: Double = 1,
+        channelIndex: Int = 0
+    ) -> Int {
+        voices.append(MixerVoice(
+            channelIndex: channelIndex,
+            sample: sample,
+            gain: gain,
+            pan: pan,
+            step: step
+        ))
+        return voices.count - 1
+    }
+
+    /// Removes all loaded voices so subsequent renders produce silence.
+    func clearVoices() {
+        voices.removeAll()
+    }
+
     /// Returns an interleaved Float32 PCM block containing exactly `frames` frames for positive requests.
     ///
     /// Non-positive frame requests are handled predictably by returning an empty block. This keeps callers
@@ -176,16 +260,52 @@ final class SoftwareMixer {
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount
+        var interleavedPCM = Array(repeating: Float(0), count: sampleCount)
+        guard frameCount > 0,
+              config.channelCount > 0,
+              !voices.isEmpty else {
+            return MixerRenderBlock(
+                config: config,
+                frameCount: frameCount,
+                interleavedPCM: interleavedPCM
+            )
+        }
+
+        for frameIndex in 0..<frameCount {
+            let frameOffset = frameIndex * config.channelCount
+            for voiceIndex in voices.indices {
+                guard let monoSample = voices[voiceIndex].nextMonoSample() else {
+                    continue
+                }
+                mix(monoSample, from: voices[voiceIndex], into: &interleavedPCM, at: frameOffset)
+            }
+        }
+
         return MixerRenderBlock(
             config: config,
             frameCount: frameCount,
-            interleavedPCM: Array(repeating: 0, count: sampleCount)
+            interleavedPCM: interleavedPCM
         )
     }
 
-    /// Clears transient mixer state so repeated renders from the same inputs are deterministic.
+    /// Rewinds loaded voices so repeated renders from the same inputs are deterministic.
     func reset() {
-        voices.removeAll()
+        for voiceIndex in voices.indices {
+            voices[voiceIndex].reset()
+        }
+    }
+
+    private func mix(_ monoSample: Float, from voice: MixerVoice, into interleavedPCM: inout [Float], at frameOffset: Int) {
+        guard config.channelCount > 0 else {
+            return
+        }
+        if config.channelCount == 1 {
+            interleavedPCM[frameOffset] += monoSample
+            return
+        }
+
+        interleavedPCM[frameOffset] += monoSample * voice.leftPanGain
+        interleavedPCM[frameOffset + 1] += monoSample * voice.rightPanGain
     }
 }
 
@@ -237,6 +357,29 @@ final class SoftwareMixerOfflineRenderer {
         ))
     }
 
+    /// Adds one synthetic one-shot voice to the underlying offline mixer.
+    @discardableResult
+    func addVoice(
+        sample: MixerSampleBuffer,
+        gain: Float = 1,
+        pan: Float = 0,
+        step: Double = 1,
+        channelIndex: Int = 0
+    ) -> Int {
+        mixer.addVoice(
+            sample: sample,
+            gain: gain,
+            pan: pan,
+            step: step,
+            channelIndex: channelIndex
+        )
+    }
+
+    /// Removes all voices from the underlying offline mixer.
+    func clearVoices() {
+        mixer.clearVoices()
+    }
+
     /// Renders a request after applying its configuration, clamping oversized requests to the configured maximum.
     func render(_ request: OfflineRenderRequest) -> OfflineRenderResult {
         let effectiveRequest = OfflineRenderRequest(
@@ -253,7 +396,7 @@ final class SoftwareMixerOfflineRenderer {
         )
     }
 
-    /// Clears mixer state so the same request can be rendered deterministically again.
+    /// Rewinds mixer state so the same request can be rendered deterministically again.
     func reset() {
         mixer.reset()
     }

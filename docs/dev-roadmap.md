@@ -18,16 +18,17 @@ viewport navigation, first-pass XM playback, playback diagnostics, and an
 initial deterministic software mixer skeleton.
 
 Runtime playback still uses the `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
-backend. The software mixer skeleton is groundwork for offline rendering and
-future reference comparison; it does not yet play samples or drive live
+backend. The software mixer path is groundwork for offline rendering and future
+reference comparison; it can render synthetic one-shot sample voices through the
+offline harness, but it does not yet render XM song playback or drive live
 playback.
 
 Immediate audio accuracy sequence:
 
 1. Software Mixer Skeleton Behind AudioEngine — done
 2. Offline Render Harness for Software Mixer — done
-3. One-shot sample rendering — next
-4. Forward and ping-pong loop rendering
+3. One-shot sample rendering — done
+4. Forward and ping-pong loop rendering — next
 5. Volume, panning, and envelope rendering
 6. Timing and effect integration
 7. Feature-flagged runtime backend switch
@@ -98,7 +99,7 @@ Features:
 - local reference comparison workflow against MikMod/OpenMPT
 - deterministic software mixer skeleton for future offline rendering
 - bounded offline render harness for deterministic mixer validation
-- mixer sample rendering still pending
+- synthetic one-shot sample rendering through the offline mixer harness
 
 ---
 

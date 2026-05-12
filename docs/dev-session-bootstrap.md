@@ -29,8 +29,8 @@ Current implementation state:
 - AppKit tracker UI, module open/load, pattern display, keyboard navigation, and stable static-highlight viewport behavior are implemented.
 - First-pass XM playback exists and remains useful for smoke testing, but it is not yet MikMod/OpenMPT accurate.
 - Runtime playback currently remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based through `PlaybackAudioEngine`.
-- ADR 004 introduced the deterministic software mixer transition; the current `SoftwareMixer` is a silence-rendering skeleton only, not the runtime backend.
-- The next mixer step is an offline render harness for bounded PCM/WAV comparison. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
+- ADR 004 introduced the deterministic software mixer transition; the current `SoftwareMixer` can render silence and synthetic one-shot sample voices offline, but it is not the runtime backend.
+- The next mixer step is deterministic forward and ping-pong loop behavior for synthetic samples. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
 
 ---
 

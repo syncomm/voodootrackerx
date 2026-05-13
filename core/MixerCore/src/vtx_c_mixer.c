@@ -33,17 +33,21 @@ static float vtx_c_mixer_sanitized_gain(float gain) {
     return isfinite(gain) ? gain : 0.0f;
 }
 
+static float vtx_c_mixer_clamp(float value, float minimum, float maximum) {
+    if (value < minimum) {
+        return minimum;
+    }
+    if (value > maximum) {
+        return maximum;
+    }
+    return value;
+}
+
 static float vtx_c_mixer_sanitized_pan(float pan) {
     if (!isfinite(pan)) {
         return 0.0f;
     }
-    if (pan < -1.0f) {
-        return -1.0f;
-    }
-    if (pan > 1.0f) {
-        return 1.0f;
-    }
-    return pan;
+    return vtx_c_mixer_clamp(pan, -1.0f, 1.0f);
 }
 
 static float vtx_c_mixer_left_pan_gain(float pan) {
@@ -98,6 +102,111 @@ static void vtx_c_mixer_sanitize_loop(
         *loop_start_frame = 0u;
         *loop_end_frame = 0u;
     }
+}
+
+static void vtx_c_mixer_disable_envelope(VTXCMixerEnvelopeState *envelope) {
+    if (envelope == NULL) {
+        return;
+    }
+    memset(envelope, 0, sizeof(*envelope));
+}
+
+static int vtx_c_mixer_envelope_is_valid(const VTXCMixerEnvelope *envelope) {
+    uint32_t point_index;
+
+    if (envelope == NULL ||
+        envelope->point_count == 0 ||
+        envelope->point_count > VTX_C_MIXER_MAX_ENVELOPE_POINTS ||
+        envelope->points == NULL) {
+        return 0;
+    }
+
+    for (point_index = 0; point_index < envelope->point_count; point_index++) {
+        const VTXCMixerEnvelopePoint *point = &envelope->points[point_index];
+        if (!isfinite(point->value)) {
+            return 0;
+        }
+        if (point_index > 0 &&
+            point->position_frame <= envelope->points[point_index - 1u].position_frame) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void vtx_c_mixer_copy_envelope(
+    VTXCMixerEnvelopeState *destination,
+    const VTXCMixerEnvelope *source,
+    float minimum_value,
+    float maximum_value
+) {
+    uint32_t point_index;
+
+    if (destination == NULL) {
+        return;
+    }
+    if (!vtx_c_mixer_envelope_is_valid(source)) {
+        vtx_c_mixer_disable_envelope(destination);
+        return;
+    }
+
+    memset(destination, 0, sizeof(*destination));
+    destination->enabled = 1;
+    destination->point_count = source->point_count;
+    for (point_index = 0; point_index < source->point_count; point_index++) {
+        destination->points[point_index].position_frame = source->points[point_index].position_frame;
+        destination->points[point_index].value = vtx_c_mixer_clamp(
+            source->points[point_index].value,
+            minimum_value,
+            maximum_value
+        );
+    }
+}
+
+static float vtx_c_mixer_evaluate_envelope(
+    const VTXCMixerEnvelopeState *envelope,
+    float default_value
+) {
+    uint32_t point_index;
+    uint32_t position_frame;
+
+    if (envelope == NULL || !envelope->enabled || envelope->point_count == 0) {
+        return default_value;
+    }
+
+    position_frame = envelope->position_frame;
+    if (position_frame <= envelope->points[0].position_frame) {
+        return envelope->points[0].value;
+    }
+
+    for (point_index = 1; point_index < envelope->point_count; point_index++) {
+        const VTXCMixerEnvelopePoint *previous = &envelope->points[point_index - 1u];
+        const VTXCMixerEnvelopePoint *next = &envelope->points[point_index];
+        if (position_frame <= next->position_frame) {
+            float span = (float)(next->position_frame - previous->position_frame);
+            float progress = (float)(position_frame - previous->position_frame) / span;
+            return previous->value + ((next->value - previous->value) * progress);
+        }
+    }
+
+    return envelope->points[envelope->point_count - 1u].value;
+}
+
+static void vtx_c_mixer_advance_envelope(VTXCMixerEnvelopeState *envelope) {
+    if (envelope == NULL || !envelope->enabled) {
+        return;
+    }
+    if (envelope->position_frame < UINT32_MAX) {
+        envelope->position_frame++;
+    }
+}
+
+static void vtx_c_mixer_advance_voice_envelopes(VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return;
+    }
+    vtx_c_mixer_advance_envelope(&voice->volume_envelope);
+    vtx_c_mixer_advance_envelope(&voice->pan_envelope);
 }
 
 static void vtx_c_mixer_advance_one_shot_position(VTXCMixerVoice *voice) {
@@ -211,6 +320,8 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
         voice->sample_position = 0.0;
         voice->ping_pong_direction = 1;
+        voice->volume_envelope.position_frame = 0u;
+        voice->pan_envelope.position_frame = 0u;
         voice->active = voice->sample_frame_count > 0 && voice->sample_pcm != NULL;
     }
     return VTX_C_MIXER_STATUS_OK;
@@ -316,6 +427,30 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_set_voice_volume_envelope(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    const VTXCMixerEnvelope *envelope
+) {
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    vtx_c_mixer_copy_envelope(&state->voices[voice_index].volume_envelope, envelope, 0.0f, 1.0f);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_set_voice_pan_envelope(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    const VTXCMixerEnvelope *envelope
+) {
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    vtx_c_mixer_copy_envelope(&state->voices[voice_index].pan_envelope, envelope, -1.0f, 1.0f);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,
@@ -368,15 +503,21 @@ VTXCMixerStatus vtx_c_mixer_render(
                 continue;
             }
 
-            mono_sample = voice->sample_pcm[source_index] * voice->gain;
+            mono_sample = voice->sample_pcm[source_index] *
+                voice->gain *
+                vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f);
             if (channel_count_size == 1) {
                 output_interleaved_float32[frame_offset] += mono_sample;
             } else {
-                output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_left_pan_gain(voice->pan);
-                output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_right_pan_gain(voice->pan);
+                float effective_pan = vtx_c_mixer_sanitized_pan(
+                    voice->pan + vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
+                );
+                output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_left_pan_gain(effective_pan);
+                output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_right_pan_gain(effective_pan);
             }
 
             vtx_c_mixer_advance_sample_position(voice);
+            vtx_c_mixer_advance_voice_envelopes(voice);
         }
     }
     return VTX_C_MIXER_STATUS_OK;

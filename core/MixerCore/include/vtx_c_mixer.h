@@ -14,6 +14,10 @@ extern "C" {
 // Rendering uses this preallocated storage and does not allocate in the render call.
 #define VTX_C_MIXER_MAX_VOICES 32u
 
+// Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
+// not wired into this C-backed path yet.
+#define VTX_C_MIXER_MAX_ENVELOPE_POINTS 12u
+
 typedef enum {
     VTX_C_MIXER_STATUS_OK = 0,
     VTX_C_MIXER_STATUS_INVALID_ARGUMENT = 1,
@@ -31,6 +35,23 @@ typedef struct {
 } VTXCMixerConfig;
 
 typedef struct {
+    uint32_t position_frame;
+    float value;
+} VTXCMixerEnvelopePoint;
+
+typedef struct {
+    const VTXCMixerEnvelopePoint *points;
+    uint32_t point_count;
+} VTXCMixerEnvelope;
+
+typedef struct {
+    VTXCMixerEnvelopePoint points[VTX_C_MIXER_MAX_ENVELOPE_POINTS];
+    uint32_t point_count;
+    uint32_t position_frame;
+    int enabled;
+} VTXCMixerEnvelopeState;
+
+typedef struct {
     float *sample_pcm;
     uint32_t sample_frame_count;
     double sample_position;
@@ -40,6 +61,8 @@ typedef struct {
     uint32_t loop_start_frame;
     uint32_t loop_end_frame;
     int ping_pong_direction;
+    VTXCMixerEnvelopeState volume_envelope;
+    VTXCMixerEnvelopeState pan_envelope;
     int active;
 } VTXCMixerVoice;
 
@@ -80,6 +103,26 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice(
     uint32_t loop_end_frame,
     uint32_t *out_voice_index
 );
+
+// Attaches a copied synthetic volume envelope to an existing voice.
+// Values are clamped to 0.0...1.0 and multiply the voice gain. Invalid envelopes
+// are disabled, which is equivalent to a constant 1.0 volume envelope.
+VTXCMixerStatus vtx_c_mixer_set_voice_volume_envelope(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    const VTXCMixerEnvelope *envelope
+);
+
+// Attaches a copied synthetic pan envelope to an existing voice.
+// Values are clamped to -1.0...1.0, added to the voice pan, then clamped to the
+// existing C mixer -1.0...1.0 pan convention. Invalid envelopes are disabled,
+// which is equivalent to a neutral 0.0 pan offset.
+VTXCMixerStatus vtx_c_mixer_set_voice_pan_envelope(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    const VTXCMixerEnvelope *envelope
+);
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,

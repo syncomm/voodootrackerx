@@ -118,8 +118,21 @@ and reference comparison before any runtime backend switch.
 - Verification: documentation review; no runtime behavior changes
 - Status: done.
 
-### PR 2.7.5 — Software Mixer Volume / Panning / Envelopes
-- Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the mixer
+### PR 2.7.4b — C Software Mixer Core Skeleton with Swift Wrapper
+- Scope: add a minimal C-compatible mixer core boundary and Swift wrapper that renders deterministic silence only
+- Verification: focused C-backed wrapper tests plus existing app/parser checks
+- Status: done.
+
+### PR 2.7.4c — Port One-Shot Sample Rendering to C-Backed Mixer
+- Scope: port the existing synthetic one-shot sample behavior to the C-backed mixer path while keeping Swift `SoftwareMixer` as the reference/spec harness
+- Verification: compare C-backed output against the existing Swift reference expectations with synthetic PCM only
+
+### PR 2.7.4d — Port Forward and Ping-Pong Loop Rendering to C-Backed Mixer
+- Scope: port the existing synthetic forward-loop and ping-pong-loop behavior to the C-backed mixer path
+- Verification: compare loop edge-case output against the existing Swift reference expectations with synthetic PCM only
+
+### PR 2.7.5 — C-Backed Software Mixer Volume / Panning / Envelope Foundations
+- Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the C-backed mixer
 - Verification: deterministic synthetic tests for gain, stereo placement, envelope ticks, and fadeout
 
 ### PR 2.7.6 — Software Mixer Timing and Effect Integration

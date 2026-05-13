@@ -23,7 +23,7 @@ VoodooTracker X is now a working macOS AppKit tracker prototype, not just a pars
 
 Playback is useful for development and smoke testing, but it is not yet MikMod/OpenMPT accurate. The current runtime playback remains `AVAudioPlayerNode`-based through `AVAudioEngine` and `AVAudioUnitVarispeed`, with implemented passes for transport stabilization, timing and pitch corrections, sample loops including ping-pong loops, panning/stereo placement, volume column semantics, instrument volume envelopes/fadeout, debug seeking, and playback trace export.
 
-A deterministic software mixer path has begun behind the existing audio boundary. The mixer skeleton currently renders deterministic Float32 silence for future offline rendering and comparison work; it does not play samples and is not the runtime backend yet. The next playback-accuracy step is an offline render harness for bounded PCM/WAV comparison against MikMod/OpenMPT.
+A deterministic software mixer path has begun behind the existing audio boundary. The C-backed offline mixer can render deterministic synthetic one-shot sample voices, forward and ping-pong loops, volume/panning envelope foundations, and frame-scheduled synthetic voices. It is still offline-only, not connected to parsed XM song playback, and not the runtime backend yet. The next playback-accuracy step is a synthetic tracker tick/row timing model before parser integration and bounded PCM/WAV comparison against MikMod/OpenMPT.
 
 The app is still under active development and should not be treated as production-ready.
 
@@ -124,8 +124,8 @@ Current state summary:
 2. Static highlight row behavior, keyboard navigation, and stable tracker viewport behavior are implemented.
 3. First-pass XM playback exists through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, with several timing, loop, panning, envelope, and volume-column compatibility passes.
 4. Audio comparison and playback trace diagnostics exist for local reference work.
-5. ADR 004 accepted the deterministic software mixer transition, and the software mixer skeleton has been introduced as groundwork only.
-6. Offline software mixer rendering and MikMod/OpenMPT accuracy work remain upcoming.
+5. ADR 004 accepted the deterministic software mixer transition, and the C-backed offline mixer now covers synthetic one-shot, loop, volume/panning envelope, and frame-scheduling foundations.
+6. Synthetic tracker timing, parser integration, offline module rendering, and MikMod/OpenMPT accuracy work remain upcoming.
 
 For detailed, PR-by-PR milestones, see `docs/roadmap.md`.
 

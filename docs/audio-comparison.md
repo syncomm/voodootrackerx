@@ -48,22 +48,13 @@ forward and ping-pong loops.
 
 The C-backed mixer path now has a minimal core and Swift wrapper that can render
 deterministic silence plus synthetic one-shot, forward-loop, and ping-pong-loop
-sample voices offline. It can also apply synthetic frame-based volume envelopes
-and panning envelope offsets to synthetic C-backed voices in offline renders.
-C-backed output should match the Swift `SoftwareMixer` reference for the same
-synthetic one-shot and loop inputs; envelope behavior is currently covered by
-explicit deterministic expectations. Parser integration, module-derived loop
-metadata, real parsed XM instrument envelopes, effects, timing, XM song
-playback, WAV export, and reference WAV comparison remain future work. Requests
-above the configured frame maximum are clamped rather than allowed to render
-unbounded PCM.
+sample voices offline. It can also apply synthetic frame-based volume envelopes, panning envelope offsets, and absolute-frame scheduling to synthetic C-backed voices in offline renders. Scheduled synthetic voices render silence before their requested start frame, begin on that exact frame, and remain deterministic across equivalent split and single render calls. Overlapping scheduled voices use the existing additive mixing behavior; this PR does not add clipping or limiting. C-backed output should match the Swift `SoftwareMixer` reference for the same synthetic one-shot and loop inputs; envelope and scheduling behavior is currently covered by explicit deterministic expectations. Parser integration, module-derived loop metadata, real parsed XM instrument envelopes, effects, tracker row/tick timing, XM song playback, WAV export, and reference WAV comparison remain future work. Requests above the configured frame maximum are clamped rather than allowed to render unbounded PCM.
 
 Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
 offline mixer paths are not part of live playback and should not change audible
 behavior. WAV/reference comparison against real modules becomes meaningful only
 after the software mixer is connected to module-derived sample, timing, loop,
-envelope, panning, and effect decisions. Generated WAV files, playback traces,
-comparison reports, and local modules must remain outside the repository.
+envelope, panning, and effect decisions. Scheduling support is currently synthetic and frame-based only. Generated WAV files, playback traces, comparison reports, and local modules must remain outside the repository.
 `/Users/syncomm/Desktop/_DARKL.XM` is a local-only manual regression module and
 must not be committed or copied into fixtures.
 

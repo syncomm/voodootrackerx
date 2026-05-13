@@ -98,6 +98,53 @@ final class CSoftwareMixer {
         return Int(voiceIndex)
     }
 
+    /// Adds one synthetic sample voice scheduled at an absolute output frame in the C mixer timeline.
+    ///
+    /// This is frame-based offline scheduling only. It does not imply tracker row/tick scheduling, XM effect
+    /// handling, parsed instrument ownership, or runtime playback through the C mixer. Returns nil for
+    /// invalid scheduled event definitions such as negative or already-past start frames.
+    @discardableResult
+    func addScheduledVoice(
+        sample: MixerSampleBuffer,
+        scheduledStartFrame: Int,
+        gain: Float = 1,
+        pan: Float = 0,
+        loop: MixerSampleLoop = .none,
+        volumeEnvelope: MixerEnvelope? = nil,
+        panEnvelope: MixerEnvelope? = nil
+    ) -> Int? {
+        guard scheduledStartFrame >= 0 else {
+            return nil
+        }
+        precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
+        let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
+        var voiceIndex = UInt32(0)
+        let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
+            vtx_c_mixer_add_scheduled_sample_voice(
+                &state,
+                buffer.baseAddress,
+                UInt32(sample.frameCount),
+                gain,
+                pan,
+                Self.cLoopMode(from: sanitizedLoop.mode),
+                UInt32(sanitizedLoop.startFrame),
+                UInt32(sanitizedLoop.endFrame),
+                UInt64(scheduledStartFrame),
+                &voiceIndex
+            )
+        }
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return nil
+        }
+        if let volumeEnvelope {
+            setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
+        }
+        if let panEnvelope {
+            setPanEnvelope(panEnvelope, forVoiceAt: Int(voiceIndex))
+        }
+        return Int(voiceIndex)
+    }
+
     /// Copies a synthetic volume envelope into an existing C-backed voice.
     func setVolumeEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
@@ -121,11 +168,17 @@ final class CSoftwareMixer {
         Self.requireOK(vtx_c_mixer_clear_voices(&state))
     }
 
+    /// Removes all loaded and scheduled C-backed voices.
+    func clearScheduledVoices() {
+        clearVoices()
+    }
+
     /// Returns an interleaved Float32 PCM block rendered by the C core.
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
-    /// ping-pong-loop sample voices with synthetic volume and pan envelopes. It does not implement timing,
-    /// effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
+    /// ping-pong-loop sample voices with synthetic volume and pan envelopes. Scheduled synthetic voices can
+    /// start at absolute output frames in the offline mixer timeline. It does not implement tracker row/tick
+    /// timing, effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount

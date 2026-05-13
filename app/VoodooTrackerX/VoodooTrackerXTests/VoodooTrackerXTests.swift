@@ -543,6 +543,30 @@ private func cOneShotBlock(
     return mixer.render(frames: frames)
 }
 
+private func cScheduledBlock(
+    sample: MixerSampleBuffer,
+    scheduledStartFrame: Int,
+    frames: Int,
+    config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
+    gain: Float = 1,
+    pan: Float = 0,
+    loop: MixerSampleLoop = .none,
+    volumeEnvelope: MixerEnvelope? = nil,
+    panEnvelope: MixerEnvelope? = nil
+) -> MixerRenderBlock {
+    let mixer = CSoftwareMixer(config: config)
+    _ = mixer.addScheduledVoice(
+        sample: sample,
+        scheduledStartFrame: scheduledStartFrame,
+        gain: gain,
+        pan: pan,
+        loop: loop,
+        volumeEnvelope: volumeEnvelope,
+        panEnvelope: panEnvelope
+    )
+    return mixer.render(frames: frames)
+}
+
 final class VoodooTrackerXTests: XCTestCase {
     func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
         let config = vtx_c_mixer_default_config()
@@ -557,6 +581,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_add_one_shot_sample(&state, nil, 1, 1, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_sample_voice(nil, nil, 0, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_sample_voice(&state, nil, 1, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 1, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_add_scheduled_sample_voice(nil, nil, 0, 1, 0, VTX_C_MIXER_LOOP_NONE, 0, 0, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_add_scheduled_sample_voice(&state, nil, 1, 1, 0, VTX_C_MIXER_LOOP_NONE, 0, 0, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_set_voice_volume_envelope(nil, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_set_voice_volume_envelope(&state, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_set_voice_pan_envelope(nil, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
@@ -564,6 +590,34 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_render(nil, nil, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 0), VTX_C_MIXER_STATUS_OK)
+
+        var scheduledState = VTXCMixerState()
+        XCTAssertEqual(vtx_c_mixer_init(&scheduledState, config), VTX_C_MIXER_STATUS_OK)
+        var output = Array(repeating: Float(0), count: 4)
+        XCTAssertEqual(
+            output.withUnsafeMutableBufferPointer { buffer in
+                vtx_c_mixer_render(&scheduledState, buffer.baseAddress, 2)
+            },
+            VTX_C_MIXER_STATUS_OK
+        )
+        let sample: [Float] = [1]
+        XCTAssertEqual(
+            sample.withUnsafeBufferPointer { buffer in
+                vtx_c_mixer_add_scheduled_sample_voice(
+                    &scheduledState,
+                    buffer.baseAddress,
+                    1,
+                    1,
+                    0,
+                    VTX_C_MIXER_LOOP_NONE,
+                    0,
+                    0,
+                    1,
+                    nil
+                )
+            },
+            VTX_C_MIXER_STATUS_INVALID_ARGUMENT
+        )
     }
 
     func testCSoftwareMixerInitializesWithDefaultRenderConfiguration() {
@@ -1119,6 +1173,159 @@ final class VoodooTrackerXTests: XCTestCase {
         let block = cOneShotBlock(sample: sample, frames: 3, panEnvelope: panEnvelope)
 
         XCTAssertEqual(block.interleavedPCM, [1, 0, 1, 1, 0, 1])
+    }
+
+    func testCSoftwareMixerScheduledRenderWithoutVoicesProducesSilence() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+
+        let block = mixer.render(frames: 4)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0, 0]))
+    }
+
+    func testCSoftwareMixerScheduledFrameZeroMatchesImmediateOneShotRendering() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
+
+        let scheduled = cScheduledBlock(sample: sample, scheduledStartFrame: 0, frames: 5)
+        let immediate = cOneShotBlock(sample: sample, frames: 5)
+
+        XCTAssertEqual(scheduled, immediate)
+        XCTAssertEqual(scheduled.interleavedPCM, stereoPCM(from: [1, 0.5, -0.5, 0, 0]))
+    }
+
+    func testCSoftwareMixerScheduledVoiceRendersSilenceBeforeStartAndBeginsExactlyOnFrame() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1])
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 3, frames: 6, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 1, 0])
+    }
+
+    func testCSoftwareMixerScheduledVoiceContinuesAcrossSplitRenderCalls() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, 0.25])
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: sample, scheduledStartFrame: 2))
+
+        let splitPCM = mixer.render(frames: 1).interleavedPCM +
+            mixer.render(frames: 2).interleavedPCM +
+            mixer.render(frames: 3).interleavedPCM
+
+        XCTAssertEqual(splitPCM, [0, 0, 1, 0.5, 0.25, 0])
+    }
+
+    func testCSoftwareMixerScheduledSplitRendersMatchOneLargerRender() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        XCTAssertNotNil(singleRenderMixer.addScheduledVoice(sample: sample, scheduledStartFrame: 4))
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        XCTAssertNotNil(splitRenderMixer.addScheduledVoice(sample: sample, scheduledStartFrame: 4))
+
+        let singleRender = singleRenderMixer.render(frames: 8)
+        let splitRender = splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+        XCTAssertEqual(singleRender.interleavedPCM, stereoPCM(from: [0, 0, 0, 0, 1, 0.5, -0.5, 0]))
+    }
+
+    func testCSoftwareMixerScheduledResetRestoresPlaybackDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5])
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: sample, scheduledStartFrame: 2))
+
+        let first = mixer.render(frames: 5)
+        _ = mixer.render(frames: 3)
+        mixer.reset()
+        let reset = mixer.render(frames: 5)
+
+        XCTAssertEqual(first, reset)
+        XCTAssertEqual(reset.interleavedPCM, stereoPCM(from: [0, 0, 1, 0.5, 0]))
+    }
+
+    func testCSoftwareMixerClearScheduledVoicesReturnsToSilence() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5]), scheduledStartFrame: 1))
+
+        mixer.clearScheduledVoices()
+        let block = mixer.render(frames: 4)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0, 0]))
+    }
+
+    func testCSoftwareMixerMultipleScheduledVoicesRenderAtNonOverlappingPositions() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1, 1]), scheduledStartFrame: 1))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [0.5, 0.25]), scheduledStartFrame: 4))
+
+        let block = mixer.render(frames: 7)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 1, 0, 0.5, 0.25, 0])
+    }
+
+    func testCSoftwareMixerOverlappingScheduledVoicesMixDeterministically() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1, 1, 1]), scheduledStartFrame: 1))
+        XCTAssertNotNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [0.5, 0.25]), scheduledStartFrame: 2))
+
+        let block = mixer.render(frames: 6)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 1.5, 1.25, 0, 0])
+    }
+
+    func testCSoftwareMixerGainAppliesToScheduledVoice() {
+        let sample = MixerSampleBuffer(monoPCM: [1, -1])
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 1, frames: 4, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1), gain: 0.5)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0.5, -0.5, 0])
+    }
+
+    func testCSoftwareMixerPanAppliesToScheduledVoice() {
+        let sample = MixerSampleBuffer(monoPCM: [1])
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 1, frames: 3, pan: -1)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 0, 0, 0])
+    }
+
+    func testCSoftwareMixerVolumeEnvelopeAppliesFromScheduledVoiceStart() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 2, value: 1)
+        ])
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 2, frames: 6, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1), volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0.5, 1, 0])
+    }
+
+    func testCSoftwareMixerForwardLoopVoiceCanBeScheduled() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 2, frames: 8, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1), loop: loop)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 2, 1, 2, 1])
+    }
+
+    func testCSoftwareMixerPingPongLoopVoiceCanBeScheduled() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 3)
+
+        let block = cScheduledBlock(sample: sample, scheduledStartFrame: 2, frames: 8, config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1), loop: loop)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1, 2, 1, 2, 1])
+    }
+
+    func testCSoftwareMixerInvalidScheduledStartIsRejectedSafely() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+
+        XCTAssertNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1]), scheduledStartFrame: -1))
+        _ = mixer.render(frames: 2)
+        XCTAssertNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1]), scheduledStartFrame: 1))
+        XCTAssertEqual(mixer.render(frames: 3).interleavedPCM, [0, 0, 0])
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

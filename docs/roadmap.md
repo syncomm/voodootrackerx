@@ -57,7 +57,7 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, and synthetic forward/ping-pong loops offline only and is not used for runtime playback.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, and frame-scheduled synthetic voices offline only and is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -136,21 +136,27 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.5 — C-Backed Software Mixer Volume / Panning / Envelope Foundations
 - Scope: add synthetic frame-based volume envelopes and panning envelope offsets to C-backed offline sample voices
 - Verification: deterministic synthetic tests for envelope interpolation, split renders, reset, clear-voices, gain, and pan behavior
-- Status: this PR.
+- Status: done.
 
 ### PR 2.7.6 — C-Backed Software Mixer Timing and Voice Scheduling Foundations
 - Scope: introduce deterministic synthetic voice scheduling/timing into the C-backed offline mixer path
 - Verification: bounded render tests for synthetic scheduling boundaries, without runtime backend switching or full XM effect integration
+- Status: this PR.
 
-### PR 2.7.7 — Feature-Flagged Runtime Backend Switch
+### PR 2.7.7 — Synthetic Tracker Tick and Row Timing Model
+- Scope: convert simple synthetic tracker row/tick-style events into frame-scheduled C-backed mixer events
+- Verification: deterministic synthetic timing tests only; no runtime backend switching, parser integration, or full XM effects
+- Status: next.
+
+### PR 2.7.8 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available
 - Verification: app playback smoke tests, backend selection tests, and fallback validation
 
-### PR 2.7.8 — Reference Comparison Stabilization Against MikMod/OpenMPT
+### PR 2.7.9 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: compare bounded local renders against reference renderers and close major audible gaps
 - Verification: documented local comparison reports kept out of the repository
 
-### PR 2.7.9 — Remaining FT2/effect quirks after deterministic rendering exists
+### PR 2.7.10 — Remaining FT2/effect quirks after deterministic rendering exists
 - Scope: target remaining XM/FT2 effect and compatibility gaps once deterministic rendering is available
 - Verification: issue-based regression tests and local reference comparison
 

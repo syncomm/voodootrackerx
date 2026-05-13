@@ -131,16 +131,16 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.4d — Port Forward and Ping-Pong Loop Rendering to C-Backed Mixer
 - Scope: port the existing synthetic forward-loop and ping-pong-loop behavior to the C-backed mixer path
 - Verification: compare loop edge-case output against the existing Swift reference expectations with synthetic PCM only
-- Status: this PR.
+- Status: done.
 
 ### PR 2.7.5 — C-Backed Software Mixer Volume / Panning / Envelope Foundations
-- Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the C-backed mixer
-- Verification: deterministic synthetic tests for gain, stereo placement, envelope ticks, and fadeout
-- Status: next.
+- Scope: add synthetic frame-based volume envelopes and panning envelope offsets to C-backed offline sample voices
+- Verification: deterministic synthetic tests for envelope interpolation, split renders, reset, clear-voices, gain, and pan behavior
+- Status: this PR.
 
-### PR 2.7.6 — Software Mixer Timing and Effect Integration
-- Scope: connect existing row/tick playback decisions to mixer-owned rendering boundaries
-- Verification: bounded render/trace tests for tick, row, delay, cut, retrigger, and supported effect timing
+### PR 2.7.6 — C-Backed Software Mixer Timing and Voice Scheduling Foundations
+- Scope: introduce deterministic synthetic voice scheduling/timing into the C-backed offline mixer path
+- Verification: bounded render tests for synthetic scheduling boundaries, without runtime backend switching or full XM effect integration
 
 ### PR 2.7.7 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available

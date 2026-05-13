@@ -32,11 +32,12 @@ Immediate audio accuracy sequence:
 5. Software mixer core language boundary ADR — done
 6. Minimal C mixer core skeleton with Swift wrapper — done
 7. Port one-shot rendering to the C-backed path — done
-8. Port forward and ping-pong loop rendering to the C-backed path — this PR
-9. Volume, panning, and envelope rendering — next
-10. Timing and effect integration
-11. Feature-flagged runtime backend switch
-12. Reference comparison stabilization against MikMod/OpenMPT
+8. Port forward and ping-pong loop rendering to the C-backed path — done
+9. C-backed volume, panning, and envelope foundations — this PR
+10. Timing and voice scheduling foundations
+11. Effect integration
+12. Feature-flagged runtime backend switch
+13. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -105,6 +106,7 @@ Features:
 - bounded offline render harness for deterministic mixer validation
 - synthetic one-shot sample rendering through the offline mixer harness
 - synthetic forward and ping-pong loop rendering through the offline mixer harness
+- synthetic volume and panning envelope foundations through the C-backed offline mixer path
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

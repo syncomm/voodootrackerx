@@ -48,12 +48,15 @@ forward and ping-pong loops.
 
 The C-backed mixer path now has a minimal core and Swift wrapper that can render
 deterministic silence plus synthetic one-shot, forward-loop, and ping-pong-loop
-sample voices offline. C-backed output should match the Swift `SoftwareMixer`
-reference for the same synthetic one-shot and loop inputs. Parser integration,
-module-derived loop metadata, envelopes, effects, timing, XM song playback, WAV
-export, and reference WAV comparison remain future work. Requests above the
-configured frame maximum are clamped rather than allowed to render unbounded
-PCM.
+sample voices offline. It can also apply synthetic frame-based volume envelopes
+and panning envelope offsets to synthetic C-backed voices in offline renders.
+C-backed output should match the Swift `SoftwareMixer` reference for the same
+synthetic one-shot and loop inputs; envelope behavior is currently covered by
+explicit deterministic expectations. Parser integration, module-derived loop
+metadata, real parsed XM instrument envelopes, effects, timing, XM song
+playback, WAV export, and reference WAV comparison remain future work. Requests
+above the configured frame maximum are clamped rather than allowed to render
+unbounded PCM.
 
 Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
 offline mixer paths are not part of live playback and should not change audible

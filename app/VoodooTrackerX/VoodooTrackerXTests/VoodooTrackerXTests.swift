@@ -527,10 +527,19 @@ private func cOneShotBlock(
     config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
     gain: Float = 1,
     pan: Float = 0,
-    loop: MixerSampleLoop = .none
+    loop: MixerSampleLoop = .none,
+    volumeEnvelope: MixerEnvelope? = nil,
+    panEnvelope: MixerEnvelope? = nil
 ) -> MixerRenderBlock {
     let mixer = CSoftwareMixer(config: config)
-    mixer.addVoice(sample: sample, gain: gain, pan: pan, loop: loop)
+    mixer.addVoice(
+        sample: sample,
+        gain: gain,
+        pan: pan,
+        loop: loop,
+        volumeEnvelope: volumeEnvelope,
+        panEnvelope: panEnvelope
+    )
     return mixer.render(frames: frames)
 }
 
@@ -548,6 +557,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_add_one_shot_sample(&state, nil, 1, 1, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_sample_voice(nil, nil, 0, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_sample_voice(&state, nil, 1, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 1, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_set_voice_volume_envelope(nil, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_set_voice_volume_envelope(&state, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_set_voice_pan_envelope(nil, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_set_voice_pan_envelope(&state, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(nil, nil, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 0), VTX_C_MIXER_STATUS_OK)
@@ -958,6 +971,154 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(cBlock, swiftBlock)
         XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 0, 0]))
+    }
+
+    func testCSoftwareMixerConstantVolumeEnvelopeProducesDeterministicOutput() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0.5)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 4, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0.5, 0.5, 0.5, 0.5]))
+    }
+
+    func testCSoftwareMixerDescendingVolumeEnvelopeReducesOutputDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 1),
+            MixerEnvelopePoint(positionFrame: 2, value: 0)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 3, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [1, 0.5, 0]))
+    }
+
+    func testCSoftwareMixerAscendingVolumeEnvelopeIncreasesOutputDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 2, value: 1)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 3, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0.5, 1]))
+    }
+
+    func testCSoftwareMixerVolumeEnvelopeInterpolatesAndClampsOutsidePoints() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 2, value: 0),
+            MixerEnvelopePoint(positionFrame: 4, value: 1)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 6, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0, 0.5, 1, 1]))
+    }
+
+    func testCSoftwareMixerVolumeEnvelopeWorksAcrossPointBoundariesAndSplitRenders() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 1, value: 1),
+            MixerEnvelopePoint(positionFrame: 3, value: 0)
+        ])
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        singleRenderMixer.addVoice(sample: sample, volumeEnvelope: envelope)
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        splitRenderMixer.addVoice(sample: sample, volumeEnvelope: envelope)
+
+        let singleRender = singleRenderMixer.render(frames: 4)
+        let splitRender = splitRenderMixer.render(frames: 1).interleavedPCM +
+            splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 1).interleavedPCM
+
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+        XCTAssertEqual(singleRender.interleavedPCM, stereoPCM(from: [0, 1, 0.5, 0]))
+    }
+
+    func testCSoftwareMixerResetRestoresVolumeEnvelopeOutputDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 3, value: 1)
+        ])
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: sample, volumeEnvelope: envelope)
+
+        let first = mixer.render(frames: 4)
+        _ = mixer.render(frames: 2)
+        mixer.reset()
+        let reset = mixer.render(frames: 4)
+
+        XCTAssertEqual(first, reset)
+    }
+
+    func testCSoftwareMixerClearVoicesReturnsEnvelopeEnabledMixerToSilence() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 1, 1]),
+            volumeEnvelope: MixerEnvelope(points: [
+                MixerEnvelopePoint(positionFrame: 0, value: 1),
+                MixerEnvelopePoint(positionFrame: 2, value: 0)
+            ])
+        )
+
+        _ = mixer.render(frames: 2)
+        mixer.clearVoices()
+        let block = mixer.render(frames: 3)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0]))
+    }
+
+    func testCSoftwareMixerInvalidVolumeEnvelopeFallsBackToConstantGainSafely() {
+        let sample = MixerSampleBuffer(monoPCM: [0.25, 0.5])
+        let invalidEnvelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 0, value: 1)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 2, volumeEnvelope: invalidEnvelope)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0.25, 0.5]))
+    }
+
+    func testCSoftwareMixerGainCombinesWithVolumeEnvelopeDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0.5)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 1, gain: 0.5, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, [0.25, 0.25])
+    }
+
+    func testCSoftwareMixerExistingPanStillAppliesWithEnvelopeEnabledVoice() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 1)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 2, pan: -1, volumeEnvelope: envelope)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0, 1, 0])
+    }
+
+    func testCSoftwareMixerPanningEnvelopeIsDeterministic() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1])
+        let panEnvelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: -1),
+            MixerEnvelopePoint(positionFrame: 2, value: 1)
+        ])
+
+        let block = cOneShotBlock(sample: sample, frames: 3, panEnvelope: panEnvelope)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0, 1, 1, 0, 1])
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

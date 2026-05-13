@@ -1,11 +1,36 @@
 import Foundation
 
+/// One synthetic frame-based envelope point for the C-backed offline mixer.
+struct MixerEnvelopePoint: Equatable {
+    let positionFrame: Int
+    let value: Float
+
+    init(positionFrame: Int, value: Float) {
+        self.positionFrame = positionFrame
+        self.value = value
+    }
+}
+
+/// Synthetic offline envelope data copied into C-owned fixed voice storage.
+///
+/// Volume envelopes use values in `0.0...1.0`. Panning envelopes use the C mixer's
+/// `-1.0...1.0` pan convention and act as a neutral-centered offset added to the
+/// voice pan. These envelopes are not connected to parsed XM instruments yet.
+struct MixerEnvelope: Equatable {
+    let points: [MixerEnvelopePoint]
+
+    init(points: [MixerEnvelopePoint]) {
+        self.points = points
+    }
+}
+
 /// Thin Swift wrapper around the C-backed mixer core.
 ///
 /// This wrapper exists for deterministic offline tests and future mixer migration work. It does not replace
 /// `SoftwareMixer` and is not connected to live `AVAudioPlayerNode` playback.
 /// Synthetic samples added through this wrapper are copied into C-owned storage so Swift array lifetimes do
-/// not leak across the C render boundary.
+/// not leak across the C render boundary. Synthetic envelope points are also copied into C-owned voice
+/// storage when attached.
 final class CSoftwareMixer {
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
@@ -37,9 +62,16 @@ final class CSoftwareMixer {
     ///
     /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
     /// the Swift reference mixer tests. It intentionally ignores interpolation, pitch conversion, sample
-    /// offsets, envelopes, timing, effects, and XM instrument ownership in this PR.
+    /// offsets, timing, effects, and XM instrument ownership in this PR.
     @discardableResult
-    func addVoice(sample: MixerSampleBuffer, gain: Float = 1, pan: Float = 0, loop: MixerSampleLoop = .none) -> Int {
+    func addVoice(
+        sample: MixerSampleBuffer,
+        gain: Float = 1,
+        pan: Float = 0,
+        loop: MixerSampleLoop = .none,
+        volumeEnvelope: MixerEnvelope? = nil,
+        panEnvelope: MixerEnvelope? = nil
+    ) -> Int {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         var voiceIndex = UInt32(0)
@@ -57,7 +89,31 @@ final class CSoftwareMixer {
             )
         }
         Self.requireOK(status)
+        if let volumeEnvelope {
+            setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
+        }
+        if let panEnvelope {
+            setPanEnvelope(panEnvelope, forVoiceAt: Int(voiceIndex))
+        }
         return Int(voiceIndex)
+    }
+
+    /// Copies a synthetic volume envelope into an existing C-backed voice.
+    func setVolumeEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
+        let status = Self.withCEnvelope(envelope) { cEnvelope in
+            vtx_c_mixer_set_voice_volume_envelope(&state, UInt32(voiceIndex), cEnvelope)
+        }
+        Self.requireOK(status)
+    }
+
+    /// Copies a synthetic panning envelope into an existing C-backed voice.
+    func setPanEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
+        let status = Self.withCEnvelope(envelope) { cEnvelope in
+            vtx_c_mixer_set_voice_pan_envelope(&state, UInt32(voiceIndex), cEnvelope)
+        }
+        Self.requireOK(status)
     }
 
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
@@ -68,8 +124,8 @@ final class CSoftwareMixer {
     /// Returns an interleaved Float32 PCM block rendered by the C core.
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
-    /// ping-pong-loop sample voices. It does not implement envelopes, timing, effects, XM playback, or
-    /// runtime audio backend switching.
+    /// ping-pong-loop sample voices with synthetic volume and pan envelopes. It does not implement timing,
+    /// effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount
@@ -121,6 +177,31 @@ final class CSoftwareMixer {
             return VTX_C_MIXER_LOOP_FORWARD
         case .pingPong:
             return VTX_C_MIXER_LOOP_PING_PONG
+        }
+    }
+
+    private static func withCEnvelope(
+        _ envelope: MixerEnvelope?,
+        _ body: (UnsafePointer<VTXCMixerEnvelope>?) -> VTXCMixerStatus
+    ) -> VTXCMixerStatus {
+        guard let envelope else {
+            return body(nil)
+        }
+        precondition(envelope.points.count <= Int(UInt32.max), "C mixer envelope has too many points")
+        let cPoints = envelope.points.map { point in
+            VTXCMixerEnvelopePoint(
+                position_frame: UInt32(clamping: point.positionFrame),
+                value: point.value
+            )
+        }
+        return cPoints.withUnsafeBufferPointer { buffer in
+            var cEnvelope = VTXCMixerEnvelope(
+                points: buffer.baseAddress,
+                point_count: UInt32(cPoints.count)
+            )
+            return withUnsafePointer(to: &cEnvelope) { cEnvelopePointer in
+                body(cEnvelopePointer)
+            }
         }
     }
 

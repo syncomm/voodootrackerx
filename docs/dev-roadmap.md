@@ -38,11 +38,12 @@ Immediate audio accuracy sequence:
 9. C-backed volume, panning, and envelope foundations — done
 10. C-backed timing and voice scheduling foundations — done
 11. Synthetic tracker tick and row timing model — done
-12. Minimal synthetic pattern playback through the C-backed mixer — this PR
-13. Parsed XM-to-synthetic playback adapter planning
-14. Effect integration
-15. Feature-flagged runtime backend switch
-16. Reference comparison stabilization against MikMod/OpenMPT
+12. Minimal synthetic pattern playback through the C-backed mixer — done
+13. Parsed XM-to-synthetic playback adapter planning — this PR
+14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects
+15. Effect integration
+16. Feature-flagged runtime backend switch
+17. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -115,6 +116,7 @@ Features:
 - synthetic absolute-frame voice scheduling through the C-backed offline mixer path
 - synthetic tracker row/tick timing through the C-backed offline mixer path
 - minimal synthetic pattern playback through the C-backed offline mixer path
+- parsed XM-to-synthetic playback adapter planning before wiring parsed data into the C-backed path
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

@@ -151,21 +151,26 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.8 — Minimal Synthetic Pattern Playback Through C-Backed Mixer
 - Scope: introduce a tiny synthetic pattern/order representation that schedules notes through the C-backed offline mixer
 - Verification: deterministic synthetic pattern tests only; no runtime backend switching, parser integration, or full XM effects
-- Status: this PR.
+- Status: done.
 
 ### PR 2.7.9 — Parsed XM-to-Synthetic Playback Adapter Planning
 - Scope: inspect the existing parsed playback model boundary and design a small adapter from parsed XM playback data into the synthetic scheduling layer
 - Verification: design/tests for the adapter boundary only; no runtime backend switching or full XM compatibility claims
+- Status: this PR.
 
-### PR 2.7.10 — Feature-Flagged Runtime Backend Switch
+### PR 2.7.10 — Minimal PlaybackSong-to-Synthetic Adapter
+- Scope: implement the smallest safe Swift-side adapter from `PlaybackSong` into the synthetic pattern scheduling layer using constant initial speed/BPM, bounded orders, and basic note/instrument/sample triggers
+- Verification: deterministic bounded offline tests with synthetic or redistribution-safe parsed fixtures only; no runtime backend switching, full XM effects, or local copyrighted module fixtures
+
+### PR 2.7.11 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available
 - Verification: app playback smoke tests, backend selection tests, and fallback validation
 
-### PR 2.7.11 — Reference Comparison Stabilization Against MikMod/OpenMPT
+### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: compare bounded local renders against reference renderers and close major audible gaps
 - Verification: documented local comparison reports kept out of the repository
 
-### PR 2.7.12 — Remaining FT2/effect quirks after deterministic rendering exists
+### PR 2.7.13 — Remaining FT2/effect quirks after deterministic rendering exists
 - Scope: target remaining XM/FT2 effect and compatibility gaps once deterministic rendering is available
 - Verification: issue-based regression tests and local reference comparison
 

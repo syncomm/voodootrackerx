@@ -57,7 +57,7 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, and synthetic row/tick scheduled voices offline only and is not used for runtime playback.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, and minimal synthetic patterns offline only and is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -146,21 +146,26 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.7 — Synthetic Tracker Tick and Row Timing Model
 - Scope: convert simple synthetic tracker row/tick-style events into frame-scheduled C-backed mixer events
 - Verification: deterministic synthetic timing tests only; no runtime backend switching, parser integration, or full XM effects
-- Status: this PR.
+- Status: done.
 
 ### PR 2.7.8 — Minimal Synthetic Pattern Playback Through C-Backed Mixer
 - Scope: introduce a tiny synthetic pattern/order representation that schedules notes through the C-backed offline mixer
 - Verification: deterministic synthetic pattern tests only; no runtime backend switching, parser integration, or full XM effects
+- Status: this PR.
 
-### PR 2.7.9 — Feature-Flagged Runtime Backend Switch
+### PR 2.7.9 — Parsed XM-to-Synthetic Playback Adapter Planning
+- Scope: inspect the existing parsed playback model boundary and design a small adapter from parsed XM playback data into the synthetic scheduling layer
+- Verification: design/tests for the adapter boundary only; no runtime backend switching or full XM compatibility claims
+
+### PR 2.7.10 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available
 - Verification: app playback smoke tests, backend selection tests, and fallback validation
 
-### PR 2.7.10 — Reference Comparison Stabilization Against MikMod/OpenMPT
+### PR 2.7.11 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: compare bounded local renders against reference renderers and close major audible gaps
 - Verification: documented local comparison reports kept out of the repository
 
-### PR 2.7.11 — Remaining FT2/effect quirks after deterministic rendering exists
+### PR 2.7.12 — Remaining FT2/effect quirks after deterministic rendering exists
 - Scope: target remaining XM/FT2 effect and compatibility gaps once deterministic rendering is available
 - Verification: issue-based regression tests and local reference comparison
 

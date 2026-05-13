@@ -513,10 +513,11 @@ private func swiftOneShotBlock(
     frames: Int,
     config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
     gain: Float = 1,
-    pan: Float = 0
+    pan: Float = 0,
+    loop: MixerSampleLoop = .none
 ) -> MixerRenderBlock {
     let mixer = SoftwareMixer(config: config)
-    mixer.addVoice(sample: sample, gain: gain, pan: pan)
+    mixer.addVoice(sample: sample, gain: gain, pan: pan, loop: loop)
     return mixer.render(frames: frames)
 }
 
@@ -525,10 +526,11 @@ private func cOneShotBlock(
     frames: Int,
     config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
     gain: Float = 1,
-    pan: Float = 0
+    pan: Float = 0,
+    loop: MixerSampleLoop = .none
 ) -> MixerRenderBlock {
     let mixer = CSoftwareMixer(config: config)
-    mixer.addVoice(sample: sample, gain: gain, pan: pan)
+    mixer.addVoice(sample: sample, gain: gain, pan: pan, loop: loop)
     return mixer.render(frames: frames)
 }
 
@@ -544,6 +546,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_clear_voices(nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_one_shot_sample(nil, nil, 0, 1, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_add_one_shot_sample(&state, nil, 1, 1, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_add_sample_voice(nil, nil, 0, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_add_sample_voice(&state, nil, 1, 1, 0, VTX_C_MIXER_LOOP_FORWARD, 0, 1, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(nil, nil, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 0), VTX_C_MIXER_STATUS_OK)
@@ -758,6 +762,202 @@ final class VoodooTrackerXTests: XCTestCase {
         let invalidPanSwiftBlock = swiftOneShotBlock(sample: sample, frames: 1, gain: 1, pan: .infinity)
         XCTAssertEqual(invalidPanCBlock, invalidPanSwiftBlock)
         XCTAssertEqual(invalidPanCBlock.interleavedPCM, [1, 1])
+    }
+
+    func testCSoftwareMixerNoLoopModeStillMatchesOneShotBehavior() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
+        let loop = MixerSampleLoop(mode: .none, startFrame: 1, endFrame: 3)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 5, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [1, 0.5, -0.5, 0, 0]))
+    }
+
+    func testCSoftwareMixerForwardLoopRepeatsExclusiveLoopRegionAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 9, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 9, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2, 3, 1, 2]))
+    }
+
+    func testCSoftwareMixerForwardLoopCrossesBoundaryInFirstRenderAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 5, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1]))
+    }
+
+    func testCSoftwareMixerForwardLoopWorksAcrossSmallRenderCalls() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: sample, loop: loop)
+
+        let splitPCM = mixer.render(frames: 2).interleavedPCM +
+            mixer.render(frames: 3).interleavedPCM +
+            mixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2, 3, 1, 2]))
+    }
+
+    func testCSoftwareMixerPingPongLoopReversesDirectionAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 9, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 9, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+    }
+
+    func testCSoftwareMixerPingPongLoopCrossesBoundaryInFirstRenderAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 5, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2]))
+    }
+
+    func testCSoftwareMixerPingPongLoopWorksAcrossSmallRenderCalls() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: sample, loop: loop)
+
+        let splitPCM = mixer.render(frames: 2).interleavedPCM +
+            mixer.render(frames: 3).interleavedPCM +
+            mixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1, 2, 3, 2]))
+    }
+
+    func testCSoftwareMixerLoopSplitRendersMatchOneLargerRender() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loops = [
+            MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
+            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        ]
+
+        for loop in loops {
+            let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+            singleRenderMixer.addVoice(sample: sample, loop: loop)
+            let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+            splitRenderMixer.addVoice(sample: sample, loop: loop)
+
+            let singleRender = singleRenderMixer.render(frames: 11)
+            let splitRender = splitRenderMixer.render(frames: 4).interleavedPCM +
+                splitRenderMixer.render(frames: 1).interleavedPCM +
+                splitRenderMixer.render(frames: 6).interleavedPCM
+
+            XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+        }
+    }
+
+    func testCSoftwareMixerResetRestoresForwardLoopOutputDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: sample, loop: loop)
+
+        let first = mixer.render(frames: 9)
+        mixer.reset()
+        let second = mixer.render(frames: 9)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first, swiftOneShotBlock(sample: sample, frames: 9, loop: loop))
+    }
+
+    func testCSoftwareMixerResetRestoresPingPongLoopOutputDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(sample: sample, loop: loop)
+
+        let first = mixer.render(frames: 9)
+        mixer.reset()
+        let second = mixer.render(frames: 9)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first, swiftOneShotBlock(sample: sample, frames: 9, loop: loop))
+    }
+
+    func testCSoftwareMixerClearVoicesReturnsLoopedMixerToSilence() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+
+        _ = mixer.render(frames: 4)
+        mixer.clearVoices()
+        let block = mixer.render(frames: 3)
+
+        XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0]))
+    }
+
+    func testCSoftwareMixerGainAppliesToLoopedOutputAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 2, 3])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 5, gain: 0.5, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, gain: 0.5, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0.5, 1, 1.5, 1, 1.5]))
+    }
+
+    func testCSoftwareMixerPanAppliesToLoopedOutputAndMatchesSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, 0.25])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 4, pan: -1, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 4, pan: -1, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, [1, 0, 0.5, 0, 0.25, 0, 0.5, 0])
+    }
+
+    func testCSoftwareMixerInvalidLoopDefinitionsFallBackToOneShotPlaybackLikeSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2])
+        let invalidLoops = [
+            MixerSampleLoop(mode: .forward, startFrame: -1, endFrame: 2),
+            MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
+            MixerSampleLoop(mode: .forward, startFrame: 2, endFrame: 2),
+            MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 2)
+        ]
+
+        for loop in invalidLoops {
+            let cBlock = cOneShotBlock(sample: sample, frames: 5, loop: loop)
+            let swiftBlock = swiftOneShotBlock(sample: sample, frames: 5, loop: loop)
+
+            XCTAssertEqual(cBlock, swiftBlock)
+            XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 1, 2, 0, 0]))
+        }
+    }
+
+    func testCSoftwareMixerLoopedEmptySampleRendersSilenceSafelyLikeSwiftReference() {
+        let sample = MixerSampleBuffer(monoPCM: [])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 1)
+
+        let cBlock = cOneShotBlock(sample: sample, frames: 3, loop: loop)
+        let swiftBlock = swiftOneShotBlock(sample: sample, frames: 3, loop: loop)
+
+        XCTAssertEqual(cBlock, swiftBlock)
+        XCTAssertEqual(cBlock.interleavedPCM, stereoPCM(from: [0, 0, 0]))
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

@@ -131,10 +131,12 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.4d — Port Forward and Ping-Pong Loop Rendering to C-Backed Mixer
 - Scope: port the existing synthetic forward-loop and ping-pong-loop behavior to the C-backed mixer path
 - Verification: compare loop edge-case output against the existing Swift reference expectations with synthetic PCM only
+- Status: this PR.
 
 ### PR 2.7.5 — C-Backed Software Mixer Volume / Panning / Envelope Foundations
 - Scope: apply channel volume, global volume, panning, volume envelopes, and fadeout inside the C-backed mixer
 - Verification: deterministic synthetic tests for gain, stereo placement, envelope ticks, and fadeout
+- Status: next.
 
 ### PR 2.7.6 — Software Mixer Timing and Effect Integration
 - Scope: connect existing row/tick playback decisions to mixer-owned rendering boundaries

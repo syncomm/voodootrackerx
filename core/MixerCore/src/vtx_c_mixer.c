@@ -54,6 +54,129 @@ static float vtx_c_mixer_right_pan_gain(float pan) {
     return pan >= 0.0f ? 1.0f : 1.0f + pan;
 }
 
+static VTXCMixerLoopMode vtx_c_mixer_sanitized_loop_mode(VTXCMixerLoopMode loop_mode) {
+    switch (loop_mode) {
+    case VTX_C_MIXER_LOOP_FORWARD:
+    case VTX_C_MIXER_LOOP_PING_PONG:
+        return loop_mode;
+    case VTX_C_MIXER_LOOP_NONE:
+    default:
+        return VTX_C_MIXER_LOOP_NONE;
+    }
+}
+
+static int vtx_c_mixer_loop_is_valid(
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint32_t sample_frame_count
+) {
+    if (loop_mode == VTX_C_MIXER_LOOP_NONE) {
+        return 0;
+    }
+    if (sample_frame_count == 0 ||
+        loop_start_frame >= sample_frame_count ||
+        loop_end_frame > sample_frame_count ||
+        loop_end_frame <= loop_start_frame) {
+        return 0;
+    }
+    if (loop_mode == VTX_C_MIXER_LOOP_PING_PONG && loop_end_frame - loop_start_frame < 2u) {
+        return 0;
+    }
+    return 1;
+}
+
+static void vtx_c_mixer_sanitize_loop(
+    VTXCMixerLoopMode *loop_mode,
+    uint32_t *loop_start_frame,
+    uint32_t *loop_end_frame,
+    uint32_t sample_frame_count
+) {
+    *loop_mode = vtx_c_mixer_sanitized_loop_mode(*loop_mode);
+    if (!vtx_c_mixer_loop_is_valid(*loop_mode, *loop_start_frame, *loop_end_frame, sample_frame_count)) {
+        *loop_mode = VTX_C_MIXER_LOOP_NONE;
+        *loop_start_frame = 0u;
+        *loop_end_frame = 0u;
+    }
+}
+
+static void vtx_c_mixer_advance_one_shot_position(VTXCMixerVoice *voice) {
+    voice->sample_position += 1.0;
+    if (voice->sample_position >= (double)voice->sample_frame_count) {
+        voice->active = 0;
+    }
+}
+
+static void vtx_c_mixer_advance_forward_loop_position(VTXCMixerVoice *voice) {
+    double loop_length;
+    double overflow;
+
+    voice->sample_position += 1.0;
+    if (voice->sample_position < (double)voice->loop_end_frame) {
+        return;
+    }
+
+    loop_length = (double)(voice->loop_end_frame - voice->loop_start_frame);
+    if (loop_length <= 0.0) {
+        voice->active = 0;
+        return;
+    }
+    overflow = voice->sample_position - (double)voice->loop_end_frame;
+    voice->sample_position = (double)voice->loop_start_frame + fmod(overflow, loop_length);
+}
+
+static void vtx_c_mixer_advance_ping_pong_loop_position(VTXCMixerVoice *voice) {
+    double first_loop_frame;
+    double last_loop_frame;
+    double span;
+    double period;
+
+    voice->sample_position += (double)voice->ping_pong_direction;
+
+    first_loop_frame = (double)voice->loop_start_frame;
+    last_loop_frame = (double)(voice->loop_end_frame - 1u);
+    span = last_loop_frame - first_loop_frame;
+    if (span <= 0.0) {
+        voice->sample_position = first_loop_frame;
+        voice->ping_pong_direction = 1;
+        return;
+    }
+
+    period = span * 2.0;
+    if (voice->ping_pong_direction > 0 && voice->sample_position > last_loop_frame) {
+        double overshoot = fmod(voice->sample_position - last_loop_frame, period);
+        voice->sample_position = last_loop_frame + overshoot;
+    } else if (voice->ping_pong_direction < 0 && voice->sample_position < first_loop_frame) {
+        double overshoot = fmod(first_loop_frame - voice->sample_position, period);
+        voice->sample_position = first_loop_frame - overshoot;
+    }
+
+    if (voice->ping_pong_direction > 0 && voice->sample_position > last_loop_frame) {
+        double overshoot = voice->sample_position - last_loop_frame;
+        voice->sample_position = last_loop_frame - overshoot;
+        voice->ping_pong_direction = -1;
+    } else if (voice->ping_pong_direction < 0 && voice->sample_position < first_loop_frame) {
+        double overshoot = first_loop_frame - voice->sample_position;
+        voice->sample_position = first_loop_frame + overshoot;
+        voice->ping_pong_direction = 1;
+    }
+}
+
+static void vtx_c_mixer_advance_sample_position(VTXCMixerVoice *voice) {
+    switch (voice->loop_mode) {
+    case VTX_C_MIXER_LOOP_FORWARD:
+        vtx_c_mixer_advance_forward_loop_position(voice);
+        break;
+    case VTX_C_MIXER_LOOP_PING_PONG:
+        vtx_c_mixer_advance_ping_pong_loop_position(voice);
+        break;
+    case VTX_C_MIXER_LOOP_NONE:
+    default:
+        vtx_c_mixer_advance_one_shot_position(voice);
+        break;
+    }
+}
+
 static void vtx_c_mixer_release_voice(VTXCMixerVoice *voice) {
     if (voice == NULL) {
         return;
@@ -87,6 +210,7 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
     for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
         voice->sample_position = 0.0;
+        voice->ping_pong_direction = 1;
         voice->active = voice->sample_frame_count > 0 && voice->sample_pcm != NULL;
     }
     return VTX_C_MIXER_STATUS_OK;
@@ -121,6 +245,30 @@ VTXCMixerStatus vtx_c_mixer_add_one_shot_sample(
     float pan,
     uint32_t *out_voice_index
 ) {
+    return vtx_c_mixer_add_sample_voice(
+        state,
+        sample_pcm,
+        sample_frame_count,
+        gain,
+        pan,
+        VTX_C_MIXER_LOOP_NONE,
+        0u,
+        0u,
+        out_voice_index
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_add_sample_voice(
+    VTXCMixerState *state,
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint32_t *out_voice_index
+) {
     VTXCMixerVoice *voice;
     float *sample_copy = NULL;
     uint32_t sample_index;
@@ -147,6 +295,8 @@ VTXCMixerStatus vtx_c_mixer_add_one_shot_sample(
         }
     }
 
+    vtx_c_mixer_sanitize_loop(&loop_mode, &loop_start_frame, &loop_end_frame, sample_frame_count);
+
     voice = &state->voices[state->voice_count];
     memset(voice, 0, sizeof(*voice));
     voice->sample_pcm = sample_copy;
@@ -154,6 +304,10 @@ VTXCMixerStatus vtx_c_mixer_add_one_shot_sample(
     voice->sample_position = 0.0;
     voice->gain = vtx_c_mixer_sanitized_gain(gain);
     voice->pan = vtx_c_mixer_sanitized_pan(pan);
+    voice->loop_mode = loop_mode;
+    voice->loop_start_frame = loop_start_frame;
+    voice->loop_end_frame = loop_end_frame;
+    voice->ping_pong_direction = 1;
     voice->active = sample_frame_count > 0 && sample_copy != NULL;
     if (out_voice_index != NULL) {
         *out_voice_index = state->voice_count;
@@ -222,10 +376,7 @@ VTXCMixerStatus vtx_c_mixer_render(
                 output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_right_pan_gain(voice->pan);
             }
 
-            voice->sample_position += 1.0;
-            if (voice->sample_position >= (double)voice->sample_frame_count) {
-                voice->active = 0;
-            }
+            vtx_c_mixer_advance_sample_position(voice);
         }
     }
     return VTX_C_MIXER_STATUS_OK;

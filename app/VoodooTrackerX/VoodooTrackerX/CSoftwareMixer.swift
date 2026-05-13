@@ -100,9 +100,9 @@ final class CSoftwareMixer {
 
     /// Adds one synthetic sample voice scheduled at an absolute output frame in the C mixer timeline.
     ///
-    /// This is frame-based offline scheduling only. It does not imply tracker row/tick scheduling, XM effect
-    /// handling, parsed instrument ownership, or runtime playback through the C mixer. Returns nil for
-    /// invalid scheduled event definitions such as negative or already-past start frames.
+    /// This is frame-based offline scheduling only. It does not parse tracker rows, handle XM effects, own
+    /// parsed instruments, or route runtime playback through the C mixer. Returns nil for invalid scheduled
+    /// event definitions such as negative or already-past start frames.
     @discardableResult
     func addScheduledVoice(
         sample: MixerSampleBuffer,
@@ -177,8 +177,9 @@ final class CSoftwareMixer {
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
     /// ping-pong-loop sample voices with synthetic volume and pan envelopes. Scheduled synthetic voices can
-    /// start at absolute output frames in the offline mixer timeline. It does not implement tracker row/tick
-    /// timing, effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
+    /// start at absolute output frames in the offline mixer timeline. Swift-side synthetic row/tick helpers
+    /// can map simple tracker coordinates to those absolute frames, but the C core does not implement XM
+    /// effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount

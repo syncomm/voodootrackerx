@@ -177,3 +177,48 @@ struct SyntheticTrackerScheduler: Equatable {
         events.map { schedule($0, on: mixer) }
     }
 }
+
+/// Tiny synthetic pattern container for offline C-backed mixer scheduling.
+///
+/// This is intentionally not an XM pattern model: it stores only a safe row count and flat synthetic
+/// row/tick events that can already be scheduled by `SyntheticTrackerScheduler`.
+struct SyntheticPattern: Equatable {
+    let rowCount: Int
+    let events: [SyntheticTrackerEvent]
+
+    init(rowCount: Int, events: [SyntheticTrackerEvent] = []) {
+        self.rowCount = max(0, rowCount)
+        self.events = events
+    }
+
+    var scheduledEvents: [SyntheticTrackerEvent] {
+        events.filter { event in
+            contains(row: event.row)
+        }
+    }
+
+    func contains(row: Int) -> Bool {
+        row >= 0 && row < rowCount
+    }
+}
+
+/// Schedules tiny synthetic patterns through the existing tracker row/tick timing adapter.
+///
+/// Pattern orchestration stays in Swift. The C mixer still receives only absolute-frame synthetic voices,
+/// and this type does not parse XM orders, rows, instruments, effects, or tempo changes.
+struct SyntheticPatternScheduler: Equatable {
+    let trackerScheduler: SyntheticTrackerScheduler
+
+    init(config: SyntheticTrackerTimingConfig) {
+        trackerScheduler = SyntheticTrackerScheduler(config: config)
+    }
+
+    func frame(for event: SyntheticTrackerEvent) -> Int {
+        trackerScheduler.frame(for: event)
+    }
+
+    @discardableResult
+    func schedule(_ pattern: SyntheticPattern, on mixer: CSoftwareMixer) -> [Int?] {
+        trackerScheduler.schedule(pattern.scheduledEvents, on: mixer)
+    }
+}

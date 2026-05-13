@@ -161,6 +161,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10 — Minimal PlaybackSong-to-Synthetic Adapter
 - Scope: implement the smallest safe Swift-side adapter from `PlaybackSong` into the synthetic pattern scheduling layer using constant initial speed/BPM, bounded orders, and basic note/instrument/sample triggers
 - Verification: deterministic bounded offline tests with synthetic or redistribution-safe parsed fixtures only; no runtime backend switching, full XM effects, or local copyrighted module fixtures
+- Status: done.
+
+### PR 2.7.10a — Adapter Diagnostics and Bounded Offline Render Helper
+- Scope: add richer in-memory source-to-synthetic diagnostics and a bounded offline render helper for tiny adapted `PlaybackSong` segments through the C-backed mixer
+- Verification: deterministic helper tests for silence, basic triggers, diagnostics, frame bounds, split/reset determinism, and loop metadata; no runtime backend switching or full XM playback
 - Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

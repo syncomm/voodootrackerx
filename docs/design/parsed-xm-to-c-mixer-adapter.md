@@ -22,18 +22,29 @@ playback, implement XM effects, or add WAV export.
 
 PR 2.7.10 added `PlaybackSongSyntheticAdapter`, a Swift-side offline adapter
 that converts an explicit bounded order selection from `PlaybackSong` into a
-`SyntheticTrackerTimingConfig`, `SyntheticPattern`, and small diagnostics. It
-uses constant initial speed/BPM only, emits basic note/instrument/sample
-triggers at tick 0, copies sample PCM into `MixerSampleBuffer`, maps sample
-volume to event gain, and maps disabled/forward/ping-pong sample loops into the
-existing synthetic loop metadata.
+`SyntheticTrackerTimingConfig`, `SyntheticPattern`, and diagnostics. It uses
+constant initial speed/BPM only, emits basic note/instrument/sample triggers at
+tick 0, copies sample PCM into `MixerSampleBuffer`, maps sample volume to event
+gain, and maps disabled/forward/ping-pong sample loops into the existing
+synthetic loop metadata.
 
-The first adapter is intentionally not pitch-accurate: note values are used only
-to decide whether a trigger exists. XM effects, volume columns, tempo changes
-after initial timing, parsed XM volume envelopes, sample offset, key-off
-behavior, and full real XM playback remain deferred. Runtime playback still uses
-`AVAudioPlayerNode` through the existing playback path; the C mixer is still not
-used for live playback.
+The follow-up bounded offline render helper now adapts tiny `PlaybackSong`
+segments, schedules the adapted synthetic pattern through `CSoftwareMixer`, and
+returns the in-memory `MixerRenderBlock` with source-to-synthetic diagnostics.
+Those diagnostics record the requested order range, sample rate, initial
+speed/BPM, synthetic rows/events, skipped or empty rows, ignored cells, deferred
+effect and volume-column fields, source order/pattern/row/channel coordinates,
+synthetic row/tick coordinates, selected instrument/sample identifiers, and
+mapped loop mode. Oversized frame requests are clamped to a conservative maximum
+before rendering.
+
+The adapter and helper are intentionally not pitch-accurate: note values are
+used only to decide whether a trigger exists. XM effects are ignored, volume
+columns are ignored, tempo changes after initial timing are ignored, parsed XM
+volume envelopes are not wired, and sample offset/key-off behavior remains
+deferred. Runtime playback still uses `AVAudioPlayerNode` through the existing
+playback path; the C mixer is still not used for live playback, and full real XM
+playback through the C mixer has not been implemented.
 
 ## Current Parsed Playback Model
 
@@ -247,18 +258,20 @@ bounded offline rendering:
 
 ## Proposed PR Sequence After This Planning PR
 
-1. Minimal `PlaybackSong` to synthetic adapter: constant initial speed/BPM,
+1. Done: minimal `PlaybackSong` to synthetic adapter: constant initial speed/BPM,
    bounded order range, basic note/instrument/sample triggers, sample volume,
    loop metadata, no effects, offline tests only.
-2. Adapter diagnostics and bounded offline render helper for parsed
+2. Done: adapter diagnostics and bounded offline render helper for parsed
    `PlaybackSong` segments, still using redistribution-safe fixtures only.
-3. Parsed volume envelope mapping to the C-backed envelope path, including
+3. Deep project handoff checkpoint covering the software mixer transition,
+   C-backed mixer path, synthetic scheduling, adapter bridge, and next roadmap.
+4. Parsed volume envelope mapping to the C-backed envelope path, including
    sustain/loop/fadeout scope decisions.
-4. Local-only reference render workflow against MikMod/OpenMPT once bounded
+5. Local-only reference render workflow against MikMod/OpenMPT once bounded
    parsed offline renders exist.
-5. Targeted timing effect integration, starting with `Fxx` speed/BPM changes.
-6. Volume-column integration.
-7. Basic pitch/period accuracy pass for note-to-frequency behavior.
+6. Targeted timing effect integration, starting with `Fxx` speed/BPM changes.
+7. Volume-column integration.
+8. Basic pitch/period accuracy pass for note-to-frequency behavior.
 8. Additional targeted effects such as sample offset, note delay/cut,
    retrigger, arpeggio, portamento, vibrato, slides, pattern break, and
    position jump.
@@ -290,7 +303,7 @@ For the first adapter implementation PR:
 
 ## Explicit Non-Goals
 
-This planning PR and the first adapter PR do not:
+This adapter bridge work does not:
 
 - change runtime playback behavior
 - switch runtime playback to the C mixer

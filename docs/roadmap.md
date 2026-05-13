@@ -126,6 +126,7 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.4c — Port One-Shot Sample Rendering to C-Backed Mixer
 - Scope: port the existing synthetic one-shot sample behavior to the C-backed mixer path while keeping Swift `SoftwareMixer` as the reference/spec harness
 - Verification: compare C-backed output against the existing Swift reference expectations with synthetic PCM only
+- Status: done.
 
 ### PR 2.7.4d — Port Forward and Ping-Pong Loop Rendering to C-Backed Mixer
 - Scope: port the existing synthetic forward-loop and ping-pong-loop behavior to the C-backed mixer path

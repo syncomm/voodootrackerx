@@ -33,21 +33,26 @@ final class CSoftwareMixer {
         configure(MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount))
     }
 
-    /// Adds one synthetic one-shot sample voice and copies its PCM data into C-owned storage.
+    /// Adds one synthetic sample voice and copies its PCM data into C-owned storage.
     ///
-    /// The C-backed path intentionally ignores loops, interpolation, pitch conversion, sample offsets,
-    /// envelopes, timing, effects, and XM instrument ownership in this PR.
+    /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
+    /// the Swift reference mixer tests. It intentionally ignores interpolation, pitch conversion, sample
+    /// offsets, envelopes, timing, effects, and XM instrument ownership in this PR.
     @discardableResult
-    func addVoice(sample: MixerSampleBuffer, gain: Float = 1, pan: Float = 0) -> Int {
+    func addVoice(sample: MixerSampleBuffer, gain: Float = 1, pan: Float = 0, loop: MixerSampleLoop = .none) -> Int {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
+        let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_one_shot_sample(
+            vtx_c_mixer_add_sample_voice(
                 &state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
                 gain,
                 pan,
+                Self.cLoopMode(from: sanitizedLoop.mode),
+                UInt32(sanitizedLoop.startFrame),
+                UInt32(sanitizedLoop.endFrame),
                 &voiceIndex
             )
         }
@@ -62,9 +67,9 @@ final class CSoftwareMixer {
 
     /// Returns an interleaved Float32 PCM block rendered by the C core.
     ///
-    /// The C core currently renders deterministic silence and synthetic one-shot sample voices only. It does
-    /// not implement loop rendering, envelopes, timing, effects, XM playback, or runtime audio backend
-    /// switching.
+    /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
+    /// ping-pong-loop sample voices. It does not implement envelopes, timing, effects, XM playback, or
+    /// runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount
@@ -106,6 +111,17 @@ final class CSoftwareMixer {
             channelCount: Int(config.channel_count),
             isInterleaved: true
         )
+    }
+
+    private static func cLoopMode(from mode: MixerSampleLoopMode) -> VTXCMixerLoopMode {
+        switch mode {
+        case .none:
+            return VTX_C_MIXER_LOOP_NONE
+        case .forward:
+            return VTX_C_MIXER_LOOP_FORWARD
+        case .pingPong:
+            return VTX_C_MIXER_LOOP_PING_PONG
+        }
     }
 
     private static func requireOK(_ status: VTXCMixerStatus) {

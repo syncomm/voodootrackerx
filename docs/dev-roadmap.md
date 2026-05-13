@@ -32,8 +32,8 @@ Immediate audio accuracy sequence:
 5. Software mixer core language boundary ADR — done
 6. Minimal C mixer core skeleton with Swift wrapper — done
 7. Port one-shot rendering to the C-backed path — done
-8. Port forward and ping-pong loop rendering to the C-backed path — next
-9. Volume, panning, and envelope rendering
+8. Port forward and ping-pong loop rendering to the C-backed path — this PR
+9. Volume, panning, and envelope rendering — next
 10. Timing and effect integration
 11. Feature-flagged runtime backend switch
 12. Reference comparison stabilization against MikMod/OpenMPT

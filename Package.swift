@@ -8,12 +8,21 @@ let package = Package(
     ],
     products: [
         .library(name: "ModuleCore", targets: ["ModuleCore"]),
+        .library(name: "MixerCore", targets: ["MixerCore"]),
         .executable(name: "mc_dump", targets: ["mc_dump"]),
     ],
     targets: [
         .target(
             name: "ModuleCore",
             path: "core/ModuleCore",
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("include")
+            ]
+        ),
+        .target(
+            name: "MixerCore",
+            path: "core/MixerCore",
             publicHeadersPath: "include",
             cSettings: [
                 .headerSearchPath("include")

@@ -509,6 +509,89 @@ private func stereoPCM(from monoPCM: [Float]) -> [Float] {
 }
 
 final class VoodooTrackerXTests: XCTestCase {
+    func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
+        let config = vtx_c_mixer_default_config()
+        var state = VTXCMixerState(config: config)
+
+        XCTAssertEqual(vtx_c_mixer_init(nil, config), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_reset(nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_configure(nil, config), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_render(nil, nil, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_render(&state, nil, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_render(&state, nil, 0), VTX_C_MIXER_STATUS_OK)
+    }
+
+    func testCSoftwareMixerInitializesWithDefaultRenderConfiguration() {
+        let mixer = CSoftwareMixer()
+
+        XCTAssertEqual(mixer.config, MixerRenderConfig())
+        XCTAssertEqual(mixer.config.sampleRate, 44_100)
+        XCTAssertEqual(mixer.config.channelCount, 2)
+        XCTAssertTrue(mixer.config.isInterleaved)
+    }
+
+    func testCSoftwareMixerCanConfigureSampleRateAndChannelCount() {
+        let mixer = CSoftwareMixer()
+
+        mixer.configure(sampleRate: 48_000, channelCount: 1)
+
+        XCTAssertEqual(mixer.config.sampleRate, 48_000)
+        XCTAssertEqual(mixer.config.channelCount, 1)
+    }
+
+    func testCSoftwareMixerZeroFrameRenderReturnsEmptyBlock() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2))
+
+        let block = mixer.render(frames: 0)
+
+        XCTAssertEqual(block, MixerRenderBlock(config: mixer.config, frameCount: 0, interleavedPCM: []))
+    }
+
+    func testCSoftwareMixerPositiveRenderReturnsRequestedFramesAndSilence() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2))
+
+        let block = mixer.render(frames: 8)
+
+        XCTAssertEqual(block.frameCount, 8)
+        XCTAssertEqual(block.sampleCount, 16)
+        XCTAssertEqual(block.sampleCount, block.frameCount * mixer.config.channelCount)
+        XCTAssertEqual(block.interleavedPCM, Array(repeating: Float(0), count: 16))
+    }
+
+    func testCSoftwareMixerResetIsDeterministic() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 22_050, channelCount: 2))
+
+        let first = mixer.render(frames: 6)
+        mixer.reset()
+        let second = mixer.render(frames: 6)
+
+        XCTAssertEqual(first, second)
+    }
+
+    func testCSoftwareMixerRepeatedRendersAfterResetMatch() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+
+        let first = mixer.render(frames: 4)
+        _ = mixer.render(frames: 4)
+        mixer.reset()
+        let reset = mixer.render(frames: 4)
+
+        XCTAssertEqual(first, reset)
+        XCTAssertEqual(reset.interleavedPCM, Array(repeating: Float(0), count: 4))
+    }
+
+    func testCSoftwareMixerInvalidConfigurationFallsBackToDeterministicDefaults() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: -1, channelCount: 0))
+
+        XCTAssertEqual(mixer.config, MixerRenderConfig())
+
+        mixer.configure(sampleRate: .nan, channelCount: -4)
+        let block = mixer.render(frames: 2)
+
+        XCTAssertEqual(mixer.config, MixerRenderConfig())
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0])
+    }
+
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {
         let mixer = SoftwareMixer()
 

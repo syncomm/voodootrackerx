@@ -31,6 +31,10 @@
 		B00000000000000000000014 /* PlaybackTraceEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* PlaybackTraceEvent.swift */; };
 		B00000000000000000000015 /* PlaybackTraceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* PlaybackTraceWriter.swift */; };
 		B00000000000000000000016 /* PlaybackTraceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* PlaybackTraceWriter.swift */; };
+		D00000000000000000000011 /* CSoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000021 /* CSoftwareMixer.swift */; };
+		D00000000000000000000012 /* CSoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000021 /* CSoftwareMixer.swift */; };
+		D00000000000000000000013 /* vtx_c_mixer.c in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000022 /* vtx_c_mixer.c */; };
+		D00000000000000000000014 /* vtx_c_mixer.c in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000022 /* vtx_c_mixer.c */; };
 		C00000000000000000000011 /* SoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* SoftwareMixer.swift */; };
 		C00000000000000000000012 /* SoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* SoftwareMixer.swift */; };
 		A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* VoodooTrackerXTests.swift */; };
@@ -63,6 +67,9 @@
 		B00000000000000000000021 /* PlaybackTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTrace.swift; sourceTree = "<group>"; };
 		B00000000000000000000022 /* PlaybackTraceEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTraceEvent.swift; sourceTree = "<group>"; };
 		B00000000000000000000023 /* PlaybackTraceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTraceWriter.swift; sourceTree = "<group>"; };
+		D00000000000000000000021 /* CSoftwareMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSoftwareMixer.swift; sourceTree = "<group>"; };
+		D00000000000000000000022 /* vtx_c_mixer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = vtx_c_mixer.c; path = ../../core/MixerCore/src/vtx_c_mixer.c; sourceTree = "<group>"; };
+		D00000000000000000000023 /* MixerCoreHeaders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MixerCoreHeaders; path = ../../core/MixerCore/include; sourceTree = "<group>"; };
 		C00000000000000000000021 /* SoftwareMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareMixer.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
@@ -110,6 +117,7 @@
 				A00000000000000000000062 /* VoodooTrackerX */,
 				A00000000000000000000063 /* VoodooTrackerXTests */,
 				A00000000000000000000066 /* ModuleCore */,
+				D00000000000000000000024 /* MixerCore */,
 				A00000000000000000000064 /* Frameworks */,
 				A00000000000000000000065 /* Products */,
 			);
@@ -127,6 +135,7 @@
 				B00000000000000000000021 /* PlaybackTrace.swift */,
 				B00000000000000000000022 /* PlaybackTraceEvent.swift */,
 				B00000000000000000000023 /* PlaybackTraceWriter.swift */,
+				D00000000000000000000021 /* CSoftwareMixer.swift */,
 				A00000000000000000000023 /* ModuleMetadataLoader.swift */,
 				A00000000000000000000038 /* PlaybackEngine.swift */,
 				A0000000000000000000003B /* PlaybackSong.swift */,
@@ -162,6 +171,15 @@
 				A00000000000000000000027 /* mod_header.c */,
 			);
 			name = ModuleCore;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000024 /* MixerCore */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000023 /* MixerCoreHeaders */,
+				D00000000000000000000022 /* vtx_c_mixer.c */,
+			);
+			name = MixerCore;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000064 /* Frameworks */ = {
@@ -292,6 +310,7 @@
 				B00000000000000000000011 /* PlaybackTrace.swift in Sources */,
 				B00000000000000000000013 /* PlaybackTraceEvent.swift in Sources */,
 				B00000000000000000000015 /* PlaybackTraceWriter.swift in Sources */,
+				D00000000000000000000011 /* CSoftwareMixer.swift in Sources */,
 				A00000000000000000000034 /* PlaybackTransport.swift in Sources */,
 				A00000000000000000000030 /* PlaybackTypes.swift in Sources */,
 				C00000000000000000000011 /* SoftwareMixer.swift in Sources */,
@@ -303,6 +322,7 @@
 				A00000000000000000000017 /* module_types.c in Sources */,
 				A00000000000000000000018 /* xm_header.c in Sources */,
 				A00000000000000000000019 /* mod_header.c in Sources */,
+				D00000000000000000000013 /* vtx_c_mixer.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -319,10 +339,12 @@
 				B00000000000000000000012 /* PlaybackTrace.swift in Sources */,
 				B00000000000000000000014 /* PlaybackTraceEvent.swift in Sources */,
 				B00000000000000000000016 /* PlaybackTraceWriter.swift in Sources */,
+				D00000000000000000000012 /* CSoftwareMixer.swift in Sources */,
 				A0000000000000000000004A /* PlaybackTransport.swift in Sources */,
 				A0000000000000000000004B /* PlaybackTypes.swift in Sources */,
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
+				D00000000000000000000014 /* vtx_c_mixer.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -376,6 +398,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../../core/ModuleCore/include",
+					"$(SRCROOT)/../../core/MixerCore/include",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -401,6 +424,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../../core/ModuleCore/include",
+					"$(SRCROOT)/../../core/MixerCore/include",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -424,6 +448,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../../core/ModuleCore/include",
+					"$(SRCROOT)/../../core/MixerCore/include",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -434,6 +459,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = VoodooTrackerX/ModuleCoreBridge.h;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "";
 			};
@@ -448,6 +474,7 @@
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(SRCROOT)/../../core/ModuleCore/include",
+					"$(SRCROOT)/../../core/MixerCore/include",
 				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -457,6 +484,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.syncomm.VoodooTrackerXTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = VoodooTrackerX/ModuleCoreBridge.h;
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "";
 			};

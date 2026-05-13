@@ -58,6 +58,10 @@ envelope, panning, and effect decisions. Row/tick scheduling and synthetic patte
 `/Users/syncomm/Desktop/_DARKL.XM` is a local-only manual regression module and
 must not be committed or copied into fixtures.
 
+The planned bridge from `PlaybackSong` into the synthetic C-backed offline path
+is documented in `docs/design/parsed-xm-to-c-mixer-adapter.md`. That plan does
+not implement parsed XM rendering yet and does not change live playback.
+
 Once module-connected sample rendering exists, prefer the offline harness over
 manual app capture for mixer validation:
 

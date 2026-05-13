@@ -319,10 +319,16 @@ struct PlaybackSongSyntheticPlan: Equatable {
 struct PlaybackSongSyntheticDiagnostics: Equatable {
     let requestedStartOrderIndex: Int
     let requestedOrderCount: Int
+    let sampleRate: Double
+    let initialSpeed: Int
+    let initialBPM: Int
+    let syntheticRowCount: Int
     let adaptedOrders: [PlaybackSongSyntheticOrderDiagnostic]
     let rowMappings: [PlaybackSongSyntheticRowMapping]
+    let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
+    let deferredCellFields: [PlaybackSongSyntheticDeferredCellField]
 
     var emittedRowCount: Int {
         rowMappings.count
@@ -330,6 +336,22 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var emittedEventCount: Int {
         eventMappings.count
+    }
+
+    var ignoredCellCount: Int {
+        ignoredCells.count
+    }
+
+    var emptyOrSkippedRowCount: Int {
+        rowDiagnostics.filter { $0.emittedEventCount == 0 }.count
+    }
+
+    var ignoredEffectFieldCount: Int {
+        deferredCellFields.filter { $0.field == .effect }.count
+    }
+
+    var ignoredVolumeColumnFieldCount: Int {
+        deferredCellFields.filter { $0.field == .volumeColumn }.count
     }
 }
 
@@ -352,6 +374,14 @@ struct PlaybackSongSyntheticRowMapping: Equatable {
     let syntheticRow: Int
 }
 
+struct PlaybackSongSyntheticRowDiagnostic: Equatable {
+    let source: PlaybackPosition
+    let syntheticRow: Int
+    let cellCount: Int
+    let emittedEventCount: Int
+    let ignoredCellCount: Int
+}
+
 struct PlaybackSongSyntheticEventMapping: Equatable {
     let source: PlaybackPosition
     let channelIndex: Int
@@ -359,7 +389,11 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let instrumentIndex: Int
     let sampleIndex: Int
     let syntheticRow: Int
+    let syntheticTick: Int
     let eventIndex: Int
+    let loopMode: MixerSampleLoopMode
+    let hasIgnoredVolumeColumn: Bool
+    let hasIgnoredEffect: Bool
 }
 
 struct PlaybackSongSyntheticIgnoredCell: Equatable {
@@ -376,6 +410,24 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
     let note: UInt8
     let instrumentIndex: Int
     let reason: Reason
+    let hasIgnoredVolumeColumn: Bool
+    let hasIgnoredEffect: Bool
+}
+
+struct PlaybackSongSyntheticDeferredCellField: Equatable {
+    enum Field: Equatable {
+        case volumeColumn
+        case effect
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let note: UInt8
+    let instrumentIndex: Int
+    let volumeColumn: UInt8
+    let effectType: UInt8
+    let effectParam: UInt8
+    let field: Field
 }
 
 enum PlaybackSongSyntheticAdapter {
@@ -414,8 +466,10 @@ enum PlaybackSongSyntheticAdapter {
         let safeOrderCount = max(0, orderCount)
         var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
+        var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
+        var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
         var events = [SyntheticTrackerEvent]()
         var nextSyntheticRow = 0
 
@@ -460,15 +514,16 @@ enum PlaybackSongSyntheticAdapter {
                     rowIndex: row.index
                 )
                 rowMappings.append(PlaybackSongSyntheticRowMapping(source: source, syntheticRow: syntheticRow))
-                appendEvents(
+                rowDiagnostics.append(appendEvents(
                     from: row,
                     source: source,
                     syntheticRow: syntheticRow,
                     song: song,
                     events: &events,
                     eventMappings: &eventMappings,
-                    ignoredCells: &ignoredCells
-                )
+                    ignoredCells: &ignoredCells,
+                    deferredCellFields: &deferredCellFields
+                ))
             }
 
             nextSyntheticRow += pattern.rowCount
@@ -480,10 +535,16 @@ enum PlaybackSongSyntheticAdapter {
             diagnostics: PlaybackSongSyntheticDiagnostics(
                 requestedStartOrderIndex: startOrderIndex,
                 requestedOrderCount: safeOrderCount,
+                sampleRate: timingConfig.sampleRate,
+                initialSpeed: timingConfig.speed,
+                initialBPM: timingConfig.bpm,
+                syntheticRowCount: nextSyntheticRow,
                 adaptedOrders: adaptedOrders,
                 rowMappings: rowMappings,
+                rowDiagnostics: rowDiagnostics,
                 eventMappings: eventMappings,
-                ignoredCells: ignoredCells
+                ignoredCells: ignoredCells,
+                deferredCellFields: deferredCellFields
             )
         )
     }
@@ -495,16 +556,22 @@ enum PlaybackSongSyntheticAdapter {
         song: PlaybackSong,
         events: inout [SyntheticTrackerEvent],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
-        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell]
-    ) {
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
+    ) -> PlaybackSongSyntheticRowDiagnostic {
+        let eventStartCount = events.count
+        let ignoredStartCount = ignoredCells.count
         for (channelIndex, cell) in row.cells.enumerated() {
+            appendDeferredFields(from: cell, source: source, channelIndex: channelIndex, deferredCellFields: &deferredCellFields)
             guard (1...96).contains(cell.note) else {
                 ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
                     source: source,
                     channelIndex: channelIndex,
                     note: cell.note,
                     instrumentIndex: Int(cell.instrument),
-                    reason: ignoredNoteReason(cell.note)
+                    reason: ignoredNoteReason(cell.note),
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredEffect: hasEffect(cell)
                 ))
                 continue
             }
@@ -516,7 +583,9 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     note: cell.note,
                     instrumentIndex: instrumentIndex,
-                    reason: .missingInstrument
+                    reason: .missingInstrument,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredEffect: hasEffect(cell)
                 ))
                 continue
             }
@@ -526,19 +595,22 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     note: cell.note,
                     instrumentIndex: instrumentIndex,
-                    reason: .noPlayableSample
+                    reason: .noPlayableSample,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredEffect: hasEffect(cell)
                 ))
                 continue
             }
 
             let eventIndex = events.count
+            let loop = mixerLoop(from: sample)
             events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
                 tick: 0,
                 sample: MixerSampleBuffer(monoPCM: sample.pcm),
                 gain: sample.volume,
                 pan: 0,
-                loop: mixerLoop(from: sample)
+                loop: loop
             ))
             eventMappings.append(PlaybackSongSyntheticEventMapping(
                 source: source,
@@ -547,9 +619,56 @@ enum PlaybackSongSyntheticAdapter {
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
                 syntheticRow: syntheticRow,
-                eventIndex: eventIndex
+                syntheticTick: 0,
+                eventIndex: eventIndex,
+                loopMode: loop.mode,
+                hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                hasIgnoredEffect: hasEffect(cell)
             ))
         }
+        return PlaybackSongSyntheticRowDiagnostic(
+            source: source,
+            syntheticRow: syntheticRow,
+            cellCount: row.cells.count,
+            emittedEventCount: events.count - eventStartCount,
+            ignoredCellCount: ignoredCells.count - ignoredStartCount
+        )
+    }
+
+    private static func appendDeferredFields(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
+    ) {
+        if cell.volumeColumn != 0 {
+            deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                volumeColumn: cell.volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                field: .volumeColumn
+            ))
+        }
+        if hasEffect(cell) {
+            deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                volumeColumn: cell.volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                field: .effect
+            ))
+        }
+    }
+
+    private static func hasEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType != 0 || cell.effectParam != 0
     }
 
     private static func ignoredNoteReason(_ note: UInt8) -> PlaybackSongSyntheticIgnoredCell.Reason {
@@ -576,5 +695,257 @@ enum PlaybackSongSyntheticAdapter {
         default:
             return .none
         }
+    }
+}
+
+/// Bounded offline render request for adapted `PlaybackSong` segments.
+///
+/// Oversized requests are clamped to `maximumFrameCount`, matching the existing software mixer offline
+/// harness. This helper is offline-only and does not affect live `AVAudioPlayerNode` playback.
+struct PlaybackSongOfflineRenderRequest: Equatable {
+    static let defaultMaximumFrameCount = OfflineRenderRequest.defaultMaximumFrameCount
+
+    let song: PlaybackSong
+    let startOrderIndex: Int
+    let orderCount: Int
+    let config: MixerRenderConfig
+    let requestedFrameCount: Int
+    let maximumFrameCount: Int
+
+    var boundedFrameCount: Int {
+        min(requestedFrameCount, maximumFrameCount)
+    }
+
+    var wasFrameCountBounded: Bool {
+        requestedFrameCount > maximumFrameCount
+    }
+
+    init(
+        song: PlaybackSong,
+        startOrderIndex: Int = 0,
+        orderCount: Int = 1,
+        config: MixerRenderConfig = MixerRenderConfig(),
+        frames: Int,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        self.song = song
+        self.startOrderIndex = startOrderIndex
+        self.orderCount = max(0, orderCount)
+        self.config = config
+        requestedFrameCount = max(0, frames)
+        self.maximumFrameCount = max(0, maximumFrameCount)
+    }
+
+    init(
+        song: PlaybackSong,
+        orderIndex: Int,
+        config: MixerRenderConfig = MixerRenderConfig(),
+        frames: Int,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        self.init(
+            song: song,
+            startOrderIndex: orderIndex,
+            orderCount: 1,
+            config: config,
+            frames: frames,
+            maximumFrameCount: maximumFrameCount
+        )
+    }
+
+    init(
+        song: PlaybackSong,
+        orderRange: Range<Int>,
+        config: MixerRenderConfig = MixerRenderConfig(),
+        frames: Int,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        self.init(
+            song: song,
+            startOrderIndex: orderRange.lowerBound,
+            orderCount: orderRange.count,
+            config: config,
+            frames: frames,
+            maximumFrameCount: maximumFrameCount
+        )
+    }
+
+    init(
+        song: PlaybackSong,
+        startOrderIndex: Int = 0,
+        orderCount: Int = 1,
+        config: MixerRenderConfig = MixerRenderConfig(),
+        rows: Int,
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+    ) {
+        let timing = SyntheticTrackerTiming(config: SyntheticTrackerTimingConfig(
+            speed: song.initialTiming.speed,
+            bpm: song.initialTiming.bpm,
+            sampleRate: config.sampleRate
+        ))
+        self.init(
+            song: song,
+            startOrderIndex: startOrderIndex,
+            orderCount: orderCount,
+            config: config,
+            frames: timing.frameFor(row: max(0, rows), tick: 0),
+            maximumFrameCount: maximumFrameCount
+        )
+    }
+
+    func replacingFrameCount(_ frameCount: Int, maximumFrameCount: Int? = nil) -> PlaybackSongOfflineRenderRequest {
+        PlaybackSongOfflineRenderRequest(
+            song: song,
+            startOrderIndex: startOrderIndex,
+            orderCount: orderCount,
+            config: config,
+            frames: frameCount,
+            maximumFrameCount: maximumFrameCount ?? self.maximumFrameCount
+        )
+    }
+}
+
+/// Result from rendering an adapted `PlaybackSong` segment through the C-backed offline mixer.
+struct PlaybackSongOfflineRenderResult: Equatable {
+    let request: PlaybackSongOfflineRenderRequest
+    let plan: PlaybackSongSyntheticPlan
+    let block: MixerRenderBlock
+    let scheduledVoiceIndices: [Int?]
+
+    var diagnostics: PlaybackSongSyntheticDiagnostics {
+        plan.diagnostics
+    }
+
+    var requestedFrameCount: Int {
+        request.requestedFrameCount
+    }
+
+    var renderedFrameCount: Int {
+        block.frameCount
+    }
+
+    var maximumFrameCount: Int {
+        request.maximumFrameCount
+    }
+
+    var wasFrameCountBounded: Bool {
+        request.wasFrameCountBounded
+    }
+}
+
+/// Prepared offline render session for split renders and reset determinism checks.
+final class PlaybackSongOfflineRenderSession {
+    let request: PlaybackSongOfflineRenderRequest
+    let plan: PlaybackSongSyntheticPlan
+    let scheduledVoiceIndices: [Int?]
+
+    private let mixer: CSoftwareMixer
+    private var renderedFrameCount = 0
+
+    var config: MixerRenderConfig {
+        mixer.config
+    }
+
+    var diagnostics: PlaybackSongSyntheticDiagnostics {
+        plan.diagnostics
+    }
+
+    init(request: PlaybackSongOfflineRenderRequest) {
+        self.request = request
+        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+            request.song,
+            startOrderIndex: request.startOrderIndex,
+            orderCount: request.orderCount,
+            sampleRate: request.config.sampleRate
+        )
+        let preparedMixer = CSoftwareMixer(config: request.config)
+        let voiceIndices = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).schedule(adaptedPlan.pattern, on: preparedMixer)
+        plan = adaptedPlan
+        mixer = preparedMixer
+        scheduledVoiceIndices = voiceIndices
+    }
+
+    func render(frames: Int) -> MixerRenderBlock {
+        let requestedFrames = max(0, frames)
+        let remainingFrames = max(0, request.boundedFrameCount - renderedFrameCount)
+        let frameCount = min(requestedFrames, remainingFrames)
+        let block = mixer.render(frames: frameCount)
+        renderedFrameCount += block.frameCount
+        return block
+    }
+
+    func reset() {
+        mixer.reset()
+        renderedFrameCount = 0
+    }
+}
+
+/// Offline renderer for tiny bounded `PlaybackSong` adapter segments.
+///
+/// This renderer adapts a bounded playback-model order selection, schedules the resulting synthetic pattern
+/// through `CSoftwareMixer`, and returns the in-memory PCM block with adapter diagnostics. It intentionally
+/// does not implement full XM playback, pitch accuracy, effects, volume-column semantics, parsed envelopes,
+/// WAV export, runtime backend switching, or app Play button wiring.
+final class PlaybackSongOfflineRenderer {
+    let maximumFrameCount: Int
+
+    init(maximumFrameCount: Int = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) {
+        self.maximumFrameCount = max(0, maximumFrameCount)
+    }
+
+    func prepare(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderSession {
+        PlaybackSongOfflineRenderSession(request: effectiveRequest(from: request, frames: request.requestedFrameCount))
+    }
+
+    func render(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderResult {
+        let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
+        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest)
+        return PlaybackSongOfflineRenderResult(
+            request: effectiveRequest,
+            plan: session.plan,
+            block: session.render(frames: effectiveRequest.boundedFrameCount),
+            scheduledVoiceIndices: session.scheduledVoiceIndices
+        )
+    }
+
+    func render(_ request: PlaybackSongOfflineRenderRequest, splitFrameCounts: [Int]) -> PlaybackSongOfflineRenderResult {
+        let requestedFrames = splitFrameCounts.reduce(0) { partialResult, frames in
+            let safeFrames = max(0, frames)
+            guard partialResult <= Int.max - safeFrames else {
+                return Int.max
+            }
+            return partialResult + safeFrames
+        }
+        let effectiveRequest = effectiveRequest(from: request, frames: requestedFrames)
+        let session = PlaybackSongOfflineRenderSession(request: effectiveRequest)
+        var remainingFrames = effectiveRequest.boundedFrameCount
+        var interleavedPCM = [Float]()
+        for requestedChunkFrames in splitFrameCounts where remainingFrames > 0 {
+            let chunkFrames = min(max(0, requestedChunkFrames), remainingFrames)
+            let chunk = session.render(frames: chunkFrames)
+            interleavedPCM.append(contentsOf: chunk.interleavedPCM)
+            remainingFrames -= chunk.frameCount
+        }
+        let block = MixerRenderBlock(
+            config: session.config,
+            frameCount: effectiveRequest.boundedFrameCount - remainingFrames,
+            interleavedPCM: interleavedPCM
+        )
+        return PlaybackSongOfflineRenderResult(
+            request: effectiveRequest,
+            plan: session.plan,
+            block: block,
+            scheduledVoiceIndices: session.scheduledVoiceIndices
+        )
+    }
+
+    private func effectiveRequest(
+        from request: PlaybackSongOfflineRenderRequest,
+        frames: Int
+    ) -> PlaybackSongOfflineRenderRequest {
+        request.replacingFrameCount(
+            frames,
+            maximumFrameCount: min(request.maximumFrameCount, maximumFrameCount)
+        )
     }
 }

@@ -1779,7 +1779,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event.loop, MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3))
         XCTAssertEqual(plan.diagnostics.emittedRowCount, 2)
         XCTAssertEqual(plan.diagnostics.emittedEventCount, 1)
+        XCTAssertEqual(plan.diagnostics.syntheticRowCount, 2)
+        XCTAssertEqual(plan.diagnostics.sampleRate, 44_100)
+        XCTAssertEqual(plan.diagnostics.initialSpeed, 3)
+        XCTAssertEqual(plan.diagnostics.initialBPM, 183)
         XCTAssertEqual(plan.diagnostics.rowMappings.map(\.syntheticRow), [0, 1])
+        XCTAssertEqual(plan.diagnostics.rowDiagnostics.map(\.emittedEventCount), [0, 1])
         XCTAssertEqual(plan.diagnostics.eventMappings, [
             PlaybackSongSyntheticEventMapping(
                 source: PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1),
@@ -1788,7 +1793,11 @@ final class VoodooTrackerXTests: XCTestCase {
                 instrumentIndex: 1,
                 sampleIndex: 0,
                 syntheticRow: 1,
-                eventIndex: 0
+                syntheticTick: 0,
+                eventIndex: 0,
+                loopMode: .forward,
+                hasIgnoredVolumeColumn: false,
+                hasIgnoredEffect: false
             )
         ])
     }
@@ -1830,6 +1839,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
 
         XCTAssertEqual(plan.pattern.events, [])
+        XCTAssertEqual(plan.diagnostics.ignoredCellCount, 6)
+        XCTAssertEqual(plan.diagnostics.emptyOrSkippedRowCount, 1)
         XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.reason), [
             .emptyNote,
             .keyOff,
@@ -1894,7 +1905,11 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(decorated.timingConfig, SyntheticTrackerTimingConfig(speed: 4, bpm: 125, sampleRate: 100))
         XCTAssertEqual(decorated.pattern.events, plain.pattern.events)
-        XCTAssertEqual(decorated.diagnostics.eventMappings, plain.diagnostics.eventMappings)
+        XCTAssertTrue(decorated.diagnostics.eventMappings.first?.hasIgnoredVolumeColumn == true)
+        XCTAssertTrue(decorated.diagnostics.eventMappings.first?.hasIgnoredEffect == true)
+        XCTAssertEqual(decorated.diagnostics.ignoredVolumeColumnFieldCount, 1)
+        XCTAssertEqual(decorated.diagnostics.ignoredEffectFieldCount, 1)
+        XCTAssertEqual(decorated.diagnostics.deferredCellFields.map(\.field), [.volumeColumn, .effect])
     }
 
     func testPlaybackSongSyntheticAdapterCSoftwareMixerRenderStartsAtExpectedFrame() {
@@ -1951,6 +1966,192 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(singleRender.interleavedPCM, [0, 0, 1, 0.5, -0.5, 0])
         XCTAssertEqual(splitRender, singleRender.interleavedPCM)
         XCTAssertEqual(firstResetRender, secondResetRender)
+    }
+
+    func testPlaybackSongOfflineRendererReturnsSilenceAndDiagnosticsForEmptyAdaptedSegment() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0)]]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(request)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0])
+        XCTAssertEqual(result.diagnostics.syntheticRowCount, 1)
+        XCTAssertEqual(result.diagnostics.emittedEventCount, 0)
+        XCTAssertEqual(result.diagnostics.ignoredCellCount, 1)
+        XCTAssertEqual(result.diagnostics.ignoredCells.map(\.reason), [.emptyNote])
+    }
+
+    func testPlaybackSongOfflineRendererRendersBasicTriggerAndSourceDiagnostics() throws {
+        let sample = makePlaybackSample(pcm: [1, 0.5], volume: 0.5, loopStart: 0, loopLength: 0, loopType: 0)
+        let row = PlaybackRow(index: 3, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [7],
+            patternRowsByIndex: [7: [row]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(request)
+        let event = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.25, 0])
+        XCTAssertEqual(result.scheduledVoiceIndices, [0])
+        XCTAssertEqual(result.diagnostics.adaptedOrders.map(\.requestedOrderIndex), [0])
+        XCTAssertEqual(event.source.patternIndex, 7)
+        XCTAssertEqual(event.source.rowIndex, 3)
+        XCTAssertEqual(event.channelIndex, 0)
+        XCTAssertEqual(event.syntheticRow, 0)
+        XCTAssertEqual(event.syntheticTick, 0)
+        XCTAssertEqual(event.instrumentIndex, 1)
+        XCTAssertEqual(event.sampleIndex, 0)
+        XCTAssertEqual(event.loopMode, .none)
+        XCTAssertEqual(result.diagnostics.emittedRowCount, 1)
+        XCTAssertEqual(result.diagnostics.emittedEventCount, 1)
+    }
+
+    func testPlaybackSongOfflineRendererBoundsExplicitFrameRequests() {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 3)
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5,
+            maximumFrameCount: 10
+        )
+
+        let result = renderer.render(request)
+
+        XCTAssertEqual(result.requestedFrameCount, 5)
+        XCTAssertEqual(result.renderedFrameCount, 3)
+        XCTAssertEqual(result.maximumFrameCount, 3)
+        XCTAssertTrue(result.wasFrameCountBounded)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+    }
+
+    func testPlaybackSongOfflineRendererCanRenderByRowCount() {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            rows: 2
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(request)
+
+        XCTAssertEqual(result.requestedFrameCount, 4)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, -0.5, 0.25])
+    }
+
+    func testPlaybackSongOfflineRendererSplitRendersMatchOneLargerRender() {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        )
+
+        let single = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [1, 2, 3])
+
+        XCTAssertEqual(single.block.interleavedPCM, [0, 0, 1, 0.5, -0.5, 0])
+        XCTAssertEqual(split.block, single.block)
+        XCTAssertEqual(split.diagnostics, single.diagnostics)
+    }
+
+    func testPlaybackSongOfflineRendererPreparedSessionResetIsDeterministic() {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        )
+        let session = PlaybackSongOfflineRenderer().prepare(request)
+
+        let first = session.render(frames: 6)
+        _ = session.render(frames: 2)
+        session.reset()
+        let reset = session.render(frames: 6)
+
+        XCTAssertEqual(first, reset)
+    }
+
+    func testPlaybackSongOfflineRendererCarriesLoopMetadataToCMixer() throws {
+        let forwardSample = makePlaybackSample(pcm: [0, 1, 2, 3], loopStart: 1, loopLength: 2, loopType: 1)
+        let pingPongSample = makePlaybackSample(pcm: [0, 1, 2, 3], loopStart: 1, loopLength: 3, loopType: 2)
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let forward = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample])]
+            ),
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+        let pingPong = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample])]
+            ),
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 7
+        ))
+
+        XCTAssertEqual(forward.block.interleavedPCM, [0, 1, 2, 1, 2, 1])
+        XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
+        XCTAssertEqual(pingPong.block.interleavedPCM, [0, 1, 2, 3, 2, 1, 2])
+        XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

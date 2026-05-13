@@ -22,8 +22,9 @@ backend. The software mixer path is groundwork for offline rendering and future
 reference comparison; it can render synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
 absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
-bounded `PlaybackSong` adapter segments through the offline harness, but it does
-not yet render full XM song playback or drive live playback.
+bounded `PlaybackSong` adapter segments through the offline harness with
+source-to-synthetic diagnostics, but it does not yet render full XM song
+playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -40,10 +41,12 @@ Immediate audio accuracy sequence:
 11. Synthetic tracker tick and row timing model — done
 12. Minimal synthetic pattern playback through the C-backed mixer — done
 13. Parsed XM-to-synthetic playback adapter planning — done
-14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects — this PR
-15. Effect integration
-16. Feature-flagged runtime backend switch
-17. Reference comparison stabilization against MikMod/OpenMPT
+14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects — done
+15. Adapter diagnostics and bounded offline render helper — this PR
+16. Deep project handoff checkpoint
+17. Parsed volume envelopes, local reference render workflow, or minimal pitch foundation
+18. Feature-flagged runtime backend switch
+19. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

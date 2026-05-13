@@ -309,3 +309,272 @@ struct PlaybackSong: Equatable {
         }
     }
 }
+
+struct PlaybackSongSyntheticPlan: Equatable {
+    let timingConfig: SyntheticTrackerTimingConfig
+    let pattern: SyntheticPattern
+    let diagnostics: PlaybackSongSyntheticDiagnostics
+}
+
+struct PlaybackSongSyntheticDiagnostics: Equatable {
+    let requestedStartOrderIndex: Int
+    let requestedOrderCount: Int
+    let adaptedOrders: [PlaybackSongSyntheticOrderDiagnostic]
+    let rowMappings: [PlaybackSongSyntheticRowMapping]
+    let eventMappings: [PlaybackSongSyntheticEventMapping]
+    let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
+
+    var emittedRowCount: Int {
+        rowMappings.count
+    }
+
+    var emittedEventCount: Int {
+        eventMappings.count
+    }
+}
+
+struct PlaybackSongSyntheticOrderDiagnostic: Equatable {
+    enum Status: Equatable {
+        case adapted
+        case invalidOrder
+        case missingPattern
+    }
+
+    let requestedOrderIndex: Int
+    let patternIndex: Int?
+    let syntheticStartRow: Int
+    let rowCount: Int
+    let status: Status
+}
+
+struct PlaybackSongSyntheticRowMapping: Equatable {
+    let source: PlaybackPosition
+    let syntheticRow: Int
+}
+
+struct PlaybackSongSyntheticEventMapping: Equatable {
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let note: UInt8
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let syntheticRow: Int
+    let eventIndex: Int
+}
+
+struct PlaybackSongSyntheticIgnoredCell: Equatable {
+    enum Reason: Equatable {
+        case emptyNote
+        case keyOff
+        case invalidNote
+        case missingInstrument
+        case noPlayableSample
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let note: UInt8
+    let instrumentIndex: Int
+    let reason: Reason
+}
+
+enum PlaybackSongSyntheticAdapter {
+    static func adapt(
+        _ song: PlaybackSong,
+        orderIndex: Int,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        adapt(song, startOrderIndex: orderIndex, orderCount: 1, sampleRate: sampleRate)
+    }
+
+    static func adapt(
+        _ song: PlaybackSong,
+        orderRange: Range<Int>,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        adapt(
+            song,
+            startOrderIndex: orderRange.lowerBound,
+            orderCount: max(0, orderRange.count),
+            sampleRate: sampleRate
+        )
+    }
+
+    static func adapt(
+        _ song: PlaybackSong,
+        startOrderIndex: Int,
+        orderCount: Int,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        let timingConfig = SyntheticTrackerTimingConfig(
+            speed: song.initialTiming.speed,
+            bpm: song.initialTiming.bpm,
+            sampleRate: sampleRate
+        )
+        let safeOrderCount = max(0, orderCount)
+        var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
+        var rowMappings = [PlaybackSongSyntheticRowMapping]()
+        var eventMappings = [PlaybackSongSyntheticEventMapping]()
+        var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
+        var events = [SyntheticTrackerEvent]()
+        var nextSyntheticRow = 0
+
+        for orderOffset in 0..<safeOrderCount {
+            let orderIndex = startOrderIndex + orderOffset
+            guard song.orders.indices.contains(orderIndex) else {
+                adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                    requestedOrderIndex: orderIndex,
+                    patternIndex: nil,
+                    syntheticStartRow: nextSyntheticRow,
+                    rowCount: 0,
+                    status: .invalidOrder
+                ))
+                continue
+            }
+
+            let order = song.orders[orderIndex]
+            guard let pattern = song.patternsByIndex[order.patternIndex] else {
+                adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                    requestedOrderIndex: orderIndex,
+                    patternIndex: order.patternIndex,
+                    syntheticStartRow: nextSyntheticRow,
+                    rowCount: 0,
+                    status: .missingPattern
+                ))
+                continue
+            }
+
+            adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                requestedOrderIndex: orderIndex,
+                patternIndex: pattern.index,
+                syntheticStartRow: nextSyntheticRow,
+                rowCount: pattern.rowCount,
+                status: .adapted
+            ))
+
+            for (rowOffset, row) in pattern.rows.enumerated() {
+                let syntheticRow = nextSyntheticRow + rowOffset
+                let source = PlaybackPosition(
+                    orderIndex: orderIndex,
+                    patternIndex: pattern.index,
+                    rowIndex: row.index
+                )
+                rowMappings.append(PlaybackSongSyntheticRowMapping(source: source, syntheticRow: syntheticRow))
+                appendEvents(
+                    from: row,
+                    source: source,
+                    syntheticRow: syntheticRow,
+                    song: song,
+                    events: &events,
+                    eventMappings: &eventMappings,
+                    ignoredCells: &ignoredCells
+                )
+            }
+
+            nextSyntheticRow += pattern.rowCount
+        }
+
+        return PlaybackSongSyntheticPlan(
+            timingConfig: timingConfig,
+            pattern: SyntheticPattern(rowCount: nextSyntheticRow, events: events),
+            diagnostics: PlaybackSongSyntheticDiagnostics(
+                requestedStartOrderIndex: startOrderIndex,
+                requestedOrderCount: safeOrderCount,
+                adaptedOrders: adaptedOrders,
+                rowMappings: rowMappings,
+                eventMappings: eventMappings,
+                ignoredCells: ignoredCells
+            )
+        )
+    }
+
+    private static func appendEvents(
+        from row: PlaybackRow,
+        source: PlaybackPosition,
+        syntheticRow: Int,
+        song: PlaybackSong,
+        events: inout [SyntheticTrackerEvent],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell]
+    ) {
+        for (channelIndex, cell) in row.cells.enumerated() {
+            guard (1...96).contains(cell.note) else {
+                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    note: cell.note,
+                    instrumentIndex: Int(cell.instrument),
+                    reason: ignoredNoteReason(cell.note)
+                ))
+                continue
+            }
+
+            let instrumentIndex = Int(cell.instrument)
+            guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
+                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    note: cell.note,
+                    instrumentIndex: instrumentIndex,
+                    reason: .missingInstrument
+                ))
+                continue
+            }
+            guard let sample = instrument.firstPlayableSample else {
+                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    note: cell.note,
+                    instrumentIndex: instrumentIndex,
+                    reason: .noPlayableSample
+                ))
+                continue
+            }
+
+            let eventIndex = events.count
+            events.append(SyntheticTrackerEvent(
+                row: syntheticRow,
+                tick: 0,
+                sample: MixerSampleBuffer(monoPCM: sample.pcm),
+                gain: sample.volume,
+                pan: 0,
+                loop: mixerLoop(from: sample)
+            ))
+            eventMappings.append(PlaybackSongSyntheticEventMapping(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sample.sampleIndex,
+                syntheticRow: syntheticRow,
+                eventIndex: eventIndex
+            ))
+        }
+    }
+
+    private static func ignoredNoteReason(_ note: UInt8) -> PlaybackSongSyntheticIgnoredCell.Reason {
+        switch note {
+        case 0:
+            return .emptyNote
+        case 97:
+            return .keyOff
+        default:
+            return .invalidNote
+        }
+    }
+
+    private static func mixerLoop(from sample: PlaybackSample) -> MixerSampleLoop {
+        let region = sample.loopRegion
+        guard region.isEnabled else {
+            return .none
+        }
+        switch region.loopType {
+        case 1:
+            return MixerSampleLoop(mode: .forward, startFrame: region.startFrame, endFrame: region.endFrame)
+        case 2:
+            return MixerSampleLoop(mode: .pingPong, startFrame: region.startFrame, endFrame: region.endFrame)
+        default:
+            return .none
+        }
+    }
+}

@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This note designs the next bridge from the parsed playback model to the
-synthetic scheduling layer that already drives the C-backed offline mixer:
+This note documents the bridge from the parsed playback model to the synthetic
+scheduling layer that already drives the C-backed offline mixer:
 
 ```text
 PlaybackSong / PlaybackSongBuilder
@@ -14,9 +14,26 @@ PlaybackSong / PlaybackSongBuilder
 -> MixerCore C renderer
 ```
 
-This is a planning document only. It does not implement the adapter, connect
-real parsed XM playback to the C mixer, change runtime playback, implement XM
-effects, or add WAV export.
+This began as a planning document. The minimal bounded adapter now exists, but
+it still does not connect real parsed XM playback to the C mixer, change runtime
+playback, implement XM effects, or add WAV export.
+
+## Implementation Status
+
+PR 2.7.10 added `PlaybackSongSyntheticAdapter`, a Swift-side offline adapter
+that converts an explicit bounded order selection from `PlaybackSong` into a
+`SyntheticTrackerTimingConfig`, `SyntheticPattern`, and small diagnostics. It
+uses constant initial speed/BPM only, emits basic note/instrument/sample
+triggers at tick 0, copies sample PCM into `MixerSampleBuffer`, maps sample
+volume to event gain, and maps disabled/forward/ping-pong sample loops into the
+existing synthetic loop metadata.
+
+The first adapter is intentionally not pitch-accurate: note values are used only
+to decide whether a trigger exists. XM effects, volume columns, tempo changes
+after initial timing, parsed XM volume envelopes, sample offset, key-off
+behavior, and full real XM playback remain deferred. Runtime playback still uses
+`AVAudioPlayerNode` through the existing playback path; the C mixer is still not
+used for live playback.
 
 ## Current Parsed Playback Model
 
@@ -124,8 +141,7 @@ Boundary rules:
 
 ## Minimal First Adapter Scope
 
-The first implementation PR after this planning PR should be intentionally
-small:
+The first adapter implementation is intentionally small:
 
 - Use constant initial speed/BPM from `PlaybackSong.initialTiming`.
 - Accept one order or an explicit bounded order range.
@@ -204,7 +220,7 @@ The first adapter must not:
 
 ## Test Strategy For The First Adapter PR
 
-The first implementation PR should add focused tests around adapter output and
+The first adapter implementation uses focused tests around adapter output and
 bounded offline rendering:
 
 - Use tiny hand-built `PlaybackSong` fixtures when a full parser fixture is not
@@ -251,7 +267,7 @@ bounded offline rendering:
 
 ## Manual Verification Strategy
 
-For this planning PR:
+For the original planning PR:
 
 - Review this document against the listed source files and ADRs.
 - Run `./scripts/check-files.sh`.

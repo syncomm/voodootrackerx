@@ -57,7 +57,7 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, and minimal synthetic patterns offline only and is not used for runtime playback.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments offline only and is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -156,11 +156,12 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.9 — Parsed XM-to-Synthetic Playback Adapter Planning
 - Scope: inspect the existing parsed playback model boundary and design a small adapter from parsed XM playback data into the synthetic scheduling layer
 - Verification: design/tests for the adapter boundary only; no runtime backend switching or full XM compatibility claims
-- Status: this PR.
+- Status: done.
 
 ### PR 2.7.10 — Minimal PlaybackSong-to-Synthetic Adapter
 - Scope: implement the smallest safe Swift-side adapter from `PlaybackSong` into the synthetic pattern scheduling layer using constant initial speed/BPM, bounded orders, and basic note/instrument/sample triggers
 - Verification: deterministic bounded offline tests with synthetic or redistribution-safe parsed fixtures only; no runtime backend switching, full XM effects, or local copyrighted module fixtures
+- Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available

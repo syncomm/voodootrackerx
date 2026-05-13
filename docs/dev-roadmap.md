@@ -20,10 +20,10 @@ initial deterministic software mixer skeleton.
 Runtime playback still uses the `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 backend. The software mixer path is groundwork for offline rendering and future
 reference comparison; it can render synthetic one-shot sample voices plus
-synthetic forward and ping-pong loops, volume/panning envelope foundations, and
-absolute-frame, row/tick scheduled, and minimal synthetic pattern voices through
-the offline harness, but it does not yet render XM song playback or drive live
-playback.
+synthetic forward and ping-pong loops, volume/panning envelope foundations,
+absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
+bounded `PlaybackSong` adapter segments through the offline harness, but it does
+not yet render full XM song playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -39,8 +39,8 @@ Immediate audio accuracy sequence:
 10. C-backed timing and voice scheduling foundations — done
 11. Synthetic tracker tick and row timing model — done
 12. Minimal synthetic pattern playback through the C-backed mixer — done
-13. Parsed XM-to-synthetic playback adapter planning — this PR
-14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects
+13. Parsed XM-to-synthetic playback adapter planning — done
+14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects — this PR
 15. Effect integration
 16. Feature-flagged runtime backend switch
 17. Reference comparison stabilization against MikMod/OpenMPT
@@ -116,7 +116,7 @@ Features:
 - synthetic absolute-frame voice scheduling through the C-backed offline mixer path
 - synthetic tracker row/tick timing through the C-backed offline mixer path
 - minimal synthetic pattern playback through the C-backed offline mixer path
-- parsed XM-to-synthetic playback adapter planning before wiring parsed data into the C-backed path
+- minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

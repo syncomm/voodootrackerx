@@ -21,8 +21,8 @@ Runtime playback still uses the `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 backend. The software mixer path is groundwork for offline rendering and future
 reference comparison; it can render synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations, and
-absolute-frame scheduled synthetic voices through the offline harness, but it
-does not yet render XM song playback or drive live playback.
+absolute-frame and row/tick scheduled synthetic voices through the offline
+harness, but it does not yet render XM song playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -35,11 +35,12 @@ Immediate audio accuracy sequence:
 7. Port one-shot rendering to the C-backed path — done
 8. Port forward and ping-pong loop rendering to the C-backed path — done
 9. C-backed volume, panning, and envelope foundations — done
-10. C-backed timing and voice scheduling foundations — this PR
-11. Synthetic tracker tick and row timing model
-12. Effect integration
-13. Feature-flagged runtime backend switch
-14. Reference comparison stabilization against MikMod/OpenMPT
+10. C-backed timing and voice scheduling foundations — done
+11. Synthetic tracker tick and row timing model — this PR
+12. Minimal synthetic pattern playback through the C-backed mixer
+13. Effect integration
+14. Feature-flagged runtime backend switch
+15. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -110,6 +111,7 @@ Features:
 - synthetic forward and ping-pong loop rendering through the offline mixer harness
 - synthetic volume and panning envelope foundations through the C-backed offline mixer path
 - synthetic absolute-frame voice scheduling through the C-backed offline mixer path
+- synthetic tracker row/tick timing through the C-backed offline mixer path
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

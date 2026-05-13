@@ -567,6 +567,18 @@ private func cScheduledBlock(
     return mixer.render(frames: frames)
 }
 
+private func cSyntheticTrackerBlock(
+    events: [SyntheticTrackerEvent],
+    frames: Int,
+    timingConfig: SyntheticTrackerTimingConfig = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100),
+    channelCount: Int = 1
+) -> MixerRenderBlock {
+    let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: timingConfig.sampleRate, channelCount: channelCount))
+    let scheduler = SyntheticTrackerScheduler(config: timingConfig)
+    _ = scheduler.schedule(events, on: mixer)
+    return mixer.render(frames: frames)
+}
+
 final class VoodooTrackerXTests: XCTestCase {
     func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
         let config = vtx_c_mixer_default_config()
@@ -1326,6 +1338,159 @@ final class VoodooTrackerXTests: XCTestCase {
         _ = mixer.render(frames: 2)
         XCTAssertNil(mixer.addScheduledVoice(sample: MixerSampleBuffer(monoPCM: [1]), scheduledStartFrame: 1))
         XCTAssertEqual(mixer.render(frames: 3).interleavedPCM, [0, 0, 0])
+    }
+
+    func testSyntheticTrackerTimingFramesPerTickUsesPlaybackTimingFormula() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 183, sampleRate: 44_100)
+        let timing = SyntheticTrackerTiming(config: config)
+
+        XCTAssertEqual(timing.framesPerTick, 44_100 * (2.5 / 183.0), accuracy: 0.000001)
+    }
+
+    func testSyntheticTrackerTimingFramesPerRowUsesConfiguredSpeed() {
+        let config = SyntheticTrackerTimingConfig(speed: 3, bpm: 250, sampleRate: 100)
+        let timing = SyntheticTrackerTiming(config: config)
+
+        XCTAssertEqual(timing.framesPerTick, 1)
+        XCTAssertEqual(timing.framesPerRow, 3)
+    }
+
+    func testSyntheticTrackerTimingMapsRowsAndTicksToAbsoluteFrames() {
+        let timing = SyntheticTrackerTiming(config: SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100))
+
+        XCTAssertEqual(timing.frameFor(row: 0, tick: 0), 0)
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 0), 2)
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 1), 3)
+    }
+
+    func testSyntheticTrackerTimingUsesDeterministicFloorRoundingForFractionalFrames() {
+        let timing = SyntheticTrackerTiming(config: SyntheticTrackerTimingConfig(speed: 2, bpm: 183, sampleRate: 44_100))
+
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 0), 1_204)
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 1), 1_807)
+    }
+
+    func testSyntheticTrackerTimingInvalidBPMClampsSafely() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 0, sampleRate: 100)
+        let timing = SyntheticTrackerTiming(config: config)
+
+        XCTAssertEqual(config.bpm, 1)
+        XCTAssertEqual(timing.framesPerTick, 250)
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 0), 500)
+    }
+
+    func testSyntheticTrackerTimingInvalidSpeedClampsSafely() {
+        let config = SyntheticTrackerTimingConfig(speed: 0, bpm: 250, sampleRate: 100)
+        let timing = SyntheticTrackerTiming(config: config)
+
+        XCTAssertEqual(config.speed, 1)
+        XCTAssertEqual(timing.framesPerRow, 1)
+        XCTAssertEqual(timing.frameFor(row: 1, tick: 1), 1)
+    }
+
+    func testSyntheticTrackerTimingInvalidSampleRateFallsBackSafely() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 125, sampleRate: .nan)
+        let timing = SyntheticTrackerTiming(config: config)
+
+        XCTAssertEqual(config.sampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(timing.framesPerTick, 882)
+    }
+
+    func testSyntheticTrackerSchedulerFrameZeroRendersLikeImmediatePlayback() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5])
+        let event = SyntheticTrackerEvent(row: 0, tick: 0, sample: sample)
+
+        let scheduled = cSyntheticTrackerBlock(events: [event], frames: 4, timingConfig: config)
+        let immediate = cOneShotBlock(
+            sample: sample,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: config.sampleRate, channelCount: 1)
+        )
+
+        XCTAssertEqual(scheduled, immediate)
+        XCTAssertEqual(scheduled.interleavedPCM, [1, 0.5, 0, 0])
+    }
+
+    func testSyntheticTrackerSchedulerLaterRowRendersSilenceBeforeEvent() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5])
+        let event = SyntheticTrackerEvent(row: 2, tick: 0, sample: sample)
+
+        let block = cSyntheticTrackerBlock(events: [event], frames: 7)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0, 1, 0.5, 0])
+    }
+
+    func testSyntheticTrackerSchedulerRowTickEventStartsAtComputedFrame() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
+        let scheduler = SyntheticTrackerScheduler(config: config)
+        let event = SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.75]))
+
+        let block = cSyntheticTrackerBlock(events: [event], frames: 5, timingConfig: config)
+
+        XCTAssertEqual(scheduler.frame(for: event), 3)
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 0.75, 0])
+    }
+
+    func testSyntheticTrackerSchedulerMultipleEventsRenderAtDeterministicPositions() {
+        let events = [
+            SyntheticTrackerEvent(row: 0, tick: 0, sample: MixerSampleBuffer(monoPCM: [1])),
+            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.5])),
+            SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.25]))
+        ]
+
+        let block = cSyntheticTrackerBlock(events: events, frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0, 0.5, 0.25, 0])
+    }
+
+    func testSyntheticTrackerSchedulerOverlappingEventsMixDeterministically() {
+        let events = [
+            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [1, 1, 1])),
+            SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [0.5, 0.25]))
+        ]
+
+        let block = cSyntheticTrackerBlock(events: events, frames: 6)
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1.5, 1.25, 0])
+    }
+
+    func testSyntheticTrackerSchedulerSplitRendersMatchOneLargerRender() {
+        let events = [
+            SyntheticTrackerEvent(row: 1, tick: 0, sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])),
+            SyntheticTrackerEvent(row: 2, tick: 0, sample: MixerSampleBuffer(monoPCM: [0.25]))
+        ]
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
+        let scheduler = SyntheticTrackerScheduler(config: config)
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: config.sampleRate, channelCount: 1))
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: config.sampleRate, channelCount: 1))
+        _ = scheduler.schedule(events, on: singleRenderMixer)
+        _ = scheduler.schedule(events, on: splitRenderMixer)
+
+        let singleRender = singleRenderMixer.render(frames: 6)
+        let splitRender = splitRenderMixer.render(frames: 1).interleavedPCM +
+            splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 3).interleavedPCM
+
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+    }
+
+    func testSyntheticTrackerSchedulerResetRestoresPlaybackDeterministically() {
+        let config = SyntheticTrackerTimingConfig(speed: 2, bpm: 250, sampleRate: 100)
+        let scheduler = SyntheticTrackerScheduler(config: config)
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: config.sampleRate, channelCount: 1))
+        _ = scheduler.schedule(
+            SyntheticTrackerEvent(row: 1, tick: 1, sample: MixerSampleBuffer(monoPCM: [1, 0.5])),
+            on: mixer
+        )
+
+        let first = mixer.render(frames: 6)
+        _ = mixer.render(frames: 3)
+        mixer.reset()
+        let reset = mixer.render(frames: 6)
+
+        XCTAssertEqual(first, reset)
+        XCTAssertEqual(reset.interleavedPCM, [0, 0, 0, 1, 0.5, 0])
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

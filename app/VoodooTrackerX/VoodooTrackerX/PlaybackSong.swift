@@ -1161,7 +1161,7 @@ final class PlaybackSongOfflineRenderSession {
 /// This renderer adapts a bounded playback-model order selection, schedules the resulting synthetic pattern
 /// through `CSoftwareMixer`, and returns the in-memory PCM block with adapter diagnostics. It intentionally
 /// does not implement full XM playback, FT2/OpenMPT pitch parity, effects, volume-column semantics,
-/// sustain/loop/fadeout envelope semantics, WAV export, runtime backend switching, or app Play button wiring.
+/// sustain/loop/fadeout envelope semantics, runtime backend switching, or app Play button wiring.
 final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int
 
@@ -1213,6 +1213,20 @@ final class PlaybackSongOfflineRenderer {
             block: block,
             scheduledVoiceIndices: session.scheduledVoiceIndices
         )
+    }
+
+    /// Renders a bounded adapted `PlaybackSong` segment through the offline C-backed mixer and writes PCM16 WAV.
+    ///
+    /// This is a local comparison helper only. It reuses the existing bounded render path and does not parse
+    /// modules, traverse full songs, compare against reference renderers, or change live playback.
+    @discardableResult
+    func exportWAV(
+        _ request: PlaybackSongOfflineRenderRequest,
+        to url: URL
+    ) throws -> PlaybackSongOfflineRenderResult {
+        let result = render(request)
+        try MixerWAVExporter.writePCM16WAV(from: result.block, to: url)
+        return result
     }
 
     private func effectiveRequest(

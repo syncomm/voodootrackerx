@@ -181,6 +181,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10d — Local-Only Bounded Reference Render Workflow Against MikMod/OpenMPT
 - Scope: improve local WAV-to-WAV comparison tooling and documentation for bounded candidate/reference render diagnostics without adding renderer dependencies to CI or changing mixer behavior
 - Verification: synthetic temporary WAV tests for comparison metrics, JSON output, mismatch windows, format mismatches, clipping/silence detection, and CLI error handling; local generated WAVs/reports/traces remain out of git
+- Status: done.
+
+### PR 2.7.10e — Bounded C-Mixer WAV Export Helper
+- Scope: add a small offline helper that writes bounded adapted `PlaybackSong` render blocks from the existing C-backed mixer path as deterministic PCM16 WAV files for local candidate comparison
+- Verification: synthetic/hand-built `PlaybackSong` tests for WAV headers, PCM16 clamping, empty renders, deterministic repeated export, and bounded adapted export; no runtime backend switching, full traversal, reference comparison, or local copyrighted module fixtures
 - Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

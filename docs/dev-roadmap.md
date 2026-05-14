@@ -23,12 +23,13 @@ reference comparison; it can render synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
 absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
 bounded `PlaybackSong` adapter segments through the offline harness with
-source-to-synthetic diagnostics. Parsed `PlaybackInstrument.volumeEnvelope`
-points can be converted into the C-backed frame-based envelope representation
-for those bounded offline adapted renders only, and adapted note triggers now
-carry a minimal deterministic note/sample-derived playback step. This is not
-full FT2/OpenMPT pitch parity. The path does not yet render full XM song
-playback or drive live playback.
+source-to-synthetic diagnostics. Those bounded candidate renders can now be
+written as deterministic PCM16 WAV files for local comparison. Parsed
+`PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
+frame-based envelope representation for those bounded offline adapted renders
+only, and adapted note triggers now carry a minimal deterministic
+note/sample-derived playback step. This is not full FT2/OpenMPT pitch parity.
+The path does not yet render full XM song playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -49,11 +50,12 @@ Immediate audio accuracy sequence:
 15. Adapter diagnostics and bounded offline render helper — done
 16. Parsed volume envelope mapping for bounded offline adapted renders — done
 17. Minimal pitch foundation for bounded offline adapted renders — done
-18. Local-only bounded reference render comparison workflow — this PR
-19. Deep project handoff checkpoint
-20. Bounded C-mixer WAV export helper, volume-column integration, or focused pitch/period accuracy
-21. Feature-flagged runtime backend switch
-22. Reference comparison stabilization against MikMod/OpenMPT
+18. Local-only bounded reference render comparison workflow — done
+19. Bounded C-mixer WAV export helper — this PR
+20. Deep project handoff checkpoint
+21. Volume-column integration, minimal Fxx timing changes, or focused pitch/period accuracy
+22. Feature-flagged runtime backend switch
+23. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -129,6 +131,7 @@ Features:
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
 - parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using constant initial speed/BPM only
 - minimal note-to-sample-step pitch foundation for bounded offline adapted renders, without full FT2/OpenMPT parity
+- deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

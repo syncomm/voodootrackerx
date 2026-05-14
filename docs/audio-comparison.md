@@ -3,8 +3,8 @@
 VoodooTracker X has a local-only diagnostic workflow for comparing two bounded
 PCM WAV renders:
 
-- a candidate WAV from VoodooTracker X, a manual capture, or a future bounded
-  C-backed offline render export
+- a candidate WAV from VoodooTracker X, a manual capture, or the bounded
+  C-backed offline render export helper
 - a reference WAV from OpenMPT/libopenmpt/openmpt123, MikMod, or another local
   renderer
 
@@ -24,16 +24,33 @@ C-backed mixer remains offline-only and is not connected to the app Play
 button.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
-segments in memory, but this PR does not add a candidate WAV export CLI. Until a
-small export helper exists, candidate WAV generation is manual/local. Reference
-comparison is ready for local WAV files once the candidate and reference renders
-exist.
+segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
+helper can write those bounded render blocks as deterministic PCM16 WAV files.
+This is not a full module render command and there is no app UI or live playback
+integration. The helper is intended for tiny, explicit, bounded local candidate
+renders only.
+
+Current C-backed candidate renders are still expected to differ from
+OpenMPT/MikMod for real modules because XM effects, volume-column semantics,
+interpolation, full FT2/OpenMPT pitch parity, true Amiga frequency-table
+behavior, tempo/BPM changes, and full song traversal remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
 synthetic WAV files only.
 
 ## Compare Two WAV Files
+
+Local-only workflow:
+
+1. Produce a bounded VoodooTracker X candidate WAV with the offline adapted
+   `PlaybackSong` export helper, writing outside the repo, for example under
+   `/tmp`.
+2. Produce a bounded reference WAV with OpenMPT/libopenmpt/openmpt123, MikMod,
+   or another local reference renderer using documented local settings.
+3. Run `scripts/audio-compare.py` against the candidate and reference WAVs.
+4. Inspect the JSON and/or Markdown report as diagnostic evidence, not parity
+   proof.
 
 Local-only example using placeholder paths:
 

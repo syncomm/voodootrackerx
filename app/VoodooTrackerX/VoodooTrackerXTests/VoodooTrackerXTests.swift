@@ -642,6 +642,71 @@ private func cSyntheticPatternBlock(
     return mixer.render(frames: frames)
 }
 
+private struct TestPCM16WAV: Equatable {
+    let riffSize: UInt32
+    let sampleRate: UInt32
+    let channelCount: UInt16
+    let byteRate: UInt32
+    let blockAlign: UInt16
+    let bitsPerSample: UInt16
+    let dataSize: UInt32
+    let samples: [Int16]
+}
+
+private enum TestWAVParseError: Error {
+    case invalidData
+}
+
+private func parsePCM16WAV(_ data: Data) throws -> TestPCM16WAV {
+    guard data.count >= 44,
+          Array(data[0..<4]) == Array("RIFF".utf8),
+          Array(data[8..<12]) == Array("WAVE".utf8),
+          Array(data[12..<16]) == Array("fmt ".utf8),
+          readLE32(data, offset: 16) == 16,
+          readLE16(data, offset: 20) == 1,
+          Array(data[36..<40]) == Array("data".utf8) else {
+        throw TestWAVParseError.invalidData
+    }
+
+    let dataSize = readLE32(data, offset: 40)
+    guard data.count == 44 + Int(dataSize),
+          dataSize % 2 == 0 else {
+        throw TestWAVParseError.invalidData
+    }
+
+    var samples = [Int16]()
+    samples.reserveCapacity(Int(dataSize) / 2)
+    for offset in stride(from: 44, to: data.count, by: 2) {
+        samples.append(readLEInt16(data, offset: offset))
+    }
+
+    return TestPCM16WAV(
+        riffSize: readLE32(data, offset: 4),
+        sampleRate: readLE32(data, offset: 24),
+        channelCount: readLE16(data, offset: 22),
+        byteRate: readLE32(data, offset: 28),
+        blockAlign: readLE16(data, offset: 32),
+        bitsPerSample: readLE16(data, offset: 34),
+        dataSize: dataSize,
+        samples: samples
+    )
+}
+
+private func readLE16(_ data: Data, offset: Int) -> UInt16 {
+    UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+}
+
+private func readLE32(_ data: Data, offset: Int) -> UInt32 {
+    UInt32(data[offset]) |
+        (UInt32(data[offset + 1]) << 8) |
+        (UInt32(data[offset + 2]) << 16) |
+        (UInt32(data[offset + 3]) << 24)
+}
+
+private func readLEInt16(_ data: Data, offset: Int) -> Int16 {
+    Int16(bitPattern: readLE16(data, offset: offset))
+}
+
 final class VoodooTrackerXTests: XCTestCase {
     func testCMixerCoreReturnsPredictableInvalidArgumentStatus() {
         let config = vtx_c_mixer_default_config()
@@ -2919,6 +2984,136 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(result.renderedFrameCount, 5)
         XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.5, 0.25, 0.25, -0.25, -0.25, 0, 0, 0, 0])
+    }
+
+    func testMixerWAVExporterWritesValidPCM16HeaderFields() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 8_000, channelCount: 2),
+            frameCount: 3,
+            interleavedPCM: [0, 0.25, -0.25, 0.5, -0.5, 1]
+        )
+
+        let data = try MixerWAVExporter.pcm16WAVData(from: block)
+        let wav = try parsePCM16WAV(data)
+
+        XCTAssertEqual(wav.riffSize, 48)
+        XCTAssertEqual(wav.sampleRate, 8_000)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(wav.bitsPerSample, 16)
+        XCTAssertEqual(wav.byteRate, 32_000)
+        XCTAssertEqual(wav.blockAlign, 4)
+        XCTAssertEqual(wav.dataSize, 12)
+        XCTAssertEqual(wav.samples.count, 6)
+    }
+
+    func testMixerWAVExporterClampsAndEncodesPCM16Deterministically() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 8,
+            interleavedPCM: [-2, -1, -0.5, 0, 0.5, 1, 2, .nan]
+        )
+
+        let wav = try parsePCM16WAV(try MixerWAVExporter.pcm16WAVData(from: block))
+
+        XCTAssertEqual(wav.samples, [
+            Int16.min,
+            Int16.min,
+            -16_384,
+            0,
+            16_384,
+            Int16.max,
+            Int16.max,
+            0
+        ])
+    }
+
+    func testMixerWAVExporterHandlesEmptyRenderBlockSafely() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 22_050, channelCount: 2),
+            frameCount: 0,
+            interleavedPCM: []
+        )
+
+        let data = try MixerWAVExporter.pcm16WAVData(from: block)
+        let wav = try parsePCM16WAV(data)
+
+        XCTAssertEqual(data.count, 44)
+        XCTAssertEqual(wav.riffSize, 36)
+        XCTAssertEqual(wav.sampleRate, 22_050)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(wav.dataSize, 0)
+        XCTAssertEqual(wav.samples, [])
+    }
+
+    func testMixerWAVExporterRejectsInvalidPCMShape() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            frameCount: 2,
+            interleavedPCM: [0, 0, 0]
+        )
+
+        XCTAssertThrowsError(try MixerWAVExporter.pcm16WAVData(from: block)) { error in
+            XCTAssertEqual(error as? MixerWAVExportError, .invalidPCMShape(expectedSampleCount: 4, actualSampleCount: 3))
+        }
+    }
+
+    func testPlaybackSongOfflineRendererExportsBoundedAdaptedRenderToWAV() throws {
+        let sample = makePlaybackSample(pcm: [0, 0.5, -0.5, 1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 5
+        )
+
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let outputURL = tempDirectory.appendingPathComponent("vtx-candidate.wav")
+        let result = try PlaybackSongOfflineRenderer().exportWAV(request, to: outputURL)
+        let wav = try parsePCM16WAV(Data(contentsOf: outputURL))
+
+        XCTAssertEqual(result.renderedFrameCount, 5)
+        XCTAssertEqual(result.diagnostics.emittedEventCount, 1)
+        XCTAssertEqual(wav.sampleRate, 100)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(wav.bitsPerSample, 16)
+        XCTAssertEqual(wav.dataSize, 20)
+        XCTAssertEqual(wav.samples.prefix(8), [0, 0, 16_384, 16_384, -16_384, -16_384, Int16.max, Int16.max])
+    }
+
+    func testPlaybackSongWAVExportIsDeterministicAndPreservesSplitRenderDeterminism() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3, 4], baseSampleRate: 100, loopStart: 1, loopLength: 3, loopType: 1)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let firstURL = tempDirectory.appendingPathComponent("first-candidate.wav")
+        let secondURL = tempDirectory.appendingPathComponent("second-candidate.wav")
+
+        try renderer.exportWAV(request, to: firstURL)
+        try renderer.exportWAV(request, to: secondURL)
+        let singleRender = renderer.render(request)
+        let splitRender = renderer.render(request, splitFrameCounts: [1, 2, 3])
+
+        XCTAssertEqual(try Data(contentsOf: firstURL), try Data(contentsOf: secondURL))
+        XCTAssertEqual(singleRender.block.interleavedPCM, splitRender.block.interleavedPCM)
     }
 
     func testSoftwareMixerNoLoopModeStillMatchesOneShotBehavior() {

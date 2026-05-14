@@ -40,11 +40,14 @@ before rendering.
 
 The adapter and helper are intentionally not pitch-accurate: note values are
 used only to decide whether a trigger exists. XM effects are ignored, volume
-columns are ignored, tempo changes after initial timing are ignored, parsed XM
-volume envelopes are not wired, and sample offset/key-off behavior remains
-deferred. Runtime playback still uses `AVAudioPlayerNode` through the existing
-playback path; the C mixer is still not used for live playback, and full real XM
-playback through the C mixer has not been implemented.
+columns are ignored, and tempo changes after initial timing are ignored. Parsed
+`PlaybackInstrument.volumeEnvelope` points are now mapped to the existing
+frame-based `MixerEnvelope` representation for bounded offline adapted renders
+when a playable sample voice is emitted. Sustain, loop, key-off, and fadeout
+envelope semantics remain deferred and are reported in diagnostics when present.
+Runtime playback still uses `AVAudioPlayerNode` through the existing playback
+path; the C mixer is still not used for live playback, and full real XM playback
+through the C mixer has not been implemented.
 
 ## Current Parsed Playback Model
 
@@ -67,7 +70,7 @@ decisions:
 | `PlaybackCell` | Raw XM cell fields: note, instrument, volume column, effect type, and effect parameter. Empty note is `0`; note-off is `97`; normal note triggers are `1...96`. |
 | `PlaybackInstrument` | App-side instrument container with samples and a parsed volume envelope. Current sample selection is `firstPlayableSample`. |
 | `PlaybackSample` | Decoded mono Float32 PCM plus sample volume, relative note, finetune, base sample rate, sample length, and loop metadata in sample frames. It exposes `isPlayable` and a clamped `loopRegion`. |
-| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed synthetic path does not consume parsed envelopes yet. |
+| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed bounded offline adapter now consumes the basic enabled volume envelope shape only. |
 | `PlaybackTiming` | XM-style timing values. Tick duration is `2.5 / bpm`; row duration is tick duration times clamped speed. |
 | `PlaybackEffect` types | Runtime playback effect decoding and channel/global state for the current AVAudio path. These are not part of the first adapter scope. |
 | `PlaybackEngine` | Current live playback orchestrator. It advances rows/ticks on a timer, applies first-pass effects and volume-column behavior, triggers `PlaybackAudioOutput`, and writes playback traces. It still uses the AVAudio backend for live playback. |
@@ -206,7 +209,7 @@ The first adapter must not:
 | `PlaybackCell.volumeColumn` | None initially | Ignore. | Volume-column integration PR later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | None initially | Ignore. | Targeted effect integration PRs later. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
-| `PlaybackInstrument.volumeEnvelope` | None initially | Disable parsed envelopes for the first adapter. | Convert `PlaybackVolumeEnvelope` to mixer envelope/fadeout later. |
+| `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using `PlaybackSong.initialTiming` and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and any timing changes after initial speed/BPM. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
 | `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as basic gain. | Combine with channel, global, volume-column, envelope, and fadeout state later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | None initially | Ignore for render; optionally preserve in diagnostics. | Note-to-frequency and period behavior later. |
@@ -250,6 +253,9 @@ bounded offline rendering:
 - Assert sample volume maps to gain.
 - Assert forward and ping-pong loop metadata reaches the already-tested C loop
   path.
+- Assert parsed volume envelope points map to frame-based mixer envelope points
+  using constant initial timing.
+- Assert disabled, empty, and invalid parsed volume envelopes are ignored safely.
 - Assert effects and volume-column fields are ignored in the first adapter.
 - Assert split render determinism for the scheduled output.
 - Assert reset determinism for the scheduled output.
@@ -263,19 +269,20 @@ bounded offline rendering:
    loop metadata, no effects, offline tests only.
 2. Done: adapter diagnostics and bounded offline render helper for parsed
    `PlaybackSong` segments, still using redistribution-safe fixtures only.
-3. Deep project handoff checkpoint covering the software mixer transition,
+3. Done: parsed volume envelope point mapping for bounded offline adapted
+   `PlaybackSong` renders, using the existing C-backed frame-based envelope
+   behavior and reporting sustain/loop/fadeout as deferred.
+4. Deep project handoff checkpoint covering the software mixer transition,
    C-backed mixer path, synthetic scheduling, adapter bridge, and next roadmap.
-4. Parsed volume envelope mapping to the C-backed envelope path, including
-   sustain/loop/fadeout scope decisions.
 5. Local-only reference render workflow against MikMod/OpenMPT once bounded
    parsed offline renders exist.
 6. Targeted timing effect integration, starting with `Fxx` speed/BPM changes.
 7. Volume-column integration.
 8. Basic pitch/period accuracy pass for note-to-frequency behavior.
-8. Additional targeted effects such as sample offset, note delay/cut,
+9. Additional targeted effects such as sample offset, note delay/cut,
    retrigger, arpeggio, portamento, vibrato, slides, pattern break, and
    position jump.
-9. Feature-flagged runtime C mixer backend switch only after offline parity and
+10. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Manual Verification Strategy

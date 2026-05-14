@@ -15,7 +15,8 @@ struct MixerEnvelopePoint: Equatable {
 ///
 /// Volume envelopes use values in `0.0...1.0`. Panning envelopes use the C mixer's
 /// `-1.0...1.0` pan convention and act as a neutral-centered offset added to the
-/// voice pan. These envelopes are not connected to parsed XM instruments yet.
+/// voice pan. Parsed volume envelopes are converted to this frame-based shape in
+/// Swift before they reach the C-backed offline mixer.
 struct MixerEnvelope: Equatable {
     let points: [MixerEnvelopePoint]
 
@@ -62,7 +63,7 @@ final class CSoftwareMixer {
     ///
     /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
     /// the Swift reference mixer tests. It intentionally ignores interpolation, pitch conversion, sample
-    /// offsets, timing, effects, and XM instrument ownership in this PR.
+    /// offsets, timing, effects, and XM instrument ownership.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
@@ -179,7 +180,7 @@ final class CSoftwareMixer {
     /// ping-pong-loop sample voices with synthetic volume and pan envelopes. Scheduled synthetic voices can
     /// start at absolute output frames in the offline mixer timeline. Swift-side synthetic row/tick helpers
     /// can map simple tracker coordinates to those absolute frames, but the C core does not implement XM
-    /// effects, XM playback, parsed instrument envelopes, or runtime audio backend switching.
+    /// effects, XM playback, sustain/loop/fadeout envelope semantics, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount

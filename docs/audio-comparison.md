@@ -14,10 +14,10 @@ audio rewrites. Use mismatch windows to choose the next smallest targeted PR.
 
 Generated WAVs, JSON reports, Markdown reports, filled findings reports,
 playback traces, screenshots, logs, listening notes, and local module files
-must stay outside git. `_DARKL.XM` is Gregory's local-only manual regression
-module at `/Users/syncomm/Desktop/_DARKL.XM`; it may be used locally on
-Gregory's machine, but do not commit it, upload it, copy it into fixtures, or
-require it from automated tests.
+must stay outside git. Local/private XM modules may be used on a developer
+workstation for manual smoke testing, listening checks, candidate WAV renders,
+and local comparisons, but do not commit them, upload them, copy them into
+fixtures, or require them from automated tests.
 
 ## Current State
 
@@ -28,6 +28,9 @@ button.
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.
+The developer-only `vtx_render_bounded_xm` helper now provides a durable local
+command for building an XM through the existing metadata loader and
+`PlaybackSongBuilder`, then calling `PlaybackSongOfflineRenderer.exportWAV(...)`.
 This is not a full module render command and there is no app UI or live playback
 integration. The helper is intended for tiny, explicit, bounded local candidate
 renders only. Candidate renders now include conservative adapter support for
@@ -48,7 +51,11 @@ MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
 synthetic WAV files only.
 
-## Local `_DARKL.XM` Bounded Findings Workflow
+`tests/fixtures/minimal.xm` is a tiny redistribution-safe smoke fixture for
+parser/helper validation. It is not a meaningful audio-parity fixture for
+MikMod/OpenMPT comparison work.
+
+## Local Bounded Findings Workflow
 
 Use this workflow when turning a local bounded comparison into the first useful
 mismatch report for a follow-up implementation PR. The goal is diagnosis, not an
@@ -57,10 +64,11 @@ automatic fix.
 1. Choose a small bounded target before rendering. Useful local targets include
    order 10 and order 30, but the exact order, row range, duration, sample rate,
    and channel count must be recorded in the local report.
-2. If `/Users/syncomm/Desktop/_DARKL.XM` exists locally, load it through the
-   existing `PlaybackSongBuilder.build(from:modulePath:)` helper context and
-   render a bounded candidate WAV with `PlaybackSongOfflineRenderer.exportWAV`.
-   Write the WAV under `/tmp` or another ignored local output directory.
+2. If a local/private XM module exists on the developer workstation, render a
+   bounded candidate WAV with `swift run vtx_render_bounded_xm`, which loads the
+   XM through `ModuleMetadataLoader`, `PlaybackSongBuilder`, and
+   `PlaybackSongOfflineRenderer.exportWAV`. Write the WAV under `/tmp` or
+   another ignored local output directory.
 3. Render a matching bounded reference WAV with a local reference renderer such
    as OpenMPT/libopenmpt/`openmpt123` or MikMod. Match sample rate, channels,
    duration, gain, interpolation, and compatibility settings as closely as the
@@ -70,57 +78,65 @@ automatic fix.
    JSON and Markdown reports local.
 5. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
-   `/tmp/vtx-local-reference-comparison/darkl-order-10-local-audio-findings.md`,
-   then fill it from the comparison JSON/Markdown, trace notes, and Gregory's
+   `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
+   then fill it from the comparison JSON/Markdown, trace notes, and local
    listening notes. Do not commit the filled report when it contains
-   `_DARKL.XM`-derived findings.
+   private-module-derived findings.
 6. Inspect the worst mismatch windows and classify the likely mismatch category.
    Use that classification to choose one narrow next PR.
 
 The committed template is blank and safe to review. Filled reports, local WAVs,
 traces, screenshots, and notes are local evidence only.
 
+## Render a Candidate WAV
+
+Build and run the developer-only helper from the repo root:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-module.xm \
+  --output /tmp/vtx-candidate.wav \
+  --order 10 \
+  --order-count 1 \
+  --rows 16 \
+  --sample-rate 44100
+```
+
+The command validates that the input exists, refuses ordinary tracked repo
+output paths, prints render details, and writes a local PCM16 WAV through the
+existing bounded offline C-backed export path. It does not bypass
+`CSoftwareMixer`, duplicate parser logic, implement full song traversal, change
+mixer DSP behavior, or affect runtime playback.
+
+Local/private module example:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-module.xm \
+  --output /tmp/vtx-local-module-order-10-candidate.wav \
+  --order 10 \
+  --rows 16 \
+  --sample-rate 44100
+```
+
+Local/private XM modules are allowed for local smoke testing on a developer
+workstation only. Do not commit, upload, copy them into fixtures, or require
+them from automated tests. Candidate WAVs derived from them must stay local and
+out of git.
+
 ## Compare Two WAV Files
 
 Local-only workflow:
 
 1. Produce a bounded VoodooTracker X candidate WAV with
-   `PlaybackSongOfflineRenderer.exportWAV(...)`, writing outside the repo, for
-   example under `/tmp`.
+   `swift run vtx_render_bounded_xm`, writing outside the repo, for example
+   under `/tmp`.
 2. Produce a bounded reference WAV with OpenMPT/libopenmpt/openmpt123, MikMod,
    or another local reference renderer using documented local settings.
 3. Run either `scripts/local-reference-compare-smoke.py` or
    `scripts/audio-compare.py` against the candidate and reference WAVs.
 4. Inspect the JSON and/or Markdown report as diagnostic evidence, not parity
    proof.
-
-There is no full public module-rendering CLI yet. The practical candidate path
-is a small developer-only helper context or focused Swift test/harness code that
-builds a `PlaybackSong`, creates a bounded `PlaybackSongOfflineRenderRequest`,
-and calls:
-
-```swift
-try PlaybackSongOfflineRenderer().exportWAV(request, to: URL(fileURLWithPath: "/tmp/vtx-candidate.wav"))
-```
-
-For a local real-module smoke, `PlaybackSongBuilder.build(from:modulePath:)`
-can load sample data from a local XM path before the bounded request is created.
-Keep the request explicit and small: choose a bounded order/range, sample rate,
-channel count, and frame count. This helper does not traverse full songs,
-implement effects, or change live playback.
-
-Example bounded candidate shape from a local helper context:
-
-```swift
-let song = try PlaybackSongBuilder.build(from: metadata, modulePath: "/Users/syncomm/Desktop/_DARKL.XM")
-let config = MixerRenderConfig(sampleRate: 44_100, channelCount: 2)
-let request = PlaybackSongOfflineRenderRequest(song: song, orderIndex: 10, config: config, rows: 16)
-try PlaybackSongOfflineRenderer().exportWAV(request, to: URL(fileURLWithPath: "/tmp/vtx-darkl-order-10-candidate.wav"))
-```
-
-Keep this kind of helper local or temporary unless a future PR deliberately adds
-a reviewed, synthetic-tested export command. Do not add `_DARKL.XM` to fixtures
-or make the helper part of CI.
 
 The thin local wrapper validates the existing WAV inputs, writes reports to
 `/tmp/vtx-local-reference-comparison` by default, and delegates metric
@@ -130,7 +146,7 @@ generation to `scripts/audio-compare.py`:
 python3 scripts/local-reference-compare-smoke.py \
   --candidate /tmp/vtx-candidate.wav \
   --reference /tmp/openmpt-reference.wav \
-  --label darkl-order-10-smoke \
+  --label local-module-order-10-smoke \
   --metadata "order 10, bounded local smoke"
 ```
 
@@ -140,9 +156,9 @@ Explicit report paths are also supported:
 python3 scripts/local-reference-compare-smoke.py \
   --candidate /tmp/vtx-candidate.wav \
   --reference /tmp/openmpt-reference.wav \
-  --json /tmp/darkl-order-10-audio-compare.json \
-  --markdown /tmp/darkl-order-10-audio-compare.md \
-  --label darkl-order-10-smoke
+  --json /tmp/local-module-order-10-audio-compare.json \
+  --markdown /tmp/local-module-order-10-audio-compare.md \
+  --label local-module-order-10-smoke
 ```
 
 Local-only example using placeholder paths:
@@ -194,6 +210,12 @@ interpolation mode, ramping/fade behavior, loop handling, gain, and any bounded
 duration settings in local notes or PR summaries. Different renderer defaults
 can move mismatch windows or change RMS metrics even when both renders are
 reasonable.
+
+Reference renderer bounding may need workarounds. MikMod and some OpenMPT CLI
+flows may not support exact order/row-bounded rendering from the command line,
+so record any manual trimming, duration-only bounds, silence padding, or offset
+workaround in the findings report. Comparison output is diagnostic evidence,
+not a correctness oracle.
 
 ## Metrics Produced
 
@@ -263,14 +285,14 @@ Keep all generated files outside the repo, for example under `/tmp`:
 - JSON and Markdown comparison reports
 - playback trace JSONL files
 - screenshots and manual listening notes
-- any files derived from `_DARKL.XM`
+- any files derived from local/private XM modules
 
-`_DARKL.XM` may be used on Gregory's machine for local smoke testing,
-debugging, listening checks, candidate WAV renders, local reference renders,
-and comparison reports. It must not be committed, copied into fixtures,
-uploaded, or required by automated tests or CI. Any WAVs, JSON/Markdown reports,
-traces, screenshots, logs, or notes derived from it must remain local and out of
-git.
+Local/private XM modules may be used on a developer workstation for local smoke
+testing, debugging, listening checks, candidate WAV renders, local reference
+renders, and comparison reports. They must not be committed, copied into
+fixtures, uploaded, or required by automated tests or CI. Any WAVs,
+JSON/Markdown reports, traces, screenshots, logs, or notes derived from them
+must remain local and out of git.
 
 The repo `.gitignore` includes local comparison output patterns, but that is a
 last line of defense. Before committing, always check `git status --short` and

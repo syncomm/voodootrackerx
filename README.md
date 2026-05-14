@@ -23,7 +23,7 @@ VoodooTracker X is now a working macOS AppKit tracker prototype, not just a pars
 
 Playback is useful for development and smoke testing, but it is not yet MikMod/OpenMPT accurate. The current runtime playback remains `AVAudioPlayerNode`-based through `AVAudioEngine` and `AVAudioUnitVarispeed`, with implemented passes for transport stabilization, timing and pitch corrections, sample loops including ping-pong loops, panning/stereo placement, volume column semantics, instrument volume envelopes/fadeout, debug seeking, and playback trace export.
 
-A deterministic software mixer path has begun behind the existing audio boundary. The C-backed offline mixer can render deterministic synthetic one-shot sample voices, forward and ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic tracker row/tick scheduled voices, minimal synthetic pattern playback, and tiny bounded `PlaybackSong` segments through the synthetic adapter with bounded offline render diagnostics. Parsed `PlaybackInstrument.volumeEnvelope` points can now be mapped into that bounded offline adapted render path using the timing active at the event row, adapted note triggers carry a minimal note/sample-derived playback step, and the bounded adapter applies only XM volume-column set-volume/set-panning, a conservative row-level subset of volume-column volume/panning slides, and minimal `Fxx` speed/BPM timing changes. This is not full FT2/OpenMPT pitch parity, full XM volume-column parity, or full effect parity. The path is still offline-only, not full parsed XM song playback, and not the runtime backend yet. Local WAV-to-WAV comparison tooling exists for bounded reference diagnostics, bounded C-backed adapted `PlaybackSong` candidate renders can be exported as deterministic PCM16 WAV files, a local-only smoke wrapper can compare existing candidate/reference WAVs through `scripts/audio-compare.py`, and a blank local findings template can structure `_DARKL.XM` comparison evidence kept outside git; reference-stabilization fixes remain upcoming.
+A deterministic software mixer path has begun behind the existing audio boundary. The C-backed offline mixer can render deterministic synthetic one-shot sample voices, forward and ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic tracker row/tick scheduled voices, minimal synthetic pattern playback, and tiny bounded `PlaybackSong` segments through the synthetic adapter with bounded offline render diagnostics. Parsed `PlaybackInstrument.volumeEnvelope` points can now be mapped into that bounded offline adapted render path using the timing active at the event row, adapted note triggers carry a minimal note/sample-derived playback step, and the bounded adapter applies only XM volume-column set-volume/set-panning, a conservative row-level subset of volume-column volume/panning slides, and minimal `Fxx` speed/BPM timing changes. This is not full FT2/OpenMPT pitch parity, full XM volume-column parity, or full effect parity. The path is still offline-only, not full parsed XM song playback, and not the runtime backend yet. Local WAV-to-WAV comparison tooling exists for bounded reference diagnostics, bounded C-backed adapted `PlaybackSong` candidate renders can be exported as deterministic PCM16 WAV files through a developer-only local helper, a local-only smoke wrapper can compare existing candidate/reference WAVs through `scripts/audio-compare.py`, and a blank local findings template can structure local comparison evidence kept outside git; reference-stabilization fixes remain upcoming.
 
 The app is still under active development and should not be treated as production-ready.
 
@@ -100,6 +100,60 @@ swift run mc_dump --json --pattern 1 tests/fixtures/minimal.xm
 The core parser smoke harness remains focused on deterministic parser coverage and golden snapshots. Playback and mixer work live behind the app audio/playback boundary rather than in the parser module.
 See `docs/testing.md` for fixture rules and golden snapshot workflow.
 
+## Developer Audio Comparison Flow
+This workflow is for local diagnostic evidence only. It does not prove correctness, does not automatically choose fixes, and does not change runtime playback. Keep generated WAVs, JSON reports, Markdown reports, traces, and notes outside git, preferably under `/tmp`.
+
+Local/private XM modules may be used on a developer workstation for manual smoke testing, listening checks, candidate WAV renders, and local comparisons. Do not commit them, upload them, copy them into fixtures, or require them from automated tests.
+
+`tests/fixtures/minimal.xm` is a tiny redistribution-safe smoke fixture for parser/helper validation. It is not a meaningful audio-parity fixture for MikMod/OpenMPT comparison work.
+
+Render a bounded VoodooTracker X candidate WAV from a local XM file:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-module.xm \
+  --output /tmp/vtx-candidate.wav \
+  --order 10 \
+  --order-count 1 \
+  --rows 16 \
+  --sample-rate 44100
+```
+
+Render or obtain a matching reference WAV with a local reference renderer, manual capture, or another trusted local render path. Match sample rate, channel count, duration, gain, and renderer settings as closely as possible, then write it outside the repo:
+
+```bash
+# Example placeholder; use the reference renderer/settings available on your machine.
+reference-renderer --output /tmp/reference.wav /path/to/local-module.xm
+```
+
+Compare the candidate and reference WAVs and generate both machine-readable JSON and reviewer-friendly Markdown:
+
+```bash
+python3 scripts/audio-compare.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/reference.wav \
+  --seconds 30 \
+  --window-ms 100 \
+  --top-windows 5 \
+  --json /tmp/vtx-audio-compare.json \
+  --markdown /tmp/vtx-audio-compare.md
+```
+
+For a human review pass, prefer the local smoke wrapper because it prints the local tool status, keeps default report names consistent, and records a useful run label:
+
+```bash
+python3 scripts/local-reference-compare-smoke.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/reference.wav \
+  --label local-module-order-10-rows-16 \
+  --metadata "order 10, rows 16, 44100 Hz, human listening check" \
+  --json /tmp/local-module-order-10-audio-compare.json \
+  --markdown /tmp/local-module-order-10-audio-compare.md \
+  --seconds 30
+```
+
+Read the Markdown first for the summary and worst mismatch windows, then inspect the JSON when you need exact values for a follow-up issue or PR. See `docs/audio-comparison.md` for the detailed workflow and interpretation notes.
+
 ## Project structure
 * /app/ — Xcode project & macOS app code (AppKit/Swift)
 * /core/ — playback engine, DSP (C/C++ or Swift)
@@ -124,7 +178,7 @@ Current state summary:
 2. Static highlight row behavior, keyboard navigation, and stable tracker viewport behavior are implemented.
 3. First-pass XM playback exists through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, with several timing, loop, panning, envelope, and volume-column compatibility passes.
 4. Audio comparison and playback trace diagnostics exist for local reference work.
-5. ADR 004 accepted the deterministic software mixer transition, and the C-backed offline mixer now covers synthetic one-shot, loop, volume/panning envelope, frame-scheduling, row/tick timing, minimal synthetic pattern foundations, and tiny bounded `PlaybackSong` adapter renders with diagnostics, including parsed volume-envelope point mapping, a minimal note-to-sample-step foundation, adapter-level volume-column set-volume/set-panning and row-level slide support, minimal `Fxx` speed/BPM timing changes, deterministic PCM16 WAV export, local-only WAV comparison smoke support, and a blank local findings template for those bounded offline renders.
+5. ADR 004 accepted the deterministic software mixer transition, and the C-backed offline mixer now covers synthetic one-shot, loop, volume/panning envelope, frame-scheduling, row/tick timing, minimal synthetic pattern foundations, and tiny bounded `PlaybackSong` adapter renders with diagnostics, including parsed volume-envelope point mapping, a minimal note-to-sample-step foundation, adapter-level volume-column set-volume/set-panning and row-level slide support, minimal `Fxx` speed/BPM timing changes, deterministic PCM16 WAV export, a developer-only bounded XM candidate WAV helper, local-only WAV comparison smoke support, and a blank local findings template for those bounded offline renders.
 6. Broader parser integration, full offline module rendering, and MikMod/OpenMPT accuracy work remain upcoming.
 
 For detailed, PR-by-PR milestones, see `docs/roadmap.md`.

@@ -36,8 +36,10 @@ panning slides to event gain/pan. The bounded adapter also applies minimal
 ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM volume-column
 parity, or full effect parity. The path does not yet render full XM song
 playback or drive live playback. Local `_DARKL.XM` bounded comparison findings
-now have a safe report template and local-only workflow guidance; filled reports
-and generated audio artifacts stay outside git.
+now have a safe report template and local-only workflow guidance, and a
+developer-only `vtx_render_bounded_xm` helper can render bounded candidate WAVs
+from local XM files through the existing offline export path; filled reports and
+generated audio artifacts stay outside git.
 
 Immediate audio accuracy sequence:
 
@@ -65,10 +67,11 @@ Immediate audio accuracy sequence:
 22. Minimal Fxx timing changes for bounded offline adapter renders — done
 23. Adapter support for additional volume-column slides in bounded offline renders — done
 24. Local `_DARKL.XM` bounded comparison findings workflow — done
-25. Deep project handoff checkpoint
-26. Focused pitch/period accuracy or local trace-to-comparison correlation
-27. Feature-flagged runtime backend switch
-28. Reference comparison stabilization against MikMod/OpenMPT
+25. Developer-only bounded XM candidate WAV render helper — done
+26. Deep project handoff checkpoint
+27. Focused pitch/period accuracy or local trace-to-comparison correlation
+28. Feature-flagged runtime backend switch
+29. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -147,6 +150,7 @@ Features:
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
+- developer-only bounded XM candidate WAV helper using the existing metadata loader, playback builder, and offline export path
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - local-only bounded findings report template for `_DARKL.XM` candidate/reference comparison evidence
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper

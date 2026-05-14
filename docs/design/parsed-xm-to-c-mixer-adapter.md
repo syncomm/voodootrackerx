@@ -23,11 +23,12 @@ playback, implement XM effects, or provide a full public module-rendering CLI.
 PR 2.7.10 added `PlaybackSongSyntheticAdapter`, a Swift-side offline adapter
 that converts an explicit bounded order selection from `PlaybackSong` into a
 `SyntheticTrackerTimingConfig`, `SyntheticPattern`, and diagnostics. It uses
-constant initial speed/BPM only, emits basic note/instrument/sample triggers at
-tick 0, copies sample PCM into `MixerSampleBuffer`, maps sample volume to event
-gain, maps disabled/forward/ping-pong sample loops into the existing synthetic
-loop metadata, and now carries a minimal deterministic note/sample-derived
-playback step into the C-backed scheduled voice path.
+the song's initial speed/BPM plus minimal `Fxx` timing changes inside the
+bounded row selection, emits basic note/instrument/sample triggers at tick 0,
+copies sample PCM into `MixerSampleBuffer`, maps sample volume to event gain,
+maps disabled/forward/ping-pong sample loops into the existing synthetic loop
+metadata, and now carries a minimal deterministic note/sample-derived playback
+step into the C-backed scheduled voice path.
 
 The follow-up bounded offline render helper now adapts tiny `PlaybackSong`
 segments, schedules the adapted synthetic pattern through `CSoftwareMixer`, and
@@ -36,8 +37,9 @@ Those diagnostics record the requested order range, sample rate, initial
 speed/BPM, synthetic rows/events, skipped or empty rows, ignored cells, deferred
 effect and volume-column fields, source order/pattern/row/channel coordinates,
 synthetic row/tick coordinates, selected instrument/sample identifiers, and
-mapped loop mode. Oversized frame requests are clamped to a conservative maximum
-before rendering.
+mapped loop mode. They also record row start frames, effective speed/BPM per
+adapted row, and any `Fxx` timing cells encountered. Oversized frame requests
+are clamped to a conservative maximum before rendering.
 Pitch diagnostics include the source note, selected sample base sample rate,
 sample relative note, finetune status, song linear-frequency flag, frequency
 table status, calculated playback step, and whether mapping used the neutral
@@ -47,10 +49,15 @@ The adapter and helper are still intentionally not full pitch parity. Linear
 frequency songs use a small deterministic equal-tempered note-to-step mapping
 based on sample base rate, note value, relative note, and finetune. Amiga table
 behavior is not implemented; non-linear songs are reported as using a deferred
-Amiga-table path with the same minimal linear approximation. XM effect-column
-commands are ignored, tempo changes after initial timing are ignored, and only
-the conservative XM volume-column set-volume (`0x10...0x50`) and set-panning
-(`0xC0...0xCF`) commands are applied to bounded offline adapted event gain/pan.
+Amiga-table path with the same minimal linear approximation. The only
+effect-column command handled by the bounded adapter is minimal `Fxx` timing:
+`F01...F1F` changes speed, `F20...FFF` as represented by byte parameters
+`0x20...0xFF` changes BPM, and `F00` is diagnosed as an ignored no-op. The
+change affects rows after the source row where the `Fxx` cell appears; events on
+the same row use the timing that was active at row start. Other XM effect-column
+commands remain deferred. Only the conservative XM volume-column set-volume
+(`0x10...0x50`) and set-panning (`0xC0...0xCF`) commands are applied to bounded
+offline adapted event gain/pan.
 Volume-column slides, vibrato, tone-portamento, and undefined ranges remain
 deferred and are reported in diagnostics. Parsed
 `PlaybackInstrument.volumeEnvelope` points are mapped to the existing
@@ -167,7 +174,9 @@ Boundary rules:
 
 The current adapter implementation is intentionally small:
 
-- Use constant initial speed/BPM from `PlaybackSong.initialTiming`.
+- Use `PlaybackSong.initialTiming` as the first bounded timing state.
+- Apply only minimal `Fxx` speed/BPM timing changes from included rows, with
+  those changes taking effect on following rows.
 - Accept one order or an explicit bounded order range.
 - Flatten decoded `PlaybackPattern` rows into a single `SyntheticPattern`.
 - Schedule only basic note + instrument cells.
@@ -194,9 +203,9 @@ The current adapter does not:
 
 - switch live playback to the C mixer
 - wire the app's Play button into the C mixer
-- implement effect-column commands
+- implement effect-column commands other than minimal `Fxx` speed/BPM timing
 - implement full XM volume-column parity
-- implement tempo/BPM changes after the initial timing
+- implement full tempo/BPM or tick-level timing effect parity
 - implement pattern break, position jump, or pattern delay
 - implement sample offset
 - implement note delay, note cut, retrigger, or key-off behavior
@@ -208,8 +217,8 @@ The current adapter does not:
 
 | Playback model field | Synthetic/mixer target | First adapter behavior | Deferred behavior |
 | --- | --- | --- | --- |
-| `PlaybackSong.initialTiming.speed` | `SyntheticTrackerTimingConfig.speed` | Use constant speed for the bounded render. | `Fxx` speed changes later. |
-| `PlaybackSong.initialTiming.bpm` | `SyntheticTrackerTimingConfig.bpm` | Use constant BPM for the bounded render. | `Fxx` BPM changes later. |
+| `PlaybackSong.initialTiming.speed` | Swift timing plan and initial `SyntheticTrackerTimingConfig.speed` | Use as the initial bounded speed; `F01...F1F` updates speed for following rows. | Full tick-level speed semantics later. |
+| `PlaybackSong.initialTiming.bpm` | Swift timing plan and initial `SyntheticTrackerTimingConfig.bpm` | Use as the initial bounded BPM; `F20...FFF` as byte parameters `0x20...0xFF` updates BPM for following rows. | Full tempo/BPM effect parity later. |
 | `PlaybackSong.usesLinearFrequencyTable` | Adapter diagnostics and pitch-step status | Preserve in diagnostics. Linear songs use the minimal note-to-step mapping; non-linear songs report Amiga-table behavior as deferred while using the same linear approximation. | Full Linear/Amiga period and frequency accuracy pass later. |
 | `PlaybackSong.orders` | Bounded flattened synthetic row timeline | Traverse one order or explicit bounded order range in Swift. | Full song traversal, restart behavior, `Bxx`, and `Dxx` later. |
 | `PlaybackOrderEntry.patternIndex` | Pattern selection | Resolve each included order to `PlaybackPattern`. Skip or fail safely on missing patterns. | Effect-driven position changes later. |
@@ -218,27 +227,27 @@ The current adapter does not:
 | `PlaybackCell.note` | Trigger decision and playback step | Trigger only for `1...96`, deriving a minimal sample step from note/sample metadata; ignore empty, key-off, and invalid notes. | Full pitch/period accuracy, key-off, note cut/delay, retrigger later. |
 | `PlaybackCell.instrument` | Sample lookup | Use `PlaybackSong.sample(forInstrument:)`, currently first playable sample. | Multisample/keymap and instrument fallback semantics later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`) as `sample.volume * value / 64`, apply set-panning (`0xC0...0xCF`) through the C mixer pan convention, and report all volume-column decode decisions. | Slides, vibrato, tone portamento, effect memory, and full volume-column parity later. |
-| `PlaybackCell.effectType` / `PlaybackCell.effectParam` | None initially | Ignore. | Targeted effect integration PRs later. |
+| `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` only | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op and keep other effect-column commands deferred. | Targeted effect integration PRs later. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
-| `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using `PlaybackSong.initialTiming` and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and any timing changes after initial speed/BPM. |
+| `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
 | `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by supported set-volume volume-column values. Parsed volume envelopes remain separate mixer envelopes that multiply this gain at render time. | Channel/global/fadeout state and full effect integration later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and finetune in the minimal note-to-step calculation; report finetune as applied for valid mappings or deferred on neutral fallback. | Full FT2/OpenMPT note-to-frequency and period behavior later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. | FT2 loop/sample-offset quirks later. |
-| `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using constant initial timing; report sustain, loop, and fadeout as deferred. | Sustain, loop, key-off, fadeout semantics, and timing changes later. |
+| `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row; report sustain, loop, and fadeout as deferred. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
 
 ## Risks And Mitigations
 
 | Risk | Mitigation |
 | --- | --- |
-| Scope expands into full XM playback. | First adapter supports constant timing, bounded orders, note triggers, first playable sample, gain, pan default, and loops only. Everything else is documented as deferred. |
+| Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, bounded orders, note triggers, first playable sample, gain, pan default, and loops only. Everything else is documented as deferred. |
 | Accidental runtime backend switch. | Keep adapter under offline/test harness paths. Do not touch `PlaybackEngine`, `PlaybackAudioEngine`, transport wiring, or AppKit controls in the adapter PR. |
 | Parser architecture drift. | Adapter consumes `PlaybackSong` only. It must not parse files, change `ModuleCore`, or move Swift parser responsibilities. |
 | Incorrect note-to-frequency behavior. | The adapter labels this as a minimal pitch foundation only. Tests cover deterministic relative step behavior, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
 | Instrument/sample selection complexity. | Use `firstPlayableSample` exactly like `PlaybackSong.sample(forInstrument:)`. Defer keymaps and multisample selection. |
 | Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume and set-panning in the bounded adapter, defer slides/vibrato/tone-portamento/effect-column behavior in diagnostics, and document compatibility limits in test names. |
-| Tempo changes are deferred. | Use only `PlaybackSong.initialTiming` and add a fixture with an `Fxx` cell that remains ignored in the first adapter. |
+| Timing support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows, diagnose `F00`, and keep all other effect-column commands deferred. |
 | Local `_DARKL.XM` temptation. | Keep `_DARKL.XM` manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
 | C voice limit is too small for dense rows. | First adapter renders tiny bounded fixtures. Later PRs can schedule in blocks or increase C storage after a focused decision. |
@@ -265,12 +274,14 @@ bounded offline rendering:
 - Assert forward and ping-pong loop metadata reaches the already-tested C loop
   path.
 - Assert parsed volume envelope points map to frame-based mixer envelope points
-  using constant initial timing.
+  using the timing active at the event row.
 - Assert disabled, empty, and invalid parsed volume envelopes are ignored safely.
 - Assert supported set-volume and set-panning volume-column fields affect
   bounded offline output and diagnostics.
 - Assert unsupported volume-column commands and effect-column fields remain
   deferred/ignored in the adapter.
+- Assert minimal `Fxx` speed/BPM changes affect following row start frames and
+  diagnostics, while `F00` is ignored safely.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -294,7 +305,8 @@ bounded offline rendering:
    C-backed mixer path, synthetic scheduling, adapter bridge, and next roadmap.
 6. Local-only reference render workflow against MikMod/OpenMPT once bounded
    parsed offline renders exist.
-7. Targeted timing effect integration, starting with `Fxx` speed/BPM changes.
+7. Done: targeted minimal `Fxx` speed/BPM timing changes for bounded offline
+   adapted renders.
 8. Done: conservative volume-column set-volume/set-panning integration for
    bounded offline adapted renders.
 9. Focused pitch/period accuracy pass for full note-to-frequency behavior.
@@ -335,14 +347,14 @@ This adapter bridge work does not:
 - switch runtime playback to the C mixer
 - wire real parsed XM modules into live C mixer playback
 - implement full XM playback
-- implement XM effect-column commands
+- implement XM effect-column commands other than minimal `Fxx` speed/BPM timing
 - implement full FT2/OpenMPT period/frequency behavior
 - implement sample offset
 - implement note delay, note cut, or retrigger
 - implement global volume
 - implement full volume-column semantics beyond set-volume and set-panning
 - implement pattern break or position jump
-- implement tempo/BPM changes beyond initial timing
+- implement full tempo/BPM timing semantics beyond minimal bounded `Fxx`
 - provide full-song WAV export or a public module-rendering CLI
 - delete or rewrite the Swift `SoftwareMixer`
 - refactor parser architecture

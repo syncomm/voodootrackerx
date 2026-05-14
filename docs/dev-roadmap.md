@@ -29,9 +29,12 @@ written as deterministic PCM16 WAV files for local comparison. Parsed
 frame-based envelope representation for those bounded offline adapted renders
 only, adapted note triggers carry a minimal deterministic note/sample-derived
 playback step, and the adapter applies only volume-column set-volume and
-set-panning commands to event gain/pan. This is not full FT2/OpenMPT pitch
-parity or full XM volume-column parity. The path does not yet render full XM
-song playback or drive live playback.
+set-panning commands to event gain/pan. The bounded adapter also applies
+minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
+speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
+ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM
+volume-column parity, or full effect parity. The path does not yet render full
+XM song playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -56,10 +59,11 @@ Immediate audio accuracy sequence:
 19. Bounded C-mixer WAV export helper — done
 20. Local reference comparison smoke using bounded candidate WAVs — done
 21. Adapter volume-column set-volume/set-panning support for bounded offline renders — done
-22. Deep project handoff checkpoint
-23. Minimal Fxx timing changes, focused pitch/period accuracy, or additional volume-column slides
-24. Feature-flagged runtime backend switch
-25. Reference comparison stabilization against MikMod/OpenMPT
+22. Minimal Fxx timing changes for bounded offline adapter renders — done
+23. Deep project handoff checkpoint
+24. Focused pitch/period accuracy or additional volume-column slides
+25. Feature-flagged runtime backend switch
+26. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -133,9 +137,10 @@ Features:
 - synthetic tracker row/tick timing through the C-backed offline mixer path
 - minimal synthetic pattern playback through the C-backed offline mixer path
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
-- parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using constant initial speed/BPM only
+- parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using the timing active at the event row
 - minimal note-to-sample-step pitch foundation for bounded offline adapted renders, without full FT2/OpenMPT parity
 - conservative volume-column set-volume and set-panning mapping for bounded offline adapted renders, without full volume-column parity
+- minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper

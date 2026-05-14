@@ -234,6 +234,130 @@ struct MixerRenderBlock: Equatable {
     }
 }
 
+enum MixerWAVExportError: LocalizedError, Equatable {
+    case invalidChannelCount(Int)
+    case invalidSampleRate(Double)
+    case invalidPCMShape(expectedSampleCount: Int, actualSampleCount: Int)
+    case fileTooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case let .invalidChannelCount(channelCount):
+            return "Cannot export WAV with invalid channel count: \(channelCount)."
+        case let .invalidSampleRate(sampleRate):
+            return "Cannot export WAV with invalid sample rate: \(sampleRate)."
+        case let .invalidPCMShape(expectedSampleCount, actualSampleCount):
+            return "Cannot export WAV with \(actualSampleCount) samples; expected \(expectedSampleCount)."
+        case .fileTooLarge:
+            return "Cannot export WAV because the render block exceeds RIFF/WAVE size limits."
+        }
+    }
+}
+
+/// Deterministic RIFF/WAVE PCM16 writer for offline mixer render blocks.
+///
+/// This helper is local/offline infrastructure only. It does not add a runtime playback backend,
+/// change mixer DSP behavior, parse modules, or compare candidate audio against references.
+enum MixerWAVExporter {
+    static let bitsPerSample = 16
+
+    static func pcm16WAVData(from block: MixerRenderBlock) throws -> Data {
+        let channelCount = block.config.channelCount
+        guard channelCount > 0, channelCount <= Int(UInt16.max) else {
+            throw MixerWAVExportError.invalidChannelCount(channelCount)
+        }
+
+        let roundedSampleRate = block.config.sampleRate.rounded(.toNearestOrAwayFromZero)
+        guard block.config.sampleRate.isFinite,
+              roundedSampleRate > 0,
+              roundedSampleRate <= Double(UInt32.max) else {
+            throw MixerWAVExportError.invalidSampleRate(block.config.sampleRate)
+        }
+
+        let (expectedSampleCount, sampleCountOverflow) = block.frameCount.multipliedReportingOverflow(by: channelCount)
+        guard !sampleCountOverflow,
+              expectedSampleCount == block.interleavedPCM.count else {
+            throw MixerWAVExportError.invalidPCMShape(
+                expectedSampleCount: sampleCountOverflow ? Int.max : expectedSampleCount,
+                actualSampleCount: block.interleavedPCM.count
+            )
+        }
+
+        let (dataByteCount, dataByteCountOverflow) = expectedSampleCount.multipliedReportingOverflow(by: MemoryLayout<Int16>.size)
+        let (riffChunkSize, riffChunkSizeOverflow) = dataByteCount.addingReportingOverflow(36)
+        guard !dataByteCountOverflow,
+              !riffChunkSizeOverflow,
+              dataByteCount <= Int(UInt32.max),
+              riffChunkSize <= Int(UInt32.max) else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        let sampleRate = UInt32(roundedSampleRate)
+        let blockAlign = channelCount * MemoryLayout<Int16>.size
+        let byteRate = UInt64(sampleRate) * UInt64(blockAlign)
+        guard blockAlign <= Int(UInt16.max),
+              byteRate <= UInt64(UInt32.max) else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        var data = Data()
+        data.reserveCapacity(44 + dataByteCount)
+        appendASCII("RIFF", to: &data)
+        appendLE32(UInt32(riffChunkSize), to: &data)
+        appendASCII("WAVE", to: &data)
+        appendASCII("fmt ", to: &data)
+        appendLE32(16, to: &data)
+        appendLE16(1, to: &data)
+        appendLE16(UInt16(channelCount), to: &data)
+        appendLE32(sampleRate, to: &data)
+        appendLE32(UInt32(byteRate), to: &data)
+        appendLE16(UInt16(blockAlign), to: &data)
+        appendLE16(UInt16(bitsPerSample), to: &data)
+        appendASCII("data", to: &data)
+        appendLE32(UInt32(dataByteCount), to: &data)
+
+        for sample in block.interleavedPCM {
+            appendLEInt16(pcm16Sample(from: sample), to: &data)
+        }
+        return data
+    }
+
+    static func writePCM16WAV(from block: MixerRenderBlock, to url: URL) throws {
+        try pcm16WAVData(from: block).write(to: url, options: [])
+    }
+
+    static func pcm16Sample(from sample: Float) -> Int16 {
+        let finiteSample = sample.isFinite ? sample : 0
+        let clamped = min(Float(1), max(Float(-1), finiteSample))
+        if clamped <= -1 {
+            return Int16.min
+        }
+        if clamped >= 1 {
+            return Int16.max
+        }
+        return Int16((Double(clamped) * Double(Int16.max)).rounded(.toNearestOrAwayFromZero))
+    }
+
+    private static func appendASCII(_ string: String, to data: inout Data) {
+        data.append(contentsOf: string.utf8)
+    }
+
+    private static func appendLE16(_ value: UInt16, to data: inout Data) {
+        var littleEndianValue = value.littleEndian
+        withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+    }
+
+    private static func appendLE32(_ value: UInt32, to data: inout Data) {
+        var littleEndianValue = value.littleEndian
+        withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+    }
+
+    private static func appendLEInt16(_ value: Int16, to data: inout Data) {
+        var littleEndianValue = value.littleEndian
+        withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+    }
+}
+
 /// Bounded offline render request for deterministic software mixer validation.
 ///
 /// Frame counts are sanitized to zero for invalid input and clamped to `maximumFrameCount` before

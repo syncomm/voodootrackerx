@@ -43,14 +43,53 @@ synthetic WAV files only.
 
 Local-only workflow:
 
-1. Produce a bounded VoodooTracker X candidate WAV with the offline adapted
-   `PlaybackSong` export helper, writing outside the repo, for example under
-   `/tmp`.
+1. Produce a bounded VoodooTracker X candidate WAV with
+   `PlaybackSongOfflineRenderer.exportWAV(...)`, writing outside the repo, for
+   example under `/tmp`.
 2. Produce a bounded reference WAV with OpenMPT/libopenmpt/openmpt123, MikMod,
    or another local reference renderer using documented local settings.
-3. Run `scripts/audio-compare.py` against the candidate and reference WAVs.
+3. Run either `scripts/local-reference-compare-smoke.py` or
+   `scripts/audio-compare.py` against the candidate and reference WAVs.
 4. Inspect the JSON and/or Markdown report as diagnostic evidence, not parity
    proof.
+
+There is no full public module-rendering CLI yet. The practical candidate path
+is a small developer-only helper context or focused Swift test/harness code that
+builds a `PlaybackSong`, creates a bounded `PlaybackSongOfflineRenderRequest`,
+and calls:
+
+```swift
+try PlaybackSongOfflineRenderer().exportWAV(request, to: URL(fileURLWithPath: "/tmp/vtx-candidate.wav"))
+```
+
+For a local real-module smoke, `PlaybackSongBuilder.build(from:modulePath:)`
+can load sample data from a local XM path before the bounded request is created.
+Keep the request explicit and small: choose a bounded order/range, sample rate,
+channel count, and frame count. This helper does not traverse full songs,
+implement effects, or change live playback.
+
+The thin local wrapper validates the existing WAV inputs, writes reports to
+`/tmp/vtx-local-reference-comparison` by default, and delegates metric
+generation to `scripts/audio-compare.py`:
+
+```bash
+python3 scripts/local-reference-compare-smoke.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/openmpt-reference.wav \
+  --label darkl-order-10-smoke \
+  --metadata "order 10, bounded local smoke"
+```
+
+Explicit report paths are also supported:
+
+```bash
+python3 scripts/local-reference-compare-smoke.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/openmpt-reference.wav \
+  --json /tmp/darkl-order-10-audio-compare.json \
+  --markdown /tmp/darkl-order-10-audio-compare.md \
+  --label darkl-order-10-smoke
+```
 
 Local-only example using placeholder paths:
 
@@ -152,6 +191,13 @@ Keep all generated files outside the repo, for example under `/tmp`:
 - playback trace JSONL files
 - screenshots and manual listening notes
 - any files derived from `_DARKL.XM`
+
+`_DARKL.XM` may be used on Gregory's machine for local smoke testing,
+debugging, listening checks, candidate WAV renders, local reference renders,
+and comparison reports. It must not be committed, copied into fixtures,
+uploaded, or required by automated tests or CI. Any WAVs, JSON/Markdown reports,
+traces, screenshots, logs, or notes derived from it must remain local and out of
+git.
 
 The repo `.gitignore` includes local comparison output patterns, but that is a
 last line of defense. Before committing, always check `git status --short` and

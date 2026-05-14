@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
+SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
 
 
 def load_audio_compare_module():
@@ -311,6 +312,145 @@ class AudioCompareTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("audio-compare:", result.stderr)
+
+    def test_local_reference_smoke_wrapper_writes_requested_reports(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            reference = tmpdir_path / "tiny-reference.wav"
+            candidate = tmpdir_path / "tiny-candidate.wav"
+            json_report = tmpdir_path / "tiny-audio-compare.json"
+            markdown_report = tmpdir_path / "tiny-audio-compare.md"
+            frames = sine_frames(seconds=0.05)
+            write_pcm16_wav(reference, frames=frames)
+            write_pcm16_wav(candidate, frames=frames)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SMOKE_SCRIPT_PATH),
+                    "--reference",
+                    str(reference),
+                    "--candidate",
+                    str(candidate),
+                    "--json",
+                    str(json_report),
+                    "--markdown",
+                    str(markdown_report),
+                    "--label",
+                    "tiny smoke",
+                    "--metadata",
+                    "order 0 row 0",
+                    "--seconds",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(json_report.exists())
+            self.assertTrue(markdown_report.exists())
+            parsed = json.loads(json_report.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["tool"], "scripts/audio-compare.py")
+            self.assertIn("# Audio Comparison Report", markdown_report.read_text(encoding="utf-8"))
+            self.assertIn("Delegating metric generation to scripts/audio-compare.py", result.stdout)
+            self.assertIn("local artifacts and must not be committed", result.stdout)
+
+    def test_local_reference_smoke_wrapper_default_outputs_are_under_tmp(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            reference = tmpdir_path / "reference.wav"
+            candidate = tmpdir_path / "candidate.wav"
+            output_dir = Path("/tmp/vtx-local-reference-comparison")
+            expected_json = output_dir / "unittest-default-audio-compare.json"
+            expected_markdown = output_dir / "unittest-default-audio-compare.md"
+            expected_json.unlink(missing_ok=True)
+            expected_markdown.unlink(missing_ok=True)
+            write_pcm16_wav(reference)
+            write_pcm16_wav(candidate)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SMOKE_SCRIPT_PATH),
+                    "--reference",
+                    str(reference),
+                    "--candidate",
+                    str(candidate),
+                    "--label",
+                    "unittest default",
+                    "--seconds",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(expected_json.exists())
+            self.assertTrue(expected_markdown.exists())
+            self.assertIn(str(expected_json), result.stdout)
+            self.assertIn(str(expected_markdown), result.stdout)
+            expected_json.unlink(missing_ok=True)
+            expected_markdown.unlink(missing_ok=True)
+
+    def test_local_reference_smoke_wrapper_missing_candidate_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "missing-candidate.wav"
+            write_pcm16_wav(reference)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SMOKE_SCRIPT_PATH),
+                    "--reference",
+                    str(reference),
+                    "--candidate",
+                    str(candidate),
+                    "--json",
+                    str(Path(tmpdir) / "report.json"),
+                    "--markdown",
+                    str(Path(tmpdir) / "report.md"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing candidate WAV", result.stderr)
+            self.assertIn("missing-candidate.wav", result.stderr)
+
+    def test_local_reference_smoke_wrapper_missing_reference_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "missing-reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_pcm16_wav(candidate)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SMOKE_SCRIPT_PATH),
+                    "--reference",
+                    str(reference),
+                    "--candidate",
+                    str(candidate),
+                    "--json",
+                    str(Path(tmpdir) / "report.json"),
+                    "--markdown",
+                    str(Path(tmpdir) / "report.md"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing reference WAV", result.stderr)
+            self.assertIn("missing-reference.wav", result.stderr)
 
 
 if __name__ == "__main__":

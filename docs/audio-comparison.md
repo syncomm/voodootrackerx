@@ -29,17 +29,18 @@ helper can write those bounded render blocks as deterministic PCM16 WAV files.
 This is not a full module render command and there is no app UI or live playback
 integration. The helper is intended for tiny, explicit, bounded local candidate
 renders only. Candidate renders now include conservative adapter support for
-volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`), and
-minimal `Fxx` speed/BPM timing changes, so local comparisons are more
-meaningful for simple volume, stereo placement, and timing-alignment checks in
-bounded segments.
+volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
+row-level volume slides (`0x60...0x9F`), row-level panning slides
+(`0xD0...0xEF`), and minimal `Fxx` speed/BPM timing changes, so local
+comparisons are more meaningful for simple volume, stereo placement, and
+timing-alignment checks in bounded segments.
 
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
-volume-column behavior beyond set-volume/set-panning, interpolation, full
-FT2/OpenMPT pitch parity, true Amiga frequency-table behavior, tempo/BPM
-semantics beyond minimal bounded `Fxx`, and full song traversal remain
-deferred.
+volume-column vibrato/tone-portamento and other unsupported volume-column
+semantics, interpolation, full FT2/OpenMPT pitch parity, true Amiga
+frequency-table behavior, tempo/BPM semantics beyond minimal bounded `Fxx`, and
+full song traversal remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary

@@ -329,6 +329,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let rowTiming: [PlaybackSongSyntheticRowTimingDiagnostic]
     let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
+    let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
     let deferredCellFields: [PlaybackSongSyntheticDeferredCellField]
@@ -469,6 +470,17 @@ enum PlaybackSongSyntheticVolumeColumnClassification: Equatable {
     case deferred
 }
 
+enum PlaybackSongSyntheticVolumeColumnSlideDirection: Equatable {
+    case volumeDown
+    case volumeUp
+    case panningLeft
+    case panningRight
+}
+
+enum PlaybackSongSyntheticVolumeColumnBehavior: Equatable {
+    case rowLevelApproximation
+}
+
 struct PlaybackSongSyntheticVolumeColumnDiagnostic: Equatable {
     let rawValue: UInt8
     let command: PlaybackSongSyntheticVolumeColumnCommand
@@ -480,6 +492,45 @@ struct PlaybackSongSyntheticVolumeColumnDiagnostic: Equatable {
     let appliedGainMultiplier: Float?
     let appliedPanningValue: Int?
     let appliedPan: Float?
+    let slideAmount: Int?
+    let slideDirection: PlaybackSongSyntheticVolumeColumnSlideDirection?
+    let effectiveVolumeBefore: Int?
+    let effectiveVolumeAfter: Int?
+    let effectivePanBefore: Float?
+    let effectivePanAfter: Float?
+    let behavior: PlaybackSongSyntheticVolumeColumnBehavior?
+
+    func withAppliedState(
+        appliedVolumeValue: Int? = nil,
+        appliedGainMultiplier: Float? = nil,
+        appliedPanningValue: Int? = nil,
+        appliedPan: Float? = nil,
+        effectiveVolumeBefore: Int? = nil,
+        effectiveVolumeAfter: Int? = nil,
+        effectivePanBefore: Float? = nil,
+        effectivePanAfter: Float? = nil,
+        behavior: PlaybackSongSyntheticVolumeColumnBehavior? = nil
+    ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
+        PlaybackSongSyntheticVolumeColumnDiagnostic(
+            rawValue: rawValue,
+            command: command,
+            classification: classification,
+            applied: applied,
+            ignoredAsEmptyOrNoOp: ignoredAsEmptyOrNoOp,
+            deferred: deferred,
+            appliedVolumeValue: appliedVolumeValue ?? self.appliedVolumeValue,
+            appliedGainMultiplier: appliedGainMultiplier ?? self.appliedGainMultiplier,
+            appliedPanningValue: appliedPanningValue ?? self.appliedPanningValue,
+            appliedPan: appliedPan ?? self.appliedPan,
+            slideAmount: slideAmount,
+            slideDirection: slideDirection,
+            effectiveVolumeBefore: effectiveVolumeBefore ?? self.effectiveVolumeBefore,
+            effectiveVolumeAfter: effectiveVolumeAfter ?? self.effectiveVolumeAfter,
+            effectivePanBefore: effectivePanBefore ?? self.effectivePanBefore,
+            effectivePanAfter: effectivePanAfter ?? self.effectivePanAfter,
+            behavior: behavior ?? self.behavior
+        )
+    }
 }
 
 enum PlaybackSongVolumeColumnDecoder {
@@ -497,13 +548,45 @@ enum PlaybackSongVolumeColumnDecoder {
                 appliedGainMultiplier: Float(value) / 64.0
             )
         case 0x60...0x6F:
-            return diagnostic(rawValue: rawValue, command: .volumeSlideDown(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .volumeSlideDown(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .volumeDown,
+                behavior: .rowLevelApproximation
+            )
         case 0x70...0x7F:
-            return diagnostic(rawValue: rawValue, command: .volumeSlideUp(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .volumeSlideUp(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .volumeUp,
+                behavior: .rowLevelApproximation
+            )
         case 0x80...0x8F:
-            return diagnostic(rawValue: rawValue, command: .fineVolumeSlideDown(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .fineVolumeSlideDown(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .volumeDown,
+                behavior: .rowLevelApproximation
+            )
         case 0x90...0x9F:
-            return diagnostic(rawValue: rawValue, command: .fineVolumeSlideUp(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .fineVolumeSlideUp(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .volumeUp,
+                behavior: .rowLevelApproximation
+            )
         case 0xA0...0xAF:
             return diagnostic(rawValue: rawValue, command: .setVibratoSpeed(amount: Int(rawValue & 0x0F)), classification: .deferred)
         case 0xB0...0xBF:
@@ -518,9 +601,25 @@ enum PlaybackSongVolumeColumnDecoder {
                 appliedPan: audioPan(forXMValue: panning)
             )
         case 0xD0...0xDF:
-            return diagnostic(rawValue: rawValue, command: .panningSlideLeft(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .panningSlideLeft(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .panningLeft,
+                behavior: .rowLevelApproximation
+            )
         case 0xE0...0xEF:
-            return diagnostic(rawValue: rawValue, command: .panningSlideRight(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            let amount = Int(rawValue & 0x0F)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .panningSlideRight(amount: amount),
+                classification: .supported,
+                slideAmount: amount,
+                slideDirection: .panningRight,
+                behavior: .rowLevelApproximation
+            )
         case 0xF0...0xFF:
             return diagnostic(rawValue: rawValue, command: .tonePortamento(amount: Int(rawValue & 0x0F)), classification: .deferred)
         default:
@@ -535,7 +634,10 @@ enum PlaybackSongVolumeColumnDecoder {
         appliedVolumeValue: Int? = nil,
         appliedGainMultiplier: Float? = nil,
         appliedPanningValue: Int? = nil,
-        appliedPan: Float? = nil
+        appliedPan: Float? = nil,
+        slideAmount: Int? = nil,
+        slideDirection: PlaybackSongSyntheticVolumeColumnSlideDirection? = nil,
+        behavior: PlaybackSongSyntheticVolumeColumnBehavior? = nil
     ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
         PlaybackSongSyntheticVolumeColumnDiagnostic(
             rawValue: rawValue,
@@ -547,13 +649,32 @@ enum PlaybackSongVolumeColumnDecoder {
             appliedVolumeValue: appliedVolumeValue,
             appliedGainMultiplier: appliedGainMultiplier,
             appliedPanningValue: appliedPanningValue,
-            appliedPan: appliedPan
+            appliedPan: appliedPan,
+            slideAmount: slideAmount,
+            slideDirection: slideDirection,
+            effectiveVolumeBefore: nil,
+            effectiveVolumeAfter: nil,
+            effectivePanBefore: nil,
+            effectivePanAfter: nil,
+            behavior: behavior
         )
     }
 
-    private static func audioPan(forXMValue value: Int) -> Float {
-        (Float(min(255, max(0, value))) / 127.5) - 1.0
+    static func audioPan(forXMValue value: Int) -> Float {
+        audioPan(forXMValue: Double(value))
     }
+
+    static func audioPan(forXMValue value: Double) -> Float {
+        (Float(min(255.0, max(0.0, value))) / 127.5) - 1.0
+    }
+}
+
+struct PlaybackSongSyntheticVolumeColumnMapping: Equatable {
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
 }
 
 struct PlaybackSongSyntheticEventMapping: Equatable {
@@ -586,6 +707,8 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
     let hasIgnoredVolumeColumn: Bool
     let hasIgnoredEffect: Bool
+    let effectiveVolumeValue: Int
+    let effectivePan: Float
     let volumeEnvelopeStatus: VolumeEnvelopeStatus
     let sourceVolumeEnvelopePointCount: Int
     let mappedVolumeEnvelopePointCount: Int
@@ -874,6 +997,15 @@ enum PlaybackSongFxxTimingPlanner {
 enum PlaybackSongSyntheticAdapter {
     private static let maxMixerEnvelopePointCount = 12
 
+    private struct ChannelState: Equatable {
+        var volumeValue = 64
+        var panningValue = 127.5
+
+        var pan: Float {
+            PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
+        }
+    }
+
     static func adapt(
         _ song: PlaybackSong,
         orderIndex: Int,
@@ -916,10 +1048,12 @@ enum PlaybackSongSyntheticAdapter {
         var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
+        var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
         var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
         var events = [SyntheticTrackerEvent]()
+        var channelStates = [Int: ChannelState]()
         var nextSyntheticRow = 0
 
         for orderOffset in 0..<safeOrderCount {
@@ -970,7 +1104,9 @@ enum PlaybackSongSyntheticAdapter {
                     song: song,
                     timingConfig: timingPlan.timingConfig(forSyntheticRow: syntheticRow),
                     scheduledStartFrame: timingPlan.frameFor(row: syntheticRow, tick: 0),
+                    channelStates: &channelStates,
                     events: &events,
+                    volumeColumnMappings: &volumeColumnMappings,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
                     deferredCellFields: &deferredCellFields
@@ -996,6 +1132,7 @@ enum PlaybackSongSyntheticAdapter {
                 rowTiming: timingPlan.rowTimingDiagnostics,
                 timingChanges: timingPlan.timingChanges,
                 rowDiagnostics: rowDiagnostics,
+                volumeColumnMappings: volumeColumnMappings,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
                 deferredCellFields: deferredCellFields
@@ -1010,7 +1147,9 @@ enum PlaybackSongSyntheticAdapter {
         song: PlaybackSong,
         timingConfig: SyntheticTrackerTimingConfig,
         scheduledStartFrame: Int,
+        channelStates: inout [Int: ChannelState],
         events: inout [SyntheticTrackerEvent],
+        volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
@@ -1018,7 +1157,21 @@ enum PlaybackSongSyntheticAdapter {
         let eventStartCount = events.count
         let ignoredStartCount = ignoredCells.count
         for (channelIndex, cell) in row.cells.enumerated() {
-            let volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+            var channelState = channelStates[channelIndex] ?? ChannelState()
+            let volumeColumn = applyVolumeColumn(
+                PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                to: &channelState
+            )
+            channelStates[channelIndex] = channelState
+            if cell.volumeColumn != 0 {
+                volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    syntheticTick: 0,
+                    volumeColumn: volumeColumn
+                ))
+            }
             appendDeferredFields(
                 from: cell,
                 source: source,
@@ -1034,7 +1187,7 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentIndex: Int(cell.instrument),
                     reason: ignoredNoteReason(cell.note),
                     volumeColumn: volumeColumn,
-                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
                 ))
                 continue
@@ -1049,7 +1202,7 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentIndex: instrumentIndex,
                     reason: .missingInstrument,
                     volumeColumn: volumeColumn,
-                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
                 ))
                 continue
@@ -1062,7 +1215,7 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentIndex: instrumentIndex,
                     reason: .noPlayableSample,
                     volumeColumn: volumeColumn,
-                    hasIgnoredVolumeColumn: cell.volumeColumn != 0,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
                 ))
                 continue
@@ -1080,8 +1233,8 @@ enum PlaybackSongSyntheticAdapter {
                 usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                 timingConfig: timingConfig
             )
-            let gain = adaptedGain(sampleVolume: sample.volume, volumeColumn: volumeColumn)
-            let pan = volumeColumn.appliedPan ?? 0
+            let gain = adaptedGain(sampleVolume: sample.volume, channelVolume: channelState.volumeValue)
+            let pan = channelState.pan
             events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
                 tick: 0,
@@ -1113,6 +1266,8 @@ enum PlaybackSongSyntheticAdapter {
                 volumeColumn: volumeColumn,
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffect(cell),
+                effectiveVolumeValue: channelState.volumeValue,
+                effectivePan: pan,
                 volumeEnvelopeStatus: envelopeMapping.status,
                 sourceVolumeEnvelopePointCount: envelopeMapping.sourcePointCount,
                 mappedVolumeEnvelopePointCount: envelopeMapping.mappedPointCount,
@@ -1137,6 +1292,82 @@ enum PlaybackSongSyntheticAdapter {
             emittedEventCount: events.count - eventStartCount,
             ignoredCellCount: ignoredCells.count - ignoredStartCount
         )
+    }
+
+    private static func applyVolumeColumn(
+        _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        to state: inout ChannelState
+    ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
+        switch volumeColumn.command {
+        case let .setVolume(value):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(value)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .volumeSlideDown(amount),
+             let .fineVolumeSlideDown(amount):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(before - amount)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .volumeSlideUp(amount),
+             let .fineVolumeSlideUp(amount):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(before + amount)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .setPanning(value):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(Double(value))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case let .panningSlideLeft(amount):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(state.panningValue - Double(amount))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case let .panningSlideRight(amount):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(state.panningValue + Double(amount))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case .none,
+             .setVibratoSpeed,
+             .vibrato,
+             .tonePortamento,
+             .unsupported:
+            return volumeColumn
+        }
     }
 
     private static func appendDeferredFields(
@@ -1256,16 +1487,26 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func adaptedGain(
         sampleVolume: Float,
-        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+        channelVolume: Int
     ) -> Float {
         let baseGain = sampleVolume.isFinite ? sampleVolume : 0
-        guard let volumeMultiplier = volumeColumn.appliedGainMultiplier else {
-            return clampedGain(baseGain)
-        }
-        // The bounded adapter treats XM set-volume as a channel-volume multiplier:
-        // final event gain = sanitized sample volume * (volume-column value / 64).
+        let volumeMultiplier = volumeMultiplier(for: channelVolume)
+        // The bounded adapter treats supported XM volume-column volume commands as row-level
+        // channel-volume updates: final event gain = sample volume * (channel volume / 64).
         // Parsed volume envelopes remain separate C mixer envelopes and multiply this gain at render time.
         return clampedGain(baseGain * volumeMultiplier)
+    }
+
+    private static func volumeMultiplier(for volumeValue: Int) -> Float {
+        Float(clampedVolumeValue(volumeValue)) / 64.0
+    }
+
+    private static func clampedVolumeValue(_ value: Int) -> Int {
+        min(64, max(0, value))
+    }
+
+    private static func clampedPanningValue(_ value: Double) -> Double {
+        min(255.0, max(0.0, value.isFinite ? value : 127.5))
     }
 
     private static func clampedGain(_ value: Float) -> Float {

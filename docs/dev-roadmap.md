@@ -28,13 +28,14 @@ written as deterministic PCM16 WAV files for local comparison. Parsed
 `PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
 frame-based envelope representation for those bounded offline adapted renders
 only, adapted note triggers carry a minimal deterministic note/sample-derived
-playback step, and the adapter applies only volume-column set-volume and
-set-panning commands to event gain/pan. The bounded adapter also applies
-minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
-speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM
-volume-column parity, or full effect parity. The path does not yet render full
-XM song playback or drive live playback.
+playback step, and the adapter applies only volume-column set-volume,
+set-panning, and a conservative row-level subset of volume-column volume and
+panning slides to event gain/pan. The bounded adapter also applies minimal
+`Fxx` timing changes for offline renders only: `F01...F1F` updates speed,
+`F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
+ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM volume-column
+parity, or full effect parity. The path does not yet render full XM song
+playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -60,10 +61,11 @@ Immediate audio accuracy sequence:
 20. Local reference comparison smoke using bounded candidate WAVs — done
 21. Adapter volume-column set-volume/set-panning support for bounded offline renders — done
 22. Minimal Fxx timing changes for bounded offline adapter renders — done
-23. Deep project handoff checkpoint
-24. Focused pitch/period accuracy or additional volume-column slides
-25. Feature-flagged runtime backend switch
-26. Reference comparison stabilization against MikMod/OpenMPT
+23. Adapter support for additional volume-column slides in bounded offline renders — done
+24. Deep project handoff checkpoint
+25. Focused pitch/period accuracy or local trace-to-comparison correlation
+26. Feature-flagged runtime backend switch
+27. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -139,7 +141,7 @@ Features:
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
 - parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using the timing active at the event row
 - minimal note-to-sample-step pitch foundation for bounded offline adapted renders, without full FT2/OpenMPT parity
-- conservative volume-column set-volume and set-panning mapping for bounded offline adapted renders, without full volume-column parity
+- conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`

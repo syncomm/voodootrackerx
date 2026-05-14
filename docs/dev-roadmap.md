@@ -27,7 +27,9 @@ source-to-synthetic diagnostics. Those bounded candidate renders can now be
 written as deterministic PCM16 WAV files for local comparison. Parsed
 `PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
 frame-based envelope representation for those bounded offline adapted renders
-only, adapted note triggers carry explicit XM linear-frequency period/frequency
+only, with first-pass sustain, envelope loop, note value `97` key-off release,
+and post-key-off fadeout semantics now represented in that offline path. Adapted
+note triggers carry explicit XM linear-frequency period/frequency
 sample-step mapping where `PlaybackSong.usesLinearFrequencyTable` is true, and
 the adapter applies only volume-column set-volume,
 set-panning, and a conservative row-level subset of volume-column volume and
@@ -79,8 +81,9 @@ Immediate audio accuracy sequence:
 27. Deep project handoff checkpoint
 28. Focused pitch/period accuracy for bounded linear-frequency renders — done
 29. Interpolation/resampling foundation for C-backed offline mixer — done
-30. Feature-flagged runtime backend switch
-31. Reference comparison stabilization against MikMod/OpenMPT
+30. Deferred envelope sustain/loop/key-off/fadeout semantics for bounded offline renders — done
+31. Feature-flagged runtime backend switch
+32. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -159,6 +162,9 @@ Features:
 - simple deterministic linear interpolation for fractional C-backed offline sample steps, without full OpenMPT/MikMod resampler parity
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
+- first-pass parsed volume-envelope sustain, envelope loop, note value `97`
+  key-off release, and post-key-off fadeout behavior for bounded offline adapted
+  renders, without full FT2/OpenMPT envelope parity or panning envelopes
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - developer-only bounded XM candidate WAV helper using the existing metadata loader, playback builder, and offline export path
 - optional local bounded adapter diagnostics JSON export from the candidate WAV helper

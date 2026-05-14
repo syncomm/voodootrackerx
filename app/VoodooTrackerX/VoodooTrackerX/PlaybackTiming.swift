@@ -124,6 +124,8 @@ struct SyntheticTrackerEvent: Equatable {
     let loop: MixerSampleLoop
     let volumeEnvelope: MixerEnvelope?
     let panEnvelope: MixerEnvelope?
+    let keyOffFrame: Int?
+    let fadeoutFrameDecrement: Float
 
     init(
         row: Int,
@@ -135,7 +137,9 @@ struct SyntheticTrackerEvent: Equatable {
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
         volumeEnvelope: MixerEnvelope? = nil,
-        panEnvelope: MixerEnvelope? = nil
+        panEnvelope: MixerEnvelope? = nil,
+        keyOffFrame: Int? = nil,
+        fadeoutFrameDecrement: Float = 0
     ) {
         self.row = row
         self.tick = tick
@@ -147,6 +151,25 @@ struct SyntheticTrackerEvent: Equatable {
         self.loop = loop
         self.volumeEnvelope = volumeEnvelope
         self.panEnvelope = panEnvelope
+        self.keyOffFrame = keyOffFrame.map { max(0, $0) }
+        self.fadeoutFrameDecrement = fadeoutFrameDecrement.isFinite && fadeoutFrameDecrement > 0 ? fadeoutFrameDecrement : 0
+    }
+
+    func withKeyOffFrame(_ frame: Int, fadeoutFrameDecrement: Float) -> SyntheticTrackerEvent {
+        SyntheticTrackerEvent(
+            row: row,
+            tick: tick,
+            scheduledStartFrame: scheduledStartFrame,
+            sample: sample,
+            gain: gain,
+            pan: pan,
+            playbackStep: playbackStep,
+            loop: loop,
+            volumeEnvelope: volumeEnvelope,
+            panEnvelope: panEnvelope,
+            keyOffFrame: frame,
+            fadeoutFrameDecrement: fadeoutFrameDecrement
+        )
     }
 }
 
@@ -178,7 +201,9 @@ struct SyntheticTrackerScheduler: Equatable {
             playbackStep: event.playbackStep,
             loop: event.loop,
             volumeEnvelope: event.volumeEnvelope,
-            panEnvelope: event.panEnvelope
+            panEnvelope: event.panEnvelope,
+            keyOffFrame: event.keyOffFrame,
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement
         )
     }
 

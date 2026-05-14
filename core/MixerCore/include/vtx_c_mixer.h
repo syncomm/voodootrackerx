@@ -42,12 +42,22 @@ typedef struct {
 typedef struct {
     const VTXCMixerEnvelopePoint *points;
     uint32_t point_count;
+    int sustain_enabled;
+    uint32_t sustain_frame;
+    int loop_enabled;
+    uint32_t loop_start_frame;
+    uint32_t loop_end_frame;
 } VTXCMixerEnvelope;
 
 typedef struct {
     VTXCMixerEnvelopePoint points[VTX_C_MIXER_MAX_ENVELOPE_POINTS];
     uint32_t point_count;
     uint32_t position_frame;
+    int sustain_enabled;
+    uint32_t sustain_frame;
+    int loop_enabled;
+    uint32_t loop_start_frame;
+    uint32_t loop_end_frame;
     int enabled;
 } VTXCMixerEnvelopeState;
 
@@ -65,6 +75,11 @@ typedef struct {
     int ping_pong_direction;
     VTXCMixerEnvelopeState volume_envelope;
     VTXCMixerEnvelopeState pan_envelope;
+    uint64_t key_off_frame;
+    int has_key_off_frame;
+    int key_on;
+    float fadeout_value;
+    float fadeout_decrement_per_frame;
     int active;
 } VTXCMixerVoice;
 
@@ -175,6 +190,15 @@ VTXCMixerStatus vtx_c_mixer_set_voice_pan_envelope(
     VTXCMixerState *state,
     uint32_t voice_index,
     const VTXCMixerEnvelope *envelope
+);
+
+// Schedules a voice key-off/release at an absolute output frame. Fadeout is a
+// caller-supplied per-output-frame decrement in the existing 0.0...1.0 gain domain.
+VTXCMixerStatus vtx_c_mixer_set_voice_key_off_frame(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t key_off_frame,
+    float fadeout_decrement_per_frame
 );
 
 VTXCMixerStatus vtx_c_mixer_render(

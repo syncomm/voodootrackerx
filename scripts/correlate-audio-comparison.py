@@ -475,6 +475,15 @@ def fxx_label(changes: list[dict[str, Any]]) -> str:
 def envelope_label(envelope: dict[str, Any]) -> str:
     if not envelope:
         return "unavailable"
+    applied = []
+    if envelope.get("sustain_applied"):
+        applied.append("sustain")
+    if envelope.get("loop_applied"):
+        applied.append("loop")
+    if envelope.get("key_off_applied"):
+        applied.append("key-off")
+    if envelope.get("fadeout_applied"):
+        applied.append("fadeout")
     deferred = []
     if envelope.get("has_deferred_sustain"):
         deferred.append("sustain")
@@ -482,11 +491,14 @@ def envelope_label(envelope: dict[str, Any]) -> str:
         deferred.append("loop")
     if envelope.get("has_deferred_fadeout"):
         deferred.append("fadeout")
+    if envelope.get("key_off_deferred"):
+        deferred.append("key-off")
+    applied_suffix = f"; applied {','.join(applied)}" if applied else ""
     suffix = f"; deferred {','.join(deferred)}" if deferred else ""
     return (
         f"{format_optional(envelope.get('status'))} "
         f"{format_optional(envelope.get('mapped_point_count'))}/{format_optional(envelope.get('source_point_count'))}"
-        f"{suffix}"
+        f"{applied_suffix}{suffix}"
     )
 
 

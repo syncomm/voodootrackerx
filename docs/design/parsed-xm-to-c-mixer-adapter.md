@@ -74,8 +74,11 @@ tone-portamento, undefined ranges, and zero-amount effect memory remain
 deferred or no-op as diagnosed. Parsed
 `PlaybackInstrument.volumeEnvelope` points are mapped to the existing
 frame-based `MixerEnvelope` representation for bounded offline adapted renders
-when a playable sample voice is emitted. Sustain, loop, key-off, and fadeout
-envelope semantics remain deferred and are reported in diagnostics when present.
+when a playable sample voice is emitted. The bounded offline path now includes
+a conservative first pass for volume-envelope sustain frames, envelope loop
+frames, note value `97` key-off release, and instrument fadeout after key-off.
+These semantics are deterministic and diagnosed, but they are still
+approximations rather than full FT2/OpenMPT envelope parity.
 Runtime playback still uses `AVAudioPlayerNode` through the existing playback
 path; the C mixer is still not used for live playback, and full real XM playback
 through the C mixer has not been implemented.
@@ -109,7 +112,7 @@ decisions:
 | `PlaybackCell` | Raw XM cell fields: note, instrument, volume column, effect type, and effect parameter. Empty note is `0`; note-off is `97`; normal note triggers are `1...96`. |
 | `PlaybackInstrument` | App-side instrument container with samples and a parsed volume envelope. Current sample selection is `firstPlayableSample`. |
 | `PlaybackSample` | Decoded mono Float32 PCM plus sample volume, relative note, finetune, base sample rate, sample length, and loop metadata in sample frames. It exposes `isPlayable` and a clamped `loopRegion`. |
-| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed bounded offline adapter now consumes the basic enabled volume envelope shape only. |
+| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed bounded offline adapter consumes enabled volume-envelope point shapes plus first-pass sustain, loop, key-off, and fadeout metadata for bounded offline renders only. |
 | `PlaybackTiming` | XM-style timing values. Tick duration is `2.5 / bpm`; row duration is tick duration times clamped speed. |
 | `PlaybackEffect` types | Runtime playback effect decoding and channel/global state for the current AVAudio path. These are not part of the first adapter scope. |
 | `PlaybackEngine` | Current live playback orchestrator. It advances rows/ticks on a timer, applies first-pass effects and volume-column behavior, triggers `PlaybackAudioOutput`, and writes playback traces. It still uses the AVAudio backend for live playback. |
@@ -201,7 +204,8 @@ The current adapter implementation is intentionally small:
 - Flatten decoded `PlaybackPattern` rows into a single `SyntheticPattern`.
 - Schedule only basic note + instrument cells.
 - Treat notes `1...96` as triggers with a minimal deterministic playback step,
-  `0` as empty, `97` as deferred key-off, and other values as ignored.
+  `0` as empty, `97` as a channel-local key-off for the most recently adapted
+  active voice on that channel when one is tracked, and other values as ignored.
 - Select `PlaybackInstrument.firstPlayableSample`.
 - Copy `PlaybackSample.pcm` into `MixerSampleBuffer`.
 - Use `PlaybackSample.volume` as base event gain, multiplying it by the current
@@ -235,7 +239,7 @@ The current adapter does not:
 - implement full tempo/BPM or tick-level timing effect parity
 - implement pattern break, position jump, or pattern delay
 - implement sample offset
-- implement note delay, note cut, retrigger, or key-off behavior
+- implement note delay, note cut, or retrigger behavior
 - implement Amiga-table period/frequency behavior or pitch-changing effects
 - implement full OpenMPT/MikMod resampler parity or configurable interpolation modes
 - provide full-song WAV export or a public module-rendering CLI
@@ -252,17 +256,17 @@ The current adapter does not:
 | `PlaybackOrderEntry.patternIndex` | Pattern selection | Resolve each included order to `PlaybackPattern`. Skip or fail safely on missing patterns. | Effect-driven position changes later. |
 | `PlaybackPattern.rows` | `SyntheticPattern.rowCount` and flattened events | Sum included pattern row counts into one flat synthetic pattern. | Pattern delay and richer order timeline later. |
 | `PlaybackRow.index` | `SyntheticTrackerEvent.row` | Map to flattened row offset plus row index. | Pattern delay and row-repeat semantics later. |
-| `PlaybackCell.note` | Trigger decision and playback step | Trigger only for `1...96`, deriving a linear-frequency sample step from note/sample metadata when the song uses the linear frequency table; ignore empty, key-off, and invalid notes. | Amiga pitch behavior, key-off, note cut/delay, retrigger later. |
+| `PlaybackCell.note` | Trigger/release decision and playback step | Trigger only for `1...96`, deriving a linear-frequency sample step from note/sample metadata when the song uses the linear frequency table. Note value `97` schedules a key-off/release frame for the active adapted voice on that channel when one is tracked. Empty and invalid notes are ignored safely. | Amiga pitch behavior, note cut/delay, retrigger, and broader effect-triggered release behavior later. |
 | `PlaybackCell.instrument` | Sample lookup | Use `PlaybackSong.sample(forInstrument:)`, currently first playable sample. | Multisample/keymap and instrument fallback semantics later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` only | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op and keep other effect-column commands deferred. | Targeted effect integration PRs later. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
-| `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
+| `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` and voice key-off/fadeout metadata on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. If valid parsed sustain/loop flags and point indices are present, pass mapped sustain and loop frames to the C mixer. If note value `97` later appears on the same adapted channel, pass an absolute release frame and a simple fadeout decrement. Diagnostics record absent, disabled, invalid/empty, mapped, applied, deferred, and approximated states. | Full FT2/OpenMPT envelope parity, panning envelopes, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
-| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume after supported row-level volume-column commands. Parsed volume envelopes remain separate mixer envelopes that multiply this gain at render time. | Global volume/fadeout state and full effect integration later. |
+| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume after supported row-level volume-column commands. Parsed volume envelopes and post-key-off fadeout remain separate mixer multipliers at render time. | Global volume state and full effect integration later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and clamped finetune in the XM linear-period calculation for linear-frequency songs. Diagnostics include output sample rate, effective note/finetune, linear period/frequency, and neutral fallback status. | Amiga table behavior and pitch-changing effects later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. | FT2 loop/sample-offset quirks later. |
-| `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row; report sustain, loop, and fadeout as deferred. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
+| `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` and voice release/fadeout state | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row. Sustain holds at the mapped sustain frame while keyed-on. Envelope loops repeat between mapped loop start/end frames while keyed-on. Note value `97` releases the tracked adapted voice and allows envelope advance/fadeout. Fadeout uses a linear per-frame decrement derived from the parsed fadeout value as a first-pass approximation. | Full FT2/OpenMPT envelope parity, panning envelopes, effect-column note cut/delay/retrigger, and dynamic envelope retiming after later tempo changes. |
 
 ## Risks And Mitigations
 
@@ -296,14 +300,19 @@ bounded offline rendering:
 - Assert rows from a bounded order range map to expected synthetic rows.
 - Assert silence before expected row-derived trigger frames.
 - Assert non-silence begins at expected row-derived frames.
-- Assert empty cells, missing instruments, non-playable samples, key-off, and
-  invalid notes are ignored safely.
+- Assert empty cells, missing instruments, non-playable samples, invalid notes,
+  and key-off-without-active-voice cases are ignored or deferred safely.
 - Assert sample volume maps to gain.
 - Assert forward and ping-pong loop metadata reaches the already-tested C loop
   path.
 - Assert parsed volume envelope points map to frame-based mixer envelope points
   using the timing active at the event row.
 - Assert disabled, empty, and invalid parsed volume envelopes are ignored safely.
+- Assert parsed volume envelope sustain points hold while keyed-on.
+- Assert parsed volume envelope loops repeat while keyed-on.
+- Assert note value `97` releases the tracked adapted channel voice and reports
+  applied/deferred key-off diagnostics.
+- Assert parsed instrument fadeout reduces output after key-off.
 - Assert supported set-volume, set-panning, volume slide, fine volume slide, and
   panning slide volume-column fields affect bounded offline output and
   diagnostics.
@@ -345,10 +354,38 @@ bounded offline rendering:
 11. Done: simple deterministic linear interpolation for fractional C-backed
     offline mixer sample steps, without runtime backend changes or full
     resampler parity.
-12. Additional targeted effects such as sample offset, note delay/cut,
+12. Done: first-pass volume-envelope sustain/loop/key-off/fadeout semantics for
+    bounded offline adapted renders, with deterministic diagnostics and
+    documented approximations.
+13. Additional targeted effects such as sample offset, note delay/cut,
    retrigger, arpeggio, portamento, vibrato, pattern break, and position jump.
-13. Feature-flagged runtime C mixer backend switch only after offline parity and
+14. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
+
+## Envelope Semantics First Pass
+
+This bounded offline adapter pass supports only volume-envelope semantics:
+
+- Enabled parsed volume envelope point shapes are still mapped to frame-based C
+  mixer points using the timing active at the note event row.
+- If the parsed sustain flag and sustain point index are valid, the C mixer holds
+  the envelope at the mapped sustain frame while the adapted voice remains
+  keyed-on.
+- If the parsed envelope loop flag and loop point indices are valid, the C mixer
+  loops between mapped loop start/end frames while the adapted voice remains
+  keyed-on.
+- XM note value `97` schedules a key-off/release frame for the currently tracked
+  adapted voice on the same channel. If no active adapted voice is tracked, the
+  key-off is diagnosed as deferred/no-active-voice.
+- Parsed instrument fadeout is applied after key-off with a simple deterministic
+  linear per-output-frame decrement. This is intentionally documented as a
+  first-pass approximation, not exact FT2/OpenMPT fadeout parity.
+
+Panning envelopes remain deferred. Effect-column note cut (`ECx`), note delay
+(`EDx`), sample offset (`9xx`), retrigger (`E9x`), global volume, pattern break,
+position jump, pattern delay, and runtime playback integration remain out of
+scope. Runtime playback remains on `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed`, and the C mixer remains offline-only.
 
 ## Manual Verification Strategy
 

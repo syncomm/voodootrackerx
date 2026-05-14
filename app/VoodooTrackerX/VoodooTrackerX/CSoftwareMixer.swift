@@ -22,9 +22,20 @@ struct MixerEnvelopePoint: Equatable {
 /// Swift before they reach the C-backed offline mixer.
 struct MixerEnvelope: Equatable {
     let points: [MixerEnvelopePoint]
+    let sustainFrame: Int?
+    let loopStartFrame: Int?
+    let loopEndFrame: Int?
 
-    init(points: [MixerEnvelopePoint]) {
+    init(
+        points: [MixerEnvelopePoint],
+        sustainFrame: Int? = nil,
+        loopStartFrame: Int? = nil,
+        loopEndFrame: Int? = nil
+    ) {
         self.points = points
+        self.sustainFrame = sustainFrame.map { max(0, $0) }
+        self.loopStartFrame = loopStartFrame.map { max(0, $0) }
+        self.loopEndFrame = loopEndFrame.map { max(0, $0) }
     }
 }
 
@@ -76,7 +87,9 @@ final class CSoftwareMixer {
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
         volumeEnvelope: MixerEnvelope? = nil,
-        panEnvelope: MixerEnvelope? = nil
+        panEnvelope: MixerEnvelope? = nil,
+        keyOffFrame: Int? = nil,
+        fadeoutFrameDecrement: Float = 0
     ) -> Int {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
@@ -102,6 +115,9 @@ final class CSoftwareMixer {
         if let panEnvelope {
             setPanEnvelope(panEnvelope, forVoiceAt: Int(voiceIndex))
         }
+        if let keyOffFrame {
+            setKeyOffFrame(keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement, forVoiceAt: Int(voiceIndex))
+        }
         return Int(voiceIndex)
     }
 
@@ -119,7 +135,9 @@ final class CSoftwareMixer {
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
         volumeEnvelope: MixerEnvelope? = nil,
-        panEnvelope: MixerEnvelope? = nil
+        panEnvelope: MixerEnvelope? = nil,
+        keyOffFrame: Int? = nil,
+        fadeoutFrameDecrement: Float = 0
     ) -> Int? {
         guard scheduledStartFrame >= 0 else {
             return nil
@@ -151,6 +169,9 @@ final class CSoftwareMixer {
         if let panEnvelope {
             setPanEnvelope(panEnvelope, forVoiceAt: Int(voiceIndex))
         }
+        if let keyOffFrame {
+            setKeyOffFrame(keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement, forVoiceAt: Int(voiceIndex))
+        }
         return Int(voiceIndex)
     }
 
@@ -172,6 +193,19 @@ final class CSoftwareMixer {
         Self.requireOK(status)
     }
 
+    /// Schedules an absolute-frame key-off/release for an existing C-backed voice.
+    func setKeyOffFrame(_ keyOffFrame: Int, fadeoutFrameDecrement: Float = 0, forVoiceAt voiceIndex: Int) {
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
+        precondition(keyOffFrame >= 0, "C mixer key-off frame is out of range")
+        let status = vtx_c_mixer_set_voice_key_off_frame(
+            &state,
+            UInt32(voiceIndex),
+            UInt64(keyOffFrame),
+            fadeoutFrameDecrement.isFinite ? fadeoutFrameDecrement : 0
+        )
+        Self.requireOK(status)
+    }
+
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
         Self.requireOK(vtx_c_mixer_clear_voices(&state))
@@ -186,10 +220,11 @@ final class CSoftwareMixer {
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
     /// ping-pong-loop sample voices with explicit playback steps, simple linear interpolation, plus synthetic
-    /// volume and pan envelopes.
+    /// volume and pan envelopes. Volume envelopes can use first-pass sustain/loop frames and scheduled
+    /// voice key-off/fadeout when the bounded offline adapter supplies them.
     /// Scheduled synthetic voices can start at absolute output frames in the offline mixer timeline.
     /// Swift-side synthetic row/tick helpers can map simple tracker coordinates to those absolute frames, but
-    /// the C core does not implement XM effects, XM playback, sustain/loop/fadeout envelope semantics,
+    /// the C core does not implement broad XM effects, full XM playback, FT2/OpenMPT envelope parity,
     /// FT2/OpenMPT pitch parity, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
@@ -262,7 +297,12 @@ final class CSoftwareMixer {
         return cPoints.withUnsafeBufferPointer { buffer in
             var cEnvelope = VTXCMixerEnvelope(
                 points: buffer.baseAddress,
-                point_count: UInt32(cPoints.count)
+                point_count: UInt32(cPoints.count),
+                sustain_enabled: envelope.sustainFrame == nil ? 0 : 1,
+                sustain_frame: UInt32(clamping: envelope.sustainFrame ?? 0),
+                loop_enabled: envelope.loopStartFrame == nil || envelope.loopEndFrame == nil ? 0 : 1,
+                loop_start_frame: UInt32(clamping: envelope.loopStartFrame ?? 0),
+                loop_end_frame: UInt32(clamping: envelope.loopEndFrame ?? 0)
             )
             return withUnsafePointer(to: &cEnvelope) { cEnvelopePointer in
                 body(cEnvelopePointer)

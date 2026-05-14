@@ -35,7 +35,9 @@ panning slides to event gain/pan. The bounded adapter also applies minimal
 `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
 ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM volume-column
 parity, or full effect parity. The path does not yet render full XM song
-playback or drive live playback.
+playback or drive live playback. Local `_DARKL.XM` bounded comparison findings
+now have a safe report template and local-only workflow guidance; filled reports
+and generated audio artifacts stay outside git.
 
 Immediate audio accuracy sequence:
 
@@ -62,10 +64,11 @@ Immediate audio accuracy sequence:
 21. Adapter volume-column set-volume/set-panning support for bounded offline renders — done
 22. Minimal Fxx timing changes for bounded offline adapter renders — done
 23. Adapter support for additional volume-column slides in bounded offline renders — done
-24. Deep project handoff checkpoint
-25. Focused pitch/period accuracy or local trace-to-comparison correlation
-26. Feature-flagged runtime backend switch
-27. Reference comparison stabilization against MikMod/OpenMPT
+24. Local `_DARKL.XM` bounded comparison findings workflow — done
+25. Deep project handoff checkpoint
+26. Focused pitch/period accuracy or local trace-to-comparison correlation
+27. Feature-flagged runtime backend switch
+28. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -145,6 +148,7 @@ Features:
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
+- local-only bounded findings report template for `_DARKL.XM` candidate/reference comparison evidence
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

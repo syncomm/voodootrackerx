@@ -1,153 +1,155 @@
 # Audio Reference Comparison
 
-VoodooTracker X can play XM files, but it does not yet provide meaningful direct
-offline WAV export. This workflow compares a reference renderer WAV with a
-VoodooTracker X WAV capture or future offline render when one is available.
+VoodooTracker X has a local-only diagnostic workflow for comparing two bounded
+PCM WAV renders:
 
-Do not commit copyrighted modules or generated renders from them. Keep local
-modules and WAVs in `/tmp`, `~/Desktop`, or another untracked location.
+- a candidate WAV from VoodooTracker X, a manual capture, or a future bounded
+  C-backed offline render export
+- a reference WAV from OpenMPT/libopenmpt/openmpt123, MikMod, or another local
+  renderer
 
-## Reference WAV
+This workflow is diagnostic evidence only. It does not prove tracker semantic
+correctness, it does not automatically choose fixes, and it must not drive broad
+audio rewrites. Use mismatch windows to choose the next smallest targeted PR.
 
-Prefer `openmpt123`/libopenmpt when installed:
+Generated WAVs, JSON reports, Markdown reports, playback traces, screenshots,
+logs, and local module files must stay outside git. `_DARKL.XM` is Gregory's
+local-only manual regression module at `/Users/syncomm/Desktop/_DARKL.XM`; do
+not commit it, copy it into fixtures, or require it from automated tests.
 
-```bash
-openmpt123 --render /tmp/darkl-openmpt.wav /Users/syncomm/Desktop/_DARKL.XM
-```
+## Current State
 
-MikMod is also acceptable. Use its WAV disk writer:
+Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`. The
+C-backed mixer remains offline-only and is not connected to the app Play
+button.
 
-```bash
-mikmod -q -d 2,file=/tmp/darkl-mikmod.wav -f 44100 -o 16s /Users/syncomm/Desktop/_DARKL.XM
-```
+The bounded offline C-backed path can render tiny adapted `PlaybackSong`
+segments in memory, but this PR does not add a candidate WAV export CLI. Until a
+small export helper exists, candidate WAV generation is manual/local. Reference
+comparison is ready for local WAV files once the candidate and reference renders
+exist.
 
-Renderer defaults differ. Record renderer name/version, sample rate,
-interpolation, loop, and fade settings in bug reports or PR notes. Some modules
-can render for a long time depending on song length and loop behavior, so keep
-renders in `/tmp` and stop the renderer manually if needed.
+MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
+not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
+synthetic WAV files only.
 
-## VoodooTracker X WAV
+## Compare Two WAV Files
 
-Until direct export exists, capture app output manually with a local macOS audio
-capture setup and save it as PCM WAV outside the repository, for example:
-
-```text
-/tmp/darkl-voodootrackerx.wav
-```
-
-When direct export is added, use the exported file as the candidate WAV.
-
-## Planned Software Mixer Validation
-
-The target software mixer architecture is documented in
-`docs/decisions/004-software-mixer-transition.md`. The Swift software mixer
-offline render harness exists behind the playback/audio boundary and remains the
-reference/specification path for deterministic mixer behavior. It can render
-explicitly supplied synthetic one-shot sample voices plus deterministic synthetic
-forward and ping-pong loops.
-
-The C-backed mixer path now has a minimal core and Swift wrapper that can render
-deterministic silence plus synthetic one-shot, forward-loop, and ping-pong-loop
-sample voices offline. It can also apply synthetic frame-based volume envelopes,
-panning envelope offsets, absolute-frame scheduling, and explicit source-sample
-playback steps to synthetic C-backed voices in offline renders. Scheduled
-synthetic voices render silence before their requested start frame, begin on
-that exact frame, and remain deterministic across equivalent split and single
-render calls. Overlapping scheduled voices use the existing additive mixing
-behavior; the current offline path does not add clipping or limiting. A
-Swift-side synthetic tracker timing helper can now convert simple row/tick
-coordinates to
-deterministic absolute frame positions and schedule those synthetic C-backed
-voices offline. Minimal synthetic pattern playback can schedule flat synthetic
-row/tick events through that same helper into the C-backed offline mixer.
-`PlaybackSongSyntheticAdapter` and `PlaybackSongOfflineRenderer` can adapt tiny
-bounded `PlaybackSong` order selections, map parsed
-`PlaybackInstrument.volumeEnvelope` point data into the existing C-backed
-frame-based volume-envelope representation, derive a minimal deterministic
-note/sample playback step, render through that same synthetic offline C mixer
-path, and return in-memory source-to-synthetic diagnostics for basic
-sample-trigger smoke tests. C-backed output should match the Swift
-`SoftwareMixer` reference for the same synthetic one-shot and loop inputs;
-envelope, scheduling, row/tick timing, synthetic pattern behavior, and tiny
-playback-model adapter renders are currently covered by explicit deterministic
-expectations. Full parser-driven XM rendering, full FT2/OpenMPT pitch parity,
-Amiga frequency-table behavior, interpolation, envelope
-sustain/loop/key-off/fadeout semantics, effects, tempo changes, WAV export, and
-reference WAV comparison remain future work. Requests above the configured frame
-maximum are clamped rather than allowed to render unbounded PCM.
-
-Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
-offline mixer paths are not part of live playback and should not change audible
-behavior. WAV/reference comparison against real modules becomes meaningful only
-after the software mixer is connected to module-derived sample, timing, loop,
-panning, and effect decisions. Row/tick scheduling, synthetic pattern support,
-the minimal `PlaybackSong` adapter, bounded adapted-segment render helper, and
-parsed volume-envelope point mapping remain offline-only and do not connect to
-runtime playback, XM effects, volume-column semantics, or tempo-change data.
-The minimal note-to-sample-step foundation is also offline-only and should not
-be read as full reference pitch compatibility.
-Generated WAV files, playback traces, comparison reports, and local modules must
-remain outside the repository.
-`/Users/syncomm/Desktop/_DARKL.XM` is a local-only manual regression module and
-must not be committed or copied into fixtures.
-
-The minimal bridge from `PlaybackSong` into the synthetic C-backed offline path
-is documented in `docs/design/parsed-xm-to-c-mixer-adapter.md`. It does not
-implement full parsed XM rendering and does not change live playback.
-
-Once module-connected sample rendering exists, prefer the offline harness over
-manual app capture for mixer validation:
-
-- render the first N seconds of the local test module to a candidate WAV
-- render the same segment with `openmpt123` or MikMod using recorded settings
-- compare both WAV files with `scripts/audio-compare.py`
-- capture a playback trace for the same segment when audio metrics point to a
-  timing, loop, envelope, panning, or effect-state mismatch
-- keep the local module, WAVs, traces, and reports outside the repository
-
-Runtime playback should not switch to the software mixer until this offline
-workflow can produce useful, reproducible comparison reports.
-
-## Compare WAV Files
+Local-only example using placeholder paths:
 
 ```bash
-./scripts/audio-compare.py \
-  --reference /tmp/darkl-openmpt.wav \
-  --candidate /tmp/darkl-voodootrackerx.wav \
+python3 scripts/audio-compare.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/openmpt-reference.wav \
+  --json /tmp/vtx-audio-compare.json \
+  --markdown /tmp/vtx-audio-compare.md
+```
+
+Omit `--json` and `--markdown` to print the human-readable Markdown summary to
+stdout. The legacy `--report /tmp/report.md` option still writes the same
+Markdown summary.
+
+Useful bounds and report options:
+
+```bash
+python3 scripts/audio-compare.py \
+  --candidate /tmp/vtx-candidate.wav \
+  --reference /tmp/openmpt-reference.wav \
   --seconds 30 \
-  --report /tmp/darkl-audio-compare.txt
+  --window-ms 100 \
+  --top-windows 5 \
+  --json /tmp/vtx-audio-compare.json
 ```
 
-Omit `--report` to print to stdout. The report includes WAV format, duration
-difference, sample rate/channel/sample-width mismatches, RMS and peak levels,
-RMS and peak differences, rough normalized correlation, and first-difference
-timestamp when sample rate and channel count match.
+The script supports uncompressed PCM WAV input. It does not resample, downmix,
+upmix, time-align, or compensate for renderer latency.
 
-## Limitations
+## Optional Reference Renderers
 
-This is a developer diagnostic tool, not a conformance test.
+When `openmpt123` is installed locally, render a bounded reference WAV outside
+the repository:
 
-- Supports uncompressed PCM WAV only.
-- Does not resample, downmix, upmix, time-align, or compensate for renderer
-  latency.
-- Correlation is computed over interleaved PCM samples and is intentionally
-  rough.
-- Manual app captures can include device latency, start offset, gain changes, or
-  system audio processing.
+```bash
+openmpt123 --render /tmp/openmpt-reference.wav /path/to/local-module.xm
+```
 
-Use the report to identify large differences and guide follow-up debugging
-before adding more playback effects.
+MikMod is also acceptable when installed locally:
 
-For playback decision diagnostics, capture a VoodooTracker X JSONL trace with
-`docs/playback-trace.md` and compare the trace's order, row, tick, channel,
-effect, volume, and pitch/rate decisions against the audio report.
+```bash
+mikmod -q -d 2,file=/tmp/mikmod-reference.wav -f 44100 -o 16s /path/to/local-module.xm
+```
+
+Renderer settings matter. Record renderer name/version, sample rate,
+interpolation mode, ramping/fade behavior, loop handling, gain, and any bounded
+duration settings in local notes or PR summaries. Different renderer defaults
+can move mismatch windows or change RMS metrics even when both renders are
+reasonable.
+
+## Metrics Produced
+
+The JSON and Markdown reports include:
+
+- sample rate, channel count, sample width, frame count, and duration for each
+  input
+- duration and frame-count deltas
+- overall and per-channel RMS
+- overall and per-channel peak
+- per-channel RMS difference when sample rate and channel count match
+- overall RMS difference
+- normalized RMS difference against reference RMS when practical
+- max absolute sample difference
+- clipping sample count
+- silence or near-silence sample count and ratio
+- stereo balance as left/right RMS and energy difference for stereo files
+- normalized correlation over overlapping PCM samples
+- first sample-difference timestamp over the configured threshold
+- top N worst mismatch windows using non-overlapping windowed RMS difference
+
+JSON output intentionally stores only input basenames, not absolute local paths,
+so automation can parse reports without leaking machine-specific locations.
+
+## Interpreting Worst Windows
+
+Worst mismatch windows are ranked by RMS difference over fixed non-overlapping
+time ranges. Treat them as leads:
+
+- a short isolated window can point to a note trigger, sample loop, volume
+  envelope, panning, or effect decision
+- repeated high windows can point to pitch/rate, timing, gain, or stereo
+  placement
+- a duration or frame-count mismatch can mean the compared bounds differ before
+  any sample-level conclusion is useful
+- sample-rate or channel-count mismatches skip direct sample comparison and
+  should be fixed in local render settings first
+
+Lower numeric difference is not automatically "more correct" tracker behavior.
+Use the report alongside playback traces and source-to-synthetic diagnostics to
+pick a focused follow-up.
+
+## Local-Only Artifact Rules
+
+Keep all generated files outside the repo, for example under `/tmp`:
+
+- candidate/reference WAV files
+- JSON and Markdown comparison reports
+- playback trace JSONL files
+- screenshots and manual listening notes
+- any files derived from `_DARKL.XM`
+
+The repo `.gitignore` includes local comparison output patterns, but that is a
+last line of defense. Before committing, always check `git status --short` and
+stage only source, tests, and documentation intended for the PR.
 
 ## Manual Verification
 
-- Render a short reference WAV with `openmpt123` or MikMod.
-- Capture or export a comparable VoodooTracker X WAV if available.
-- Run `./scripts/audio-compare.py` with `--seconds 30`.
-- Confirm the report shows duration, format, RMS, peak, and mismatch details.
-- Confirm sample comparison is skipped clearly when formats do not match.
-- Confirm no playback behavior changed.
-- Confirm tracker viewport behavior was not modified.
+For this workflow:
+
+- compare two tiny local WAV files with `scripts/audio-compare.py`
+- generate and parse JSON output
+- inspect the Markdown summary for format, level, mismatch, and worst-window
+  details
+- confirm no generated WAVs, reports, traces, screenshots, or local modules are
+  staged
+- confirm runtime playback behavior did not change
+- confirm the C mixer remains offline-only
+- confirm tracker viewport and parser architecture code were not modified

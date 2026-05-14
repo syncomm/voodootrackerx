@@ -48,11 +48,12 @@ Immediate audio accuracy sequence:
 14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects — done
 15. Adapter diagnostics and bounded offline render helper — done
 16. Parsed volume envelope mapping for bounded offline adapted renders — done
-17. Minimal pitch foundation for bounded offline adapted renders — this PR
-18. Deep project handoff checkpoint
-19. Local reference render workflow, volume-column integration, or focused pitch/period accuracy
-20. Feature-flagged runtime backend switch
-21. Reference comparison stabilization against MikMod/OpenMPT
+17. Minimal pitch foundation for bounded offline adapted renders — done
+18. Local-only bounded reference render comparison workflow — this PR
+19. Deep project handoff checkpoint
+20. Bounded C-mixer WAV export helper, volume-column integration, or focused pitch/period accuracy
+21. Feature-flagged runtime backend switch
+22. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -116,7 +117,7 @@ Features:
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
-- local reference comparison workflow against MikMod/OpenMPT
+- local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs
 - deterministic software mixer skeleton for future offline rendering
 - bounded offline render harness for deterministic mixer validation
 - synthetic one-shot sample rendering through the offline mixer harness

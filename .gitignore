@@ -39,3 +39,17 @@ __pycache__/
 *.profraw
 *.tmp
 *.temp
+
+# Local audio comparison artifacts
+local-audio-compare*/
+audio-compare-output*/
+vtx-audio-compare*/
+*-audio-compare.json
+*-audio-compare.md
+*-audio-compare.txt
+*-candidate.wav
+*-reference.wav
+*-openmpt.wav
+*-mikmod.wav
+*-voodootrackerx.wav
+*-playback-trace.jsonl

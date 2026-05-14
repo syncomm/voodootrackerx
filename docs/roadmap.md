@@ -176,6 +176,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10c — Minimal Pitch / Note-to-Frequency Foundation for C-Backed Adapted Offline Renders
 - Scope: carry a deterministic note/sample-derived playback step through bounded offline `PlaybackSong` adapter renders and the C-backed scheduled voice path, without full FT2/OpenMPT pitch parity
 - Verification: deterministic hand-built `PlaybackSong` tests for neutral/default step behavior, different note-derived steps, faster high-note progression, split/reset determinism, loop and envelope regression with non-neutral steps, diagnostics, ignored note-off/invalid notes, and linear-frequency flag reporting; no runtime backend switching, XM effects, volume-column semantics, tempo changes, or local copyrighted module fixtures
+- Status: done.
+
+### PR 2.7.10d — Local-Only Bounded Reference Render Workflow Against MikMod/OpenMPT
+- Scope: improve local WAV-to-WAV comparison tooling and documentation for bounded candidate/reference render diagnostics without adding renderer dependencies to CI or changing mixer behavior
+- Verification: synthetic temporary WAV tests for comparison metrics, JSON output, mismatch windows, format mismatches, clipping/silence detection, and CLI error handling; local generated WAVs/reports/traces remain out of git
 - Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch
@@ -183,7 +188,7 @@ and reference comparison before any runtime backend switch.
 - Verification: app playback smoke tests, backend selection tests, and fallback validation
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
-- Scope: compare bounded local renders against reference renderers and close major audible gaps
+- Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository
 
 ### PR 2.7.13 — Remaining FT2/effect quirks after deterministic rendering exists

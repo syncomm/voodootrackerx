@@ -322,6 +322,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let sampleRate: Double
     let initialSpeed: Int
     let initialBPM: Int
+    let usesLinearFrequencyTable: Bool
     let syntheticRowCount: Int
     let adaptedOrders: [PlaybackSongSyntheticOrderDiagnostic]
     let rowMappings: [PlaybackSongSyntheticRowMapping]
@@ -390,6 +391,16 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
         case mapped
     }
 
+    enum FinetuneStatus: Equatable {
+        case applied
+        case deferred
+    }
+
+    enum FrequencyTableStatus: Equatable {
+        case linearApplied
+        case amigaTableDeferredLinearApproximation
+    }
+
     let source: PlaybackPosition
     let channelIndex: Int
     let note: UInt8
@@ -407,6 +418,15 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let hasDeferredVolumeEnvelopeSustain: Bool
     let hasDeferredVolumeEnvelopeLoop: Bool
     let hasDeferredVolumeEnvelopeFadeout: Bool
+    let sampleBaseSampleRate: Double
+    let sampleRelativeNote: Int
+    let sampleFinetune: Int
+    let finetuneStatus: FinetuneStatus
+    let usesLinearFrequencyTable: Bool
+    let frequencyTableStatus: FrequencyTableStatus
+    let playbackStep: Double
+    let pitchMappingApplied: Bool
+    let pitchMappingUsedNeutralStep: Bool
 }
 
 struct PlaybackSongSyntheticIgnoredCell: Equatable {
@@ -558,6 +578,7 @@ enum PlaybackSongSyntheticAdapter {
                 sampleRate: timingConfig.sampleRate,
                 initialSpeed: timingConfig.speed,
                 initialBPM: timingConfig.bpm,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                 syntheticRowCount: nextSyntheticRow,
                 adaptedOrders: adaptedOrders,
                 rowMappings: rowMappings,
@@ -629,12 +650,19 @@ enum PlaybackSongSyntheticAdapter {
                 from: instrument.volumeEnvelope,
                 timingConfig: timingConfig
             )
+            let pitchMapping = playbackStepMapping(
+                note: cell.note,
+                sample: sample,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                timingConfig: timingConfig
+            )
             events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
                 tick: 0,
                 sample: MixerSampleBuffer(monoPCM: sample.pcm),
                 gain: sample.volume,
                 pan: 0,
+                playbackStep: pitchMapping.playbackStep,
                 loop: loop,
                 volumeEnvelope: envelopeMapping.envelope
             ))
@@ -662,7 +690,16 @@ enum PlaybackSongSyntheticAdapter {
                 mappedVolumeEnvelopePointCount: envelopeMapping.mappedPointCount,
                 hasDeferredVolumeEnvelopeSustain: instrument.volumeEnvelope.sustainEnabled,
                 hasDeferredVolumeEnvelopeLoop: instrument.volumeEnvelope.loopEnabled,
-                hasDeferredVolumeEnvelopeFadeout: instrument.volumeEnvelope.fadeout > 0
+                hasDeferredVolumeEnvelopeFadeout: instrument.volumeEnvelope.fadeout > 0,
+                sampleBaseSampleRate: sample.baseSampleRate,
+                sampleRelativeNote: sample.relativeNote,
+                sampleFinetune: sample.finetune,
+                finetuneStatus: pitchMapping.finetuneStatus,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                frequencyTableStatus: pitchMapping.frequencyTableStatus,
+                playbackStep: pitchMapping.playbackStep,
+                pitchMappingApplied: pitchMapping.applied,
+                pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
             ))
         }
         return PlaybackSongSyntheticRowDiagnostic(
@@ -774,6 +811,63 @@ enum PlaybackSongSyntheticAdapter {
         let status: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus
         let sourcePointCount: Int
         let mappedPointCount: Int
+    }
+
+    private struct PlaybackStepMapping: Equatable {
+        let playbackStep: Double
+        let finetuneStatus: PlaybackSongSyntheticEventMapping.FinetuneStatus
+        let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
+        let applied: Bool
+        let usedNeutralStep: Bool
+    }
+
+    private static func playbackStepMapping(
+        note: UInt8,
+        sample: PlaybackSample,
+        usesLinearFrequencyTable: Bool,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> PlaybackStepMapping {
+        let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus = usesLinearFrequencyTable
+            ? .linearApplied
+            : .amigaTableDeferredLinearApproximation
+        let outputSampleRate = timingConfig.sampleRate
+        let baseSampleRate = sample.baseSampleRate
+        guard outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: frequencyTableStatus,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
+        let semitoneOffset = Double(Int(note) + sample.relativeNote - PlaybackPitchCalculator.c4NoteValue)
+        let finetuneSemitones = Double(sample.finetune) / 128.0
+        let pitchRatio = pow(2.0, (semitoneOffset + finetuneSemitones) / 12.0)
+        let step = (baseSampleRate / outputSampleRate) * pitchRatio
+        guard step.isFinite,
+              step > 0,
+              step <= Double(UInt32.max) else {
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: frequencyTableStatus,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
+        return PlaybackStepMapping(
+            playbackStep: step,
+            finetuneStatus: .applied,
+            frequencyTableStatus: frequencyTableStatus,
+            applied: true,
+            usedNeutralStep: abs(step - 1.0) <= 0.000000001
+        )
     }
 
     private static func mixerVolumeEnvelope(
@@ -1066,8 +1160,8 @@ final class PlaybackSongOfflineRenderSession {
 ///
 /// This renderer adapts a bounded playback-model order selection, schedules the resulting synthetic pattern
 /// through `CSoftwareMixer`, and returns the in-memory PCM block with adapter diagnostics. It intentionally
-/// does not implement full XM playback, pitch accuracy, effects, volume-column semantics, parsed envelopes,
-/// WAV export, runtime backend switching, or app Play button wiring.
+/// does not implement full XM playback, FT2/OpenMPT pitch parity, effects, volume-column semantics,
+/// sustain/loop/fadeout envelope semantics, WAV export, runtime backend switching, or app Play button wiring.
 final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int
 

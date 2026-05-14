@@ -57,7 +57,7 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments offline only and is not used for runtime playback.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping and a minimal note-to-sample-step foundation offline only. It is not used for runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -170,7 +170,12 @@ and reference comparison before any runtime backend switch.
 
 ### PR 2.7.10b — Parsed Volume Envelope Mapping to C-Backed Mixer
 - Scope: convert parsed `PlaybackInstrument.volumeEnvelope` point data into the existing C-backed synthetic volume-envelope representation for bounded offline adapted `PlaybackSong` renders
-- Verification: deterministic hand-built `PlaybackSong` tests for disabled/invalid envelopes, mapped constant/ascending/descending envelopes, initial timing conversion, split/reset determinism, diagnostics, and loop metadata regression; no runtime backend switching, pitch accuracy, XM effects, or volume-column semantics
+- Verification: deterministic hand-built `PlaybackSong` tests for disabled/invalid envelopes, mapped constant/ascending/descending envelopes, initial timing conversion, split/reset determinism, diagnostics, and loop metadata regression; no runtime backend switching, full pitch parity, XM effects, or volume-column semantics
+- Status: done.
+
+### PR 2.7.10c — Minimal Pitch / Note-to-Frequency Foundation for C-Backed Adapted Offline Renders
+- Scope: carry a deterministic note/sample-derived playback step through bounded offline `PlaybackSong` adapter renders and the C-backed scheduled voice path, without full FT2/OpenMPT pitch parity
+- Verification: deterministic hand-built `PlaybackSong` tests for neutral/default step behavior, different note-derived steps, faster high-note progression, split/reset determinism, loop and envelope regression with non-neutral steps, diagnostics, ignored note-off/invalid notes, and linear-frequency flag reporting; no runtime backend switching, XM effects, volume-column semantics, tempo changes, or local copyrighted module fixtures
 - Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

@@ -62,13 +62,15 @@ final class CSoftwareMixer {
     /// Adds one synthetic sample voice and copies its PCM data into C-owned storage.
     ///
     /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
-    /// the Swift reference mixer tests. It intentionally ignores interpolation, pitch conversion, sample
-    /// offsets, timing, effects, and XM instrument ownership.
+    /// the Swift reference mixer tests. Callers may provide an explicit source-sample playback step, but this
+    /// wrapper intentionally does not implement interpolation, FT2/OpenMPT period conversion, sample offsets,
+    /// timing, effects, or XM instrument ownership.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
         gain: Float = 1,
         pan: Float = 0,
+        playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil
@@ -77,10 +79,11 @@ final class CSoftwareMixer {
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_sample_voice(
+            vtx_c_mixer_add_sample_voice_with_step(
                 &state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
+                playbackStep,
                 gain,
                 pan,
                 Self.cLoopMode(from: sanitizedLoop.mode),
@@ -110,6 +113,7 @@ final class CSoftwareMixer {
         scheduledStartFrame: Int,
         gain: Float = 1,
         pan: Float = 0,
+        playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil
@@ -121,10 +125,11 @@ final class CSoftwareMixer {
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_scheduled_sample_voice(
+            vtx_c_mixer_add_scheduled_sample_voice_with_step(
                 &state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
+                playbackStep,
                 gain,
                 pan,
                 Self.cLoopMode(from: sanitizedLoop.mode),
@@ -177,10 +182,11 @@ final class CSoftwareMixer {
     /// Returns an interleaved Float32 PCM block rendered by the C core.
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
-    /// ping-pong-loop sample voices with synthetic volume and pan envelopes. Scheduled synthetic voices can
-    /// start at absolute output frames in the offline mixer timeline. Swift-side synthetic row/tick helpers
-    /// can map simple tracker coordinates to those absolute frames, but the C core does not implement XM
-    /// effects, XM playback, sustain/loop/fadeout envelope semantics, or runtime audio backend switching.
+    /// ping-pong-loop sample voices with explicit playback steps plus synthetic volume and pan envelopes.
+    /// Scheduled synthetic voices can start at absolute output frames in the offline mixer timeline.
+    /// Swift-side synthetic row/tick helpers can map simple tracker coordinates to those absolute frames, but
+    /// the C core does not implement XM effects, XM playback, sustain/loop/fadeout envelope semantics,
+    /// FT2/OpenMPT pitch parity, or runtime audio backend switching.
     func render(frames: Int) -> MixerRenderBlock {
         let frameCount = max(0, frames)
         let sampleCount = frameCount * config.channelCount

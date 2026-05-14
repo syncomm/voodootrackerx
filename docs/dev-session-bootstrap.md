@@ -29,8 +29,8 @@ Current implementation state:
 - AppKit tracker UI, module open/load, pattern display, keyboard navigation, and stable static-highlight viewport behavior are implemented.
 - First-pass XM playback exists and remains useful for smoke testing, but it is not yet MikMod/OpenMPT accurate.
 - Runtime playback currently remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based through `PlaybackAudioEngine`.
-- ADR 004 introduced the deterministic software mixer transition; the current Swift `SoftwareMixer` remains the reference/spec path, and the C-backed offline mixer now covers synthetic one-shot sample voices, forward/ping-pong loops, volume/panning envelope foundations, absolute-frame scheduling, and synthetic row/tick timing.
-- The next mixer step is minimal synthetic pattern playback through the C-backed offline mixer before real parser integration. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
+- ADR 004 introduced the deterministic software mixer transition; the current Swift `SoftwareMixer` remains the reference/spec path, and the C-backed offline mixer now covers synthetic one-shot sample voices, forward/ping-pong loops, volume/panning envelope foundations, absolute-frame scheduling, synthetic row/tick timing, minimal synthetic patterns, and bounded `PlaybackSong` adapter renders with parsed volume-envelope point mapping and a minimal note-to-sample-step foundation.
+- The C-backed mixer remains offline-only and is not the runtime playback backend. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
 
 ---
 

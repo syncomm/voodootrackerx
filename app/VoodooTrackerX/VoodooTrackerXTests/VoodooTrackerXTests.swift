@@ -424,6 +424,9 @@ private func makePlaybackSample(
     sampleIndex: Int = 0,
     pcm: [Float] = [1, 0.5, -0.5],
     volume: Float = 1,
+    relativeNote: Int = 0,
+    finetune: Int = 0,
+    baseSampleRate: Double = 100,
     loopStart: Int = 0,
     loopLength: Int = 0,
     loopType: Int = 0
@@ -433,9 +436,9 @@ private func makePlaybackSample(
         sampleIndex: sampleIndex,
         pcm: pcm,
         volume: volume,
-        relativeNote: 0,
-        finetune: 0,
-        baseSampleRate: 8_363,
+        relativeNote: relativeNote,
+        finetune: finetune,
+        baseSampleRate: baseSampleRate,
         sampleLength: pcm.count,
         loopStart: loopStart,
         loopLength: loopLength,
@@ -571,6 +574,7 @@ private func cOneShotBlock(
     config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
     gain: Float = 1,
     pan: Float = 0,
+    playbackStep: Double = 1,
     loop: MixerSampleLoop = .none,
     volumeEnvelope: MixerEnvelope? = nil,
     panEnvelope: MixerEnvelope? = nil
@@ -580,6 +584,7 @@ private func cOneShotBlock(
         sample: sample,
         gain: gain,
         pan: pan,
+        playbackStep: playbackStep,
         loop: loop,
         volumeEnvelope: volumeEnvelope,
         panEnvelope: panEnvelope
@@ -594,6 +599,7 @@ private func cScheduledBlock(
     config: MixerRenderConfig = MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
     gain: Float = 1,
     pan: Float = 0,
+    playbackStep: Double = 1,
     loop: MixerSampleLoop = .none,
     volumeEnvelope: MixerEnvelope? = nil,
     panEnvelope: MixerEnvelope? = nil
@@ -604,6 +610,7 @@ private func cScheduledBlock(
         scheduledStartFrame: scheduledStartFrame,
         gain: gain,
         pan: pan,
+        playbackStep: playbackStep,
         loop: loop,
         volumeEnvelope: volumeEnvelope,
         panEnvelope: panEnvelope
@@ -779,6 +786,31 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(cBlock.interleavedPCM, [1, 1, 0.5, 0.5, -0.5, -0.5, -1, -1])
     }
 
+    func testCSoftwareMixerDefaultPlaybackStepPreservesOneSourceFramePerOutputFrame() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3])
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 5,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1)
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 2, 3, 0])
+    }
+
+    func testCSoftwareMixerPlaybackStepAdvancesSourceFasterThanDefault() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4, 5])
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            playbackStep: 2
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 2, 4, 0])
+    }
+
     func testCSoftwareMixerMonoOutputMatchesSwiftReference() {
         let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
         let config = MixerRenderConfig(sampleRate: 1_000, channelCount: 1)
@@ -943,6 +975,21 @@ final class VoodooTrackerXTests: XCTestCase {
             mixer.render(frames: 4).interleavedPCM
 
         XCTAssertEqual(splitPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2, 3, 1, 2]))
+    }
+
+    func testCSoftwareMixerForwardLoopWorksWithNonNeutralPlaybackStep() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 6,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            playbackStep: 2,
+            loop: loop
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 2, 1, 3, 2, 1])
     }
 
     func testCSoftwareMixerPingPongLoopReversesDirectionAndMatchesSwiftReference() {
@@ -1773,7 +1820,7 @@ final class VoodooTrackerXTests: XCTestCase {
 
     func testPlaybackSongSyntheticAdapterEmitsBasicTriggerAndDiagnostics() throws {
         let samplePCM: [Float] = [0.25, 0.5, -0.25, 0.75]
-        let sample = makePlaybackSample(pcm: samplePCM, volume: 0.625, loopStart: 1, loopLength: 2, loopType: 1)
+        let sample = makePlaybackSample(pcm: samplePCM, volume: 0.625, baseSampleRate: 44_100, loopStart: 1, loopLength: 2, loopType: 1)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
@@ -1796,6 +1843,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event.sample, MixerSampleBuffer(monoPCM: samplePCM))
         XCTAssertEqual(event.gain, 0.625)
         XCTAssertEqual(event.pan, 0)
+        XCTAssertEqual(event.playbackStep, 1)
         XCTAssertEqual(event.loop, MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3))
         XCTAssertEqual(plan.diagnostics.emittedRowCount, 2)
         XCTAssertEqual(plan.diagnostics.emittedEventCount, 1)
@@ -1803,6 +1851,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.sampleRate, 44_100)
         XCTAssertEqual(plan.diagnostics.initialSpeed, 3)
         XCTAssertEqual(plan.diagnostics.initialBPM, 183)
+        XCTAssertTrue(plan.diagnostics.usesLinearFrequencyTable)
         XCTAssertEqual(plan.diagnostics.rowMappings.map(\.syntheticRow), [0, 1])
         XCTAssertEqual(plan.diagnostics.rowDiagnostics.map(\.emittedEventCount), [0, 1])
         XCTAssertEqual(plan.diagnostics.eventMappings, [
@@ -1823,7 +1872,16 @@ final class VoodooTrackerXTests: XCTestCase {
                 mappedVolumeEnvelopePointCount: 0,
                 hasDeferredVolumeEnvelopeSustain: false,
                 hasDeferredVolumeEnvelopeLoop: false,
-                hasDeferredVolumeEnvelopeFadeout: false
+                hasDeferredVolumeEnvelopeFadeout: false,
+                sampleBaseSampleRate: 44_100,
+                sampleRelativeNote: 0,
+                sampleFinetune: 0,
+                finetuneStatus: .applied,
+                usesLinearFrequencyTable: true,
+                frequencyTableStatus: .linearApplied,
+                playbackStep: 1,
+                pitchMappingApplied: true,
+                pitchMappingUsedNeutralStep: true
             )
         ])
     }
@@ -1959,6 +2017,133 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 0.5, 0])
     }
 
+    func testPlaybackSongSyntheticAdapterNeutralPitchStepPreservesBaselineOutput() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.playbackStep, 1, accuracy: 0.000000001)
+        XCTAssertTrue(mapping.pitchMappingApplied)
+        XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 3, 0])
+    }
+
+    func testPlaybackSongSyntheticAdapterDifferentNotesProduceDifferentStepsAndOutputProgression() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3, 4, 5, 6, 7], baseSampleRate: 100)
+        let lowSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let highSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let low = renderer.render(PlaybackSongOfflineRenderRequest(song: lowSong, orderIndex: 0, config: config, frames: 4))
+        let high = renderer.render(PlaybackSongOfflineRenderRequest(song: highSong, orderIndex: 0, config: config, frames: 4))
+        let lowMapping = try XCTUnwrap(low.diagnostics.eventMappings.first)
+        let highMapping = try XCTUnwrap(high.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(lowMapping.playbackStep, 1, accuracy: 0.000000001)
+        XCTAssertEqual(highMapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertGreaterThan(highMapping.playbackStep, lowMapping.playbackStep)
+        XCTAssertNotEqual(low.block.interleavedPCM, high.block.interleavedPCM)
+        XCTAssertEqual(low.block.interleavedPCM, [0, 1, 2, 3])
+        XCTAssertEqual(high.block.interleavedPCM, [0, 2, 4, 6])
+    }
+
+    func testPlaybackSongSyntheticAdapterUsesRelativeNoteAndFinetuneInPlaybackStep() throws {
+        let relativeSample = makePlaybackSample(pcm: [0, 1, 2, 3], relativeNote: 12, baseSampleRate: 100)
+        let finetunedSample = makePlaybackSample(pcm: [0, 1, 2, 3], finetune: 64, baseSampleRate: 100)
+        let relativeSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [relativeSample])]
+        )
+        let finetunedSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [finetunedSample])]
+        )
+
+        let relative = PlaybackSongSyntheticAdapter.adapt(relativeSong, orderIndex: 0, sampleRate: 100)
+        let finetuned = PlaybackSongSyntheticAdapter.adapt(finetunedSong, orderIndex: 0, sampleRate: 100)
+        let relativeMapping = try XCTUnwrap(relative.diagnostics.eventMappings.first)
+        let finetunedMapping = try XCTUnwrap(finetuned.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(relativeMapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertEqual(relativeMapping.sampleRelativeNote, 12)
+        XCTAssertEqual(finetunedMapping.playbackStep, pow(2.0, 0.5 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(finetunedMapping.sampleFinetune, 64)
+        XCTAssertEqual(finetunedMapping.finetuneStatus, .applied)
+    }
+
+    func testPlaybackSongSyntheticAdapterReportsLinearAndDeferredAmigaFrequencyTableStatus() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        let linearSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            usesLinearFrequencyTable: true
+        )
+        let amigaSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            usesLinearFrequencyTable: false
+        )
+
+        let linear = PlaybackSongSyntheticAdapter.adapt(linearSong, orderIndex: 0, sampleRate: 100)
+        let amiga = PlaybackSongSyntheticAdapter.adapt(amigaSong, orderIndex: 0, sampleRate: 100)
+        let linearMapping = try XCTUnwrap(linear.diagnostics.eventMappings.first)
+        let amigaMapping = try XCTUnwrap(amiga.diagnostics.eventMappings.first)
+
+        XCTAssertTrue(linear.diagnostics.usesLinearFrequencyTable)
+        XCTAssertEqual(linearMapping.frequencyTableStatus, .linearApplied)
+        XCTAssertFalse(amiga.diagnostics.usesLinearFrequencyTable)
+        XCTAssertEqual(amigaMapping.frequencyTableStatus, .amigaTableDeferredLinearApproximation)
+        XCTAssertEqual(amigaMapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertTrue(amigaMapping.pitchMappingApplied)
+    }
+
+    func testPlaybackSongSyntheticAdapterInvalidSampleRateFallsBackToNeutralStep() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2], baseSampleRate: 0)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.playbackStep, 1)
+        XCTAssertFalse(mapping.pitchMappingApplied)
+        XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
+        XCTAssertEqual(mapping.finetuneStatus, .deferred)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 0])
+    }
+
     func testPlaybackSongSyntheticAdapterCSoftwareMixerSplitAndResetAreDeterministic() {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5])
         let song = makePlaybackSong(
@@ -1993,6 +2178,37 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(singleRender.interleavedPCM, [0, 0, 1, 0.5, -0.5, 0])
         XCTAssertEqual(splitRender, singleRender.interleavedPCM)
         XCTAssertEqual(firstResetRender, secondResetRender)
+    }
+
+    func testPlaybackSongSyntheticAdapterPitchMappedSplitResetAndRepeatedRendersAreDeterministic() {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3, 4, 5, 6, 7], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let first = renderer.render(request)
+        let repeated = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [1, 2, 2])
+        let session = renderer.prepare(request)
+        let resetFirst = session.render(frames: 5)
+        _ = session.render(frames: 2)
+        session.reset()
+        let resetSecond = session.render(frames: 5)
+
+        XCTAssertEqual(first.block.interleavedPCM, [0, 2, 4, 6, 0])
+        XCTAssertEqual(first.block, repeated.block)
+        XCTAssertEqual(split.block, first.block)
+        XCTAssertEqual(resetFirst, resetSecond)
+        XCTAssertEqual(resetFirst, first.block)
     }
 
     func testPlaybackSongOfflineRendererReturnsSilenceAndDiagnosticsForEmptyAdaptedSegment() {
@@ -2181,6 +2397,27 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
     }
 
+    func testPlaybackSongOfflineRendererForwardLoopWorksWithNonNeutralPitchStep() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3, 4], baseSampleRate: 100, loopStart: 1, loopLength: 3, loopType: 1)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertEqual(mapping.loopMode, .forward)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 2, 1, 3, 2, 1])
+    }
+
     func testPlaybackSongAdapterDisabledVolumeEnvelopePreservesOutput() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1])
         let disabledEnvelope = makePlaybackVolumeEnvelope(
@@ -2279,6 +2516,37 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.5])
         XCTAssertLessThan(result.block.interleavedPCM[2], result.block.interleavedPCM[0])
+    }
+
+    func testPlaybackSongAdapterVolumeEnvelopeStillAppliesWithPitchMappedStep() throws {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 2, value: 32)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 10), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.5])
     }
 
     func testPlaybackSongAdapterAscendingVolumeEnvelopeRaisesLaterFrames() {

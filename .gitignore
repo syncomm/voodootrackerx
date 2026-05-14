@@ -44,9 +44,12 @@ __pycache__/
 local-audio-compare*/
 audio-compare-output*/
 vtx-audio-compare*/
+vtx-local-reference-comparison*/
 *-audio-compare.json
 *-audio-compare.md
 *-audio-compare.txt
+*-local-audio-findings.md
+*-local-audio-findings.txt
 *-candidate.wav
 *-reference.wav
 *-openmpt.wav

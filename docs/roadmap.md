@@ -58,6 +58,7 @@ Current stabilization note:
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
 - ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping, a minimal note-to-sample-step foundation, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, and minimal `Fxx` speed/BPM timing changes offline only. It is not used for runtime playback.
+- Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for Gregory's local `_DARKL.XM` module. Filled reports and generated artifacts remain outside git.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -206,6 +207,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10i — Adapter Support for Additional Volume-Column Slides in Bounded Offline Renders
 - Scope: apply only volume-column volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), and panning slide left/right (`0xD0...0xEF`) as row-level bounded adapter state updates for C-backed offline adapted `PlaybackSong` renders, while keeping volume-column vibrato/tone-portamento and regular effect-column behavior deferred.
 - Verification: deterministic hand-built `PlaybackSong` tests for amplitude and stereo-balance changes, clamp behavior, set-volume/set-panning combinations, Fxx/envelope/pitch regressions, split/reset determinism, WAV export, and existing comparison tooling; no runtime backend switching, full volume-column parity, full effect parity, or local copyrighted module fixtures
+- Status: done.
+
+### PR 2.7.10j — Local `_DARKL.XM` Bounded Comparison Findings Report
+- Scope: document the safe local-only workflow for bounded `_DARKL.XM` candidate/reference WAV comparisons, add a blank findings report template, and guide first mismatch classification without committing local artifacts or changing mixer behavior.
+- Verification: documentation checks plus existing audio comparison tests; no runtime backend switching, mixer DSP changes, reference renderer CI dependency, or local copyrighted module fixtures.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

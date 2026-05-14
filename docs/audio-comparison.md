@@ -12,10 +12,12 @@ This workflow is diagnostic evidence only. It does not prove tracker semantic
 correctness, it does not automatically choose fixes, and it must not drive broad
 audio rewrites. Use mismatch windows to choose the next smallest targeted PR.
 
-Generated WAVs, JSON reports, Markdown reports, playback traces, screenshots,
-logs, and local module files must stay outside git. `_DARKL.XM` is Gregory's
-local-only manual regression module at `/Users/syncomm/Desktop/_DARKL.XM`; do
-not commit it, copy it into fixtures, or require it from automated tests.
+Generated WAVs, JSON reports, Markdown reports, filled findings reports,
+playback traces, screenshots, logs, listening notes, and local module files
+must stay outside git. `_DARKL.XM` is Gregory's local-only manual regression
+module at `/Users/syncomm/Desktop/_DARKL.XM`; it may be used locally on
+Gregory's machine, but do not commit it, upload it, copy it into fixtures, or
+require it from automated tests.
 
 ## Current State
 
@@ -46,6 +48,38 @@ MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
 synthetic WAV files only.
 
+## Local `_DARKL.XM` Bounded Findings Workflow
+
+Use this workflow when turning a local bounded comparison into the first useful
+mismatch report for a follow-up implementation PR. The goal is diagnosis, not an
+automatic fix.
+
+1. Choose a small bounded target before rendering. Useful local targets include
+   order 10 and order 30, but the exact order, row range, duration, sample rate,
+   and channel count must be recorded in the local report.
+2. If `/Users/syncomm/Desktop/_DARKL.XM` exists locally, load it through the
+   existing `PlaybackSongBuilder.build(from:modulePath:)` helper context and
+   render a bounded candidate WAV with `PlaybackSongOfflineRenderer.exportWAV`.
+   Write the WAV under `/tmp` or another ignored local output directory.
+3. Render a matching bounded reference WAV with a local reference renderer such
+   as OpenMPT/libopenmpt/`openmpt123` or MikMod. Match sample rate, channels,
+   duration, gain, interpolation, and compatibility settings as closely as the
+   tool allows, and record the renderer version/settings.
+4. Run `scripts/local-reference-compare-smoke.py` or
+   `scripts/audio-compare.py` on the existing candidate/reference WAVs. Keep
+   JSON and Markdown reports local.
+5. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
+   such as
+   `/tmp/vtx-local-reference-comparison/darkl-order-10-local-audio-findings.md`,
+   then fill it from the comparison JSON/Markdown, trace notes, and Gregory's
+   listening notes. Do not commit the filled report when it contains
+   `_DARKL.XM`-derived findings.
+6. Inspect the worst mismatch windows and classify the likely mismatch category.
+   Use that classification to choose one narrow next PR.
+
+The committed template is blank and safe to review. Filled reports, local WAVs,
+traces, screenshots, and notes are local evidence only.
+
 ## Compare Two WAV Files
 
 Local-only workflow:
@@ -74,6 +108,19 @@ can load sample data from a local XM path before the bounded request is created.
 Keep the request explicit and small: choose a bounded order/range, sample rate,
 channel count, and frame count. This helper does not traverse full songs,
 implement effects, or change live playback.
+
+Example bounded candidate shape from a local helper context:
+
+```swift
+let song = try PlaybackSongBuilder.build(from: metadata, modulePath: "/Users/syncomm/Desktop/_DARKL.XM")
+let config = MixerRenderConfig(sampleRate: 44_100, channelCount: 2)
+let request = PlaybackSongOfflineRenderRequest(song: song, orderIndex: 10, config: config, rows: 16)
+try PlaybackSongOfflineRenderer().exportWAV(request, to: URL(fileURLWithPath: "/tmp/vtx-darkl-order-10-candidate.wav"))
+```
+
+Keep this kind of helper local or temporary unless a future PR deliberately adds
+a reviewed, synthetic-tested export command. Do not add `_DARKL.XM` to fixtures
+or make the helper part of CI.
 
 The thin local wrapper validates the existing WAV inputs, writes reports to
 `/tmp/vtx-local-reference-comparison` by default, and delegates metric
@@ -188,6 +235,25 @@ time ranges. Treat them as leads:
 Lower numeric difference is not automatically "more correct" tracker behavior.
 Use the report alongside playback traces and source-to-synthetic diagnostics to
 pick a focused follow-up.
+
+Likely categories to consider when filling the findings template:
+
+- timing / `Fxx` / row duration
+- order traversal / pattern break / position jump
+- panning / volume-column behavior
+- volume slides / envelope / fadeout / key-off
+- pitch / finetune / relative note / linear frequency
+- interpolation / resampling
+- sample offset / retrigger / note cut / note delay
+- loop behavior
+- unknown / needs trace correlation
+
+Pick one narrow next PR from the evidence. Good candidates include adapter
+support for a specific effect, a focused pitch/period accuracy pass, a local
+trace-to-comparison correlation report, additional volume-column semantics, a
+loop/interpolation investigation, or a bounded order traversal improvement.
+Feature-flagged runtime C mixer backend work should wait until offline
+confidence is strong enough to justify runtime risk.
 
 ## Local-Only Artifact Rules
 

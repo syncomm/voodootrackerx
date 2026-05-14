@@ -116,6 +116,7 @@ struct SyntheticTrackerTiming: Equatable {
 struct SyntheticTrackerEvent: Equatable {
     let row: Int
     let tick: Int
+    let scheduledStartFrame: Int?
     let sample: MixerSampleBuffer
     let gain: Float
     let pan: Float
@@ -127,6 +128,7 @@ struct SyntheticTrackerEvent: Equatable {
     init(
         row: Int,
         tick: Int = 0,
+        scheduledStartFrame: Int? = nil,
         sample: MixerSampleBuffer,
         gain: Float = 1,
         pan: Float = 0,
@@ -137,6 +139,7 @@ struct SyntheticTrackerEvent: Equatable {
     ) {
         self.row = row
         self.tick = tick
+        self.scheduledStartFrame = scheduledStartFrame.map { max(0, $0) }
         self.sample = sample
         self.gain = gain
         self.pan = pan
@@ -159,7 +162,10 @@ struct SyntheticTrackerScheduler: Equatable {
     }
 
     func frame(for event: SyntheticTrackerEvent) -> Int {
-        timing.frameFor(row: event.row, tick: event.tick)
+        if let scheduledStartFrame = event.scheduledStartFrame {
+            return scheduledStartFrame
+        }
+        return timing.frameFor(row: event.row, tick: event.tick)
     }
 
     @discardableResult

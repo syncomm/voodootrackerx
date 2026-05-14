@@ -166,6 +166,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10a — Adapter Diagnostics and Bounded Offline Render Helper
 - Scope: add richer in-memory source-to-synthetic diagnostics and a bounded offline render helper for tiny adapted `PlaybackSong` segments through the C-backed mixer
 - Verification: deterministic helper tests for silence, basic triggers, diagnostics, frame bounds, split/reset determinism, and loop metadata; no runtime backend switching or full XM playback
+- Status: done.
+
+### PR 2.7.10b — Parsed Volume Envelope Mapping to C-Backed Mixer
+- Scope: convert parsed `PlaybackInstrument.volumeEnvelope` point data into the existing C-backed synthetic volume-envelope representation for bounded offline adapted `PlaybackSong` renders
+- Verification: deterministic hand-built `PlaybackSong` tests for disabled/invalid envelopes, mapped constant/ascending/descending envelopes, initial timing conversion, split/reset determinism, diagnostics, and loop metadata regression; no runtime backend switching, pitch accuracy, XM effects, or volume-column semantics
 - Status: this PR.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

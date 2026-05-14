@@ -23,8 +23,10 @@ reference comparison; it can render synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
 absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
 bounded `PlaybackSong` adapter segments through the offline harness with
-source-to-synthetic diagnostics, but it does not yet render full XM song
-playback or drive live playback.
+source-to-synthetic diagnostics. Parsed `PlaybackInstrument.volumeEnvelope`
+points can be converted into the C-backed frame-based envelope representation
+for those bounded offline adapted renders only. It does not yet render full XM
+song playback or drive live playback.
 
 Immediate audio accuracy sequence:
 
@@ -42,11 +44,12 @@ Immediate audio accuracy sequence:
 12. Minimal synthetic pattern playback through the C-backed mixer — done
 13. Parsed XM-to-synthetic playback adapter planning — done
 14. Minimal PlaybackSong-to-synthetic adapter, constant timing, no effects — done
-15. Adapter diagnostics and bounded offline render helper — this PR
-16. Deep project handoff checkpoint
-17. Parsed volume envelopes, local reference render workflow, or minimal pitch foundation
-18. Feature-flagged runtime backend switch
-19. Reference comparison stabilization against MikMod/OpenMPT
+15. Adapter diagnostics and bounded offline render helper — done
+16. Parsed volume envelope mapping for bounded offline adapted renders — this PR
+17. Deep project handoff checkpoint
+18. Local reference render workflow, volume-column integration, or minimal pitch foundation
+19. Feature-flagged runtime backend switch
+20. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -120,6 +123,7 @@ Features:
 - synthetic tracker row/tick timing through the C-backed offline mixer path
 - minimal synthetic pattern playback through the C-backed offline mixer path
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
+- parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using constant initial speed/BPM only
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

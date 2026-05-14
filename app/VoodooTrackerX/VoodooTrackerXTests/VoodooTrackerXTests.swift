@@ -443,6 +443,26 @@ private func makePlaybackSample(
     )
 }
 
+private func makePlaybackVolumeEnvelope(
+    enabled: Bool = true,
+    points: [PlaybackEnvelopePoint],
+    sustainPointIndex: Int? = nil,
+    loopStartPointIndex: Int? = nil,
+    loopEndPointIndex: Int? = nil,
+    typeFlags: UInt8 = 0x01,
+    fadeout: Int = 0
+) -> PlaybackVolumeEnvelope {
+    PlaybackVolumeEnvelope(
+        enabled: enabled,
+        points: points,
+        sustainPointIndex: sustainPointIndex,
+        loopStartPointIndex: loopStartPointIndex,
+        loopEndPointIndex: loopEndPointIndex,
+        typeFlags: typeFlags,
+        fadeout: fadeout
+    )
+}
+
 private enum TestPlaybackMode: Equatable {
     case stopped
     case playing
@@ -1797,7 +1817,13 @@ final class VoodooTrackerXTests: XCTestCase {
                 eventIndex: 0,
                 loopMode: .forward,
                 hasIgnoredVolumeColumn: false,
-                hasIgnoredEffect: false
+                hasIgnoredEffect: false,
+                volumeEnvelopeStatus: .absent,
+                sourceVolumeEnvelopePointCount: 0,
+                mappedVolumeEnvelopePointCount: 0,
+                hasDeferredVolumeEnvelopeSustain: false,
+                hasDeferredVolumeEnvelopeLoop: false,
+                hasDeferredVolumeEnvelopeFadeout: false
             )
         ])
     }
@@ -1850,6 +1876,7 @@ final class VoodooTrackerXTests: XCTestCase {
             .noPlayableSample
         ])
         XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.channelIndex), [0, 1, 2, 3, 4, 5])
+        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [.keyOff])
     }
 
     func testPlaybackSongSyntheticAdapterFlattensBoundedMultiOrderRows() {
@@ -2152,6 +2179,214 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
         XCTAssertEqual(pingPong.block.interleavedPCM, [0, 1, 2, 3, 2, 1, 2])
         XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
+    }
+
+    func testPlaybackSongAdapterDisabledVolumeEnvelopePreservesOutput() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1])
+        let disabledEnvelope = makePlaybackVolumeEnvelope(
+            enabled: false,
+            points: [PlaybackEnvelopePoint(tick: 0, value: 32)],
+            typeFlags: 0
+        )
+        let baselineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let disabledEnvelopeSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: disabledEnvelope)]
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let baseline = renderer.render(PlaybackSongOfflineRenderRequest(song: baselineSong, orderIndex: 0, config: config, frames: 3))
+        let disabled = renderer.render(PlaybackSongOfflineRenderRequest(song: disabledEnvelopeSong, orderIndex: 0, config: config, frames: 3))
+        let disabledEvent = try XCTUnwrap(disabled.plan.pattern.events.first)
+
+        XCTAssertEqual(disabled.block, baseline.block)
+        XCTAssertNil(disabledEvent.volumeEnvelope)
+        XCTAssertEqual(try XCTUnwrap(disabled.diagnostics.eventMappings.first).volumeEnvelopeStatus, .disabled)
+    }
+
+    func testPlaybackSongAdapterMapsBasicParsedVolumeEnvelopePoints() throws {
+        let sample = makePlaybackSample(pcm: [1, 1])
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 32)
+        ])
+        let baselineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)
+            ],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let requestConfig = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let baseline = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: baselineSong,
+            orderIndex: 0,
+            config: requestConfig,
+            frames: 2
+        ))
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: requestConfig,
+            frames: 2
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(event.volumeEnvelope, MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0.5)
+        ]))
+        XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
+        XCTAssertEqual(mapping.sourceVolumeEnvelopePointCount, 1)
+        XCTAssertEqual(mapping.mappedVolumeEnvelopePointCount, 1)
+        XCTAssertEqual(baseline.block.interleavedPCM, [1, 1])
+        XCTAssertEqual(result.block.interleavedPCM, [0.5, 0.5])
+    }
+
+    func testPlaybackSongAdapterDescendingVolumeEnvelopeReducesLaterFrames() {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 2, value: 32)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope)
+            ],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.5])
+        XCTAssertLessThan(result.block.interleavedPCM[2], result.block.interleavedPCM[0])
+    }
+
+    func testPlaybackSongAdapterAscendingVolumeEnvelopeRaisesLaterFrames() {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 16),
+            PlaybackEnvelopePoint(tick: 2, value: 64)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1, 1, 1, 1])], volumeEnvelope: envelope)
+            ],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+
+        XCTAssertEqual(result.block.interleavedPCM, [0.25, 0.625, 1, 1])
+        XCTAssertGreaterThan(result.block.interleavedPCM[2], result.block.interleavedPCM[0])
+    }
+
+    func testPlaybackSongAdapterInvalidOrEmptyVolumeEnvelopeIsIgnoredSafely() throws {
+        let sample = makePlaybackSample(pcm: [1, 1])
+        let invalidEnvelope = makePlaybackVolumeEnvelope(enabled: true, points: [])
+        let baselineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let invalidEnvelopeSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: invalidEnvelope)]
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let baseline = renderer.render(PlaybackSongOfflineRenderRequest(song: baselineSong, orderIndex: 0, config: config, frames: 2))
+        let invalid = renderer.render(PlaybackSongOfflineRenderRequest(song: invalidEnvelopeSong, orderIndex: 0, config: config, frames: 2))
+
+        XCTAssertEqual(invalid.block, baseline.block)
+        XCTAssertEqual(try XCTUnwrap(invalid.diagnostics.eventMappings.first).volumeEnvelopeStatus, .invalidOrEmptyIgnored)
+        XCTAssertNil(try XCTUnwrap(invalid.plan.pattern.events.first).volumeEnvelope)
+    }
+
+    func testPlaybackSongAdapterVolumeEnvelopeMappingUsesInitialTiming() throws {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 0),
+            PlaybackEnvelopePoint(tick: 3, value: 64)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0F, effectParam: 0x03)]
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope)
+            ],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 125)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 1_000)
+        let mappedEnvelope = try XCTUnwrap(try XCTUnwrap(plan.pattern.events.first).volumeEnvelope)
+
+        XCTAssertEqual(mappedEnvelope.points, [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 60, value: 1)
+        ])
+        XCTAssertEqual(plan.diagnostics.initialSpeed, 6)
+        XCTAssertEqual(plan.diagnostics.initialBPM, 125)
+        XCTAssertEqual(plan.diagnostics.ignoredEffectFieldCount, 1)
+    }
+
+    func testPlaybackSongAdapterReportsDeferredEnvelopeSustainLoopAndFadeout() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [PlaybackEnvelopePoint(tick: 0, value: 64)],
+            sustainPointIndex: 0,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 0,
+            typeFlags: 0x07,
+            fadeout: 128
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [1])], volumeEnvelope: envelope)
+            ]
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let event = try XCTUnwrap(plan.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(event.volumeEnvelopeStatus, .mapped)
+        XCTAssertTrue(event.hasDeferredVolumeEnvelopeSustain)
+        XCTAssertTrue(event.hasDeferredVolumeEnvelopeLoop)
+        XCTAssertTrue(event.hasDeferredVolumeEnvelopeFadeout)
+        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [
+            .volumeEnvelopeSustain,
+            .volumeEnvelopeLoop,
+            .volumeEnvelopeFadeout
+        ])
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

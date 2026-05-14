@@ -330,6 +330,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
+    let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
     let deferredCellFields: [PlaybackSongSyntheticDeferredCellField]
@@ -394,6 +395,23 @@ struct PlaybackSongSyntheticRowTimingDiagnostic: Equatable {
     let rowDurationFrames: Int
     let effectiveSpeed: Int
     let effectiveBPM: Int
+}
+
+struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {
+    enum Reason: Equatable {
+        case releasedActiveVoice
+        case noActiveVoice
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let releaseFrame: Int?
+    let applied: Bool
+    let deferred: Bool
+    let reason: Reason
+    let activeEventIndex: Int?
 }
 
 struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {
@@ -677,6 +695,80 @@ struct PlaybackSongSyntheticVolumeColumnMapping: Equatable {
     let volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
 }
 
+struct PlaybackSongSyntheticEnvelopeSemanticsDiagnostic: Equatable {
+    let envelopeEnabled: Bool
+    let sourcePointCount: Int
+    let mappedPointCount: Int
+    let sustainEnabled: Bool
+    let sustainApplied: Bool
+    let sustainDeferred: Bool
+    let sustainPointIndex: Int?
+    let sustainTick: Int?
+    let sustainFrame: Int?
+    let loopEnabled: Bool
+    let loopApplied: Bool
+    let loopDeferred: Bool
+    let loopStartPointIndex: Int?
+    let loopEndPointIndex: Int?
+    let loopStartTick: Int?
+    let loopEndTick: Int?
+    let loopStartFrame: Int?
+    let loopEndFrame: Int?
+    let keyOffEncountered: Bool
+    let keyOffApplied: Bool
+    let keyOffDeferred: Bool
+    let keyOffSource: PlaybackPosition?
+    let keyOffChannelIndex: Int?
+    let keyOffSyntheticRow: Int?
+    let keyOffSyntheticTick: Int?
+    let releaseFrame: Int?
+    let fadeoutValue: Int
+    let fadeoutApplied: Bool
+    let fadeoutDeferred: Bool
+    let limitations: [String]
+
+    func applyingKeyOff(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        syntheticTick: Int,
+        releaseFrame: Int
+    ) -> PlaybackSongSyntheticEnvelopeSemanticsDiagnostic {
+        PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
+            envelopeEnabled: envelopeEnabled,
+            sourcePointCount: sourcePointCount,
+            mappedPointCount: mappedPointCount,
+            sustainEnabled: sustainEnabled,
+            sustainApplied: sustainApplied,
+            sustainDeferred: sustainDeferred,
+            sustainPointIndex: sustainPointIndex,
+            sustainTick: sustainTick,
+            sustainFrame: sustainFrame,
+            loopEnabled: loopEnabled,
+            loopApplied: loopApplied,
+            loopDeferred: loopDeferred,
+            loopStartPointIndex: loopStartPointIndex,
+            loopEndPointIndex: loopEndPointIndex,
+            loopStartTick: loopStartTick,
+            loopEndTick: loopEndTick,
+            loopStartFrame: loopStartFrame,
+            loopEndFrame: loopEndFrame,
+            keyOffEncountered: true,
+            keyOffApplied: true,
+            keyOffDeferred: false,
+            keyOffSource: source,
+            keyOffChannelIndex: channelIndex,
+            keyOffSyntheticRow: syntheticRow,
+            keyOffSyntheticTick: syntheticTick,
+            releaseFrame: releaseFrame,
+            fadeoutValue: fadeoutValue,
+            fadeoutApplied: fadeoutValue > 0,
+            fadeoutDeferred: false,
+            limitations: limitations
+        )
+    }
+}
+
 struct PlaybackSongSyntheticEventMapping: Equatable {
     enum VolumeEnvelopeStatus: Equatable {
         case absent
@@ -715,6 +807,7 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let hasDeferredVolumeEnvelopeSustain: Bool
     let hasDeferredVolumeEnvelopeLoop: Bool
     let hasDeferredVolumeEnvelopeFadeout: Bool
+    let volumeEnvelopeSemantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
     let sampleBaseSampleRate: Double
     let sampleRelativeNote: Int
     let sampleFinetune: Int
@@ -1012,6 +1105,8 @@ enum PlaybackSongSyntheticAdapter {
     private struct ChannelState: Equatable {
         var volumeValue = 64
         var panningValue = 127.5
+        var activeEventIndex: Int?
+        var activeEventMappingIndex: Int?
 
         var pan: Float {
             PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
@@ -1061,6 +1156,7 @@ enum PlaybackSongSyntheticAdapter {
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
+        var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
         var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
@@ -1119,6 +1215,7 @@ enum PlaybackSongSyntheticAdapter {
                     channelStates: &channelStates,
                     events: &events,
                     volumeColumnMappings: &volumeColumnMappings,
+                    keyOffEvents: &keyOffEvents,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
                     deferredCellFields: &deferredCellFields
@@ -1145,6 +1242,7 @@ enum PlaybackSongSyntheticAdapter {
                 timingChanges: timingPlan.timingChanges,
                 rowDiagnostics: rowDiagnostics,
                 volumeColumnMappings: volumeColumnMappings,
+                keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
                 deferredCellFields: deferredCellFields
@@ -1162,6 +1260,7 @@ enum PlaybackSongSyntheticAdapter {
         channelStates: inout [Int: ChannelState],
         events: inout [SyntheticTrackerEvent],
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
@@ -1189,8 +1288,27 @@ enum PlaybackSongSyntheticAdapter {
                 source: source,
                 channelIndex: channelIndex,
                 volumeColumn: volumeColumn,
+                includeKeyOff: false,
                 deferredCellFields: &deferredCellFields
             )
+            if cell.note == 97 {
+                handleKeyOff(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledStartFrame: scheduledStartFrame,
+                    volumeColumn: volumeColumn,
+                    cell: cell,
+                    channelState: &channelState,
+                    events: &events,
+                    keyOffEvents: &keyOffEvents,
+                    eventMappings: &eventMappings,
+                    ignoredCells: &ignoredCells,
+                    deferredCellFields: &deferredCellFields
+                )
+                channelStates[channelIndex] = channelState
+                continue
+            }
             guard (1...96).contains(cell.note) else {
                 ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
                     source: source,
@@ -1239,6 +1357,10 @@ enum PlaybackSongSyntheticAdapter {
                 from: instrument.volumeEnvelope,
                 timingConfig: timingConfig
             )
+            let envelopeSemantics = volumeEnvelopeSemantics(
+                from: instrument.volumeEnvelope,
+                mapping: envelopeMapping
+            )
             let pitchMapping = playbackStepMapping(
                 note: cell.note,
                 sample: sample,
@@ -1258,13 +1380,9 @@ enum PlaybackSongSyntheticAdapter {
                 loop: loop,
                 volumeEnvelope: envelopeMapping.envelope
             ))
-            appendDeferredVolumeEnvelopeFields(
-                from: instrument.volumeEnvelope,
-                source: source,
-                channelIndex: channelIndex,
-                cell: cell,
-                deferredCellFields: &deferredCellFields
-            )
+            channelState.activeEventIndex = eventIndex
+            channelState.activeEventMappingIndex = eventMappings.count
+            channelStates[channelIndex] = channelState
             eventMappings.append(PlaybackSongSyntheticEventMapping(
                 source: source,
                 channelIndex: channelIndex,
@@ -1283,9 +1401,10 @@ enum PlaybackSongSyntheticAdapter {
                 volumeEnvelopeStatus: envelopeMapping.status,
                 sourceVolumeEnvelopePointCount: envelopeMapping.sourcePointCount,
                 mappedVolumeEnvelopePointCount: envelopeMapping.mappedPointCount,
-                hasDeferredVolumeEnvelopeSustain: instrument.volumeEnvelope.sustainEnabled,
-                hasDeferredVolumeEnvelopeLoop: instrument.volumeEnvelope.loopEnabled,
-                hasDeferredVolumeEnvelopeFadeout: instrument.volumeEnvelope.fadeout > 0,
+                hasDeferredVolumeEnvelopeSustain: envelopeSemantics.sustainDeferred,
+                hasDeferredVolumeEnvelopeLoop: envelopeSemantics.loopDeferred,
+                hasDeferredVolumeEnvelopeFadeout: envelopeSemantics.fadeoutDeferred,
+                volumeEnvelopeSemantics: envelopeSemantics,
                 sampleBaseSampleRate: sample.baseSampleRate,
                 sampleRelativeNote: sample.relativeNote,
                 sampleFinetune: sample.finetune,
@@ -1395,6 +1514,7 @@ enum PlaybackSongSyntheticAdapter {
         source: PlaybackPosition,
         channelIndex: Int,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        includeKeyOff: Bool,
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
     ) {
         if volumeColumn.deferred {
@@ -1423,7 +1543,7 @@ enum PlaybackSongSyntheticAdapter {
                 field: .effect
             ))
         }
-        if cell.note == 97 {
+        if includeKeyOff, cell.note == 97 {
             deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
                 source: source,
                 channelIndex: channelIndex,
@@ -1438,55 +1558,134 @@ enum PlaybackSongSyntheticAdapter {
         }
     }
 
-    private static func appendDeferredVolumeEnvelopeFields(
-        from envelope: PlaybackVolumeEnvelope,
+    private static func handleKeyOff(
         source: PlaybackPosition,
         channelIndex: Int,
+        syntheticRow: Int,
+        scheduledStartFrame: Int,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         cell: PlaybackCell,
+        channelState: inout ChannelState,
+        events: inout [SyntheticTrackerEvent],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
     ) {
-        if envelope.sustainEnabled {
-            deferredCellFields.append(deferredVolumeEnvelopeField(
-                .volumeEnvelopeSustain,
+        guard let activeEventIndex = channelState.activeEventIndex,
+              let activeEventMappingIndex = channelState.activeEventMappingIndex,
+              events.indices.contains(activeEventIndex),
+              eventMappings.indices.contains(activeEventMappingIndex),
+              scheduledStartFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
+            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
-                cell: cell
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                releaseFrame: nil,
+                applied: false,
+                deferred: true,
+                reason: .noActiveVoice,
+                activeEventIndex: nil
             ))
-        }
-        if envelope.loopEnabled {
-            deferredCellFields.append(deferredVolumeEnvelopeField(
-                .volumeEnvelopeLoop,
+            ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
                 source: source,
                 channelIndex: channelIndex,
-                cell: cell
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                reason: .keyOff,
+                volumeColumn: volumeColumn,
+                hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                hasIgnoredEffect: hasDeferredEffect(cell)
             ))
-        }
-        if envelope.fadeout > 0 {
-            deferredCellFields.append(deferredVolumeEnvelopeField(
-                .volumeEnvelopeFadeout,
+            appendDeferredFields(
+                from: cell,
                 source: source,
                 channelIndex: channelIndex,
-                cell: cell
-            ))
+                volumeColumn: volumeColumn,
+                includeKeyOff: true,
+                deferredCellFields: &deferredCellFields
+            )
+            return
         }
-    }
 
-    private static func deferredVolumeEnvelopeField(
-        _ field: PlaybackSongSyntheticDeferredCellField.Field,
-        source: PlaybackPosition,
-        channelIndex: Int,
-        cell: PlaybackCell
-    ) -> PlaybackSongSyntheticDeferredCellField {
-        PlaybackSongSyntheticDeferredCellField(
+        let previousMapping = eventMappings[activeEventMappingIndex]
+        let fadeoutDecrement = fadeoutFrameDecrement(
+            fadeoutValue: previousMapping.volumeEnvelopeSemantics.fadeoutValue,
+            sampleRate: previousMapping.outputSampleRate
+        )
+        events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
+            scheduledStartFrame,
+            fadeoutFrameDecrement: fadeoutDecrement
+        )
+        eventMappings[activeEventMappingIndex] = eventMapping(
+            previousMapping,
+            applying: previousMapping.volumeEnvelopeSemantics.applyingKeyOff(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                releaseFrame: scheduledStartFrame
+            )
+        )
+        keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
             source: source,
             channelIndex: channelIndex,
-            note: cell.note,
-            instrumentIndex: Int(cell.instrument),
-            volumeColumn: cell.volumeColumn,
-            volumeColumnDiagnostic: PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-            effectType: cell.effectType,
-            effectParam: cell.effectParam,
-            field: field
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            releaseFrame: scheduledStartFrame,
+            applied: true,
+            deferred: false,
+            reason: .releasedActiveVoice,
+            activeEventIndex: activeEventIndex
+        ))
+        channelState.activeEventIndex = nil
+        channelState.activeEventMappingIndex = nil
+    }
+
+    private static func eventMapping(
+        _ mapping: PlaybackSongSyntheticEventMapping,
+        applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
+    ) -> PlaybackSongSyntheticEventMapping {
+        PlaybackSongSyntheticEventMapping(
+            source: mapping.source,
+            channelIndex: mapping.channelIndex,
+            note: mapping.note,
+            instrumentIndex: mapping.instrumentIndex,
+            sampleIndex: mapping.sampleIndex,
+            syntheticRow: mapping.syntheticRow,
+            syntheticTick: mapping.syntheticTick,
+            eventIndex: mapping.eventIndex,
+            loopMode: mapping.loopMode,
+            volumeColumn: mapping.volumeColumn,
+            hasIgnoredVolumeColumn: mapping.hasIgnoredVolumeColumn,
+            hasIgnoredEffect: mapping.hasIgnoredEffect,
+            effectiveVolumeValue: mapping.effectiveVolumeValue,
+            effectivePan: mapping.effectivePan,
+            volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
+            sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
+            mappedVolumeEnvelopePointCount: mapping.mappedVolumeEnvelopePointCount,
+            hasDeferredVolumeEnvelopeSustain: semantics.sustainDeferred,
+            hasDeferredVolumeEnvelopeLoop: semantics.loopDeferred,
+            hasDeferredVolumeEnvelopeFadeout: semantics.fadeoutDeferred,
+            volumeEnvelopeSemantics: semantics,
+            sampleBaseSampleRate: mapping.sampleBaseSampleRate,
+            sampleRelativeNote: mapping.sampleRelativeNote,
+            sampleFinetune: mapping.sampleFinetune,
+            outputSampleRate: mapping.outputSampleRate,
+            effectiveNoteValue: mapping.effectiveNoteValue,
+            effectiveNoteIndex: mapping.effectiveNoteIndex,
+            effectiveFinetune: mapping.effectiveFinetune,
+            linearPeriod: mapping.linearPeriod,
+            linearFrequency: mapping.linearFrequency,
+            finetuneStatus: mapping.finetuneStatus,
+            usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
+            frequencyTableStatus: mapping.frequencyTableStatus,
+            linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
+            playbackStep: mapping.playbackStep,
+            pitchMappingApplied: mapping.pitchMappingApplied,
+            pitchMappingUsedNeutralStep: mapping.pitchMappingUsedNeutralStep
         )
     }
 
@@ -1495,6 +1694,9 @@ enum PlaybackSongSyntheticAdapter {
         let status: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus
         let sourcePointCount: Int
         let mappedPointCount: Int
+        let sustainFrame: Int?
+        let loopStartFrame: Int?
+        let loopEndFrame: Int?
     }
 
     private struct PlaybackStepMapping: Equatable {
@@ -1660,20 +1862,39 @@ enum PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig
     ) -> VolumeEnvelopeMapping {
         guard hasVolumeEnvelopeMetadata(envelope) else {
-            return VolumeEnvelopeMapping(envelope: nil, status: .absent, sourcePointCount: 0, mappedPointCount: 0)
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .absent,
+                sourcePointCount: 0,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
         }
         guard envelope.enabled else {
             return VolumeEnvelopeMapping(
                 envelope: nil,
                 status: .disabled,
                 sourcePointCount: envelope.points.count,
-                mappedPointCount: 0
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
             )
         }
 
         let sourcePoints = Array(envelope.points.prefix(maxMixerEnvelopePointCount))
         guard !sourcePoints.isEmpty else {
-            return VolumeEnvelopeMapping(envelope: nil, status: .invalidOrEmptyIgnored, sourcePointCount: 0, mappedPointCount: 0)
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .invalidOrEmptyIgnored,
+                sourcePointCount: 0,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
         }
 
         let timing = SyntheticTrackerTiming(config: timingConfig)
@@ -1682,7 +1903,10 @@ enum PlaybackSongSyntheticAdapter {
                 envelope: nil,
                 status: .invalidOrEmptyIgnored,
                 sourcePointCount: envelope.points.count,
-                mappedPointCount: 0
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
             )
         }
 
@@ -1695,7 +1919,10 @@ enum PlaybackSongSyntheticAdapter {
                     envelope: nil,
                     status: .invalidOrEmptyIgnored,
                     sourcePointCount: envelope.points.count,
-                    mappedPointCount: 0
+                    mappedPointCount: 0,
+                    sustainFrame: nil,
+                    loopStartFrame: nil,
+                    loopEndFrame: nil
                 )
             }
             let frame = Int(exactFrame.rounded(.down))
@@ -1704,18 +1931,70 @@ enum PlaybackSongSyntheticAdapter {
                     envelope: nil,
                     status: .invalidOrEmptyIgnored,
                     sourcePointCount: envelope.points.count,
-                    mappedPointCount: 0
+                    mappedPointCount: 0,
+                    sustainFrame: nil,
+                    loopStartFrame: nil,
+                    loopEndFrame: nil
                 )
             }
             mappedPoints.append(MixerEnvelopePoint(positionFrame: frame, value: point.normalizedValue))
         }
+        let sustainFrame = mappedFrame(
+            forSourcePointIndex: envelope.sustainPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let loopStartFrame = mappedFrame(
+            forSourcePointIndex: envelope.loopStartPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let loopEndFrame = mappedFrame(
+            forSourcePointIndex: envelope.loopEndPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let appliedSustainFrame = envelopeSustainFlagSet(envelope) ? sustainFrame : nil
+        let appliedLoopStartFrame: Int?
+        let appliedLoopEndFrame: Int?
+        if envelopeLoopFlagSet(envelope),
+           let loopStartFrame,
+           let loopEndFrame,
+           loopEndFrame >= loopStartFrame {
+            appliedLoopStartFrame = loopStartFrame
+            appliedLoopEndFrame = loopEndFrame
+        } else {
+            appliedLoopStartFrame = nil
+            appliedLoopEndFrame = nil
+        }
 
         return VolumeEnvelopeMapping(
-            envelope: MixerEnvelope(points: mappedPoints),
+            envelope: MixerEnvelope(
+                points: mappedPoints,
+                sustainFrame: appliedSustainFrame,
+                loopStartFrame: appliedLoopStartFrame,
+                loopEndFrame: appliedLoopEndFrame
+            ),
             status: .mapped,
             sourcePointCount: envelope.points.count,
-            mappedPointCount: mappedPoints.count
+            mappedPointCount: mappedPoints.count,
+            sustainFrame: appliedSustainFrame,
+            loopStartFrame: appliedLoopStartFrame,
+            loopEndFrame: appliedLoopEndFrame
         )
+    }
+
+    private static func mappedFrame(
+        forSourcePointIndex pointIndex: Int?,
+        sourcePoints: [PlaybackEnvelopePoint],
+        mappedPoints: [MixerEnvelopePoint]
+    ) -> Int? {
+        guard let pointIndex,
+              sourcePoints.indices.contains(pointIndex),
+              mappedPoints.indices.contains(pointIndex) else {
+            return nil
+        }
+        return mappedPoints[pointIndex].positionFrame
     }
 
     private static func hasVolumeEnvelopeMetadata(_ envelope: PlaybackVolumeEnvelope) -> Bool {
@@ -1726,6 +2005,85 @@ enum PlaybackSongSyntheticAdapter {
             envelope.loopStartPointIndex != nil ||
             envelope.loopEndPointIndex != nil ||
             envelope.fadeout > 0
+    }
+
+    private static func volumeEnvelopeSemantics(
+        from envelope: PlaybackVolumeEnvelope,
+        mapping: VolumeEnvelopeMapping
+    ) -> PlaybackSongSyntheticEnvelopeSemanticsDiagnostic {
+        let sustainEnabled = envelopeSustainFlagSet(envelope)
+        let loopEnabled = envelopeLoopFlagSet(envelope)
+        let sustainApplied = mapping.status == .mapped && sustainEnabled && mapping.sustainFrame != nil
+        let loopApplied = mapping.status == .mapped && loopEnabled && mapping.loopStartFrame != nil && mapping.loopEndFrame != nil
+        var limitations = [String]()
+        if sustainApplied || loopApplied || envelope.fadeout > 0 {
+            limitations.append("first_pass_bounded_offline_envelope_approximation")
+        }
+        if sustainApplied {
+            limitations.append("sustain_holds_at_mapped_frame_while_keyed_on")
+        }
+        if loopApplied {
+            limitations.append("envelope_loop_is_frame_based_while_keyed_on")
+        }
+        if envelope.fadeout > 0 {
+            limitations.append("fadeout_uses_linear_per_frame_decrement_after_key_off")
+        }
+
+        return PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
+            envelopeEnabled: envelope.enabled,
+            sourcePointCount: envelope.points.count,
+            mappedPointCount: mapping.mappedPointCount,
+            sustainEnabled: sustainEnabled,
+            sustainApplied: sustainApplied,
+            sustainDeferred: sustainEnabled && !sustainApplied,
+            sustainPointIndex: envelope.sustainPointIndex,
+            sustainTick: envelope.sustainPoint?.tick,
+            sustainFrame: mapping.sustainFrame,
+            loopEnabled: loopEnabled,
+            loopApplied: loopApplied,
+            loopDeferred: loopEnabled && !loopApplied,
+            loopStartPointIndex: envelope.loopStartPointIndex,
+            loopEndPointIndex: envelope.loopEndPointIndex,
+            loopStartTick: envelope.loopStartPoint?.tick,
+            loopEndTick: envelope.loopEndPoint?.tick,
+            loopStartFrame: mapping.loopStartFrame,
+            loopEndFrame: mapping.loopEndFrame,
+            keyOffEncountered: false,
+            keyOffApplied: false,
+            keyOffDeferred: false,
+            keyOffSource: nil,
+            keyOffChannelIndex: nil,
+            keyOffSyntheticRow: nil,
+            keyOffSyntheticTick: nil,
+            releaseFrame: nil,
+            fadeoutValue: envelope.fadeout,
+            fadeoutApplied: false,
+            fadeoutDeferred: envelope.fadeout > 0,
+            limitations: limitations
+        )
+    }
+
+    private static func envelopeSustainFlagSet(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        (envelope.typeFlags & 0x02) != 0
+    }
+
+    private static func envelopeLoopFlagSet(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        (envelope.typeFlags & 0x04) != 0
+    }
+
+    private static func fadeoutFrameDecrement(fadeoutValue: Int, sampleRate: Double) -> Float {
+        guard fadeoutValue > 0,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return 0
+        }
+        // First-pass offline approximation: spread the XM tick-domain fadeout decrement
+        // smoothly across one default-speed tick worth of output frames.
+        let framesPerDefaultTick = sampleRate * PlaybackTiming.xmDefault.tickDuration
+        guard framesPerDefaultTick.isFinite, framesPerDefaultTick > 0 else {
+            return 0
+        }
+        return Float((Double(fadeoutValue) / 65_536.0) / framesPerDefaultTick)
     }
 
     private static func hasEffect(_ cell: PlaybackCell) -> Bool {
@@ -1951,7 +2309,7 @@ final class PlaybackSongOfflineRenderSession {
 /// This renderer adapts a bounded playback-model order selection, schedules the resulting synthetic pattern
 /// through `CSoftwareMixer`, and returns the in-memory PCM block with adapter diagnostics. It intentionally
 /// does not implement full XM playback, FT2/OpenMPT resampler parity, effect-column commands beyond minimal
-/// `Fxx`, full volume-column semantics, sustain/loop/fadeout envelope semantics, runtime backend switching,
+/// `Fxx`, full volume-column semantics, full FT2/OpenMPT envelope parity, runtime backend switching,
 /// or app Play button wiring.
 final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int

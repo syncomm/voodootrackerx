@@ -400,6 +400,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Generated diagnostics are local artifacts and must not be committed.",
                 "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
                 "C-backed offline sample stepping uses simple deterministic linear interpolation.",
+                "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -425,6 +426,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
             "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
             "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
+            "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
             "deferred_fields": diagnostics.deferredCellFields.map(deferredFieldJSON),
@@ -476,8 +478,36 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "effective_pan": Double(mapping.effectivePan),
                 "volume_envelope": [
                     "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
+                    "enabled": mapping.volumeEnvelopeSemantics.envelopeEnabled,
                     "source_point_count": mapping.sourceVolumeEnvelopePointCount,
                     "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
+                    "sustain_enabled": mapping.volumeEnvelopeSemantics.sustainEnabled,
+                    "sustain_applied": mapping.volumeEnvelopeSemantics.sustainApplied,
+                    "sustain_deferred": mapping.volumeEnvelopeSemantics.sustainDeferred,
+                    "sustain_point_index": mapping.volumeEnvelopeSemantics.sustainPointIndex.map { $0 as Any } ?? NSNull(),
+                    "sustain_tick": mapping.volumeEnvelopeSemantics.sustainTick.map { $0 as Any } ?? NSNull(),
+                    "sustain_frame": mapping.volumeEnvelopeSemantics.sustainFrame.map { $0 as Any } ?? NSNull(),
+                    "loop_enabled": mapping.volumeEnvelopeSemantics.loopEnabled,
+                    "loop_applied": mapping.volumeEnvelopeSemantics.loopApplied,
+                    "loop_deferred": mapping.volumeEnvelopeSemantics.loopDeferred,
+                    "loop_start_point_index": mapping.volumeEnvelopeSemantics.loopStartPointIndex.map { $0 as Any } ?? NSNull(),
+                    "loop_end_point_index": mapping.volumeEnvelopeSemantics.loopEndPointIndex.map { $0 as Any } ?? NSNull(),
+                    "loop_start_tick": mapping.volumeEnvelopeSemantics.loopStartTick.map { $0 as Any } ?? NSNull(),
+                    "loop_end_tick": mapping.volumeEnvelopeSemantics.loopEndTick.map { $0 as Any } ?? NSNull(),
+                    "loop_start_frame": mapping.volumeEnvelopeSemantics.loopStartFrame.map { $0 as Any } ?? NSNull(),
+                    "loop_end_frame": mapping.volumeEnvelopeSemantics.loopEndFrame.map { $0 as Any } ?? NSNull(),
+                    "key_off_encountered": mapping.volumeEnvelopeSemantics.keyOffEncountered,
+                    "key_off_applied": mapping.volumeEnvelopeSemantics.keyOffApplied,
+                    "key_off_deferred": mapping.volumeEnvelopeSemantics.keyOffDeferred,
+                    "key_off_source": mapping.volumeEnvelopeSemantics.keyOffSource.map(positionJSON) ?? NSNull(),
+                    "key_off_channel_index": mapping.volumeEnvelopeSemantics.keyOffChannelIndex.map { $0 as Any } ?? NSNull(),
+                    "key_off_synthetic_row": mapping.volumeEnvelopeSemantics.keyOffSyntheticRow.map { $0 as Any } ?? NSNull(),
+                    "key_off_synthetic_tick": mapping.volumeEnvelopeSemantics.keyOffSyntheticTick.map { $0 as Any } ?? NSNull(),
+                    "release_frame": mapping.volumeEnvelopeSemantics.releaseFrame.map { $0 as Any } ?? NSNull(),
+                    "fadeout_value": mapping.volumeEnvelopeSemantics.fadeoutValue,
+                    "fadeout_applied": mapping.volumeEnvelopeSemantics.fadeoutApplied,
+                    "fadeout_deferred": mapping.volumeEnvelopeSemantics.fadeoutDeferred,
+                    "limitations": mapping.volumeEnvelopeSemantics.limitations,
                     "has_deferred_sustain": mapping.hasDeferredVolumeEnvelopeSustain,
                     "has_deferred_loop": mapping.hasDeferredVolumeEnvelopeLoop,
                     "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
@@ -512,6 +542,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
             }
             return object
         }
+    }
+
+    private static func keyOffEventJSON(_ diagnostic: PlaybackSongSyntheticKeyOffDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "release_frame": diagnostic.releaseFrame.map { $0 as Any } ?? NSNull(),
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "reason": keyOffReasonName(diagnostic.reason),
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+        ]
     }
 
     private static func orderJSON(_ diagnostic: PlaybackSongSyntheticOrderDiagnostic) -> [String: Any] {
@@ -789,6 +833,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "missing_instrument"
         case .noPlayableSample:
             return "no_playable_sample"
+        }
+    }
+
+    private static func keyOffReasonName(_ reason: PlaybackSongSyntheticKeyOffDiagnostic.Reason) -> String {
+        switch reason {
+        case .releasedActiveVoice:
+            return "released_active_voice"
+        case .noActiveVoice:
+            return "no_active_voice"
         }
     }
 

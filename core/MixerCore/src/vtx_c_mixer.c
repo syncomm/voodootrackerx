@@ -49,6 +49,13 @@ static float vtx_c_mixer_clamp(float value, float minimum, float maximum) {
     return value;
 }
 
+static float vtx_c_mixer_sanitized_fadeout_decrement(float decrement) {
+    if (!isfinite(decrement) || decrement <= 0.0f) {
+        return 0.0f;
+    }
+    return vtx_c_mixer_clamp(decrement, 0.0f, 1.0f);
+}
+
 static float vtx_c_mixer_sanitized_pan(float pan) {
     if (!isfinite(pan)) {
         return 0.0f;
@@ -167,6 +174,18 @@ static void vtx_c_mixer_copy_envelope(
             maximum_value
         );
     }
+    if (source->sustain_enabled &&
+        source->sustain_frame <= destination->points[destination->point_count - 1u].position_frame) {
+        destination->sustain_enabled = 1;
+        destination->sustain_frame = source->sustain_frame;
+    }
+    if (source->loop_enabled &&
+        source->loop_start_frame <= source->loop_end_frame &&
+        source->loop_end_frame <= destination->points[destination->point_count - 1u].position_frame) {
+        destination->loop_enabled = 1;
+        destination->loop_start_frame = source->loop_start_frame;
+        destination->loop_end_frame = source->loop_end_frame;
+    }
 }
 
 static float vtx_c_mixer_evaluate_envelope(
@@ -198,12 +217,25 @@ static float vtx_c_mixer_evaluate_envelope(
     return envelope->points[envelope->point_count - 1u].value;
 }
 
-static void vtx_c_mixer_advance_envelope(VTXCMixerEnvelopeState *envelope) {
+static void vtx_c_mixer_advance_envelope(VTXCMixerEnvelopeState *envelope, int key_on) {
     if (envelope == NULL || !envelope->enabled) {
+        return;
+    }
+    if (key_on &&
+        envelope->sustain_enabled &&
+        envelope->position_frame >= envelope->sustain_frame) {
+        envelope->position_frame = envelope->sustain_frame;
         return;
     }
     if (envelope->position_frame < UINT32_MAX) {
         envelope->position_frame++;
+    }
+    if (key_on && envelope->loop_enabled && envelope->position_frame > envelope->loop_end_frame) {
+        uint32_t loop_length = envelope->loop_end_frame - envelope->loop_start_frame + 1u;
+        if (loop_length > 0u) {
+            envelope->position_frame = envelope->loop_start_frame +
+                ((envelope->position_frame - envelope->loop_end_frame - 1u) % loop_length);
+        }
     }
 }
 
@@ -211,8 +243,31 @@ static void vtx_c_mixer_advance_voice_envelopes(VTXCMixerVoice *voice) {
     if (voice == NULL) {
         return;
     }
-    vtx_c_mixer_advance_envelope(&voice->volume_envelope);
-    vtx_c_mixer_advance_envelope(&voice->pan_envelope);
+    vtx_c_mixer_advance_envelope(&voice->volume_envelope, voice->key_on);
+    vtx_c_mixer_advance_envelope(&voice->pan_envelope, voice->key_on);
+}
+
+static void vtx_c_mixer_update_voice_key_state(VTXCMixerVoice *voice, uint64_t absolute_frame) {
+    if (voice == NULL || !voice->key_on || !voice->has_key_off_frame) {
+        return;
+    }
+    if (absolute_frame >= voice->key_off_frame) {
+        voice->key_on = 0;
+    }
+}
+
+static void vtx_c_mixer_advance_voice_fadeout(VTXCMixerVoice *voice) {
+    if (voice == NULL || voice->key_on || voice->fadeout_decrement_per_frame <= 0.0f) {
+        return;
+    }
+    voice->fadeout_value = vtx_c_mixer_clamp(
+        voice->fadeout_value - voice->fadeout_decrement_per_frame,
+        0.0f,
+        1.0f
+    );
+    if (voice->fadeout_value <= 0.0f) {
+        voice->active = 0;
+    }
 }
 
 static void vtx_c_mixer_advance_render_cursor(VTXCMixerState *state) {
@@ -445,6 +500,9 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice->loop_start_frame = loop_start_frame;
     voice->loop_end_frame = loop_end_frame;
     voice->ping_pong_direction = 1;
+    voice->key_on = 1;
+    voice->fadeout_value = 1.0f;
+    voice->fadeout_decrement_per_frame = 0.0f;
     voice->active = sample_frame_count > 0 && sample_copy != NULL;
     if (out_voice_index != NULL) {
         *out_voice_index = state->voice_count;
@@ -482,6 +540,8 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
         voice->ping_pong_direction = 1;
         voice->volume_envelope.position_frame = 0u;
         voice->pan_envelope.position_frame = 0u;
+        voice->key_on = 1;
+        voice->fadeout_value = 1.0f;
         voice->active = voice->sample_frame_count > 0 && voice->sample_pcm != NULL;
     }
     return VTX_C_MIXER_STATUS_OK;
@@ -662,6 +722,27 @@ VTXCMixerStatus vtx_c_mixer_set_voice_pan_envelope(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_set_voice_key_off_frame(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t key_off_frame,
+    float fadeout_decrement_per_frame
+) {
+    VTXCMixerVoice *voice;
+
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    voice = &state->voices[voice_index];
+    if (key_off_frame < voice->scheduled_start_frame) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    voice->has_key_off_frame = 1;
+    voice->key_off_frame = key_off_frame;
+    voice->fadeout_decrement_per_frame = vtx_c_mixer_sanitized_fadeout_decrement(fadeout_decrement_per_frame);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,
@@ -712,6 +793,7 @@ VTXCMixerStatus vtx_c_mixer_render(
             if (absolute_frame < voice->scheduled_start_frame) {
                 continue;
             }
+            vtx_c_mixer_update_voice_key_state(voice, absolute_frame);
             if (voice->sample_position < 0.0 || voice->sample_position > (double)UINT32_MAX) {
                 voice->active = 0;
                 continue;
@@ -724,7 +806,8 @@ VTXCMixerStatus vtx_c_mixer_render(
 
             mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
                 voice->gain *
-                vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f);
+                vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f) *
+                voice->fadeout_value;
             if (channel_count_size == 1) {
                 output_interleaved_float32[frame_offset] += mono_sample;
             } else {
@@ -737,6 +820,7 @@ VTXCMixerStatus vtx_c_mixer_render(
 
             vtx_c_mixer_advance_sample_position(voice);
             vtx_c_mixer_advance_voice_envelopes(voice);
+            vtx_c_mixer_advance_voice_fadeout(voice);
         }
         vtx_c_mixer_advance_render_cursor(state);
     }

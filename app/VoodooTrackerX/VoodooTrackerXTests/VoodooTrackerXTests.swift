@@ -577,7 +577,9 @@ private func cOneShotBlock(
     playbackStep: Double = 1,
     loop: MixerSampleLoop = .none,
     volumeEnvelope: MixerEnvelope? = nil,
-    panEnvelope: MixerEnvelope? = nil
+    panEnvelope: MixerEnvelope? = nil,
+    keyOffFrame: Int? = nil,
+    fadeoutFrameDecrement: Float = 0
 ) -> MixerRenderBlock {
     let mixer = CSoftwareMixer(config: config)
     mixer.addVoice(
@@ -587,7 +589,9 @@ private func cOneShotBlock(
         playbackStep: playbackStep,
         loop: loop,
         volumeEnvelope: volumeEnvelope,
-        panEnvelope: panEnvelope
+        panEnvelope: panEnvelope,
+        keyOffFrame: keyOffFrame,
+        fadeoutFrameDecrement: fadeoutFrameDecrement
     )
     return mixer.render(frames: frames)
 }
@@ -602,7 +606,9 @@ private func cScheduledBlock(
     playbackStep: Double = 1,
     loop: MixerSampleLoop = .none,
     volumeEnvelope: MixerEnvelope? = nil,
-    panEnvelope: MixerEnvelope? = nil
+    panEnvelope: MixerEnvelope? = nil,
+    keyOffFrame: Int? = nil,
+    fadeoutFrameDecrement: Float = 0
 ) -> MixerRenderBlock {
     let mixer = CSoftwareMixer(config: config)
     _ = mixer.addScheduledVoice(
@@ -613,7 +619,9 @@ private func cScheduledBlock(
         playbackStep: playbackStep,
         loop: loop,
         volumeEnvelope: volumeEnvelope,
-        panEnvelope: panEnvelope
+        panEnvelope: panEnvelope,
+        keyOffFrame: keyOffFrame,
+        fadeoutFrameDecrement: fadeoutFrameDecrement
     )
     return mixer.render(frames: frames)
 }
@@ -2013,47 +2021,45 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(plan.diagnostics.usesLinearFrequencyTable)
         XCTAssertEqual(plan.diagnostics.rowMappings.map(\.syntheticRow), [0, 1])
         XCTAssertEqual(plan.diagnostics.rowDiagnostics.map(\.emittedEventCount), [0, 1])
-        XCTAssertEqual(plan.diagnostics.eventMappings, [
-            PlaybackSongSyntheticEventMapping(
-                source: PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1),
-                channelIndex: 0,
-                note: 49,
-                instrumentIndex: 1,
-                sampleIndex: 0,
-                syntheticRow: 1,
-                syntheticTick: 0,
-                eventIndex: 0,
-                loopMode: .forward,
-                volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0),
-                hasIgnoredVolumeColumn: false,
-                hasIgnoredEffect: false,
-                effectiveVolumeValue: 64,
-                effectivePan: 0,
-                volumeEnvelopeStatus: .absent,
-                sourceVolumeEnvelopePointCount: 0,
-                mappedVolumeEnvelopePointCount: 0,
-                hasDeferredVolumeEnvelopeSustain: false,
-                hasDeferredVolumeEnvelopeLoop: false,
-                hasDeferredVolumeEnvelopeFadeout: false,
-                sampleBaseSampleRate: 44_100,
-                sampleRelativeNote: 0,
-                sampleFinetune: 0,
-                outputSampleRate: 44_100,
-                effectiveNoteValue: 49,
-                effectiveNoteIndex: 48,
-                effectiveFinetune: 0,
-                linearPeriod: 4_608,
-                linearFrequency: 44_100,
-                finetuneStatus: .applied,
-                usesLinearFrequencyTable: true,
-                frequencyTableStatus: .linearApplied,
-                linearFrequencyApplied: true,
-                amigaFrequencyDeferred: false,
-                playbackStep: 1,
-                pitchMappingApplied: true,
-                pitchMappingUsedNeutralStep: true
-            )
-        ])
+        let mapping = try XCTUnwrap(plan.diagnostics.eventMappings.first)
+        XCTAssertEqual(mapping.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(mapping.channelIndex, 0)
+        XCTAssertEqual(mapping.note, 49)
+        XCTAssertEqual(mapping.instrumentIndex, 1)
+        XCTAssertEqual(mapping.sampleIndex, 0)
+        XCTAssertEqual(mapping.syntheticRow, 1)
+        XCTAssertEqual(mapping.syntheticTick, 0)
+        XCTAssertEqual(mapping.eventIndex, 0)
+        XCTAssertEqual(mapping.loopMode, .forward)
+        XCTAssertEqual(mapping.volumeColumn, PlaybackSongVolumeColumnDecoder.decode(0))
+        XCTAssertFalse(mapping.hasIgnoredVolumeColumn)
+        XCTAssertFalse(mapping.hasIgnoredEffect)
+        XCTAssertEqual(mapping.effectiveVolumeValue, 64)
+        XCTAssertEqual(mapping.effectivePan, 0)
+        XCTAssertEqual(mapping.volumeEnvelopeStatus, .absent)
+        XCTAssertEqual(mapping.sourceVolumeEnvelopePointCount, 0)
+        XCTAssertEqual(mapping.mappedVolumeEnvelopePointCount, 0)
+        XCTAssertFalse(mapping.hasDeferredVolumeEnvelopeSustain)
+        XCTAssertFalse(mapping.hasDeferredVolumeEnvelopeLoop)
+        XCTAssertFalse(mapping.hasDeferredVolumeEnvelopeFadeout)
+        XCTAssertFalse(mapping.volumeEnvelopeSemantics.envelopeEnabled)
+        XCTAssertEqual(mapping.sampleBaseSampleRate, 44_100)
+        XCTAssertEqual(mapping.sampleRelativeNote, 0)
+        XCTAssertEqual(mapping.sampleFinetune, 0)
+        XCTAssertEqual(mapping.outputSampleRate, 44_100)
+        XCTAssertEqual(mapping.effectiveNoteValue, 49)
+        XCTAssertEqual(mapping.effectiveNoteIndex, 48)
+        XCTAssertEqual(mapping.effectiveFinetune, 0)
+        XCTAssertEqual(mapping.linearPeriod, 4_608)
+        XCTAssertEqual(mapping.linearFrequency, 44_100)
+        XCTAssertEqual(mapping.finetuneStatus, .applied)
+        XCTAssertTrue(mapping.usesLinearFrequencyTable)
+        XCTAssertEqual(mapping.frequencyTableStatus, .linearApplied)
+        XCTAssertTrue(mapping.linearFrequencyApplied)
+        XCTAssertFalse(mapping.amigaFrequencyDeferred)
+        XCTAssertEqual(mapping.playbackStep, 1)
+        XCTAssertTrue(mapping.pitchMappingApplied)
+        XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
     }
 
     func testPlaybackSongSyntheticAdapterMapsPingPongLoopMetadata() throws {
@@ -3251,12 +3257,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.ignoredEffectFieldCount, 1)
     }
 
-    func testPlaybackSongAdapterReportsDeferredEnvelopeSustainLoopAndFadeout() throws {
+    func testPlaybackSongAdapterReportsAppliedEnvelopeSustainLoopAndDeferredFadeoutUntilKeyOff() throws {
         let envelope = makePlaybackVolumeEnvelope(
-            points: [PlaybackEnvelopePoint(tick: 0, value: 64)],
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32)
+            ],
             sustainPointIndex: 0,
             loopStartPointIndex: 0,
-            loopEndPointIndex: 0,
+            loopEndPointIndex: 1,
             typeFlags: 0x07,
             fadeout: 128
         )
@@ -3272,14 +3281,351 @@ final class VoodooTrackerXTests: XCTestCase {
         let event = try XCTUnwrap(plan.diagnostics.eventMappings.first)
 
         XCTAssertEqual(event.volumeEnvelopeStatus, .mapped)
-        XCTAssertTrue(event.hasDeferredVolumeEnvelopeSustain)
-        XCTAssertTrue(event.hasDeferredVolumeEnvelopeLoop)
+        XCTAssertFalse(event.hasDeferredVolumeEnvelopeSustain)
+        XCTAssertFalse(event.hasDeferredVolumeEnvelopeLoop)
         XCTAssertTrue(event.hasDeferredVolumeEnvelopeFadeout)
-        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [
-            .volumeEnvelopeSustain,
-            .volumeEnvelopeLoop,
-            .volumeEnvelopeFadeout
-        ])
+        XCTAssertTrue(event.volumeEnvelopeSemantics.sustainApplied)
+        XCTAssertTrue(event.volumeEnvelopeSemantics.loopApplied)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.sustainPointIndex, 0)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.sustainFrame, 0)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.loopStartPointIndex, 0)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.loopEndPointIndex, 1)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.loopStartFrame, 0)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.loopEndFrame, 2)
+        XCTAssertEqual(event.volumeEnvelopeSemantics.fadeoutValue, 128)
+        XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [])
+    }
+
+    func testCSoftwareMixerEnvelopeSustainHoldsUntilKeyOffFrame() {
+        let envelope = MixerEnvelope(
+            points: [
+                MixerEnvelopePoint(positionFrame: 0, value: 1),
+                MixerEnvelopePoint(positionFrame: 1, value: 0.5),
+                MixerEnvelopePoint(positionFrame: 3, value: 0)
+            ],
+            sustainFrame: 1
+        )
+
+        let block = cOneShotBlock(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: 1, count: 6)),
+            frames: 6,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            volumeEnvelope: envelope,
+            keyOffFrame: 4
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0.5, 0.5, 0.5, 0.5, 0.25])
+    }
+
+    func testCSoftwareMixerEnvelopeLoopRepeatsWhileKeyedOn() {
+        let envelope = MixerEnvelope(
+            points: [
+                MixerEnvelopePoint(positionFrame: 0, value: 1),
+                MixerEnvelopePoint(positionFrame: 1, value: 0.5),
+                MixerEnvelopePoint(positionFrame: 2, value: 0.25)
+            ],
+            loopStartFrame: 1,
+            loopEndFrame: 2
+        )
+
+        let block = cOneShotBlock(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: 1, count: 6)),
+            frames: 6,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            volumeEnvelope: envelope
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0.5, 0.25, 0.5, 0.25, 0.5])
+    }
+
+    func testCSoftwareMixerFadeoutAppliesAfterKeyOffFrame() {
+        let block = cOneShotBlock(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: 1, count: 8)),
+            frames: 7,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            keyOffFrame: 2,
+            fadeoutFrameDecrement: 0.25
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [1, 1, 1, 0.75, 0.5, 0.25, 0])
+    }
+
+    func testPlaybackSongAdapterSustainHoldsWithoutNoteOff() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32),
+                PlaybackEnvelopePoint(tick: 2, value: 0)
+            ],
+            sustainPointIndex: 1,
+            typeFlags: 0x03
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5, 0.5, 0.5])
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.sustainApplied)
+        XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffEncountered)
+    }
+
+    func testPlaybackSongAdapterEnvelopeLoopRepeatsWithoutNoteOff() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32),
+                PlaybackEnvelopePoint(tick: 2, value: 16)
+            ],
+            loopStartPointIndex: 1,
+            loopEndPointIndex: 2,
+            typeFlags: 0x05
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.25, 0.5, 0.25])
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.loopApplied)
+        XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffEncountered)
+    }
+
+    func testPlaybackSongAdapterInvalidEnvelopeSemanticIndicesAreDeferredSafely() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32)
+            ],
+            sustainPointIndex: 9,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 9,
+            typeFlags: 0x07,
+            fadeout: 0
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: [1, 1, 1], baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.sustainDeferred)
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.loopDeferred)
+        XCTAssertNil(result.plan.pattern.events.first?.volumeEnvelope?.sustainFrame)
+        XCTAssertNil(result.plan.pattern.events.first?.volumeEnvelope?.loopEndFrame)
+    }
+
+    func testPlaybackSongAdapterNoteOffReleasesSustainAndReportsKeyOffApplied() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 0)
+            ],
+            sustainPointIndex: 0,
+            typeFlags: 0x03
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 97),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 4), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let keyOff = try XCTUnwrap(result.diagnostics.keyOffEvents.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 0])
+        XCTAssertEqual(result.plan.pattern.events.first?.keyOffFrame, 1)
+        XCTAssertTrue(keyOff.applied)
+        XCTAssertEqual(keyOff.releaseFrame, 1)
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffEncountered)
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
+        XCTAssertEqual(mapping.volumeEnvelopeSemantics.releaseFrame, 1)
+    }
+
+    func testPlaybackSongAdapterFadeoutAppliesAfterNoteOff() throws {
+        let envelope = makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 97)
+                ]
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.keyOffApplied)
+        XCTAssertTrue(mapping.volumeEnvelopeSemantics.fadeoutApplied)
+        XCTAssertEqual(mapping.volumeEnvelopeSemantics.fadeoutValue, 65_536)
+    }
+
+    func testPlaybackSongAdapterEnvelopeSemanticsSplitAndResetRemainDeterministic() {
+        let envelope = makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 97)
+                ]
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: Array(repeating: Float(1), count: 6), baseSampleRate: 100)],
+                    volumeEnvelope: envelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let single = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [1, 1, 2])
+        let session = renderer.prepare(request)
+        let resetFirst = session.render(frames: 4)
+        _ = session.render(frames: 2)
+        session.reset()
+        let resetSecond = session.render(frames: 4)
+
+        XCTAssertEqual(single.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertEqual(split.block, single.block)
+        XCTAssertEqual(resetFirst, resetSecond)
+        XCTAssertEqual(resetFirst, single.block)
+    }
+
+    func testPlaybackSongAdapterLoopedSamplesStillWorkWithEnvelopeSemantics() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32)
+            ],
+            sustainPointIndex: 1,
+            typeFlags: 0x03,
+            fadeout: 65_536
+        )
+        let forwardSample = makePlaybackSample(pcm: [1, 0.5, 0.25], baseSampleRate: 100, loopStart: 0, loopLength: 3, loopType: 1)
+        let pingPongSample = makePlaybackSample(pcm: [1, 0.5, 0.25], baseSampleRate: 100, loopStart: 0, loopLength: 3, loopType: 2)
+        let renderer = PlaybackSongOfflineRenderer()
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let forward = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [forwardSample], volumeEnvelope: envelope)],
+                initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            ),
+            orderIndex: 0,
+            config: config,
+            frames: 5
+        ))
+        let pingPong = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [pingPongSample], volumeEnvelope: envelope)],
+                initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            ),
+            orderIndex: 0,
+            config: config,
+            frames: 5
+        ))
+
+        XCTAssertEqual(try XCTUnwrap(forward.diagnostics.eventMappings.first).loopMode, .forward)
+        XCTAssertEqual(try XCTUnwrap(pingPong.diagnostics.eventMappings.first).loopMode, .pingPong)
+        XCTAssertEqual(forward.block.interleavedPCM, [1, 0.25, 0.125, 0.5, 0.25])
+        XCTAssertEqual(pingPong.block.interleavedPCM, [1, 0.25, 0.125, 0.25, 0.5])
     }
 
     func testPlaybackSongVolumeColumnDecoderClassifiesSupportedIgnoredAndDeferredCommands() {

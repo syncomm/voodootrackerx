@@ -188,6 +188,71 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(pitch["fallback_neutral_step_used"] as? Bool, false)
     }
 
+    func testDiagnosticsJSONIncludesEnvelopeSemanticsAndKeyOffFields() throws {
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 32)
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x03,
+            fadeout: 65_536
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 1, 1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ]),
+                    PlaybackRow(index: 1, cells: [
+                        PlaybackCell(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ])
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let keyOffEvents = try XCTUnwrap(object["key_off_events"] as? [[String: Any]])
+        let volumeEnvelope = try XCTUnwrap(try XCTUnwrap(events.first)["volume_envelope"] as? [String: Any])
+
+        XCTAssertEqual(volumeEnvelope["sustain_enabled"] as? Bool, true)
+        XCTAssertEqual(volumeEnvelope["sustain_applied"] as? Bool, true)
+        XCTAssertEqual(volumeEnvelope["sustain_point_index"] as? Int, 1)
+        XCTAssertEqual(volumeEnvelope["sustain_frame"] as? Int, 1)
+        XCTAssertEqual(volumeEnvelope["key_off_encountered"] as? Bool, true)
+        XCTAssertEqual(volumeEnvelope["key_off_applied"] as? Bool, true)
+        XCTAssertEqual(volumeEnvelope["release_frame"] as? Int, 1)
+        XCTAssertEqual(volumeEnvelope["fadeout_value"] as? Int, 65_536)
+        XCTAssertEqual(volumeEnvelope["fadeout_applied"] as? Bool, true)
+        XCTAssertEqual(keyOffEvents.first?["applied"] as? Bool, true)
+        XCTAssertEqual(keyOffEvents.first?["release_frame"] as? Int, 1)
+    }
+
     private func repoRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

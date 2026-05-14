@@ -42,7 +42,10 @@ timing-alignment checks in bounded segments. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
 events. Fractional C-backed offline sample steps use simple deterministic
 linear interpolation; diagnostics JSON reports this as `sample_interpolation`
-with value `linear` in the render section. Non-linear/Amiga-table pitch
+with value `linear` in the render section. Candidate diagnostics also report
+first-pass volume-envelope sustain, loop, note value `97` key-off/release, and
+post-key-off fadeout decisions for bounded offline adapted events, including
+whether each decision was applied, deferred, or approximated. Non-linear/Amiga-table pitch
 behavior remains deferred and is reported as a neutral step fallback.
 
 The helper can also export the bounded adapter diagnostics that already exist in
@@ -50,7 +53,8 @@ memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
-volume-column decisions, Fxx timing changes, envelope status, and loop metadata.
+volume-column decisions, Fxx timing changes, envelope sustain/loop/key-off/fadeout
+status, and loop metadata.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 

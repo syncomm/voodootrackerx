@@ -34,10 +34,12 @@ set-panning, and a conservative row-level subset of volume-column volume and
 panning slides to event gain/pan. The bounded adapter also applies minimal
 `Fxx` timing changes for offline renders only: `F01...F1F` updates speed,
 `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. Amiga-table pitch behavior, interpolation/resampling quality,
-pitch-changing effects, full XM volume-column parity, and full effect parity
-remain deferred. The path does not yet render full XM song playback or drive
-live playback. Local/private XM bounded comparison findings
+ignored no-op. Fractional C-backed offline sample steps now use simple
+deterministic linear interpolation, including safe no-loop ends, forward-loop
+wraps, and ping-pong turnarounds. Amiga-table pitch behavior, full
+OpenMPT/MikMod resampler parity, pitch-changing effects, full XM volume-column
+parity, and full effect parity remain deferred. The path does not yet render
+full XM song playback or drive live playback. Local/private XM bounded comparison findings
 now have a safe report template and local-only workflow guidance, and a
 developer-only `vtx_render_bounded_xm` helper can render bounded candidate WAVs
 from local XM files through the existing offline export path. The helper can
@@ -76,8 +78,9 @@ Immediate audio accuracy sequence:
 26. Local trace-to-comparison correlation report — done
 27. Deep project handoff checkpoint
 28. Focused pitch/period accuracy for bounded linear-frequency renders — done
-29. Feature-flagged runtime backend switch
-30. Reference comparison stabilization against MikMod/OpenMPT
+29. Interpolation/resampling foundation for C-backed offline mixer — done
+30. Feature-flagged runtime backend switch
+31. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -152,7 +155,8 @@ Features:
 - minimal synthetic pattern playback through the C-backed offline mixer path
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
 - parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using the timing active at the event row
-- explicit XM linear-frequency period/frequency sample-step mapping for bounded offline adapted renders, with Amiga pitch behavior and interpolation still deferred
+- explicit XM linear-frequency period/frequency sample-step mapping for bounded offline adapted renders, with Amiga pitch behavior still deferred
+- simple deterministic linear interpolation for fractional C-backed offline sample steps, without full OpenMPT/MikMod resampler parity
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only

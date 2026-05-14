@@ -35,11 +35,12 @@ segments, schedules the adapted synthetic pattern through `CSoftwareMixer`, and
 returns the in-memory `MixerRenderBlock` with source-to-synthetic diagnostics.
 Those diagnostics record the requested order range, sample rate, initial
 speed/BPM, synthetic rows/events, skipped or empty rows, ignored cells, deferred
-effect and volume-column fields, source order/pattern/row/channel coordinates,
-synthetic row/tick coordinates, selected instrument/sample identifiers, and
-mapped loop mode. They also record row start frames, effective speed/BPM per
-adapted row, and any `Fxx` timing cells encountered. Oversized frame requests
-are clamped to a conservative maximum before rendering.
+effect and volume-column fields, applied volume-column state changes,
+source order/pattern/row/channel coordinates, synthetic row/tick coordinates,
+selected instrument/sample identifiers, and mapped loop mode. They also record
+row start frames, effective speed/BPM per adapted row, and any `Fxx` timing
+cells encountered. Oversized frame requests are clamped to a conservative
+maximum before rendering.
 Pitch diagnostics include the source note, selected sample base sample rate,
 sample relative note, finetune status, song linear-frequency flag, frequency
 table status, calculated playback step, and whether mapping used the neutral
@@ -55,11 +56,16 @@ effect-column command handled by the bounded adapter is minimal `Fxx` timing:
 `0x20...0xFF` changes BPM, and `F00` is diagnosed as an ignored no-op. The
 change affects rows after the source row where the `Fxx` cell appears; events on
 the same row use the timing that was active at row start. Other XM effect-column
-commands remain deferred. Only the conservative XM volume-column set-volume
-(`0x10...0x50`) and set-panning (`0xC0...0xCF`) commands are applied to bounded
-offline adapted event gain/pan.
-Volume-column slides, vibrato, tone-portamento, and undefined ranges remain
-deferred and are reported in diagnostics. Parsed
+commands remain deferred. The bounded adapter applies only these conservative
+XM volume-column commands to bounded offline adapted event gain/pan:
+set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume
+slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide
+left/right (`0xD0...0xEF`). Slides are row-level approximations: the adapter
+updates Swift-owned per-channel volume or panning state once while planning the
+source row, and events emitted for that row use the post-command state. No
+tick-by-tick volume or panning ramp is modeled. Volume-column vibrato,
+tone-portamento, undefined ranges, and zero-amount effect memory remain
+deferred or no-op as diagnosed. Parsed
 `PlaybackInstrument.volumeEnvelope` points are mapped to the existing
 frame-based `MixerEnvelope` representation for bounded offline adapted renders
 when a playable sample voice is emitted. Sustain, loop, key-off, and fadeout
@@ -184,11 +190,14 @@ The current adapter implementation is intentionally small:
   `0` as empty, `97` as deferred key-off, and other values as ignored.
 - Select `PlaybackInstrument.firstPlayableSample`.
 - Copy `PlaybackSample.pcm` into `MixerSampleBuffer`.
-- Use `PlaybackSample.volume` as base event gain, multiplying it by supported
-  volume-column set-volume values when present.
+- Use `PlaybackSample.volume` as base event gain, multiplying it by the current
+  Swift-side adapter channel volume. Supported set-volume and volume slide
+  commands update that channel volume at row-planning time and clamp it to
+  `0...64`.
 - Map `PlaybackSample.loopRegion` to `.none`, `.forward`, or `.pingPong`.
-- Use a neutral pan default, or map supported volume-column set-panning values
-  through the existing `-1.0...1.0` C mixer pan convention.
+- Use a neutral pan default, or update Swift-side adapter channel panning from
+  supported set-panning and panning slide commands at row-planning time. The
+  resulting pan is clamped to the existing `-1.0...1.0` C mixer convention.
 - Schedule triggers at tick `0` of each source row.
 - Render only tiny bounded offline segments in tests.
 - Use synthetic or redistribution-safe parsed fixtures, or tiny hand-built
@@ -205,6 +214,7 @@ The current adapter does not:
 - wire the app's Play button into the C mixer
 - implement effect-column commands other than minimal `Fxx` speed/BPM timing
 - implement full XM volume-column parity
+- implement tick-level volume-column slide ramps
 - implement full tempo/BPM or tick-level timing effect parity
 - implement pattern break, position jump, or pattern delay
 - implement sample offset
@@ -226,12 +236,12 @@ The current adapter does not:
 | `PlaybackRow.index` | `SyntheticTrackerEvent.row` | Map to flattened row offset plus row index. | Pattern delay and row-repeat semantics later. |
 | `PlaybackCell.note` | Trigger decision and playback step | Trigger only for `1...96`, deriving a minimal sample step from note/sample metadata; ignore empty, key-off, and invalid notes. | Full pitch/period accuracy, key-off, note cut/delay, retrigger later. |
 | `PlaybackCell.instrument` | Sample lookup | Use `PlaybackSong.sample(forInstrument:)`, currently first playable sample. | Multisample/keymap and instrument fallback semantics later. |
-| `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`) as `sample.volume * value / 64`, apply set-panning (`0xC0...0xCF`) through the C mixer pan convention, and report all volume-column decode decisions. | Slides, vibrato, tone portamento, effect memory, and full volume-column parity later. |
+| `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` only | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op and keep other effect-column commands deferred. | Targeted effect integration PRs later. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
 | `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
-| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by supported set-volume volume-column values. Parsed volume envelopes remain separate mixer envelopes that multiply this gain at render time. | Channel/global/fadeout state and full effect integration later. |
+| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume after supported row-level volume-column commands. Parsed volume envelopes remain separate mixer envelopes that multiply this gain at render time. | Global volume/fadeout state and full effect integration later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and finetune in the minimal note-to-step calculation; report finetune as applied for valid mappings or deferred on neutral fallback. | Full FT2/OpenMPT note-to-frequency and period behavior later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. | FT2 loop/sample-offset quirks later. |
 | `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row; report sustain, loop, and fadeout as deferred. | Sustain, loop, key-off, fadeout semantics, and dynamic envelope retiming after later tempo changes. |
@@ -240,13 +250,13 @@ The current adapter does not:
 
 | Risk | Mitigation |
 | --- | --- |
-| Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, bounded orders, note triggers, first playable sample, gain, pan default, and loops only. Everything else is documented as deferred. |
+| Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, bounded orders, note triggers, first playable sample, gain, pan default, row-level volume/panning state, and loops only. Everything else is documented as deferred. |
 | Accidental runtime backend switch. | Keep adapter under offline/test harness paths. Do not touch `PlaybackEngine`, `PlaybackAudioEngine`, transport wiring, or AppKit controls in the adapter PR. |
 | Parser architecture drift. | Adapter consumes `PlaybackSong` only. It must not parse files, change `ModuleCore`, or move Swift parser responsibilities. |
 | Incorrect note-to-frequency behavior. | The adapter labels this as a minimal pitch foundation only. Tests cover deterministic relative step behavior, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
 | Instrument/sample selection complexity. | Use `firstPlayableSample` exactly like `PlaybackSong.sample(forInstrument:)`. Defer keymaps and multisample selection. |
-| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume and set-panning in the bounded adapter, defer slides/vibrato/tone-portamento/effect-column behavior in diagnostics, and document compatibility limits in test names. |
+| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, and panning slides in the bounded adapter. Keep these as row-level approximations, defer vibrato/tone-portamento/effect-column behavior in diagnostics, and document compatibility limits in test names. |
 | Timing support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows, diagnose `F00`, and keep all other effect-column commands deferred. |
 | Local `_DARKL.XM` temptation. | Keep `_DARKL.XM` manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
@@ -276,8 +286,9 @@ bounded offline rendering:
 - Assert parsed volume envelope points map to frame-based mixer envelope points
   using the timing active at the event row.
 - Assert disabled, empty, and invalid parsed volume envelopes are ignored safely.
-- Assert supported set-volume and set-panning volume-column fields affect
-  bounded offline output and diagnostics.
+- Assert supported set-volume, set-panning, volume slide, fine volume slide, and
+  panning slide volume-column fields affect bounded offline output and
+  diagnostics.
 - Assert unsupported volume-column commands and effect-column fields remain
   deferred/ignored in the adapter.
 - Assert minimal `Fxx` speed/BPM changes affect following row start frames and
@@ -303,17 +314,18 @@ bounded offline rendering:
    adapted renders, still without full FT2/OpenMPT parity.
 5. Deep project handoff checkpoint covering the software mixer transition,
    C-backed mixer path, synthetic scheduling, adapter bridge, and next roadmap.
-6. Local-only reference render workflow against MikMod/OpenMPT once bounded
-   parsed offline renders exist.
+6. Done: local-only reference render workflow against MikMod/OpenMPT once
+   bounded parsed offline renders exist.
 7. Done: targeted minimal `Fxx` speed/BPM timing changes for bounded offline
    adapted renders.
 8. Done: conservative volume-column set-volume/set-panning integration for
    bounded offline adapted renders.
-9. Focused pitch/period accuracy pass for full note-to-frequency behavior.
-10. Additional targeted effects such as sample offset, note delay/cut,
-   retrigger, arpeggio, portamento, vibrato, slides, pattern break, and
-   position jump.
-11. Feature-flagged runtime C mixer backend switch only after offline parity and
+9. Done: conservative row-level volume-column volume/panning slide integration
+   for bounded offline adapted renders.
+10. Focused pitch/period accuracy pass for full note-to-frequency behavior.
+11. Additional targeted effects such as sample offset, note delay/cut,
+   retrigger, arpeggio, portamento, vibrato, pattern break, and position jump.
+12. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Manual Verification Strategy
@@ -352,7 +364,8 @@ This adapter bridge work does not:
 - implement sample offset
 - implement note delay, note cut, or retrigger
 - implement global volume
-- implement full volume-column semantics beyond set-volume and set-panning
+- implement full volume-column semantics beyond set-volume, set-panning, and
+  the supported row-level volume/panning slide subset
 - implement pattern break or position jump
 - implement full tempo/BPM timing semantics beyond minimal bounded `Fxx`
 - provide full-song WAV export or a public module-rendering CLI

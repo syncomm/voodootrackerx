@@ -35,6 +35,7 @@ output directory.
 - Render helper:
 - Candidate render helper command:
 - Candidate WAV path:
+- Candidate diagnostics JSON path:
 - Sample rate:
 - Channels:
 - Requested frames or duration:
@@ -53,15 +54,34 @@ output directory.
 - Top window count:
 - Format compatibility notes:
 
+## Correlation Run
+
+- Tool:
+- Command:
+- Correlation report path:
+- Label:
+- Metadata:
+- Correlation notes:
+
 ## Top Mismatch Windows
 
-| Rank | Time Range | Frame Range | RMS Difference | Max Abs Difference | Local Notes |
-| --- | --- | --- | --- | --- | --- |
-| 1 |  |  |  |  |  |
-| 2 |  |  |  |  |  |
-| 3 |  |  |  |  |  |
-| 4 |  |  |  |  |  |
-| 5 |  |  |  |  |  |
+| Rank | Time Range | Frame Range | RMS Difference | Max Abs Difference | Likely Rows/Channels/Events | Local Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 |  |  |  |  |  |  |
+| 2 |  |  |  |  |  |  |
+| 3 |  |  |  |  |  |  |
+| 4 |  |  |  |  |  |  |
+| 5 |  |  |  |  |  |  |
+
+## Correlated Event Notes
+
+- Top overlapping rows/channels/events:
+- Recent preceding events when no overlap:
+- Pitch-step / frequency-table clues:
+- Volume-column / panning clues:
+- Fxx / row-timing clues:
+- Envelope / fadeout / key-off clues:
+- Loop metadata clues:
 
 ## Observed Likely Mismatch Categories
 
@@ -82,6 +102,7 @@ or source-to-synthetic diagnostics.
 
 - Metric summary:
 - Trace or diagnostics correlation:
+- Correlation report summary:
 - Subjective listening notes from Gregory:
 - Local reproduction notes:
 
@@ -91,16 +112,23 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 
 - [ ] Adapter Support for Specific Effect X:
 - [ ] Focused Pitch/Period Accuracy Pass:
-- [ ] Local Trace-to-Comparison Correlation Report:
 - [ ] Additional Volume-Column Semantics:
 - [ ] Loop/Interpolation Investigation:
 - [ ] Bounded Order Traversal Improvement:
+- [ ] Redistribution-Safe Audio Fixture Corpus:
 - [ ] Feature-Flagged Runtime Backend Skeleton only after enough offline confidence:
+
+## Likely Next PR
+
+- Recommended next PR:
+- Why this evidence supports it:
+- What this report does not prove:
 
 ## Artifact Safety Checklist
 
 - [ ] `_DARKL.XM` was not committed, copied into fixtures, uploaded, or used in automated tests.
 - [ ] Candidate/reference WAVs remain local and out of git.
 - [ ] JSON/Markdown comparison reports remain local and out of git.
+- [ ] Candidate diagnostics JSON and correlation reports remain local and out of git.
 - [ ] Playback traces, screenshots, logs, and listening notes remain local and out of git.
 - [ ] The committed PR contains only source, tests, templates, and documentation intended for review.

@@ -12,6 +12,7 @@ from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
 SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
+CORRELATION_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "correlate-audio-comparison.py"
 
 
 def load_audio_compare_module():
@@ -24,6 +25,112 @@ def load_audio_compare_module():
 
 
 audio_compare = load_audio_compare_module()
+
+
+def synthetic_comparison_json(start_frame=100, end_frame=150):
+    return {
+        "schema_version": 1,
+        "tool": "scripts/audio-compare.py",
+        "candidate": {"info": {"sample_rate": 1000}},
+        "reference": {"info": {"sample_rate": 1000}},
+        "sample_comparison": {
+            "worst_windows": [
+                {
+                    "start_frame": start_frame,
+                    "end_frame": end_frame,
+                    "start_seconds": start_frame / 1000,
+                    "end_seconds": end_frame / 1000,
+                    "rms_difference": 0.25,
+                    "max_abs_sample_difference": 0.75,
+                }
+            ]
+        },
+    }
+
+
+def synthetic_diagnostics_json(event_start=110, event_end=145):
+    source = {"order": 0, "pattern": 2, "row": 4}
+    return {
+        "schema_version": 1,
+        "tool": "vtx_render_bounded_xm",
+        "render": {
+            "sample_rate": 1000,
+            "rendered_frame_count": 400,
+            "requested_start_order_index": 0,
+            "requested_order_count": 1,
+            "initial_speed": 6,
+            "initial_bpm": 125,
+        },
+        "row_timing": [
+            {
+                "source": source,
+                "synthetic_row": 4,
+                "row_start_frame": 100,
+                "row_end_frame": 160,
+                "row_duration_frames": 60,
+                "effective_speed": 6,
+                "effective_bpm": 125,
+            }
+        ],
+        "timing_changes": [
+            {
+                "source": source,
+                "channel_index": 1,
+                "effect_type": 15,
+                "effect_param": 3,
+                "row_start_frame": 100,
+                "applies_to_synthetic_row_after": 5,
+                "kind": "speed",
+                "applied": True,
+                "speed_before": 6,
+                "bpm_before": 125,
+                "speed_after": 3,
+                "bpm_after": 125,
+            }
+        ],
+        "events": [
+            {
+                "source": source,
+                "channel_index": 1,
+                "note": 49,
+                "instrument_index": 7,
+                "sample_index": 2,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "event_index": 0,
+                "scheduled_start_frame": event_start,
+                "estimated_end_frame": event_end,
+                "estimated_duration_frames": event_end - event_start,
+                "sample_frame_count": 35,
+                "gain": 0.5,
+                "pan": -0.25,
+                "loop_mode": "forward",
+                "volume_column": {
+                    "raw_value": 48,
+                    "command": {"name": "setVolume", "value": 32},
+                    "classification": "supported",
+                    "applied": True,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": False,
+                },
+                "volume_envelope": {
+                    "status": "mapped",
+                    "source_point_count": 2,
+                    "mapped_point_count": 2,
+                    "has_deferred_sustain": False,
+                    "has_deferred_loop": True,
+                    "has_deferred_fadeout": False,
+                },
+                "pitch": {
+                    "playback_step": 1.25,
+                    "sample_base_sample_rate": 8363,
+                    "sample_relative_note": 0,
+                    "sample_finetune": 0,
+                    "frequency_table_status": "linear_applied",
+                },
+            }
+        ],
+    }
 
 
 def write_pcm16_wav(path, sample_rate=8000, channels=1, frames=None):
@@ -451,6 +558,192 @@ class AudioCompareTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("missing reference WAV", result.stderr)
             self.assertIn("missing-reference.wav", result.stderr)
+
+
+class AudioCorrelationTests(unittest.TestCase):
+    def test_correlation_maps_synthetic_window_to_overlapping_adapter_event(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("Window 1: 0.100000-0.150000 s", markdown)
+            self.assertIn("order 0 pattern 2 row 4", markdown)
+            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | 110-145 |", markdown)
+
+    def test_correlation_includes_rich_adapter_diagnostic_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, label="synthetic rich fields", metadata="order 0 rows 4-5")
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- Label: synthetic rich fields", markdown)
+            self.assertIn("- Metadata: order 0 rows 4-5", markdown)
+            self.assertIn("1.25000000", markdown)
+            self.assertIn("0.50000000/-0.25000000", markdown)
+            self.assertIn("raw 48 setVolume(32) / supported", markdown)
+            self.assertIn("speed F03 6/125->3/125", markdown)
+            self.assertIn("mapped 2/2; deferred loop", markdown)
+            self.assertIn("| forward |", markdown)
+
+    def test_correlation_reports_no_overlapping_events_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(
+                tmpdir,
+                diagnostics=synthetic_diagnostics_json(event_start=10, event_end=20),
+            )
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("No candidate event frame range overlapped this mismatch window", markdown)
+            self.assertIn("#### Recent Preceding Candidate Events", markdown)
+            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | 10-20 |", markdown)
+
+    def test_correlation_missing_optional_diagnostics_fields_degrades_gracefully(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics={})
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- Candidate diagnostic events: 0", markdown)
+            self.assertIn("No row timing diagnostics overlap this mismatch window.", markdown)
+            self.assertIn("No candidate event frame range overlapped this mismatch window", markdown)
+
+    def test_correlation_missing_comparison_json_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            diagnostics_path = tmpdir_path / "diagnostics.json"
+            output_path = tmpdir_path / "correlation.md"
+            diagnostics_path.write_text(json.dumps(synthetic_diagnostics_json()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CORRELATION_SCRIPT_PATH),
+                    "--comparison-json",
+                    str(tmpdir_path / "missing-comparison.json"),
+                    "--diagnostics-json",
+                    str(diagnostics_path),
+                    "--output-markdown",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing comparison JSON", result.stderr)
+
+    def test_correlation_missing_diagnostics_json_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            comparison_path = tmpdir_path / "comparison.json"
+            output_path = tmpdir_path / "correlation.md"
+            comparison_path.write_text(json.dumps(synthetic_comparison_json()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CORRELATION_SCRIPT_PATH),
+                    "--comparison-json",
+                    str(comparison_path),
+                    "--diagnostics-json",
+                    str(tmpdir_path / "missing-diagnostics.json"),
+                    "--output-markdown",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing diagnostics JSON", result.stderr)
+
+    def test_correlation_malformed_json_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            comparison_path = tmpdir_path / "comparison.json"
+            diagnostics_path = tmpdir_path / "diagnostics.json"
+            output_path = tmpdir_path / "correlation.md"
+            comparison_path.write_text("{not valid json", encoding="utf-8")
+            diagnostics_path.write_text(json.dumps(synthetic_diagnostics_json()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CORRELATION_SCRIPT_PATH),
+                    "--comparison-json",
+                    str(comparison_path),
+                    "--diagnostics-json",
+                    str(diagnostics_path),
+                    "--output-markdown",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("malformed JSON in comparison JSON", result.stderr)
+
+    def test_correlation_missing_expected_comparison_fields_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            comparison_path = tmpdir_path / "comparison.json"
+            diagnostics_path = tmpdir_path / "diagnostics.json"
+            output_path = tmpdir_path / "correlation.md"
+            comparison_path.write_text(json.dumps({"sample_comparison": None}), encoding="utf-8")
+            diagnostics_path.write_text(json.dumps(synthetic_diagnostics_json()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CORRELATION_SCRIPT_PATH),
+                    "--comparison-json",
+                    str(comparison_path),
+                    "--diagnostics-json",
+                    str(diagnostics_path),
+                    "--output-markdown",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("sample_comparison.worst_windows", result.stderr)
+
+    def run_correlation(self, tmpdir, comparison=None, diagnostics=None, label=None, metadata=None):
+        tmpdir_path = Path(tmpdir)
+        comparison_path = tmpdir_path / "comparison.json"
+        diagnostics_path = tmpdir_path / "diagnostics.json"
+        output_path = tmpdir_path / "correlation.md"
+        comparison_payload = synthetic_comparison_json() if comparison is None else comparison
+        diagnostics_payload = synthetic_diagnostics_json() if diagnostics is None else diagnostics
+        comparison_path.write_text(json.dumps(comparison_payload), encoding="utf-8")
+        diagnostics_path.write_text(json.dumps(diagnostics_payload), encoding="utf-8")
+
+        command = [
+            sys.executable,
+            str(CORRELATION_SCRIPT_PATH),
+            "--comparison-json",
+            str(comparison_path),
+            "--diagnostics-json",
+            str(diagnostics_path),
+            "--output-markdown",
+            str(output_path),
+        ]
+        if label is not None:
+            command.extend(["--label", label])
+        if metadata is not None:
+            command.extend(["--metadata", metadata])
+
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output_path.exists())
+        self.assertTrue(output_path.is_relative_to(tmpdir_path))
+        self.assertIn("Correlation report:", result.stdout)
+        return output_path
 
 
 if __name__ == "__main__":

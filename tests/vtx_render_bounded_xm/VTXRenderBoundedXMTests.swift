@@ -141,6 +141,52 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
     }
 
+    func testDiagnosticsJSONIncludesPitchPeriodFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0, 1, 2],
+            volume: 1,
+            relativeNote: 12,
+            finetune: 64,
+            baseSampleRate: 8_363
+        )
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frames: 3
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let pitch = try XCTUnwrap(try XCTUnwrap(events.first)["pitch"] as? [String: Any])
+
+        XCTAssertEqual(pitch["source_note"] as? Int, 49)
+        XCTAssertEqual(pitch["sample_relative_note"] as? Int, 12)
+        XCTAssertEqual(pitch["sample_finetune"] as? Int, 64)
+        XCTAssertEqual(pitch["output_sample_rate"] as? Double, 44_100)
+        XCTAssertEqual(pitch["effective_note_value"] as? Int, 61)
+        XCTAssertEqual(pitch["effective_note_index"] as? Int, 60)
+        XCTAssertEqual(pitch["effective_finetune"] as? Int, 64)
+        XCTAssertEqual(pitch["linear_period"] as? Double, 3_808)
+        XCTAssertEqual(pitch["frequency_table_status"] as? String, "linear_applied")
+        XCTAssertEqual(pitch["linear_frequency_applied"] as? Bool, true)
+        XCTAssertEqual(pitch["amiga_frequency_deferred"] as? Bool, false)
+        XCTAssertEqual(pitch["fallback_neutral_step_used"] as? Bool, false)
+    }
+
     private func repoRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

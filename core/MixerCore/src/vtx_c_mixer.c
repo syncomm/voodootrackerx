@@ -636,6 +636,8 @@ VTXCMixerStatus vtx_c_mixer_render(
                 voice->active = 0;
                 continue;
             }
+            /* Nearest-neighbor interpolation is not implemented yet; fractional
+               positions use the lower source frame deterministically. */
             source_index = (uint32_t)voice->sample_position;
             if (voice->sample_pcm == NULL || source_index >= voice->sample_frame_count) {
                 voice->active = 0;

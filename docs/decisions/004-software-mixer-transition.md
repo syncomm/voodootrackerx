@@ -29,7 +29,7 @@ milestone because it:
 - limited the initial audio scope while parsing and UI code were still moving
 
 That backend has now reached its practical accuracy limit. Real XM playback,
-especially for modules such as the local `_DARKL.XM` test module, still differs
+especially for private local diagnostic modules, still differs
 audibly from MikMod/OpenMPT around dense transitions such as pattern/order 10
 and decimal pattern/order 30. The remaining gap is no longer just missing effect
 coverage; it is also caused by the backend model. Scheduled player nodes and
@@ -132,7 +132,7 @@ avoid unrelated tracker UI, parser, or format changes.
 The mixer should support offline validation before it is used for runtime
 playback:
 
-- render the first N seconds of a local module such as `_DARKL.XM` to WAV
+- render the first N seconds of a local/private XM module to WAV
 - render a reference WAV with OpenMPT/libopenmpt or MikMod using documented
   renderer settings
 - compare the candidate and reference WAVs with `scripts/audio-compare.py`
@@ -146,8 +146,8 @@ See `docs/audio-comparison.md` for the current comparison workflow.
 
 The transition is successful when:
 
-- the software mixer can render the first N seconds of `_DARKL.XM` to WAV from a
-  local, uncommitted module file
+- the software mixer can render the first N seconds of a local/private XM module
+  to WAV from an uncommitted module file
 - candidate renders can be compared against MikMod/OpenMPT with the existing
   `scripts/audio-compare.py` workflow
 - trace/debug output can explain important row, tick, channel, voice, loop,

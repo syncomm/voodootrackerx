@@ -126,7 +126,16 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                     "sample_base_sample_rate": 8363,
                     "sample_relative_note": 0,
                     "sample_finetune": 0,
+                    "output_sample_rate": 1000,
+                    "effective_note_value": 49,
+                    "effective_note_index": 48,
+                    "effective_finetune": 0,
+                    "linear_period": 4608.0,
+                    "linear_frequency": 8363.0,
                     "frequency_table_status": "linear_applied",
+                    "linear_frequency_applied": True,
+                    "amiga_frequency_deferred": False,
+                    "fallback_neutral_step_used": False,
                 },
             }
         ],
@@ -578,6 +587,8 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Label: synthetic rich fields", markdown)
             self.assertIn("- Metadata: order 0 rows 4-5", markdown)
             self.assertIn("1.25000000", markdown)
+            self.assertIn("period 4608.0000", markdown)
+            self.assertIn("freq 8363.0000", markdown)
             self.assertIn("0.50000000/-0.25000000", markdown)
             self.assertIn("raw 48 setVolume(32) / supported", markdown)
             self.assertIn("speed F03 6/125->3/125", markdown)

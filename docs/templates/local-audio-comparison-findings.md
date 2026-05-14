@@ -20,6 +20,7 @@ output directory.
 - Renderer:
 - Renderer version:
 - Command/settings:
+- Reference renderer command/workaround:
 - Sample rate:
 - Channels:
 - Bit depth / output format:
@@ -32,6 +33,7 @@ output directory.
 - VoodooTracker X branch/commit:
 - Candidate render path:
 - Render helper:
+- Candidate render helper command:
 - Candidate WAV path:
 - Sample rate:
 - Channels:
@@ -102,4 +104,3 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 - [ ] JSON/Markdown comparison reports remain local and out of git.
 - [ ] Playback traces, screenshots, logs, and listening notes remain local and out of git.
 - [ ] The committed PR contains only source, tests, templates, and documentation intended for review.
-

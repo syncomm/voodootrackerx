@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(MixerCore)
+import MixerCore
+#endif
 
 /// One synthetic frame-based envelope point for the C-backed offline mixer.
 struct MixerEnvelopePoint: Equatable {

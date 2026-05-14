@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(ModuleCore)
+import ModuleCore
+#endif
 
 struct XMPatternEventCell: Equatable {
     let note: UInt8

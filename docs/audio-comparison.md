@@ -40,8 +40,10 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 comparisons are more meaningful for simple volume, stereo placement, and
 timing-alignment checks in bounded segments. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
-events. Non-linear/Amiga-table pitch behavior remains deferred and is reported
-as a neutral step fallback.
+events. Fractional C-backed offline sample steps use simple deterministic
+linear interpolation; diagnostics JSON reports this as `sample_interpolation`
+with value `linear` in the render section. Non-linear/Amiga-table pitch
+behavior remains deferred and is reported as a neutral step fallback.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -55,8 +57,9 @@ fixes automatically.
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
-semantics, interpolation, true Amiga frequency-table behavior, tempo/BPM
-semantics beyond minimal bounded `Fxx`, and full song traversal remain deferred.
+semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
+minimal bounded `Fxx`, full song traversal, and full reference resampler parity
+remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -162,7 +165,8 @@ ranges, then lists:
 - recent candidate events that precede the window when no event directly overlaps
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, volume-column classification,
-  Fxx timing changes, envelope status, and loop mode when those fields are present
+  Fxx timing changes, envelope status, loop mode, and render interpolation
+  status when those fields are present
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
@@ -173,8 +177,8 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with deferred
 effect-column events, choose one specific effect such as sample offset, note
 cut/delay, or retrigger. If mismatch windows are broad and steady while events
-look plausible, interpolation or reference-render settings may be the better
-next investigation.
+look plausible, remaining resampling details or reference-render settings may
+be the better next investigation.
 
 Order 10 and order 30 of a local/private module can be useful exploratory
 bounded targets when they expose dense transitions. They remain local-only
@@ -338,15 +342,15 @@ Likely categories to consider when filling the findings template:
 - panning / volume-column behavior
 - volume slides / envelope / fadeout / key-off
 - pitch / finetune / relative note / linear frequency
-- interpolation / resampling
+- remaining resampling / reference-render settings
 - sample offset / retrigger / note cut / note delay
 - loop behavior
 - unknown / needs trace correlation
 
 Pick one narrow next PR from the evidence. Good candidates include adapter
 support for a specific effect, Amiga pitch behavior if non-linear modules need
-it, additional diagnostics, additional volume-column semantics, a
-loop/interpolation investigation, or a bounded order traversal improvement.
+it, additional diagnostics, additional volume-column semantics, a remaining
+resampling or loop investigation, or a bounded order traversal improvement.
 Feature-flagged runtime C mixer backend work should wait until offline
 confidence is strong enough to justify runtime risk.
 

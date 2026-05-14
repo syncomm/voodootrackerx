@@ -80,6 +80,14 @@ Runtime playback still uses `AVAudioPlayerNode` through the existing playback
 path; the C mixer is still not used for live playback, and full real XM playback
 through the C mixer has not been implemented.
 
+The C-backed offline mixer now renders fractional source-sample positions with
+simple deterministic linear interpolation. Integer source positions still read
+the exact source sample, no-loop samples clamp safely at the final frame before
+stopping, forward loops interpolate across the exclusive loop-end wrap, and
+ping-pong loops interpolate safely through turnarounds. This is a bounded
+offline resampling foundation only; it is not full OpenMPT/MikMod resampler
+parity and does not add runtime playback settings.
+
 ## Current Parsed Playback Model
 
 `PlaybackSongBuilder` is the current app-side bridge from
@@ -135,7 +143,7 @@ periods, or parser structures.
 | `MixerSampleLoop` | Synthetic loop mode and exclusive start/end frames. Invalid loops sanitize to no loop. |
 | `MixerEnvelope` | Synthetic frame-based envelope copied into C voice storage. Parsed XM volume envelope points are mapped into this shape for bounded offline adapted renders only. |
 | `CSoftwareMixer` | Thin Swift wrapper around MixerCore. It copies sample PCM and envelopes into C-owned voice storage, schedules voices at absolute frames, renders deterministic interleaved Float32 offline blocks, and supports reset/clear operations. It is not connected to live playback. |
-| `MixerCore` C API | Fixed-size C mixer state and voice storage for deterministic offline one-shot, forward-loop, ping-pong-loop, envelope, pan, and absolute-frame scheduled rendering. |
+| `MixerCore` C API | Fixed-size C mixer state and voice storage for deterministic offline one-shot, forward-loop, ping-pong-loop, simple linear interpolation, envelope, pan, and absolute-frame scheduled rendering. |
 
 Layer ownership in the synthetic path:
 
@@ -212,8 +220,10 @@ The current adapter implementation is intentionally small:
 Important limitation: the adapter now makes note values affect source stepping
 for linear-frequency songs, but it still should not claim full FT2/OpenMPT
 parity. The current C-backed scheduled voice path advances by a deterministic
-fractional source-sample step per output frame and samples the lower source
-frame for fractional positions. Interpolation remains deferred.
+fractional source-sample step per output frame and uses simple deterministic
+linear interpolation for fractional source positions. This improves bounded
+offline render quality for non-integer steps, but it is still not a full
+reference-matching resampler architecture.
 
 The current adapter does not:
 
@@ -227,7 +237,7 @@ The current adapter does not:
 - implement sample offset
 - implement note delay, note cut, retrigger, or key-off behavior
 - implement Amiga-table period/frequency behavior or pitch-changing effects
-- implement interpolation or resampling quality changes
+- implement full OpenMPT/MikMod resampler parity or configurable interpolation modes
 - provide full-song WAV export or a public module-rendering CLI
 - use private/local XM modules in automated tests
 
@@ -332,9 +342,12 @@ bounded offline rendering:
    for bounded offline adapted renders.
 10. Done: focused pitch/period accuracy pass for bounded linear-frequency
     sample-step behavior and diagnostics, with Amiga behavior still deferred.
-11. Additional targeted effects such as sample offset, note delay/cut,
+11. Done: simple deterministic linear interpolation for fractional C-backed
+    offline mixer sample steps, without runtime backend changes or full
+    resampler parity.
+12. Additional targeted effects such as sample offset, note delay/cut,
    retrigger, arpeggio, portamento, vibrato, pattern break, and position jump.
-12. Feature-flagged runtime C mixer backend switch only after offline parity and
+13. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Manual Verification Strategy
@@ -370,7 +383,7 @@ This adapter bridge work does not:
 - implement full XM playback
 - implement XM effect-column commands other than minimal `Fxx` speed/BPM timing
 - implement full Amiga period/frequency behavior
-- implement interpolation or resampling quality changes
+- implement full OpenMPT/MikMod resampler parity or runtime interpolation controls
 - implement sample offset
 - implement note delay, note cut, or retrigger
 - implement global volume

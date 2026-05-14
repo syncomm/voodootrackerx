@@ -1950,8 +1950,9 @@ final class PlaybackSongOfflineRenderSession {
 ///
 /// This renderer adapts a bounded playback-model order selection, schedules the resulting synthetic pattern
 /// through `CSoftwareMixer`, and returns the in-memory PCM block with adapter diagnostics. It intentionally
-/// does not implement full XM playback, FT2/OpenMPT pitch parity, effects, volume-column semantics,
-/// sustain/loop/fadeout envelope semantics, runtime backend switching, or app Play button wiring.
+/// does not implement full XM playback, FT2/OpenMPT resampler parity, effect-column commands beyond minimal
+/// `Fxx`, full volume-column semantics, sustain/loop/fadeout envelope semantics, runtime backend switching,
+/// or app Play button wiring.
 final class PlaybackSongOfflineRenderer {
     let maximumFrameCount: Int
 

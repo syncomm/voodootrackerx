@@ -108,9 +108,8 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice(
 );
 
 // Copies a caller-owned mono Float32 sample buffer into C-owned voice storage with
-// an explicit source-sample step per output frame. Fractional positions are sampled
-// by truncating to the lower source frame; interpolation remains deferred. Invalid
-// steps fall back to 1.0.
+// an explicit source-sample step per output frame. Fractional positions are rendered
+// with deterministic linear interpolation. Invalid steps fall back to 1.0.
 VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step(
     VTXCMixerState *state,
     const float *sample_pcm,
@@ -143,8 +142,8 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice(
 );
 
 // Scheduled voice variant with an explicit source-sample step per output frame.
-// Fractional positions are sampled by truncating to the lower source frame;
-// interpolation remains deferred. Invalid steps fall back to 1.0.
+// Fractional positions are rendered with deterministic linear interpolation.
+// Invalid steps fall back to 1.0.
 VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step(
     VTXCMixerState *state,
     const float *sample_pcm,

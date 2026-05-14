@@ -65,9 +65,9 @@ final class CSoftwareMixer {
     /// Adds one synthetic sample voice and copies its PCM data into C-owned storage.
     ///
     /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
-    /// the Swift reference mixer tests. Callers may provide an explicit source-sample playback step, but this
-    /// wrapper intentionally does not implement interpolation, FT2/OpenMPT period conversion, sample offsets,
-    /// timing, effects, or XM instrument ownership.
+    /// the Swift reference mixer tests. Callers may provide an explicit source-sample playback step; fractional
+    /// source positions are rendered with deterministic linear interpolation. This wrapper intentionally does
+    /// not implement FT2/OpenMPT resampler parity, sample offsets, timing effects, or XM instrument ownership.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
@@ -185,7 +185,8 @@ final class CSoftwareMixer {
     /// Returns an interleaved Float32 PCM block rendered by the C core.
     ///
     /// The C core currently renders deterministic silence plus synthetic one-shot, forward-loop, and
-    /// ping-pong-loop sample voices with explicit playback steps plus synthetic volume and pan envelopes.
+    /// ping-pong-loop sample voices with explicit playback steps, simple linear interpolation, plus synthetic
+    /// volume and pan envelopes.
     /// Scheduled synthetic voices can start at absolute output frames in the offline mixer timeline.
     /// Swift-side synthetic row/tick helpers can map simple tracker coordinates to those absolute frames, but
     /// the C core does not implement XM effects, XM playback, sustain/loop/fadeout envelope semantics,

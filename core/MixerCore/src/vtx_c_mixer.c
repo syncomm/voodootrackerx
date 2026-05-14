@@ -222,6 +222,86 @@ static void vtx_c_mixer_advance_render_cursor(VTXCMixerState *state) {
     state->current_frame++;
 }
 
+static uint32_t vtx_c_mixer_clamped_next_source_index(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    if (source_index + 1u < voice->sample_frame_count) {
+        return source_index + 1u;
+    }
+    return source_index;
+}
+
+static int vtx_c_mixer_source_index_is_inside_loop(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    return source_index >= voice->loop_start_frame &&
+        source_index < voice->loop_end_frame;
+}
+
+static uint32_t vtx_c_mixer_forward_loop_next_source_index(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    if (vtx_c_mixer_source_index_is_inside_loop(voice, source_index) &&
+        source_index + 1u >= voice->loop_end_frame) {
+        return voice->loop_start_frame;
+    }
+    return vtx_c_mixer_clamped_next_source_index(voice, source_index);
+}
+
+static uint32_t vtx_c_mixer_ping_pong_loop_next_source_index(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    if (vtx_c_mixer_source_index_is_inside_loop(voice, source_index) &&
+        source_index + 1u >= voice->loop_end_frame) {
+        return voice->loop_end_frame >= 2u
+            ? voice->loop_end_frame - 2u
+            : source_index;
+    }
+    return vtx_c_mixer_clamped_next_source_index(voice, source_index);
+}
+
+static uint32_t vtx_c_mixer_interpolation_next_source_index(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    switch (voice->loop_mode) {
+    case VTX_C_MIXER_LOOP_FORWARD:
+        return vtx_c_mixer_forward_loop_next_source_index(voice, source_index);
+    case VTX_C_MIXER_LOOP_PING_PONG:
+        return vtx_c_mixer_ping_pong_loop_next_source_index(voice, source_index);
+    case VTX_C_MIXER_LOOP_NONE:
+    default:
+        return vtx_c_mixer_clamped_next_source_index(voice, source_index);
+    }
+}
+
+static float vtx_c_mixer_linear_interpolated_sample(
+    const VTXCMixerVoice *voice,
+    uint32_t source_index
+) {
+    double fraction;
+    uint32_t next_index;
+    float current_sample;
+    float next_sample;
+
+    current_sample = voice->sample_pcm[source_index];
+    fraction = voice->sample_position - (double)source_index;
+    if (fraction <= 0.0) {
+        return current_sample;
+    }
+    if (fraction >= 1.0) {
+        fraction = 1.0;
+    }
+
+    next_index = vtx_c_mixer_interpolation_next_source_index(voice, source_index);
+    next_sample = voice->sample_pcm[next_index];
+    return (float)(((double)current_sample * (1.0 - fraction)) + ((double)next_sample * fraction));
+}
+
 static void vtx_c_mixer_advance_one_shot_position(VTXCMixerVoice *voice) {
     voice->sample_position += voice->sample_step;
     if (voice->sample_position >= (double)voice->sample_frame_count) {
@@ -636,15 +716,13 @@ VTXCMixerStatus vtx_c_mixer_render(
                 voice->active = 0;
                 continue;
             }
-            /* Nearest-neighbor interpolation is not implemented yet; fractional
-               positions use the lower source frame deterministically. */
             source_index = (uint32_t)voice->sample_position;
             if (voice->sample_pcm == NULL || source_index >= voice->sample_frame_count) {
                 voice->active = 0;
                 continue;
             }
 
-            mono_sample = voice->sample_pcm[source_index] *
+            mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
                 voice->gain *
                 vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f);
             if (channel_count_size == 1) {

@@ -136,6 +136,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostics["tool"] as? String, "vtx_render_bounded_xm")
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
+        XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))

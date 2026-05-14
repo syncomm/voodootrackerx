@@ -93,7 +93,7 @@ or source-to-synthetic diagnostics.
 - [ ] panning / volume-column behavior
 - [ ] volume slides / envelope / fadeout / key-off
 - [ ] pitch / finetune / relative note / linear frequency
-- [ ] interpolation / resampling
+- [ ] remaining interpolation / resampling / reference-render settings
 - [ ] sample offset / retrigger / note cut / note delay
 - [ ] loop behavior
 - [ ] unknown / needs trace correlation

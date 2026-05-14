@@ -301,6 +301,9 @@ def build_correlation_report(
             f"- Initial timing: speed {format_optional(render.get('initial_speed'))}, "
             f"BPM {format_optional(render.get('initial_bpm'))}",
         ])
+        interpolation = render.get("sample_interpolation")
+        if interpolation:
+            lines.append(f"- Sample interpolation: {interpolation}")
 
     lines.extend([
         "",

@@ -876,7 +876,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [0, 2, 4, 0])
     }
 
-    func testCSoftwareMixerFractionalPlaybackStepUsesLowerSourceFrameDeterministically() {
+    func testCSoftwareMixerHalfStepUsesLinearInterpolationDeterministically() {
         let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3])
 
         let block = cOneShotBlock(
@@ -886,7 +886,33 @@ final class VoodooTrackerXTests: XCTestCase {
             playbackStep: 0.5
         )
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1, 2, 2, 3, 3, 0])
+        XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 3, 0])
+    }
+
+    func testCSoftwareMixerQuarterStepUsesLinearInterpolationDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 4, 8])
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            playbackStep: 0.25
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 1, 2, 3])
+    }
+
+    func testCSoftwareMixerNoLoopInterpolationClampsAtSampleEndSafely() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 2, 4])
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 5,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            playbackStep: 0.75
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 1.5, 3, 4, 0])
     }
 
     func testCSoftwareMixerMonoOutputMatchesSwiftReference() {
@@ -1082,7 +1108,7 @@ final class VoodooTrackerXTests: XCTestCase {
             loop: loop
         )
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1, 2, 2, 3, 3, 1, 1])
+        XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 2, 1, 1.5])
     }
 
     func testCSoftwareMixerPingPongLoopReversesDirectionAndMatchesSwiftReference() {
@@ -1132,7 +1158,7 @@ final class VoodooTrackerXTests: XCTestCase {
             loop: loop
         )
 
-        XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 1, 2, 2, 3, 2, 2, 1, 1, 1])
+        XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 2.5, 2, 1.5, 1, 1.5])
     }
 
     func testCSoftwareMixerLoopSplitRendersMatchOneLargerRender() {
@@ -1155,6 +1181,31 @@ final class VoodooTrackerXTests: XCTestCase {
 
             XCTAssertEqual(splitRender, singleRender.interleavedPCM)
         }
+    }
+
+    func testCSoftwareMixerFractionalLoopInterpolationSplitAndResetRemainDeterministic() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 4, 8, 12, 16])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        singleRenderMixer.addVoice(sample: sample, playbackStep: 0.75, loop: loop)
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        splitRenderMixer.addVoice(sample: sample, playbackStep: 0.75, loop: loop)
+        let resetMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        resetMixer.addVoice(sample: sample, playbackStep: 0.75, loop: loop)
+
+        let singleRender = singleRenderMixer.render(frames: 10)
+        let splitRender = splitRenderMixer.render(frames: 3).interleavedPCM +
+            splitRenderMixer.render(frames: 4).interleavedPCM +
+            splitRenderMixer.render(frames: 3).interleavedPCM
+        let resetFirst = resetMixer.render(frames: 10)
+        _ = resetMixer.render(frames: 2)
+        resetMixer.reset()
+        let resetSecond = resetMixer.render(frames: 10)
+
+        XCTAssertEqual(singleRender.interleavedPCM, [0, 3, 6, 9, 12, 6, 6, 9, 12, 6])
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+        XCTAssertEqual(resetFirst, resetSecond)
+        XCTAssertEqual(resetFirst, singleRender)
     }
 
     func testCSoftwareMixerResetRestoresForwardLoopOutputDeterministically() {
@@ -2453,6 +2504,27 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(mapping.pitchMappingApplied)
         XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
         XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 3, 0])
+    }
+
+    func testPlaybackSongSyntheticAdapterFractionalPitchStepUsesLinearInterpolation() throws {
+        let sample = makePlaybackSample(pcm: [0, 10, 20, 30], baseSampleRate: 150)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.playbackStep, 1.5, accuracy: 0.000000001)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 15, 30, 0])
+        XCTAssertNotEqual(result.block.interleavedPCM, [0, 10, 30, 0])
     }
 
     func testPlaybackSongSyntheticAdapterDifferentNotesProduceDifferentStepsAndOutputProgression() throws {

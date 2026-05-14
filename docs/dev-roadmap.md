@@ -51,11 +51,12 @@ Immediate audio accuracy sequence:
 16. Parsed volume envelope mapping for bounded offline adapted renders — done
 17. Minimal pitch foundation for bounded offline adapted renders — done
 18. Local-only bounded reference render comparison workflow — done
-19. Bounded C-mixer WAV export helper — this PR
-20. Deep project handoff checkpoint
-21. Volume-column integration, minimal Fxx timing changes, or focused pitch/period accuracy
-22. Feature-flagged runtime backend switch
-23. Reference comparison stabilization against MikMod/OpenMPT
+19. Bounded C-mixer WAV export helper — done
+20. Local reference comparison smoke using bounded candidate WAVs — this PR
+21. Deep project handoff checkpoint
+22. Volume-column integration, minimal Fxx timing changes, or focused pitch/period accuracy
+23. Feature-flagged runtime backend switch
+24. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -132,6 +133,7 @@ Features:
 - parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using constant initial speed/BPM only
 - minimal note-to-sample-step pitch foundation for bounded offline adapted renders, without full FT2/OpenMPT parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
+- local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

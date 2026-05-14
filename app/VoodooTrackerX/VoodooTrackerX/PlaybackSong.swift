@@ -692,7 +692,7 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
 
     enum FrequencyTableStatus: Equatable {
         case linearApplied
-        case amigaTableDeferredLinearApproximation
+        case amigaTableDeferredNeutralFallback
     }
 
     let source: PlaybackPosition
@@ -718,9 +718,17 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let sampleBaseSampleRate: Double
     let sampleRelativeNote: Int
     let sampleFinetune: Int
+    let outputSampleRate: Double
+    let effectiveNoteValue: Int?
+    let effectiveNoteIndex: Int?
+    let effectiveFinetune: Int?
+    let linearPeriod: Double?
+    let linearFrequency: Double?
     let finetuneStatus: FinetuneStatus
     let usesLinearFrequencyTable: Bool
     let frequencyTableStatus: FrequencyTableStatus
+    let linearFrequencyApplied: Bool
+    let amigaFrequencyDeferred: Bool
     let playbackStep: Double
     let pitchMappingApplied: Bool
     let pitchMappingUsedNeutralStep: Bool
@@ -996,6 +1004,10 @@ enum PlaybackSongFxxTimingPlanner {
 
 enum PlaybackSongSyntheticAdapter {
     private static let maxMixerEnvelopePointCount = 12
+    private static let xmLinearPeriodBase = 7_680.0
+    private static let xmLinearC4Period = 4_608.0
+    private static let xmLinearPeriodUnitsPerSemitone = 64.0
+    private static let xmLinearPeriodUnitsPerOctave = 768.0
 
     private struct ChannelState: Equatable {
         var volumeValue = 64
@@ -1277,9 +1289,17 @@ enum PlaybackSongSyntheticAdapter {
                 sampleBaseSampleRate: sample.baseSampleRate,
                 sampleRelativeNote: sample.relativeNote,
                 sampleFinetune: sample.finetune,
+                outputSampleRate: pitchMapping.outputSampleRate,
+                effectiveNoteValue: pitchMapping.effectiveNoteValue,
+                effectiveNoteIndex: pitchMapping.effectiveNoteIndex,
+                effectiveFinetune: pitchMapping.effectiveFinetune,
+                linearPeriod: pitchMapping.linearPeriod,
+                linearFrequency: pitchMapping.linearFrequency,
                 finetuneStatus: pitchMapping.finetuneStatus,
                 usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                 frequencyTableStatus: pitchMapping.frequencyTableStatus,
+                linearFrequencyApplied: pitchMapping.linearFrequencyApplied,
+                amigaFrequencyDeferred: pitchMapping.amigaFrequencyDeferred,
                 playbackStep: pitchMapping.playbackStep,
                 pitchMappingApplied: pitchMapping.applied,
                 pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
@@ -1479,8 +1499,16 @@ enum PlaybackSongSyntheticAdapter {
 
     private struct PlaybackStepMapping: Equatable {
         let playbackStep: Double
+        let outputSampleRate: Double
+        let effectiveNoteValue: Int?
+        let effectiveNoteIndex: Int?
+        let effectiveFinetune: Int?
+        let linearPeriod: Double?
+        let linearFrequency: Double?
         let finetuneStatus: PlaybackSongSyntheticEventMapping.FinetuneStatus
         let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
+        let linearFrequencyApplied: Bool
+        let amigaFrequencyDeferred: Bool
         let applied: Bool
         let usedNeutralStep: Bool
     }
@@ -1522,10 +1550,25 @@ enum PlaybackSongSyntheticAdapter {
         usesLinearFrequencyTable: Bool,
         timingConfig: SyntheticTrackerTimingConfig
     ) -> PlaybackStepMapping {
-        let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus = usesLinearFrequencyTable
-            ? .linearApplied
-            : .amigaTableDeferredLinearApproximation
         let outputSampleRate = timingConfig.sampleRate
+        guard usesLinearFrequencyTable else {
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: nil,
+                effectiveNoteIndex: nil,
+                effectiveFinetune: nil,
+                linearPeriod: nil,
+                linearFrequency: nil,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: .amigaTableDeferredNeutralFallback,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: true,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
         let baseSampleRate = sample.baseSampleRate
         guard outputSampleRate.isFinite,
               outputSampleRate > 0,
@@ -1533,24 +1576,55 @@ enum PlaybackSongSyntheticAdapter {
               baseSampleRate > 0 else {
             return PlaybackStepMapping(
                 playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: nil,
+                effectiveNoteIndex: nil,
+                effectiveFinetune: nil,
+                linearPeriod: nil,
+                linearFrequency: nil,
                 finetuneStatus: .deferred,
-                frequencyTableStatus: frequencyTableStatus,
+                frequencyTableStatus: .linearApplied,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: false,
                 applied: false,
                 usedNeutralStep: true
             )
         }
 
-        let semitoneOffset = Double(Int(note) + sample.relativeNote - PlaybackPitchCalculator.c4NoteValue)
-        let finetuneSemitones = Double(sample.finetune) / 128.0
-        let pitchRatio = pow(2.0, (semitoneOffset + finetuneSemitones) / 12.0)
-        let step = (baseSampleRate / outputSampleRate) * pitchRatio
-        guard step.isFinite,
+        let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: sample.relativeNote)
+        let effectiveNoteIndex = effectiveNoteValue - 1
+        let effectiveFinetune = clampedFinetune(sample.finetune)
+
+        // XM linear frequency mode is period based even though the C mixer consumes a source-sample step.
+        // FT2's linear period formula is:
+        // period = 7680 - (zeroBasedNote * 64) - (finetune / 2)
+        // C-4 is note value 49, zero-based note 48, period 4608, so it maps to the sample base rate.
+        let linearPeriod = xmLinearPeriodBase
+            - (Double(effectiveNoteIndex) * xmLinearPeriodUnitsPerSemitone)
+            - (Double(effectiveFinetune) / 2.0)
+        let linearFrequency = baseSampleRate * pow(
+            2.0,
+            (xmLinearC4Period - linearPeriod) / xmLinearPeriodUnitsPerOctave
+        )
+        let step = linearFrequency / outputSampleRate
+        guard linearPeriod.isFinite,
+              linearFrequency.isFinite,
+              linearFrequency > 0,
+              step.isFinite,
               step > 0,
               step <= Double(UInt32.max) else {
             return PlaybackStepMapping(
                 playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: effectiveNoteValue,
+                effectiveNoteIndex: effectiveNoteIndex,
+                effectiveFinetune: effectiveFinetune,
+                linearPeriod: nil,
+                linearFrequency: nil,
                 finetuneStatus: .deferred,
-                frequencyTableStatus: frequencyTableStatus,
+                frequencyTableStatus: .linearApplied,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: false,
                 applied: false,
                 usedNeutralStep: true
             )
@@ -1558,11 +1632,27 @@ enum PlaybackSongSyntheticAdapter {
 
         return PlaybackStepMapping(
             playbackStep: step,
+            outputSampleRate: outputSampleRate,
+            effectiveNoteValue: effectiveNoteValue,
+            effectiveNoteIndex: effectiveNoteIndex,
+            effectiveFinetune: effectiveFinetune,
+            linearPeriod: linearPeriod,
+            linearFrequency: linearFrequency,
             finetuneStatus: .applied,
-            frequencyTableStatus: frequencyTableStatus,
+            frequencyTableStatus: .linearApplied,
+            linearFrequencyApplied: true,
+            amigaFrequencyDeferred: false,
             applied: true,
             usedNeutralStep: abs(step - 1.0) <= 0.000000001
         )
+    }
+
+    private static func clampedEffectiveNoteValue(note: UInt8, relativeNote: Int) -> Int {
+        min(96, max(1, Int(note) + relativeNote))
+    }
+
+    private static func clampedFinetune(_ finetune: Int) -> Int {
+        min(127, max(-128, finetune))
     }
 
     private static func mixerVolumeEnvelope(

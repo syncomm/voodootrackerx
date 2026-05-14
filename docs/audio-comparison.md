@@ -38,22 +38,25 @@ volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), and minimal `Fxx` speed/BPM timing changes, so local
 comparisons are more meaningful for simple volume, stereo placement, and
-timing-alignment checks in bounded segments.
+timing-alignment checks in bounded segments. Linear-frequency songs also carry
+explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
+events. Non-linear/Amiga-table pitch behavior remains deferred and is reported
+as a neutral step fallback.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
-events, pitch steps, volume-column decisions, Fxx timing changes, envelope
-status, and loop metadata. This is still diagnostic evidence only; it does not
-prove correctness or choose fixes automatically.
+events, pitch steps, linear period/frequency intermediates when present,
+volume-column decisions, Fxx timing changes, envelope status, and loop metadata.
+This is still diagnostic evidence only; it does not prove correctness or choose
+fixes automatically.
 
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
-semantics, interpolation, full FT2/OpenMPT pitch parity, true Amiga
-frequency-table behavior, tempo/BPM semantics beyond minimal bounded `Fxx`, and
-full song traversal remain deferred.
+semantics, interpolation, true Amiga frequency-table behavior, tempo/BPM
+semantics beyond minimal bounded `Fxx`, and full song traversal remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -158,16 +161,16 @@ ranges, then lists:
 - candidate events whose scheduled frame ranges overlap each window
 - recent candidate events that precede the window when no event directly overlaps
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
-  step, volume-column classification, Fxx timing changes, envelope status, and
-  loop mode when those fields are present
+  step, linear period/frequency intermediates, volume-column classification,
+  Fxx timing changes, envelope status, and loop mode when those fields are present
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
 or preceding-event context when available.
 
 Use the correlation report to choose the next smallest implementation PR. For
-example, if high mismatch windows repeatedly line up with non-neutral pitch
-steps, choose a pitch/period accuracy pass. If they line up with deferred
+example, if high mismatch windows repeatedly line up with Amiga-table neutral
+fallbacks, choose Amiga pitch behavior. If they line up with deferred
 effect-column events, choose one specific effect such as sample offset, note
 cut/delay, or retrigger. If mismatch windows are broad and steady while events
 look plausible, interpolation or reference-render settings may be the better
@@ -341,8 +344,8 @@ Likely categories to consider when filling the findings template:
 - unknown / needs trace correlation
 
 Pick one narrow next PR from the evidence. Good candidates include adapter
-support for a specific effect, a focused pitch/period accuracy pass, a local
-trace-to-comparison correlation report, additional volume-column semantics, a
+support for a specific effect, Amiga pitch behavior if non-linear modules need
+it, additional diagnostics, additional volume-column semantics, a
 loop/interpolation investigation, or a bounded order traversal improvement.
 Feature-flagged runtime C mixer backend work should wait until offline
 confidence is strong enough to justify runtime risk.

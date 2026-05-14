@@ -18,7 +18,7 @@ VTX_PLAYBACK_TRACE_PATH=/tmp/darkl-vtx-playback.jsonl \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-For the local `_DARKL.XM` diagnostic target:
+For a local/private XM diagnostic target:
 
 ```bash
 xcodebuild \
@@ -29,7 +29,7 @@ xcodebuild \
   build
 
 VTX_PLAYBACK_TRACE_PATH=/tmp/darkl-vtx-playback.jsonl \
-VTX_OPEN_PATH=/Users/syncomm/Desktop/_DARKL.XM \
+VTX_OPEN_PATH=/path/to/local.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
@@ -71,7 +71,7 @@ Recorded fields include:
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
-commands. This captures header timing such as `_DARKL.XM`'s `speed=2` and
+commands. This captures header timing from the loaded local XM and
 `bpm=183` before a row `Fxx` command changes speed or BPM.
 
 ## Inspecting A Trace
@@ -128,7 +128,7 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 ## Manual Verification
 
 - Launch the Debug app with `VTX_PLAYBACK_TRACE_PATH` set.
-- Load `/Users/syncomm/Desktop/_DARKL.XM` or another local XM file.
+- Load `/path/to/local.xm` or another local XM file.
 - Press Play for 10-30 seconds.
 - Press Stop.
 - Confirm the JSONL file exists and contains order, pattern, row, tick,

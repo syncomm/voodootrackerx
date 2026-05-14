@@ -27,15 +27,17 @@ source-to-synthetic diagnostics. Those bounded candidate renders can now be
 written as deterministic PCM16 WAV files for local comparison. Parsed
 `PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
 frame-based envelope representation for those bounded offline adapted renders
-only, adapted note triggers carry a minimal deterministic note/sample-derived
-playback step, and the adapter applies only volume-column set-volume,
+only, adapted note triggers carry explicit XM linear-frequency period/frequency
+sample-step mapping where `PlaybackSong.usesLinearFrequencyTable` is true, and
+the adapter applies only volume-column set-volume,
 set-panning, and a conservative row-level subset of volume-column volume and
 panning slides to event gain/pan. The bounded adapter also applies minimal
 `Fxx` timing changes for offline renders only: `F01...F1F` updates speed,
 `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. This is not full FT2/OpenMPT pitch parity, full XM volume-column
-parity, or full effect parity. The path does not yet render full XM song
-playback or drive live playback. Local `_DARKL.XM` bounded comparison findings
+ignored no-op. Amiga-table pitch behavior, interpolation/resampling quality,
+pitch-changing effects, full XM volume-column parity, and full effect parity
+remain deferred. The path does not yet render full XM song playback or drive
+live playback. Local/private XM bounded comparison findings
 now have a safe report template and local-only workflow guidance, and a
 developer-only `vtx_render_bounded_xm` helper can render bounded candidate WAVs
 from local XM files through the existing offline export path. The helper can
@@ -69,11 +71,11 @@ Immediate audio accuracy sequence:
 21. Adapter volume-column set-volume/set-panning support for bounded offline renders — done
 22. Minimal Fxx timing changes for bounded offline adapter renders — done
 23. Adapter support for additional volume-column slides in bounded offline renders — done
-24. Local `_DARKL.XM` bounded comparison findings workflow — done
+24. Local/private bounded comparison findings workflow — done
 25. Developer-only bounded XM candidate WAV render helper — done
 26. Local trace-to-comparison correlation report — done
 27. Deep project handoff checkpoint
-28. Focused pitch/period accuracy or targeted effect pass based on local correlation
+28. Focused pitch/period accuracy for bounded linear-frequency renders — done
 29. Feature-flagged runtime backend switch
 30. Reference comparison stabilization against MikMod/OpenMPT
 
@@ -150,7 +152,7 @@ Features:
 - minimal synthetic pattern playback through the C-backed offline mixer path
 - minimal bounded `PlaybackSong` to synthetic adapter renders through the C-backed offline mixer path
 - parsed `PlaybackInstrument.volumeEnvelope` point mapping for bounded offline adapted renders, using the timing active at the event row
-- minimal note-to-sample-step pitch foundation for bounded offline adapted renders, without full FT2/OpenMPT parity
+- explicit XM linear-frequency period/frequency sample-step mapping for bounded offline adapted renders, with Amiga pitch behavior and interpolation still deferred
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
@@ -158,7 +160,7 @@ Features:
 - optional local bounded adapter diagnostics JSON export from the candidate WAV helper
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - local-only mismatch-window correlation report that maps comparison JSON to approximate adapter rows/events
-- local-only bounded findings report template for `_DARKL.XM` candidate/reference comparison evidence
+- local-only bounded findings report template for private local candidate/reference comparison evidence
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

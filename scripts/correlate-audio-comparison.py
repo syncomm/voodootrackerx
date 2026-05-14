@@ -369,8 +369,8 @@ def append_event_table(
         lines.append("- None.")
         return
     lines.extend([
-        "| Source | Channel | Note | Instrument/Sample | Frames | Pitch Step | Gain/Pan | Volume Column | Fxx | Envelope | Loop |",
-        "| --- | ---: | ---: | --- | --- | ---: | --- | --- | --- | --- | --- |",
+        "| Source | Channel | Note | Instrument/Sample | Frames | Pitch | Gain/Pan | Volume Column | Fxx | Envelope | Loop |",
+        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
     ])
     for event in events:
         source = nested_dict(event.get("source"))
@@ -382,7 +382,7 @@ def append_event_table(
             f"{format_optional(event.get('note'))} | "
             f"{format_optional(event.get('instrument_index'))}/{format_optional(event.get('sample_index'))} | "
             f"{event['_start_frame']}-{event['_end_frame']} | "
-            f"{format_optional_float(nested_dict(event.get('pitch')).get('playback_step'))} | "
+            f"{pitch_label(nested_dict(event.get('pitch')))} | "
             f"{format_optional_float(event.get('gain'))}/{format_optional_float(event.get('pan'))} | "
             f"{volume_column_label(nested_dict(event.get('volume_column')))} | "
             f"{fxx_label(change_index.get(key, []))} | "
@@ -420,6 +420,26 @@ def source_label(source: dict[str, Any]) -> str:
         f"pattern {format_optional(source.get('pattern'))} "
         f"row {format_optional(source.get('row'))}"
     )
+
+
+def pitch_label(pitch: dict[str, Any]) -> str:
+    if not pitch:
+        return "unavailable"
+    parts = [f"step {format_optional_float(pitch.get('playback_step'))}"]
+    period = number(pitch.get("linear_period"))
+    frequency = number(pitch.get("linear_frequency"))
+    if period is not None:
+        parts.append(f"period {period:.4f}")
+    if frequency is not None:
+        parts.append(f"freq {frequency:.4f}")
+    status = pitch.get("frequency_table_status")
+    if status is not None:
+        parts.append(str(status))
+    if pitch.get("amiga_frequency_deferred"):
+        parts.append("amiga deferred")
+    if pitch.get("fallback_neutral_step_used") or pitch.get("used_neutral_step"):
+        parts.append("neutral fallback")
+    return "; ".join(parts)
 
 
 def volume_column_label(volume_column: dict[str, Any]) -> str:

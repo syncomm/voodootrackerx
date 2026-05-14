@@ -57,8 +57,8 @@ Current stabilization note:
 - First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
-- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping, a minimal note-to-sample-step foundation, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, and minimal `Fxx` speed/BPM timing changes offline only. It is not used for runtime playback.
-- Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for Gregory's local `_DARKL.XM` module, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
+- ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping, explicit XM linear-frequency pitch/period sample-step mapping where supported, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, and minimal `Fxx` speed/BPM timing changes offline only. It is not used for runtime playback.
+- Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for private local XM modules, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events, including pitch step/period/frequency diagnostics, for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -209,8 +209,8 @@ and reference comparison before any runtime backend switch.
 - Verification: deterministic hand-built `PlaybackSong` tests for amplitude and stereo-balance changes, clamp behavior, set-volume/set-panning combinations, Fxx/envelope/pitch regressions, split/reset determinism, WAV export, and existing comparison tooling; no runtime backend switching, full volume-column parity, full effect parity, or local copyrighted module fixtures
 - Status: done.
 
-### PR 2.7.10j — Local `_DARKL.XM` Bounded Comparison Findings Report
-- Scope: document the safe local-only workflow for bounded `_DARKL.XM` candidate/reference WAV comparisons, add a blank findings report template, and guide first mismatch classification without committing local artifacts or changing mixer behavior.
+### PR 2.7.10j — Local Bounded Comparison Findings Report
+- Scope: document the safe local-only workflow for bounded private-module candidate/reference WAV comparisons, add a blank findings report template, and guide first mismatch classification without committing local artifacts or changing mixer behavior.
 - Verification: documentation checks plus existing audio comparison tests; no runtime backend switching, mixer DSP changes, reference renderer CI dependency, or local copyrighted module fixtures.
 - Status: done.
 
@@ -222,6 +222,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10l — Local Trace-to-Comparison Correlation Report
 - Scope: export optional local bounded adapter diagnostics JSON from the developer helper and add a local script that correlates `scripts/audio-compare.py` worst mismatch windows with approximate rows, channels, events, pitch steps, volume-column diagnostics, Fxx timing changes, envelope status, and loop metadata.
 - Verification: synthetic JSON/temp-file tests only, existing bounded render helper tests, existing audio comparison tests, and no runtime backend switching, mixer DSP changes, parser refactor, tracker viewport changes, reference renderer CI dependency, or local copyrighted module fixtures.
+- Status: done.
+
+### PR 2.7.10m — Focused Pitch / Period Accuracy Pass for Bounded Offline C-Backed Renders
+- Scope: make bounded adapted `PlaybackSong` renders use explicit XM linear-frequency period/frequency/sample-step calculation when `PlaybackSong.usesLinearFrequencyTable` is true, diagnose output sample rate, effective note/finetune, linear period/frequency, neutral fallback, and Amiga deferral, and verify deterministic fractional C mixer stepping without interpolation.
+- Verification: deterministic hand-built `PlaybackSong` tests for monotonic steps, octave relationship, relative note, finetune, base/output sample rate behavior, invalid-rate fallback, non-linear Amiga deferral, pitch diagnostics, Fxx/volume-column/envelope/WAV regressions, split/reset determinism, audio comparison/correlation tests, and no private/local module fixtures.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

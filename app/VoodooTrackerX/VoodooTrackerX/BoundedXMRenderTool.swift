@@ -481,15 +481,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
                     "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
                 ],
                 "pitch": [
+                    "source_note": Int(mapping.note),
                     "sample_base_sample_rate": mapping.sampleBaseSampleRate,
                     "sample_relative_note": mapping.sampleRelativeNote,
                     "sample_finetune": mapping.sampleFinetune,
+                    "output_sample_rate": mapping.outputSampleRate,
+                    "effective_note_value": mapping.effectiveNoteValue.map { $0 as Any } ?? NSNull(),
+                    "effective_note_index": mapping.effectiveNoteIndex.map { $0 as Any } ?? NSNull(),
+                    "effective_finetune": mapping.effectiveFinetune.map { $0 as Any } ?? NSNull(),
+                    "linear_period": mapping.linearPeriod.map { $0 as Any } ?? NSNull(),
+                    "linear_frequency": mapping.linearFrequency.map { $0 as Any } ?? NSNull(),
                     "finetune_status": finetuneStatusName(mapping.finetuneStatus),
                     "uses_linear_frequency_table": mapping.usesLinearFrequencyTable,
                     "frequency_table_status": frequencyTableStatusName(mapping.frequencyTableStatus),
+                    "linear_frequency_applied": mapping.linearFrequencyApplied,
+                    "amiga_frequency_deferred": mapping.amigaFrequencyDeferred,
                     "playback_step": mapping.playbackStep,
                     "mapping_applied": mapping.pitchMappingApplied,
                     "used_neutral_step": mapping.pitchMappingUsedNeutralStep,
+                    "fallback_neutral_step_used": mapping.pitchMappingUsedNeutralStep,
                 ],
             ]
             if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
@@ -760,8 +770,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch status {
         case .linearApplied:
             return "linear_applied"
-        case .amigaTableDeferredLinearApproximation:
-            return "amiga_table_deferred_linear_approximation"
+        case .amigaTableDeferredNeutralFallback:
+            return "amiga_table_deferred_neutral_fallback"
         }
     }
 

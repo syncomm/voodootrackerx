@@ -2,7 +2,7 @@
 
 This template is safe to commit while blank. Filled reports that include local
 module paths, generated WAV paths, comparison output, traces, screenshots,
-listening notes, or findings derived from `_DARKL.XM` must stay local and out
+listening notes, or findings derived from private/local XM modules must stay local and out
 of git. Prefer `/tmp/vtx-local-reference-comparison` or another ignored local
 output directory.
 
@@ -126,7 +126,7 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 
 ## Artifact Safety Checklist
 
-- [ ] `_DARKL.XM` was not committed, copied into fixtures, uploaded, or used in automated tests.
+- [ ] Private/local XM modules were not committed, copied into fixtures, uploaded, or used in automated tests.
 - [ ] Candidate/reference WAVs remain local and out of git.
 - [ ] JSON/Markdown comparison reports remain local and out of git.
 - [ ] Candidate diagnostics JSON and correlation reports remain local and out of git.

@@ -58,7 +58,7 @@ Current stabilization note:
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
 - ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping, a minimal note-to-sample-step foundation, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, and minimal `Fxx` speed/BPM timing changes offline only. It is not used for runtime playback.
-- Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for Gregory's local `_DARKL.XM` module, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs through the existing offline export path. Filled reports and generated artifacts remain outside git.
+- Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for Gregory's local `_DARKL.XM` module, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -217,6 +217,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10k — Developer-Only Bounded XM Candidate WAV Render Helper
 - Scope: add a tiny developer-only local helper that loads a local XM through the existing metadata/playback builder path and writes a bounded C-backed candidate WAV via `PlaybackSongOfflineRenderer.exportWAV(...)`.
 - Verification: Swift package helper tests with redistribution-safe fixtures, local minimal XM render smoke, existing audio comparison checks, and no runtime backend switching, mixer DSP changes, parser refactor, tracker viewport changes, or local copyrighted module fixtures in tests.
+- Status: done.
+
+### PR 2.7.10l — Local Trace-to-Comparison Correlation Report
+- Scope: export optional local bounded adapter diagnostics JSON from the developer helper and add a local script that correlates `scripts/audio-compare.py` worst mismatch windows with approximate rows, channels, events, pitch steps, volume-column diagnostics, Fxx timing changes, envelope status, and loop metadata.
+- Verification: synthetic JSON/temp-file tests only, existing bounded render helper tests, existing audio comparison tests, and no runtime backend switching, mixer DSP changes, parser refactor, tracker viewport changes, reference renderer CI dependency, or local copyrighted module fixtures.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

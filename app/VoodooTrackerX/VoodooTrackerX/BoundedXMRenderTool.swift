@@ -62,6 +62,7 @@ enum RenderToolError: LocalizedError, Equatable {
 struct RenderToolArguments: Equatable {
     let inputPath: String
     let outputPath: String
+    let diagnosticsJSONPath: String?
     let order: Int
     let orderCount: Int
     let rows: Int?
@@ -72,6 +73,7 @@ struct RenderToolArguments: Equatable {
     static func parse(_ argv: [String]) throws -> RenderToolArguments {
         var inputPath: String?
         var outputPath: String?
+        var diagnosticsJSONPath: String?
         var order: Int?
         var orderCount = 1
         var rows: Int?
@@ -100,6 +102,8 @@ struct RenderToolArguments: Equatable {
                 inputPath = value
             case "--output":
                 outputPath = value
+            case "--diagnostics-json":
+                diagnosticsJSONPath = value
             case "--order":
                 order = try parseInt(value, name: argument)
             case "--order-count":
@@ -128,6 +132,7 @@ struct RenderToolArguments: Equatable {
         return RenderToolArguments(
             inputPath: try required(inputPath, "--input"),
             outputPath: try required(outputPath, "--output"),
+            diagnosticsJSONPath: diagnosticsJSONPath,
             order: try required(order, "--order"),
             orderCount: orderCount,
             rows: rows,
@@ -200,9 +205,13 @@ struct RenderTool {
     func run(_ arguments: RenderToolArguments) throws -> PlaybackSongOfflineRenderResult {
         let inputURL = URL(fileURLWithPath: arguments.inputPath).standardizedFileURL
         let outputURL = URL(fileURLWithPath: arguments.outputPath).standardizedFileURL
+        let diagnosticsURL = arguments.diagnosticsJSONPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
         try validateInput(inputURL)
         try validateOutput(outputURL)
+        if let diagnosticsURL {
+            try validateDiagnosticsOutput(diagnosticsURL)
+        }
 
         let metadata = try ModuleMetadataLoader().load(fromPath: inputURL.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: inputURL.path)
@@ -211,6 +220,9 @@ struct RenderTool {
         let config = MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: MixerRenderConfig.defaultChannelCount)
         let request = renderRequest(song: song, arguments: arguments, config: config)
         let result = try PlaybackSongOfflineRenderer().exportWAV(request, to: outputURL)
+        if let diagnosticsURL {
+            try PlaybackSongDiagnosticsJSONExporter.write(result, to: diagnosticsURL)
+        }
         return result
     }
 
@@ -281,6 +293,30 @@ struct RenderTool {
         }
     }
 
+    func validateDiagnosticsOutput(_ outputURL: URL) throws {
+        guard outputURL.pathExtension.lowercased() == "json" else {
+            throw RenderToolError.invalidOutputPath("Diagnostics JSON path must end in .json: \(outputURL.path)")
+        }
+        if fileManager.fileExists(atPath: outputURL.path) {
+            var isDirectory: ObjCBool = false
+            _ = fileManager.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
+            if isDirectory.boolValue {
+                throw RenderToolError.invalidOutputPath("Diagnostics JSON path is a directory: \(outputURL.path)")
+            }
+        }
+        let parent = outputURL.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: parent.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw RenderToolError.invalidOutputPath("Diagnostics JSON output directory does not exist: \(parent.path)")
+        }
+        if let repoRoot = findRepoRoot(), outputURL.isInside(repoRoot), !isAllowedRepoOutput(outputURL, repoRoot: repoRoot) {
+            throw RenderToolError.invalidOutputPath(
+                "Refusing to write diagnostics JSON inside a tracked repo path: \(outputURL.path). Use /tmp or an ignored local audio comparison output directory."
+            )
+        }
+    }
+
     func validateOrderRange(start: Int, count: Int, orderTotal: Int) throws {
         guard start >= 0 else {
             throw RenderToolError.invalidOrderRange("Order must be non-negative; got \(start).")
@@ -346,6 +382,422 @@ struct RenderTool {
     }
 }
 
+enum PlaybackSongDiagnosticsJSONExporter {
+    static func write(_ result: PlaybackSongOfflineRenderResult, to url: URL) throws {
+        var data = try JSONSerialization.data(withJSONObject: jsonObject(from: result), options: [.prettyPrinted, .sortedKeys])
+        data.append(UInt8(0x0A))
+        try data.write(to: url, options: [])
+    }
+
+    static func jsonObject(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
+        let diagnostics = result.diagnostics
+        return [
+            "schema_version": 1,
+            "tool": "vtx_render_bounded_xm",
+            "local_only": true,
+            "notes": [
+                "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
+                "Generated diagnostics are local artifacts and must not be committed.",
+                "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
+            ],
+            "render": [
+                "requested_start_order_index": diagnostics.requestedStartOrderIndex,
+                "requested_order_count": diagnostics.requestedOrderCount,
+                "sample_rate": diagnostics.sampleRate,
+                "channel_count": result.block.config.channelCount,
+                "requested_frame_count": result.requestedFrameCount,
+                "rendered_frame_count": result.renderedFrameCount,
+                "maximum_frame_count": result.maximumFrameCount,
+                "was_frame_count_bounded": result.wasFrameCountBounded,
+                "initial_speed": diagnostics.initialSpeed,
+                "initial_bpm": diagnostics.initialBPM,
+                "uses_linear_frequency_table": diagnostics.usesLinearFrequencyTable,
+                "synthetic_row_count": diagnostics.syntheticRowCount,
+                "emitted_event_count": diagnostics.emittedEventCount,
+                "ignored_cell_count": diagnostics.ignoredCellCount,
+                "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
+            ],
+            "orders": diagnostics.adaptedOrders.map(orderJSON),
+            "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
+            "row_timing": diagnostics.rowTiming.map(rowTimingJSON),
+            "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
+            "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
+            "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
+            "events": eventJSON(from: result),
+            "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
+            "deferred_fields": diagnostics.deferredCellFields.map(deferredFieldJSON),
+        ]
+    }
+
+    private static func eventJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {
+        result.diagnostics.eventMappings.map { mapping in
+            let event = result.plan.pattern.events.indices.contains(mapping.eventIndex)
+                ? result.plan.pattern.events[mapping.eventIndex]
+                : nil
+            let startFrame = event?.scheduledStartFrame ?? 0
+            let playbackStep = event?.playbackStep ?? mapping.playbackStep
+            let sampleFrameCount = event?.sample.frameCount ?? 0
+            let durationFrames: Int
+            let durationReason: String
+            if mapping.loopMode == .none {
+                let estimated = playbackStep > 0
+                    ? Int((Double(sampleFrameCount) / playbackStep).rounded(.up))
+                    : sampleFrameCount
+                durationFrames = max(1, estimated)
+                durationReason = "one_shot_sample_length"
+            } else {
+                durationFrames = max(0, result.renderedFrameCount - startFrame)
+                durationReason = "looped_until_render_end"
+            }
+            let endFrame = max(startFrame, startFrame + durationFrames)
+            var object: [String: Any] = [
+                "source": positionJSON(mapping.source),
+                "channel_index": mapping.channelIndex,
+                "note": Int(mapping.note),
+                "instrument_index": mapping.instrumentIndex,
+                "sample_index": mapping.sampleIndex,
+                "synthetic_row": mapping.syntheticRow,
+                "synthetic_tick": mapping.syntheticTick,
+                "event_index": mapping.eventIndex,
+                "scheduled_start_frame": startFrame,
+                "estimated_end_frame": endFrame,
+                "estimated_duration_frames": durationFrames,
+                "duration_estimate_reason": durationReason,
+                "sample_frame_count": sampleFrameCount,
+                "gain": Double(event?.gain ?? 0),
+                "pan": Double(event?.pan ?? mapping.effectivePan),
+                "loop_mode": loopModeName(mapping.loopMode),
+                "volume_column": volumeColumnDiagnosticJSON(mapping.volumeColumn),
+                "has_ignored_volume_column": mapping.hasIgnoredVolumeColumn,
+                "has_ignored_effect": mapping.hasIgnoredEffect,
+                "effective_volume_value": mapping.effectiveVolumeValue,
+                "effective_pan": Double(mapping.effectivePan),
+                "volume_envelope": [
+                    "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
+                    "source_point_count": mapping.sourceVolumeEnvelopePointCount,
+                    "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
+                    "has_deferred_sustain": mapping.hasDeferredVolumeEnvelopeSustain,
+                    "has_deferred_loop": mapping.hasDeferredVolumeEnvelopeLoop,
+                    "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
+                ],
+                "pitch": [
+                    "sample_base_sample_rate": mapping.sampleBaseSampleRate,
+                    "sample_relative_note": mapping.sampleRelativeNote,
+                    "sample_finetune": mapping.sampleFinetune,
+                    "finetune_status": finetuneStatusName(mapping.finetuneStatus),
+                    "uses_linear_frequency_table": mapping.usesLinearFrequencyTable,
+                    "frequency_table_status": frequencyTableStatusName(mapping.frequencyTableStatus),
+                    "playback_step": mapping.playbackStep,
+                    "mapping_applied": mapping.pitchMappingApplied,
+                    "used_neutral_step": mapping.pitchMappingUsedNeutralStep,
+                ],
+            ]
+            if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
+                object["scheduled_start_seconds"] = startSeconds
+            }
+            if let endSeconds = seconds(forFrame: endFrame, sampleRate: result.block.config.sampleRate) {
+                object["estimated_end_seconds"] = endSeconds
+            }
+            return object
+        }
+    }
+
+    private static func orderJSON(_ diagnostic: PlaybackSongSyntheticOrderDiagnostic) -> [String: Any] {
+        [
+            "requested_order_index": diagnostic.requestedOrderIndex,
+            "pattern_index": diagnostic.patternIndex ?? NSNull(),
+            "synthetic_start_row": diagnostic.syntheticStartRow,
+            "row_count": diagnostic.rowCount,
+            "status": orderStatusName(diagnostic.status),
+        ]
+    }
+
+    private static func rowMappingJSON(_ mapping: PlaybackSongSyntheticRowMapping) -> [String: Any] {
+        [
+            "source": positionJSON(mapping.source),
+            "synthetic_row": mapping.syntheticRow,
+        ]
+    }
+
+    private static func rowDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticRowDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "synthetic_row": diagnostic.syntheticRow,
+            "cell_count": diagnostic.cellCount,
+            "emitted_event_count": diagnostic.emittedEventCount,
+            "ignored_cell_count": diagnostic.ignoredCellCount,
+        ]
+    }
+
+    private static func rowTimingJSON(_ diagnostic: PlaybackSongSyntheticRowTimingDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "synthetic_row": diagnostic.syntheticRow,
+            "row_start_frame": diagnostic.rowStartFrame,
+            "row_end_frame": diagnostic.rowStartFrame + diagnostic.rowDurationFrames,
+            "row_duration_frames": diagnostic.rowDurationFrames,
+            "effective_speed": diagnostic.effectiveSpeed,
+            "effective_bpm": diagnostic.effectiveBPM,
+        ]
+    }
+
+    private static func timingChangeJSON(_ diagnostic: PlaybackSongSyntheticTimingChangeDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "row_start_frame": diagnostic.rowStartFrame,
+            "applies_to_synthetic_row_after": diagnostic.appliesToSyntheticRowAfter,
+            "kind": timingChangeKindName(diagnostic.kind),
+            "applied": diagnostic.applied,
+            "speed_before": diagnostic.speedBefore,
+            "bpm_before": diagnostic.bpmBefore,
+            "speed_after": diagnostic.speedAfter,
+            "bpm_after": diagnostic.bpmAfter,
+        ]
+    }
+
+    private static func volumeColumnMappingJSON(_ mapping: PlaybackSongSyntheticVolumeColumnMapping) -> [String: Any] {
+        [
+            "source": positionJSON(mapping.source),
+            "channel_index": mapping.channelIndex,
+            "synthetic_row": mapping.syntheticRow,
+            "synthetic_tick": mapping.syntheticTick,
+            "volume_column": volumeColumnDiagnosticJSON(mapping.volumeColumn),
+        ]
+    }
+
+    private static func ignoredCellJSON(_ cell: PlaybackSongSyntheticIgnoredCell) -> [String: Any] {
+        [
+            "source": positionJSON(cell.source),
+            "channel_index": cell.channelIndex,
+            "note": Int(cell.note),
+            "instrument_index": cell.instrumentIndex,
+            "reason": ignoredCellReasonName(cell.reason),
+            "volume_column": volumeColumnDiagnosticJSON(cell.volumeColumn),
+            "has_ignored_volume_column": cell.hasIgnoredVolumeColumn,
+            "has_ignored_effect": cell.hasIgnoredEffect,
+        ]
+    }
+
+    private static func deferredFieldJSON(_ field: PlaybackSongSyntheticDeferredCellField) -> [String: Any] {
+        [
+            "source": positionJSON(field.source),
+            "channel_index": field.channelIndex,
+            "note": Int(field.note),
+            "instrument_index": field.instrumentIndex,
+            "volume_column_raw": Int(field.volumeColumn),
+            "volume_column": volumeColumnDiagnosticJSON(field.volumeColumnDiagnostic),
+            "effect_type": Int(field.effectType),
+            "effect_param": Int(field.effectParam),
+            "field": deferredFieldName(field.field),
+        ]
+    }
+
+    private static func volumeColumnDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticVolumeColumnDiagnostic) -> [String: Any] {
+        var object: [String: Any] = [
+            "raw_value": Int(diagnostic.rawValue),
+            "command": volumeCommandJSON(diagnostic.command),
+            "classification": volumeColumnClassificationName(diagnostic.classification),
+            "applied": diagnostic.applied,
+            "ignored_as_empty_or_no_op": diagnostic.ignoredAsEmptyOrNoOp,
+            "deferred": diagnostic.deferred,
+        ]
+        put(diagnostic.appliedVolumeValue, forKey: "applied_volume_value", into: &object)
+        put(diagnostic.appliedGainMultiplier.map { Double($0) }, forKey: "applied_gain_multiplier", into: &object)
+        put(diagnostic.appliedPanningValue, forKey: "applied_panning_value", into: &object)
+        put(diagnostic.appliedPan.map { Double($0) }, forKey: "applied_pan", into: &object)
+        put(diagnostic.slideAmount, forKey: "slide_amount", into: &object)
+        put(diagnostic.slideDirection.map(slideDirectionName), forKey: "slide_direction", into: &object)
+        put(diagnostic.effectiveVolumeBefore, forKey: "effective_volume_before", into: &object)
+        put(diagnostic.effectiveVolumeAfter, forKey: "effective_volume_after", into: &object)
+        put(diagnostic.effectivePanBefore.map { Double($0) }, forKey: "effective_pan_before", into: &object)
+        put(diagnostic.effectivePanAfter.map { Double($0) }, forKey: "effective_pan_after", into: &object)
+        put(diagnostic.behavior.map(volumeColumnBehaviorName), forKey: "behavior", into: &object)
+        return object
+    }
+
+    private static func positionJSON(_ position: PlaybackPosition) -> [String: Any] {
+        [
+            "order": position.orderIndex,
+            "pattern": position.patternIndex,
+            "row": position.rowIndex,
+        ]
+    }
+
+    private static func volumeCommandJSON(_ command: PlaybackSongSyntheticVolumeColumnCommand) -> [String: Any] {
+        switch command {
+        case .none:
+            return ["name": "none"]
+        case let .setVolume(value):
+            return ["name": "setVolume", "value": value]
+        case let .volumeSlideDown(amount):
+            return ["name": "volumeSlideDown", "amount": amount]
+        case let .volumeSlideUp(amount):
+            return ["name": "volumeSlideUp", "amount": amount]
+        case let .fineVolumeSlideDown(amount):
+            return ["name": "fineVolumeSlideDown", "amount": amount]
+        case let .fineVolumeSlideUp(amount):
+            return ["name": "fineVolumeSlideUp", "amount": amount]
+        case let .setVibratoSpeed(amount):
+            return ["name": "setVibratoSpeed", "amount": amount]
+        case let .vibrato(amount):
+            return ["name": "vibrato", "amount": amount]
+        case let .setPanning(value):
+            return ["name": "setPanning", "value": value]
+        case let .panningSlideLeft(amount):
+            return ["name": "panningSlideLeft", "amount": amount]
+        case let .panningSlideRight(amount):
+            return ["name": "panningSlideRight", "amount": amount]
+        case let .tonePortamento(amount):
+            return ["name": "tonePortamento", "amount": amount]
+        case let .unsupported(rawValue):
+            return ["name": "unsupported", "raw_value": Int(rawValue)]
+        }
+    }
+
+    private static func put(_ value: Any?, forKey key: String, into object: inout [String: Any]) {
+        if let value {
+            object[key] = value
+        }
+    }
+
+    private static func seconds(forFrame frame: Int, sampleRate: Double) -> Double? {
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            return nil
+        }
+        return Double(frame) / sampleRate
+    }
+
+    private static func orderStatusName(_ status: PlaybackSongSyntheticOrderDiagnostic.Status) -> String {
+        switch status {
+        case .adapted:
+            return "adapted"
+        case .invalidOrder:
+            return "invalid_order"
+        case .missingPattern:
+            return "missing_pattern"
+        }
+    }
+
+    private static func timingChangeKindName(_ kind: PlaybackSongSyntheticTimingChangeDiagnostic.Kind) -> String {
+        switch kind {
+        case .speed:
+            return "speed"
+        case .bpm:
+            return "bpm"
+        case .ignoredF00:
+            return "ignored_f00"
+        }
+    }
+
+    private static func volumeColumnClassificationName(_ classification: PlaybackSongSyntheticVolumeColumnClassification) -> String {
+        switch classification {
+        case .ignoredNoOp:
+            return "ignored_no_op"
+        case .supported:
+            return "supported"
+        case .deferred:
+            return "deferred"
+        }
+    }
+
+    private static func slideDirectionName(_ direction: PlaybackSongSyntheticVolumeColumnSlideDirection) -> String {
+        switch direction {
+        case .volumeDown:
+            return "volume_down"
+        case .volumeUp:
+            return "volume_up"
+        case .panningLeft:
+            return "panning_left"
+        case .panningRight:
+            return "panning_right"
+        }
+    }
+
+    private static func volumeColumnBehaviorName(_ behavior: PlaybackSongSyntheticVolumeColumnBehavior) -> String {
+        switch behavior {
+        case .rowLevelApproximation:
+            return "row_level_approximation"
+        }
+    }
+
+    private static func loopModeName(_ mode: MixerSampleLoopMode) -> String {
+        switch mode {
+        case .none:
+            return "none"
+        case .forward:
+            return "forward"
+        case .pingPong:
+            return "ping_pong"
+        }
+    }
+
+    private static func volumeEnvelopeStatusName(_ status: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus) -> String {
+        switch status {
+        case .absent:
+            return "absent"
+        case .disabled:
+            return "disabled"
+        case .invalidOrEmptyIgnored:
+            return "invalid_or_empty_ignored"
+        case .mapped:
+            return "mapped"
+        }
+    }
+
+    private static func finetuneStatusName(_ status: PlaybackSongSyntheticEventMapping.FinetuneStatus) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .deferred:
+            return "deferred"
+        }
+    }
+
+    private static func frequencyTableStatusName(_ status: PlaybackSongSyntheticEventMapping.FrequencyTableStatus) -> String {
+        switch status {
+        case .linearApplied:
+            return "linear_applied"
+        case .amigaTableDeferredLinearApproximation:
+            return "amiga_table_deferred_linear_approximation"
+        }
+    }
+
+    private static func ignoredCellReasonName(_ reason: PlaybackSongSyntheticIgnoredCell.Reason) -> String {
+        switch reason {
+        case .emptyNote:
+            return "empty_note"
+        case .keyOff:
+            return "key_off"
+        case .invalidNote:
+            return "invalid_note"
+        case .missingInstrument:
+            return "missing_instrument"
+        case .noPlayableSample:
+            return "no_playable_sample"
+        }
+    }
+
+    private static func deferredFieldName(_ field: PlaybackSongSyntheticDeferredCellField.Field) -> String {
+        switch field {
+        case .volumeColumn:
+            return "volume_column"
+        case .effect:
+            return "effect"
+        case .keyOff:
+            return "key_off"
+        case .volumeEnvelopeSustain:
+            return "volume_envelope_sustain"
+        case .volumeEnvelopeLoop:
+            return "volume_envelope_loop"
+        case .volumeEnvelopeFadeout:
+            return "volume_envelope_fadeout"
+        }
+    }
+}
+
 private extension URL {
     func isInside(_ parent: URL) -> Bool {
         relativePath(from: parent) != nil
@@ -373,6 +825,8 @@ private func usage() -> String {
     Options:
       --input PATH          Local XM module path. Required.
       --output PATH         Local candidate WAV path. Required; prefer /tmp.
+      --diagnostics-json PATH
+                            Optional local adapter diagnostics JSON path; prefer /tmp.
       --order N             Zero-based order index to render. Required.
       --order-count N       Number of playable orders to include. Default: 1.
       --rows N              Render this many flattened rows from the bounded range.
@@ -398,6 +852,9 @@ private func printSummary(
     print("Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.")
     print("Module: \(URL(fileURLWithPath: arguments.inputPath).standardizedFileURL.path)")
     print("Output: \(URL(fileURLWithPath: arguments.outputPath).standardizedFileURL.path)")
+    if let diagnosticsJSONPath = arguments.diagnosticsJSONPath {
+        print("Diagnostics JSON: \(URL(fileURLWithPath: diagnosticsJSONPath).standardizedFileURL.path)")
+    }
     print("Order range: \(arguments.order)..<\(arguments.order + arguments.orderCount)")
     if let rows = arguments.rows {
         print("Rows requested: \(rows)")

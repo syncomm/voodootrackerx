@@ -30,7 +30,8 @@ Current implementation state:
 - First-pass XM playback exists and remains useful for smoke testing, but it is not yet MikMod/OpenMPT accurate.
 - Runtime playback currently remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based through `PlaybackAudioEngine`.
 - ADR 004 introduced the deterministic software mixer transition; the current Swift `SoftwareMixer` remains the reference/spec path, and the C-backed offline mixer now covers synthetic one-shot sample voices, forward/ping-pong loops, volume/panning envelope foundations, absolute-frame scheduling, synthetic row/tick timing, minimal synthetic patterns, and bounded `PlaybackSong` adapter renders with parsed volume-envelope point mapping and a minimal note-to-sample-step foundation.
-- The C-backed mixer remains offline-only and is not the runtime playback backend. Local modules such as `_DARKL.XM` must stay uncommitted and must not become fixtures.
+- The C-backed mixer remains offline-only and is not the runtime playback backend. Local/private modules must stay uncommitted and must not become fixtures.
+- For local MikMod WAV reference renders, read `docs/audio-comparison.md` first and use one-pass playlist mode such as `--playmode 0`; the default MikMod playlist mode can repeat a single module into a giant WAV when using the disk writer.
 
 ---
 

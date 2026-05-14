@@ -40,6 +40,14 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 comparisons are more meaningful for simple volume, stereo placement, and
 timing-alignment checks in bounded segments.
 
+The helper can also export the bounded adapter diagnostics that already exist in
+memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
+with `scripts/audio-compare.py` JSON and produce a local Markdown report that
+maps worst mismatch windows to approximate source rows, channels, note/sample
+events, pitch steps, volume-column decisions, Fxx timing changes, envelope
+status, and loop metadata. This is still diagnostic evidence only; it does not
+prove correctness or choose fixes automatically.
+
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
@@ -76,13 +84,16 @@ automatic fix.
 4. Run `scripts/local-reference-compare-smoke.py` or
    `scripts/audio-compare.py` on the existing candidate/reference WAVs. Keep
    JSON and Markdown reports local.
-5. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
+5. If diagnostics JSON was exported, run
+   `scripts/correlate-audio-comparison.py` to map worst mismatch windows to
+   nearby bounded adapter rows/events. Keep the correlation report local.
+6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
-   then fill it from the comparison JSON/Markdown, trace notes, and local
-   listening notes. Do not commit the filled report when it contains
+   then fill it from the comparison JSON/Markdown, correlation report, trace
+   notes, and local listening notes. Do not commit the filled report when it contains
    private-module-derived findings.
-6. Inspect the worst mismatch windows and classify the likely mismatch category.
+7. Inspect the worst mismatch windows and classify the likely mismatch category.
    Use that classification to choose one narrow next PR.
 
 The committed template is blank and safe to review. Filled reports, local WAVs,
@@ -96,6 +107,7 @@ Build and run the developer-only helper from the repo root:
 swift run vtx_render_bounded_xm \
   --input /path/to/local-module.xm \
   --output /tmp/vtx-candidate.wav \
+  --diagnostics-json /tmp/vtx-candidate-diagnostics.json \
   --order 10 \
   --order-count 1 \
   --rows 16 \
@@ -114,6 +126,7 @@ Local/private module example:
 swift run vtx_render_bounded_xm \
   --input /path/to/local-module.xm \
   --output /tmp/vtx-local-module-order-10-candidate.wav \
+  --diagnostics-json /tmp/vtx-local-module-order-10-candidate-diagnostics.json \
   --order 10 \
   --rows 16 \
   --sample-rate 44100
@@ -124,13 +137,54 @@ workstation only. Do not commit, upload, copy them into fixtures, or require
 them from automated tests. Candidate WAVs derived from them must stay local and
 out of git.
 
+## Correlate Mismatch Windows With Adapter Diagnostics
+
+After generating a comparison JSON and candidate diagnostics JSON, write a
+local-only correlation report:
+
+```bash
+python3 scripts/correlate-audio-comparison.py \
+  --comparison-json /tmp/vtx-audio-compare.json \
+  --diagnostics-json /tmp/vtx-candidate-diagnostics.json \
+  --output-markdown /tmp/vtx-audio-correlation.md \
+  --label local-module-order-10-rows-16 \
+  --metadata "order 10, rows 16, 44100 Hz, local reference renderer settings recorded separately"
+```
+
+The report is approximate. It maps comparison window start/end times to frame
+ranges, then lists:
+
+- row timing diagnostics whose frame ranges overlap each worst mismatch window
+- candidate events whose scheduled frame ranges overlap each window
+- recent candidate events that precede the window when no event directly overlaps
+- source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
+  step, volume-column classification, Fxx timing changes, envelope status, and
+  loop mode when those fields are present
+
+Missing diagnostics fields are reported as unavailable. If no candidate event
+overlaps a mismatch window, the report says so explicitly and shows nearby row
+or preceding-event context when available.
+
+Use the correlation report to choose the next smallest implementation PR. For
+example, if high mismatch windows repeatedly line up with non-neutral pitch
+steps, choose a pitch/period accuracy pass. If they line up with deferred
+effect-column events, choose one specific effect such as sample offset, note
+cut/delay, or retrigger. If mismatch windows are broad and steady while events
+look plausible, interpolation or reference-render settings may be the better
+next investigation.
+
+Order 10 and order 30 of a local/private module can be useful exploratory
+bounded targets when they expose dense transitions. They remain local-only
+debugging inputs. Do not commit the module or any generated WAV, JSON,
+Markdown, trace, screenshot, log, or filled findings artifact derived from it.
+
 ## Compare Two WAV Files
 
 Local-only workflow:
 
 1. Produce a bounded VoodooTracker X candidate WAV with
-   `swift run vtx_render_bounded_xm`, writing outside the repo, for example
-   under `/tmp`.
+   `swift run vtx_render_bounded_xm`, optionally with `--diagnostics-json`,
+   writing outside the repo, for example under `/tmp`.
 2. Produce a bounded reference WAV with OpenMPT/libopenmpt/openmpt123, MikMod,
    or another local reference renderer using documented local settings.
 3. Run either `scripts/local-reference-compare-smoke.py` or
@@ -199,10 +253,18 @@ the repository:
 openmpt123 --render /tmp/openmpt-reference.wav /path/to/local-module.xm
 ```
 
-MikMod is also acceptable when installed locally:
+MikMod is also acceptable when installed locally, but do not use its default
+playlist mode with the WAV disk writer. On MikMod 3.2.9 the default playlist
+mode can repeat a single module into the same WAV indefinitely, creating
+multi-GB files. Use one-pass playlist mode and disable user config when making
+local references:
 
 ```bash
-mikmod -q -d 2,file=/tmp/mikmod-reference.wav -f 44100 -o 16s /path/to/local-module.xm
+mikmod -norc -q --playmode 0 --noloops \
+  -d 2,file=/tmp/mikmod-reference.wav \
+  -f 44100 \
+  -o 16s \
+  /path/to/local-module.xm
 ```
 
 Renderer settings matter. Record renderer name/version, sample rate,
@@ -210,6 +272,14 @@ interpolation mode, ramping/fade behavior, loop handling, gain, and any bounded
 duration settings in local notes or PR summaries. Different renderer defaults
 can move mismatch windows or change RMS metrics even when both renders are
 reasonable.
+
+For agents: never start a MikMod disk-writer render that can grow without a
+clear stop condition. Monitor the file size and process status while it runs.
+If `--playmode 0` is not accepted by the installed MikMod, use another local
+reference renderer or an explicit time/size-capped wrapper. A one-pass 44.1 kHz
+stereo PCM16 render of a roughly 3:25 module is about 35 MB; growth into GBs is
+a sign that the module or playlist is repeating and the process should be
+stopped before it can fill the disk.
 
 Reference renderer bounding may need workarounds. MikMod and some OpenMPT CLI
 flows may not support exact order/row-bounded rendering from the command line,
@@ -255,8 +325,8 @@ time ranges. Treat them as leads:
   should be fixed in local render settings first
 
 Lower numeric difference is not automatically "more correct" tracker behavior.
-Use the report alongside playback traces and source-to-synthetic diagnostics to
-pick a focused follow-up.
+Use the report alongside playback traces, source-to-synthetic diagnostics, and
+the correlation report to pick a focused follow-up.
 
 Likely categories to consider when filling the findings template:
 

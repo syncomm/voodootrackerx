@@ -48,6 +48,11 @@ vtx-local-reference-comparison*/
 *-audio-compare.json
 *-audio-compare.md
 *-audio-compare.txt
+*-candidate-diagnostics.json
+*-diagnostics.json
+*-audio-correlation.md
+*-correlation.md
+*-correlation.txt
 *-local-audio-findings.md
 *-local-audio-findings.txt
 *-candidate.wav

@@ -16,7 +16,7 @@ PlaybackSong / PlaybackSongBuilder
 
 This began as a planning document. The minimal bounded adapter now exists, but
 it still does not connect real parsed XM playback to the C mixer, change runtime
-playback, implement XM effects, or add WAV export.
+playback, implement XM effects, or provide a full public module-rendering CLI.
 
 ## Implementation Status
 
@@ -47,15 +47,19 @@ The adapter and helper are still intentionally not full pitch parity. Linear
 frequency songs use a small deterministic equal-tempered note-to-step mapping
 based on sample base rate, note value, relative note, and finetune. Amiga table
 behavior is not implemented; non-linear songs are reported as using a deferred
-Amiga-table path with the same minimal linear approximation. XM effects are
-ignored, volume columns are ignored, and tempo changes after initial timing are
-ignored. Parsed `PlaybackInstrument.volumeEnvelope` points are mapped to the
-existing frame-based `MixerEnvelope` representation for bounded offline adapted
-renders when a playable sample voice is emitted. Sustain, loop, key-off, and
-fadeout envelope semantics remain deferred and are reported in diagnostics when
-present. Runtime playback still uses `AVAudioPlayerNode` through the existing
-playback path; the C mixer is still not used for live playback, and full real XM
-playback through the C mixer has not been implemented.
+Amiga-table path with the same minimal linear approximation. XM effect-column
+commands are ignored, tempo changes after initial timing are ignored, and only
+the conservative XM volume-column set-volume (`0x10...0x50`) and set-panning
+(`0xC0...0xCF`) commands are applied to bounded offline adapted event gain/pan.
+Volume-column slides, vibrato, tone-portamento, and undefined ranges remain
+deferred and are reported in diagnostics. Parsed
+`PlaybackInstrument.volumeEnvelope` points are mapped to the existing
+frame-based `MixerEnvelope` representation for bounded offline adapted renders
+when a playable sample voice is emitted. Sustain, loop, key-off, and fadeout
+envelope semantics remain deferred and are reported in diagnostics when present.
+Runtime playback still uses `AVAudioPlayerNode` through the existing playback
+path; the C mixer is still not used for live playback, and full real XM playback
+through the C mixer has not been implemented.
 
 ## Current Parsed Playback Model
 
@@ -171,10 +175,11 @@ The current adapter implementation is intentionally small:
   `0` as empty, `97` as deferred key-off, and other values as ignored.
 - Select `PlaybackInstrument.firstPlayableSample`.
 - Copy `PlaybackSample.pcm` into `MixerSampleBuffer`.
-- Use `PlaybackSample.volume` as event gain.
+- Use `PlaybackSample.volume` as base event gain, multiplying it by supported
+  volume-column set-volume values when present.
 - Map `PlaybackSample.loopRegion` to `.none`, `.forward`, or `.pingPong`.
-- Use a neutral pan default, or the existing tracker default panning only if
-  that is trivial and testable without importing effect semantics.
+- Use a neutral pan default, or map supported volume-column set-panning values
+  through the existing `-1.0...1.0` C mixer pan convention.
 - Schedule triggers at tick `0` of each source row.
 - Render only tiny bounded offline segments in tests.
 - Use synthetic or redistribution-safe parsed fixtures, or tiny hand-built
@@ -189,13 +194,14 @@ The current adapter does not:
 
 - switch live playback to the C mixer
 - wire the app's Play button into the C mixer
-- implement effects or volume-column semantics
+- implement effect-column commands
+- implement full XM volume-column parity
 - implement tempo/BPM changes after the initial timing
 - implement pattern break, position jump, or pattern delay
 - implement sample offset
 - implement note delay, note cut, retrigger, or key-off behavior
 - implement full FT2/OpenMPT period/frequency behavior
-- add WAV export
+- provide full-song WAV export or a public module-rendering CLI
 - use `_DARKL.XM` in automated tests
 
 ## Data Mapping
@@ -211,12 +217,12 @@ The current adapter does not:
 | `PlaybackRow.index` | `SyntheticTrackerEvent.row` | Map to flattened row offset plus row index. | Pattern delay and row-repeat semantics later. |
 | `PlaybackCell.note` | Trigger decision and playback step | Trigger only for `1...96`, deriving a minimal sample step from note/sample metadata; ignore empty, key-off, and invalid notes. | Full pitch/period accuracy, key-off, note cut/delay, retrigger later. |
 | `PlaybackCell.instrument` | Sample lookup | Use `PlaybackSong.sample(forInstrument:)`, currently first playable sample. | Multisample/keymap and instrument fallback semantics later. |
-| `PlaybackCell.volumeColumn` | None initially | Ignore. | Volume-column integration PR later. |
+| `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`) as `sample.volume * value / 64`, apply set-panning (`0xC0...0xCF`) through the C mixer pan convention, and report all volume-column decode decisions. | Slides, vibrato, tone portamento, effect memory, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | None initially | Ignore. | Targeted effect integration PRs later. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
 | `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using `PlaybackSong.initialTiming` and the render sample rate. Diagnostics record absent, disabled, invalid/empty, and mapped states. | Sustain, loop, key-off, fadeout semantics, and any timing changes after initial speed/BPM. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
-| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as basic gain. | Combine with channel, global, volume-column, envelope, and fadeout state later. |
+| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by supported set-volume volume-column values. Parsed volume envelopes remain separate mixer envelopes that multiply this gain at render time. | Channel/global/fadeout state and full effect integration later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and finetune in the minimal note-to-step calculation; report finetune as applied for valid mappings or deferred on neutral fallback. | Full FT2/OpenMPT note-to-frequency and period behavior later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. | FT2 loop/sample-offset quirks later. |
 | `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using constant initial timing; report sustain, loop, and fadeout as deferred. | Sustain, loop, key-off, fadeout semantics, and timing changes later. |
@@ -231,7 +237,7 @@ The current adapter does not:
 | Incorrect note-to-frequency behavior. | The adapter labels this as a minimal pitch foundation only. Tests cover deterministic relative step behavior, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
 | Instrument/sample selection complexity. | Use `firstPlayableSample` exactly like `PlaybackSong.sample(forInstrument:)`. Defer keymaps and multisample selection. |
-| Volume-column and effect semantics are deferred but may be mistaken as supported. | Ignore them in code, assert that ignored fields do not change first-adapter output, and document compatibility limits in test names. |
+| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume and set-panning in the bounded adapter, defer slides/vibrato/tone-portamento/effect-column behavior in diagnostics, and document compatibility limits in test names. |
 | Tempo changes are deferred. | Use only `PlaybackSong.initialTiming` and add a fixture with an `Fxx` cell that remains ignored in the first adapter. |
 | Local `_DARKL.XM` temptation. | Keep `_DARKL.XM` manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
@@ -261,7 +267,10 @@ bounded offline rendering:
 - Assert parsed volume envelope points map to frame-based mixer envelope points
   using constant initial timing.
 - Assert disabled, empty, and invalid parsed volume envelopes are ignored safely.
-- Assert effects and volume-column fields are ignored in the first adapter.
+- Assert supported set-volume and set-panning volume-column fields affect
+  bounded offline output and diagnostics.
+- Assert unsupported volume-column commands and effect-column fields remain
+  deferred/ignored in the adapter.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -286,7 +295,8 @@ bounded offline rendering:
 6. Local-only reference render workflow against MikMod/OpenMPT once bounded
    parsed offline renders exist.
 7. Targeted timing effect integration, starting with `Fxx` speed/BPM changes.
-8. Volume-column integration.
+8. Done: conservative volume-column set-volume/set-panning integration for
+   bounded offline adapted renders.
 9. Focused pitch/period accuracy pass for full note-to-frequency behavior.
 10. Additional targeted effects such as sample offset, note delay/cut,
    retrigger, arpeggio, portamento, vibrato, slides, pattern break, and
@@ -325,15 +335,15 @@ This adapter bridge work does not:
 - switch runtime playback to the C mixer
 - wire real parsed XM modules into live C mixer playback
 - implement full XM playback
-- implement XM effects
+- implement XM effect-column commands
 - implement full FT2/OpenMPT period/frequency behavior
 - implement sample offset
 - implement note delay, note cut, or retrigger
 - implement global volume
-- implement volume-column semantics
+- implement full volume-column semantics beyond set-volume and set-panning
 - implement pattern break or position jump
 - implement tempo/BPM changes beyond initial timing
-- implement WAV export
+- provide full-song WAV export or a public module-rendering CLI
 - delete or rewrite the Swift `SoftwareMixer`
 - refactor parser architecture
 - touch tracker viewport/rendering behavior

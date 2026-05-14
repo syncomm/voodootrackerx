@@ -28,12 +28,16 @@ segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.
 This is not a full module render command and there is no app UI or live playback
 integration. The helper is intended for tiny, explicit, bounded local candidate
-renders only.
+renders only. Candidate renders now include conservative adapter support for
+volume-column set-volume (`0x10...0x50`) and set-panning (`0xC0...0xCF`), so
+local comparisons are more meaningful for simple volume and stereo placement
+checks in bounded segments.
 
 Current C-backed candidate renders are still expected to differ from
-OpenMPT/MikMod for real modules because XM effects, volume-column semantics,
-interpolation, full FT2/OpenMPT pitch parity, true Amiga frequency-table
-behavior, tempo/BPM changes, and full song traversal remain deferred.
+OpenMPT/MikMod for real modules because XM effect-column behavior,
+volume-column behavior beyond set-volume/set-panning, interpolation, full
+FT2/OpenMPT pitch parity, true Amiga frequency-table behavior, tempo/BPM
+changes, and full song traversal remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary

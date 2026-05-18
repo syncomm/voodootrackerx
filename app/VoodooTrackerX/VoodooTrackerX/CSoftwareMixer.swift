@@ -76,9 +76,10 @@ final class CSoftwareMixer {
     /// Adds one synthetic sample voice and copies its PCM data into C-owned storage.
     ///
     /// The C-backed path supports the same synthetic no-loop, forward-loop, and ping-pong-loop modes used by
-    /// the Swift reference mixer tests. Callers may provide an explicit source-sample playback step; fractional
-    /// source positions are rendered with deterministic linear interpolation. This wrapper intentionally does
-    /// not implement FT2/OpenMPT resampler parity, sample offsets, timing effects, or XM instrument ownership.
+    /// the Swift reference mixer tests. Callers may provide an explicit source-sample playback step and initial
+    /// source frame; fractional source positions are rendered with deterministic linear interpolation. This
+    /// wrapper intentionally does not implement FT2/OpenMPT resampler parity, timing effects, or XM instrument
+    /// ownership.
     @discardableResult
     func addVoice(
         sample: MixerSampleBuffer,
@@ -86,6 +87,7 @@ final class CSoftwareMixer {
         pan: Float = 0,
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
@@ -93,13 +95,15 @@ final class CSoftwareMixer {
     ) -> Int {
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
+        let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_sample_voice_with_step(
+            vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
                 &state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
                 playbackStep,
+                sanitizedInitialSourceFrame,
                 gain,
                 pan,
                 Self.cLoopMode(from: sanitizedLoop.mode),
@@ -134,6 +138,7 @@ final class CSoftwareMixer {
         pan: Float = 0,
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
@@ -144,13 +149,15 @@ final class CSoftwareMixer {
         }
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
+        let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_scheduled_sample_voice_with_step(
+            vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
                 &state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
                 playbackStep,
+                sanitizedInitialSourceFrame,
                 gain,
                 pan,
                 Self.cLoopMode(from: sanitizedLoop.mode),
@@ -278,6 +285,13 @@ final class CSoftwareMixer {
         case .pingPong:
             return VTX_C_MIXER_LOOP_PING_PONG
         }
+    }
+
+    private static func sanitizedInitialSourceFrame(_ sourceFrame: Int) -> UInt32 {
+        guard sourceFrame > 0 else {
+            return 0
+        }
+        return UInt32(clamping: sourceFrame)
     }
 
     private static func withCEnvelope(

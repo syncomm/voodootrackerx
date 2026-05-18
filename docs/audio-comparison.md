@@ -36,9 +36,12 @@ integration. The helper is intended for tiny, explicit, bounded local candidate
 renders only. Candidate renders now include conservative adapter support for
 volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
-(`0xD0...0xEF`), and minimal `Fxx` speed/BPM timing changes, so local
-comparisons are more meaningful for simple volume, stereo placement, and
-timing-alignment checks in bounded segments. Linear-frequency songs also carry
+(`0xD0...0xEF`), minimal `Fxx` speed/BPM timing changes, and minimal nonzero
+`9xx` sample offsets on same-cell note triggers, so local comparisons are more
+meaningful for simple volume, stereo placement, timing-alignment, and obvious
+sample-start checks in bounded segments. `900` remains a diagnosed no-op rather
+than effect memory, and out-of-range `9xx` offsets are reported as skipped
+voices. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
 events. Fractional C-backed offline sample steps use simple deterministic
 linear interpolation; diagnostics JSON reports this as `sample_interpolation`
@@ -53,8 +56,8 @@ memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
-volume-column decisions, Fxx timing changes, envelope sustain/loop/key-off/fadeout
-status, and loop metadata.
+volume-column decisions, Fxx timing changes, sample-offset decisions, envelope
+sustain/loop/key-off/fadeout status, and loop metadata.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 
@@ -169,8 +172,8 @@ ranges, then lists:
 - recent candidate events that precede the window when no event directly overlaps
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, volume-column classification,
-  Fxx timing changes, envelope status, loop mode, and render interpolation
-  status when those fields are present
+  Fxx timing changes, sample-offset status, envelope status, loop mode, and
+  render interpolation status when those fields are present
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
@@ -179,10 +182,12 @@ or preceding-event context when available.
 Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with deferred
-effect-column events, choose one specific effect such as sample offset, note
-cut/delay, or retrigger. If mismatch windows are broad and steady while events
-look plausible, remaining resampling details or reference-render settings may
-be the better next investigation.
+effect-column events, choose one specific remaining effect such as note
+cut/delay or retrigger. If mismatch windows repeatedly line up with diagnosed
+`900` no-ops, decide separately whether effect memory is worth a narrow PR. If
+mismatch windows are broad and steady while events look plausible, remaining
+resampling details or reference-render settings may be the better next
+investigation.
 
 Order 10 and order 30 of a local/private module can be useful exploratory
 bounded targets when they expose dense transitions. They remain local-only

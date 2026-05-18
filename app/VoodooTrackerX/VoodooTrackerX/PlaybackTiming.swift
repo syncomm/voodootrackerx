@@ -122,6 +122,7 @@ struct SyntheticTrackerEvent: Equatable {
     let pan: Float
     let playbackStep: Double
     let loop: MixerSampleLoop
+    let initialSourceFrame: Int
     let volumeEnvelope: MixerEnvelope?
     let panEnvelope: MixerEnvelope?
     let keyOffFrame: Int?
@@ -136,6 +137,7 @@ struct SyntheticTrackerEvent: Equatable {
         pan: Float = 0,
         playbackStep: Double = 1,
         loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
         volumeEnvelope: MixerEnvelope? = nil,
         panEnvelope: MixerEnvelope? = nil,
         keyOffFrame: Int? = nil,
@@ -149,6 +151,7 @@ struct SyntheticTrackerEvent: Equatable {
         self.pan = pan
         self.playbackStep = playbackStep.isFinite && playbackStep > 0 ? playbackStep : 1
         self.loop = loop
+        self.initialSourceFrame = max(0, initialSourceFrame)
         self.volumeEnvelope = volumeEnvelope
         self.panEnvelope = panEnvelope
         self.keyOffFrame = keyOffFrame.map { max(0, $0) }
@@ -165,6 +168,7 @@ struct SyntheticTrackerEvent: Equatable {
             pan: pan,
             playbackStep: playbackStep,
             loop: loop,
+            initialSourceFrame: initialSourceFrame,
             volumeEnvelope: volumeEnvelope,
             panEnvelope: panEnvelope,
             keyOffFrame: frame,
@@ -200,6 +204,7 @@ struct SyntheticTrackerScheduler: Equatable {
             pan: event.pan,
             playbackStep: event.playbackStep,
             loop: event.loop,
+            initialSourceFrame: event.initialSourceFrame,
             volumeEnvelope: event.volumeEnvelope,
             panEnvelope: event.panEnvelope,
             keyOffFrame: event.keyOffFrame,

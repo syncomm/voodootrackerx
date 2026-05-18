@@ -372,8 +372,8 @@ def append_event_table(
         lines.append("- None.")
         return
     lines.extend([
-        "| Source | Channel | Note | Instrument/Sample | Frames | Pitch | Gain/Pan | Volume Column | Fxx | Envelope | Loop |",
-        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Source | Channel | Note | Instrument/Sample | Frames | Pitch | Gain/Pan | Volume Column | Sample Offset | Fxx | Envelope | Loop |",
+        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ])
     for event in events:
         source = nested_dict(event.get("source"))
@@ -388,6 +388,7 @@ def append_event_table(
             f"{pitch_label(nested_dict(event.get('pitch')))} | "
             f"{format_optional_float(event.get('gain'))}/{format_optional_float(event.get('pan'))} | "
             f"{volume_column_label(nested_dict(event.get('volume_column')))} | "
+            f"{sample_offset_label(nested_dict(event.get('sample_offset')))} | "
             f"{fxx_label(change_index.get(key, []))} | "
             f"{envelope_label(nested_dict(event.get('volume_envelope')))} | "
             f"{format_optional(event.get('loop_mode'))} |"
@@ -457,6 +458,27 @@ def volume_column_label(volume_column: dict[str, Any]) -> str:
         f"raw {format_optional(volume_column.get('raw_value'))} "
         f"{command_name} / {format_optional(volume_column.get('classification'))}"
     )
+
+
+def sample_offset_label(sample_offset: dict[str, Any]) -> str:
+    if not sample_offset:
+        return "unavailable"
+    status = str(sample_offset.get("status", "unavailable"))
+    computed = integer(sample_offset.get("computed_offset_frames"))
+    applied = integer(sample_offset.get("applied_offset_frames"))
+    selected_length = integer(sample_offset.get("selected_sample_length"))
+    if status == "not_present":
+        return "none"
+    if status == "applied":
+        return f"9xx applied offset {format_optional(applied)}"
+    if status == "ignored_900_no_op":
+        return "900 ignored no-op"
+    if status == "out_of_range_skipped":
+        return (
+            f"9xx skipped offset {format_optional(computed)} "
+            f"len {format_optional(selected_length)}"
+        )
+    return status
 
 
 def fxx_label(changes: list[dict[str, Any]]) -> str:

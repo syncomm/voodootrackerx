@@ -401,6 +401,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
                 "C-backed offline sample stepping uses simple deterministic linear interpolation.",
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
+                "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -419,6 +420,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "emitted_event_count": diagnostics.emittedEventCount,
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
+                "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
             ],
             "orders": diagnostics.adaptedOrders.map(orderJSON),
             "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
@@ -426,6 +428,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
             "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
             "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
+            "sample_offset_effects": diagnostics.sampleOffsetEffects.map(sampleOffsetDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -441,12 +444,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             let startFrame = event?.scheduledStartFrame ?? 0
             let playbackStep = event?.playbackStep ?? mapping.playbackStep
             let sampleFrameCount = event?.sample.frameCount ?? 0
+            let initialSourceFrame = event?.initialSourceFrame ?? mapping.sampleOffset.appliedOffsetFrames ?? 0
             let durationFrames: Int
             let durationReason: String
             if mapping.loopMode == .none {
+                let remainingSourceFrames = max(0, sampleFrameCount - initialSourceFrame)
                 let estimated = playbackStep > 0
-                    ? Int((Double(sampleFrameCount) / playbackStep).rounded(.up))
-                    : sampleFrameCount
+                    ? Int((Double(remainingSourceFrames) / playbackStep).rounded(.up))
+                    : remainingSourceFrames
                 durationFrames = max(1, estimated)
                 durationReason = "one_shot_sample_length"
             } else {
@@ -460,6 +465,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "note": Int(mapping.note),
                 "instrument_index": mapping.instrumentIndex,
                 "sample_index": mapping.sampleIndex,
+                "effect_type": Int(mapping.effectType),
+                "effect_param": Int(mapping.effectParam),
                 "synthetic_row": mapping.syntheticRow,
                 "synthetic_tick": mapping.syntheticTick,
                 "event_index": mapping.eventIndex,
@@ -468,10 +475,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "estimated_duration_frames": durationFrames,
                 "duration_estimate_reason": durationReason,
                 "sample_frame_count": sampleFrameCount,
+                "initial_source_frame": initialSourceFrame,
                 "gain": Double(event?.gain ?? 0),
                 "pan": Double(event?.pan ?? mapping.effectivePan),
                 "loop_mode": loopModeName(mapping.loopMode),
                 "volume_column": volumeColumnDiagnosticJSON(mapping.volumeColumn),
+                "sample_offset": sampleOffsetDiagnosticJSON(mapping.sampleOffset),
                 "has_ignored_volume_column": mapping.hasIgnoredVolumeColumn,
                 "has_ignored_effect": mapping.hasIgnoredEffect,
                 "effective_volume_value": mapping.effectiveVolumeValue,
@@ -674,6 +683,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return object
     }
 
+    private static func sampleOffsetDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticSampleOffsetDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": sampleOffsetStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "skipped": diagnostic.skipped,
+            "out_of_range": diagnostic.outOfRange,
+            "computed_offset_frames": diagnostic.computedOffsetFrames,
+            "applied_offset_frames": diagnostic.appliedOffsetFrames.map { $0 as Any } ?? NSNull(),
+            "selected_sample_length": diagnostic.selectedSampleLength.map { $0 as Any } ?? NSNull(),
+        ]
+    }
+
     private static func positionJSON(_ position: PlaybackPosition) -> [String: Any] {
         [
             "order": position.orderIndex,
@@ -779,6 +809,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func sampleOffsetStatusName(_ status: PlaybackSongSyntheticSampleOffsetDiagnostic.Status) -> String {
+        switch status {
+        case .notPresent:
+            return "not_present"
+        case .applied:
+            return "applied"
+        case .ignored900NoOp:
+            return "ignored_900_no_op"
+        case .outOfRangeSkipped:
+            return "out_of_range_skipped"
+        }
+    }
+
     private static func loopModeName(_ mode: MixerSampleLoopMode) -> String {
         switch mode {
         case .none:
@@ -833,6 +876,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "missing_instrument"
         case .noPlayableSample:
             return "no_playable_sample"
+        case .sampleOffsetOutOfRange:
+            return "sample_offset_out_of_range"
         }
     }
 

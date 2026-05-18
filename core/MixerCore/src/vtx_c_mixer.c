@@ -453,6 +453,7 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     uint32_t loop_start_frame,
     uint32_t loop_end_frame,
     uint64_t scheduled_start_frame,
+    uint32_t initial_sample_frame,
     int reject_past_scheduled_start,
     uint32_t *out_voice_index
 ) {
@@ -491,7 +492,8 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     memset(voice, 0, sizeof(*voice));
     voice->sample_pcm = sample_copy;
     voice->sample_frame_count = sample_frame_count;
-    voice->sample_position = 0.0;
+    voice->initial_sample_frame = initial_sample_frame;
+    voice->sample_position = (double)initial_sample_frame;
     voice->sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
     voice->scheduled_start_frame = scheduled_start_frame;
     voice->gain = vtx_c_mixer_sanitized_gain(gain);
@@ -503,7 +505,7 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice->key_on = 1;
     voice->fadeout_value = 1.0f;
     voice->fadeout_decrement_per_frame = 0.0f;
-    voice->active = sample_frame_count > 0 && sample_copy != NULL;
+    voice->active = sample_frame_count > 0 && sample_copy != NULL && initial_sample_frame < sample_frame_count;
     if (out_voice_index != NULL) {
         *out_voice_index = state->voice_count;
     }
@@ -536,13 +538,15 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
     state->current_frame = 0u;
     for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
-        voice->sample_position = 0.0;
+        voice->sample_position = (double)voice->initial_sample_frame;
         voice->ping_pong_direction = 1;
         voice->volume_envelope.position_frame = 0u;
         voice->pan_envelope.position_frame = 0u;
         voice->key_on = 1;
         voice->fadeout_value = 1.0f;
-        voice->active = voice->sample_frame_count > 0 && voice->sample_pcm != NULL;
+        voice->active = voice->sample_frame_count > 0 &&
+            voice->sample_pcm != NULL &&
+            voice->initial_sample_frame < voice->sample_frame_count;
     }
     return VTX_C_MIXER_STATUS_OK;
 }
@@ -626,6 +630,34 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step(
     uint32_t loop_end_frame,
     uint32_t *out_voice_index
 ) {
+    return vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
+        state,
+        sample_pcm,
+        sample_frame_count,
+        sample_step,
+        0u,
+        gain,
+        pan,
+        loop_mode,
+        loop_start_frame,
+        loop_end_frame,
+        out_voice_index
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    double sample_step,
+    uint32_t initial_sample_frame,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint32_t *out_voice_index
+) {
     return vtx_c_mixer_add_sample_voice_internal(
         state,
         sample_pcm,
@@ -637,6 +669,7 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step(
         loop_start_frame,
         loop_end_frame,
         0u,
+        initial_sample_frame,
         0,
         out_voice_index
     );
@@ -682,6 +715,36 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step(
     uint64_t scheduled_start_frame,
     uint32_t *out_voice_index
 ) {
+    return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
+        state,
+        sample_pcm,
+        sample_frame_count,
+        sample_step,
+        0u,
+        gain,
+        pan,
+        loop_mode,
+        loop_start_frame,
+        loop_end_frame,
+        scheduled_start_frame,
+        out_voice_index
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    double sample_step,
+    uint32_t initial_sample_frame,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint64_t scheduled_start_frame,
+    uint32_t *out_voice_index
+) {
     return vtx_c_mixer_add_sample_voice_internal(
         state,
         sample_pcm,
@@ -693,6 +756,7 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step(
         loop_start_frame,
         loop_end_frame,
         scheduled_start_frame,
+        initial_sample_frame,
         1,
         out_voice_index
     );

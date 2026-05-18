@@ -188,6 +188,51 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(pitch["fallback_neutral_step_used"] as? Bool, false)
     }
 
+    func testDiagnosticsJSONIncludesSampleOffsetFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 300),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x01)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let sampleOffsetEffects = try XCTUnwrap(object["sample_offset_effects"] as? [[String: Any]])
+        let sampleOffset = try XCTUnwrap(try XCTUnwrap(events.first)["sample_offset"] as? [String: Any])
+
+        XCTAssertEqual(try XCTUnwrap(events.first)["effect_type"] as? Int, 0x09)
+        XCTAssertEqual(try XCTUnwrap(events.first)["effect_param"] as? Int, 0x01)
+        XCTAssertEqual(try XCTUnwrap(events.first)["initial_source_frame"] as? Int, 256)
+        XCTAssertEqual(sampleOffset["status"] as? String, "applied")
+        XCTAssertEqual(sampleOffset["computed_offset_frames"] as? Int, 256)
+        XCTAssertEqual(sampleOffset["applied_offset_frames"] as? Int, 256)
+        XCTAssertEqual(sampleOffset["selected_sample_length"] as? Int, 300)
+        XCTAssertEqual(sampleOffset["out_of_range"] as? Bool, false)
+        XCTAssertEqual(sampleOffsetEffects.count, 1)
+        XCTAssertEqual(sampleOffsetEffects.first?["status"] as? String, "applied")
+    }
+
     func testDiagnosticsJSONIncludesEnvelopeSemanticsAndKeyOffFields() throws {
         let envelope = PlaybackVolumeEnvelope(
             enabled: true,

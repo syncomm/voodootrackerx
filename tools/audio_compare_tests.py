@@ -113,6 +113,20 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                     "ignored_as_empty_or_no_op": False,
                     "deferred": False,
                 },
+                "sample_offset": {
+                    "status": "applied",
+                    "effect_type": 9,
+                    "effect_param": 2,
+                    "detected": True,
+                    "applied": True,
+                    "deferred": False,
+                    "ignored_as_no_op": False,
+                    "skipped": False,
+                    "out_of_range": False,
+                    "computed_offset_frames": 512,
+                    "applied_offset_frames": 512,
+                    "selected_sample_length": 2048,
+                },
                 "volume_envelope": {
                     "status": "mapped",
                     "source_point_count": 2,
@@ -591,6 +605,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("freq 8363.0000", markdown)
             self.assertIn("0.50000000/-0.25000000", markdown)
             self.assertIn("raw 48 setVolume(32) / supported", markdown)
+            self.assertIn("9xx applied offset 512", markdown)
             self.assertIn("speed F03 6/125->3/125", markdown)
             self.assertIn("mapped 2/2; deferred loop", markdown)
             self.assertIn("| forward |", markdown)

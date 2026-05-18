@@ -438,119 +438,148 @@ enum PlaybackSongDiagnosticsJSONExporter {
 
     private static func eventJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {
         result.diagnostics.eventMappings.map { mapping in
-            let event = result.plan.pattern.events.indices.contains(mapping.eventIndex)
-                ? result.plan.pattern.events[mapping.eventIndex]
-                : nil
-            let startFrame = event?.scheduledStartFrame ?? 0
-            let playbackStep = event?.playbackStep ?? mapping.playbackStep
-            let sampleFrameCount = event?.sample.frameCount ?? 0
-            let initialSourceFrame = event?.initialSourceFrame ?? mapping.sampleOffset.appliedOffsetFrames ?? 0
-            let durationFrames: Int
-            let durationReason: String
-            if mapping.loopMode == .none {
-                let remainingSourceFrames = max(0, sampleFrameCount - initialSourceFrame)
-                let estimated = playbackStep > 0
-                    ? Int((Double(remainingSourceFrames) / playbackStep).rounded(.up))
-                    : remainingSourceFrames
-                durationFrames = max(1, estimated)
-                durationReason = "one_shot_sample_length"
-            } else {
-                durationFrames = max(0, result.renderedFrameCount - startFrame)
-                durationReason = "looped_until_render_end"
-            }
-            let endFrame = max(startFrame, startFrame + durationFrames)
-            var object: [String: Any] = [
-                "source": positionJSON(mapping.source),
-                "channel_index": mapping.channelIndex,
-                "note": Int(mapping.note),
-                "instrument_index": mapping.instrumentIndex,
-                "sample_index": mapping.sampleIndex,
-                "effect_type": Int(mapping.effectType),
-                "effect_param": Int(mapping.effectParam),
-                "synthetic_row": mapping.syntheticRow,
-                "synthetic_tick": mapping.syntheticTick,
-                "event_index": mapping.eventIndex,
-                "scheduled_start_frame": startFrame,
-                "estimated_end_frame": endFrame,
-                "estimated_duration_frames": durationFrames,
-                "duration_estimate_reason": durationReason,
-                "sample_frame_count": sampleFrameCount,
-                "initial_source_frame": initialSourceFrame,
-                "gain": Double(event?.gain ?? 0),
-                "pan": Double(event?.pan ?? mapping.effectivePan),
-                "loop_mode": loopModeName(mapping.loopMode),
-                "volume_column": volumeColumnDiagnosticJSON(mapping.volumeColumn),
-                "sample_offset": sampleOffsetDiagnosticJSON(mapping.sampleOffset),
-                "has_ignored_volume_column": mapping.hasIgnoredVolumeColumn,
-                "has_ignored_effect": mapping.hasIgnoredEffect,
-                "effective_volume_value": mapping.effectiveVolumeValue,
-                "effective_pan": Double(mapping.effectivePan),
-                "volume_envelope": [
-                    "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
-                    "enabled": mapping.volumeEnvelopeSemantics.envelopeEnabled,
-                    "source_point_count": mapping.sourceVolumeEnvelopePointCount,
-                    "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
-                    "sustain_enabled": mapping.volumeEnvelopeSemantics.sustainEnabled,
-                    "sustain_applied": mapping.volumeEnvelopeSemantics.sustainApplied,
-                    "sustain_deferred": mapping.volumeEnvelopeSemantics.sustainDeferred,
-                    "sustain_point_index": mapping.volumeEnvelopeSemantics.sustainPointIndex.map { $0 as Any } ?? NSNull(),
-                    "sustain_tick": mapping.volumeEnvelopeSemantics.sustainTick.map { $0 as Any } ?? NSNull(),
-                    "sustain_frame": mapping.volumeEnvelopeSemantics.sustainFrame.map { $0 as Any } ?? NSNull(),
-                    "loop_enabled": mapping.volumeEnvelopeSemantics.loopEnabled,
-                    "loop_applied": mapping.volumeEnvelopeSemantics.loopApplied,
-                    "loop_deferred": mapping.volumeEnvelopeSemantics.loopDeferred,
-                    "loop_start_point_index": mapping.volumeEnvelopeSemantics.loopStartPointIndex.map { $0 as Any } ?? NSNull(),
-                    "loop_end_point_index": mapping.volumeEnvelopeSemantics.loopEndPointIndex.map { $0 as Any } ?? NSNull(),
-                    "loop_start_tick": mapping.volumeEnvelopeSemantics.loopStartTick.map { $0 as Any } ?? NSNull(),
-                    "loop_end_tick": mapping.volumeEnvelopeSemantics.loopEndTick.map { $0 as Any } ?? NSNull(),
-                    "loop_start_frame": mapping.volumeEnvelopeSemantics.loopStartFrame.map { $0 as Any } ?? NSNull(),
-                    "loop_end_frame": mapping.volumeEnvelopeSemantics.loopEndFrame.map { $0 as Any } ?? NSNull(),
-                    "key_off_encountered": mapping.volumeEnvelopeSemantics.keyOffEncountered,
-                    "key_off_applied": mapping.volumeEnvelopeSemantics.keyOffApplied,
-                    "key_off_deferred": mapping.volumeEnvelopeSemantics.keyOffDeferred,
-                    "key_off_source": mapping.volumeEnvelopeSemantics.keyOffSource.map(positionJSON) ?? NSNull(),
-                    "key_off_channel_index": mapping.volumeEnvelopeSemantics.keyOffChannelIndex.map { $0 as Any } ?? NSNull(),
-                    "key_off_synthetic_row": mapping.volumeEnvelopeSemantics.keyOffSyntheticRow.map { $0 as Any } ?? NSNull(),
-                    "key_off_synthetic_tick": mapping.volumeEnvelopeSemantics.keyOffSyntheticTick.map { $0 as Any } ?? NSNull(),
-                    "release_frame": mapping.volumeEnvelopeSemantics.releaseFrame.map { $0 as Any } ?? NSNull(),
-                    "fadeout_value": mapping.volumeEnvelopeSemantics.fadeoutValue,
-                    "fadeout_applied": mapping.volumeEnvelopeSemantics.fadeoutApplied,
-                    "fadeout_deferred": mapping.volumeEnvelopeSemantics.fadeoutDeferred,
-                    "limitations": mapping.volumeEnvelopeSemantics.limitations,
-                    "has_deferred_sustain": mapping.hasDeferredVolumeEnvelopeSustain,
-                    "has_deferred_loop": mapping.hasDeferredVolumeEnvelopeLoop,
-                    "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
-                ],
-                "pitch": [
-                    "source_note": Int(mapping.note),
-                    "sample_base_sample_rate": mapping.sampleBaseSampleRate,
-                    "sample_relative_note": mapping.sampleRelativeNote,
-                    "sample_finetune": mapping.sampleFinetune,
-                    "output_sample_rate": mapping.outputSampleRate,
-                    "effective_note_value": mapping.effectiveNoteValue.map { $0 as Any } ?? NSNull(),
-                    "effective_note_index": mapping.effectiveNoteIndex.map { $0 as Any } ?? NSNull(),
-                    "effective_finetune": mapping.effectiveFinetune.map { $0 as Any } ?? NSNull(),
-                    "linear_period": mapping.linearPeriod.map { $0 as Any } ?? NSNull(),
-                    "linear_frequency": mapping.linearFrequency.map { $0 as Any } ?? NSNull(),
-                    "finetune_status": finetuneStatusName(mapping.finetuneStatus),
-                    "uses_linear_frequency_table": mapping.usesLinearFrequencyTable,
-                    "frequency_table_status": frequencyTableStatusName(mapping.frequencyTableStatus),
-                    "linear_frequency_applied": mapping.linearFrequencyApplied,
-                    "amiga_frequency_deferred": mapping.amigaFrequencyDeferred,
-                    "playback_step": mapping.playbackStep,
-                    "mapping_applied": mapping.pitchMappingApplied,
-                    "used_neutral_step": mapping.pitchMappingUsedNeutralStep,
-                    "fallback_neutral_step_used": mapping.pitchMappingUsedNeutralStep,
-                ],
-            ]
-            if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
-                object["scheduled_start_seconds"] = startSeconds
-            }
-            if let endSeconds = seconds(forFrame: endFrame, sampleRate: result.block.config.sampleRate) {
-                object["estimated_end_seconds"] = endSeconds
-            }
-            return object
+            eventJSON(for: mapping, from: result)
         }
+    }
+
+    private static func eventJSON(
+        for mapping: PlaybackSongSyntheticEventMapping,
+        from result: PlaybackSongOfflineRenderResult
+    ) -> [String: Any] {
+        let event: SyntheticTrackerEvent? = result.plan.pattern.events.indices.contains(mapping.eventIndex)
+            ? result.plan.pattern.events[mapping.eventIndex]
+            : nil
+        let startFrame = event?.scheduledStartFrame ?? 0
+        let playbackStep = event?.playbackStep ?? mapping.playbackStep
+        let sampleFrameCount = event?.sample.frameCount ?? 0
+        let initialSourceFrame = event?.initialSourceFrame ?? mapping.sampleOffset.appliedOffsetFrames ?? 0
+        let duration = eventDurationJSONFields(
+            mapping: mapping,
+            renderedFrameCount: result.renderedFrameCount,
+            startFrame: startFrame,
+            sampleFrameCount: sampleFrameCount,
+            initialSourceFrame: initialSourceFrame,
+            playbackStep: playbackStep
+        )
+        let endFrame = max(startFrame, startFrame + duration.frames)
+
+        var object = [String: Any]()
+        object["source"] = positionJSON(mapping.source)
+        object["channel_index"] = mapping.channelIndex
+        object["note"] = Int(mapping.note)
+        object["instrument_index"] = mapping.instrumentIndex
+        object["sample_index"] = mapping.sampleIndex
+        object["effect_type"] = Int(mapping.effectType)
+        object["effect_param"] = Int(mapping.effectParam)
+        object["synthetic_row"] = mapping.syntheticRow
+        object["synthetic_tick"] = mapping.syntheticTick
+        object["event_index"] = mapping.eventIndex
+        object["scheduled_start_frame"] = startFrame
+        object["estimated_end_frame"] = endFrame
+        object["estimated_duration_frames"] = duration.frames
+        object["duration_estimate_reason"] = duration.reason
+        object["sample_frame_count"] = sampleFrameCount
+        object["initial_source_frame"] = initialSourceFrame
+        object["gain"] = Double(event?.gain ?? 0)
+        object["pan"] = Double(event?.pan ?? mapping.effectivePan)
+        object["loop_mode"] = loopModeName(mapping.loopMode)
+        object["volume_column"] = volumeColumnDiagnosticJSON(mapping.volumeColumn)
+        object["sample_offset"] = sampleOffsetDiagnosticJSON(mapping.sampleOffset)
+        object["has_ignored_volume_column"] = mapping.hasIgnoredVolumeColumn
+        object["has_ignored_effect"] = mapping.hasIgnoredEffect
+        object["effective_volume_value"] = mapping.effectiveVolumeValue
+        object["effective_pan"] = Double(mapping.effectivePan)
+        object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping)
+        object["pitch"] = eventPitchJSON(mapping)
+        if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
+            object["scheduled_start_seconds"] = startSeconds
+        }
+        if let endSeconds = seconds(forFrame: endFrame, sampleRate: result.block.config.sampleRate) {
+            object["estimated_end_seconds"] = endSeconds
+        }
+        return object
+    }
+
+    private static func eventDurationJSONFields(
+        mapping: PlaybackSongSyntheticEventMapping,
+        renderedFrameCount: Int,
+        startFrame: Int,
+        sampleFrameCount: Int,
+        initialSourceFrame: Int,
+        playbackStep: Double
+    ) -> (frames: Int, reason: String) {
+        guard mapping.loopMode == .none else {
+            return (max(0, renderedFrameCount - startFrame), "looped_until_render_end")
+        }
+        let remainingSourceFrames = max(0, sampleFrameCount - initialSourceFrame)
+        let estimated = playbackStep > 0
+            ? Int((Double(remainingSourceFrames) / playbackStep).rounded(.up))
+            : remainingSourceFrames
+        return (max(1, estimated), "one_shot_sample_length")
+    }
+
+    private static func eventVolumeEnvelopeJSON(_ mapping: PlaybackSongSyntheticEventMapping) -> [String: Any] {
+        let semantics = mapping.volumeEnvelopeSemantics
+        return [
+            "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
+            "enabled": semantics.envelopeEnabled,
+            "source_point_count": mapping.sourceVolumeEnvelopePointCount,
+            "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
+            "sustain_enabled": semantics.sustainEnabled,
+            "sustain_applied": semantics.sustainApplied,
+            "sustain_deferred": semantics.sustainDeferred,
+            "sustain_point_index": nullableJSONValue(semantics.sustainPointIndex),
+            "sustain_tick": nullableJSONValue(semantics.sustainTick),
+            "sustain_frame": nullableJSONValue(semantics.sustainFrame),
+            "loop_enabled": semantics.loopEnabled,
+            "loop_applied": semantics.loopApplied,
+            "loop_deferred": semantics.loopDeferred,
+            "loop_start_point_index": nullableJSONValue(semantics.loopStartPointIndex),
+            "loop_end_point_index": nullableJSONValue(semantics.loopEndPointIndex),
+            "loop_start_tick": nullableJSONValue(semantics.loopStartTick),
+            "loop_end_tick": nullableJSONValue(semantics.loopEndTick),
+            "loop_start_frame": nullableJSONValue(semantics.loopStartFrame),
+            "loop_end_frame": nullableJSONValue(semantics.loopEndFrame),
+            "key_off_encountered": semantics.keyOffEncountered,
+            "key_off_applied": semantics.keyOffApplied,
+            "key_off_deferred": semantics.keyOffDeferred,
+            "key_off_source": semantics.keyOffSource.map(positionJSON) ?? NSNull(),
+            "key_off_channel_index": nullableJSONValue(semantics.keyOffChannelIndex),
+            "key_off_synthetic_row": nullableJSONValue(semantics.keyOffSyntheticRow),
+            "key_off_synthetic_tick": nullableJSONValue(semantics.keyOffSyntheticTick),
+            "release_frame": nullableJSONValue(semantics.releaseFrame),
+            "fadeout_value": semantics.fadeoutValue,
+            "fadeout_applied": semantics.fadeoutApplied,
+            "fadeout_deferred": semantics.fadeoutDeferred,
+            "limitations": semantics.limitations,
+            "has_deferred_sustain": mapping.hasDeferredVolumeEnvelopeSustain,
+            "has_deferred_loop": mapping.hasDeferredVolumeEnvelopeLoop,
+            "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
+        ]
+    }
+
+    private static func eventPitchJSON(_ mapping: PlaybackSongSyntheticEventMapping) -> [String: Any] {
+        [
+            "source_note": Int(mapping.note),
+            "sample_base_sample_rate": mapping.sampleBaseSampleRate,
+            "sample_relative_note": mapping.sampleRelativeNote,
+            "sample_finetune": mapping.sampleFinetune,
+            "output_sample_rate": mapping.outputSampleRate,
+            "effective_note_value": nullableJSONValue(mapping.effectiveNoteValue),
+            "effective_note_index": nullableJSONValue(mapping.effectiveNoteIndex),
+            "effective_finetune": nullableJSONValue(mapping.effectiveFinetune),
+            "linear_period": nullableJSONValue(mapping.linearPeriod),
+            "linear_frequency": nullableJSONValue(mapping.linearFrequency),
+            "finetune_status": finetuneStatusName(mapping.finetuneStatus),
+            "uses_linear_frequency_table": mapping.usesLinearFrequencyTable,
+            "frequency_table_status": frequencyTableStatusName(mapping.frequencyTableStatus),
+            "linear_frequency_applied": mapping.linearFrequencyApplied,
+            "amiga_frequency_deferred": mapping.amigaFrequencyDeferred,
+            "playback_step": mapping.playbackStep,
+            "mapping_applied": mapping.pitchMappingApplied,
+            "used_neutral_step": mapping.pitchMappingUsedNeutralStep,
+            "fallback_neutral_step_used": mapping.pitchMappingUsedNeutralStep,
+        ]
     }
 
     private static func keyOffEventJSON(_ diagnostic: PlaybackSongSyntheticKeyOffDiagnostic) -> [String: Any] {
@@ -747,6 +776,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         if let value {
             object[key] = value
         }
+    }
+
+    private static func nullableJSONValue(_ value: Any?) -> Any {
+        value ?? NSNull()
     }
 
     private static func seconds(forFrame frame: Int, sampleRate: Double) -> Double? {

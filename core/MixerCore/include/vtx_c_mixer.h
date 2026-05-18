@@ -64,6 +64,7 @@ typedef struct {
 typedef struct {
     float *sample_pcm;
     uint32_t sample_frame_count;
+    uint32_t initial_sample_frame;
     double sample_position;
     double sample_step;
     uint64_t scheduled_start_frame;
@@ -138,6 +139,22 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step(
     uint32_t *out_voice_index
 );
 
+// Explicit-step voice variant with an initial source sample frame. This is a generic
+// offline mixer primitive; callers own any tracker-specific effect decoding.
+VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    double sample_step,
+    uint32_t initial_sample_frame,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint32_t *out_voice_index
+);
+
 // Copies a caller-owned mono Float32 sample buffer into C-owned scheduled voice storage.
 // scheduled_start_frame is an absolute output frame in the mixer timeline. Voices render
 // silence until the mixer cursor reaches that frame. Adding a scheduled voice behind the
@@ -164,6 +181,24 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step(
     const float *sample_pcm,
     uint32_t sample_frame_count,
     double sample_step,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint64_t scheduled_start_frame,
+    uint32_t *out_voice_index
+);
+
+// Scheduled explicit-step voice variant with an initial source sample frame.
+// Out-of-range source starts produce an inactive silent voice instead of reading
+// outside the copied sample buffer.
+VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    double sample_step,
+    uint32_t initial_sample_frame,
     float gain,
     float pan,
     VTXCMixerLoopMode loop_mode,

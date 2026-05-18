@@ -36,7 +36,10 @@ set-panning, and a conservative row-level subset of volume-column volume and
 panning slides to event gain/pan. The bounded adapter also applies minimal
 `Fxx` timing changes for offline renders only: `F01...F1F` updates speed,
 `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. Fractional C-backed offline sample steps now use simple
+ignored no-op. It also applies minimal nonzero `9xx` sample offsets to
+same-cell note/sample triggers in bounded offline renders only, diagnoses `900`
+as ignored/deferred/no-op, and skips out-of-range offsets safely. Fractional
+C-backed offline sample steps now use simple
 deterministic linear interpolation, including safe no-loop ends, forward-loop
 wraps, and ping-pong turnarounds. Amiga-table pitch behavior, full
 OpenMPT/MikMod resampler parity, pitch-changing effects, full XM volume-column
@@ -82,8 +85,9 @@ Immediate audio accuracy sequence:
 28. Focused pitch/period accuracy for bounded linear-frequency renders — done
 29. Interpolation/resampling foundation for C-backed offline mixer — done
 30. Deferred envelope sustain/loop/key-off/fadeout semantics for bounded offline renders — done
-31. Feature-flagged runtime backend switch
-32. Reference comparison stabilization against MikMod/OpenMPT
+31. Minimal sample offset 9xx for bounded offline renders — done
+32. Feature-flagged runtime backend switch
+33. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -162,6 +166,8 @@ Features:
 - simple deterministic linear interpolation for fractional C-backed offline sample steps, without full OpenMPT/MikMod resampler parity
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
+- minimal nonzero `9xx` sample offset starts for same-cell bounded offline
+  adapted note/sample triggers, with `900` and effect memory still deferred
 - first-pass parsed volume-envelope sustain, envelope loop, note value `97`
   key-off release, and post-key-off fadeout behavior for bounded offline adapted
   renders, without full FT2/OpenMPT envelope parity or panning envelopes

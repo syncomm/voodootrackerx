@@ -330,6 +330,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
+    let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
@@ -359,6 +360,9 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
         deferredCellFields.filter { $0.field == .volumeColumn }.count
     }
 
+    var sampleOffsetEffectCount: Int {
+        sampleOffsetEffects.count
+    }
 }
 
 struct PlaybackSongSyntheticOrderDiagnostic: Equatable {
@@ -433,6 +437,32 @@ struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {
     let bpmBefore: Int
     let speedAfter: Int
     let bpmAfter: Int
+}
+
+struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
+    enum Status: Equatable {
+        case notPresent
+        case applied
+        case ignored900NoOp
+        case outOfRangeSkipped
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let skipped: Bool
+    let outOfRange: Bool
+    let computedOffsetFrames: Int
+    let appliedOffsetFrames: Int?
+    let selectedSampleLength: Int?
 }
 
 enum PlaybackSongSyntheticVolumeColumnCommand: Equatable {
@@ -792,11 +822,14 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let note: UInt8
     let instrumentIndex: Int
     let sampleIndex: Int
+    let effectType: UInt8
+    let effectParam: UInt8
     let syntheticRow: Int
     let syntheticTick: Int
     let eventIndex: Int
     let loopMode: MixerSampleLoopMode
     let volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+    let sampleOffset: PlaybackSongSyntheticSampleOffsetDiagnostic
     let hasIgnoredVolumeColumn: Bool
     let hasIgnoredEffect: Bool
     let effectiveVolumeValue: Int
@@ -834,6 +867,7 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
         case invalidNote
         case missingInstrument
         case noPlayableSample
+        case sampleOffsetOutOfRange
     }
 
     let source: PlaybackPosition
@@ -1156,6 +1190,7 @@ enum PlaybackSongSyntheticAdapter {
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
+        var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
@@ -1215,6 +1250,7 @@ enum PlaybackSongSyntheticAdapter {
                     channelStates: &channelStates,
                     events: &events,
                     volumeColumnMappings: &volumeColumnMappings,
+                    sampleOffsetEffects: &sampleOffsetEffects,
                     keyOffEvents: &keyOffEvents,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
@@ -1242,6 +1278,7 @@ enum PlaybackSongSyntheticAdapter {
                 timingChanges: timingPlan.timingChanges,
                 rowDiagnostics: rowDiagnostics,
                 volumeColumnMappings: volumeColumnMappings,
+                sampleOffsetEffects: sampleOffsetEffects,
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
@@ -1260,6 +1297,7 @@ enum PlaybackSongSyntheticAdapter {
         channelStates: inout [Int: ChannelState],
         events: inout [SyntheticTrackerEvent],
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
+        sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
@@ -1351,6 +1389,31 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
 
+            let sampleLength = selectedSampleLength(sample)
+            let sampleOffset = sampleOffsetDiagnostic(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                selectedSampleLength: sampleLength
+            )
+            if sampleOffset.detected {
+                sampleOffsetEffects.append(sampleOffset)
+            }
+            if sampleOffset.skipped {
+                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    note: cell.note,
+                    instrumentIndex: instrumentIndex,
+                    reason: .sampleOffsetOutOfRange,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffect(cell)
+                ))
+                continue
+            }
+
             let eventIndex = events.count
             let loop = mixerLoop(from: sample)
             let envelopeMapping = mixerVolumeEnvelope(
@@ -1378,6 +1441,7 @@ enum PlaybackSongSyntheticAdapter {
                 pan: pan,
                 playbackStep: pitchMapping.playbackStep,
                 loop: loop,
+                initialSourceFrame: sampleOffset.appliedOffsetFrames ?? 0,
                 volumeEnvelope: envelopeMapping.envelope
             ))
             channelState.activeEventIndex = eventIndex
@@ -1389,11 +1453,14 @@ enum PlaybackSongSyntheticAdapter {
                 note: cell.note,
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
                 syntheticRow: syntheticRow,
                 syntheticTick: 0,
                 eventIndex: eventIndex,
                 loopMode: loop.mode,
                 volumeColumn: volumeColumn,
+                sampleOffset: sampleOffset,
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffect(cell),
                 effectiveVolumeValue: channelState.volumeValue,
@@ -1653,11 +1720,14 @@ enum PlaybackSongSyntheticAdapter {
             note: mapping.note,
             instrumentIndex: mapping.instrumentIndex,
             sampleIndex: mapping.sampleIndex,
+            effectType: mapping.effectType,
+            effectParam: mapping.effectParam,
             syntheticRow: mapping.syntheticRow,
             syntheticTick: mapping.syntheticTick,
             eventIndex: mapping.eventIndex,
             loopMode: mapping.loopMode,
             volumeColumn: mapping.volumeColumn,
+            sampleOffset: mapping.sampleOffset,
             hasIgnoredVolumeColumn: mapping.hasIgnoredVolumeColumn,
             hasIgnoredEffect: mapping.hasIgnoredEffect,
             effectiveVolumeValue: mapping.effectiveVolumeValue,
@@ -2086,12 +2156,114 @@ enum PlaybackSongSyntheticAdapter {
         return Float((Double(fadeoutValue) / 65_536.0) / framesPerDefaultTick)
     }
 
+    private static func sampleOffsetDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        selectedSampleLength: Int?
+    ) -> PlaybackSongSyntheticSampleOffsetDiagnostic {
+        let sampleLength = selectedSampleLength.map { max(0, $0) }
+        guard cell.effectType == 0x09 else {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .notPresent,
+                detected: false,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: false,
+                skipped: false,
+                outOfRange: false,
+                computedOffsetFrames: 0,
+                appliedOffsetFrames: 0,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        let computedOffsetFrames = Int(cell.effectParam) * 256
+        guard cell.effectParam != 0 else {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .ignored900NoOp,
+                detected: true,
+                applied: false,
+                deferred: true,
+                ignoredAsNoOp: true,
+                skipped: false,
+                outOfRange: false,
+                computedOffsetFrames: computedOffsetFrames,
+                appliedOffsetFrames: 0,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        if let sampleLength, computedOffsetFrames >= sampleLength {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRangeSkipped,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: false,
+                skipped: true,
+                outOfRange: true,
+                computedOffsetFrames: computedOffsetFrames,
+                appliedOffsetFrames: nil,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        return PlaybackSongSyntheticSampleOffsetDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            skipped: false,
+            outOfRange: false,
+            computedOffsetFrames: computedOffsetFrames,
+            appliedOffsetFrames: computedOffsetFrames,
+            selectedSampleLength: sampleLength
+        )
+    }
+
+    private static func selectedSampleLength(_ sample: PlaybackSample) -> Int {
+        min(max(0, sample.sampleLength), sample.pcm.count)
+    }
+
     private static func hasEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType != 0 || cell.effectParam != 0
     }
 
     private static func hasDeferredEffect(_ cell: PlaybackCell) -> Bool {
-        hasEffect(cell) && !PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell)
+        hasEffect(cell) &&
+            !PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) &&
+            !isNonzeroSampleOffsetEffect(cell)
+    }
+
+    private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x09 && cell.effectParam != 0
     }
 
     private static func ignoredNoteReason(_ note: UInt8) -> PlaybackSongSyntheticIgnoredCell.Reason {

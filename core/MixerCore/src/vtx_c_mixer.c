@@ -471,7 +471,7 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
     if (state->voice_count >= VTX_C_MIXER_MAX_VOICES) {
-        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+        return VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED;
     }
     if (sample_frame_count > 0) {
         if ((size_t)sample_frame_count > SIZE_MAX / sizeof(float)) {

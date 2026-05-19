@@ -10,9 +10,12 @@ extern "C" {
 #define VTX_C_MIXER_DEFAULT_SAMPLE_RATE 44100.0
 #define VTX_C_MIXER_DEFAULT_CHANNEL_COUNT 2u
 
-// Temporary fixed voice limit for the early offline C mixer path.
-// Rendering uses this preallocated storage and does not allocate in the render call.
-#define VTX_C_MIXER_MAX_VOICES 32u
+// Fixed voice storage for the offline C mixer path.
+// Scheduled and active voices currently share this deterministic preallocated pool.
+// Rendering uses this storage and does not allocate in the render call.
+#define VTX_C_MIXER_MAX_VOICES 256u
+#define VTX_C_MIXER_MAX_SCHEDULED_VOICES VTX_C_MIXER_MAX_VOICES
+#define VTX_C_MIXER_MAX_ACTIVE_VOICES VTX_C_MIXER_MAX_VOICES
 
 // Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
 // not wired into this C-backed path yet.
@@ -21,6 +24,7 @@ extern "C" {
 typedef enum {
     VTX_C_MIXER_STATUS_OK = 0,
     VTX_C_MIXER_STATUS_INVALID_ARGUMENT = 1,
+    VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED = 2,
 } VTXCMixerStatus;
 
 typedef enum {

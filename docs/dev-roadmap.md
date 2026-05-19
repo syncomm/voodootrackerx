@@ -63,7 +63,8 @@ documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. Bounded adapter event-coverage diagnostics now compare
 parsed normal note cells against scheduled C-backed events, report skipped-note
 reasons and coordinates, expose sample-selection methods and fallbacks, and
-report C mixer voice-capacity rejections without changing audio behavior.
+report C mixer scheduled/active capacity values, reject counts, and rejected
+event coordinates without changing runtime playback.
 
 Immediate audio accuracy sequence:
 
@@ -102,8 +103,9 @@ Immediate audio accuracy sequence:
 33. Developer render duration controls for bounded XM candidate WAV helper — done
 34. Bounded adapter event coverage / missing note trigger diagnostics — done
 35. PlaybackSong adapter instrument sample-map/keymap support — done
-36. Feature-flagged runtime backend switch
-37. Reference comparison stabilization against MikMod/OpenMPT
+36. C mixer scheduled voice capacity / diagnostics hardening — done
+37. Feature-flagged runtime backend switch
+38. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -194,6 +196,9 @@ Features:
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - local-only mismatch-window correlation report that maps comparison JSON to approximate adapter rows/events and summarizes applied, ignored/no-op, deferred/unsupported, and unknown command frequency in the worst windows
 - local-only bounded findings report template for private local candidate/reference comparison evidence
+- fixed 256-voice scheduled/active C mixer storage for bounded offline renders,
+  with diagnostics for configured capacities, accepted scheduled voices, reject
+  counts, and rejected event coordinates
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

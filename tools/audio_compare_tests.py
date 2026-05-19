@@ -88,11 +88,19 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 {"reason": "sample_pcm_empty", "count": 1},
             ],
             "capacity": {
-                "c_mixer_voice_capacity": 32,
+                "c_mixer_voice_capacity": 256,
+                "c_mixer_scheduled_voice_capacity": 256,
+                "c_mixer_active_voice_capacity": 256,
+                "scheduled_voice_capacity": 256,
+                "active_voice_capacity": 256,
                 "scheduled_voice_attempt_count": 1,
                 "scheduled_voice_accepted_count": 1,
                 "scheduled_voice_rejected_count": 0,
+                "scheduled_voice_capacity_rejected_count": 0,
+                "active_voice_capacity_rejected_count": 0,
+                "invalid_scheduled_voice_rejected_count": 0,
                 "potentially_unscheduled_event_count": 0,
+                "rejected_event_coordinates": [],
             },
             "first_skipped_note_coordinates": [
                 {
@@ -730,7 +738,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Fallback-after-invalid-map events: 0", markdown)
             self.assertIn("- Skipped-no-valid-sample events: 0", markdown)
             self.assertIn("- Top skip reasons: missing_instrument=1, sample_pcm_empty=1", markdown)
-            self.assertIn("- C mixer scheduling: 1/1 accepted, 0 rejected, capacity 32", markdown)
+            self.assertIn("- C mixer scheduling: 1/1 accepted, 0 rejected, scheduled capacity 256, active capacity 256", markdown)
             self.assertIn("reason missing_instrument", markdown)
 
     def test_correlation_report_counts_deferred_ecx_note_cut_in_worst_windows(self):

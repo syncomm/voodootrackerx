@@ -44,6 +44,15 @@ output directory.
 - Normal note cells:
 - Scheduled events:
 - Skipped notes:
+- C mixer scheduled voice capacity:
+- C mixer active voice capacity:
+- Scheduled voice attempts:
+- Scheduled voice accepted:
+- Scheduled voice rejected:
+- Scheduled capacity rejects:
+- Active capacity rejects:
+- Invalid scheduled voice rejects:
+- Rejected event coordinates:
 - Sample-map selections:
 - First-playable fallback selections:
 - Fallback-after-invalid-map selections:
@@ -76,6 +85,7 @@ output directory.
 - Effect-frequency summary present:
 - Volume-column frequency summary present:
 - Event-coverage summary present:
+- Capacity summary present:
 - Recommendation heuristic present:
 
 ## Top Mismatch Windows
@@ -100,6 +110,7 @@ output directory.
 - Loop metadata clues:
 - Event coverage / skipped-note clues:
 - First skipped coordinates:
+- Capacity / rejected-event clues:
 
 ## Effect / Volume Frequency Summary
 
@@ -135,6 +146,8 @@ or source-to-synthetic diagnostics.
 - Metric summary:
 - Trace or diagnostics correlation:
 - Event coverage summary:
+- Capacity summary:
+- Rejected event coordinates:
 - Sample selection summary:
 - Top skip reasons:
 - Suspected missing-note cause:

@@ -1580,6 +1580,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0, 0, 0]))
     }
 
+    func testCSoftwareMixerReportsFixedOfflineVoiceCapacityPolicy() {
+        XCTAssertEqual(CSoftwareMixer.maximumVoiceCount, 256)
+        XCTAssertEqual(CSoftwareMixer.maximumScheduledVoiceCount, 256)
+        XCTAssertEqual(CSoftwareMixer.maximumActiveVoiceCount, 256)
+    }
+
     func testCSoftwareMixerScheduledFrameZeroMatchesImmediateOneShotRendering() {
         let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
 
@@ -3282,7 +3288,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
     }
 
-    func testPlaybackSongOfflineRendererReportsCMixerVoiceCapacityRejections() throws {
+    func testPlaybackSongOfflineRendererSchedulesDenseRenderAbovePreviousCapacity() throws {
         let sample = makePlaybackSample(pcm: [1])
         let row = PlaybackRow(index: 0, cells: (0..<33).map { _ in
             PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
@@ -3302,12 +3308,39 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(result.diagnostics.eventCoverage.normalNoteCells, 33)
         XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, 33)
+        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 0)
+        XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, 33)
+        XCTAssertEqual(result.scheduledVoiceIndices.filter { $0 == nil }.count, 0)
+    }
+
+    func testPlaybackSongOfflineRendererReportsCMixerVoiceCapacityRejections() throws {
+        let sample = makePlaybackSample(pcm: [1])
+        let attemptedVoiceCount = CSoftwareMixer.maximumScheduledVoiceCount + 1
+        let row = PlaybackRow(index: 0, cells: (0..<attemptedVoiceCount).map { _ in
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        })
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        XCTAssertEqual(result.diagnostics.eventCoverage.normalNoteCells, attemptedVoiceCount)
+        XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, attemptedVoiceCount)
         XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 1)
         XCTAssertTrue(result.diagnostics.eventCoverage.skipReasonCounts.contains { item in
             item.reason == .cMixerVoiceCapacityLimit && item.count == 1
         })
         XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, CSoftwareMixer.maximumScheduledVoiceCount)
         XCTAssertEqual(result.scheduledVoiceIndices.filter { $0 == nil }.count, 1)
+        XCTAssertEqual(result.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 1)
     }
 
     func testPlaybackSongOfflineRendererCanRenderByRowCount() {

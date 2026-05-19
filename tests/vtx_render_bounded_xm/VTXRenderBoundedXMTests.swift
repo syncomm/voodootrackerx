@@ -540,7 +540,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             finetune: 0,
             baseSampleRate: 100
         )
-        let row = PlaybackRow(index: 0, cells: (0..<33).map { _ in
+        let attemptedVoiceCount = CSoftwareMixer.maximumScheduledVoiceCount + 1
+        let row = PlaybackRow(index: 0, cells: (0..<attemptedVoiceCount).map { _ in
             PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
         })
         let song = PlaybackSong(
@@ -562,16 +563,75 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let coverage = try XCTUnwrap(object["event_coverage"] as? [String: Any])
         let capacity = try XCTUnwrap(coverage["capacity"] as? [String: Any])
         let skipReasons = try XCTUnwrap(coverage["skip_reason_counts"] as? [[String: Any]])
+        let rejectedCoordinates = try XCTUnwrap(capacity["rejected_event_coordinates"] as? [[String: Any]])
 
-        XCTAssertEqual(coverage["normal_note_cells"] as? Int, 33)
-        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 33)
+        XCTAssertEqual(coverage["normal_note_cells"] as? Int, attemptedVoiceCount)
+        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, attemptedVoiceCount)
         XCTAssertEqual(coverage["c_mixer_voice_capacity_limit_count"] as? Int, 1)
-        XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, 33)
-        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, 32)
+        XCTAssertEqual(capacity["c_mixer_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(capacity["c_mixer_scheduled_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(capacity["c_mixer_active_voice_capacity"] as? Int, CSoftwareMixer.maximumActiveVoiceCount)
+        XCTAssertEqual(capacity["scheduled_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(capacity["active_voice_capacity"] as? Int, CSoftwareMixer.maximumActiveVoiceCount)
+        XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, attemptedVoiceCount)
+        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
         XCTAssertEqual(capacity["scheduled_voice_rejected_count"] as? Int, 1)
+        XCTAssertEqual(capacity["scheduled_voice_capacity_rejected_count"] as? Int, 1)
+        XCTAssertEqual(capacity["active_voice_capacity_rejected_count"] as? Int, 0)
+        XCTAssertEqual(capacity["invalid_scheduled_voice_rejected_count"] as? Int, 0)
+        XCTAssertEqual(rejectedCoordinates.count, 1)
+        XCTAssertEqual(rejectedCoordinates.first?["reason"] as? String, "scheduled_voice_capacity")
+        XCTAssertEqual(rejectedCoordinates.first?["channel_index"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual((rejectedCoordinates.first?["source"] as? [String: Any])?["row"] as? Int, 0)
         XCTAssertTrue(skipReasons.contains { item in
             item["reason"] as? String == "c_mixer_voice_capacity_limit" && item["count"] as? Int == 1
         })
+    }
+
+    func testDiagnosticsJSONReportsCapacityValuesAndZeroRejectsBelowCapacity() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: (0..<33).map { _ in
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        })
+        let song = PlaybackSong(
+            title: "below-capacity",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let coverage = try XCTUnwrap(object["event_coverage"] as? [String: Any])
+        let capacity = try XCTUnwrap(coverage["capacity"] as? [String: Any])
+        let rejectedCoordinates = try XCTUnwrap(capacity["rejected_event_coordinates"] as? [[String: Any]])
+
+        XCTAssertEqual(coverage["normal_note_cells"] as? Int, 33)
+        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 33)
+        XCTAssertEqual(coverage["c_mixer_voice_capacity_limit_count"] as? Int, 0)
+        XCTAssertEqual(capacity["scheduled_voice_capacity"] as? Int, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(capacity["active_voice_capacity"] as? Int, CSoftwareMixer.maximumActiveVoiceCount)
+        XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, 33)
+        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, 33)
+        XCTAssertEqual(capacity["scheduled_voice_rejected_count"] as? Int, 0)
+        XCTAssertEqual(capacity["scheduled_voice_capacity_rejected_count"] as? Int, 0)
+        XCTAssertEqual(capacity["active_voice_capacity_rejected_count"] as? Int, 0)
+        XCTAssertTrue(rejectedCoordinates.isEmpty)
     }
 
     func testDiagnosticsJSONReportsSampleMapSelectionSummary() throws {

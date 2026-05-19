@@ -493,6 +493,47 @@ final class CSoftwareMixer {
         return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
     }
 
+    /// Schedules a generic combined gain/pan/sample-step update for an existing voice.
+    ///
+    /// Gain and pan use the same fixed C mixer micro-ramp as offline gain/pan updates. The sample-step
+    /// value applies at the scheduled frame.
+    @discardableResult
+    func scheduleVoiceGainPanStepUpdate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        gain: Float? = nil,
+        pan: Float? = nil,
+        playbackStep: Double
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              gain != nil || pan != nil,
+              playbackStep.isFinite,
+              playbackStep > 0 else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            gain == nil ? 0 : 1,
+            gain ?? 0,
+            pan == nil ? 0 : 1,
+            pan ?? 0,
+            playbackStep
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
         Self.requireOK(vtx_c_mixer_clear_voices(&state))

@@ -353,6 +353,20 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
     double sample_step
 );
 
+// Schedules a combined generic gain/pan/sample-step update for an existing
+// voice at an absolute output frame. Supported gain/pan updates use the fixed
+// micro-ramp above; sample-step changes apply at the scheduled frame.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan,
+    double sample_step
+);
+
 // Schedules an immediate gain and/or pan set for an existing offline voice.
 // This is reserved for hard-cut semantics such as ECx note cut, which must not
 // be softened by the gain/pan update micro-ramp.

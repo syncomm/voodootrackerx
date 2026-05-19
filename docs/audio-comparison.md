@@ -176,16 +176,29 @@ VTX_DEBUG_STOP_AFTER_SECONDS=45 \
 
 The runtime C mixer trace records backend selection, PlaybackEngine
 order/pattern/row/tick/channel context, note trigger and key-off events, C mixer
-add-voice calls, unsupported runtime update calls, channel-scoped voice stops,
-true global clear/stop calls, C call success/failure when available, voices
-stopped counts when available, active/loaded voice counts before and after stop
-actions when available, and approximate C mixer render cursor/frame counters.
+add-voice calls, applied and deferred runtime gain/pan/sample-step update calls,
+channel-scoped voice stops, true global clear/stop calls, C call
+success/failure when available, voices stopped counts when available,
+active/loaded voice counts before and after stop or update actions when
+available, and approximate C mixer render cursor/frame counters.
 This makes it possible to check whether note events continue after an audible
 drop, whether the C backend continues receiving events, and whether an
 unexpected all-voice clear/stop coincides with the dropout. Channel stop and
 same-channel note replacement in the experimental runtime C mixer path should
 now emit `c_mixer_stop_channel` rather than `c_mixer_clear_all`. True transport
 stop/reset actions still emit `c_mixer_clear_all` and target all channels.
+Supported runtime updates emit `c_mixer_update_gain_pan_applied`,
+`c_mixer_update_step_applied`, or
+`c_mixer_update_gain_pan_step_applied` when the handoff can target the current
+channel voice. Missing target voice/sample-step state is reported as
+`c_mixer_update_gain_pan_step_deferred_missing_data`; invalid or unsupported
+update values, including no-change refreshes, are reported as
+`c_mixer_update_gain_pan_step_deferred_unsupported`. Update rows include the
+source order/pattern/row/tick/channel context when available, target voice
+index when available, gain/pan/sample-step before/after values when available,
+and active/loaded voice snapshots. Gain/pan updates keep the runtime C mixer's
+fixed micro-ramp and the runtime headroom policy still applies only at the
+AVAudio source-node handoff.
 
 The same trace now carries runtime output diagnostics for the experimental C
 mixer path: backend sample rate and channel count, render callback count,

@@ -146,7 +146,11 @@ AVAudio source-node handoff, defaults to `-10 dB`, reports post-gain clipping
 diagnostics and recommendations, and accepts local-only gain/headroom
 environment overrides only when `VTX_AUDIO_BACKEND=c_mixer` is selected.
 Offline export `--auto-headroom` remains separate, and AVAudio remains the
-default runtime backend.
+default runtime backend. The experimental runtime C mixer now bridges supported
+runtime gain/pan/sample-step control updates to the same generic C mixer
+voice-state update primitives used by the bounded offline path, including the
+fixed gain/pan micro-ramp and channel-scoped target voice diagnostics. Missing
+target data and unsupported update values remain explicit deferred diagnostics.
 
 Immediate audio accuracy sequence:
 
@@ -206,7 +210,8 @@ Immediate audio accuracy sequence:
 54. Runtime C mixer per-channel voice stop / replacement semantics — done
 55. Runtime C mixer output diagnostics / offline parity investigation — done
 56. Runtime C mixer headroom / gain policy — done
-57. Reference comparison stabilization against MikMod/OpenMPT
+57. Runtime C Mixer Event Scheduling / Offline Adapter Parity Bridge — done
+58. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -269,7 +274,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, render callback counters, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
+- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

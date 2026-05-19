@@ -4416,6 +4416,439 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: firstURL), try Data(contentsOf: secondURL))
     }
 
+    func testPlaybackSongAdapterNoteDelayEDxDelaysNoteToRequestedTick() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(event.scheduledStartFrame, 2)
+        XCTAssertEqual(event.tick, 2)
+        XCTAssertEqual(mapping.syntheticTick, 2)
+        XCTAssertEqual(delay.status, .applied)
+        XCTAssertEqual(delay.requestedTick, 2)
+        XCTAssertEqual(delay.originalFrame, 0)
+        XCTAssertEqual(delay.delayedFrame, 2)
+        XCTAssertEqual(delay.rowSpeed, 6)
+        XCTAssertEqual(delay.rowBPM, 250)
+        XCTAssertEqual(delay.eventIndex, 0)
+        XCTAssertEqual(effect.decodedLabel, "EDx note delay")
+        XCTAssertEqual(effect.status, .applied)
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 1, 0])
+    }
+
+    func testPlaybackSongAdapterNoteDelayED0SchedulesAtRowStart() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD0)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
+
+        XCTAssertEqual(event.scheduledStartFrame, 0)
+        XCTAssertEqual(event.tick, 0)
+        XCTAssertEqual(delay.status, .applied)
+        XCTAssertEqual(delay.requestedTick, 0)
+        XCTAssertEqual(delay.originalFrame, 0)
+        XCTAssertEqual(delay.delayedFrame, 0)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0])
+    }
+
+    func testPlaybackSongAdapterNoteDelayEDxUsesFxxTimingAndPreservesEventMetadata() throws {
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [9], baseSampleRate: 100)
+        let mappedSample = makePlaybackSample(sampleIndex: 1, pcm: [1, 1, 1], volume: 0.5, baseSampleRate: 200)
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 1, value: 32)
+        ])
+        let stateRow = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 0, instrument: 0, volumeColumn: 0x30, effectType: 0x08, effectParam: 0xFF)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                stateRow,
+                makePlaybackRow(index: 1, effectType: 0x0F, effectParam: 0x03),
+                makePlaybackRow(index: 2, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2)
+            ]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, mappedSample],
+                    volumeEnvelope: envelope,
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 16
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
+
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 6, 3])
+        XCTAssertEqual(event.scheduledStartFrame, 14)
+        XCTAssertEqual(delay.originalFrame, 12)
+        XCTAssertEqual(delay.delayedFrame, 14)
+        XCTAssertEqual(delay.rowSpeed, 3)
+        XCTAssertEqual(delay.rowBPM, 250)
+        XCTAssertEqual(mapping.sampleIndex, 1)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(mapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertEqual(mapping.effectiveVolumeValue, 32)
+        XCTAssertEqual(mapping.effectivePan, 1)
+        XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
+        XCTAssertEqual(mapping.sampleOffset.status, .notPresent)
+        XCTAssertEqual(event.gain, 0.25)
+        XCTAssertEqual(event.pan, 1)
+    }
+
+    func testPlaybackSongAdapterNoteDelayEDxWithoutNoteIsDiagnosedAndDoesNotSchedule() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0xD2)
+            ]],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
+        let ignored = try XCTUnwrap(result.diagnostics.ignoredCells.first)
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0])
+        XCTAssertEqual(delay.status, .noNoteDeferred)
+        XCTAssertTrue(delay.deferred)
+        XCTAssertEqual(delay.requestedTick, 2)
+        XCTAssertNil(delay.delayedFrame)
+        XCTAssertEqual(ignored.reason, .noteDelayWithoutNote)
+        XCTAssertEqual(effect.status, .deferredUnsupported)
+    }
+
+    func testPlaybackSongAdapterNoteDelayEDxOutOfRowSkipsSafelyAndDiagnosesNoOp() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let delay = try XCTUnwrap(result.diagnostics.noteDelayEffects.first)
+        let ignored = try XCTUnwrap(result.diagnostics.ignoredCells.first)
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0])
+        XCTAssertEqual(delay.status, .outOfRowNoOp)
+        XCTAssertTrue(delay.outOfRow)
+        XCTAssertTrue(delay.ignoredAsNoOp)
+        XCTAssertEqual(delay.requestedTick, 2)
+        XCTAssertEqual(delay.rowSpeed, 2)
+        XCTAssertNil(delay.delayedFrame)
+        XCTAssertEqual(ignored.reason, .noteDelayOutOfRow)
+        XCTAssertEqual(effect.status, .ignoredNoOp)
+    }
+
+    func testPlaybackSongAdapterNoteCutECxCutsActiveVoiceAtRequestedTick() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 0])
+        XCTAssertEqual(cut.status, .applied)
+        XCTAssertEqual(cut.requestedTick, 2)
+        XCTAssertEqual(cut.scheduledFrame, 2)
+        XCTAssertEqual(cut.rowSpeed, 6)
+        XCTAssertEqual(cut.rowBPM, 250)
+        XCTAssertEqual(cut.activeEventIndex, 0)
+        XCTAssertEqual(effect.decodedLabel, "ECx note cut")
+        XCTAssertEqual(effect.status, .applied)
+    }
+
+    func testPlaybackSongAdapterNoteCutECxUsesFxxTiming() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 8), baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
+                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 10
+        ))
+        let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
+
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.effectiveSpeed), [6, 3])
+        XCTAssertEqual(cut.scheduledFrame, 8)
+        XCTAssertEqual(cut.rowSpeed, 3)
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [1, 1, 0, 0])
+    }
+
+    func testPlaybackSongAdapterNoteCutECxNoActiveVoiceIsDiagnosed() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0xC1)
+            ]],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+        let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
+
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0])
+        XCTAssertEqual(cut.status, .noActiveVoice)
+        XCTAssertFalse(cut.applied)
+        XCTAssertTrue(cut.ignoredAsNoOp)
+        XCTAssertEqual(cut.scheduledFrame, 1)
+        XCTAssertNil(cut.activeEventIndex)
+    }
+
+    func testPlaybackSongAdapterNoteCutECxOutOfRowDoesNotCut() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let cut = try XCTUnwrap(result.diagnostics.noteCutEffects.first)
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+        XCTAssertEqual(cut.status, .outOfRowNoOp)
+        XCTAssertTrue(cut.outOfRow)
+        XCTAssertFalse(cut.applied)
+        XCTAssertNil(cut.scheduledFrame)
+        XCTAssertEqual(effect.status, .ignoredNoOp)
+    }
+
+    func testPlaybackSongAdapterNoteCutECxWorksWithLoopedSamples() throws {
+        let sample = makePlaybackSample(pcm: [1, 0.5], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.loopMode, .forward)
+        XCTAssertEqual(result.diagnostics.noteCutEffects.first?.status, .applied)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0, 0, 0])
+    }
+
+    func testPlaybackSongAdapterNoteCutECxIsHardGainCutNotKeyOffRelease() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], baseSampleRate: 100)
+        let envelope = makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC1)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0, 0])
+        XCTAssertEqual(result.diagnostics.noteCutEffects.first?.status, .applied)
+        XCTAssertEqual(result.diagnostics.keyOffEvents, [])
+        XCTAssertFalse(mapping.volumeEnvelopeSemantics.keyOffApplied)
+        XCTAssertFalse(mapping.volumeEnvelopeSemantics.fadeoutApplied)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedAppliesECxCutToCarriedVoice() throws {
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0xC0),
+                makePlaybackRow(index: 2)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let normal = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(normal.block.interleavedPCM, [1, 0, 0])
+        XCTAssertEqual(windowed.block, normal.block)
+        XCTAssertEqual(windowed.diagnostics.noteCutEffects.first?.scheduledFrame, 1)
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalBoundaryContinuations, 1)
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalDroppedAtWindowBoundaries, 0)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedAppliesEDxDelayWithinWindow() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xD2),
+                makePlaybackRow(index: 1)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let normal = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(normal.block.interleavedPCM, [0, 0, 1, 0])
+        XCTAssertEqual(windowed.block, normal.block)
+        XCTAssertEqual(windowed.diagnostics.noteDelayEffects.first?.status, .applied)
+        XCTAssertEqual(windowed.diagnostics.noteDelayEffects.first?.delayedFrame, 2)
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowCount, 2)
+    }
+
+    func testPlaybackSongAdapterOtherExtendedECommandsRemainDeferredWithECxEDxSupport() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x94)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+        let effect = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0])
+        XCTAssertEqual(effect.decodedLabel, "E9x retrigger")
+        XCTAssertEqual(effect.status, .deferredUnsupported)
+        XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
+        XCTAssertEqual(result.diagnostics.noteCutEffects, [])
+        XCTAssertEqual(result.diagnostics.noteDelayEffects, [])
+    }
+
     func testPlaybackSongAdapterDisabledVolumeEnvelopePreservesOutput() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1])
         let disabledEnvelope = makePlaybackVolumeEnvelope(

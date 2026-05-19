@@ -43,7 +43,10 @@ minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
 speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
 ignored no-op. It also applies minimal nonzero `9xx` sample offsets to same-cell
 note/sample triggers in bounded offline renders only, diagnoses `900` as
-ignored/deferred/no-op, and skips out-of-range offsets safely. Fractional
+ignored/deferred/no-op, and skips out-of-range offsets safely. Minimal `ECx`
+note cut and `EDx` note delay are supported in bounded offline renders only;
+`ECx` hard-cuts the active adapted voice at the requested tick and `EDx` delays
+only normal same-cell note triggers. Fractional
 C-backed offline sample steps now use simple
 deterministic linear interpolation, including safe no-loop ends, forward-loop
 wraps, and ping-pong turnarounds. Bounded offline note triggers now use parsed
@@ -126,8 +129,10 @@ Immediate audio accuracy sequence:
 39. Chunked/windowed offline render scheduling for long candidate WAV exports — done
 40. Window state carryover refinement for windowed offline candidate renders — done
 41. Minimal volume/panning state effects for bounded offline renders — done
-42. Feature-flagged runtime backend switch
-43. Reference comparison stabilization against MikMod/OpenMPT
+42. Minimal note cut ECx / note delay EDx for bounded offline renders — done
+43. Mixer output headroom / clipping diagnostics and render gain policy — planned
+44. Feature-flagged runtime backend switch
+45. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -212,6 +217,8 @@ Features:
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - minimal nonzero `9xx` sample offset starts for same-cell bounded offline
   adapted note/sample triggers, with `900` and effect memory still deferred
+- minimal `ECx` note cut and `EDx` note delay support for bounded offline
+  adapted renders, with retrigger and broader effect parity still deferred
 - first-pass parsed volume-envelope sustain, envelope loop, note value `97`
   key-off release, and post-key-off fadeout behavior for bounded offline adapted
   renders, without full FT2/OpenMPT envelope parity or panning envelopes
@@ -233,6 +240,8 @@ Features:
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback
+- minimal bounded/offline `ECx` note-cut and `EDx` note-delay diagnostics,
+  including applied, no-active/no-note, and out-of-row cases
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate

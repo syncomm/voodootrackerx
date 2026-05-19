@@ -790,33 +790,35 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let tonePortamento3xxNoActiveVoiceCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noActiveVoice }.count
         let tonePortamento3xxNoTargetCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noTarget }.count
         let tonePortamento3xxDeferredCount = diagnostics.tonePortamentoEffects.filter(\.deferred).count
+        let portamentoUpEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .up }
+        let portamentoDownEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .down }
+        let portamentoSlideAppliedCount = diagnostics.portamentoSlideEffects.filter(\.applied).count
+        let portamentoSlideNoActiveVoiceCount = diagnostics.portamentoSlideEffects.filter { $0.status == .noActiveVoice }.count
+        let portamentoSlideZeroParamCount = diagnostics.portamentoSlideEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
+        let portamentoSlideDeferredCount = diagnostics.portamentoSlideEffects.filter(\.deferred).count
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
-        return [
-            "schema_version": 1,
-            "tool": "vtx_render_bounded_xm",
-            "local_only": true,
-            "notes": [
-                "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
-                "Generated diagnostics are local artifacts and must not be committed.",
-                "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
-                "C-backed offline sample stepping uses simple deterministic linear interpolation.",
-                "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
-                "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
-                "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
-                "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
-                "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
-                "Minimal 3xx tone portamento is applied only in bounded offline adapter renders; 1xx/2xx/5xy and volume-column tone portamento remain deferred.",
-                "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
-                "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
-                "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
-                "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
-                "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
-                "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before PCM16 conversion.",
-            ],
-            "render": [
+        let notes = [
+            "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
+            "Generated diagnostics are local artifacts and must not be committed.",
+            "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
+            "C-backed offline sample stepping uses simple deterministic linear interpolation.",
+            "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
+            "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
+            "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
+            "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
+            "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
+            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
+            "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
+            "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
+            "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
+            "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
+            "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
+            "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before PCM16 conversion.",
+        ]
+        let render: [String: Any] = [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
                 "requested_order_count": diagnostics.requestedOrderCount,
                 "sample_rate": diagnostics.sampleRate,
@@ -843,6 +845,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
                 "tone_portamento_3xx_no_target_count": tonePortamento3xxNoTargetCount,
                 "tone_portamento_3xx_deferred_count": tonePortamento3xxDeferredCount,
+                "portamento_1xx_effect_count": portamentoUpEffects.count,
+                "portamento_1xx_applied_count": portamentoUpEffects.filter(\.applied).count,
+                "portamento_1xx_no_active_voice_count": portamentoUpEffects.filter { $0.status == .noActiveVoice }.count,
+                "portamento_1xx_zero_param_effect_memory_deferred_count": portamentoUpEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_2xx_effect_count": portamentoDownEffects.count,
+                "portamento_2xx_applied_count": portamentoDownEffects.filter(\.applied).count,
+                "portamento_2xx_no_active_voice_count": portamentoDownEffects.filter { $0.status == .noActiveVoice }.count,
+                "portamento_2xx_zero_param_effect_memory_deferred_count": portamentoDownEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_slide_effect_count": diagnostics.portamentoSlideEffectCount,
+                "portamento_slide_applied_count": portamentoSlideAppliedCount,
+                "portamento_slide_no_active_voice_count": portamentoSlideNoActiveVoiceCount,
+                "portamento_slide_zero_param_effect_memory_deferred_count": portamentoSlideZeroParamCount,
+                "portamento_slide_deferred_count": portamentoSlideDeferredCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
                 "active_voice_state_update_count": activeVoiceStateUpdateCount,
                 "gain_pan_ramp_enabled": true,
@@ -876,7 +891,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "pcm16_clipping_sample_count": exportDiagnostics.pcm16ClippingSampleCount,
                 "clipping_detected": exportDiagnostics.clippingDetected,
                 "clipping_recommendation": nullableJSONValue(exportDiagnostics.recommendation),
-            ],
+        ]
+        return [
+            "schema_version": 1,
+            "tool": "vtx_render_bounded_xm",
+            "local_only": true,
+            "notes": notes,
+            "render": render,
             "export_diagnostics": exportDiagnosticsJSON(exportDiagnostics),
             "windowed_render": windowedRenderJSON(from: result),
             "event_coverage": eventCoverageJSON(from: result),
@@ -897,6 +918,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
             "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
+            "portamento_slide_effects": diagnostics.portamentoSlideEffects.map(portamentoSlideDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -1977,6 +1999,42 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func portamentoSlideDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticPortamentoSlideDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": portamentoSlideStatusName(diagnostic.status),
+            "current_status": portamentoSlideStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "slide_direction": diagnostic.direction.rawValue,
+            "slide_amount": diagnostic.slideAmount,
+            "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "step_update_count": diagnostic.stepUpdates.count,
+            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "clamped": diagnostic.clamped,
+            "policy": diagnostic.policy,
+        ]
+    }
+
     private static func tonePortamentoStepUpdateJSON(
         _ update: PlaybackSongSyntheticTonePortamentoStepUpdate
     ) -> [String: Any] {
@@ -1991,6 +2049,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "current_step_before": update.playbackStepBefore,
             "current_step_after": update.playbackStepAfter,
             "reached_target": update.reachedTarget,
+            "clamped": update.clamped,
         ]
     }
 
@@ -2216,6 +2275,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "no_target"
         case .noSpeed:
             return "no_speed"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
+        }
+    }
+
+    private static func portamentoSlideStatusName(
+        _ status: PlaybackSongSyntheticPortamentoSlideDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .zeroParamEffectMemoryDeferred:
+            return "zero_param_effect_memory_deferred"
         case .unsupportedFrequencyTable:
             return "deferred/unsupported_frequency_table"
         case .outOfRange:
@@ -2578,6 +2654,11 @@ private func appendEventCoverageSummary(
     )
     lines.append(
         "Retrigger: E9x \(appliedRetriggers) applied, \(deferredRetriggers) deferred, \(noActiveRetriggers) no-active, \(outOfRowRetriggers) out-of-row/no-op."
+    )
+    let portamentoUp = result.diagnostics.portamentoSlideEffects.filter { $0.direction == .up }
+    let portamentoDown = result.diagnostics.portamentoSlideEffects.filter { $0.direction == .down }
+    lines.append(
+        "Portamento slide: 1xx \(portamentoUp.filter(\.applied).count) applied, \(portamentoUp.filter(\.deferred).count) deferred, \(portamentoUp.filter { $0.status == .noActiveVoice }.count) no-active; 2xx \(portamentoDown.filter(\.applied).count) applied, \(portamentoDown.filter(\.deferred).count) deferred, \(portamentoDown.filter { $0.status == .noActiveVoice }.count) no-active."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

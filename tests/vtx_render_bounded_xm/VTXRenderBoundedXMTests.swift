@@ -1609,11 +1609,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let first = try XCTUnwrap(coordinates.first)
         let volumeTonePortamento = try XCTUnwrap(coordinates.first { $0["effect_label"] as? String == "volume-column tone portamento" })
         let effectTonePortamento = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "3xx tone portamento" })
+        let portamentoSlides = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
 
         [
             "total_arpeggio_count",
-            "total_portamento_up_count",
-            "total_portamento_down_count",
             "total_vibrato_count",
             "total_tone_portamento_volume_slide_count",
             "total_vibrato_volume_slide_count",
@@ -1622,12 +1621,23 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "total_volume_column_vibrato_count",
             "total_volume_column_tone_portamento_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_portamento_up_count"] as? Int, 0)
+        XCTAssertEqual(summary["total_portamento_down_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 10)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 10)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 8)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 8)
         XCTAssertEqual(render["tone_portamento_3xx_effect_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_3xx_no_active_voice_count"] as? Int, 1)
-        XCTAssertEqual(coordinates.count, 10)
+        XCTAssertEqual(render["portamento_1xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_1xx_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
+        XCTAssertEqual(coordinates.count, 8)
+        XCTAssertEqual(portamentoSlides.count, 2)
+        XCTAssertEqual(portamentoSlides.map { $0["current_status"] as? String }, ["applied", "applied"])
+        XCTAssertEqual(portamentoSlides.map { $0["slide_direction"] as? String }, ["up", "down"])
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
@@ -1641,6 +1651,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(volumeTonePortamento["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(effectTonePortamento["current_status"] as? String, "applied")
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "3xx tone portamento" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "1xx portamento up" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "2xx portamento down" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
@@ -1694,6 +1706,67 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostic["portamento_speed"] as? Int, 0x40)
         XCTAssertEqual(stepUpdates.map { $0["scheduled_frame"] as? Int }, [5, 6, 7])
         XCTAssertEqual(firstStepBefore, 1, accuracy: 0.000_001)
+    }
+
+    func testDiagnosticsJSONReportsAppliedPortamentoSlideDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: (0..<300).map { Float($0) / 1_000.0 },
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 1, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x01, effectParam: 0x40)]),
+            PlaybackRow(index: 2, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x02, effectParam: 0x20)]),
+        ]
+        let song = PlaybackSong(
+            title: "portamento-slide-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 12
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let diagnostics = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
+        let up = try XCTUnwrap(diagnostics.first { $0["slide_direction"] as? String == "up" })
+        let down = try XCTUnwrap(diagnostics.first { $0["slide_direction"] as? String == "down" })
+        let upUpdates = try XCTUnwrap(up["step_updates"] as? [[String: Any]])
+        let downUpdates = try XCTUnwrap(down["step_updates"] as? [[String: Any]])
+        let upStepBefore = try XCTUnwrap(up["current_step_before"] as? Double)
+        let upStepAfter = try XCTUnwrap(up["current_step_after"] as? Double)
+        let downStepBefore = try XCTUnwrap(down["current_step_before"] as? Double)
+        let downStepAfter = try XCTUnwrap(down["current_step_after"] as? Double)
+
+        XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_1xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_1xx_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
+        XCTAssertEqual(up["current_status"] as? String, "applied")
+        XCTAssertEqual(up["slide_amount"] as? Int, 0x40)
+        XCTAssertEqual(up["row_speed"] as? Int, 4)
+        XCTAssertEqual(up["row_bpm"] as? Int, 250)
+        XCTAssertEqual(upUpdates.map { $0["scheduled_frame"] as? Int }, [5, 6, 7])
+        XCTAssertGreaterThan(upStepAfter, upStepBefore)
+        XCTAssertEqual(down["current_status"] as? String, "applied")
+        XCTAssertEqual(down["slide_amount"] as? Int, 0x20)
+        XCTAssertEqual(downUpdates.map { $0["scheduled_frame"] as? Int }, [9, 10, 11])
+        XCTAssertLessThan(downStepAfter, downStepBefore)
     }
 
     func testTraversalDiagnosticsDoNotChangeRenderedAudio() throws {

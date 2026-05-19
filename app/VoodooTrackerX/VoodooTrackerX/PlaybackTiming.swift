@@ -197,7 +197,12 @@ struct SyntheticTrackerScheduler: Equatable {
 
     @discardableResult
     func schedule(_ event: SyntheticTrackerEvent, on mixer: CSoftwareMixer) -> Int? {
-        mixer.addScheduledVoice(
+        scheduleWithResult(event, on: mixer).voiceIndex
+    }
+
+    @discardableResult
+    func scheduleWithResult(_ event: SyntheticTrackerEvent, on mixer: CSoftwareMixer) -> CSoftwareMixerScheduledVoiceResult {
+        mixer.addScheduledVoiceWithResult(
             sample: event.sample,
             scheduledStartFrame: frame(for: event),
             gain: event.gain,
@@ -215,6 +220,11 @@ struct SyntheticTrackerScheduler: Equatable {
     @discardableResult
     func schedule(_ events: [SyntheticTrackerEvent], on mixer: CSoftwareMixer) -> [Int?] {
         events.map { schedule($0, on: mixer) }
+    }
+
+    @discardableResult
+    func scheduleWithResults(_ events: [SyntheticTrackerEvent], on mixer: CSoftwareMixer) -> [CSoftwareMixerScheduledVoiceResult] {
+        events.map { scheduleWithResult($0, on: mixer) }
     }
 }
 
@@ -260,5 +270,10 @@ struct SyntheticPatternScheduler: Equatable {
     @discardableResult
     func schedule(_ pattern: SyntheticPattern, on mixer: CSoftwareMixer) -> [Int?] {
         trackerScheduler.schedule(pattern.scheduledEvents, on: mixer)
+    }
+
+    @discardableResult
+    func scheduleWithResults(_ pattern: SyntheticPattern, on mixer: CSoftwareMixer) -> [CSoftwareMixerScheduledVoiceResult] {
+        trackerScheduler.scheduleWithResults(pattern.scheduledEvents, on: mixer)
     }
 }

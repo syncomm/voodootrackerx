@@ -688,12 +688,21 @@ def append_event_coverage_summary(lines: list[str], coverage: dict[str, Any]) ->
         f"- Top skip reasons: {top_reasons if top_reasons else 'none'}",
     ])
     if capacity:
+        scheduled_capacity = capacity.get(
+            "scheduled_voice_capacity",
+            capacity.get("c_mixer_scheduled_voice_capacity", capacity.get("c_mixer_voice_capacity"))
+        )
+        active_capacity = capacity.get(
+            "active_voice_capacity",
+            capacity.get("c_mixer_active_voice_capacity", capacity.get("c_mixer_voice_capacity"))
+        )
         lines.append(
             "- C mixer scheduling: "
             f"{format_optional(capacity.get('scheduled_voice_accepted_count'))}/"
             f"{format_optional(capacity.get('scheduled_voice_attempt_count'))} accepted, "
             f"{format_optional(capacity.get('scheduled_voice_rejected_count'))} rejected, "
-            f"capacity {format_optional(capacity.get('c_mixer_voice_capacity'))}"
+            f"scheduled capacity {format_optional(scheduled_capacity)}, "
+            f"active capacity {format_optional(active_capacity)}"
         )
     if skipped:
         lines.append(

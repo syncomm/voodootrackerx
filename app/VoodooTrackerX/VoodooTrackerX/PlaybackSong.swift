@@ -3021,6 +3021,25 @@ struct PlaybackSongOfflineRenderResult: Equatable {
     let plan: PlaybackSongSyntheticPlan
     let block: MixerRenderBlock
     let scheduledVoiceIndices: [Int?]
+    let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
+
+    init(
+        request: PlaybackSongOfflineRenderRequest,
+        plan: PlaybackSongSyntheticPlan,
+        block: MixerRenderBlock,
+        scheduledVoiceIndices: [Int?],
+        scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?] = []
+    ) {
+        self.request = request
+        self.plan = plan
+        self.block = block
+        self.scheduledVoiceIndices = scheduledVoiceIndices
+        if scheduledVoiceRejectionReasons.count == scheduledVoiceIndices.count {
+            self.scheduledVoiceRejectionReasons = scheduledVoiceRejectionReasons
+        } else {
+            self.scheduledVoiceRejectionReasons = scheduledVoiceIndices.map { $0 == nil ? .invalidScheduledVoice : nil }
+        }
+    }
 
     var diagnostics: PlaybackSongSyntheticDiagnostics {
         plan.diagnostics
@@ -3048,6 +3067,7 @@ final class PlaybackSongOfflineRenderSession {
     let request: PlaybackSongOfflineRenderRequest
     let plan: PlaybackSongSyntheticPlan
     let scheduledVoiceIndices: [Int?]
+    let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
 
     private let mixer: CSoftwareMixer
     private var renderedFrameCount = 0
@@ -3069,13 +3089,16 @@ final class PlaybackSongOfflineRenderSession {
             sampleRate: request.config.sampleRate
         )
         let preparedMixer = CSoftwareMixer(config: request.config)
-        let voiceIndices = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).schedule(adaptedPlan.pattern, on: preparedMixer)
-        let rejectedVoiceCount = voiceIndices.filter { $0 == nil }.count
+        let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
+        let voiceIndices = scheduledResults.map(\.voiceIndex)
+        let rejectionReasons = scheduledResults.map(\.rejectionReason)
+        let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
-            .reportingCMixerVoiceCapacityRejections(rejectedVoiceCount)
+            .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
         plan = adaptedPlan.replacingEventCoverage(eventCoverage)
         mixer = preparedMixer
         scheduledVoiceIndices = voiceIndices
+        scheduledVoiceRejectionReasons = rejectionReasons
     }
 
     func render(frames: Int) -> MixerRenderBlock {
@@ -3118,7 +3141,8 @@ final class PlaybackSongOfflineRenderer {
             request: effectiveRequest,
             plan: session.plan,
             block: session.render(frames: effectiveRequest.boundedFrameCount),
-            scheduledVoiceIndices: session.scheduledVoiceIndices
+            scheduledVoiceIndices: session.scheduledVoiceIndices,
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
         )
     }
 
@@ -3149,7 +3173,8 @@ final class PlaybackSongOfflineRenderer {
             request: effectiveRequest,
             plan: session.plan,
             block: block,
-            scheduledVoiceIndices: session.scheduledVoiceIndices
+            scheduledVoiceIndices: session.scheduledVoiceIndices,
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
         )
     }
 

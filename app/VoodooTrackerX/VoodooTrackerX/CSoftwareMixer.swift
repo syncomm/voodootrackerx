@@ -39,6 +39,20 @@ struct MixerEnvelope: Equatable {
     }
 }
 
+enum CSoftwareMixerScheduledVoiceRejectionReason: String, Equatable {
+    case scheduledVoiceCapacity = "scheduled_voice_capacity"
+    case invalidScheduledVoice = "invalid_scheduled_voice"
+}
+
+struct CSoftwareMixerScheduledVoiceResult: Equatable {
+    let voiceIndex: Int?
+    let rejectionReason: CSoftwareMixerScheduledVoiceRejectionReason?
+
+    var wasAccepted: Bool {
+        voiceIndex != nil
+    }
+}
+
 /// Thin Swift wrapper around the C-backed mixer core.
 ///
 /// This wrapper exists for deterministic offline tests and future mixer migration work. It does not replace
@@ -47,7 +61,9 @@ struct MixerEnvelope: Equatable {
 /// not leak across the C render boundary. Synthetic envelope points are also copied into C-owned voice
 /// storage when attached.
 final class CSoftwareMixer {
-    static let maximumScheduledVoiceCount = 32
+    static let maximumVoiceCount = Int(VTX_C_MIXER_MAX_VOICES)
+    static let maximumScheduledVoiceCount = Int(VTX_C_MIXER_MAX_SCHEDULED_VOICES)
+    static let maximumActiveVoiceCount = Int(VTX_C_MIXER_MAX_ACTIVE_VOICES)
 
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
@@ -146,8 +162,38 @@ final class CSoftwareMixer {
         keyOffFrame: Int? = nil,
         fadeoutFrameDecrement: Float = 0
     ) -> Int? {
+        addScheduledVoiceWithResult(
+            sample: sample,
+            scheduledStartFrame: scheduledStartFrame,
+            gain: gain,
+            pan: pan,
+            playbackStep: playbackStep,
+            loop: loop,
+            initialSourceFrame: initialSourceFrame,
+            volumeEnvelope: volumeEnvelope,
+            panEnvelope: panEnvelope,
+            keyOffFrame: keyOffFrame,
+            fadeoutFrameDecrement: fadeoutFrameDecrement
+        ).voiceIndex
+    }
+
+    /// Adds one scheduled synthetic sample voice and reports whether fixed C mixer storage rejected it.
+    @discardableResult
+    func addScheduledVoiceWithResult(
+        sample: MixerSampleBuffer,
+        scheduledStartFrame: Int,
+        gain: Float = 1,
+        pan: Float = 0,
+        playbackStep: Double = 1,
+        loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
+        volumeEnvelope: MixerEnvelope? = nil,
+        panEnvelope: MixerEnvelope? = nil,
+        keyOffFrame: Int? = nil,
+        fadeoutFrameDecrement: Float = 0
+    ) -> CSoftwareMixerScheduledVoiceResult {
         guard scheduledStartFrame >= 0 else {
-            return nil
+            return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .invalidScheduledVoice)
         }
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
@@ -170,7 +216,10 @@ final class CSoftwareMixer {
             )
         }
         guard status == VTX_C_MIXER_STATUS_OK else {
-            return nil
+            return CSoftwareMixerScheduledVoiceResult(
+                voiceIndex: nil,
+                rejectionReason: Self.rejectionReason(for: status)
+            )
         }
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
@@ -181,7 +230,7 @@ final class CSoftwareMixer {
         if let keyOffFrame {
             setKeyOffFrame(keyOffFrame, fadeoutFrameDecrement: fadeoutFrameDecrement, forVoiceAt: Int(voiceIndex))
         }
-        return Int(voiceIndex)
+        return CSoftwareMixerScheduledVoiceResult(voiceIndex: Int(voiceIndex), rejectionReason: nil)
     }
 
     /// Copies a synthetic volume envelope into an existing C-backed voice.
@@ -328,5 +377,11 @@ final class CSoftwareMixer {
 
     private static func requireOK(_ status: VTXCMixerStatus) {
         precondition(status == VTX_C_MIXER_STATUS_OK, "C mixer returned invalid argument")
+    }
+
+    private static func rejectionReason(for status: VTXCMixerStatus) -> CSoftwareMixerScheduledVoiceRejectionReason {
+        status == VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED
+            ? .scheduledVoiceCapacity
+            : .invalidScheduledVoice
     }
 }

@@ -49,7 +49,7 @@ with and without an instrument, scheduled note events, skipped note events,
 note-off cells that had no active adapted voice, and ignored/deferred cells. It
 also classifies skip reasons such as missing instrument, unknown instrument,
 empty sample PCM, no playable sample, sample offset out of range, deferred
-effect interaction, and C mixer voice capacity rejection.
+effect interaction, and C mixer scheduled voice capacity rejection.
 Bounded offline note triggers now use parsed XM instrument note-sample maps
 when the selected instrument has a usable multi-sample mapping. Diagnostics
 record whether a map is present, the mapped sample index, whether that mapped
@@ -103,11 +103,16 @@ Runtime playback still uses `AVAudioPlayerNode` through the existing playback
 path; the C mixer is still not used for live playback, and full real XM playback
 through the C mixer has not been implemented.
 
-The event-coverage diagnostics are reporting only. They intentionally do not
-increase voice capacity, add new effects, or change mixer DSP behavior.
-Scheduled events report the current sample-selection method, fallback usage,
-missing/deferred keymap state, and C mixer capacity rejections so later PRs can
-target remaining audible gaps with evidence.
+The bounded offline C mixer uses fixed deterministic voice storage. Scheduled
+and active voices currently share one preallocated C pool with capacity 256;
+there is no separate active-voice stealing policy, and render calls do not
+allocate additional voice storage. Event-coverage diagnostics distinguish the
+configured scheduled capacity, active capacity, accepted scheduled voices,
+scheduled-capacity rejects, active-capacity rejects, invalid scheduled voice
+rejects, and rejected event coordinates. Scheduled events also report the
+current sample-selection method, fallback usage, missing/deferred keymap state,
+and capacity rejections so later PRs can target remaining audible gaps with
+evidence.
 
 The C-backed offline mixer now renders fractional source-sample positions with
 simple deterministic linear interpolation. Integer source positions still read
@@ -325,8 +330,8 @@ The current adapter does not:
 | Timing or sample-offset support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows and minimal nonzero `9xx` source starts on same-cell note triggers. Diagnose `F00`, `900`, out-of-range offsets, and all other effect-column commands without adding broad effect state. |
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
-| C voice limit is too small for dense rows. | First adapter renders tiny bounded fixtures. Later PRs can schedule in blocks or increase C storage after a focused decision. |
-| Local listening suggests missing notes before the C mixer. | Event-coverage diagnostics compare parsed normal note cells with scheduled C-backed events, report skipped coordinates and reasons, and expose C mixer voice-capacity rejections without changing playback behavior. |
+| C voice limit is too small for dense rows. | The offline C mixer now uses a 256-voice fixed pool for scheduled/active voices. Keep any later increases or chunked scheduling focused and deterministic, with no heap allocation in the render hot path. |
+| Local listening suggests missing notes before the C mixer. | Event-coverage diagnostics compare parsed normal note cells with scheduled C-backed events, report skipped coordinates and reasons, and expose scheduled/active capacity values plus rejected event coordinates without changing runtime playback. |
 
 ## Test Strategy For Adapter PRs
 
@@ -383,8 +388,11 @@ bounded offline rendering:
   notes, skipped notes, and skip reasons without changing render output.
 - Assert scheduled and skipped note diagnostics include source
   order/pattern/row/channel coordinates and sample-selection metadata.
-- Assert C mixer voice capacity rejections are reported when a synthetic fixture
-  exceeds the current fixed voice limit.
+- Assert capacity diagnostics report scheduled and active capacity values.
+- Assert C mixer scheduled voice capacity rejections and rejected coordinates
+  are reported when a synthetic fixture exceeds the fixed voice limit.
+- Assert dense synthetic fixtures above the former 32-voice limit and below the
+  current 256-voice limit schedule without capacity rejects.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -432,9 +440,12 @@ bounded offline rendering:
 15. Done: bounded offline instrument sample-map/keymap selection, reporting
     sample-map selections, first-playable fallbacks, invalid-map fallbacks, and
     skipped-no-valid-sample cases without runtime backend changes.
-16. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+16. Done: C mixer scheduled voice capacity / diagnostics hardening, increasing
+    the fixed offline scheduled/active voice pool to 256 and reporting capacity
+    values plus rejected event coordinates without runtime backend changes.
+17. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-17. Feature-flagged runtime C mixer backend switch only after offline parity and
+18. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -500,7 +511,7 @@ This adapter bridge work does not:
 - implement `9xx` effect memory for `900`
 - implement note delay, note cut, or retrigger
 - implement global volume
-- change C mixer voice/event capacity
+- add dynamic/unbounded mixer allocation or voice stealing
 - implement full volume-column semantics beyond set-volume, set-panning, and
   the supported row-level volume/panning slide subset
 - implement pattern break or position jump

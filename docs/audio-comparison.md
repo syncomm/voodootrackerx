@@ -58,8 +58,9 @@ investigations. It compares parsed bounded `PlaybackSong` cells against
 scheduled C-backed adapter events, counts normal notes, note-offs, empty and
 invalid cells, skipped notes, skip reasons, first-playable-sample fallback
 usage, sample-map/keymap selections, fallback-after-invalid-map cases,
-skipped-no-valid-sample cases, missing/deferred keymap state, and current C
-mixer voice-capacity rejections.
+skipped-no-valid-sample cases, missing/deferred keymap state, current C mixer
+scheduled/active capacity values, accepted scheduled voices, capacity reject
+counts, and rejected event coordinates.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -73,7 +74,9 @@ a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
 It also summarizes sample-selection counts so missing or wrong notes can be
 separated from fallback-heavy mapped-sample behavior, invalid maps, and current
-C mixer capacity limits.
+C mixer capacity limits. When missing notes line up with capacity diagnostics,
+check the scheduled capacity, active capacity, rejected count, and rejected
+event coordinates before choosing an effect-handling PR.
 The same report also summarizes applied, ignored/no-op, deferred/unsupported,
 and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
@@ -171,8 +174,9 @@ automatic fix.
    notes. Missing/unknown instruments, empty sample PCM, no-playable-sample
    reasons, sample-map selections, first-playable-sample fallbacks,
    fallback-after-invalid-map cases, skipped-no-valid-sample cases,
-   out-of-range `9xx`, C mixer voice capacity rejections, and deferred effect
-   interactions should each guide a separate targeted follow-up PR.
+   out-of-range `9xx`, C mixer scheduled/active capacity rejections with
+   rejected coordinates, and deferred effect interactions should each guide a
+   separate targeted follow-up PR.
 6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
@@ -274,8 +278,8 @@ mismatch windows are broad and steady while events look plausible, remaining
 resampling details or reference-render settings may be the better next
 investigation.
 If the event-coverage section shows parsed normal notes that never became
-scheduled events, prioritize the reported skip reasons before implementing more
-effects. If sample-map selections remain low for a bounded target, confirm
+scheduled events, prioritize the reported skip reasons and capacity fields
+before implementing more effects. If sample-map selections remain low for a bounded target, confirm
 whether the local module's active instruments actually map those notes to
 multiple playable samples before treating it as an adapter bug. Keep capacity
 fixes, sample-offset refinements, traversal diagnostics, and effect handling as

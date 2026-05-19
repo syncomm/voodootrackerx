@@ -405,7 +405,8 @@ struct RenderTool {
             request: session.request.replacingFrameCount(completedFrames),
             plan: session.plan,
             block: block,
-            scheduledVoiceIndices: session.scheduledVoiceIndices
+            scheduledVoiceIndices: session.scheduledVoiceIndices,
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
         )
     }
 
@@ -670,8 +671,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
 
     private static func eventCoverageJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
         let coverage = result.diagnostics.eventCoverage
-        let rejectedVoiceCount = result.scheduledVoiceIndices.filter { $0 == nil }.count
+        let rejectedVoiceCount = scheduledVoiceRejectedCount(from: result)
         let acceptedVoiceCount = result.scheduledVoiceIndices.compactMap { $0 }.count
+        let scheduledCapacityRejectedCount = scheduledVoiceRejectionCount(
+            from: result,
+            reason: .scheduledVoiceCapacity
+        )
+        let invalidScheduledVoiceRejectedCount = scheduledVoiceRejectionCount(
+            from: result,
+            reason: .invalidScheduledVoice
+        )
         return [
             "total_cells_visited": coverage.totalCellsVisited,
             "empty_cells": coverage.emptyCells,
@@ -697,15 +706,59 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "skip_reason_counts": coverage.skipReasonCounts.map(skipReasonCountJSON),
             "capacity": [
                 "c_mixer_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
+                "c_mixer_scheduled_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
+                "c_mixer_active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
+                "scheduled_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
+                "active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
                 "scheduled_voice_attempt_count": result.scheduledVoiceIndices.count,
                 "scheduled_voice_accepted_count": acceptedVoiceCount,
                 "scheduled_voice_rejected_count": rejectedVoiceCount,
+                "scheduled_voice_capacity_rejected_count": scheduledCapacityRejectedCount,
+                "active_voice_capacity_rejected_count": 0,
+                "invalid_scheduled_voice_rejected_count": invalidScheduledVoiceRejectedCount,
                 "potentially_unscheduled_event_count": rejectedVoiceCount,
                 "event_capacity_limit_count": coverage.eventCapacityLimitCount,
                 "c_mixer_voice_capacity_limit_count": coverage.cMixerVoiceCapacityLimitCount,
+                "rejected_event_coordinates": rejectedEventCoordinatesJSON(from: result),
             ],
             "first_skipped_note_coordinates": firstSkippedNoteCoordinatesJSON(from: result.diagnostics.ignoredCells),
         ]
+    }
+
+    private static func scheduledVoiceRejectedCount(from result: PlaybackSongOfflineRenderResult) -> Int {
+        result.scheduledVoiceRejectionReasons.compactMap { $0 }.count
+    }
+
+    private static func scheduledVoiceRejectionCount(
+        from result: PlaybackSongOfflineRenderResult,
+        reason: CSoftwareMixerScheduledVoiceRejectionReason
+    ) -> Int {
+        result.scheduledVoiceRejectionReasons.filter { $0 == reason }.count
+    }
+
+    private static func rejectedEventCoordinatesJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {
+        let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: result.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
+        return result.scheduledVoiceRejectionReasons.enumerated().compactMap { eventIndex, rejectionReason -> [String: Any]? in
+            guard let rejectionReason else {
+                return nil
+            }
+            var object: [String: Any] = [
+                "event_index": eventIndex,
+                "reason": rejectionReason.rawValue,
+            ]
+            if let mapping = mappingsByEventIndex[eventIndex] {
+                object["source"] = positionJSON(mapping.source)
+                object["channel_index"] = mapping.channelIndex
+                object["note"] = Int(mapping.note)
+                object["instrument_index"] = mapping.instrumentIndex
+                object["sample_index"] = mapping.sampleIndex
+                object["sample_selection_method"] = mapping.sampleSelectionMethod.rawValue
+                if result.plan.pattern.events.indices.contains(eventIndex) {
+                    object["scheduled_start_frame"] = result.plan.pattern.events[eventIndex].scheduledStartFrame ?? 0
+                }
+            }
+            return object
+        }
     }
 
     private static func skipReasonCountJSON(_ count: PlaybackSongSyntheticSkipReasonCount) -> [String: Any] {
@@ -1364,7 +1417,7 @@ private func appendEventCoverageSummary(
     result: PlaybackSongOfflineRenderResult
 ) {
     let coverage = result.diagnostics.eventCoverage
-    let rejectedVoiceCount = result.scheduledVoiceIndices.filter { $0 == nil }.count
+    let rejectedVoiceCount = result.scheduledVoiceRejectionReasons.compactMap { $0 }.count
     lines.append("Event coverage: parsed normal notes \(coverage.normalNoteCells), scheduled events \(coverage.scheduledNoteEvents), skipped notes \(coverage.skippedNoteEvents).")
     lines.append(
         "Sample selection: sample_map \(coverage.sampleMapSelectionEvents), first_playable_fallback \(coverage.firstPlayableSampleFallbackEvents), fallback_after_invalid_map \(coverage.fallbackAfterInvalidSampleMapEvents), skipped_no_valid_sample \(coverage.skippedNoValidSampleEvents), missing_or_deferred_keymap \(coverage.sampleMapKeymapDeferredEvents)."
@@ -1379,7 +1432,7 @@ private func appendEventCoverageSummary(
         }
     lines.append("First skipped note coordinates: \(skippedCoordinates.isEmpty ? "none" : skippedCoordinates.joined(separator: "; ")).")
     lines.append(
-        "C mixer scheduling: \(result.scheduledVoiceIndices.count - rejectedVoiceCount)/\(result.scheduledVoiceIndices.count) accepted, \(rejectedVoiceCount) rejected, capacity \(CSoftwareMixer.maximumScheduledVoiceCount)."
+        "C mixer scheduling: \(result.scheduledVoiceIndices.count - rejectedVoiceCount)/\(result.scheduledVoiceIndices.count) accepted, \(rejectedVoiceCount) rejected, scheduled capacity \(CSoftwareMixer.maximumScheduledVoiceCount), active capacity \(CSoftwareMixer.maximumActiveVoiceCount)."
     )
 }
 

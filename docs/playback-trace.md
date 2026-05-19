@@ -140,10 +140,42 @@ without changing playback semantics. Trace rows can include backend sample rate,
 channel count, render callback count, requested frame counts, cumulative
 requested/rendered frames, min/max/last callback frame counts, successful and
 failed render counts, zero-fill and underrun counters where detected, output
-peak/RMS summaries, overrange/clipping counts, and the runtime output headroom
-policy. The current runtime C path applies no equivalent of the offline
-`--auto-headroom` export policy; its diagnostic headroom policy is
-`unity_runtime_gain_no_auto_headroom`.
+peak/RMS summaries after runtime gain, overrange/clipping counts after runtime
+gain, `clippingDetected`, `runtimeClippingRecommendation` when clipping remains,
+and the runtime output gain/headroom policy. The current runtime C path applies
+no equivalent of the offline `--auto-headroom` export policy.
+
+The experimental runtime C mixer is still selected only with
+`VTX_AUDIO_BACKEND=c_mixer`. When selected, it applies a conservative default
+runtime output policy, currently `default_runtime_headroom_db` with `-10 dB`
+headroom. This gain is applied only in the runtime C mixer handoff to the
+AVAudio source-node buffer; it does not affect the default AVAudio backend and
+does not change `vtx_render_bounded_xm`.
+
+For local C-mixer-only diagnostics, use exactly one of:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_GAIN=0.5 \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_HEADROOM_DB=-9 \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+`VTX_C_MIXER_RUNTIME_GAIN` must be finite, greater than `0`, and at most `1`.
+`VTX_C_MIXER_RUNTIME_HEADROOM_DB` must be finite and no greater than `0`. If
+both are set, or an invalid value is supplied, the runtime C mixer falls back to
+the default conservative policy and writes `runtimeGainConfigurationWarning` in
+the runtime C trace. These gain/headroom variables are ignored unless the
+experimental C mixer backend is selected.
 
 Render callback diagnostics are collected in memory and surfaced on later
 main-side trace events. The audio callback does not write trace files, call

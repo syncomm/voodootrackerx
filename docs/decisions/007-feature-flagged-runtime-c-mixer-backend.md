@@ -74,6 +74,14 @@ snapshots, backend lifecycle breadcrumbs, event counters, and explicit runtime
 headroom policy reporting. It does not make the C mixer default, change C mixer
 DSP semantics, implement new XM effects, or claim runtime stability.
 
+A runtime safety follow-up adds a conservative output gain/headroom policy for
+the experimental C mixer backend only. The policy applies at the
+AVAudioSourceNode buffer handoff, defaults to `-10 dB`, can be overridden for
+local C-mixer-only diagnostics with `VTX_C_MIXER_RUNTIME_GAIN` or
+`VTX_C_MIXER_RUNTIME_HEADROOM_DB`, and reports post-gain clipping diagnostics.
+This remains separate from offline `--auto-headroom`, does not affect the
+default AVAudio backend, and does not claim runtime parity or stability.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

@@ -14,6 +14,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--sample-rate", "48000",
             "--max-frames", "96000",
             "--window-rows", "64",
+            "--gain", "0.5",
         ])
 
         XCTAssertEqual(arguments.inputPath, "/tmp/module.xm")
@@ -25,8 +26,24 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.sampleRate, 48_000)
         XCTAssertEqual(arguments.maxFrames, 96_000)
         XCTAssertEqual(arguments.windowRows, 64)
+        XCTAssertEqual(arguments.gain, 0.5)
+        XCTAssertNil(arguments.headroomDB)
+        XCTAssertEqual(arguments.exportPolicy.gain, 0.5)
         XCTAssertFalse(arguments.allowLongRender)
         XCTAssertFalse(arguments.progress)
+    }
+
+    func testArgumentParsingAcceptsHeadroomDB() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--headroom-db", "-6",
+        ])
+
+        XCTAssertNil(arguments.gain)
+        XCTAssertEqual(arguments.headroomDB, -6)
+        XCTAssertEqual(arguments.exportPolicy.gain, Float(pow(10.0, -6.0 / 20.0)), accuracy: 0.000_001)
     }
 
     func testArgumentParsingAcceptsProgressFlag() throws {
@@ -57,6 +74,53 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--window-rows", "abc",
         ])) { error in
             XCTAssertTrue(error.localizedDescription.contains("Invalid integer for --window-rows"))
+        }
+    }
+
+    func testGainAndHeadroomDBFailClearlyTogether() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--gain", "0.5",
+            "--headroom-db", "-6",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--gain", "--headroom-db"))
+        }
+    }
+
+    func testInvalidGainFailsClearly() {
+        for value in ["-1", "0", "nan", "abc"] {
+            XCTAssertThrowsError(try RenderToolArguments.parse([
+                "--input", "/tmp/module.xm",
+                "--output", "/tmp/vtx-candidate.wav",
+                "--order", "0",
+                "--gain", value,
+            ]), "value \(value) should fail") { error in
+                XCTAssertTrue(error.localizedDescription.contains("Invalid number for --gain"))
+            }
+        }
+    }
+
+    func testInvalidHeadroomDBFailsClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--headroom-db", "3",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Headroom dB must be zero or negative"))
+        }
+
+        for value in ["nan", "abc"] {
+            XCTAssertThrowsError(try RenderToolArguments.parse([
+                "--input", "/tmp/module.xm",
+                "--output", "/tmp/vtx-candidate.wav",
+                "--order", "0",
+                "--headroom-db", value,
+            ]), "value \(value) should fail") { error in
+                XCTAssertTrue(error.localizedDescription.contains("Invalid number for --headroom-db"))
+            }
         }
     }
 
@@ -212,9 +276,12 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--seconds N"))
         XCTAssertTrue(usage.contains("--max-frames N"))
         XCTAssertTrue(usage.contains("--window-rows N"))
+        XCTAssertTrue(usage.contains("--gain N"))
+        XCTAssertTrue(usage.contains("--headroom-db N"))
         XCTAssertTrue(usage.contains("--allow-long-render"))
         XCTAssertTrue(usage.contains("--progress"))
         XCTAssertTrue(usage.contains("Default safety clamp"))
+        XCTAssertTrue(usage.contains("before PCM16 conversion"))
         XCTAssertTrue(usage.contains("rendered frames or row windows"))
 
         let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
@@ -246,8 +313,56 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
         XCTAssertTrue(summary.contains("Windowed render: disabled"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
+        XCTAssertTrue(summary.contains("Effective export gain: 1.000000"))
+        XCTAssertTrue(summary.contains("Pre-export peak: 0.000000"))
+        XCTAssertTrue(summary.contains("PCM16 clipping/clamping samples after gain: 0"))
         XCTAssertTrue(summary.contains("Effective frame cap: \(defaultLimit + 1)"))
         XCTAssertTrue(summary.contains("Render cap mode: explicit override with --allow-long-render"))
+    }
+
+    func testSummaryReportsGainHeadroomAndClippingWarning() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [1.5, -1.5]
+        )
+        let exportDiagnostics = MixerWAVExporter.diagnostics(for: block, exportPolicy: MixerWAVExportPolicy(gain: 0.5))
+        let result = PlaybackSongOfflineRenderResult(
+            request: PlaybackSongOfflineRenderRequest(
+                song: tinySong(),
+                orderIndex: 0,
+                config: block.config,
+                frames: 2
+            ),
+            plan: PlaybackSongSyntheticAdapter.adapt(tinySong(), orderIndex: 0, sampleRate: block.config.sampleRate),
+            block: block,
+            scheduledVoiceIndices: [],
+            exportDiagnostics: exportDiagnostics
+        )
+
+        let summary = renderToolSummary(
+            arguments: RenderToolArguments(
+                inputPath: "/tmp/module.xm",
+                outputPath: "/tmp/vtx-candidate.wav",
+                diagnosticsJSONPath: nil,
+                order: 0,
+                orderCount: 1,
+                rows: nil,
+                sampleRate: 44_100,
+                maxFrames: 2,
+                seconds: nil,
+                gain: 0.5
+            ),
+            result: result
+        )
+
+        XCTAssertTrue(summary.contains("Effective export gain: 0.500000"))
+        XCTAssertTrue(summary.contains("Pre-export peak: 1.500000"))
+        XCTAssertTrue(summary.contains("Post-gain peak: 0.750000"))
+        XCTAssertTrue(summary.contains("Pre-export overrange samples: 2"))
+        XCTAssertTrue(summary.contains("PCM16 clipping/clamping samples after gain: 0"))
+        XCTAssertTrue(summary.contains("Notice: Pre-export overrange samples were present, but export gain kept PCM16 output below clipping."))
+        XCTAssertFalse(summary.contains("Warning: PCM16 clipping/clamping detected after export gain"))
     }
 
     func testProgressFlagProducesCoarseStatusOutput() throws {
@@ -282,7 +397,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(progressText.contains("rendering bounded candidate: 0% (0 / 5292 frames)"))
         XCTAssertTrue(progressText.contains("rendering bounded candidate: 100% (5292 / 5292 frames)"))
         XCTAssertTrue(progressText.contains("render completed: rendered"))
-        XCTAssertTrue(progressText.contains("writing WAV"))
+        XCTAssertTrue(progressText.contains("writing WAV (export gain 1.000000)"))
         XCTAssertTrue(progressText.contains("writing WAV completed"))
         XCTAssertTrue(progressText.contains("export succeeded"))
     }
@@ -533,6 +648,18 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
+        XCTAssertEqual(render["export_gain"] as? Double, 1)
+        XCTAssertTrue(render["export_headroom_db"] is NSNull)
+        XCTAssertNotNil(render["pre_export_peak"] as? Double)
+        XCTAssertNotNil(render["pre_export_per_channel_peak"] as? [Double])
+        XCTAssertNotNil(render["pre_export_overrange_sample_count"] as? Int)
+        XCTAssertNotNil(render["pre_export_rms"] as? Double)
+        XCTAssertNotNil(render["post_gain_peak"] as? Double)
+        XCTAssertNotNil(render["post_gain_per_channel_peak"] as? [Double])
+        XCTAssertNotNil(render["post_gain_rms"] as? Double)
+        XCTAssertNotNil(render["pcm16_clipping_sample_count"] as? Int)
+        XCTAssertNotNil(render["clipping_detected"] as? Bool)
+        XCTAssertNotNil(diagnostics["export_diagnostics"] as? [String: Any])
         XCTAssertEqual(render["windowed_render_enabled"] as? Bool, false)
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)

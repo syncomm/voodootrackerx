@@ -61,6 +61,7 @@ Current stabilization note:
 - Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for private local XM modules, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events, including pitch step/period/frequency, sample-selection method and fallback diagnostics, sample-offset diagnostics, minimal `ECx`/`EDx` diagnostics, volume/panning state updates, event-coverage totals, skipped-note reasons, C mixer scheduled/active capacity values, rejected event coordinates, and traversal/timing hazards, and can summarize applied, ignored/no-op, deferred/unsupported, and unknown effect-column, volume-column, and state-update command frequency for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
 - The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`.
 - Long developer-only candidate WAV exports can opt into `--window-rows` row-windowed offline scheduling so the fixed C scheduled-voice pool is reused across deterministic render windows. Diagnostics aggregate per-window scheduled, accepted, rejected, carried, continuation, and boundary-drop counts. Windowed renders now carry practical active voice state across fresh C mixer windows where the bounded adapter can determine it, including source sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, and pan, plus supported in-window gain/pan state updates for carried voices. Unsupported/deferred effects and full tracker voice semantics remain separate targeted work.
+- Developer-only candidate WAV exports now report pre-export Float32 peak/RMS/overrange counts, post-gain peak/RMS, and PCM16 clipping/clamping counts. Optional `--gain` and `--headroom-db` apply only at the export boundary before PCM16 conversion; default output gain remains unchanged when neither option is passed.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -302,9 +303,9 @@ and reference comparison before any runtime backend switch.
 - Status: done.
 
 ### PR 2.7.10ab — Mixer Output Headroom / Clipping Diagnostics and Render Gain Policy
-- Scope: planned local-diagnostic follow-up to report pre-export Float32 peak/overrange counts, PCM16 clipping counts, and an explicit developer render gain/headroom option for bounded candidate WAV export without changing runtime playback or C mixer DSP semantics.
-- Verification: deterministic synthetic WAV/export tests and local-only comparison evidence kept out of the repository.
-- Status: planned.
+- Scope: report pre-export Float32 peak/RMS/overrange counts, post-gain peak/RMS, PCM16 clipping counts, and an explicit developer render gain/headroom option for bounded candidate WAV export without changing runtime playback, default output gain, or C mixer DSP semantics.
+- Verification: deterministic synthetic WAV/export tests, bounded render helper tests, and local-only smoke evidence kept out of the repository.
+- Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch
 - Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available

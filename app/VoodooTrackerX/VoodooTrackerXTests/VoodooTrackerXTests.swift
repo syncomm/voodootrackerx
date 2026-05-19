@@ -598,6 +598,22 @@ private final class TestPlaybackTraceWriter: PlaybackTraceWriting {
     }
 }
 
+@MainActor
+private final class TestRuntimeCMixerTraceWriter: RuntimeCMixerTraceWriting {
+    private(set) var events = [RuntimeCMixerTraceEvent]()
+    private(set) var flushCount = 0
+
+    let isEnabled = true
+
+    func record(_ event: RuntimeCMixerTraceEvent) {
+        events.append(event)
+    }
+
+    func flush() {
+        flushCount += 1
+    }
+}
+
 private func stereoPCM(from monoPCM: [Float]) -> [Float] {
     monoPCM.flatMap { [$0, $0] }
 }
@@ -8053,6 +8069,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["channelIndex"] as? Int, 0)
         XCTAssertEqual(object["speed"] as? Int, 2)
         XCTAssertEqual(object["bpm"] as? Int, 183)
+        XCTAssertTrue(object["runtimeAudioBackend"] is NSNull)
         XCTAssertEqual(object["usesLinearFrequencyTable"] as? Bool, true)
         XCTAssertEqual(object["startedFromDebugSeek"] as? Bool, false)
         XCTAssertTrue(object["requestedStartOrder"] is NSNull)
@@ -8229,6 +8246,82 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(writer.isEnabled)
     }
 
+    func testRuntimeCMixerTraceConfigurationParsesDebugPath() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-trace-\(UUID().uuidString).jsonl")
+
+        XCTAssertEqual(
+            RuntimeCMixerTraceConfiguration.traceURL(environment: [
+                RuntimeCMixerTraceConfiguration.pathEnvironmentKey: url.path
+            ])?.path,
+            url.path
+        )
+        XCTAssertNil(RuntimeCMixerTraceConfiguration.traceURL(environment: [:]))
+    }
+
+    @MainActor
+    func testRuntimeCMixerTraceWriterEmitsValidJSONL() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-trace-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+        }
+        let writer = try RuntimeCMixerTraceJSONLWriter(url: url)
+        let event = RuntimeCMixerTraceEvent(
+            runtimeAction: "c_mixer_add_voice",
+            runtimeAudioBackend: "c_mixer",
+            backendFlagValue: "c_mixer",
+            experimentalCMixerEnabled: true,
+            context: AudioRuntimeTraceContext(
+                orderIndex: 1,
+                patternIndex: 3,
+                rowIndex: 16,
+                tickInRow: 2,
+                channelIndex: 0,
+                noteValue: 49,
+                instrumentIndex: 2,
+                effectType: 0x09,
+                effectParam: 0x02,
+                volumeColumn: 0x30,
+                speed: 6,
+                bpm: 125,
+                tickIndex: 12
+            ),
+            targetScope: "channel",
+            activeVoiceCount: 1,
+            loadedVoiceCount: 1,
+            currentFrame: 256,
+            renderCallCount: 2,
+            renderedFrameCount: 512,
+            cMixerCallSucceeded: true,
+            reason: "test"
+        )
+
+        writer.record(event)
+        writer.flush()
+
+        let data = try Data(contentsOf: url)
+        XCTAssertEqual(data.last, 0x0A)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["runtimeAction"] as? String, "c_mixer_add_voice")
+        XCTAssertEqual(object["runtimeAudioBackend"] as? String, "c_mixer")
+        XCTAssertEqual(object["backendFlagValue"] as? String, "c_mixer")
+        XCTAssertEqual(object["experimentalCMixerEnabled"] as? Bool, true)
+        XCTAssertEqual(object["orderIndex"] as? Int, 1)
+        XCTAssertEqual(object["rowIndex"] as? Int, 16)
+        XCTAssertEqual(object["tickInRow"] as? Int, 2)
+        XCTAssertEqual(object["channelIndex"] as? Int, 0)
+        XCTAssertEqual(object["noteValue"] as? Int, 49)
+        XCTAssertEqual(object["instrumentIndex"] as? Int, 2)
+        XCTAssertEqual(object["effect"] as? String, "0902")
+        XCTAssertEqual(object["volumeColumn"] as? String, "30")
+        XCTAssertEqual(object["targetScope"] as? String, "channel")
+        XCTAssertEqual(object["targetedAllVoices"] as? Bool, false)
+        XCTAssertEqual(object["activeVoiceCount"] as? Int, 1)
+        XCTAssertEqual(object["loadedVoiceCount"] as? Int, 1)
+        XCTAssertEqual(object["currentFrame"] as? Int, 256)
+        XCTAssertEqual(object["renderedFrameCount"] as? Int, 512)
+        XCTAssertEqual(object["cMixerCallSucceeded"] as? Bool, true)
+    }
+
     func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
         let configuration = PlaybackDebugLaunchConfiguration.parse(environment: [
             PlaybackDebugLaunchConfiguration.startOrderEnvironmentKey: "30",
@@ -8278,18 +8371,42 @@ final class VoodooTrackerXTests: XCTestCase {
 
     @MainActor
     func testPlaybackAudioOutputFactoryDefaultsToAVAudioBackend() {
-        let output = PlaybackAudioOutputFactory.make(environment: [:])
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(environment: [:], runtimeCMixerTraceWriter: traceWriter)
 
         XCTAssertTrue(output is PlaybackAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAction, "backend_selected")
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
+        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
     }
 
     @MainActor
     func testPlaybackAudioOutputFactoryUsesCMixerOnlyWhenFlagged() {
-        let output = PlaybackAudioOutputFactory.make(environment: [
-            RuntimeAudioBackendSelection.environmentKey: "c_mixer"
-        ])
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [RuntimeAudioBackendSelection.environmentKey: "c_mixer"],
+            runtimeCMixerTraceWriter: traceWriter
+        )
 
         XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
+        XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "c_mixer")
+        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryTracesUnknownBackendFallback() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [RuntimeAudioBackendSelection.environmentKey: "raw_core_audio"],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is PlaybackAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
+        XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "raw_core_audio")
+        XCTAssertEqual(traceWriter.events.first?.fallbackReason, "unknown_backend")
+        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
     }
 
     func testRuntimeCMixerRenderCoreRendersTriggeredSampleAndStops() {
@@ -8327,6 +8444,68 @@ final class VoodooTrackerXTests: XCTestCase {
             XCTAssertTrue(core.trigger(request))
             core.stopAll()
         }
+    }
+
+    func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            maximumRenderFrames: 16
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 44_100
+        )
+        let request = AudioVoiceRequest(sample: sample, note: 49, channel: 0)
+
+        let triggerResult = core.triggerWithDiagnostics(request)
+        XCTAssertTrue(triggerResult.succeeded)
+        XCTAssertEqual(triggerResult.snapshotAfter.activeVoiceCount, 1)
+        XCTAssertEqual(triggerResult.snapshotAfter.loadedVoiceCount, 1)
+
+        var output = Array(repeating: Float(0), count: 4)
+        output.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 2))
+        }
+
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.renderCallCount, 1)
+        XCTAssertEqual(snapshot.renderedFrameCount, 2)
+        XCTAssertEqual(snapshot.currentFrame, 2)
+    }
+
+    @MainActor
+    func testRuntimeCMixerTraceDistinguishesChannelStopFromAllVoiceClear() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0xC1)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 125)
+        ))
+
+        engine.play(from: nil)
+        engine.advanceOneTick()
+
+        let channelStop = traceWriter.events.first { $0.runtimeAction == "channel_stop" }
+        XCTAssertEqual(channelStop?.targetScope, "channel")
+        XCTAssertEqual(channelStop?.targetedAllVoices, false)
+        XCTAssertEqual(channelStop?.orderIndex, 0)
+        XCTAssertEqual(channelStop?.rowIndex, 0)
+        XCTAssertEqual(channelStop?.channelIndex, 0)
+
+        let clearAll = traceWriter.events.first { $0.runtimeAction == "c_mixer_clear_all" }
+        XCTAssertEqual(clearAll?.targetScope, "all_channels")
+        XCTAssertEqual(clearAll?.targetedAllVoices, true)
+        XCTAssertEqual(clearAll?.reason, "per_channel_stop_currently_clears_all_runtime_c_voices")
     }
 
     @MainActor
@@ -8390,6 +8569,45 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.decisionReason, "row_note")
         XCTAssertEqual(audioOutput.triggeredRequests.count, 1)
         XCTAssertEqual(audioOutput.triggeredRequests.first?.panning ?? 0, PlaybackEffectHandler.audioPanning(forXMValue: 64), accuracy: 0.0001)
+    }
+
+    @MainActor
+    func testPlaybackEngineRuntimeTraceRecordsNoteTriggerContext() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let runtimeTraceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, runtimeCMixerTraceWriter: runtimeTraceWriter)
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 16),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x09, effectParam: 0x02)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        let event = runtimeTraceWriter.events.first { $0.runtimeAction == "note_trigger" }
+        XCTAssertEqual(event?.runtimeAudioBackend, "av_audio")
+        XCTAssertEqual(event?.experimentalCMixerEnabled, false)
+        XCTAssertEqual(event?.orderIndex, 0)
+        XCTAssertEqual(event?.patternIndex, 2)
+        XCTAssertEqual(event?.rowIndex, 0)
+        XCTAssertEqual(event?.tickInRow, 0)
+        XCTAssertEqual(event?.channelIndex, 0)
+        XCTAssertEqual(event?.noteValue, 49)
+        XCTAssertEqual(event?.instrumentIndex, 1)
+        XCTAssertEqual(event?.effect, "0902")
+        XCTAssertEqual(event?.volumeColumn, "30")
+        XCTAssertEqual(event?.targetScope, "channel")
     }
 
     @MainActor

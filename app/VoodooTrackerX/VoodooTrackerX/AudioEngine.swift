@@ -57,10 +57,207 @@ struct RuntimeAudioBackendSelection: Equatable {
 }
 
 @MainActor
+protocol PlaybackAudioBackendProviding: AnyObject {
+    var runtimeAudioBackend: RuntimeAudioBackend { get }
+}
+
+struct RuntimeCMixerTraceEvent: Encodable, Equatable {
+    let schemaVersion: Int
+    let runtimeAction: String
+    let runtimeAudioBackend: String
+    let backendFlagValue: String?
+    let fallbackReason: String?
+    let experimentalCMixerEnabled: Bool
+    let orderIndex: Int?
+    let patternIndex: Int?
+    let rowIndex: Int?
+    let tickInRow: Int?
+    let tickIndex: UInt64?
+    let channelIndex: Int?
+    let noteValue: UInt8?
+    let instrumentIndex: Int?
+    let effectType: String?
+    let effectParam: String?
+    let effect: String?
+    let volumeColumn: String?
+    let targetScope: String
+    let targetedAllVoices: Bool
+    let activeVoiceCount: Int?
+    let loadedVoiceCount: Int?
+    let currentFrame: UInt64?
+    let renderCallCount: UInt64?
+    let renderedFrameCount: UInt64?
+    let renderFrameCount: Int?
+    let cMixerCallSucceeded: Bool?
+    let reason: String?
+
+    init(
+        schemaVersion: Int = 1,
+        runtimeAction: String,
+        runtimeAudioBackend: String,
+        backendFlagValue: String? = nil,
+        fallbackReason: String? = nil,
+        experimentalCMixerEnabled: Bool,
+        context: AudioRuntimeTraceContext? = nil,
+        targetScope: String = "none",
+        targetedAllVoices: Bool = false,
+        activeVoiceCount: Int? = nil,
+        loadedVoiceCount: Int? = nil,
+        currentFrame: UInt64? = nil,
+        renderCallCount: UInt64? = nil,
+        renderedFrameCount: UInt64? = nil,
+        renderFrameCount: Int? = nil,
+        cMixerCallSucceeded: Bool? = nil,
+        reason: String? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.runtimeAction = runtimeAction
+        self.runtimeAudioBackend = runtimeAudioBackend
+        self.backendFlagValue = backendFlagValue
+        self.fallbackReason = fallbackReason
+        self.experimentalCMixerEnabled = experimentalCMixerEnabled
+        orderIndex = context?.orderIndex
+        patternIndex = context?.patternIndex
+        rowIndex = context?.rowIndex
+        tickInRow = context?.tickInRow
+        tickIndex = context?.tickIndex
+        channelIndex = context?.channelIndex
+        noteValue = context?.noteValue
+        instrumentIndex = context?.instrumentIndex
+        effectType = Self.hexByte(context?.effectType)
+        effectParam = Self.hexByte(context?.effectParam)
+        effect = Self.effectString(effectType: context?.effectType, effectParam: context?.effectParam)
+        volumeColumn = Self.hexByte(context?.volumeColumn)
+        self.targetScope = targetScope
+        self.targetedAllVoices = targetedAllVoices
+        self.activeVoiceCount = activeVoiceCount
+        self.loadedVoiceCount = loadedVoiceCount
+        self.currentFrame = currentFrame
+        self.renderCallCount = renderCallCount
+        self.renderedFrameCount = renderedFrameCount
+        self.renderFrameCount = renderFrameCount
+        self.cMixerCallSucceeded = cMixerCallSucceeded
+        self.reason = reason
+    }
+
+    private static func hexByte(_ value: UInt8?) -> String? {
+        value.map { String(format: "%02X", $0) }
+    }
+
+    private static func effectString(effectType: UInt8?, effectParam: UInt8?) -> String? {
+        guard let effectType,
+              let effectParam else {
+            return nil
+        }
+        return String(format: "%02X%02X", effectType, effectParam)
+    }
+}
+
+@MainActor
+protocol RuntimeCMixerTraceWriting: AnyObject {
+    var isEnabled: Bool { get }
+
+    func record(_ event: RuntimeCMixerTraceEvent)
+    func flush()
+}
+
+@MainActor
+final class NoopRuntimeCMixerTraceWriter: RuntimeCMixerTraceWriting {
+    static let shared = NoopRuntimeCMixerTraceWriter()
+
+    let isEnabled = false
+
+    private init() {}
+
+    func record(_ event: RuntimeCMixerTraceEvent) {}
+
+    func flush() {}
+}
+
+enum RuntimeCMixerTraceJSONLFormatter {
+    static func line(for event: RuntimeCMixerTraceEvent) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var data = try encoder.encode(event)
+        data.append(0x0A)
+        return data
+    }
+}
+
+@MainActor
+final class RuntimeCMixerTraceJSONLWriter: RuntimeCMixerTraceWriting {
+    let isEnabled = true
+
+    private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "RuntimeCMixerTrace")
+    private let fileHandle: FileHandle
+
+    init(url: URL) throws {
+        let parentURL = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parentURL, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        fileHandle = try FileHandle(forWritingTo: url)
+        try fileHandle.truncate(atOffset: 0)
+    }
+
+    deinit {
+        try? fileHandle.close()
+    }
+
+    func record(_ event: RuntimeCMixerTraceEvent) {
+        do {
+            try fileHandle.write(contentsOf: RuntimeCMixerTraceJSONLFormatter.line(for: event))
+        } catch {
+            logger.error("Unable to write runtime C mixer trace event: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func flush() {
+        try? fileHandle.synchronize()
+    }
+}
+
+enum RuntimeCMixerTraceConfiguration {
+    static let pathEnvironmentKey = "VTX_C_MIXER_RUNTIME_TRACE_PATH"
+
+    static func traceURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard let rawPath = environment[pathEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath)
+    }
+
+    @MainActor
+    static func makeWriter(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> RuntimeCMixerTraceWriting {
+        #if DEBUG
+        guard let url = traceURL(environment: environment) else {
+            return NoopRuntimeCMixerTraceWriter.shared
+        }
+        do {
+            return try RuntimeCMixerTraceJSONLWriter(url: url)
+        } catch {
+            Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "RuntimeCMixerTrace")
+                .error("Unable to open runtime C mixer trace at \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return NoopRuntimeCMixerTraceWriter.shared
+        }
+        #else
+        return NoopRuntimeCMixerTraceWriter.shared
+        #endif
+    }
+}
+
+@MainActor
 enum PlaybackAudioOutputFactory {
     private static let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "AudioBackend")
 
-    static func make(environment: [String: String] = ProcessInfo.processInfo.environment) -> PlaybackAudioOutput {
+    static func make(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
+    ) -> PlaybackAudioOutput {
         let selection = RuntimeAudioBackendSelection.resolve(environment: environment)
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
@@ -71,13 +268,49 @@ enum PlaybackAudioOutputFactory {
         logger.info(
             "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) experimental_c_mixer_enabled=\(selection.experimentalCMixerEnabled, privacy: .public) sample_rate=\(MixerRenderConfig.defaultSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
         )
+        if runtimeCMixerTraceWriter.isEnabled {
+            runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
+                runtimeAction: "backend_selected",
+                runtimeAudioBackend: selection.backend.diagnosticName,
+                backendFlagValue: selection.requestedValue,
+                fallbackReason: selection.fallbackReason,
+                experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
+                targetScope: "none",
+                targetedAllVoices: false,
+                cMixerCallSucceeded: nil,
+                reason: selection.fallbackReason
+            ))
+        }
         switch selection.backend {
         case .avAudio:
             return PlaybackAudioEngine()
         case .cMixer:
-            return RuntimeCMixerAudioEngine()
+            return RuntimeCMixerAudioEngine(traceWriter: runtimeCMixerTraceWriter)
         }
     }
+}
+
+struct RuntimeCMixerRenderSnapshot: Equatable {
+    let activeVoiceCount: Int
+    let loadedVoiceCount: Int
+    let renderCallCount: UInt64
+    let renderedFrameCount: UInt64
+    let currentFrame: UInt64
+}
+
+struct RuntimeCMixerTriggerResult: Equatable {
+    let succeeded: Bool
+    let reason: String?
+    let snapshotBefore: RuntimeCMixerRenderSnapshot
+    let snapshotAfter: RuntimeCMixerRenderSnapshot
+    let clearedAllVoicesBeforeAdd: Bool
+}
+
+struct RuntimeCMixerStopResult: Equatable {
+    let snapshotBefore: RuntimeCMixerRenderSnapshot
+    let snapshotAfter: RuntimeCMixerRenderSnapshot
+    let targetedAllVoices: Bool
+    let reason: String
 }
 
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
@@ -86,6 +319,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var loadedVoiceCount = 0
+    private var renderCallCount: UInt64 = 0
+    private var renderedFrameCount: UInt64 = 0
 
     let config: MixerRenderConfig
 
@@ -98,11 +333,31 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     @discardableResult
     func trigger(_ request: AudioVoiceRequest) -> Bool {
+        triggerWithDiagnostics(request).succeeded
+    }
+
+    @discardableResult
+    func triggerWithDiagnostics(_ request: AudioVoiceRequest) -> RuntimeCMixerTriggerResult {
+        let invalidReason: String?
         guard request.sample.isPlayable,
               request.note > 0,
               request.note <= 96,
               request.sampleStartOffset < request.sample.pcm.count else {
-            return false
+            if !request.sample.isPlayable {
+                invalidReason = "sample_not_playable"
+            } else if request.note == 0 || request.note > 96 {
+                invalidReason = "invalid_note"
+            } else {
+                invalidReason = "sample_start_offset_out_of_range"
+            }
+            let snapshot = snapshot()
+            return RuntimeCMixerTriggerResult(
+                succeeded: false,
+                reason: invalidReason,
+                snapshotBefore: snapshot,
+                snapshotAfter: snapshot,
+                clearedAllVoicesBeforeAdd: false
+            )
         }
 
         lock.lock()
@@ -110,8 +365,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             lock.unlock()
         }
 
+        let snapshotBefore = snapshotLocked()
+        var clearedAllVoicesBeforeAdd = false
         if loadedVoiceCount >= CSoftwareMixer.maximumVoiceCount {
             resetLocked()
+            clearedAllVoicesBeforeAdd = true
         }
 
         _ = mixer.addVoice(
@@ -128,7 +386,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             initialSourceFrame: request.sampleStartOffset
         )
         loadedVoiceCount += 1
-        return true
+        return RuntimeCMixerTriggerResult(
+            succeeded: true,
+            reason: nil,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            clearedAllVoicesBeforeAdd: clearedAllVoicesBeforeAdd
+        )
     }
 
     func update(channel _: Int, controls _: AudioChannelControls) {
@@ -140,15 +404,27 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     func stop(channel _: Int) {
         // The current C wrapper has no runtime voice-stealing/removal primitive. For the experimental skeleton,
         // a channel stop silences the whole C path rather than risking a stale voice in the source-node callback.
-        stopAll()
+        _ = stopAllWithDiagnostics(reason: "per_channel_stop_currently_clears_all_runtime_c_voices")
     }
 
     func stopAll() {
+        _ = stopAllWithDiagnostics(reason: "transport_stop_all")
+    }
+
+    @discardableResult
+    func stopAllWithDiagnostics(reason: String) -> RuntimeCMixerStopResult {
         lock.lock()
         defer {
             lock.unlock()
         }
+        let snapshotBefore = snapshotLocked()
         resetLocked()
+        return RuntimeCMixerStopResult(
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            targetedAllVoices: true,
+            reason: reason
+        )
     }
 
     @discardableResult
@@ -170,6 +446,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             lock.unlock()
         }
         _ = mixer.render(into: outputInterleavedPCM, frames: safeFrameCount)
+        renderCallCount &+= 1
+        renderedFrameCount &+= UInt64(safeFrameCount)
         return true
     }
 
@@ -202,6 +480,24 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         mixer.clearVoices()
         mixer.reset()
         loadedVoiceCount = 0
+    }
+
+    func snapshot() -> RuntimeCMixerRenderSnapshot {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return snapshotLocked()
+    }
+
+    private func snapshotLocked() -> RuntimeCMixerRenderSnapshot {
+        RuntimeCMixerRenderSnapshot(
+            activeVoiceCount: mixer.activeVoiceCount,
+            loadedVoiceCount: mixer.loadedVoiceCount,
+            renderCallCount: renderCallCount,
+            renderedFrameCount: renderedFrameCount,
+            currentFrame: mixer.currentFrame
+        )
     }
 
     private func mixerLoop(for sample: PlaybackSample) -> MixerSampleLoop {
@@ -288,19 +584,33 @@ private func makeRuntimeCMixerSourceNode(
 }
 
 @MainActor
-final class RuntimeCMixerAudioEngine: PlaybackAudioOutput {
+protocol RuntimeAudioDiagnosticOutput: AnyObject {
+    func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?)
+    func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?)
+    func stop(channel: Int, context: AudioRuntimeTraceContext?)
+    func stopAll(context: AudioRuntimeTraceContext?, reason: String)
+}
+
+@MainActor
+final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeAudioDiagnosticOutput {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
     private let sourceNode: AVAudioSourceNode
     private let renderCore: RuntimeCMixerRenderCore
     private let fallbackAudioEngine = PlaybackAudioEngine()
+    private let traceWriter: RuntimeCMixerTraceWriting
     private var isPrepared = false
     private var isFallbackActive = false
 
-    init(sampleRate: Double = MixerRenderConfig.defaultSampleRate, channelCount: Int = MixerRenderConfig.defaultChannelCount) {
+    init(
+        sampleRate: Double = MixerRenderConfig.defaultSampleRate,
+        channelCount: Int = MixerRenderConfig.defaultChannelCount,
+        traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
+    ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
         renderCore = RuntimeCMixerRenderCore(config: config)
+        self.traceWriter = traceWriter
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: renderCore.config.sampleRate,
@@ -313,17 +623,53 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput {
         )
     }
 
+    var runtimeAudioBackend: RuntimeAudioBackend {
+        .cMixer
+    }
+
     var audioBufferSampleRate: Double {
         format.sampleRate
     }
 
     func trigger(_ request: AudioVoiceRequest) {
+        trigger(request, context: nil)
+    }
+
+    func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?) {
         if isFallbackActive {
+            recordRuntimeEvent(
+                action: "unsupported_runtime_action",
+                context: context,
+                targetScope: "channel",
+                snapshot: renderCore.snapshot(),
+                succeeded: nil,
+                reason: "runtime_c_mixer_fallback_av_audio_active"
+            )
             fallbackAudioEngine.trigger(request)
             return
         }
         prepareIfNeeded()
-        guard renderCore.trigger(request) else {
+        let result = renderCore.triggerWithDiagnostics(request)
+        if result.clearedAllVoicesBeforeAdd {
+            recordRuntimeEvent(
+                action: "c_mixer_clear_all",
+                context: context,
+                targetScope: "all_channels",
+                targetedAllVoices: true,
+                snapshot: result.snapshotBefore,
+                succeeded: true,
+                reason: "runtime_voice_capacity_reset_before_add"
+            )
+        }
+        recordRuntimeEvent(
+            action: "c_mixer_add_voice",
+            context: context,
+            targetScope: "channel",
+            snapshot: result.snapshotAfter,
+            succeeded: result.succeeded,
+            reason: result.reason
+        )
+        guard result.succeeded else {
             logger.debug("Experimental C mixer runtime ignored an unplayable trigger")
             return
         }
@@ -334,22 +680,62 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput {
     }
 
     func update(channel: Int, controls: AudioChannelControls) {
+        update(channel: channel, controls: controls, context: nil)
+    }
+
+    func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?) {
         if isFallbackActive {
             fallbackAudioEngine.update(channel: channel, controls: controls)
         } else {
             renderCore.update(channel: channel, controls: controls)
+            recordRuntimeEvent(
+                action: "unsupported_runtime_action",
+                context: context,
+                targetScope: "channel",
+                snapshot: renderCore.snapshot(),
+                succeeded: nil,
+                reason: "runtime_c_mixer_update_gain_pan_and_step_deferred"
+            )
         }
     }
 
     func stop(channel: Int) {
-        renderCore.stop(channel: channel)
+        stop(channel: channel, context: nil)
+    }
+
+    func stop(channel: Int, context: AudioRuntimeTraceContext?) {
+        let result = renderCore.stopAllWithDiagnostics(
+            reason: "per_channel_stop_currently_clears_all_runtime_c_voices"
+        )
+        recordRuntimeEvent(
+            action: "c_mixer_clear_all",
+            context: context,
+            targetScope: "all_channels",
+            targetedAllVoices: result.targetedAllVoices,
+            snapshot: result.snapshotAfter,
+            succeeded: true,
+            reason: result.reason
+        )
         if isFallbackActive {
             fallbackAudioEngine.stop(channel: channel)
         }
     }
 
     func stopAll() {
-        renderCore.stopAll()
+        stopAll(context: nil, reason: "transport_stop_all")
+    }
+
+    func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
+        let result = renderCore.stopAllWithDiagnostics(reason: reason)
+        recordRuntimeEvent(
+            action: "c_mixer_stop_all",
+            context: context,
+            targetScope: "all_channels",
+            targetedAllVoices: result.targetedAllVoices,
+            snapshot: result.snapshotAfter,
+            succeeded: true,
+            reason: result.reason
+        )
         engine.pause()
         if isFallbackActive {
             fallbackAudioEngine.stopAll()
@@ -396,10 +782,39 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput {
             return false
         }
     }
+
+    private func recordRuntimeEvent(
+        action: String,
+        context: AudioRuntimeTraceContext?,
+        targetScope: String,
+        targetedAllVoices: Bool = false,
+        snapshot: RuntimeCMixerRenderSnapshot,
+        succeeded: Bool?,
+        reason: String?
+    ) {
+        guard traceWriter.isEnabled else {
+            return
+        }
+        traceWriter.record(RuntimeCMixerTraceEvent(
+            runtimeAction: action,
+            runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+            experimentalCMixerEnabled: true,
+            context: context,
+            targetScope: targetScope,
+            targetedAllVoices: targetedAllVoices,
+            activeVoiceCount: snapshot.activeVoiceCount,
+            loadedVoiceCount: snapshot.loadedVoiceCount,
+            currentFrame: snapshot.currentFrame,
+            renderCallCount: snapshot.renderCallCount,
+            renderedFrameCount: snapshot.renderedFrameCount,
+            cMixerCallSucceeded: succeeded,
+            reason: reason
+        ))
+    }
 }
 
 @MainActor
-final class PlaybackAudioEngine: PlaybackAudioOutput {
+final class PlaybackAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding {
     private final class ChannelVoice {
         let player = AVAudioPlayerNode()
         let varispeed = AVAudioUnitVarispeed()
@@ -417,6 +832,10 @@ final class PlaybackAudioEngine: PlaybackAudioOutput {
 
     var audioBufferSampleRate: Double {
         format.sampleRate
+    }
+
+    var runtimeAudioBackend: RuntimeAudioBackend {
+        .avAudio
     }
 
     func trigger(_ request: AudioVoiceRequest) {

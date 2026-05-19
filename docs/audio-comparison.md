@@ -84,6 +84,87 @@ Float32 render block before PCM16 conversion. Optional `--gain`,
 boundary, after Float32 offline rendering and before PCM16 encoding. Default
 export gain remains unchanged when none of those options is passed.
 
+## Runtime C Mixer A/B Listening Diagnostics
+
+Runtime playback still defaults to `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed`. The experimental live C mixer path remains opt-in only
+with `VTX_AUDIO_BACKEND=c_mixer`; unset or unknown values keep the AVAudio
+backend. The runtime C path is useful for local A/B listening, but it is still a
+smoke skeleton and should not be treated as a stable replacement for the
+default backend.
+
+For local A/B listening, build the app first:
+
+```bash
+xcodebuild \
+  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+  -scheme VoodooTrackerX \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  -derivedDataPath build \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Launch with the default AVAudio backend:
+
+```bash
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Launch with the experimental runtime C mixer backend:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Enable a local-only runtime C mixer JSONL trace:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+When comparing a specific start point, use the existing debug launch controls:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl \
+VTX_PLAYBACK_TRACE_PATH=/tmp/vtx-playback-trace.jsonl \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_DEBUG_START_ROW=0 \
+VTX_DEBUG_STOP_AFTER_SECONDS=45 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+The runtime C mixer trace records backend selection, PlaybackEngine
+order/pattern/row/tick/channel context, note trigger and key-off events, C mixer
+add-voice calls, unsupported runtime update calls, per-channel stops, all-voice
+clear/stop calls, C call success/failure when available, active/loaded voice
+counts when available, and approximate C mixer render cursor/frame counters.
+This makes it possible to check whether note events continue after an audible
+drop, whether the C backend continues receiving events, and whether an
+all-voice clear/stop coincides with the dropout.
+
+One current known limitation is intentionally visible in the trace:
+per-channel runtime C mixer stop/replacement currently clears all C mixer
+voices. Look for `channel_stop` followed by `c_mixer_clear_all` with reason
+`per_channel_stop_currently_clears_all_runtime_c_voices`. If local listening
+shows the audible drop correlates with that all-voice clear, the next focused
+PR should be Runtime C Mixer Per-Channel Voice Stop / Replacement Semantics.
+
+Runtime traces, playback traces, logs, screenshots, WAVs, JSON reports, and
+notes derived from private/local modules must remain under `/tmp` or another
+ignored local path. Do not commit, upload, copy into fixtures, or require any
+private/local module or derived artifact from automated tests.
+
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that

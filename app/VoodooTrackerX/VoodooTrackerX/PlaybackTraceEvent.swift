@@ -22,6 +22,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
     let bpm: Int
     let tickDuration: TimeInterval
     let rowDuration: TimeInterval
+    let runtimeAudioBackend: String?
     let usesLinearFrequencyTable: Bool?
     let startedFromDebugSeek: Bool
     let requestedStartOrder: Int?
@@ -89,6 +90,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         bpm: Int,
         tickDuration: TimeInterval,
         rowDuration: TimeInterval,
+        runtimeAudioBackend: String? = nil,
         usesLinearFrequencyTable: Bool?,
         startedFromDebugSeek: Bool = false,
         requestedStartOrder: Int? = nil,
@@ -155,6 +157,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         self.bpm = bpm
         self.tickDuration = tickDuration
         self.rowDuration = rowDuration
+        self.runtimeAudioBackend = runtimeAudioBackend
         self.usesLinearFrequencyTable = usesLinearFrequencyTable
         self.startedFromDebugSeek = startedFromDebugSeek
         self.requestedStartOrder = requestedStartOrder
@@ -223,6 +226,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         case bpm
         case tickDuration
         case rowDuration
+        case runtimeAudioBackend
         case usesLinearFrequencyTable
         case startedFromDebugSeek
         case requestedStartOrder
@@ -292,6 +296,7 @@ struct PlaybackTraceEvent: Encodable, Equatable {
         try container.encode(bpm, forKey: .bpm)
         try container.encode(tickDuration, forKey: .tickDuration)
         try container.encode(rowDuration, forKey: .rowDuration)
+        try container.encodeOptional(runtimeAudioBackend, forKey: .runtimeAudioBackend)
         try container.encodeOptional(usesLinearFrequencyTable, forKey: .usesLinearFrequencyTable)
         try container.encode(startedFromDebugSeek, forKey: .startedFromDebugSeek)
         try container.encodeOptional(requestedStartOrder, forKey: .requestedStartOrder)

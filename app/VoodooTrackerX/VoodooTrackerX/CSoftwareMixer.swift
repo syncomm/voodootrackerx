@@ -125,6 +125,18 @@ final class CSoftwareMixer {
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
 
+    var loadedVoiceCount: Int {
+        Int(vtx_c_mixer_loaded_voice_count(&state))
+    }
+
+    var activeVoiceCount: Int {
+        Int(vtx_c_mixer_active_voice_count(&state))
+    }
+
+    var currentFrame: UInt64 {
+        vtx_c_mixer_current_frame(&state)
+    }
+
     init(config: MixerRenderConfig = MixerRenderConfig()) {
         self.config = config
         state = VTXCMixerState()

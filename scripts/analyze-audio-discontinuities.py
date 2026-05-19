@@ -416,6 +416,8 @@ def normalize_diagnostic_events(diagnostics: dict[str, Any], sample_rate: int) -
             selected_details(update, [
                 "command_source", "command_name", "active_voice_updated",
                 "gain_before", "gain_after", "pan_before", "pan_after",
+                "global_volume_before", "global_volume_after",
+                "global_volume_slide_direction", "global_volume_slide_amount",
             ]),
         ))
 

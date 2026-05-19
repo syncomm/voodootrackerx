@@ -1473,7 +1473,7 @@ class AudioCorrelationTests(unittest.TestCase):
                 "effect_column",
                 "hxyGlobalVolumeSlide",
                 "Hxy global volume slide",
-                status="deferred/unsupported",
+                status="applied",
                 effect_type=0x11,
                 effect_param=0x10,
                 channel=6,
@@ -1489,7 +1489,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| Cxx set volume | applied | 1 | 1 | order 0 pattern 2 row 4 ch 3 |", markdown)
             self.assertIn("| 8xx set panning | applied | 1 | 1 | order 0 pattern 2 row 4 ch 4 |", markdown)
             self.assertIn("| Axy volume slide | applied | 1 | 1 | order 0 pattern 2 row 4 ch 5 |", markdown)
-            self.assertIn("| Hxy global volume slide | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 6 |", markdown)
+            self.assertIn("| Hxy global volume slide | applied | 1 | 1 | order 0 pattern 2 row 4 ch 6 |", markdown)
 
     def test_correlation_report_includes_source_coordinates_for_top_deferred_commands(self):
         diagnostics = synthetic_diagnostics_json()

@@ -89,7 +89,11 @@ output directory.
 - Cxx set-volume applied/deferred:
 - 8xx set-panning applied/deferred:
 - Axy volume slide applied/deferred:
-- Hxy global volume slide applied/deferred:
+- Hxy global volume slide applied/no-op/deferred:
+- Hxy active voice updates:
+- Hxy clamped cases:
+- Hxy both-nibble policy cases:
+- Hxy global volume before/after notes:
 - Sample-map selections:
 - First-playable fallback selections:
 - Fallback-after-invalid-map selections:

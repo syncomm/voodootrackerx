@@ -709,7 +709,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case cxxSetVolume(value: Int)
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
-    case hxyGlobalVolumeSlide
+    case hxyGlobalVolumeSlide(up: Int, down: Int)
 
     var label: String {
         switch self {
@@ -727,6 +727,12 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     }
 }
 
+enum PlaybackSongSyntheticGlobalVolumeSlideDirection: String, Equatable {
+    case up
+    case down
+    case none
+}
+
 struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let source: PlaybackPosition
     let channelIndex: Int
@@ -742,12 +748,22 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let effectParam: UInt8?
     let status: PlaybackSongSyntheticVoiceStateUpdateStatus
     let behavior: PlaybackSongSyntheticVolumeColumnBehavior?
+    let targetChannelIndex: Int?
     let activeVoiceUpdated: Bool
     let activeEventIndex: Int?
     let effectiveVolumeBefore: Int?
     let effectiveVolumeAfter: Int?
     let effectivePanBefore: Float?
     let effectivePanAfter: Float?
+    let globalVolumeBefore: Int?
+    let globalVolumeAfter: Int?
+    let globalVolumeMultiplierBefore: Float?
+    let globalVolumeMultiplierAfter: Float?
+    let globalVolumeSlideDirection: PlaybackSongSyntheticGlobalVolumeSlideDirection?
+    let globalVolumeSlideAmount: Int?
+    let globalVolumeSlideClamped: Bool?
+    let globalVolumeSlideBothNibblesNonzero: Bool?
+    let globalVolumeSlidePolicy: String?
     let gainBefore: Float?
     let gainAfter: Float?
     let panBefore: Float?
@@ -1320,6 +1336,8 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let hasIgnoredVolumeColumn: Bool
     let hasIgnoredEffect: Bool
     let effectiveVolumeValue: Int
+    let effectiveGlobalVolumeValue: Int
+    let effectiveGlobalVolumeMultiplier: Float
     let effectivePan: Float
     let volumeEnvelopeStatus: VolumeEnvelopeStatus
     let sourceVolumeEnvelopePointCount: Int
@@ -1658,6 +1676,25 @@ enum PlaybackSongSyntheticAdapter {
         }
     }
 
+    private struct GlobalVolumeState: Equatable {
+        static let defaultValue = 64
+
+        var volumeValue = defaultValue
+
+        var multiplier: Float {
+            globalVolumeMultiplier(for: volumeValue)
+        }
+    }
+
+    private struct GlobalVolumeSlidePlan: Equatable {
+        let up: Int
+        let down: Int
+        let direction: PlaybackSongSyntheticGlobalVolumeSlideDirection
+        let amount: Int
+        let bothNibblesNonzero: Bool
+        let policy: String?
+    }
+
     private struct SampleSelection: Equatable {
         let sample: PlaybackSample?
         let diagnosticSample: PlaybackSample?
@@ -1865,6 +1902,7 @@ enum PlaybackSongSyntheticAdapter {
         var eventCoverage = EventCoverageBuilder()
         var events = [SyntheticTrackerEvent]()
         var channelStates = [Int: ChannelState]()
+        var globalVolumeState = GlobalVolumeState()
         var nextSyntheticRow = 0
 
         for orderOffset in 0..<safeOrderCount {
@@ -1929,7 +1967,8 @@ enum PlaybackSongSyntheticAdapter {
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
                     deferredCellFields: &deferredCellFields,
-                    eventCoverage: &eventCoverage
+                    eventCoverage: &eventCoverage,
+                    globalVolumeState: &globalVolumeState
                 ))
             }
 
@@ -1989,7 +2028,8 @@ enum PlaybackSongSyntheticAdapter {
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
-        eventCoverage: inout EventCoverageBuilder
+        eventCoverage: inout EventCoverageBuilder,
+        globalVolumeState: inout GlobalVolumeState
     ) -> PlaybackSongSyntheticRowDiagnostic {
         let eventStartCount = events.count
         let ignoredStartCount = ignoredCells.count
@@ -2017,7 +2057,8 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell,
                 volumeColumn: volumeColumn,
                 channelStateBefore: channelStateBeforeVolumeColumn,
-                channelStateAfter: channelState
+                channelStateAfter: channelState,
+                globalVolumeValue: globalVolumeState.volumeValue
             ) {
                 voiceStateUpdates.append(update)
             }
@@ -2027,11 +2068,21 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 scheduledFrame: scheduledStartFrame,
-                channelState: &channelState
+                channelState: &channelState,
+                globalVolumeValue: globalVolumeState.volumeValue
             ) {
                 voiceStateUpdates.append(update)
             }
             channelStates[channelIndex] = channelState
+            voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
+                from: cell,
+                source: source,
+                sourceChannelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledStartFrame,
+                channelStates: channelStates,
+                globalVolumeState: &globalVolumeState
+            ))
             if cell.volumeColumn != 0 {
                 volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
                     source: source,
@@ -2083,6 +2134,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: volumeColumn,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    globalVolumeState: globalVolumeState,
                     channelState: &channelState,
                     events: &events,
                     eventMappings: &eventMappings,
@@ -2127,6 +2179,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: volumeColumn,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    globalVolumeState: globalVolumeState,
                     channelState: &channelState,
                     events: &events,
                     eventMappings: &eventMappings,
@@ -2322,7 +2375,11 @@ enum PlaybackSongSyntheticAdapter {
                 usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                 timingConfig: timingConfig
             )
-            let gain = adaptedGain(sampleVolume: sample.volume, channelVolume: channelState.volumeValue)
+            let gain = adaptedGain(
+                sampleVolume: sample.volume,
+                channelVolume: channelState.volumeValue,
+                globalVolume: globalVolumeState.volumeValue
+            )
             let pan = channelState.pan
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
@@ -2376,6 +2433,8 @@ enum PlaybackSongSyntheticAdapter {
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffect(cell),
                 effectiveVolumeValue: channelState.volumeValue,
+                effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
+                effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
                 effectivePan: pan,
                 volumeEnvelopeStatus: envelopeMapping.status,
                 sourceVolumeEnvelopePointCount: envelopeMapping.sourcePointCount,
@@ -2422,6 +2481,7 @@ enum PlaybackSongSyntheticAdapter {
                 volumeColumn: volumeColumn,
                 timingConfig: timingConfig,
                 timingPlan: timingPlan,
+                globalVolumeState: globalVolumeState,
                 channelState: &channelState,
                 events: &events,
                 eventMappings: &eventMappings,
@@ -2457,7 +2517,8 @@ enum PlaybackSongSyntheticAdapter {
         cell: PlaybackCell,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         channelStateBefore: ChannelState,
-        channelStateAfter: ChannelState
+        channelStateAfter: ChannelState,
+        globalVolumeValue: Int
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
         guard cell.volumeColumn != 0 else {
             return nil
@@ -2477,7 +2538,9 @@ enum PlaybackSongSyntheticAdapter {
                 status: .deferredUnsupported,
                 behavior: volumeColumn.behavior,
                 channelStateBefore: channelStateBefore,
-                channelStateAfter: channelStateBefore
+                channelStateAfter: channelStateBefore,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
             )
         }
         guard volumeColumn.applied,
@@ -2498,7 +2561,9 @@ enum PlaybackSongSyntheticAdapter {
             status: .applied,
             behavior: volumeColumn.behavior,
             channelStateBefore: channelStateBefore,
-            channelStateAfter: channelStateAfter
+            channelStateAfter: channelStateAfter,
+            globalVolumeBefore: globalVolumeValue,
+            globalVolumeAfter: globalVolumeValue
         )
     }
 
@@ -2530,7 +2595,8 @@ enum PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         syntheticRow: Int,
         scheduledFrame: Int,
-        channelState: inout ChannelState
+        channelState: inout ChannelState,
+        globalVolumeValue: Int
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
         switch cell.effectType {
         case 0x0C:
@@ -2550,7 +2616,9 @@ enum PlaybackSongSyntheticAdapter {
                 status: .applied,
                 behavior: nil,
                 channelStateBefore: before,
-                channelStateAfter: channelState
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
             )
         case 0x08:
             let before = channelState
@@ -2570,7 +2638,9 @@ enum PlaybackSongSyntheticAdapter {
                 status: .applied,
                 behavior: nil,
                 channelStateBefore: before,
-                channelStateAfter: channelState
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
             )
         case 0x0A:
             let before = channelState
@@ -2589,7 +2659,9 @@ enum PlaybackSongSyntheticAdapter {
                     status: .ignoredNoOp,
                     behavior: .rowLevelApproximation,
                     channelStateBefore: before,
-                    channelStateAfter: before
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
                 )
             }
             let up = Int((cell.effectParam & 0xF0) >> 4)
@@ -2613,29 +2685,192 @@ enum PlaybackSongSyntheticAdapter {
                 status: .applied,
                 behavior: .rowLevelApproximation,
                 channelStateBefore: before,
-                channelStateAfter: channelState
-            )
-        case 0x11:
-            let before = channelState
-            return voiceStateUpdateDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                scheduledFrame: scheduledFrame,
-                cell: cell,
-                commandSource: .effectColumn,
-                command: .hxyGlobalVolumeSlide,
-                rawVolumeColumn: nil,
-                effectType: cell.effectType,
-                effectParam: cell.effectParam,
-                status: .deferredUnsupported,
-                behavior: nil,
-                channelStateBefore: before,
-                channelStateAfter: before
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
             )
         default:
             return nil
         }
+    }
+
+    private static func applyGlobalVolumeSlide(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        channelStates: [Int: ChannelState],
+        globalVolumeState: inout GlobalVolumeState
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        guard cell.effectType == 0x11 else {
+            return []
+        }
+
+        let beforeGlobalVolume = globalVolumeState.volumeValue
+        let slide = globalVolumeSlidePlan(effectParam: cell.effectParam)
+        guard slide.amount > 0 else {
+            return [
+                globalVolumeSlideDiagnostic(
+                    source: source,
+                    sourceChannelIndex: sourceChannelIndex,
+                    targetChannelIndex: nil,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    status: .ignoredNoOp,
+                    slide: slide,
+                    channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                    globalVolumeBefore: beforeGlobalVolume,
+                    globalVolumeAfter: beforeGlobalVolume,
+                    clamped: false,
+                    activeVoiceUpdatedOverride: false
+                ),
+            ]
+        }
+
+        let unclampedAfter = beforeGlobalVolume + slide.up - slide.down
+        let afterGlobalVolume = clampedGlobalVolumeValue(unclampedAfter)
+        globalVolumeState.volumeValue = afterGlobalVolume
+        let clamped = unclampedAfter != afterGlobalVolume
+        let diagnostics = channelStates.keys.sorted().compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
+            guard let targetState = channelStates[targetChannelIndex],
+                  targetState.activeEventIndex != nil,
+                  targetState.activeSampleVolume != nil else {
+                return nil
+            }
+            let gainBefore = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: beforeGlobalVolume
+                )
+            }
+            let gainAfter = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: afterGlobalVolume
+                )
+            }
+            let changed = gainBefore != gainAfter
+            guard changed else {
+                return nil
+            }
+            return globalVolumeSlideDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: targetChannelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                slide: slide,
+                channelState: targetState,
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                clamped: clamped,
+                activeVoiceUpdatedOverride: true
+            )
+        }
+        if !diagnostics.isEmpty {
+            return diagnostics
+        }
+
+        return [
+            globalVolumeSlideDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: nil,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                slide: slide,
+                channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                clamped: clamped,
+                activeVoiceUpdatedOverride: false
+            ),
+        ]
+    }
+
+    private static func globalVolumeSlideDiagnostic(
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        targetChannelIndex: Int?,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticVoiceStateUpdateStatus,
+        slide: GlobalVolumeSlidePlan,
+        channelState: ChannelState,
+        globalVolumeBefore: Int,
+        globalVolumeAfter: Int,
+        clamped: Bool,
+        activeVoiceUpdatedOverride: Bool
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+        voiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: sourceChannelIndex,
+            syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame,
+            cell: cell,
+            commandSource: .effectColumn,
+            command: .hxyGlobalVolumeSlide(up: slide.up, down: slide.down),
+            rawVolumeColumn: nil,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            behavior: .rowLevelApproximation,
+            channelStateBefore: channelState,
+            channelStateAfter: channelState,
+            globalVolumeBefore: globalVolumeBefore,
+            globalVolumeAfter: globalVolumeAfter,
+            includeGlobalVolumeFields: true,
+            targetChannelIndex: targetChannelIndex,
+            globalVolumeSlideDirection: slide.direction,
+            globalVolumeSlideAmount: slide.amount,
+            globalVolumeSlideClamped: clamped,
+            globalVolumeSlideBothNibblesNonzero: slide.bothNibblesNonzero,
+            globalVolumeSlidePolicy: slide.policy,
+            activeVoiceUpdatedOverride: activeVoiceUpdatedOverride
+        )
+    }
+
+    private static func globalVolumeSlidePlan(effectParam: UInt8) -> GlobalVolumeSlidePlan {
+        let upNibble = Int((effectParam & 0xF0) >> 4)
+        let downNibble = Int(effectParam & 0x0F)
+        let bothNibblesNonzero = upNibble > 0 && downNibble > 0
+        if upNibble > 0 {
+            return GlobalVolumeSlidePlan(
+                up: upNibble,
+                down: 0,
+                direction: .up,
+                amount: upNibble,
+                bothNibblesNonzero: bothNibblesNonzero,
+                policy: bothNibblesNonzero ? "up_nibble_precedence_matches_runtime" : nil
+            )
+        }
+        if downNibble > 0 {
+            return GlobalVolumeSlidePlan(
+                up: 0,
+                down: downNibble,
+                direction: .down,
+                amount: downNibble,
+                bothNibblesNonzero: false,
+                policy: nil
+            )
+        }
+        return GlobalVolumeSlidePlan(
+            up: 0,
+            down: 0,
+            direction: .none,
+            amount: 0,
+            bothNibblesNonzero: false,
+            policy: "h00_no_effect_memory_no_op"
+        )
     }
 
     private static func voiceStateUpdateDiagnostic(
@@ -2652,19 +2887,39 @@ enum PlaybackSongSyntheticAdapter {
         status: PlaybackSongSyntheticVoiceStateUpdateStatus,
         behavior: PlaybackSongSyntheticVolumeColumnBehavior?,
         channelStateBefore: ChannelState,
-        channelStateAfter: ChannelState
+        channelStateAfter: ChannelState,
+        globalVolumeBefore: Int,
+        globalVolumeAfter: Int,
+        includeGlobalVolumeFields: Bool = false,
+        targetChannelIndex: Int? = nil,
+        globalVolumeSlideDirection: PlaybackSongSyntheticGlobalVolumeSlideDirection? = nil,
+        globalVolumeSlideAmount: Int? = nil,
+        globalVolumeSlideClamped: Bool? = nil,
+        globalVolumeSlideBothNibblesNonzero: Bool? = nil,
+        globalVolumeSlidePolicy: String? = nil,
+        activeVoiceUpdatedOverride: Bool? = nil
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         let activeSampleVolume = channelStateBefore.activeSampleVolume
         let gainBefore = activeSampleVolume.map {
-            adaptedGain(sampleVolume: $0, channelVolume: channelStateBefore.volumeValue)
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: channelStateBefore.volumeValue,
+                globalVolume: globalVolumeBefore
+            )
         }
         let gainAfter = activeSampleVolume.map {
-            adaptedGain(sampleVolume: $0, channelVolume: channelStateAfter.volumeValue)
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: channelStateAfter.volumeValue,
+                globalVolume: globalVolumeAfter
+            )
         }
-        let canUpdateActiveVoice = status == .applied &&
-            cell.note == 0 &&
-            channelStateBefore.activeEventIndex != nil &&
-            activeSampleVolume != nil
+        let canUpdateActiveVoice = activeVoiceUpdatedOverride ?? (
+            status == .applied &&
+                cell.note == 0 &&
+                channelStateBefore.activeEventIndex != nil &&
+                activeSampleVolume != nil
+        )
         return PlaybackSongSyntheticVoiceStateUpdateDiagnostic(
             source: source,
             channelIndex: channelIndex,
@@ -2680,12 +2935,22 @@ enum PlaybackSongSyntheticAdapter {
             effectParam: effectParam,
             status: status,
             behavior: behavior,
+            targetChannelIndex: targetChannelIndex,
             activeVoiceUpdated: canUpdateActiveVoice,
             activeEventIndex: canUpdateActiveVoice ? channelStateBefore.activeEventIndex : nil,
             effectiveVolumeBefore: channelStateBefore.volumeValue,
             effectiveVolumeAfter: channelStateAfter.volumeValue,
             effectivePanBefore: channelStateBefore.pan,
             effectivePanAfter: channelStateAfter.pan,
+            globalVolumeBefore: includeGlobalVolumeFields ? globalVolumeBefore : nil,
+            globalVolumeAfter: includeGlobalVolumeFields ? globalVolumeAfter : nil,
+            globalVolumeMultiplierBefore: includeGlobalVolumeFields ? globalVolumeMultiplier(for: globalVolumeBefore) : nil,
+            globalVolumeMultiplierAfter: includeGlobalVolumeFields ? globalVolumeMultiplier(for: globalVolumeAfter) : nil,
+            globalVolumeSlideDirection: globalVolumeSlideDirection,
+            globalVolumeSlideAmount: globalVolumeSlideAmount,
+            globalVolumeSlideClamped: globalVolumeSlideClamped,
+            globalVolumeSlideBothNibblesNonzero: globalVolumeSlideBothNibblesNonzero,
+            globalVolumeSlidePolicy: globalVolumeSlidePolicy,
             gainBefore: gainBefore,
             gainAfter: gainAfter,
             panBefore: channelStateBefore.pan,
@@ -2922,6 +3187,7 @@ enum PlaybackSongSyntheticAdapter {
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
+        globalVolumeState: GlobalVolumeState,
         channelState: inout ChannelState,
         events: inout [SyntheticTrackerEvent],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
@@ -3014,7 +3280,11 @@ enum PlaybackSongSyntheticAdapter {
 
         let sourceEvent = events[activeEventIndex]
         let sourceMapping = eventMappings[activeMappingIndex]
-        let gain = adaptedGain(sampleVolume: activeSampleVolume, channelVolume: channelState.volumeValue)
+        let gain = adaptedGain(
+            sampleVolume: activeSampleVolume,
+            channelVolume: channelState.volumeValue,
+            globalVolume: globalVolumeState.volumeValue
+        )
         let pan = channelState.pan
         var ticks = [Int]()
         var frames = [Int]()
@@ -3050,6 +3320,8 @@ enum PlaybackSongSyntheticAdapter {
                 effectParam: cell.effectParam,
                 volumeColumn: volumeColumn,
                 effectiveVolumeValue: channelState.volumeValue,
+                effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
+                effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
                 effectivePan: pan
             ))
             eventCoverage.recordScheduledNote(
@@ -3302,6 +3574,8 @@ enum PlaybackSongSyntheticAdapter {
             hasIgnoredVolumeColumn: mapping.hasIgnoredVolumeColumn,
             hasIgnoredEffect: mapping.hasIgnoredEffect,
             effectiveVolumeValue: mapping.effectiveVolumeValue,
+            effectiveGlobalVolumeValue: mapping.effectiveGlobalVolumeValue,
+            effectiveGlobalVolumeMultiplier: mapping.effectiveGlobalVolumeMultiplier,
             effectivePan: mapping.effectivePan,
             volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
             sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
@@ -3341,6 +3615,8 @@ enum PlaybackSongSyntheticAdapter {
         effectParam: UInt8,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         effectiveVolumeValue: Int,
+        effectiveGlobalVolumeValue: Int,
+        effectiveGlobalVolumeMultiplier: Float,
         effectivePan: Float
     ) -> PlaybackSongSyntheticEventMapping {
         PlaybackSongSyntheticEventMapping(
@@ -3369,6 +3645,8 @@ enum PlaybackSongSyntheticAdapter {
             hasIgnoredVolumeColumn: volumeColumn.rawValue != 0 && !volumeColumn.applied,
             hasIgnoredEffect: false,
             effectiveVolumeValue: effectiveVolumeValue,
+            effectiveGlobalVolumeValue: effectiveGlobalVolumeValue,
+            effectiveGlobalVolumeMultiplier: effectiveGlobalVolumeMultiplier,
             effectivePan: effectivePan,
             volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
             sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
@@ -3425,14 +3703,17 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func adaptedGain(
         sampleVolume: Float,
-        channelVolume: Int
+        channelVolume: Int,
+        globalVolume: Int = GlobalVolumeState.defaultValue
     ) -> Float {
         let baseGain = sampleVolume.isFinite ? sampleVolume : 0
         let volumeMultiplier = volumeMultiplier(for: channelVolume)
+        let globalMultiplier = globalVolumeMultiplier(for: globalVolume)
         // The bounded adapter treats supported XM volume-column volume commands as row-level
         // channel-volume updates: final event gain = sample volume * (channel volume / 64).
+        // Hxy global-volume slides are another Swift-side row-level multiplier.
         // Parsed volume envelopes remain separate C mixer envelopes and multiply this gain at render time.
-        return clampedGain(baseGain * volumeMultiplier)
+        return clampedGain(baseGain * volumeMultiplier * globalMultiplier)
     }
 
     private static func volumeMultiplier(for volumeValue: Int) -> Float {
@@ -3441,6 +3722,14 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func clampedVolumeValue(_ value: Int) -> Int {
         min(64, max(0, value))
+    }
+
+    private static func clampedGlobalVolumeValue(_ value: Int) -> Int {
+        min(64, max(0, value))
+    }
+
+    private static func globalVolumeMultiplier(for volumeValue: Int) -> Float {
+        Float(clampedGlobalVolumeValue(volumeValue)) / 64.0
     }
 
     private static func clampedPanningValue(_ value: Double) -> Double {
@@ -3950,7 +4239,7 @@ enum PlaybackSongSyntheticAdapter {
         case 0x0F:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x11:
-            return .deferredUnsupported
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x0E where isRetriggerEffect(cell):
             let interval = extendedEffectTick(cell)
             guard interval > 0 else {
@@ -4056,7 +4345,8 @@ enum PlaybackSongSyntheticAdapter {
             isNonzeroSampleOffsetEffect(cell) ||
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
-            isNoteDelayEffect(cell) {
+            isNoteDelayEffect(cell) ||
+            isGlobalVolumeSlideEffect(cell) {
             return false
         }
         switch cell.effectType {
@@ -4073,6 +4363,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
         isRetriggerEffect(cell) && extendedEffectTick(cell) > 0
+    }
+
+    private static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x11
     }
 
     private static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {

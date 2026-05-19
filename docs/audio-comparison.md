@@ -46,8 +46,10 @@ bounded offline renders from the update frame forward. Those bounded/offline
 gain and pan update events are smoothed by a fixed 32-frame deterministic
 micro-ramp in the C mixer, including empty-note volume-column set-volume,
 empty-note volume-column set-panning, `Cxx`, `8xx`, and nonzero row-level
-`Axy` updates that actually change an active voice. `ECx` note cuts remain
-hard cuts. `Hxy` global volume slide remains diagnosed as deferred/unsupported.
+`Axy` updates and minimal row-level `Hxy` global volume slides that actually
+change an active voice. `ECx` note cuts remain hard cuts. `H00` is diagnosed as
+a no-op without effect memory, and both-nibble `Hxy` parameters use the same
+safe up-nibble precedence policy as the current runtime effect helper.
 Normal note triggers also use
 parsed XM instrument note-sample maps/keymaps when a valid bounded offline
 mapping exists, with deterministic first-playable fallback or skip diagnostics
@@ -83,8 +85,8 @@ memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
-volume-column decisions, volume/panning state-update diagnostics, Fxx timing
-changes, sample-offset decisions, `E9x` retrigger decisions and generated
+volume-column decisions, volume/panning/global-volume state-update diagnostics,
+Fxx timing changes, sample-offset decisions, `E9x` retrigger decisions and generated
 frames, envelope sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
@@ -109,8 +111,9 @@ conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
-`Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred counts, whether an active voice
-was updated, effective channel volume/pan before and after, and the source
+`Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred/no-op counts, whether an active
+voice was updated, effective channel volume/pan and global volume before and
+after, global-volume slide direction/amount/clamping, and the source
 order/pattern/row/channel plus synthetic frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
@@ -126,7 +129,7 @@ Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
 semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
-minimal bounded `Fxx`, global volume/global volume slide behavior,
+minimal bounded `Fxx`, `Gxx` set-global-volume behavior,
 tick-accurate volume slide behavior, full song traversal, and full reference
 resampler parity remain deferred.
 
@@ -469,7 +472,7 @@ ranges, then lists:
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as
-  global volume slide, portamento/vibrato/arpeggio diagnostics, sample-offset
+  portamento/vibrato/arpeggio diagnostics, sample-offset
   memory, pattern control effects, mixer headroom diagnostics, or more local
   review when no command clearly dominates
 
@@ -481,7 +484,7 @@ Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
-global volume slide, portamento, vibrato, arpeggio, or a focused follow-up to
+portamento, vibrato, arpeggio, or a focused follow-up to
 minimal `E9x`/`ECx`/`EDx`. If mismatch windows repeatedly line up with
 diagnosed `900` or `E90` no-ops, decide separately whether effect memory is
 worth a narrow PR. If mismatch windows are broad and steady while events look

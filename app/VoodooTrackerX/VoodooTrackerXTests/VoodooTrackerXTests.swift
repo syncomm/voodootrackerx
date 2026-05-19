@@ -6597,7 +6597,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
     }
 
-    func testPlaybackSongAdapterAxyAppliesAndHxyRemainsDeferredWithDiagnostics() throws {
+    func testPlaybackSongAdapterAxyAndHxyGlobalVolumeSlidesUpdateActiveVoiceGain() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
         let axySong = makePlaybackSong(
             orderPatternIndices: [2],
@@ -6616,7 +6616,7 @@ final class VoodooTrackerXTests: XCTestCase {
             patternRowsByIndex: [
                 2: [
                     makePlaybackRow(index: 0, note: 49, instrument: 1),
-                    makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x10),
+                    makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x04),
                     makePlaybackRow(index: 2)
                 ]
             ],
@@ -6645,10 +6645,127 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(axyUpdate.effectiveVolumeBefore, 64)
         XCTAssertEqual(axyUpdate.effectiveVolumeAfter, 60)
         XCTAssertEqual(axyUpdate.behavior, .rowLevelApproximation)
-        XCTAssertEqual(hxy.block.interleavedPCM, [1, 1, 1])
-        XCTAssertTrue(hxyUpdate.deferred)
-        XCTAssertEqual(hxyUpdate.activeVoiceUpdated, false)
-        XCTAssertTrue(hxy.diagnostics.deferredCellFields.contains { $0.effectType == 0x11 })
+        XCTAssertFloatArrayEqual(hxy.block.interleavedPCM, [1, 0.9980469, 0.99609375])
+        XCTAssertTrue(hxyUpdate.applied)
+        XCTAssertEqual(hxyUpdate.activeVoiceUpdated, true)
+        XCTAssertEqual(hxyUpdate.globalVolumeBefore, 64)
+        XCTAssertEqual(hxyUpdate.globalVolumeAfter, 60)
+        XCTAssertEqual(hxyUpdate.globalVolumeSlideDirection, .down)
+        XCTAssertEqual(hxyUpdate.globalVolumeSlideAmount, 4)
+        XCTAssertEqual(hxyUpdate.gainBefore, 1)
+        XCTAssertEqual(hxyUpdate.gainAfter, 0.9375)
+        XCTAssertFalse(hxy.diagnostics.deferredCellFields.contains { $0.effectType == 0x11 })
+    }
+
+    func testPlaybackSongAdapterHxyGlobalVolumeSlideUpRaisesGainAfterPriorDownSlide() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x04),
+                    makePlaybackRow(index: 2, effectType: 0x11, effectParam: 0x20),
+                    makePlaybackRow(index: 3)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let hxyUpdates = result.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x11 }
+
+        XCTAssertEqual(hxyUpdates.count, 2)
+        XCTAssertEqual(hxyUpdates[0].globalVolumeAfter, 60)
+        XCTAssertEqual(hxyUpdates[0].globalVolumeSlideDirection, .down)
+        XCTAssertEqual(hxyUpdates[1].globalVolumeBefore, 60)
+        XCTAssertEqual(hxyUpdates[1].globalVolumeAfter, 62)
+        XCTAssertEqual(hxyUpdates[1].globalVolumeSlideDirection, .up)
+        XCTAssertGreaterThan(hxyUpdates[1].gainAfter ?? 0, hxyUpdates[0].gainAfter ?? 1)
+    }
+
+    func testPlaybackSongAdapterHxyClampsAndDiagnosesNoOpAndBothNibblePolicy() throws {
+        let rows = [
+            makePlaybackRow(index: 0, effectType: 0x11, effectParam: 0x10),
+            makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x00),
+            makePlaybackRow(index: 2, effectType: 0x11, effectParam: 0x25),
+            makePlaybackRow(index: 3, effectType: 0x11, effectParam: 0x0F),
+            makePlaybackRow(index: 4, effectType: 0x11, effectParam: 0x0F),
+            makePlaybackRow(index: 5, effectType: 0x11, effectParam: 0x0F),
+            makePlaybackRow(index: 6, effectType: 0x11, effectParam: 0x0F),
+            makePlaybackRow(index: 7, effectType: 0x11, effectParam: 0x0F),
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+        let hxyUpdates = result.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x11 }
+        let h00 = try XCTUnwrap(hxyUpdates.first { $0.effectParam == 0x00 })
+        let bothNibble = try XCTUnwrap(hxyUpdates.first { $0.effectParam == 0x25 })
+        let maxClamp = try XCTUnwrap(hxyUpdates.first { $0.effectParam == 0x10 })
+        let minClamp = try XCTUnwrap(hxyUpdates.last)
+
+        XCTAssertEqual(hxyUpdates.count, 8)
+        XCTAssertEqual(maxClamp.globalVolumeBefore, 64)
+        XCTAssertEqual(maxClamp.globalVolumeAfter, 64)
+        XCTAssertEqual(maxClamp.globalVolumeSlideClamped, true)
+        XCTAssertTrue(h00.ignoredAsNoOp)
+        XCTAssertEqual(h00.globalVolumeSlideDirection, PlaybackSongSyntheticGlobalVolumeSlideDirection.none)
+        XCTAssertEqual(h00.globalVolumeSlidePolicy, "h00_no_effect_memory_no_op")
+        XCTAssertTrue(bothNibble.applied)
+        XCTAssertEqual(bothNibble.globalVolumeBefore, 64)
+        XCTAssertEqual(bothNibble.globalVolumeAfter, 64)
+        XCTAssertEqual(bothNibble.globalVolumeSlideDirection, .up)
+        XCTAssertEqual(bothNibble.globalVolumeSlideBothNibblesNonzero, true)
+        XCTAssertEqual(bothNibble.globalVolumeSlidePolicy, "up_nibble_precedence_matches_runtime")
+        XCTAssertEqual(minClamp.globalVolumeAfter, 0)
+        XCTAssertEqual(minClamp.globalVolumeSlideClamped, true)
+    }
+
+    func testPlaybackSongAdapterHxyAffectsSubsequentNotesAndWindowedRenders() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x11, effectParam: 0x04),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let mapping = try XCTUnwrap(defaultRender.diagnostics.eventMappings.first)
+
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [0, 0.9375])
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertEqual(mapping.effectiveGlobalVolumeValue, 60)
+        XCTAssertEqual(mapping.effectiveGlobalVolumeMultiplier, 0.9375)
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 1)
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

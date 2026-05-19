@@ -285,6 +285,20 @@ def synthetic_discontinuity_diagnostics(category, frame=10):
                 "applied": True,
             }
         ]
+    elif category == "e9x_retrigger":
+        diagnostics["retrigger_effects"] = [
+            {
+                "source": source,
+                "channel_index": 0,
+                "synthetic_row": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0x91,
+                "status": "applied",
+                "applied": True,
+                "retrigger_interval_ticks": 1,
+                "retrigger_frames": [frame],
+            }
+        ]
     elif category == "window_boundary":
         diagnostics["windowed_render"] = {
             "enabled": True,
@@ -386,6 +400,42 @@ def note_delay_effect(status="applied", row=4, channel=2, tick=2, original_frame
     }
 
 
+def retrigger_effect(status="applied", row=4, channel=1, interval=2, frames=None):
+    frames = [112, 114] if frames is None else frames
+    return {
+        "source": {"order": 0, "pattern": 2, "row": row},
+        "channel_index": channel,
+        "synthetic_row": row,
+        "synthetic_tick": 0,
+        "effect_type": 0x0E,
+        "effect_param": 0x90 | interval,
+        "status": status,
+        "detected": True,
+        "applied": status == "applied",
+        "deferred": status == "ignored_e90_no_effect_memory",
+        "ignored_as_no_op": status != "applied",
+        "out_of_row": status == "out_of_row_no_op",
+        "active_voice_found": status != "no_active_voice",
+        "active_sample_found": status != "no_active_voice",
+        "retrigger_interval_ticks": interval,
+        "row_speed": 6,
+        "row_bpm": 125,
+        "retrigger_ticks": [interval, interval * 2] if status == "applied" else [],
+        "retrigger_frames": frames if status == "applied" else [],
+        "generated_retrigger_frames": frames if status == "applied" else [],
+        "retrigger_event_indices": [1, 2] if status == "applied" else [],
+        "replaced_event_indices": [0, 1] if status == "applied" else [],
+        "active_event_index_before": 0 if status != "no_active_voice" else None,
+        "selected_sample_index": 0 if status != "no_active_voice" else None,
+        "selected_sample_length": 16 if status != "no_active_voice" else None,
+        "initial_source_frame": 0 if status != "no_active_voice" else None,
+        "playback_step": 1.0 if status != "no_active_voice" else None,
+        "gain": 1.0 if status != "no_active_voice" else None,
+        "pan": 0.0 if status != "no_active_voice" else None,
+        "envelope_policy": "fresh_event_restarts_envelope",
+    }
+
+
 def traversal_effect(effect_type, effect_param, label, row=4, channel=1, status="deferred/unsupported"):
     return {
         "source": {"order": 0, "pattern": 2, "row": row},
@@ -406,12 +456,13 @@ def traversal_summary(effects):
         "total_dxx_pattern_break": sum(1 for effect in effects if effect["effect_label"] == "Dxx pattern break"),
         "total_eex_pattern_delay": sum(1 for effect in effects if effect["effect_label"] == "EEx pattern delay"),
         "total_fxx_speed_bpm": sum(1 for effect in effects if effect["effect_label"] == "Fxx speed/BPM"),
+        "total_e9x_retrigger": sum(1 for effect in effects if effect["effect_label"] == "E9x retrigger"),
         "total_ecx_note_cut": sum(1 for effect in effects if effect["effect_label"] == "ECx note cut"),
         "total_edx_note_delay": sum(1 for effect in effects if effect["effect_label"] == "EDx note delay"),
         "total_other_e_commands": sum(
             1 for effect in effects
             if effect["effect_type"] == 0x0E
-            and effect["effect_label"] not in {"EEx pattern delay", "ECx note cut", "EDx note delay"}
+            and effect["effect_label"] not in {"E9x retrigger", "EEx pattern delay", "ECx note cut", "EDx note delay"}
         ),
         "total_traversal_hazards": sum(1 for effect in effects if effect["is_traversal_hazard"]),
         "likely_ignores_structure_changing_behavior": any(effect["is_traversal_hazard"] for effect in effects),
@@ -610,6 +661,13 @@ class AudioDiscontinuityTests(unittest.TestCase):
 
         self.assertIn("ecx_note_cut", jump["nearby_event_categories"])
         self.assertIn("ecx_note_cut", self.category_names(analysis))
+
+    def test_correlates_jump_near_synthetic_e9x_retrigger_event(self):
+        analysis = self.analysis_with_diagnostics("e9x_retrigger")
+        jump = analysis["top_adjacent_sample_jumps"][0]
+
+        self.assertIn("e9x_retrigger", jump["nearby_event_categories"])
+        self.assertIn("e9x_retrigger", self.category_names(analysis))
 
     def test_correlates_jump_near_synthetic_window_boundary(self):
         analysis = self.analysis_with_diagnostics("window_boundary")
@@ -1197,7 +1255,7 @@ class AudioCorrelationTests(unittest.TestCase):
             traversal_effect(0x0D, 0x10, "Dxx pattern break", channel=2),
             traversal_effect(0x0E, 0xE2, "EEx pattern delay", channel=3),
             traversal_effect(0x0F, 0x06, "Fxx speed/BPM", channel=4, status="applied"),
-            traversal_effect(0x0E, 0x94, "E9x retrigger", channel=5),
+            traversal_effect(0x0E, 0x94, "E9x retrigger", channel=5, status="applied"),
         ]
         diagnostics = synthetic_diagnostics_json()
         diagnostics["pattern_traversal_timing_effects"] = effects
@@ -1212,7 +1270,8 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Dxx pattern breaks: 1", markdown)
             self.assertIn("- EEx pattern delays: 1", markdown)
             self.assertIn("- Fxx speed/BPM timing changes: 1", markdown)
-            self.assertIn("- Other E-command diagnostics: 1", markdown)
+            self.assertIn("- E9x retriggers: 1", markdown)
+            self.assertIn("- Other E-command diagnostics: 0", markdown)
             self.assertIn("| Bxx position jump | deferred/unsupported | order 0 pattern 2 row 4 | 1 | 2 | 1 overlaps |", markdown)
 
     def test_recommendation_heuristic_suggests_traversal_when_hazards_dominate(self):
@@ -1287,15 +1346,21 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| ECx note cut | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
             self.assertIn("| EDx note delay | applied | 1 | 1 | order 0 pattern 2 row 4 ch 2 |", markdown)
 
-    def test_correlation_report_counts_deferred_e9x_retrigger_in_worst_windows(self):
+    def test_correlation_report_counts_applied_e9x_retrigger_in_worst_windows(self):
         diagnostics = synthetic_diagnostics_json()
-        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0x94)]
+        diagnostics["retrigger_effects"] = [retrigger_effect(channel=1, frames=[112, 114])]
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x0E, 0x92, "E9x retrigger", channel=1, status="applied"),
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
 
         with tempfile.TemporaryDirectory() as tmpdir:
             report = self.run_correlation(tmpdir, diagnostics=diagnostics)
             markdown = report.read_text(encoding="utf-8")
 
-            self.assertIn("| E9x retrigger | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("- E9x retriggers: 1", markdown)
+            self.assertIn("### Applied effect commands in worst windows", markdown)
+            self.assertIn("| E9x retrigger | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
 
     def test_correlation_report_counts_applied_9xx_separately_from_deferred_900_no_op(self):
         diagnostics = synthetic_diagnostics_json()

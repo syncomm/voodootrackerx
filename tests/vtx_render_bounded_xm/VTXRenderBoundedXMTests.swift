@@ -163,7 +163,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     }
 
     func testDefaultRenderStillUsesConservativeClamp() throws {
-        let request = RenderTool().renderRequest(
+        let request = try RenderTool().renderRequest(
             song: tinySong(),
             arguments: RenderToolArguments(
                 inputPath: "/tmp/module.xm",
@@ -192,7 +192,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--seconds", "2.5",
         ])
 
-        let request = RenderTool().renderRequest(
+        let request = try RenderTool().renderRequest(
             song: tinySong(),
             arguments: arguments,
             config: MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: 2)
@@ -211,7 +211,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--max-frames", "12345",
         ])
 
-        let request = RenderTool().renderRequest(
+        let request = try RenderTool().renderRequest(
             song: tinySong(),
             arguments: arguments,
             config: MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: 2)
@@ -220,6 +220,165 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.maxFrames, 12_345)
         XCTAssertEqual(request.requestedFrameCount, 12_345)
         XCTAssertEqual(request.maximumFrameCount, 12_345)
+    }
+
+    func testUntilSongEndComputesExpectedFrameCountForFixedTimingSong() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--until-song-end",
+        ])
+        let song = songWithRows(4)
+        let config = MixerRenderConfig(sampleRate: 44_100, channelCount: 2)
+        let duration = try RenderTool().renderDurationDiagnostics(song: song, arguments: arguments, config: config)
+        let request = try RenderTool().renderRequest(song: song, arguments: arguments, config: config)
+
+        XCTAssertEqual(arguments.renderDurationMode, .untilSongEnd)
+        XCTAssertEqual(duration.calculatedSongEndFrames, 21_168)
+        XCTAssertEqual(duration.tailSeconds, 0)
+        XCTAssertEqual(duration.tailFrames, 0)
+        XCTAssertEqual(duration.effectiveFrameCap, 21_168)
+        XCTAssertEqual(request.requestedFrameCount, 21_168)
+        XCTAssertEqual(request.maximumFrameCount, 21_168)
+    }
+
+    func testUntilSongEndAccountsForSupportedFxxTimingChanges() throws {
+        let song = PlaybackSong(
+            title: "fxx-duration",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0F, effectParam: 0x03)
+                    ]),
+                    PlaybackRow(index: 1, cells: [])
+                ])
+            ],
+            instrumentsByIndex: [:],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+        let arguments = RenderToolArguments(
+            inputPath: "/tmp/module.xm",
+            outputPath: "/tmp/vtx-candidate.wav",
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true
+        )
+
+        let duration = try RenderTool().renderDurationDiagnostics(
+            song: song,
+            arguments: arguments,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        )
+
+        XCTAssertEqual(duration.calculatedSongEndFrames, 9)
+        XCTAssertEqual(duration.effectiveFrameCap, 9)
+    }
+
+    func testTailSecondsAddsExpectedFramesToUntilSongEnd() throws {
+        let arguments = RenderToolArguments(
+            inputPath: "/tmp/module.xm",
+            outputPath: "/tmp/vtx-candidate.wav",
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true,
+            tailSeconds: 2.5
+        )
+
+        let duration = try RenderTool().renderDurationDiagnostics(
+            song: songWithRows(1, timing: PlaybackTiming(speed: 1, bpm: 250)),
+            arguments: arguments,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        )
+
+        XCTAssertEqual(duration.calculatedSongEndFrames, 1)
+        XCTAssertEqual(duration.tailSeconds, 2.5)
+        XCTAssertEqual(duration.tailFrames, 250)
+        XCTAssertEqual(duration.effectiveFrameCap, 251)
+    }
+
+    func testTailSecondsWithoutUntilSongEndFailsClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--tail-seconds", "2",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--tail-seconds may only be used with --until-song-end"))
+        }
+    }
+
+    func testUntilSongEndFailsClearlyWithSecondsAndMaxFrames() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--until-song-end",
+            "--seconds", "1",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--until-song-end", "--seconds"))
+        }
+
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--until-song-end",
+            "--max-frames", "44100",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--until-song-end", "--max-frames"))
+        }
+    }
+
+    func testUntilSongEndLongComputedDurationRequiresAllowLongRender() throws {
+        let song = songWithRows(501)
+        let config = MixerRenderConfig(sampleRate: 44_100, channelCount: 2)
+        let withoutOverride = RenderToolArguments(
+            inputPath: "/tmp/module.xm",
+            outputPath: "/tmp/vtx-candidate.wav",
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true
+        )
+
+        XCTAssertThrowsError(try RenderTool().renderDurationDiagnostics(song: song, arguments: withoutOverride, config: config)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--allow-long-render"))
+        }
+
+        let withOverride = RenderToolArguments(
+            inputPath: "/tmp/module.xm",
+            outputPath: "/tmp/vtx-candidate.wav",
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true,
+            allowLongRender: true
+        )
+        let duration = try RenderTool().renderDurationDiagnostics(song: song, arguments: withOverride, config: config)
+
+        XCTAssertEqual(duration.effectiveFrameCap, 2_651_292)
     }
 
     func testSecondsAndMaxFramesFailClearlyTogether() {
@@ -367,6 +526,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
         XCTAssertTrue(usage.contains("--seconds N"))
         XCTAssertTrue(usage.contains("--max-frames N"))
+        XCTAssertTrue(usage.contains("--until-song-end"))
+        XCTAssertTrue(usage.contains("--tail-seconds N"))
         XCTAssertTrue(usage.contains("--window-rows N"))
         XCTAssertTrue(usage.contains("--gain N"))
         XCTAssertTrue(usage.contains("--headroom-db N"))
@@ -377,6 +538,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("Default safety clamp"))
         XCTAssertTrue(usage.contains("before PCM16 conversion"))
         XCTAssertTrue(usage.contains("rendered frames or row windows"))
+        XCTAssertTrue(usage.contains("not full FT2/OpenMPT song loop/restart parity"))
 
         let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
         let request = PlaybackSongOfflineRenderRequest(
@@ -407,6 +569,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
         XCTAssertTrue(summary.contains("Windowed render: disabled"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
+        XCTAssertTrue(summary.contains("Render duration mode: max frames"))
+        XCTAssertTrue(summary.contains("Calculated song-end frames: not applicable"))
+        XCTAssertTrue(summary.contains("Tail: 0.000 seconds (0 frames)"))
         XCTAssertTrue(summary.contains("Auto-headroom: disabled"))
         XCTAssertTrue(summary.contains("Effective export gain: 1.000000"))
         XCTAssertTrue(summary.contains("Computed export gain: 1.000000 (0.000 dB)"))
@@ -414,6 +579,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("PCM16 clipping/clamping samples after gain: 0"))
         XCTAssertTrue(summary.contains("Effective frame cap: \(defaultLimit + 1)"))
         XCTAssertTrue(summary.contains("Render cap mode: explicit override with --allow-long-render"))
+        XCTAssertTrue(summary.contains("not full FT2/OpenMPT song loop/restart parity"))
     }
 
     func testSummaryReportsAutoHeadroomComputedGain() {
@@ -577,6 +743,66 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(progressText.contains("carried"))
         XCTAssertTrue(progressText.contains("scheduled"))
         XCTAssertTrue(progressText.contains("writing WAV completed"))
+    }
+
+    func testUntilSongEndProgressOutputIncludesDurationModeAndFrameCap() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("until-progress-candidate.wav")
+        var progressLines = [String]()
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true,
+            progress: true
+        )
+
+        let result = try RenderTool(
+            currentDirectory: repoRoot(),
+            progressOutput: { progressLines.append($0) }
+        ).run(arguments)
+        let progressText = progressLines.joined(separator: "\n")
+
+        XCTAssertEqual(result.renderedFrameCount, 21_168)
+        XCTAssertTrue(progressText.contains("render duration mode: until song end"))
+        XCTAssertTrue(progressText.contains("calculated song-end: 21168 frames"))
+        XCTAssertTrue(progressText.contains("effective frame cap: 21168 frames"))
+    }
+
+    func testUntilSongEndWorksWithWindowRowsAndAutoHeadroom() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("until-windowed-auto-candidate.wav")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true,
+            windowRows: 1,
+            autoHeadroom: true
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+
+        XCTAssertEqual(result.renderedFrameCount, 21_168)
+        XCTAssertEqual(result.windowedRenderSummary?.windowRows, 1)
+        XCTAssertEqual(result.windowedRenderSummary?.windowCount, 4)
+        XCTAssertEqual(result.exportDiagnostics?.autoHeadroomEnabled, true)
     }
 
     func testProgressRenderOutputMatchesDefaultRenderOutput() throws {
@@ -828,6 +1054,12 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
+        XCTAssertEqual(render["render_duration_mode"] as? String, "fixed_rows")
+        XCTAssertTrue(render["calculated_song_end_frames"] is NSNull)
+        XCTAssertEqual(render["tail_seconds"] as? Double, 0)
+        XCTAssertEqual(render["tail_frames"] as? Int, 0)
+        XCTAssertEqual(render["effective_frame_cap"] as? Int, PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount)
+        XCTAssertEqual(render["effective_duration_seconds"] as? Double, 60)
         XCTAssertEqual(render["gain_pan_ramp_enabled"] as? Bool, true)
         XCTAssertEqual(render["gain_pan_ramp_frame_count"] as? Int, CSoftwareMixer.gainPanUpdateRampFrameCount)
         XCTAssertEqual(render["gain_pan_update_count"] as? Int, 0)
@@ -861,6 +1093,43 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
+        XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
+    }
+
+    func testUntilSongEndDiagnosticsJSONIncludesDurationModeAndTailFields() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("until-tail-candidate.wav")
+        let diagnosticsURL = directory.appendingPathComponent("until-tail-candidate-diagnostics.json")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: diagnosticsURL.path,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            untilSongEnd: true,
+            tailSeconds: 0.25
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let diagnosticsData = try Data(contentsOf: diagnosticsURL)
+        let diagnostics = try XCTUnwrap(JSONSerialization.jsonObject(with: diagnosticsData) as? [String: Any])
+        let render = try XCTUnwrap(diagnostics["render"] as? [String: Any])
+        let notes = try XCTUnwrap(diagnostics["notes"] as? [String])
+
+        XCTAssertEqual(result.renderedFrameCount, 32_193)
+        XCTAssertEqual(render["render_duration_mode"] as? String, "until_song_end")
+        XCTAssertEqual(render["calculated_song_end_frames"] as? Int, 21_168)
+        XCTAssertEqual(render["tail_seconds"] as? Double, 0.25)
+        XCTAssertEqual(render["tail_frames"] as? Int, 11_025)
+        XCTAssertEqual(render["effective_frame_cap"] as? Int, 32_193)
+        XCTAssertEqual(render["effective_duration_seconds"] as? Double, Double(32_193) / 44_100)
+        XCTAssertTrue(notes.contains { $0.contains("bounded selected order-range end") })
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
     }
 
@@ -2010,6 +2279,25 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             instrumentsByIndex: [:],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd
+        )
+    }
+
+    private func songWithRows(
+        _ rowCount: Int,
+        timing: PlaybackTiming = .xmDefault
+    ) -> PlaybackSong {
+        PlaybackSong(
+            title: "rows",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: (0..<rowCount).map { rowIndex in
+                    PlaybackRow(index: rowIndex, cells: [])
+                })
+            ],
+            instrumentsByIndex: [:],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: timing
         )
     }
 

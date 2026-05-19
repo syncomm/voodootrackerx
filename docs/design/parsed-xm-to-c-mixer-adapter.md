@@ -189,6 +189,16 @@ practical continuation voices at later window starts, renders that window,
 appends deterministic PCM, and aggregates scheduled-capacity and carryover
 diagnostics across windows.
 
+The same developer helper also has an opt-in `--until-song-end` duration mode.
+It computes the end frame of the selected bounded order range with the existing
+adapter timing planner, including the minimal supported `Fxx` timing changes,
+and may add `--tail-seconds N` after that calculated end. This is a local
+candidate-render convenience only: it does not implement full FT2/OpenMPT song
+duration parity, song repeat/loop behavior, `Bxx`/`Dxx` traversal, or `EEx`
+pattern-delay traversal. Fixed `--seconds` and `--max-frames` remain hard
+debug caps, and runtime playback remains `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed` based.
+
 Windowed rendering is not full runtime playback or full XM traversal parity.
 Runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the
 app Play button is not wired to the C mixer. The carryover pass is deliberately

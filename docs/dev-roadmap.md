@@ -96,7 +96,11 @@ subcommands without implementing traversal behavior; filled reports and
 generated audio artifacts stay outside git. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
-`--allow-long-render`. Bounded adapter event-coverage diagnostics now compare
+`--allow-long-render`. It can also render with `--until-song-end` plus optional
+`--tail-seconds N`, computing the bounded selected order-range end from the
+adapter timing model, including minimal supported `Fxx` timing changes, while
+avoiding default looping and full FT2/OpenMPT song-duration parity. Bounded
+adapter event-coverage diagnostics now compare
 parsed normal note cells against scheduled C-backed events, report skipped-note
 reasons and coordinates, expose sample-selection methods and fallbacks, and
 report C mixer scheduled/active capacity values, reject counts, and rejected
@@ -173,7 +177,7 @@ Immediate audio accuracy sequence:
 47. Portamento / Vibrato / Arpeggio Diagnostics for Bounded Offline Renders — done
 48. Minimal tone portamento 3xx for bounded offline renders — done
 49. Minimal portamento up/down 1xx / 2xx for bounded offline renders — done
-50. Song-end duration / tail handling for vtx_render_bounded_xm — future
+50. Song-end duration / tail handling for vtx_render_bounded_xm — done
 51. Feature-flagged runtime backend switch
 52. Reference comparison stabilization against MikMod/OpenMPT
 

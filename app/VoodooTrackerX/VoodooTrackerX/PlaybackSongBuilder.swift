@@ -135,6 +135,11 @@ enum PlaybackSongBuilder {
                 break
             }
 
+            let noteSampleMap = readNoteSampleMap(
+                data,
+                instrumentOffset: offset,
+                instrumentHeaderSize: instrumentHeaderSize
+            )
             var sampleHeaders = [XMSampleHeader]()
             sampleHeaders.reserveCapacity(sampleCount)
             for sampleIndex in 0..<sampleCount {
@@ -168,10 +173,30 @@ enum PlaybackSongBuilder {
                     loopType: header.loopType
                 )
             }
-            instruments[instrumentIndex] = PlaybackInstrument(index: instrumentIndex, samples: samples, volumeEnvelope: volumeEnvelope)
+            instruments[instrumentIndex] = PlaybackInstrument(
+                index: instrumentIndex,
+                samples: samples,
+                volumeEnvelope: volumeEnvelope,
+                noteSampleMap: noteSampleMap
+            )
             offset = dataOffset
         }
         return instruments
+    }
+
+    private static func readNoteSampleMap(
+        _ data: Data,
+        instrumentOffset: Int,
+        instrumentHeaderSize: Int
+    ) -> [Int]? {
+        let mapOffset = instrumentOffset + 33
+        let mapLength = 96
+        guard instrumentHeaderSize >= 33 + mapLength,
+              mapOffset + mapLength <= instrumentOffset + instrumentHeaderSize,
+              mapOffset + mapLength <= data.count else {
+            return nil
+        }
+        return data[mapOffset..<mapOffset + mapLength].map(Int.init)
     }
 
     private static func readVolumeEnvelope(

@@ -74,8 +74,12 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
             "skipped_note_events": 2,
             "skipped_note_off_events_no_active_voice": 1,
             "ignored_or_deferred_cells": 4,
-            "first_playable_sample_fallback_events": 1,
-            "sample_map_keymap_deferred_events": 1,
+            "sample_map_selection_events": 1,
+            "first_playable_sample_fallback_events": 0,
+            "fallback_after_invalid_sample_map_events": 0,
+            "skipped_no_valid_sample_events": 0,
+            "sample_map_keymap_deferred_events": 0,
+            "sample_map_keymap_missing_or_deferred_events": 0,
             "event_outside_bounded_row_range_count": 0,
             "event_capacity_limit_count": 0,
             "c_mixer_voice_capacity_limit_count": 0,
@@ -150,6 +154,15 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 "note": 49,
                 "instrument_index": 7,
                 "sample_index": 2,
+                "sample_map_keymap_present": True,
+                "mapped_sample_index": 2,
+                "mapped_sample_valid": True,
+                "sample_selection_method": "sample_map",
+                "selected_sample_selection_method": "sample_map",
+                "sample_selection_strategy": "sample_map",
+                "first_playable_sample_fallback_used": False,
+                "sample_map_keymap_behavior_deferred": False,
+                "sample_map_keymap_missing_or_deferred": False,
                 "synthetic_row": 4,
                 "synthetic_tick": 0,
                 "event_index": 0,
@@ -684,7 +697,7 @@ class AudioCorrelationTests(unittest.TestCase):
 
             self.assertIn("Window 1: 0.100000-0.150000 s", markdown)
             self.assertIn("order 0 pattern 2 row 4", markdown)
-            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | 110-145 |", markdown)
+            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | sample_map; mapped 2; valid True; map True | 110-145 |", markdown)
 
     def test_correlation_includes_rich_adapter_diagnostic_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -712,6 +725,10 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Normal note cells: 3", markdown)
             self.assertIn("- Scheduled note events: 1", markdown)
             self.assertIn("- Skipped note events: 2", markdown)
+            self.assertIn("- Sample-map selection events: 1", markdown)
+            self.assertIn("- First-playable-sample fallback events: 0", markdown)
+            self.assertIn("- Fallback-after-invalid-map events: 0", markdown)
+            self.assertIn("- Skipped-no-valid-sample events: 0", markdown)
             self.assertIn("- Top skip reasons: missing_instrument=1, sample_pcm_empty=1", markdown)
             self.assertIn("- C mixer scheduling: 1/1 accepted, 0 rejected, capacity 32", markdown)
             self.assertIn("reason missing_instrument", markdown)
@@ -866,7 +883,7 @@ class AudioCorrelationTests(unittest.TestCase):
 
             self.assertIn("No candidate event frame range overlapped this mismatch window", markdown)
             self.assertIn("#### Recent Preceding Candidate Events", markdown)
-            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | 10-20 |", markdown)
+            self.assertIn("| order 0 pattern 2 row 4 | 1 | 49 | 7/2 | sample_map; mapped 2; valid True; map True | 10-20 |", markdown)
 
     def test_correlation_missing_optional_diagnostics_fields_degrades_gracefully(self):
         with tempfile.TemporaryDirectory() as tmpdir:

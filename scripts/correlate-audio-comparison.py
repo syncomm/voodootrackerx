@@ -680,8 +680,11 @@ def append_event_coverage_summary(lines: list[str], coverage: dict[str, Any]) ->
         f"- Note-off cells: {format_optional(coverage.get('note_off_cells'))}",
         f"- Scheduled note events: {format_optional(coverage.get('scheduled_note_events'))}",
         f"- Skipped note events: {format_optional(coverage.get('skipped_note_events'))}",
+        f"- Sample-map selection events: {format_optional(coverage.get('sample_map_selection_events'))}",
         f"- First-playable-sample fallback events: {format_optional(coverage.get('first_playable_sample_fallback_events'))}",
-        f"- Sample-map/keymap deferred events: {format_optional(coverage.get('sample_map_keymap_deferred_events'))}",
+        f"- Fallback-after-invalid-map events: {format_optional(coverage.get('fallback_after_invalid_sample_map_events'))}",
+        f"- Skipped-no-valid-sample events: {format_optional(coverage.get('skipped_no_valid_sample_events'))}",
+        f"- Sample-map/keymap missing or deferred events: {format_optional(coverage.get('sample_map_keymap_missing_or_deferred_events', coverage.get('sample_map_keymap_deferred_events')))}",
         f"- Top skip reasons: {top_reasons if top_reasons else 'none'}",
     ])
     if capacity:
@@ -936,8 +939,8 @@ def append_event_table(
         lines.append("- None.")
         return
     lines.extend([
-        "| Source | Channel | Note | Instrument/Sample | Frames | Pitch | Gain/Pan | Volume Column | Sample Offset | Fxx | Envelope | Loop |",
-        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Source | Channel | Note | Instrument/Sample | Sample Selection | Frames | Pitch | Gain/Pan | Volume Column | Sample Offset | Fxx | Envelope | Loop |",
+        "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ])
     for event in events:
         source = nested_dict(event.get("source"))
@@ -948,6 +951,7 @@ def append_event_table(
             f"{format_optional(channel)} | "
             f"{format_optional(event.get('note'))} | "
             f"{format_optional(event.get('instrument_index'))}/{format_optional(event.get('sample_index'))} | "
+            f"{sample_selection_label(event)} | "
             f"{event['_start_frame']}-{event['_end_frame']} | "
             f"{pitch_label(nested_dict(event.get('pitch')))} | "
             f"{format_optional_float(event.get('gain'))}/{format_optional_float(event.get('pan'))} | "
@@ -1043,6 +1047,27 @@ def sample_offset_label(sample_offset: dict[str, Any]) -> str:
             f"len {format_optional(selected_length)}"
         )
     return status
+
+
+def sample_selection_label(event: dict[str, Any]) -> str:
+    method = event.get("sample_selection_method") or event.get("selected_sample_selection_method")
+    if method is None:
+        method = event.get("sample_selection_strategy")
+    if method is None:
+        return "unavailable"
+    mapped = event.get("mapped_sample_index")
+    valid = event.get("mapped_sample_valid")
+    present = event.get("sample_map_keymap_present")
+    parts = [str(method)]
+    if mapped is not None:
+        parts.append(f"mapped {format_optional(mapped)}")
+    if valid is not None:
+        parts.append(f"valid {format_optional(valid)}")
+    if present is not None:
+        parts.append(f"map {format_optional(present)}")
+    if event.get("first_playable_sample_fallback_used"):
+        parts.append("fallback")
+    return "; ".join(parts)
 
 
 def fxx_label(changes: list[dict[str, Any]]) -> str:

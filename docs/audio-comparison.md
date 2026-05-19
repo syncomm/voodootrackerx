@@ -37,11 +37,14 @@ renders only. Candidate renders now include conservative adapter support for
 volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Fxx` speed/BPM timing changes, and minimal nonzero
-`9xx` sample offsets on same-cell note triggers, so local comparisons are more
-meaningful for simple volume, stereo placement, timing-alignment, and obvious
-sample-start checks in bounded segments. `900` remains a diagnosed no-op rather
-than effect memory, and out-of-range `9xx` offsets are reported as skipped
-voices. Linear-frequency songs also carry
+`9xx` sample offsets on same-cell note triggers. Normal note triggers also use
+parsed XM instrument note-sample maps/keymaps when a valid bounded offline
+mapping exists, with deterministic first-playable fallback or skip diagnostics
+when it does not. Local comparisons are therefore more meaningful for simple
+volume, stereo placement, timing-alignment, obvious sample-start checks, and
+mapped-sample selection in bounded segments. `900` remains a diagnosed no-op
+rather than effect memory, and out-of-range `9xx` offsets are reported as
+skipped voices. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
 events. Fractional C-backed offline sample steps use simple deterministic
 linear interpolation; diagnostics JSON reports this as `sample_interpolation`
@@ -54,8 +57,9 @@ Diagnostics JSON also includes an event-coverage summary for missing-note
 investigations. It compares parsed bounded `PlaybackSong` cells against
 scheduled C-backed adapter events, counts normal notes, note-offs, empty and
 invalid cells, skipped notes, skip reasons, first-playable-sample fallback
-usage, sample-map/keymap deferrals, and current C mixer voice-capacity
-rejections.
+usage, sample-map/keymap selections, fallback-after-invalid-map cases,
+skipped-no-valid-sample cases, missing/deferred keymap state, and current C
+mixer voice-capacity rejections.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -67,6 +71,9 @@ sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
+It also summarizes sample-selection counts so missing or wrong notes can be
+separated from fallback-heavy mapped-sample behavior, invalid maps, and current
+C mixer capacity limits.
 The same report also summarizes applied, ignored/no-op, deferred/unsupported,
 and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
@@ -162,9 +169,10 @@ automatic fix.
    nearby bounded adapter rows/events. Keep the correlation report local.
    Read the event-coverage summary first when listening reports suggest missing
    notes. Missing/unknown instruments, empty sample PCM, no-playable-sample
-   reasons, first-playable-sample fallback/keymap deferrals, out-of-range
-   `9xx`, C mixer voice capacity rejections, and deferred effect interactions
-   should each guide a separate targeted follow-up PR.
+   reasons, sample-map selections, first-playable-sample fallbacks,
+   fallback-after-invalid-map cases, skipped-no-valid-sample cases,
+   out-of-range `9xx`, C mixer voice capacity rejections, and deferred effect
+   interactions should each guide a separate targeted follow-up PR.
 6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
@@ -238,9 +246,10 @@ ranges, then lists:
 - candidate events whose scheduled frame ranges overlap each window
 - recent candidate events that precede the window when no event directly overlaps
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
-  step, linear period/frequency intermediates, volume-column classification,
-  Fxx timing changes, sample-offset status, envelope status, loop mode, and
-  render interpolation status when those fields are present
+  step, linear period/frequency intermediates, sample-selection method and
+  mapped-sample validity, volume-column classification, Fxx timing changes,
+  sample-offset status, envelope status, loop mode, and render interpolation
+  status when those fields are present
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
@@ -266,9 +275,11 @@ resampling details or reference-render settings may be the better next
 investigation.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons before implementing more
-effects. Keep sample-map/keymap support, capacity fixes, sample-offset
-refinements, traversal diagnostics, and effect handling as separate targeted
-follow-up PRs.
+effects. If sample-map selections remain low for a bounded target, confirm
+whether the local module's active instruments actually map those notes to
+multiple playable samples before treating it as an adapter bug. Keep capacity
+fixes, sample-offset refinements, traversal diagnostics, and effect handling as
+separate targeted follow-up PRs.
 The recommendation line is a heuristic summary of the bounded diagnostics; it
 is not an automatic correctness decision and should be checked against listening
 notes, renderer settings, and the actual row/event context before opening the

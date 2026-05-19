@@ -240,6 +240,20 @@ VTXCMixerStatus vtx_c_mixer_set_voice_key_off_frame(
     float fadeout_decrement_per_frame
 );
 
+// Imports caller-computed runtime state into an existing offline voice. This is
+// intended for deterministic developer/offline window-continuation renders; it
+// does not change mixer DSP semantics or allocate during rendering.
+VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    double sample_position,
+    int ping_pong_direction,
+    uint32_t volume_envelope_position_frame,
+    uint32_t pan_envelope_position_frame,
+    int key_on,
+    float fadeout_value
+);
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,

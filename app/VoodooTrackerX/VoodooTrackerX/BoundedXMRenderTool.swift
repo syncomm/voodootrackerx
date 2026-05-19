@@ -496,7 +496,7 @@ struct RenderTool {
             ? Int((Double(completedFrames) / Double(totalFrames) * 100.0).rounded(.down))
             : 100
         emitProgress(
-            "rendering window \(completedWindow) / \(totalWindows): \(min(100, max(0, percent)))% (\(completedFrames) / \(totalFrames) frames), rows \(window.startRow)..<\(window.endRowExclusive), scheduled \(window.scheduledEventCount), accepted \(window.acceptedScheduledEventCount), rejected \(window.rejectedScheduledEventCount)",
+            "rendering window \(completedWindow) / \(totalWindows): \(min(100, max(0, percent)))% (\(completedFrames) / \(totalFrames) frames), rows \(window.startRow)..<\(window.endRowExclusive), carried \(window.carriedVoiceCount), scheduled \(window.scheduledEventCount), accepted \(window.acceptedScheduledEventCount), rejected \(window.rejectedScheduledEventCount)",
             arguments: arguments
         )
     }
@@ -695,7 +695,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
-                "Windowed renders are developer/offline helper renders only and reset C mixer voice state at window boundaries.",
+                "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -749,8 +749,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "total_scheduled_events": result.scheduledVoiceAttempts.count,
                 "total_accepted_scheduled_events": result.scheduledVoiceAttempts.filter { $0.voiceIndex != nil }.count,
                 "total_scheduled_capacity_rejects": 0,
+                "total_carried_voice_count": 0,
+                "total_released_voice_carryover_count": 0,
+                "total_boundary_continuation_count": 0,
+                "total_dropped_at_window_boundaries": 0,
+                "may_contain_boundary_cuts": false,
                 "per_window": [],
                 "first_windows_with_rejects": [],
+                "known_unsupported_carryover_reasons": [],
                 "known_state_carryover_limitations": [],
             ]
         }
@@ -759,6 +765,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "window_rows": summary.windowRows,
             "window_count": summary.windowCount,
             "total_rendered_frames": summary.totalRenderedFrames,
+            "total_carried_voice_count": summary.totalCarriedVoices,
+            "total_released_voice_carryover_count": summary.totalReleasedVoiceCarryovers,
+            "total_boundary_continuation_count": summary.totalBoundaryContinuations,
+            "total_dropped_at_window_boundaries": summary.totalDroppedAtWindowBoundaries,
+            "may_contain_boundary_cuts": summary.mayContainBoundaryCuts,
             "total_scheduled_events": summary.totalScheduledEvents,
             "total_accepted_scheduled_events": summary.totalAcceptedScheduledEvents,
             "total_rejected_scheduled_events": summary.totalRejectedScheduledEvents,
@@ -766,6 +777,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "total_invalid_scheduled_voice_rejects": summary.totalInvalidScheduledVoiceRejects,
             "per_window": summary.windows.map(windowDiagnosticJSON),
             "first_windows_with_rejects": summary.firstWindowsWithRejects.map(windowDiagnosticJSON),
+            "known_unsupported_carryover_reasons": summary.knownUnsupportedCarryoverReasons,
             "known_state_carryover_limitations": summary.knownStateCarryoverLimitations,
         ]
     }
@@ -778,6 +790,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "start_frame": diagnostic.startFrame,
             "end_frame": diagnostic.endFrame,
             "rendered_frames": diagnostic.renderedFrames,
+            "carried_voice_count": diagnostic.carriedVoiceCount,
+            "released_voice_carryover_count": diagnostic.releasedVoiceCarryoverCount,
+            "boundary_continuation_count": diagnostic.boundaryContinuationCount,
+            "dropped_at_window_boundary_count": diagnostic.droppedAtWindowBoundaryCount,
+            "may_contain_boundary_cuts": diagnostic.mayContainBoundaryCuts,
+            "unsupported_carryover_reasons": diagnostic.unsupportedCarryoverReasons,
             "scheduled_event_count": diagnostic.scheduledEventCount,
             "accepted_scheduled_event_count": diagnostic.acceptedScheduledEventCount,
             "rejected_scheduled_event_count": diagnostic.rejectedScheduledEventCount,
@@ -1610,8 +1628,11 @@ private func appendWindowedRenderSummary(
         "Windowed scheduling: \(summary.windowCount) windows, \(summary.totalAcceptedScheduledEvents)/\(summary.totalScheduledEvents) accepted, \(summary.totalScheduledCapacityRejects) scheduled capacity rejects."
     )
     lines.append(
-        "Window carryover limitation: C mixer voice state is reset at window boundaries; sustained voices are not serialized across windows in this first pass."
+        "Window carryover: \(summary.totalCarriedVoices) carried voices, \(summary.totalReleasedVoiceCarryovers) released/fadeout carryovers, \(summary.totalDroppedAtWindowBoundaries) boundary drops, may contain boundary cuts: \(summary.mayContainBoundaryCuts)."
     )
+    if !summary.knownUnsupportedCarryoverReasons.isEmpty {
+        lines.append("Unsupported carryover reasons: \(summary.knownUnsupportedCarryoverReasons.joined(separator: ", ")).")
+    }
 }
 
 private func appendEventCoverageSummary(

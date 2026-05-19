@@ -60,6 +60,12 @@ output directory.
 - Windowed total scheduled events:
 - Windowed total accepted events:
 - Windowed scheduled capacity rejects:
+- Windowed carried voices:
+- Windowed released/fadeout carryovers:
+- Windowed boundary continuations:
+- Windowed boundary drops:
+- Windowed may contain boundary cuts:
+- Windowed unsupported carryover reasons:
 - First windows with rejects:
 - Window-boundary state/carryover notes:
 - Sample-map selections:

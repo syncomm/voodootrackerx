@@ -53,6 +53,31 @@ struct CSoftwareMixerScheduledVoiceResult: Equatable {
     }
 }
 
+struct CSoftwareMixerVoiceRuntimeState: Equatable {
+    let samplePosition: Double
+    let pingPongDirection: Int
+    let volumeEnvelopePositionFrame: Int
+    let panEnvelopePositionFrame: Int
+    let keyOn: Bool
+    let fadeoutValue: Float
+
+    init(
+        samplePosition: Double,
+        pingPongDirection: Int = 1,
+        volumeEnvelopePositionFrame: Int = 0,
+        panEnvelopePositionFrame: Int = 0,
+        keyOn: Bool = true,
+        fadeoutValue: Float = 1
+    ) {
+        self.samplePosition = samplePosition.isFinite && samplePosition >= 0 ? samplePosition : 0
+        self.pingPongDirection = pingPongDirection < 0 ? -1 : 1
+        self.volumeEnvelopePositionFrame = max(0, volumeEnvelopePositionFrame)
+        self.panEnvelopePositionFrame = max(0, panEnvelopePositionFrame)
+        self.keyOn = keyOn
+        self.fadeoutValue = fadeoutValue.isFinite ? min(1, max(0, fadeoutValue)) : 1
+    }
+}
+
 /// Thin Swift wrapper around the C-backed mixer core.
 ///
 /// This wrapper exists for deterministic offline tests and future mixer migration work. It does not replace
@@ -260,6 +285,25 @@ final class CSoftwareMixer {
             UInt32(voiceIndex),
             UInt64(keyOffFrame),
             fadeoutFrameDecrement.isFinite ? fadeoutFrameDecrement : 0
+        )
+        Self.requireOK(status)
+    }
+
+    /// Imports caller-computed runtime state into an existing C-backed offline voice.
+    ///
+    /// This is used only by row-windowed developer/offline renders to continue voices across fresh mixer
+    /// instances. It does not expose a generic runtime mixer state system or change render-loop DSP behavior.
+    func setRuntimeState(_ runtimeState: CSoftwareMixerVoiceRuntimeState, forVoiceAt voiceIndex: Int) {
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
+        let status = vtx_c_mixer_set_voice_runtime_state(
+            &state,
+            UInt32(voiceIndex),
+            runtimeState.samplePosition,
+            Int32(runtimeState.pingPongDirection),
+            UInt32(clamping: runtimeState.volumeEnvelopePositionFrame),
+            UInt32(clamping: runtimeState.panEnvelopePositionFrame),
+            runtimeState.keyOn ? 1 : 0,
+            runtimeState.fadeoutValue
         )
         Self.requireOK(status)
     }

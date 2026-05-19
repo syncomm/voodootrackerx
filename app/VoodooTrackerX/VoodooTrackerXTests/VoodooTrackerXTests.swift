@@ -3482,6 +3482,286 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(first.windowedRenderSummary?.windowCount, 3)
     }
 
+    func testPlaybackSongOfflineRendererWindowedShortVoicesDoNotCreateCarryover() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let rows = (0..<3).map { makePlaybackRow(index: $0, note: 49, instrument: 1) }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(result.windowedRenderSummary)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+        XCTAssertEqual(summary.totalCarriedVoices, 0)
+        XCTAssertEqual(summary.totalBoundaryContinuations, 0)
+        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
+        XCTAssertFalse(summary.mayContainBoundaryCuts)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedCarriesSustainedOneShotSamplePosition() throws {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25], baseSampleRate: 100)
+        let rows = [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1),
+            makePlaybackRow(index: 2),
+            makePlaybackRow(index: 3)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let nonWindowed = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(windowed.windowedRenderSummary)
+
+        XCTAssertEqual(windowed.block, nonWindowed.block)
+        XCTAssertEqual(windowed.block.interleavedPCM, [1, 0.5, -0.5, 0.25])
+        XCTAssertEqual(summary.totalCarriedVoices, 3)
+        XCTAssertEqual(summary.totalBoundaryContinuations, 3)
+        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedCarriesForwardLoopState() {
+        let sample = makePlaybackSample(pcm: [0, 1, 2], baseSampleRate: 100, loopStart: 1, loopLength: 2, loopType: 1)
+        let rows = [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1),
+            makePlaybackRow(index: 2),
+            makePlaybackRow(index: 3),
+            makePlaybackRow(index: 4)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 1, 2])
+        XCTAssertEqual(result.windowedRenderSummary?.totalCarriedVoices, 4)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedCarriesPingPongLoopDirection() {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100, loopStart: 1, loopLength: 3, loopType: 2)
+        let rows = (0..<7).map { rowIndex in
+            rowIndex == 0
+                ? makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+                : makePlaybackRow(index: rowIndex)
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 7
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0, 1, 2, 3, 2, 1, 2])
+        XCTAssertEqual(result.windowedRenderSummary?.totalCarriedVoices, 6)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedCarriesEnvelopePosition() {
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 4, value: 0)
+            ]
+        )
+        let rows = (0..<5).map { rowIndex in
+            rowIndex == 0
+                ? makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+                : makePlaybackRow(index: rowIndex)
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+
+        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 0.75, 0.5, 0.25, 0])
+        XCTAssertEqual(result.windowedRenderSummary?.totalCarriedVoices, 4)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedCarriesKeyOffReleaseAndFadeout() throws {
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: false,
+            points: [],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0,
+            fadeout: 32_768
+        )
+        let rows = [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1),
+            makePlaybackRow(index: 2, note: 97),
+            makePlaybackRow(index: 3),
+            makePlaybackRow(index: 4)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(result.windowedRenderSummary)
+
+        XCTAssertPCMEqual(result.block.interleavedPCM, [1, 1, 1, 0.75, 0.5])
+        XCTAssertGreaterThan(summary.totalReleasedVoiceCarryovers, 0)
+        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 0)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedUsesAdapterVolumePanAndFxxStateAcrossWindows() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let rows = [
+            makePlaybackRow(index: 0, volumeColumn: 0x20),
+            makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0xCF),
+            makePlaybackRow(index: 2, effectType: 0x0F, effectParam: 0x03),
+            makePlaybackRow(index: 3),
+            makePlaybackRow(index: 4, note: 49, instrument: 1)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 22
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let nonWindowed = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let firstEvent = try XCTUnwrap(windowed.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(windowed.block, nonWindowed.block)
+        XCTAssertEqual(windowed.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6, 12, 18, 21])
+        XCTAssertEqual(firstEvent.effectiveVolumeValue, 16)
+        XCTAssertEqual(firstEvent.effectivePan, 1)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedDoesNotCarryReplacedChannelVoiceAtBoundary() {
+        let firstSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let replacementSample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25, 0.25], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let rows = [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, note: 49, instrument: 2),
+            makePlaybackRow(index: 2)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [firstSample]),
+                2: PlaybackInstrument(index: 2, samples: [replacementSample])
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.25, 0.25])
+        XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 1)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedDiagnosticsReportBoundaryDrops() throws {
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
+        let attemptedVoiceCount = CSoftwareMixer.maximumScheduledVoiceCount + 1
+        let rows = [
+            PlaybackRow(index: 0, cells: (0..<attemptedVoiceCount).map { _ in
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+            }),
+            makePlaybackRow(index: 1)
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(result.windowedRenderSummary)
+        let secondWindow = try XCTUnwrap(summary.windows.last)
+
+        XCTAssertEqual(secondWindow.boundaryContinuationCount, attemptedVoiceCount)
+        XCTAssertEqual(secondWindow.carriedVoiceCount, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(secondWindow.droppedAtWindowBoundaryCount, 1)
+        XCTAssertTrue(summary.mayContainBoundaryCuts)
+        XCTAssertEqual(summary.totalDroppedAtWindowBoundaries, 1)
+    }
+
     func testPlaybackSongOfflineRendererCanRenderByRowCount() {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25])
         let song = makePlaybackSong(

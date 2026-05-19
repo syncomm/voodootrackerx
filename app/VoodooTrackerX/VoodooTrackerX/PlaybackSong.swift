@@ -3229,6 +3229,12 @@ struct PlaybackSongWindowedRenderWindowDiagnostic: Equatable {
     let startFrame: Int
     let endFrame: Int
     let renderedFrames: Int
+    let carriedVoiceCount: Int
+    let releasedVoiceCarryoverCount: Int
+    let boundaryContinuationCount: Int
+    let droppedAtWindowBoundaryCount: Int
+    let mayContainBoundaryCuts: Bool
+    let unsupportedCarryoverReasons: [String]
     let scheduledEventCount: Int
     let acceptedScheduledEventCount: Int
     let rejectedScheduledEventCount: Int
@@ -3239,19 +3245,25 @@ struct PlaybackSongWindowedRenderWindowDiagnostic: Equatable {
 struct PlaybackSongWindowedRenderSummary: Equatable {
     static let firstRejectingWindowLimit = 10
     static let stateCarryoverLimitations = [
-        "Windowed offline renders reset C mixer voice state at window boundaries.",
-        "Sustained voices, envelope position, fadeout, and sample playback position are not serialized across windows in this first pass.",
-        "Rows and note events contained wholly inside a window preserve the existing bounded adapter behavior.",
+        "Windowed offline renders now carry practical active voice state across fresh C mixer windows.",
+        "Carryover is computed from the bounded adapter plan and includes sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, and pan.",
+        "Unsupported/deferred XM effects and full FT2/OpenMPT parity remain out of scope, so effect-driven continuity can still be approximate.",
     ]
 
     let windowRows: Int
     let windows: [PlaybackSongWindowedRenderWindowDiagnostic]
     let totalRenderedFrames: Int
+    let totalCarriedVoices: Int
+    let totalReleasedVoiceCarryovers: Int
+    let totalBoundaryContinuations: Int
+    let totalDroppedAtWindowBoundaries: Int
+    let mayContainBoundaryCuts: Bool
     let totalScheduledEvents: Int
     let totalAcceptedScheduledEvents: Int
     let totalRejectedScheduledEvents: Int
     let totalScheduledCapacityRejects: Int
     let totalInvalidScheduledVoiceRejects: Int
+    let knownUnsupportedCarryoverReasons: [String]
     let knownStateCarryoverLimitations: [String]
 
     var windowCount: Int {
@@ -3434,6 +3446,7 @@ final class PlaybackSongOfflineRenderer {
         var attempts = [PlaybackSongScheduledVoiceAttempt]()
         var windowDiagnostics = [PlaybackSongWindowedRenderWindowDiagnostic]()
         var outputConfig = CSoftwareMixer(config: effectiveRequest.config).config
+        let knownUnsupportedCarryoverReasons = Self.knownUnsupportedCarryoverReasons(for: adaptedPlan)
 
         for spec in windows {
             let mixer = CSoftwareMixer(config: effectiveRequest.config)
@@ -3443,6 +3456,23 @@ final class PlaybackSongOfflineRenderer {
                 plan: adaptedPlan,
                 scheduler: scheduler
             )
+            let continuations = Self.continuations(
+                for: spec,
+                plan: adaptedPlan,
+                scheduler: scheduler
+            )
+            var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
+            continuationResults.reserveCapacity(continuations.count)
+            for continuation in continuations {
+                let result = Self.scheduleContinuation(continuation, on: mixer)
+                continuationResults.append(result)
+                attempts.append(PlaybackSongScheduledVoiceAttempt(
+                    eventIndex: continuation.eventIndex,
+                    voiceIndex: result.voiceIndex,
+                    rejectionReason: result.rejectionReason,
+                    windowIndex: spec.index
+                ))
+            }
             let localEvents = eventPairs.map { _, event in
                 Self.localEvent(from: event, windowStartFrame: spec.startFrame, scheduler: scheduler)
             }
@@ -3460,6 +3490,7 @@ final class PlaybackSongOfflineRenderer {
             renderedFrames += block.frameCount
             interleavedPCM.append(contentsOf: block.interleavedPCM)
 
+            let droppedContinuations = continuationResults.filter { $0.rejectionReason != nil }.count
             let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(
                 windowIndex: spec.index,
                 startRow: spec.startRow,
@@ -3467,11 +3498,17 @@ final class PlaybackSongOfflineRenderer {
                 startFrame: spec.startFrame,
                 endFrame: spec.endFrame,
                 renderedFrames: block.frameCount,
-                scheduledEventCount: scheduledResults.count,
-                acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count,
-                rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count,
-                scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
-                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+                carriedVoiceCount: continuationResults.filter(\.wasAccepted).count,
+                releasedVoiceCarryoverCount: continuations.filter { !$0.runtimeState.keyOn }.count,
+                boundaryContinuationCount: continuations.count,
+                droppedAtWindowBoundaryCount: droppedContinuations,
+                mayContainBoundaryCuts: droppedContinuations > 0,
+                unsupportedCarryoverReasons: spec.index == 0 ? [] : knownUnsupportedCarryoverReasons,
+                scheduledEventCount: scheduledResults.count + continuationResults.count,
+                acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count + continuationResults.filter(\.wasAccepted).count,
+                rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count + continuationResults.filter { $0.rejectionReason != nil }.count,
+                scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count + continuationResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
+                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count
             )
             windowDiagnostics.append(diagnostic)
             progress?(spec.index + 1, windows.count, diagnostic)
@@ -3490,11 +3527,17 @@ final class PlaybackSongOfflineRenderer {
             windowRows: safeWindowRows,
             windows: windowDiagnostics,
             totalRenderedFrames: renderedFrames,
+            totalCarriedVoices: windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +),
+            totalReleasedVoiceCarryovers: windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +),
+            totalBoundaryContinuations: windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +),
+            totalDroppedAtWindowBoundaries: windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +),
+            mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
             totalScheduledEvents: attempts.count,
             totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
             totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
             totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
             totalInvalidScheduledVoiceRejects: attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+            knownUnsupportedCarryoverReasons: knownUnsupportedCarryoverReasons,
             knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations
         )
         return PlaybackSongOfflineRenderResult(
@@ -3587,6 +3630,18 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
+    private struct WindowContinuation: Equatable {
+        let eventIndex: Int
+        let event: SyntheticTrackerEvent
+        let runtimeState: CSoftwareMixerVoiceRuntimeState
+        let keyOffFrame: Int?
+    }
+
+    private struct SourcePositionState: Equatable {
+        let samplePosition: Double
+        let pingPongDirection: Int
+    }
+
     private static func windowSpecs(
         for plan: PlaybackSongSyntheticPlan,
         totalFrames: Int,
@@ -3644,6 +3699,360 @@ final class PlaybackSongOfflineRenderer {
             ]
         }
         return specs
+    }
+
+    private static func continuations(
+        for window: RenderWindowSpec,
+        plan: PlaybackSongSyntheticPlan,
+        scheduler: SyntheticTrackerScheduler
+    ) -> [WindowContinuation] {
+        let windowStartFrame = window.startFrame
+        guard windowStartFrame > 0 else {
+            return []
+        }
+        let latestEventIndexByChannel = latestEventIndicesByChannel(
+            atOrBefore: windowStartFrame,
+            plan: plan,
+            scheduler: scheduler
+        )
+        let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
+        return plan.pattern.events.enumerated().compactMap { eventIndex, event in
+            let eventStartFrame = scheduler.frame(for: event)
+            guard eventStartFrame < windowStartFrame else {
+                return nil
+            }
+            if let mapping = mappingsByEventIndex[eventIndex],
+               let latestEventIndex = latestEventIndexByChannel[mapping.channelIndex],
+               latestEventIndex != eventIndex {
+                return nil
+            }
+            return continuation(
+                eventIndex: eventIndex,
+                event: event,
+                eventStartFrame: eventStartFrame,
+                boundaryFrame: windowStartFrame
+            )
+        }
+    }
+
+    private static func latestEventIndicesByChannel(
+        atOrBefore boundaryFrame: Int,
+        plan: PlaybackSongSyntheticPlan,
+        scheduler: SyntheticTrackerScheduler
+    ) -> [Int: Int] {
+        var latestByChannel = [Int: (frame: Int, eventIndex: Int)]()
+        for mapping in plan.diagnostics.eventMappings {
+            guard plan.pattern.events.indices.contains(mapping.eventIndex) else {
+                continue
+            }
+            let frame = scheduler.frame(for: plan.pattern.events[mapping.eventIndex])
+            guard frame <= boundaryFrame else {
+                continue
+            }
+            if let existing = latestByChannel[mapping.channelIndex] {
+                if frame > existing.frame ||
+                    (frame == existing.frame && mapping.eventIndex > existing.eventIndex) {
+                    latestByChannel[mapping.channelIndex] = (frame, mapping.eventIndex)
+                }
+            } else {
+                latestByChannel[mapping.channelIndex] = (frame, mapping.eventIndex)
+            }
+        }
+        return latestByChannel.mapValues(\.eventIndex)
+    }
+
+    private static func continuation(
+        eventIndex: Int,
+        event: SyntheticTrackerEvent,
+        eventStartFrame: Int,
+        boundaryFrame: Int
+    ) -> WindowContinuation? {
+        let elapsedFrames = max(0, boundaryFrame - eventStartFrame)
+        guard elapsedFrames > 0,
+              let sourceState = sourcePositionState(for: event, elapsedFrames: elapsedFrames) else {
+            return nil
+        }
+        let keyOffFrame = event.keyOffFrame
+        let keyOn = keyOffFrame.map { boundaryFrame <= $0 } ?? true
+        let keyedFrames = keyedFrameCount(
+            elapsedFrames: elapsedFrames,
+            eventStartFrame: eventStartFrame,
+            keyOffFrame: keyOffFrame
+        )
+        let releasedFrames = releasedFrameCount(
+            boundaryFrame: boundaryFrame,
+            keyOffFrame: keyOffFrame
+        )
+        let fadeoutValue = fadeoutValue(
+            releasedFrames: releasedFrames,
+            decrementPerFrame: event.fadeoutFrameDecrement
+        )
+        guard fadeoutValue > 0 else {
+            return nil
+        }
+        let volumeEnvelopePosition = envelopePosition(
+            for: event.volumeEnvelope,
+            keyedFrames: keyedFrames,
+            releasedFrames: releasedFrames
+        )
+        let panEnvelopePosition = envelopePosition(
+            for: event.panEnvelope,
+            keyedFrames: keyedFrames,
+            releasedFrames: releasedFrames
+        )
+        let localKeyOffFrame: Int?
+        if let keyOffFrame {
+            localKeyOffFrame = max(0, keyOffFrame - boundaryFrame)
+        } else {
+            localKeyOffFrame = nil
+        }
+        return WindowContinuation(
+            eventIndex: eventIndex,
+            event: event,
+            runtimeState: CSoftwareMixerVoiceRuntimeState(
+                samplePosition: sourceState.samplePosition,
+                pingPongDirection: sourceState.pingPongDirection,
+                volumeEnvelopePositionFrame: volumeEnvelopePosition,
+                panEnvelopePositionFrame: panEnvelopePosition,
+                keyOn: keyOn,
+                fadeoutValue: fadeoutValue
+            ),
+            keyOffFrame: localKeyOffFrame
+        )
+    }
+
+    private static func scheduleContinuation(
+        _ continuation: WindowContinuation,
+        on mixer: CSoftwareMixer
+    ) -> CSoftwareMixerScheduledVoiceResult {
+        let event = continuation.event
+        let result = mixer.addScheduledVoiceWithResult(
+            sample: event.sample,
+            scheduledStartFrame: 0,
+            gain: event.gain,
+            pan: event.pan,
+            playbackStep: event.playbackStep,
+            loop: event.loop,
+            initialSourceFrame: Int(continuation.runtimeState.samplePosition.rounded(.down)),
+            volumeEnvelope: event.volumeEnvelope,
+            panEnvelope: event.panEnvelope,
+            keyOffFrame: continuation.keyOffFrame,
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement
+        )
+        if let voiceIndex = result.voiceIndex {
+            mixer.setRuntimeState(continuation.runtimeState, forVoiceAt: voiceIndex)
+        }
+        return result
+    }
+
+    private static func sourcePositionState(
+        for event: SyntheticTrackerEvent,
+        elapsedFrames: Int
+    ) -> SourcePositionState? {
+        let sampleFrameCount = event.sample.frameCount
+        guard sampleFrameCount > 0,
+              event.playbackStep.isFinite,
+              event.playbackStep > 0 else {
+            return nil
+        }
+        let sanitizedLoop = event.loop.sanitized(sampleFrameCount: sampleFrameCount)
+        let initialPosition = Double(max(0, event.initialSourceFrame))
+        guard initialPosition < Double(sampleFrameCount) else {
+            return nil
+        }
+        let advancedPosition = initialPosition + (Double(elapsedFrames) * event.playbackStep)
+        guard advancedPosition.isFinite,
+              advancedPosition >= 0,
+              advancedPosition <= Double(UInt32.max) else {
+            return nil
+        }
+
+        switch sanitizedLoop.mode {
+        case .none:
+            guard advancedPosition < Double(sampleFrameCount) else {
+                return nil
+            }
+            return SourcePositionState(samplePosition: advancedPosition, pingPongDirection: 1)
+        case .forward:
+            let start = Double(sanitizedLoop.startFrame)
+            let end = Double(sanitizedLoop.endFrame)
+            let length = max(0, end - start)
+            guard length > 0 else {
+                return nil
+            }
+            if advancedPosition < end {
+                return SourcePositionState(samplePosition: advancedPosition, pingPongDirection: 1)
+            }
+            let overflow = advancedPosition - end
+            return SourcePositionState(
+                samplePosition: start + overflow.truncatingRemainder(dividingBy: length),
+                pingPongDirection: 1
+            )
+        case .pingPong:
+            return pingPongSourcePositionState(advancedPosition: advancedPosition, loop: sanitizedLoop)
+        }
+    }
+
+    private static func pingPongSourcePositionState(
+        advancedPosition: Double,
+        loop: MixerSampleLoop
+    ) -> SourcePositionState? {
+        let firstLoopFrame = Double(loop.startFrame)
+        let lastLoopFrame = Double(loop.endFrame - 1)
+        let span = lastLoopFrame - firstLoopFrame
+        guard span > 0 else {
+            return nil
+        }
+        if advancedPosition <= lastLoopFrame {
+            return SourcePositionState(samplePosition: advancedPosition, pingPongDirection: 1)
+        }
+        let period = span * 2.0
+        guard period > 0 else {
+            return nil
+        }
+        let overshoot = (advancedPosition - lastLoopFrame).truncatingRemainder(dividingBy: period)
+        if overshoot == 0 {
+            return SourcePositionState(samplePosition: lastLoopFrame, pingPongDirection: 1)
+        }
+        if overshoot <= span {
+            return SourcePositionState(samplePosition: lastLoopFrame - overshoot, pingPongDirection: -1)
+        }
+        return SourcePositionState(
+            samplePosition: firstLoopFrame + (overshoot - span),
+            pingPongDirection: 1
+        )
+    }
+
+    private static func keyedFrameCount(
+        elapsedFrames: Int,
+        eventStartFrame: Int,
+        keyOffFrame: Int?
+    ) -> Int {
+        guard let keyOffFrame else {
+            return elapsedFrames
+        }
+        return min(elapsedFrames, max(0, keyOffFrame - eventStartFrame))
+    }
+
+    private static func releasedFrameCount(
+        boundaryFrame: Int,
+        keyOffFrame: Int?
+    ) -> Int {
+        guard let keyOffFrame,
+              boundaryFrame > keyOffFrame else {
+            return 0
+        }
+        return boundaryFrame - keyOffFrame
+    }
+
+    private static func fadeoutValue(
+        releasedFrames: Int,
+        decrementPerFrame: Float
+    ) -> Float {
+        guard releasedFrames > 0,
+              decrementPerFrame.isFinite,
+              decrementPerFrame > 0 else {
+            return 1
+        }
+        return max(0, 1 - (Float(releasedFrames) * decrementPerFrame))
+    }
+
+    private static func envelopePosition(
+        for envelope: MixerEnvelope?,
+        keyedFrames: Int,
+        releasedFrames: Int
+    ) -> Int {
+        guard let envelope,
+              !envelope.points.isEmpty else {
+            return 0
+        }
+        var position = 0
+        position = advanceEnvelopePosition(position, frames: keyedFrames, keyOn: true, envelope: envelope)
+        position = advanceEnvelopePosition(position, frames: releasedFrames, keyOn: false, envelope: envelope)
+        return position
+    }
+
+    private static func advanceEnvelopePosition(
+        _ position: Int,
+        frames: Int,
+        keyOn: Bool,
+        envelope: MixerEnvelope
+    ) -> Int {
+        guard frames > 0 else {
+            return position
+        }
+        if !keyOn {
+            return clampedEnvelopePosition(position + frames)
+        }
+        if let sustainFrame = envelope.sustainFrame,
+           position >= sustainFrame {
+            return sustainFrame
+        }
+
+        let loopStart = envelope.loopStartFrame
+        let loopEnd = envelope.loopEndFrame
+        if let sustainFrame = envelope.sustainFrame,
+           canReachSustainBeforeLoop(
+               position: position,
+               frames: frames,
+               sustainFrame: sustainFrame,
+               loopEndFrame: loopEnd
+           ) {
+            return sustainFrame
+        }
+        guard let loopStart,
+              let loopEnd,
+              loopEnd >= loopStart else {
+            return clampedEnvelopePosition(position + frames)
+        }
+
+        let target = position + frames
+        guard target > loopEnd else {
+            return clampedEnvelopePosition(target)
+        }
+        let loopLength = loopEnd - loopStart + 1
+        guard loopLength > 0 else {
+            return clampedEnvelopePosition(target)
+        }
+        return loopStart + ((target - loopEnd - 1) % loopLength)
+    }
+
+    private static func canReachSustainBeforeLoop(
+        position: Int,
+        frames: Int,
+        sustainFrame: Int,
+        loopEndFrame: Int?
+    ) -> Bool {
+        guard position < sustainFrame,
+              position + frames >= sustainFrame else {
+            return false
+        }
+        if let loopEndFrame,
+           loopEndFrame < sustainFrame,
+           position + frames > loopEndFrame {
+            return false
+        }
+        return true
+    }
+
+    private static func clampedEnvelopePosition(_ position: Int) -> Int {
+        min(Int(UInt32.max), max(0, position))
+    }
+
+    private static func knownUnsupportedCarryoverReasons(
+        for plan: PlaybackSongSyntheticPlan
+    ) -> [String] {
+        var reasons = [String]()
+        if plan.diagnostics.deferredCellFields.contains(where: { $0.field == .effect }) {
+            reasons.append("deferred_effect_commands_not_interpreted_for_window_carryover")
+        }
+        if plan.diagnostics.deferredCellFields.contains(where: { $0.field == .volumeColumn }) {
+            reasons.append("deferred_volume_column_commands_not_interpreted_for_window_carryover")
+        }
+        if plan.diagnostics.traversalHazardSummary.totalTraversalHazards > 0 {
+            reasons.append("deferred_pattern_traversal_effects_not_applied")
+        }
+        return reasons
     }
 
     private static func eventPairs(

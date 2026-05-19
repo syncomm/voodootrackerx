@@ -1221,6 +1221,33 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [1, 1, 0, 0, 0])
     }
 
+    func testCSoftwareMixerSampleStepUpdateAppliesFromScheduledFrameAndReset() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4, 5])
+        let singleMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let splitMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let resetMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let singleVoice = singleMixer.addVoice(sample: sample)
+        let splitVoice = splitMixer.addVoice(sample: sample)
+        let resetVoice = resetMixer.addVoice(sample: sample)
+
+        XCTAssertTrue(singleMixer.scheduleVoicePlaybackStepUpdate(voiceIndex: singleVoice, scheduledFrame: 2, playbackStep: 2).wasAccepted)
+        XCTAssertTrue(splitMixer.scheduleVoicePlaybackStepUpdate(voiceIndex: splitVoice, scheduledFrame: 2, playbackStep: 2).wasAccepted)
+        XCTAssertTrue(resetMixer.scheduleVoicePlaybackStepUpdate(voiceIndex: resetVoice, scheduledFrame: 2, playbackStep: 2).wasAccepted)
+
+        let single = singleMixer.render(frames: 5)
+        let split = splitMixer.render(frames: 1).interleavedPCM +
+            splitMixer.render(frames: 2).interleavedPCM +
+            splitMixer.render(frames: 2).interleavedPCM
+        let resetFirst = resetMixer.render(frames: 5)
+        resetMixer.reset()
+        let resetSecond = resetMixer.render(frames: 5)
+
+        XCTAssertEqual(single.interleavedPCM, [0, 1, 2, 4, 0])
+        XCTAssertEqual(split, single.interleavedPCM)
+        XCTAssertEqual(resetFirst, single)
+        XCTAssertEqual(resetSecond, single)
+    }
+
     func testCSoftwareMixerGainPanRampSplitAndResetRemainDeterministic() {
         let sample = MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 80))
         let singleMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
@@ -4357,6 +4384,213 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(diagnostic.appliedOffsetFrames, 0)
         XCTAssertTrue(mapping.hasIgnoredEffect)
         XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.field), [.effect])
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxWithNoteSetsTargetWithoutRetriggering() throws {
+        let sample = makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+        let diagnostic = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
+        let command = try XCTUnwrap(result.diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x03 })
+
+        XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(result.plan.pattern.events.count, 1)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.activeVoiceFound)
+        XCTAssertEqual(diagnostic.activeEventIndex, 0)
+        XCTAssertEqual(diagnostic.targetNote, 61)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.targetPlaybackStep), 2, accuracy: 0.000_001)
+        XCTAssertEqual(command.status, .applied)
+        XCTAssertEqual(result.diagnostics.deferredCellFields.map(\.effectType), [])
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxSlidesStepTowardTargetAndSpeedAffectsAmount() throws {
+        let slow = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let fast = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x80),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let slowDiagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(slow, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let fastDiagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(fast, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let slowFirst = try XCTUnwrap(slowDiagnostic.stepUpdates.first)
+        let fastFirst = try XCTUnwrap(fastDiagnostic.stepUpdates.first)
+
+        XCTAssertEqual(slowDiagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
+        XCTAssertEqual(slowFirst.playbackStepBefore, 1, accuracy: 0.000_001)
+        XCTAssertGreaterThan(slowFirst.playbackStepAfter, slowFirst.playbackStepBefore)
+        XCTAssertGreaterThan(fastFirst.playbackStepAfter, slowFirst.playbackStepAfter)
+        XCTAssertEqual(slowDiagnostic.portamentoSpeed, 0x40)
+        XCTAssertEqual(fastDiagnostic.portamentoSpeed, 0x80)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxClampsAtTargetWithoutOvershooting() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 50, instrument: 1, effectType: 0x03, effectParam: 0xFF),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let update = try XCTUnwrap(diagnostic.stepUpdates.first)
+
+        XCTAssertTrue(update.reachedTarget)
+        XCTAssertEqual(diagnostic.stepUpdates.count, 1)
+        XCTAssertEqual(update.linearPeriodAfter, try XCTUnwrap(diagnostic.targetLinearPeriod), accuracy: 0.000_001)
+        XCTAssertEqual(update.playbackStepAfter, try XCTUnwrap(diagnostic.targetPlaybackStep), accuracy: 0.000_001)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxWithoutNoteContinuesExistingTarget() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects
+
+        XCTAssertEqual(diagnostics.count, 2)
+        XCTAssertTrue(diagnostics.allSatisfy(\.applied))
+        XCTAssertEqual(diagnostics[1].targetNote, 61)
+        XCTAssertEqual(diagnostics[1].portamentoSpeed, 0x40)
+        XCTAssertGreaterThan(diagnostics[1].currentPlaybackStepAfter ?? 0, diagnostics[0].currentPlaybackStepAfter ?? 0)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxWithoutTargetIsDiagnosed() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x03, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(diagnostic.status, .noTarget)
+        XCTAssertFalse(diagnostic.applied)
+        XCTAssertTrue(diagnostic.activeVoiceFound)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxWithNoActiveVoiceIsDiagnosed() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let diagnostic = try XCTUnwrap(plan.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(plan.pattern.events.count, 0)
+        XCTAssertEqual(diagnostic.status, .noActiveVoice)
+        XCTAssertFalse(diagnostic.activeVoiceFound)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxUsesLinearFrequencyAndSampleMetadata() throws {
+        let sample = makeRampPlaybackSample(frameCount: 300, relativeNote: 1, finetune: 2, baseSampleRate: 200)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 50, instrument: 1, effectType: 0x03, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let expectedPeriod = 7_680.0 - (Double((50 + 1) - 1) * 64.0) - 1.0
+        let expectedStep = 200.0 * pow(2.0, (4_608.0 - expectedPeriod) / 768.0) / 100.0
+
+        XCTAssertEqual(try XCTUnwrap(diagnostic.targetLinearPeriod), expectedPeriod, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.targetPlaybackStep), expectedStep, accuracy: 0.000_001)
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxUsesFxxTiming() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
+                makePlaybackRow(index: 1, note: 49, instrument: 1),
+                makePlaybackRow(index: 2, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(diagnostic.rowSpeed, 3)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [10, 11])
+    }
+
+    func testPlaybackSongAdapterTonePortamento3xxWindowedCarryoverMatchesDefaultRender() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x03, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 12
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
     }
 
     func testPlaybackSongAdapterSampleOffset9xxKeepsVolumeColumnSetVolumeAndPanning() throws {

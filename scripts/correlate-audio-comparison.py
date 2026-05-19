@@ -426,6 +426,17 @@ def retrigger_status(retrigger: dict[str, Any]) -> str:
     return "unknown"
 
 
+def tone_portamento_status(tone_portamento: dict[str, Any]) -> str:
+    status = str(tone_portamento.get("status", ""))
+    if bool(tone_portamento.get("applied")) or status == "applied":
+        return "applied"
+    if bool(tone_portamento.get("deferred")) or status.startswith("deferred"):
+        return "deferred/unsupported"
+    if status in {"no_active_voice", "no_target", "no_speed", "out_of_range"} or bool(tone_portamento.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    return "unknown"
+
+
 def timing_change_status(change: dict[str, Any]) -> str:
     if bool(change.get("applied")):
         return "applied"
@@ -572,6 +583,32 @@ def extract_command_occurrences(
             start_frame=start_frame,
             end_frame=end_frame,
             parameter=retrigger.get("effect_param"),
+        ))
+
+    for tone_portamento in nested_list(diagnostics.get("tone_portamento_effects")):
+        if not isinstance(tone_portamento, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(tone_portamento, rows_by_source, rows_by_synthetic)
+        frames = [
+            value for value in (
+                integer(update.get("scheduled_frame"))
+                for update in nested_list(tone_portamento.get("step_updates"))
+                if isinstance(update, dict)
+            )
+            if value is not None
+        ]
+        if frames:
+            start_frame = min(frames)
+            end_frame = max(frames) + 1
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(tone_portamento.get("effect_type"), tone_portamento.get("effect_param")),
+            status=tone_portamento_status(tone_portamento),
+            source=nested_dict(tone_portamento.get("source")),
+            channel=tone_portamento.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+            parameter=tone_portamento.get("effect_param"),
         ))
 
     if not nested_list(diagnostics.get("sample_offset_effects")):

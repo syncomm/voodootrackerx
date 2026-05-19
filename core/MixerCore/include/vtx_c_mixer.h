@@ -87,6 +87,7 @@ typedef struct {
     uint32_t sample_frame_count;
     uint32_t initial_sample_frame;
     double sample_position;
+    double initial_sample_step;
     double sample_step;
     uint64_t scheduled_start_frame;
     float initial_gain;
@@ -124,6 +125,8 @@ typedef struct {
     float gain;
     int update_pan;
     float pan;
+    int update_sample_step;
+    double sample_step;
     int ramp_enabled;
 } VTXCMixerVoiceStateEvent;
 
@@ -317,6 +320,16 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
     float gain,
     int update_pan,
     float pan
+);
+
+// Schedules a generic sample-step update for an existing offline voice at an
+// absolute output frame. The adapter owns musical interpretation; C receives
+// only a deterministic source-sample step.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    double sample_step
 );
 
 // Schedules an immediate gain and/or pan set for an existing offline voice.

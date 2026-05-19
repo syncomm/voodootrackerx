@@ -1323,6 +1323,44 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| vibrato | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 3 |", markdown)
             self.assertIn("### First dominant deferred pitch-modulation coordinates", markdown)
 
+    def test_correlation_report_counts_applied_3xx_tone_portamento(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x03, 0x40, "3xx tone portamento", status="applied")
+        ]
+        diagnostics["tone_portamento_effects"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x03,
+                "effect_param": 0x40,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "active_voice_found": True,
+                "target_note": 61,
+                "target_step": 2.0,
+                "current_step_before": 1.0,
+                "current_step_after": 1.25,
+                "portamento_speed": 0x40,
+                "step_updates": [{"scheduled_frame": 110, "current_step_before": 1.0, "current_step_after": 1.25}],
+            }
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("### Applied effect commands in worst windows", markdown)
+            self.assertIn("| 3xx tone portamento | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("### Overall command frequency in bounded render", markdown)
+
     def test_recommendation_heuristic_selects_dominant_pitch_bucket(self):
         cases = [
             (

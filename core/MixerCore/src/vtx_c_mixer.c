@@ -67,15 +67,20 @@ static int vtx_c_mixer_voice_state_event_is_valid(
     int update_gain,
     float gain,
     int update_pan,
-    float pan
+    float pan,
+    int update_sample_step,
+    double sample_step
 ) {
-    if (!update_gain && !update_pan) {
+    if (!update_gain && !update_pan && !update_sample_step) {
         return 0;
     }
     if (update_gain && !isfinite(gain)) {
         return 0;
     }
     if (update_pan && !isfinite(pan)) {
+        return 0;
+    }
+    if (update_sample_step && (!isfinite(sample_step) || sample_step <= 0.0 || sample_step > (double)UINT32_MAX)) {
         return 0;
     }
     return 1;
@@ -434,6 +439,9 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
                     vtx_c_mixer_set_pan_immediate(voice, event->pan);
                 }
             }
+            if (event->update_sample_step) {
+                voice->sample_step = vtx_c_mixer_sanitized_sample_step(event->sample_step);
+            }
         }
         state->next_voice_state_event_index++;
     }
@@ -677,7 +685,8 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice->sample_frame_count = sample_frame_count;
     voice->initial_sample_frame = initial_sample_frame;
     voice->sample_position = (double)initial_sample_frame;
-    voice->sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
+    voice->initial_sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
+    voice->sample_step = voice->initial_sample_step;
     voice->scheduled_start_frame = scheduled_start_frame;
     voice->initial_gain = vtx_c_mixer_sanitized_gain(gain);
     voice->initial_pan = vtx_c_mixer_sanitized_pan(pan);
@@ -728,6 +737,7 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
     for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
         voice->sample_position = (double)voice->initial_sample_frame;
+        voice->sample_step = voice->initial_sample_step;
         voice->ping_pong_direction = 1;
         voice->gain = voice->initial_gain;
         voice->pan = voice->initial_pan;
@@ -1097,6 +1107,8 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     float gain,
     int update_pan,
     float pan,
+    int update_sample_step,
+    double sample_step,
     int ramp_enabled
 ) {
     VTXCMixerVoiceStateEvent event;
@@ -1109,7 +1121,14 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     if (scheduled_frame < state->current_frame) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
-    if (!vtx_c_mixer_voice_state_event_is_valid(update_gain, gain, update_pan, pan)) {
+    if (!vtx_c_mixer_voice_state_event_is_valid(
+            update_gain,
+            gain,
+            update_pan,
+            pan,
+            update_sample_step,
+            sample_step
+        )) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
     if (state->voice_state_event_count >= VTX_C_MIXER_MAX_VOICE_STATE_EVENTS) {
@@ -1122,6 +1141,8 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     event.gain = vtx_c_mixer_sanitized_gain(gain);
     event.update_pan = update_pan ? 1 : 0;
     event.pan = vtx_c_mixer_sanitized_pan(pan);
+    event.update_sample_step = update_sample_step ? 1 : 0;
+    event.sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
     event.ramp_enabled = ramp_enabled ? 1 : 0;
 
     insert_index = state->voice_state_event_count;
@@ -1154,7 +1175,29 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
         gain,
         update_pan,
         pan,
+        0,
+        1.0,
         1
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    double sample_step
+) {
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(
+        state,
+        voice_index,
+        scheduled_frame,
+        0,
+        0.0f,
+        0,
+        0.0f,
+        1,
+        sample_step,
+        0
     );
 }
 
@@ -1175,6 +1218,8 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
         gain,
         update_pan,
         pan,
+        0,
+        1.0,
         0
     );
 }

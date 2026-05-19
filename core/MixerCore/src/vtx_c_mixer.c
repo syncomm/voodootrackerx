@@ -807,6 +807,42 @@ VTXCMixerStatus vtx_c_mixer_set_voice_key_off_frame(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    double sample_position,
+    int ping_pong_direction,
+    uint32_t volume_envelope_position_frame,
+    uint32_t pan_envelope_position_frame,
+    int key_on,
+    float fadeout_value
+) {
+    VTXCMixerVoice *voice;
+
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (!isfinite(sample_position) || sample_position < 0.0 || sample_position > (double)UINT32_MAX) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (!isfinite(fadeout_value)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+
+    voice = &state->voices[voice_index];
+    voice->sample_position = sample_position;
+    voice->ping_pong_direction = ping_pong_direction < 0 ? -1 : 1;
+    voice->volume_envelope.position_frame = volume_envelope_position_frame;
+    voice->pan_envelope.position_frame = pan_envelope_position_frame;
+    voice->key_on = key_on ? 1 : 0;
+    voice->fadeout_value = vtx_c_mixer_clamp(fadeout_value, 0.0f, 1.0f);
+    voice->active = voice->sample_frame_count > 0 &&
+        voice->sample_pcm != NULL &&
+        voice->sample_position < (double)voice->sample_frame_count &&
+        voice->fadeout_value > 0.0f;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,

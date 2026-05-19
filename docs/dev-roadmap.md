@@ -70,8 +70,12 @@ report C mixer scheduled/active capacity values, reject counts, and rejected
 event coordinates without changing runtime playback. Long developer-only
 candidate WAV exports can now opt into `--window-rows` row-windowed offline
 scheduling to reuse the fixed C scheduled-voice pool across deterministic
-render windows, with aggregate/per-window capacity diagnostics and documented
-window-boundary state limitations.
+render windows, with aggregate/per-window capacity and carryover diagnostics.
+Windowed renders now carry practical active voice state across fresh C mixer
+windows where the bounded adapter can determine it, including source sample
+position, forward/ping-pong loop state, volume-envelope position,
+key-off/release, fadeout, gain, and pan. Unsupported/deferred effects and full
+tracker voice semantics remain separate targeted work.
 
 Immediate audio accuracy sequence:
 
@@ -114,8 +118,9 @@ Immediate audio accuracy sequence:
 37. Pattern traversal / Bxx-Dxx-EEx diagnostics for bounded offline renders — done
 38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`EEx` — separate later PR
 39. Chunked/windowed offline render scheduling for long candidate WAV exports — done
-40. Feature-flagged runtime backend switch
-41. Reference comparison stabilization against MikMod/OpenMPT
+40. Window state carryover refinement for windowed offline candidate renders — done
+41. Feature-flagged runtime backend switch
+42. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -211,7 +216,9 @@ Features:
   counts, and rejected event coordinates
 - explicit `--window-rows` row-windowed scheduling for long developer-only
   candidate WAV exports, with aggregate/per-window capacity diagnostics and
-  first-pass boundary limitations for sustained mixer state
+  practical carryover of active sample position, forward/ping-pong loop state,
+  volume-envelope position, key-off/release, fadeout, gain, and pan across
+  fresh C mixer windows where the bounded adapter can determine it
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate

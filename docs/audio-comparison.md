@@ -159,8 +159,9 @@ module files.
 For longer local renders, add `--progress` to print render percentage by
 rendered frame count while the helper runs. When `--window-rows` is used,
 progress reports window `i / N`, percentage by rendered frames, and per-window
-scheduled/accepted/rejected event counts. The output also reports loading/build
-phases, the effective frame and duration cap, and the final WAV-writing phase.
+carried voice, scheduled, accepted, and rejected event counts. The output also
+reports loading/build phases, the effective frame and duration cap, and the
+final WAV-writing phase.
 
 ## Windowed Long Candidate Renders
 
@@ -187,19 +188,34 @@ Windowed mode is still a developer/offline helper path. It keeps runtime
 playback on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, keeps the C mixer
 offline-only, and does not implement new XM effects or change C mixer DSP
 semantics. It plans the bounded range through the existing adapter, schedules
-only one row window into a fresh C mixer at a time, renders that window, appends
-the PCM, and aggregates diagnostics across windows. Diagnostics include
+only one row window into a fresh C mixer at a time, carries practical active
+voice state from earlier windows where the adapter can determine it, renders
+that window, appends the PCM, and aggregates diagnostics across windows.
+Diagnostics include
 `windowed_render_enabled`, `window_rows`, `window_count`, aggregate scheduled,
 accepted, and rejected counts, per-window scheduled/accepted/rejected counts,
-the first rejecting windows, and known state-carryover limitations.
+aggregate/per-window carried voice counts, released/fadeout carryover counts,
+boundary continuation counts, boundary drop counts, whether the output may
+contain boundary cuts, known unsupported carryover reasons, the first rejecting
+windows, and known state-carryover limitations.
 
-The first-pass limitation is window-boundary state. The renderer does not
-serialize active C mixer voices, sample playback positions, envelope positions,
-or fadeout state into the next window. Rows and note events contained wholly
-inside a window preserve the existing bounded adapter behavior, but sustained
-voices can be cut at window boundaries. Choose a window size large enough for
-local candidate listening and use diagnostics/listening notes to decide whether
-a later window-state carryover PR is warranted.
+Window carryover is intentionally narrow. It is computed from the bounded Swift
+adapter plan and reschedules continuation voices into each fresh offline C mixer
+window with the current source sample position, forward or ping-pong loop
+direction, volume-envelope position, key-on/key-off release state, fadeout
+value, gain, and pan. If a newer note event on the same adapted channel reaches
+the boundary, the older voice is not carried into the next window. This improves
+long local candidate continuity for sustained one-shot and looped voices without
+switching runtime playback or adding effect support.
+
+Remaining limitations are still important. Carryover is approximate bounded
+offline behavior, not FT2/OpenMPT parity or a generic mixer-state serialization
+framework. Unsupported/deferred effects, deferred volume-column semantics,
+pattern traversal effects, note cut/delay/retrigger, and other effect-driven
+voice state can still make continuity wrong. Boundary drops can still occur if
+too many continuation voices need to be rescheduled into one window. Use the
+carryover diagnostics and listening notes to decide whether a later
+window-carryover follow-up or a targeted effect PR is warranted.
 
 ## Local Bounded Findings Workflow
 

@@ -121,17 +121,26 @@ problem, not a reason to keep increasing C capacity or change audio behavior.
 The developer-only bounded XM render helper now has an explicit
 `--window-rows` mode for long local candidate WAV exports. That mode keeps the
 C mixer offline-only, plans the bounded range through the existing Swift
-adapter, schedules one row window into a fresh C mixer at a time, renders that
-window, appends deterministic PCM, and aggregates scheduled-capacity diagnostics
-across windows.
+adapter, schedules one row window into a fresh C mixer at a time, reschedules
+practical continuation voices at later window starts, renders that window,
+appends deterministic PCM, and aggregates scheduled-capacity and carryover
+diagnostics across windows.
 
 Windowed rendering is not full runtime playback or full XM traversal parity.
 Runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the
-app Play button is not wired to the C mixer. The first-pass windowed helper does
-not serialize active C mixer voices, sample playback position, envelope
-position, or fadeout state across window boundaries, so sustained voices may be
-cut at a boundary. Rows and note events contained wholly within a window retain
-the existing bounded adapter behavior.
+app Play button is not wired to the C mixer. The carryover pass is deliberately
+small: it computes continuation state from the bounded Swift adapter plan and
+reschedules voices that are still expected to be audible at a window boundary.
+The continuation state includes source sample position, forward or ping-pong
+loop direction, volume-envelope position, key-on/key-off release state, fadeout
+value, gain, and pan. If a newer adapted note event on the same channel reaches
+the boundary, the older voice is not carried into the next window.
+
+This is still an approximation rather than a general mixer-state serialization
+framework. Unsupported/deferred effects, deferred volume-column semantics,
+pattern traversal effects, note cut/delay/retrigger, and full FT2/OpenMPT voice
+rules remain outside the adapter scope. Rows and note events contained wholly
+within a window retain the existing bounded adapter behavior.
 
 Bounded adapter diagnostics now also identify pattern traversal and timing
 hazards without changing render behavior. The diagnostics count `Bxx` position
@@ -433,6 +442,13 @@ bounded offline rendering:
 - Assert traversal diagnostics do not change rendered PCM output.
 - Assert windowed long candidate renders reuse scheduled-event capacity across
   deterministic row windows and aggregate per-window accepted/rejected counts.
+- Assert windowed renders carry practical continuation state for sustained
+  one-shots, forward loops, ping-pong loop direction, volume-envelope position,
+  key-off/release/fadeout, channel volume/pan state, and Fxx row timing where
+  those features are already represented by the bounded adapter.
+- Assert windowed diagnostics report carried voices, released/fadeout
+  carryovers, boundary continuation attempts, boundary drops, unsupported
+  carryover reasons, and whether boundary cuts may remain.
 - Assert windowed single-window renders match the existing non-windowed bounded
   output where practical.
 - Assert note/sample metadata produces deterministic playback steps while a
@@ -492,9 +508,13 @@ bounded offline rendering:
     candidate WAV exports, reusing fixed C scheduled-event capacity across
     deterministic row windows with aggregate diagnostics and documented
     window-boundary state limitations.
-19. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+19. Done: window state carryover refinement for explicit row-windowed offline
+    candidate renders, rescheduling practical continuation voices across fresh
+    C mixer windows with carryover diagnostics while keeping runtime playback
+    unchanged.
+20. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-20. Feature-flagged runtime C mixer backend switch only after offline parity and
+21. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -566,8 +586,8 @@ This adapter bridge work does not:
 - implement pattern break or position jump
 - implement full tempo/BPM timing semantics beyond minimal bounded `Fxx`
 - provide full-song WAV export or a public module-rendering CLI
-- provide window-state serialization across row-window boundaries in the
-  first-pass developer helper
+- provide generic mixer-state serialization across row-window boundaries beyond
+  the narrow offline continuation carryover described above
 - delete or rewrite the Swift `SoftwareMixer`
 - refactor parser architecture
 - touch tracker viewport/rendering behavior

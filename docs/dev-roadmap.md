@@ -50,8 +50,10 @@ developer-only `vtx_render_bounded_xm` helper can render bounded candidate WAVs
 from local XM files through the existing offline export path. The helper can
 optionally export local bounded adapter diagnostics JSON, and a local
 correlation script can map audio comparison mismatch windows to approximate
-bounded adapter rows/events for focused follow-up diagnosis; filled reports and
-generated audio artifacts stay outside git.
+bounded adapter rows/events and summarize applied, ignored/no-op,
+deferred/unsupported, and unknown effect-column and volume-column command
+frequency for focused follow-up diagnosis; filled reports and generated audio
+artifacts stay outside git.
 
 Immediate audio accuracy sequence:
 
@@ -86,8 +88,9 @@ Immediate audio accuracy sequence:
 29. Interpolation/resampling foundation for C-backed offline mixer — done
 30. Deferred envelope sustain/loop/key-off/fadeout semantics for bounded offline renders — done
 31. Minimal sample offset 9xx for bounded offline renders — done
-32. Feature-flagged runtime backend switch
-33. Reference comparison stabilization against MikMod/OpenMPT
+32. Local effect frequency report from correlated mismatch windows — done
+33. Feature-flagged runtime backend switch
+34. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -175,7 +178,7 @@ Features:
 - developer-only bounded XM candidate WAV helper using the existing metadata loader, playback builder, and offline export path
 - optional local bounded adapter diagnostics JSON export from the candidate WAV helper
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
-- local-only mismatch-window correlation report that maps comparison JSON to approximate adapter rows/events
+- local-only mismatch-window correlation report that maps comparison JSON to approximate adapter rows/events and summarizes applied, ignored/no-op, deferred/unsupported, and unknown command frequency in the worst windows
 - local-only bounded findings report template for private local candidate/reference comparison evidence
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 

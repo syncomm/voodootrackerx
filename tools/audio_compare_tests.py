@@ -88,6 +88,22 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 "bpm_after": 125,
             }
         ],
+        "volume_column_mappings": [
+            {
+                "source": source,
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "volume_column": {
+                    "raw_value": 48,
+                    "command": {"name": "setVolume", "value": 32},
+                    "classification": "supported",
+                    "applied": True,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": False,
+                },
+            }
+        ],
         "events": [
             {
                 "source": source,
@@ -153,6 +169,44 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 },
             }
         ],
+    }
+
+
+def deferred_effect_field(effect_type, effect_param, row=4, channel=1):
+    return {
+        "source": {"order": 0, "pattern": 2, "row": row},
+        "channel_index": channel,
+        "note": 49,
+        "instrument_index": 7,
+        "volume_column_raw": 0,
+        "volume_column": {
+            "raw_value": 0,
+            "command": {"name": "none"},
+            "classification": "ignored_no_op",
+            "applied": False,
+            "ignored_as_empty_or_no_op": True,
+            "deferred": False,
+        },
+        "effect_type": effect_type,
+        "effect_param": effect_param,
+        "field": "effect",
+    }
+
+
+def deferred_volume_mapping(raw_value, command_name, channel=2):
+    return {
+        "source": {"order": 0, "pattern": 2, "row": 4},
+        "channel_index": channel,
+        "synthetic_row": 4,
+        "synthetic_tick": 0,
+        "volume_column": {
+            "raw_value": raw_value,
+            "command": {"name": command_name, "amount": raw_value & 0x0F},
+            "classification": "deferred",
+            "applied": False,
+            "ignored_as_empty_or_no_op": False,
+            "deferred": True,
+        },
     }
 
 
@@ -609,6 +663,146 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("speed F03 6/125->3/125", markdown)
             self.assertIn("mapped 2/2; deferred loop", markdown)
             self.assertIn("| forward |", markdown)
+
+    def test_correlation_report_counts_deferred_ecx_note_cut_in_worst_windows(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0xC3)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("### Deferred effect commands in worst windows", markdown)
+            self.assertIn("| ECx note cut | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
+    def test_correlation_report_counts_deferred_edx_note_delay_in_worst_windows(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0xD2)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| EDx note delay | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
+    def test_correlation_report_counts_deferred_e9x_retrigger_in_worst_windows(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0x94)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| E9x retrigger | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
+    def test_correlation_report_counts_applied_9xx_separately_from_deferred_900_no_op(self):
+        diagnostics = synthetic_diagnostics_json()
+        source = {"order": 0, "pattern": 2, "row": 4}
+        diagnostics["sample_offset_effects"] = [
+            {
+                "source": source,
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x09,
+                "effect_param": 0x02,
+                "status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "skipped": False,
+                "out_of_range": False,
+                "computed_offset_frames": 512,
+                "applied_offset_frames": 512,
+                "selected_sample_length": 2048,
+            },
+            {
+                "source": source,
+                "channel_index": 2,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x09,
+                "effect_param": 0x00,
+                "status": "ignored_900_no_op",
+                "detected": True,
+                "applied": False,
+                "deferred": True,
+                "ignored_as_no_op": True,
+                "skipped": False,
+                "out_of_range": False,
+                "computed_offset_frames": 0,
+                "applied_offset_frames": 0,
+                "selected_sample_length": 2048,
+            },
+        ]
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x09, 0x00, channel=2)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| 9xx sample offset | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn(
+                "| 900 sample offset / effect memory | deferred/no-op | 1 | 1 | order 0 pattern 2 row 4 ch 2 |",
+                markdown,
+            )
+
+    def test_correlation_report_counts_supported_volume_columns_separately_from_deferred(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["volume_column_mappings"].append(deferred_volume_mapping(0xB4, "vibrato", channel=2))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("### Applied volume-column commands in worst windows", markdown)
+            self.assertIn("| set volume | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("### Deferred volume-column commands in worst windows", markdown)
+            self.assertIn("| vibrato | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 2 |", markdown)
+
+    def test_correlation_report_includes_source_coordinates_for_top_deferred_commands(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0xC3, channel=3)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("order 0 pattern 2 row 4 ch 3", markdown)
+
+    def test_recommendation_heuristic_suggests_ecx_edx_when_they_dominate(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [
+            deferred_effect_field(0x0E, 0xC3, channel=1),
+            deferred_effect_field(0x0E, 0xD2, channel=2),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn(
+                "Recommended next PR: Minimal Note Cut ECx / Note Delay EDx for Bounded Offline Renders",
+                markdown,
+            )
+
+    def test_recommendation_heuristic_suggests_e9x_when_retrigger_dominates(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0x94)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("Recommended next PR: Minimal Retrigger E9x for Bounded Offline Renders", markdown)
+
+    def test_recommendation_heuristic_reports_no_clear_target_without_deferred_dominance(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("Recommended next PR: No clear single target", markdown)
 
     def test_correlation_reports_no_overlapping_events_clearly(self):
         with tempfile.TemporaryDirectory() as tmpdir:

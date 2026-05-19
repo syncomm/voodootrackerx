@@ -62,6 +62,9 @@ output directory.
 - Label:
 - Metadata:
 - Correlation notes:
+- Effect-frequency summary present:
+- Volume-column frequency summary present:
+- Recommendation heuristic present:
 
 ## Top Mismatch Windows
 
@@ -82,6 +85,19 @@ output directory.
 - Fxx / row-timing clues:
 - Envelope / fadeout / key-off clues:
 - Loop metadata clues:
+
+## Effect / Volume Frequency Summary
+
+- Deferred effect commands in worst windows:
+- Applied effect commands in worst windows:
+- Ignored/no-op effect commands in worst windows:
+- Unknown effect commands in worst windows:
+- Deferred volume-column commands in worst windows:
+- Applied volume-column commands in worst windows:
+- Ignored/no-op volume-column commands in worst windows:
+- Unknown volume-column commands in worst windows:
+- Overall deferred command frequency in bounded render:
+- Overall command frequency notes:
 
 ## Observed Likely Mismatch Categories
 
@@ -122,6 +138,8 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 
 - Recommended next PR:
 - Why this evidence supports it:
+- Recommendation heuristic rationale:
+- Manual review / listening notes that agree or disagree:
 - What this report does not prove:
 
 ## Artifact Safety Checklist

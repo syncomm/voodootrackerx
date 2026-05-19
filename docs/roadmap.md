@@ -59,6 +59,7 @@ Current stabilization note:
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
 - ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, simple deterministic linear interpolation for fractional C-backed sample steps, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed volume-envelope point mapping plus first-pass sustain/loop/key-off/fadeout semantics, explicit XM linear-frequency pitch/period sample-step mapping where supported, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, minimal `Fxx` speed/BPM timing changes, and minimal nonzero `9xx` sample offset support offline only. It is not used for runtime playback.
 - Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for private local XM modules, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events, including pitch step/period/frequency and sample-offset diagnostics, and can summarize applied, ignored/no-op, deferred/unsupported, and unknown effect-column and volume-column command frequency for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
+- The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -247,6 +248,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10q — Local Effect Frequency Report from Correlated Mismatch Windows
 - Scope: extend the local-only correlation report to summarize applied, ignored/no-op, deferred/unsupported, and unknown XM effect-column and volume-column usage in the worst bounded candidate/reference mismatch windows, plus overall bounded diagnostic frequency and a conservative next-PR heuristic.
 - Verification: synthetic temporary JSON tests only, existing audio comparison tests, existing bounded render helper tests, and no runtime backend switching, mixer DSP changes, parser refactor, tracker viewport changes, reference renderer CI dependency, or private/local module fixtures.
+- Status: done.
+
+### PR 2.7.10r — Developer Render Duration Controls for Bounded XM Candidate WAV Helper
+- Scope: document and gate explicit longer local candidate WAV renders for the developer-only `vtx_render_bounded_xm` helper with `--seconds`, `--max-frames`, and `--allow-long-render`, while preserving the default 60-second safety clamp.
+- Verification: focused helper argument/render-limit tests with redistribution-safe fixtures plus existing audio comparison tooling checks; no runtime backend switching, mixer DSP changes, parser refactor, tracker viewport changes, or local copyrighted module fixtures in tests.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

@@ -81,6 +81,52 @@ synthetic WAV files only.
 parser/helper validation. It is not a meaningful audio-parity fixture for
 MikMod/OpenMPT comparison work.
 
+## Render Duration Safety
+
+`vtx_render_bounded_xm` is intentionally bounded. By default it keeps the
+existing conservative safety clamp of 2,646,000 frames, which is 60 seconds at
+44.1 kHz. This protects local comparison work from accidentally writing very
+large WAV files.
+
+For longer local listening or comparison renders, choose the duration
+explicitly and pass `--allow-long-render` when the requested cap exceeds the
+default clamp. Use either `--seconds` or `--max-frames`, not both:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-long-candidate.wav \
+  --diagnostics-json /tmp/vtx-long-candidate-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --seconds 240 \
+  --allow-long-render
+```
+
+Equivalent frame-capped form:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-long-candidate.wav \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --max-frames 10584000 \
+  --allow-long-render
+```
+
+Long candidate WAVs and diagnostics JSON can be large. Write them under `/tmp`
+or an ignored scratch directory, and do not commit generated WAVs, JSON reports,
+Markdown reports, traces, screenshots, logs, filled local findings, or local
+module files.
+
+For longer local renders, add `--progress` to print render percentage by
+rendered frame count while the helper runs. The output also reports
+loading/build phases, the effective frame and duration cap, and the final
+WAV-writing phase.
+
 ## Local Bounded Findings Workflow
 
 Use this workflow when turning a local bounded comparison into the first useful
@@ -123,7 +169,7 @@ Build and run the developer-only helper from the repo root:
 
 ```bash
 swift run vtx_render_bounded_xm \
-  --input /path/to/local-module.xm \
+  --input /path/to/local-reference-module.xm \
   --output /tmp/vtx-candidate.wav \
   --diagnostics-json /tmp/vtx-candidate-diagnostics.json \
   --order 10 \
@@ -138,16 +184,18 @@ existing bounded offline C-backed export path. It does not bypass
 `CSoftwareMixer`, duplicate parser logic, implement full song traversal, change
 mixer DSP behavior, or affect runtime playback.
 
-Local/private module example:
+Local/private module example with an explicit longer duration:
 
 ```bash
 swift run vtx_render_bounded_xm \
-  --input /path/to/local-module.xm \
+  --input /path/to/local-reference-module.xm \
   --output /tmp/vtx-local-module-order-10-candidate.wav \
   --diagnostics-json /tmp/vtx-local-module-order-10-candidate-diagnostics.json \
   --order 10 \
-  --rows 16 \
-  --sample-rate 44100
+  --order-count 2 \
+  --sample-rate 44100 \
+  --seconds 180 \
+  --allow-long-render
 ```
 
 Local/private XM modules are allowed for local smoke testing on a developer

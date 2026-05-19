@@ -175,6 +175,24 @@ struct SyntheticTrackerEvent: Equatable {
             fadeoutFrameDecrement: fadeoutFrameDecrement
         )
     }
+
+    func withGainPan(gain: Float? = nil, pan: Float? = nil) -> SyntheticTrackerEvent {
+        SyntheticTrackerEvent(
+            row: row,
+            tick: tick,
+            scheduledStartFrame: scheduledStartFrame,
+            sample: sample,
+            gain: gain ?? self.gain,
+            pan: pan ?? self.pan,
+            playbackStep: playbackStep,
+            loop: loop,
+            initialSourceFrame: initialSourceFrame,
+            volumeEnvelope: volumeEnvelope,
+            panEnvelope: panEnvelope,
+            keyOffFrame: keyOffFrame,
+            fadeoutFrameDecrement: fadeoutFrameDecrement
+        )
+    }
 }
 
 /// Schedules synthetic tracker row/tick events as absolute-frame C-backed mixer voices.

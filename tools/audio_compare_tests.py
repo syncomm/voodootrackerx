@@ -303,6 +303,56 @@ def deferred_volume_mapping(raw_value, command_name, channel=2):
     }
 
 
+def volume_pan_state_update(
+    command_source,
+    command_name,
+    command_label,
+    *,
+    status="applied",
+    channel=1,
+    effect_type=None,
+    effect_param=None,
+    raw_volume_column=None,
+    cell_note=0,
+):
+    command = {"name": command_name, "label": command_label}
+    if command_source == "volume_column":
+        command["volume_column"] = {
+            "name": command_name,
+            "value": 32 if command_name == "setVolume" else 204,
+        }
+    return {
+        "source": {"order": 0, "pattern": 2, "row": 4},
+        "channel_index": channel,
+        "synthetic_row": 4,
+        "synthetic_tick": 0,
+        "scheduled_frame": 110,
+        "cell_note": cell_note,
+        "instrument_index": 0,
+        "command_source": command_source,
+        "command_label": command_label,
+        "command_name": command_name,
+        "command": command,
+        "raw_volume_column": raw_volume_column,
+        "effect_type": effect_type,
+        "effect_param": effect_param,
+        "status": status,
+        "applied": status == "applied",
+        "deferred": status.startswith("deferred"),
+        "ignored_as_no_op": status.startswith("ignored"),
+        "active_voice_updated": status == "applied",
+        "active_event_index": 0 if status == "applied" else None,
+        "effective_volume_before": 64,
+        "effective_volume_after": 32,
+        "effective_pan_before": 0.0,
+        "effective_pan_after": 1.0 if command_name in {"effect8xxSetPanning", "setPanning"} else 0.0,
+        "gain_before": 1.0,
+        "gain_after": 0.5,
+        "pan_before": 0.0,
+        "pan_after": 1.0 if command_name in {"effect8xxSetPanning", "setPanning"} else 0.0,
+    }
+
+
 def write_pcm16_wav(path, sample_rate=8000, channels=1, frames=None):
     frames = frames if frames is not None else sine_frames(sample_rate, channels)
     pcm = bytearray()
@@ -924,6 +974,69 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| set volume | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
             self.assertIn("### Deferred volume-column commands in worst windows", markdown)
             self.assertIn("| vibrato | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 2 |", markdown)
+
+    def test_correlation_report_counts_volume_pan_state_updates(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["volume_panning_state_updates"] = [
+            volume_pan_state_update(
+                "volume_column",
+                "setVolume",
+                "setVolume",
+                raw_volume_column=0x30,
+                channel=1,
+            ),
+            volume_pan_state_update(
+                "volume_column",
+                "setPanning",
+                "setPanning",
+                raw_volume_column=0xCC,
+                channel=2,
+            ),
+            volume_pan_state_update(
+                "effect_column",
+                "cxxSetVolume",
+                "Cxx set volume",
+                effect_type=0x0C,
+                effect_param=0x20,
+                channel=3,
+            ),
+            volume_pan_state_update(
+                "effect_column",
+                "effect8xxSetPanning",
+                "8xx set panning",
+                effect_type=0x08,
+                effect_param=0xFF,
+                channel=4,
+            ),
+            volume_pan_state_update(
+                "effect_column",
+                "axyVolumeSlide",
+                "Axy volume slide",
+                effect_type=0x0A,
+                effect_param=0x04,
+                channel=5,
+            ),
+            volume_pan_state_update(
+                "effect_column",
+                "hxyGlobalVolumeSlide",
+                "Hxy global volume slide",
+                status="deferred/unsupported",
+                effect_type=0x11,
+                effect_param=0x10,
+                channel=6,
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| empty-note volume-column set volume state update | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("| empty-note volume-column set panning state update | applied | 1 | 1 | order 0 pattern 2 row 4 ch 2 |", markdown)
+            self.assertIn("| Cxx set volume | applied | 1 | 1 | order 0 pattern 2 row 4 ch 3 |", markdown)
+            self.assertIn("| 8xx set panning | applied | 1 | 1 | order 0 pattern 2 row 4 ch 4 |", markdown)
+            self.assertIn("| Axy volume slide | applied | 1 | 1 | order 0 pattern 2 row 4 ch 5 |", markdown)
+            self.assertIn("| Hxy global volume slide | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 6 |", markdown)
 
     def test_correlation_report_includes_source_coordinates_for_top_deferred_commands(self):
         diagnostics = synthetic_diagnostics_json()

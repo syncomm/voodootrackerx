@@ -36,8 +36,13 @@ integration. The helper is intended for tiny, explicit, bounded local candidate
 renders only. Candidate renders now include conservative adapter support for
 volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
-(`0xD0...0xEF`), minimal `Fxx` speed/BPM timing changes, and minimal nonzero
-`9xx` sample offsets on same-cell note triggers. Normal note triggers also use
+(`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
+row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
+changes, and minimal nonzero `9xx` sample offsets on same-cell note triggers.
+Empty-note volume-column set-volume/set-panning cells and supported
+effect-column state commands can update the currently tracked active voice in
+bounded offline renders from the update frame forward. `Hxy` global volume
+slide remains diagnosed as deferred/unsupported. Normal note triggers also use
 parsed XM instrument note-sample maps/keymaps when a valid bounded offline
 mapping exists, with deterministic first-playable fallback or skip diagnostics
 when it does not. Local comparisons are therefore more meaningful for simple
@@ -67,8 +72,9 @@ memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
-volume-column decisions, Fxx timing changes, sample-offset decisions, envelope
-sustain/loop/key-off/fadeout status, and loop metadata.
+volume-column decisions, volume/panning state-update diagnostics, Fxx timing
+changes, sample-offset decisions, envelope sustain/loop/key-off/fadeout status,
+and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
@@ -90,6 +96,11 @@ and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
+For stuck or repeating carried voices, inspect the volume/panning state-update
+summary first: it reports empty-note volume-column set-volume/set-panning,
+`Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred counts, whether an active voice
+was updated, effective channel volume/pan before and after, and the source
+order/pattern/row/channel plus synthetic frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
 pattern break, `EEx` pattern delay, contextual `Fxx` timing changes, and other
@@ -104,8 +115,9 @@ Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
 semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
-minimal bounded `Fxx`, full song traversal, and full reference resampler parity
-remain deferred.
+minimal bounded `Fxx`, global volume/global volume slide behavior,
+tick-accurate volume slide behavior, full song traversal, and full reference
+resampler parity remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -203,10 +215,12 @@ Window carryover is intentionally narrow. It is computed from the bounded Swift
 adapter plan and reschedules continuation voices into each fresh offline C mixer
 window with the current source sample position, forward or ping-pong loop
 direction, volume-envelope position, key-on/key-off release state, fadeout
-value, gain, and pan. If a newer note event on the same adapted channel reaches
-the boundary, the older voice is not carried into the next window. This improves
-long local candidate continuity for sustained one-shot and looped voices without
-switching runtime playback or adding effect support.
+value, gain, and pan. Volume/panning state updates that occurred before a
+window boundary are folded into the carried voice state, and updates inside the
+window are scheduled at local frames. If a newer note event on the same adapted
+channel reaches the boundary, the older voice is not carried into the next
+window. This improves long local candidate continuity for sustained one-shot and
+looped voices without switching runtime playback or adding broad effect support.
 
 Remaining limitations are still important. Carryover is approximate bounded
 offline behavior, not FT2/OpenMPT parity or a generic mixer-state serialization

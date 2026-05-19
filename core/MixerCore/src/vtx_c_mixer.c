@@ -63,6 +63,24 @@ static float vtx_c_mixer_sanitized_pan(float pan) {
     return vtx_c_mixer_clamp(pan, -1.0f, 1.0f);
 }
 
+static int vtx_c_mixer_voice_state_event_is_valid(
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
+) {
+    if (!update_gain && !update_pan) {
+        return 0;
+    }
+    if (update_gain && !isfinite(gain)) {
+        return 0;
+    }
+    if (update_pan && !isfinite(pan)) {
+        return 0;
+    }
+    return 1;
+}
+
 static float vtx_c_mixer_left_pan_gain(float pan) {
     return pan <= 0.0f ? 1.0f : 1.0f - pan;
 }
@@ -253,6 +271,29 @@ static void vtx_c_mixer_update_voice_key_state(VTXCMixerVoice *voice, uint64_t a
     }
     if (absolute_frame >= voice->key_off_frame) {
         voice->key_on = 0;
+    }
+}
+
+static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t absolute_frame) {
+    if (state == NULL) {
+        return;
+    }
+    while (state->next_voice_state_event_index < state->voice_state_event_count) {
+        VTXCMixerVoiceStateEvent *event = &state->voice_state_events[state->next_voice_state_event_index];
+        VTXCMixerVoice *voice;
+        if (event->scheduled_frame > absolute_frame) {
+            break;
+        }
+        if (event->voice_index < state->voice_count) {
+            voice = &state->voices[event->voice_index];
+            if (event->update_gain) {
+                voice->gain = vtx_c_mixer_sanitized_gain(event->gain);
+            }
+            if (event->update_pan) {
+                voice->pan = vtx_c_mixer_sanitized_pan(event->pan);
+            }
+        }
+        state->next_voice_state_event_index++;
     }
 }
 
@@ -496,8 +537,10 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice->sample_position = (double)initial_sample_frame;
     voice->sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
     voice->scheduled_start_frame = scheduled_start_frame;
-    voice->gain = vtx_c_mixer_sanitized_gain(gain);
-    voice->pan = vtx_c_mixer_sanitized_pan(pan);
+    voice->initial_gain = vtx_c_mixer_sanitized_gain(gain);
+    voice->initial_pan = vtx_c_mixer_sanitized_pan(pan);
+    voice->gain = voice->initial_gain;
+    voice->pan = voice->initial_pan;
     voice->loop_mode = loop_mode;
     voice->loop_start_frame = loop_start_frame;
     voice->loop_end_frame = loop_end_frame;
@@ -540,6 +583,8 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
         VTXCMixerVoice *voice = &state->voices[voice_index];
         voice->sample_position = (double)voice->initial_sample_frame;
         voice->ping_pong_direction = 1;
+        voice->gain = voice->initial_gain;
+        voice->pan = voice->initial_pan;
         voice->volume_envelope.position_frame = 0u;
         voice->pan_envelope.position_frame = 0u;
         voice->key_on = 1;
@@ -548,6 +593,7 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
             voice->sample_pcm != NULL &&
             voice->initial_sample_frame < voice->sample_frame_count;
     }
+    state->next_voice_state_event_index = 0u;
     return VTX_C_MIXER_STATUS_OK;
 }
 
@@ -569,6 +615,8 @@ VTXCMixerStatus vtx_c_mixer_clear_voices(VTXCMixerState *state) {
         vtx_c_mixer_release_voice(&state->voices[voice_index]);
     }
     state->voice_count = 0;
+    state->voice_state_event_count = 0u;
+    state->next_voice_state_event_index = 0u;
     return VTX_C_MIXER_STATUS_OK;
 }
 
@@ -843,6 +891,52 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
+) {
+    VTXCMixerVoiceStateEvent event;
+    uint32_t insert_index;
+    uint32_t move_index;
+
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (scheduled_frame < state->current_frame) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (!vtx_c_mixer_voice_state_event_is_valid(update_gain, gain, update_pan, pan)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (state->voice_state_event_count >= VTX_C_MIXER_MAX_VOICE_STATE_EVENTS) {
+        return VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED;
+    }
+
+    event.voice_index = voice_index;
+    event.scheduled_frame = scheduled_frame;
+    event.update_gain = update_gain ? 1 : 0;
+    event.gain = vtx_c_mixer_sanitized_gain(gain);
+    event.update_pan = update_pan ? 1 : 0;
+    event.pan = vtx_c_mixer_sanitized_pan(pan);
+
+    insert_index = state->voice_state_event_count;
+    while (insert_index > state->next_voice_state_event_index &&
+           state->voice_state_events[insert_index - 1u].scheduled_frame > scheduled_frame) {
+        insert_index--;
+    }
+    for (move_index = state->voice_state_event_count; move_index > insert_index; move_index--) {
+        state->voice_state_events[move_index] = state->voice_state_events[move_index - 1u];
+    }
+    state->voice_state_events[insert_index] = event;
+    state->voice_state_event_count++;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_render(
     VTXCMixerState *state,
     float *output_interleaved_float32,
@@ -882,6 +976,7 @@ VTXCMixerStatus vtx_c_mixer_render(
     for (frame_index = 0; frame_index < frame_count_size; frame_index++) {
         size_t frame_offset = frame_index * channel_count_size;
         uint64_t absolute_frame = state->current_frame;
+        vtx_c_mixer_apply_voice_state_events(state, absolute_frame);
         for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
             VTXCMixerVoice *voice = &state->voices[voice_index];
             uint32_t source_index;

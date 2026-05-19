@@ -17,6 +17,10 @@ extern "C" {
 #define VTX_C_MIXER_MAX_SCHEDULED_VOICES VTX_C_MIXER_MAX_VOICES
 #define VTX_C_MIXER_MAX_ACTIVE_VOICES VTX_C_MIXER_MAX_VOICES
 
+// Fixed storage for offline caller-scheduled voice gain/pan updates.
+// These are generic mixer automation events; callers own any tracker-specific decoding.
+#define VTX_C_MIXER_MAX_VOICE_STATE_EVENTS 4096u
+
 // Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
 // not wired into this C-backed path yet.
 #define VTX_C_MIXER_MAX_ENVELOPE_POINTS 12u
@@ -72,6 +76,8 @@ typedef struct {
     double sample_position;
     double sample_step;
     uint64_t scheduled_start_frame;
+    float initial_gain;
+    float initial_pan;
     float gain;
     float pan;
     VTXCMixerLoopMode loop_mode;
@@ -89,10 +95,22 @@ typedef struct {
 } VTXCMixerVoice;
 
 typedef struct {
+    uint32_t voice_index;
+    uint64_t scheduled_frame;
+    int update_gain;
+    float gain;
+    int update_pan;
+    float pan;
+} VTXCMixerVoiceStateEvent;
+
+typedef struct {
     VTXCMixerConfig config;
     uint64_t current_frame;
     uint32_t voice_count;
+    uint32_t voice_state_event_count;
+    uint32_t next_voice_state_event_index;
     VTXCMixerVoice voices[VTX_C_MIXER_MAX_VOICES];
+    VTXCMixerVoiceStateEvent voice_state_events[VTX_C_MIXER_MAX_VOICE_STATE_EVENTS];
 } VTXCMixerState;
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
@@ -252,6 +270,18 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     uint32_t pan_envelope_position_frame,
     int key_on,
     float fadeout_value
+);
+
+// Schedules a generic gain and/or pan update for an existing offline voice at an
+// absolute output frame. At least one of update_gain/update_pan must be nonzero.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
 );
 
 VTXCMixerStatus vtx_c_mixer_render(

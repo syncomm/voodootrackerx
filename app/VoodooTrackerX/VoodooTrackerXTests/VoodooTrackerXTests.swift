@@ -1584,6 +1584,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(CSoftwareMixer.maximumVoiceCount, 256)
         XCTAssertEqual(CSoftwareMixer.maximumScheduledVoiceCount, 256)
         XCTAssertEqual(CSoftwareMixer.maximumActiveVoiceCount, 256)
+        XCTAssertEqual(CSoftwareMixer.maximumVoiceStateEventCount, 4096)
     }
 
     func testCSoftwareMixerScheduledFrameZeroMatchesImmediateOneShotRendering() {
@@ -1690,6 +1691,25 @@ final class VoodooTrackerXTests: XCTestCase {
         let block = cScheduledBlock(sample: sample, scheduledStartFrame: 1, frames: 3, pan: -1)
 
         XCTAssertEqual(block.interleavedPCM, [0, 0, 1, 0, 0, 0])
+    }
+
+    func testCSoftwareMixerScheduledGainPanUpdatesApplyFromFrameAndReset() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1])
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
+        guard let voiceIndex = mixer.addScheduledVoice(sample: sample, scheduledStartFrame: 0, gain: 1, pan: 0) else {
+            XCTFail("Expected scheduled voice to be accepted")
+            return
+        }
+
+        XCTAssertEqual(mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 2, gain: 0.25).wasAccepted, true)
+        XCTAssertEqual(mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 3, pan: 1).wasAccepted, true)
+
+        let first = mixer.render(frames: 4)
+        mixer.reset()
+        let reset = mixer.render(frames: 4)
+
+        XCTAssertEqual(first.interleavedPCM, [1, 1, 1, 1, 0.25, 0.25, 0, 0.25])
+        XCTAssertEqual(reset, first)
     }
 
     func testCSoftwareMixerVolumeEnvelopeAppliesFromScheduledVoiceStart() {
@@ -2552,7 +2572,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let volumeAndEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
-                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x0A, effectParam: 0x03)]
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x01, effectParam: 0x03)]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
@@ -4330,7 +4350,7 @@ final class VoodooTrackerXTests: XCTestCase {
         )
         let otherEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
-            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0A, effectParam: 0x02)]],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x01, effectParam: 0x02)]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -4344,7 +4364,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(mapping.sampleOffset.status, .notPresent)
         XCTAssertTrue(mapping.hasIgnoredEffect)
         XCTAssertEqual(other.diagnostics.deferredCellFields.map(\.field), [.effect])
-        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x0A)
+        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x01)
     }
 
     func testPlaybackSongAdapterSampleOffset9xxSplitResetAndWAVExportRemainDeterministic() throws {
@@ -5501,6 +5521,245 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)
         XCTAssertEqual(resetFirst, single.block)
+    }
+
+    func testPlaybackSongAdapterEmptyNoteVolumeColumnSetVolumeUpdatesActiveVoice() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertEqual(update.scheduledFrame, 1)
+        XCTAssertEqual(update.activeVoiceUpdated, true)
+        XCTAssertEqual(update.effectiveVolumeBefore, 64)
+        XCTAssertEqual(update.effectiveVolumeAfter, 32)
+        XCTAssertEqual(update.gainBefore, 1)
+        XCTAssertEqual(update.gainAfter, 0.5)
+        if case .volumeColumn(.setVolume(value: 32)) = update.command {
+            XCTAssertTrue(update.applied)
+        } else {
+            XCTFail("expected empty-note volume-column set-volume update")
+        }
+    }
+
+    func testPlaybackSongAdapterEmptyNoteVolumeColumnSetPanningUpdatesActiveVoice() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0xCF),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 3
+        ))
+        let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
+
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 1, 0, 1])
+        XCTAssertEqual(update.activeVoiceUpdated, true)
+        XCTAssertEqual(update.effectivePanBefore, 0)
+        XCTAssertEqual(update.effectivePanAfter, 1)
+        if case .volumeColumn(.setPanning(value: 255)) = update.command {
+            XCTAssertTrue(update.applied)
+        } else {
+            XCTFail("expected empty-note volume-column set-panning update")
+        }
+    }
+
+    func testPlaybackSongAdapterCxxAnd8xxUpdateActiveVoiceState() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let volumeSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x0C, effectParam: 0x20),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let panSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x08, effectParam: 0xFF),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let volume = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: volumeSong,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let pan = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: panSong,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 3
+        ))
+        let cxxUpdate = try XCTUnwrap(volume.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0C })
+        let panUpdate = try XCTUnwrap(pan.diagnostics.voiceStateUpdates.first { $0.effectType == 0x08 })
+
+        XCTAssertEqual(volume.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertEqual(cxxUpdate.activeVoiceUpdated, true)
+        XCTAssertEqual(cxxUpdate.effectiveVolumeBefore, 64)
+        XCTAssertEqual(cxxUpdate.effectiveVolumeAfter, 32)
+        XCTAssertEqual(pan.block.interleavedPCM, [1, 1, 0, 1, 0, 1])
+        XCTAssertEqual(panUpdate.activeVoiceUpdated, true)
+        XCTAssertEqual(panUpdate.effectivePanBefore, 0)
+        XCTAssertEqual(panUpdate.effectivePanAfter, 1)
+    }
+
+    func testPlaybackSongAdapterStateUpdatesFeedSubsequentNoteTriggers() throws {
+        let sample = makePlaybackSample(pcm: [1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, volumeColumn: 0x30, effectType: 0x08, effectParam: 0xFF),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 3
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0, 0, 0, 0.5, 0, 0.5])
+        XCTAssertEqual(mapping.effectiveVolumeValue, 32)
+        XCTAssertEqual(mapping.effectivePan, 1)
+        XCTAssertTrue(result.diagnostics.voiceStateUpdates.allSatisfy { !$0.activeVoiceUpdated })
+    }
+
+    func testPlaybackSongAdapterWindowedCarryoverAppliesActiveVolumeUpdatesAtBoundary() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(defaultRender.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 1)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
+        XCTAssertEqual(windowed.diagnostics.voiceStateUpdates.first?.activeVoiceUpdated, true)
+    }
+
+    func testPlaybackSongAdapterAxyAppliesAndHxyRemainsDeferredWithDiagnostics() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let axySong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x04),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let hxySong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x11, effectParam: 0x10),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let axy = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: axySong,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let hxy = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: hxySong,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let axyUpdate = try XCTUnwrap(axy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
+        let hxyUpdate = try XCTUnwrap(hxy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x11 })
+
+        XCTAssertEqual(axy.block.interleavedPCM, [1, 0.9375, 0.9375])
+        XCTAssertEqual(axyUpdate.activeVoiceUpdated, true)
+        XCTAssertEqual(axyUpdate.effectiveVolumeBefore, 64)
+        XCTAssertEqual(axyUpdate.effectiveVolumeAfter, 60)
+        XCTAssertEqual(axyUpdate.behavior, .rowLevelApproximation)
+        XCTAssertEqual(hxy.block.interleavedPCM, [1, 1, 1])
+        XCTAssertTrue(hxyUpdate.deferred)
+        XCTAssertEqual(hxyUpdate.activeVoiceUpdated, false)
+        XCTAssertTrue(hxy.diagnostics.deferredCellFields.contains { $0.effectType == 0x11 })
     }
 
     func testSoftwareMixerInitializesWithDefaultRenderConfiguration() {

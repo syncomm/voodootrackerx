@@ -612,6 +612,7 @@ def build_correlation_report(
         interpolation = render.get("sample_interpolation")
         if interpolation:
             lines.append(f"- Sample interpolation: {interpolation}")
+    append_event_coverage_summary(lines, nested_dict(diagnostics.get("event_coverage")))
 
     lines.extend([
         "",
@@ -654,6 +655,59 @@ def build_correlation_report(
         "- Use this report to choose a focused follow-up PR; do not treat it as an automatic audio fix.",
     ])
     return "\n".join(lines) + "\n"
+
+
+def append_event_coverage_summary(lines: list[str], coverage: dict[str, Any]) -> None:
+    if not coverage:
+        return
+    capacity = nested_dict(coverage.get("capacity"))
+    skip_reasons = [
+        item for item in nested_list(coverage.get("skip_reason_counts"))
+        if isinstance(item, dict)
+    ]
+    top_reasons = ", ".join(
+        f"{format_optional(item.get('reason'))}={format_optional(item.get('count'))}"
+        for item in skip_reasons[:5]
+    )
+    skipped = [
+        item for item in nested_list(coverage.get("first_skipped_note_coordinates"))
+        if isinstance(item, dict)
+    ]
+    lines.extend([
+        "",
+        "## Event Coverage",
+        f"- Normal note cells: {format_optional(coverage.get('normal_note_cells'))}",
+        f"- Note-off cells: {format_optional(coverage.get('note_off_cells'))}",
+        f"- Scheduled note events: {format_optional(coverage.get('scheduled_note_events'))}",
+        f"- Skipped note events: {format_optional(coverage.get('skipped_note_events'))}",
+        f"- First-playable-sample fallback events: {format_optional(coverage.get('first_playable_sample_fallback_events'))}",
+        f"- Sample-map/keymap deferred events: {format_optional(coverage.get('sample_map_keymap_deferred_events'))}",
+        f"- Top skip reasons: {top_reasons if top_reasons else 'none'}",
+    ])
+    if capacity:
+        lines.append(
+            "- C mixer scheduling: "
+            f"{format_optional(capacity.get('scheduled_voice_accepted_count'))}/"
+            f"{format_optional(capacity.get('scheduled_voice_attempt_count'))} accepted, "
+            f"{format_optional(capacity.get('scheduled_voice_rejected_count'))} rejected, "
+            f"capacity {format_optional(capacity.get('c_mixer_voice_capacity'))}"
+        )
+    if skipped:
+        lines.append(
+            "- First skipped note coordinates: "
+            + "; ".join(skipped_note_label(item) for item in skipped[:5])
+        )
+    else:
+        lines.append("- First skipped note coordinates: none")
+
+
+def skipped_note_label(item: dict[str, Any]) -> str:
+    source = source_label(nested_dict(item.get("source")))
+    return (
+        f"{source} ch {format_optional(item.get('channel_index'))} "
+        f"note {format_optional(item.get('note'))} "
+        f"reason {format_optional(item.get('reason'))}"
+    )
 
 
 def append_command_frequency_summary(lines: list[str], occurrences: list[CommandOccurrence]) -> None:

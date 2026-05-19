@@ -335,6 +335,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
     let deferredCellFields: [PlaybackSongSyntheticDeferredCellField]
+    let eventCoverage: PlaybackSongSyntheticEventCoverageSummary
 
     var emittedRowCount: Int {
         rowMappings.count
@@ -362,6 +363,136 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var sampleOffsetEffectCount: Int {
         sampleOffsetEffects.count
+    }
+}
+
+enum PlaybackSongSyntheticSkipReason: String, Equatable, Hashable {
+    case emptyCell = "empty_cell"
+    case noteOffKeyOffOnly = "note_off_key_off_only"
+    case invalidNote = "invalid_note"
+    case missingInstrument = "missing_instrument"
+    case unknownInstrument = "unknown_instrument"
+    case instrumentHasNoPlayableSample = "instrument_has_no_playable_sample"
+    case samplePCMEmpty = "sample_pcm_empty"
+    case sampleOffsetOutOfRange = "sample_offset_out_of_range"
+    case unsupportedSampleMapKeymapBehavior = "unsupported_sample_map_keymap_behavior"
+    case noSelectedSampleForNote = "no_selected_sample_for_note"
+    case eventOutsideBoundedRowRange = "event_outside_bounded_row_range"
+    case eventCapacityLimit = "event_capacity_limit"
+    case cMixerVoiceCapacityLimit = "c_mixer_voice_capacity_limit"
+    case unsupportedDeferredEffectInteraction = "unsupported_deferred_effect_interaction"
+    case instrumentOnly = "instrument_only"
+    case unknown = "unknown"
+}
+
+struct PlaybackSongSyntheticSkipReasonCount: Equatable {
+    let reason: PlaybackSongSyntheticSkipReason
+    let count: Int
+}
+
+struct PlaybackSongSyntheticEventCoverageSummary: Equatable {
+    let totalCellsVisited: Int
+    let emptyCells: Int
+    let normalNoteCells: Int
+    let noteOffCells: Int
+    let invalidNoteCells: Int
+    let instrumentOnlyCells: Int
+    let noteWithInstrumentCells: Int
+    let noteWithMissingOrZeroInstrumentCells: Int
+    let scheduledNoteEvents: Int
+    let skippedNoteEvents: Int
+    let skippedNoteOffEventsNoActiveVoice: Int
+    let ignoredOrDeferredCells: Int
+    let firstPlayableSampleFallbackEvents: Int
+    let sampleMapKeymapDeferredEvents: Int
+    let eventOutsideBoundedRowRangeCount: Int
+    let eventCapacityLimitCount: Int
+    let cMixerVoiceCapacityLimitCount: Int
+    let skipReasonCounts: [PlaybackSongSyntheticSkipReasonCount]
+}
+
+extension PlaybackSongSyntheticEventCoverageSummary {
+    func reportingCMixerVoiceCapacityRejections(_ rejectedCount: Int) -> PlaybackSongSyntheticEventCoverageSummary {
+        let safeRejectedCount = max(0, rejectedCount)
+        guard safeRejectedCount > 0 else {
+            return self
+        }
+        return PlaybackSongSyntheticEventCoverageSummary(
+            totalCellsVisited: totalCellsVisited,
+            emptyCells: emptyCells,
+            normalNoteCells: normalNoteCells,
+            noteOffCells: noteOffCells,
+            invalidNoteCells: invalidNoteCells,
+            instrumentOnlyCells: instrumentOnlyCells,
+            noteWithInstrumentCells: noteWithInstrumentCells,
+            noteWithMissingOrZeroInstrumentCells: noteWithMissingOrZeroInstrumentCells,
+            scheduledNoteEvents: scheduledNoteEvents,
+            skippedNoteEvents: skippedNoteEvents,
+            skippedNoteOffEventsNoActiveVoice: skippedNoteOffEventsNoActiveVoice,
+            ignoredOrDeferredCells: ignoredOrDeferredCells,
+            firstPlayableSampleFallbackEvents: firstPlayableSampleFallbackEvents,
+            sampleMapKeymapDeferredEvents: sampleMapKeymapDeferredEvents,
+            eventOutsideBoundedRowRangeCount: eventOutsideBoundedRowRangeCount,
+            eventCapacityLimitCount: eventCapacityLimitCount,
+            cMixerVoiceCapacityLimitCount: cMixerVoiceCapacityLimitCount + safeRejectedCount,
+            skipReasonCounts: mergingSkipReason(.cMixerVoiceCapacityLimit, count: safeRejectedCount)
+        )
+    }
+
+    private func mergingSkipReason(
+        _ reason: PlaybackSongSyntheticSkipReason,
+        count: Int
+    ) -> [PlaybackSongSyntheticSkipReasonCount] {
+        var merged = skipReasonCounts.reduce(into: [PlaybackSongSyntheticSkipReason: Int]()) { partialResult, item in
+            partialResult[item.reason, default: 0] += item.count
+        }
+        merged[reason, default: 0] += count
+        return merged
+            .map { PlaybackSongSyntheticSkipReasonCount(reason: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count {
+                    return lhs.count > rhs.count
+                }
+                return lhs.reason.rawValue < rhs.reason.rawValue
+            }
+    }
+}
+
+extension PlaybackSongSyntheticDiagnostics {
+    func replacingEventCoverage(
+        _ eventCoverage: PlaybackSongSyntheticEventCoverageSummary
+    ) -> PlaybackSongSyntheticDiagnostics {
+        PlaybackSongSyntheticDiagnostics(
+            requestedStartOrderIndex: requestedStartOrderIndex,
+            requestedOrderCount: requestedOrderCount,
+            sampleRate: sampleRate,
+            initialSpeed: initialSpeed,
+            initialBPM: initialBPM,
+            usesLinearFrequencyTable: usesLinearFrequencyTable,
+            syntheticRowCount: syntheticRowCount,
+            adaptedOrders: adaptedOrders,
+            rowMappings: rowMappings,
+            rowTiming: rowTiming,
+            timingChanges: timingChanges,
+            rowDiagnostics: rowDiagnostics,
+            volumeColumnMappings: volumeColumnMappings,
+            sampleOffsetEffects: sampleOffsetEffects,
+            keyOffEvents: keyOffEvents,
+            eventMappings: eventMappings,
+            ignoredCells: ignoredCells,
+            deferredCellFields: deferredCellFields,
+            eventCoverage: eventCoverage
+        )
+    }
+}
+
+extension PlaybackSongSyntheticPlan {
+    func replacingEventCoverage(_ eventCoverage: PlaybackSongSyntheticEventCoverageSummary) -> PlaybackSongSyntheticPlan {
+        PlaybackSongSyntheticPlan(
+            timingConfig: timingConfig,
+            pattern: pattern,
+            diagnostics: diagnostics.replacingEventCoverage(eventCoverage)
+        )
     }
 }
 
@@ -822,6 +953,10 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let note: UInt8
     let instrumentIndex: Int
     let sampleIndex: Int
+    let selectedSampleLength: Int
+    let sampleSelectionStrategy: String
+    let firstPlayableSampleFallbackUsed: Bool
+    let sampleMapKeymapBehaviorDeferred: Bool
     let effectType: UInt8
     let effectParam: UInt8
     let syntheticRow: Int
@@ -863,11 +998,16 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
 struct PlaybackSongSyntheticIgnoredCell: Equatable {
     enum Reason: Equatable {
         case emptyNote
+        case instrumentOnly
         case keyOff
         case invalidNote
         case missingInstrument
-        case noPlayableSample
+        case unknownInstrument
+        case instrumentHasNoPlayableSample
+        case samplePCMEmpty
         case sampleOffsetOutOfRange
+        case unsupportedDeferredEffectInteraction
+        case unknown
     }
 
     let source: PlaybackPosition
@@ -875,6 +1015,16 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
     let note: UInt8
     let instrumentIndex: Int
     let reason: Reason
+    let skipReason: PlaybackSongSyntheticSkipReason
+    let selectedSampleIndex: Int?
+    let selectedSampleLength: Int?
+    let selectedSampleLoopMode: MixerSampleLoopMode?
+    let firstPlayableSampleFallbackUsed: Bool
+    let sampleMapKeymapBehaviorDeferred: Bool
+    let sampleRelativeNote: Int?
+    let sampleFinetune: Int?
+    let sampleBaseSampleRate: Double?
+    let sampleOffsetFrames: Int?
     let volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
     let hasIgnoredVolumeColumn: Bool
     let hasIgnoredEffect: Bool
@@ -1147,6 +1297,124 @@ enum PlaybackSongSyntheticAdapter {
         }
     }
 
+    private struct SampleSelection: Equatable {
+        let sample: PlaybackSample?
+        let diagnosticSample: PlaybackSample?
+        let skippedReason: PlaybackSongSyntheticIgnoredCell.Reason?
+        let firstPlayableSampleFallbackUsed: Bool
+        let sampleMapKeymapBehaviorDeferred: Bool
+    }
+
+    private struct EventCoverageBuilder: Equatable {
+        var totalCellsVisited = 0
+        var emptyCells = 0
+        var normalNoteCells = 0
+        var noteOffCells = 0
+        var invalidNoteCells = 0
+        var instrumentOnlyCells = 0
+        var noteWithInstrumentCells = 0
+        var noteWithMissingOrZeroInstrumentCells = 0
+        var scheduledNoteEvents = 0
+        var skippedNoteEvents = 0
+        var skippedNoteOffEventsNoActiveVoice = 0
+        var ignoredOrDeferredCells = 0
+        var firstPlayableSampleFallbackEvents = 0
+        var sampleMapKeymapDeferredEvents = 0
+        var eventOutsideBoundedRowRangeCount = 0
+        var eventCapacityLimitCount = 0
+        var cMixerVoiceCapacityLimitCount = 0
+        var skipReasonCounts = [PlaybackSongSyntheticSkipReason: Int]()
+
+        mutating func visit(_ cell: PlaybackCell) {
+            totalCellsVisited += 1
+            if isCompletelyEmpty(cell) {
+                emptyCells += 1
+            }
+            if (1...96).contains(cell.note) {
+                normalNoteCells += 1
+                if cell.instrument > 0 {
+                    noteWithInstrumentCells += 1
+                } else {
+                    noteWithMissingOrZeroInstrumentCells += 1
+                }
+            } else if cell.note == 97 {
+                noteOffCells += 1
+            } else if cell.note > 97 {
+                invalidNoteCells += 1
+            } else if cell.note == 0, cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
+                instrumentOnlyCells += 1
+            }
+        }
+
+        mutating func recordScheduledNote(firstPlayableSampleFallbackUsed: Bool, sampleMapKeymapBehaviorDeferred: Bool) {
+            scheduledNoteEvents += 1
+            if firstPlayableSampleFallbackUsed {
+                firstPlayableSampleFallbackEvents += 1
+            }
+            if sampleMapKeymapBehaviorDeferred {
+                sampleMapKeymapDeferredEvents += 1
+            }
+        }
+
+        mutating func recordIgnoredCell(
+            reason: PlaybackSongSyntheticSkipReason,
+            isNormalNote: Bool,
+            isNoteOffWithoutActiveVoice: Bool = false
+        ) {
+            ignoredOrDeferredCells += 1
+            skipReasonCounts[reason, default: 0] += 1
+            if isNormalNote {
+                skippedNoteEvents += 1
+            }
+            if isNoteOffWithoutActiveVoice {
+                skippedNoteOffEventsNoActiveVoice += 1
+            }
+        }
+
+        mutating func recordDeferredCellWithoutSkip() {
+            ignoredOrDeferredCells += 1
+            skipReasonCounts[.unsupportedDeferredEffectInteraction, default: 0] += 1
+        }
+
+        var summary: PlaybackSongSyntheticEventCoverageSummary {
+            PlaybackSongSyntheticEventCoverageSummary(
+                totalCellsVisited: totalCellsVisited,
+                emptyCells: emptyCells,
+                normalNoteCells: normalNoteCells,
+                noteOffCells: noteOffCells,
+                invalidNoteCells: invalidNoteCells,
+                instrumentOnlyCells: instrumentOnlyCells,
+                noteWithInstrumentCells: noteWithInstrumentCells,
+                noteWithMissingOrZeroInstrumentCells: noteWithMissingOrZeroInstrumentCells,
+                scheduledNoteEvents: scheduledNoteEvents,
+                skippedNoteEvents: skippedNoteEvents,
+                skippedNoteOffEventsNoActiveVoice: skippedNoteOffEventsNoActiveVoice,
+                ignoredOrDeferredCells: ignoredOrDeferredCells,
+                firstPlayableSampleFallbackEvents: firstPlayableSampleFallbackEvents,
+                sampleMapKeymapDeferredEvents: sampleMapKeymapDeferredEvents,
+                eventOutsideBoundedRowRangeCount: eventOutsideBoundedRowRangeCount,
+                eventCapacityLimitCount: eventCapacityLimitCount,
+                cMixerVoiceCapacityLimitCount: cMixerVoiceCapacityLimitCount,
+                skipReasonCounts: skipReasonCounts
+                    .map { PlaybackSongSyntheticSkipReasonCount(reason: $0.key, count: $0.value) }
+                    .sorted { lhs, rhs in
+                        if lhs.count != rhs.count {
+                            return lhs.count > rhs.count
+                        }
+                        return lhs.reason.rawValue < rhs.reason.rawValue
+                    }
+            )
+        }
+
+        private func isCompletelyEmpty(_ cell: PlaybackCell) -> Bool {
+            cell.note == 0 &&
+                cell.instrument == 0 &&
+                cell.volumeColumn == 0 &&
+                cell.effectType == 0 &&
+                cell.effectParam == 0
+        }
+    }
+
     static func adapt(
         _ song: PlaybackSong,
         orderIndex: Int,
@@ -1195,6 +1463,7 @@ enum PlaybackSongSyntheticAdapter {
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
         var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
+        var eventCoverage = EventCoverageBuilder()
         var events = [SyntheticTrackerEvent]()
         var channelStates = [Int: ChannelState]()
         var nextSyntheticRow = 0
@@ -1254,7 +1523,8 @@ enum PlaybackSongSyntheticAdapter {
                     keyOffEvents: &keyOffEvents,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
-                    deferredCellFields: &deferredCellFields
+                    deferredCellFields: &deferredCellFields,
+                    eventCoverage: &eventCoverage
                 ))
             }
 
@@ -1282,7 +1552,8 @@ enum PlaybackSongSyntheticAdapter {
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
-                deferredCellFields: deferredCellFields
+                deferredCellFields: deferredCellFields,
+                eventCoverage: eventCoverage.summary
             )
         )
     }
@@ -1301,11 +1572,13 @@ enum PlaybackSongSyntheticAdapter {
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
-        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
+        eventCoverage: inout EventCoverageBuilder
     ) -> PlaybackSongSyntheticRowDiagnostic {
         let eventStartCount = events.count
         let ignoredStartCount = ignoredCells.count
         for (channelIndex, cell) in row.cells.enumerated() {
+            eventCoverage.visit(cell)
             var channelState = channelStates[channelIndex] ?? ChannelState()
             let volumeColumn = applyVolumeColumn(
                 PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
@@ -1342,50 +1615,72 @@ enum PlaybackSongSyntheticAdapter {
                     keyOffEvents: &keyOffEvents,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
-                    deferredCellFields: &deferredCellFields
+                    deferredCellFields: &deferredCellFields,
+                    eventCoverage: &eventCoverage
                 )
                 channelStates[channelIndex] = channelState
                 continue
             }
             guard (1...96).contains(cell.note) else {
-                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
-                    note: cell.note,
-                    instrumentIndex: Int(cell.instrument),
-                    reason: ignoredNoteReason(cell.note),
+                    cell: cell,
+                    reason: ignoredNoteReason(cell),
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
-                ))
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: false)
                 continue
             }
 
             let instrumentIndex = Int(cell.instrument)
-            guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
-                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+            guard instrumentIndex > 0 else {
+                let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
-                    note: cell.note,
-                    instrumentIndex: instrumentIndex,
+                    cell: cell,
                     reason: .missingInstrument,
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
-                ))
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
                 continue
             }
-            guard let sample = instrument.firstPlayableSample else {
-                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+            guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
+                let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
-                    note: cell.note,
-                    instrumentIndex: instrumentIndex,
-                    reason: .noPlayableSample,
+                    cell: cell,
+                    reason: .unknownInstrument,
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
-                ))
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                continue
+            }
+            let sampleSelection = selectSample(from: instrument)
+            guard let sample = sampleSelection.sample else {
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: sampleSelection.skippedReason ?? .unknown,
+                    diagnosticSample: sampleSelection.diagnosticSample,
+                    firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffect(cell)
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
                 continue
             }
 
@@ -1401,16 +1696,21 @@ enum PlaybackSongSyntheticAdapter {
                 sampleOffsetEffects.append(sampleOffset)
             }
             if sampleOffset.skipped {
-                ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+                let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
-                    note: cell.note,
-                    instrumentIndex: instrumentIndex,
+                    cell: cell,
                     reason: .sampleOffsetOutOfRange,
+                    diagnosticSample: sample,
+                    sampleOffsetFrames: sampleOffset.computedOffsetFrames,
+                    firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
-                ))
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
                 continue
             }
 
@@ -1444,6 +1744,13 @@ enum PlaybackSongSyntheticAdapter {
                 initialSourceFrame: sampleOffset.appliedOffsetFrames ?? 0,
                 volumeEnvelope: envelopeMapping.envelope
             ))
+            eventCoverage.recordScheduledNote(
+                firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
+            )
+            if hasDeferredEffect(cell) || volumeColumn.deferred {
+                eventCoverage.recordDeferredCellWithoutSkip()
+            }
             channelState.activeEventIndex = eventIndex
             channelState.activeEventMappingIndex = eventMappings.count
             channelStates[channelIndex] = channelState
@@ -1453,6 +1760,10 @@ enum PlaybackSongSyntheticAdapter {
                 note: cell.note,
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
+                selectedSampleLength: sampleLength,
+                sampleSelectionStrategy: "first_playable_sample",
+                firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
                 syntheticRow: syntheticRow,
@@ -1637,7 +1948,8 @@ enum PlaybackSongSyntheticAdapter {
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
-        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
+        eventCoverage: inout EventCoverageBuilder
     ) {
         guard let activeEventIndex = channelState.activeEventIndex,
               let activeEventMappingIndex = channelState.activeEventMappingIndex,
@@ -1655,16 +1967,21 @@ enum PlaybackSongSyntheticAdapter {
                 reason: .noActiveVoice,
                 activeEventIndex: nil
             ))
-            ignoredCells.append(PlaybackSongSyntheticIgnoredCell(
+            let ignored = ignoredCell(
                 source: source,
                 channelIndex: channelIndex,
-                note: cell.note,
-                instrumentIndex: Int(cell.instrument),
+                cell: cell,
                 reason: .keyOff,
                 volumeColumn: volumeColumn,
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffect(cell)
-            ))
+            )
+            ignoredCells.append(ignored)
+            eventCoverage.recordIgnoredCell(
+                reason: ignored.skipReason,
+                isNormalNote: false,
+                isNoteOffWithoutActiveVoice: true
+            )
             appendDeferredFields(
                 from: cell,
                 source: source,
@@ -1706,6 +2023,9 @@ enum PlaybackSongSyntheticAdapter {
             reason: .releasedActiveVoice,
             activeEventIndex: activeEventIndex
         ))
+        if hasDeferredEffect(cell) || volumeColumn.deferred {
+            eventCoverage.recordDeferredCellWithoutSkip()
+        }
         channelState.activeEventIndex = nil
         channelState.activeEventMappingIndex = nil
     }
@@ -1720,6 +2040,10 @@ enum PlaybackSongSyntheticAdapter {
             note: mapping.note,
             instrumentIndex: mapping.instrumentIndex,
             sampleIndex: mapping.sampleIndex,
+            selectedSampleLength: mapping.selectedSampleLength,
+            sampleSelectionStrategy: mapping.sampleSelectionStrategy,
+            firstPlayableSampleFallbackUsed: mapping.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: mapping.sampleMapKeymapBehaviorDeferred,
             effectType: mapping.effectType,
             effectParam: mapping.effectParam,
             syntheticRow: mapping.syntheticRow,
@@ -2266,14 +2590,111 @@ enum PlaybackSongSyntheticAdapter {
         cell.effectType == 0x09 && cell.effectParam != 0
     }
 
-    private static func ignoredNoteReason(_ note: UInt8) -> PlaybackSongSyntheticIgnoredCell.Reason {
-        switch note {
+    private static func selectSample(from instrument: PlaybackInstrument) -> SampleSelection {
+        let sampleMapKeymapBehaviorDeferred = instrument.samples.count > 1
+        if let sample = instrument.firstPlayableSample {
+            return SampleSelection(
+                sample: sample,
+                diagnosticSample: sample,
+                skippedReason: nil,
+                firstPlayableSampleFallbackUsed: true,
+                sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+            )
+        }
+        if let emptySample = instrument.samples.first(where: { $0.pcm.isEmpty }) {
+            return SampleSelection(
+                sample: nil,
+                diagnosticSample: emptySample,
+                skippedReason: .samplePCMEmpty,
+                firstPlayableSampleFallbackUsed: false,
+                sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+            )
+        }
+        return SampleSelection(
+            sample: nil,
+            diagnosticSample: instrument.samples.first,
+            skippedReason: .instrumentHasNoPlayableSample,
+            firstPlayableSampleFallbackUsed: false,
+            sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+        )
+    }
+
+    private static func ignoredCell(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        cell: PlaybackCell,
+        reason: PlaybackSongSyntheticIgnoredCell.Reason,
+        diagnosticSample: PlaybackSample? = nil,
+        sampleOffsetFrames: Int? = nil,
+        firstPlayableSampleFallbackUsed: Bool = false,
+        sampleMapKeymapBehaviorDeferred: Bool = false,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        hasIgnoredVolumeColumn: Bool,
+        hasIgnoredEffect: Bool
+    ) -> PlaybackSongSyntheticIgnoredCell {
+        PlaybackSongSyntheticIgnoredCell(
+            source: source,
+            channelIndex: channelIndex,
+            note: cell.note,
+            instrumentIndex: Int(cell.instrument),
+            reason: reason,
+            skipReason: skipReason(for: reason),
+            selectedSampleIndex: diagnosticSample?.sampleIndex,
+            selectedSampleLength: diagnosticSample.map(selectedSampleLength),
+            selectedSampleLoopMode: diagnosticSample.map { mixerLoop(from: $0).mode },
+            firstPlayableSampleFallbackUsed: firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred,
+            sampleRelativeNote: diagnosticSample?.relativeNote,
+            sampleFinetune: diagnosticSample?.finetune,
+            sampleBaseSampleRate: diagnosticSample?.baseSampleRate,
+            sampleOffsetFrames: sampleOffsetFrames,
+            volumeColumn: volumeColumn,
+            hasIgnoredVolumeColumn: hasIgnoredVolumeColumn,
+            hasIgnoredEffect: hasIgnoredEffect
+        )
+    }
+
+    private static func ignoredNoteReason(_ cell: PlaybackCell) -> PlaybackSongSyntheticIgnoredCell.Reason {
+        switch cell.note {
         case 0:
+            if cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
+                return .instrumentOnly
+            }
+            if cell.effectType != 0 || cell.effectParam != 0 || cell.volumeColumn != 0 {
+                return .unsupportedDeferredEffectInteraction
+            }
             return .emptyNote
         case 97:
             return .keyOff
         default:
             return .invalidNote
+        }
+    }
+
+    private static func skipReason(for reason: PlaybackSongSyntheticIgnoredCell.Reason) -> PlaybackSongSyntheticSkipReason {
+        switch reason {
+        case .emptyNote:
+            return .emptyCell
+        case .instrumentOnly:
+            return .instrumentOnly
+        case .keyOff:
+            return .noteOffKeyOffOnly
+        case .invalidNote:
+            return .invalidNote
+        case .missingInstrument:
+            return .missingInstrument
+        case .unknownInstrument:
+            return .unknownInstrument
+        case .instrumentHasNoPlayableSample:
+            return .instrumentHasNoPlayableSample
+        case .samplePCMEmpty:
+            return .samplePCMEmpty
+        case .sampleOffsetOutOfRange:
+            return .sampleOffsetOutOfRange
+        case .unsupportedDeferredEffectInteraction:
+            return .unsupportedDeferredEffectInteraction
+        case .unknown:
+            return .unknown
         }
     }
 
@@ -2456,7 +2877,10 @@ final class PlaybackSongOfflineRenderSession {
         )
         let preparedMixer = CSoftwareMixer(config: request.config)
         let voiceIndices = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).schedule(adaptedPlan.pattern, on: preparedMixer)
-        plan = adaptedPlan
+        let rejectedVoiceCount = voiceIndices.filter { $0 == nil }.count
+        let eventCoverage = adaptedPlan.diagnostics.eventCoverage
+            .reportingCMixerVoiceCapacityRejections(rejectedVoiceCount)
+        plan = adaptedPlan.replacingEventCoverage(eventCoverage)
         mixer = preparedMixer
         scheduledVoiceIndices = voiceIndices
     }

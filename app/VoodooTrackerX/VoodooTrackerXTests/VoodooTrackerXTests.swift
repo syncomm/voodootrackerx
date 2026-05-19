@@ -2209,15 +2209,86 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.ignoredCellCount, 6)
         XCTAssertEqual(plan.diagnostics.emptyOrSkippedRowCount, 1)
         XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.reason), [
-            .emptyNote,
+            .instrumentOnly,
             .keyOff,
             .invalidNote,
-            .missingInstrument,
-            .noPlayableSample,
-            .noPlayableSample
+            .unknownInstrument,
+            .samplePCMEmpty,
+            .instrumentHasNoPlayableSample
         ])
         XCTAssertEqual(plan.diagnostics.ignoredCells.map(\.channelIndex), [0, 1, 2, 3, 4, 5])
         XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.field), [.keyOff])
+    }
+
+    func testPlaybackSongSyntheticAdapterReportsEventCoverageAndSkipReasons() throws {
+        let playableSample = makePlaybackSample(sampleIndex: 1, pcm: [0.25, 0.5], volume: 1, baseSampleRate: 100)
+        let emptySample = makePlaybackSample(instrumentIndex: 2, pcm: [], volume: 1)
+        let zeroVolumeSample = makePlaybackSample(instrumentIndex: 3, pcm: [1], volume: 0)
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 97, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 9, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 3, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 98, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 0, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [
+                    makePlaybackSample(pcm: [], volume: 1),
+                    playableSample
+                ]),
+                2: PlaybackInstrument(index: 2, samples: [emptySample]),
+                3: PlaybackInstrument(index: 3, samples: [zeroVolumeSample])
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+        let coverage = result.diagnostics.eventCoverage
+        let scheduled = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(coverage.totalCellsVisited, 9)
+        XCTAssertEqual(coverage.emptyCells, 1)
+        XCTAssertEqual(coverage.normalNoteCells, 5)
+        XCTAssertEqual(coverage.noteOffCells, 1)
+        XCTAssertEqual(coverage.invalidNoteCells, 1)
+        XCTAssertEqual(coverage.instrumentOnlyCells, 1)
+        XCTAssertEqual(coverage.noteWithInstrumentCells, 4)
+        XCTAssertEqual(coverage.noteWithMissingOrZeroInstrumentCells, 1)
+        XCTAssertEqual(coverage.scheduledNoteEvents, 1)
+        XCTAssertEqual(coverage.skippedNoteEvents, 4)
+        XCTAssertEqual(coverage.skippedNoteOffEventsNoActiveVoice, 1)
+        XCTAssertEqual(coverage.firstPlayableSampleFallbackEvents, 1)
+        XCTAssertEqual(coverage.sampleMapKeymapDeferredEvents, 1)
+        XCTAssertEqual(scheduled.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(scheduled.channelIndex, 6)
+        XCTAssertEqual(scheduled.sampleIndex, 1)
+        XCTAssertEqual(scheduled.selectedSampleLength, 2)
+        XCTAssertEqual(scheduled.sampleSelectionStrategy, "first_playable_sample")
+        XCTAssertTrue(scheduled.firstPlayableSampleFallbackUsed)
+        XCTAssertTrue(scheduled.sampleMapKeymapBehaviorDeferred)
+        XCTAssertEqual(result.diagnostics.ignoredCells.map(\.skipReason), [
+            .emptyCell,
+            .noteOffKeyOffOnly,
+            .missingInstrument,
+            .unknownInstrument,
+            .samplePCMEmpty,
+            .instrumentHasNoPlayableSample,
+            .invalidNote,
+            .instrumentOnly
+        ])
+        XCTAssertEqual(result.diagnostics.ignoredCells[2].source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(result.diagnostics.ignoredCells[2].channelIndex, 2)
     }
 
     func testPlaybackSongSyntheticAdapterFlattensBoundedMultiOrderRows() {
@@ -3002,6 +3073,34 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(result.maximumFrameCount, 3)
         XCTAssertTrue(result.wasFrameCountBounded)
         XCTAssertEqual(result.block.interleavedPCM, [1, 1, 1])
+    }
+
+    func testPlaybackSongOfflineRendererReportsCMixerVoiceCapacityRejections() throws {
+        let sample = makePlaybackSample(pcm: [1])
+        let row = PlaybackRow(index: 0, cells: (0..<33).map { _ in
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        })
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        XCTAssertEqual(result.diagnostics.eventCoverage.normalNoteCells, 33)
+        XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, 33)
+        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 1)
+        XCTAssertTrue(result.diagnostics.eventCoverage.skipReasonCounts.contains { item in
+            item.reason == .cMixerVoiceCapacityLimit && item.count == 1
+        })
+        XCTAssertEqual(result.scheduledVoiceIndices.compactMap { $0 }.count, CSoftwareMixer.maximumScheduledVoiceCount)
+        XCTAssertEqual(result.scheduledVoiceIndices.filter { $0 == nil }.count, 1)
     }
 
     func testPlaybackSongOfflineRendererCanRenderByRowCount() {

@@ -47,6 +47,8 @@ struct MixerEnvelope: Equatable {
 /// not leak across the C render boundary. Synthetic envelope points are also copied into C-owned voice
 /// storage when attached.
 final class CSoftwareMixer {
+    static let maximumScheduledVoiceCount = 32
+
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
 

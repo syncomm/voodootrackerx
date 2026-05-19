@@ -646,6 +646,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
             ],
+            "event_coverage": eventCoverageJSON(from: result),
             "orders": diagnostics.adaptedOrders.map(orderJSON),
             "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
             "row_timing": diagnostics.rowTiming.map(rowTimingJSON),
@@ -664,6 +665,64 @@ enum PlaybackSongDiagnosticsJSONExporter {
         result.diagnostics.eventMappings.map { mapping in
             eventJSON(for: mapping, from: result)
         }
+    }
+
+    private static func eventCoverageJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
+        let coverage = result.diagnostics.eventCoverage
+        let rejectedVoiceCount = result.scheduledVoiceIndices.filter { $0 == nil }.count
+        let acceptedVoiceCount = result.scheduledVoiceIndices.compactMap { $0 }.count
+        return [
+            "total_cells_visited": coverage.totalCellsVisited,
+            "empty_cells": coverage.emptyCells,
+            "normal_note_cells": coverage.normalNoteCells,
+            "note_off_cells": coverage.noteOffCells,
+            "invalid_note_cells": coverage.invalidNoteCells,
+            "instrument_only_cells": coverage.instrumentOnlyCells,
+            "note_with_instrument_cells": coverage.noteWithInstrumentCells,
+            "note_with_missing_or_zero_instrument_cells": coverage.noteWithMissingOrZeroInstrumentCells,
+            "scheduled_note_events": coverage.scheduledNoteEvents,
+            "skipped_note_events": coverage.skippedNoteEvents,
+            "skipped_note_off_events_no_active_voice": coverage.skippedNoteOffEventsNoActiveVoice,
+            "ignored_or_deferred_cells": coverage.ignoredOrDeferredCells,
+            "first_playable_sample_fallback_events": coverage.firstPlayableSampleFallbackEvents,
+            "sample_map_keymap_deferred_events": coverage.sampleMapKeymapDeferredEvents,
+            "event_outside_bounded_row_range_count": coverage.eventOutsideBoundedRowRangeCount,
+            "event_capacity_limit_count": coverage.eventCapacityLimitCount,
+            "c_mixer_voice_capacity_limit_count": coverage.cMixerVoiceCapacityLimitCount,
+            "skip_reason_counts": coverage.skipReasonCounts.map(skipReasonCountJSON),
+            "capacity": [
+                "c_mixer_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
+                "scheduled_voice_attempt_count": result.scheduledVoiceIndices.count,
+                "scheduled_voice_accepted_count": acceptedVoiceCount,
+                "scheduled_voice_rejected_count": rejectedVoiceCount,
+                "potentially_unscheduled_event_count": rejectedVoiceCount,
+                "event_capacity_limit_count": coverage.eventCapacityLimitCount,
+                "c_mixer_voice_capacity_limit_count": coverage.cMixerVoiceCapacityLimitCount,
+            ],
+            "first_skipped_note_coordinates": firstSkippedNoteCoordinatesJSON(from: result.diagnostics.ignoredCells),
+        ]
+    }
+
+    private static func skipReasonCountJSON(_ count: PlaybackSongSyntheticSkipReasonCount) -> [String: Any] {
+        [
+            "reason": count.reason.rawValue,
+            "count": count.count,
+        ]
+    }
+
+    private static func firstSkippedNoteCoordinatesJSON(from ignoredCells: [PlaybackSongSyntheticIgnoredCell]) -> [[String: Any]] {
+        ignoredCells
+            .filter { (1...96).contains($0.note) }
+            .prefix(10)
+            .map { cell in
+                [
+                    "source": positionJSON(cell.source),
+                    "channel_index": cell.channelIndex,
+                    "note": Int(cell.note),
+                    "instrument_index": cell.instrumentIndex,
+                    "reason": cell.skipReason.rawValue,
+                ]
+            }
     }
 
     private static func eventJSON(
@@ -693,6 +752,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["note"] = Int(mapping.note)
         object["instrument_index"] = mapping.instrumentIndex
         object["sample_index"] = mapping.sampleIndex
+        object["selected_sample_length"] = mapping.selectedSampleLength
+        object["sample_selection_strategy"] = mapping.sampleSelectionStrategy
+        object["first_playable_sample_fallback_used"] = mapping.firstPlayableSampleFallbackUsed
+        object["sample_map_keymap_behavior_deferred"] = mapping.sampleMapKeymapBehaviorDeferred
         object["effect_type"] = Int(mapping.effectType)
         object["effect_param"] = Int(mapping.effectParam)
         object["synthetic_row"] = mapping.syntheticRow
@@ -893,6 +956,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "note": Int(cell.note),
             "instrument_index": cell.instrumentIndex,
             "reason": ignoredCellReasonName(cell.reason),
+            "skip_reason": cell.skipReason.rawValue,
+            "selected_sample_index": cell.selectedSampleIndex.map { $0 as Any } ?? NSNull(),
+            "selected_sample_length": cell.selectedSampleLength.map { $0 as Any } ?? NSNull(),
+            "selected_sample_loop_mode": cell.selectedSampleLoopMode.map(loopModeName) ?? NSNull(),
+            "first_playable_sample_fallback_used": cell.firstPlayableSampleFallbackUsed,
+            "sample_map_keymap_behavior_deferred": cell.sampleMapKeymapBehaviorDeferred,
+            "sample_relative_note": cell.sampleRelativeNote.map { $0 as Any } ?? NSNull(),
+            "sample_finetune": cell.sampleFinetune.map { $0 as Any } ?? NSNull(),
+            "sample_base_sample_rate": cell.sampleBaseSampleRate.map { $0 as Any } ?? NSNull(),
+            "sample_offset_frames": cell.sampleOffsetFrames.map { $0 as Any } ?? NSNull(),
             "volume_column": volumeColumnDiagnosticJSON(cell.volumeColumn),
             "has_ignored_volume_column": cell.hasIgnoredVolumeColumn,
             "has_ignored_effect": cell.hasIgnoredEffect,
@@ -1125,16 +1198,26 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch reason {
         case .emptyNote:
             return "empty_note"
+        case .instrumentOnly:
+            return "instrument_only"
         case .keyOff:
             return "key_off"
         case .invalidNote:
             return "invalid_note"
         case .missingInstrument:
             return "missing_instrument"
-        case .noPlayableSample:
-            return "no_playable_sample"
+        case .unknownInstrument:
+            return "unknown_instrument"
+        case .instrumentHasNoPlayableSample:
+            return "instrument_has_no_playable_sample"
+        case .samplePCMEmpty:
+            return "sample_pcm_empty"
         case .sampleOffsetOutOfRange:
             return "sample_offset_out_of_range"
+        case .unsupportedDeferredEffectInteraction:
+            return "unsupported_deferred_effect_interaction"
+        case .unknown:
+            return "unknown"
         }
     }
 
@@ -1250,8 +1333,32 @@ func renderToolSummary(
     if result.wasFrameCountBounded {
         lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")
     }
+    if arguments.diagnosticsJSONPath != nil || arguments.progress {
+        appendEventCoverageSummary(to: &lines, result: result)
+    }
     lines.append("Export succeeded.")
     return lines.joined(separator: "\n")
+}
+
+private func appendEventCoverageSummary(
+    to lines: inout [String],
+    result: PlaybackSongOfflineRenderResult
+) {
+    let coverage = result.diagnostics.eventCoverage
+    let rejectedVoiceCount = result.scheduledVoiceIndices.filter { $0 == nil }.count
+    lines.append("Event coverage: parsed normal notes \(coverage.normalNoteCells), scheduled events \(coverage.scheduledNoteEvents), skipped notes \(coverage.skippedNoteEvents).")
+    let topReasons = coverage.skipReasonCounts.prefix(3).map { "\($0.reason.rawValue)=\($0.count)" }
+    lines.append("Top skip reasons: \(topReasons.isEmpty ? "none" : topReasons.joined(separator: ", ")).")
+    let skippedCoordinates = result.diagnostics.ignoredCells
+        .filter { (1...96).contains($0.note) }
+        .prefix(5)
+        .map { cell in
+            "order \(cell.source.orderIndex) pattern \(cell.source.patternIndex) row \(cell.source.rowIndex) ch \(cell.channelIndex) \(cell.skipReason.rawValue)"
+        }
+    lines.append("First skipped note coordinates: \(skippedCoordinates.isEmpty ? "none" : skippedCoordinates.joined(separator: "; ")).")
+    lines.append(
+        "C mixer scheduling: \(result.scheduledVoiceIndices.count - rejectedVoiceCount)/\(result.scheduledVoiceIndices.count) accepted, \(rejectedVoiceCount) rejected, capacity \(CSoftwareMixer.maximumScheduledVoiceCount)."
+    )
 }
 
 private func printSummary(

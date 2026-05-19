@@ -431,6 +431,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let diagnosticsData = try Data(contentsOf: diagnosticsURL)
         let diagnostics = try XCTUnwrap(JSONSerialization.jsonObject(with: diagnosticsData) as? [String: Any])
         let render = try XCTUnwrap(diagnostics["render"] as? [String: Any])
+        let coverage = try XCTUnwrap(diagnostics["event_coverage"] as? [String: Any])
         let events = try XCTUnwrap(diagnostics["events"] as? [[String: Any]])
 
         XCTAssertEqual(diagnostics["schema_version"] as? Int, 1)
@@ -441,8 +442,126 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)
         XCTAssertEqual(render["maximum_duration_seconds"] as? Double, 60)
+        XCTAssertEqual(coverage["normal_note_cells"] as? Int, result.diagnostics.eventCoverage.normalNoteCells)
+        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, result.diagnostics.eventCoverage.scheduledNoteEvents)
+        XCTAssertEqual(coverage["skipped_note_events"] as? Int, result.diagnostics.eventCoverage.skippedNoteEvents)
+        XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
+    }
+
+    func testDiagnosticsJSONEventCoverageIncludesScheduledAndSkippedCoordinates() throws {
+        let playableSample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            pcm: [1, 0.5],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let emptySample = PlaybackSample(
+            instrumentIndex: 2,
+            sampleIndex: 0,
+            pcm: [],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 3, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 49, instrument: 9, volumeColumn: 0, effectType: 0, effectParam: 0)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [
+                    PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100),
+                    playableSample
+                ]),
+                2: PlaybackInstrument(index: 2, samples: [emptySample])
+            ],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let coverage = try XCTUnwrap(object["event_coverage"] as? [String: Any])
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let ignored = try XCTUnwrap(object["ignored_cells"] as? [[String: Any]])
+        let firstSkipped = try XCTUnwrap(coverage["first_skipped_note_coordinates"] as? [[String: Any]])
+        let firstEvent = try XCTUnwrap(events.first)
+
+        XCTAssertEqual(coverage["normal_note_cells"] as? Int, 4)
+        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 1)
+        XCTAssertEqual(coverage["skipped_note_events"] as? Int, 3)
+        XCTAssertEqual(firstEvent["sample_index"] as? Int, 1)
+        XCTAssertEqual(firstEvent["selected_sample_length"] as? Int, 2)
+        XCTAssertEqual(firstEvent["sample_selection_strategy"] as? String, "first_playable_sample")
+        XCTAssertEqual(firstEvent["first_playable_sample_fallback_used"] as? Bool, true)
+        XCTAssertEqual(firstEvent["sample_map_keymap_behavior_deferred"] as? Bool, true)
+        XCTAssertEqual(ignored.map { $0["skip_reason"] as? String }, [
+            "missing_instrument",
+            "sample_pcm_empty",
+            "unknown_instrument"
+        ])
+        XCTAssertEqual(firstSkipped.first?["channel_index"] as? Int, 1)
+        XCTAssertEqual((firstSkipped.first?["source"] as? [String: Any])?["row"] as? Int, 3)
+    }
+
+    func testDiagnosticsJSONReportsCMixerVoiceCapacityRejections() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: (0..<33).map { _ in
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        })
+        let song = PlaybackSong(
+            title: "capacity",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let coverage = try XCTUnwrap(object["event_coverage"] as? [String: Any])
+        let capacity = try XCTUnwrap(coverage["capacity"] as? [String: Any])
+        let skipReasons = try XCTUnwrap(coverage["skip_reason_counts"] as? [[String: Any]])
+
+        XCTAssertEqual(coverage["normal_note_cells"] as? Int, 33)
+        XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 33)
+        XCTAssertEqual(coverage["c_mixer_voice_capacity_limit_count"] as? Int, 1)
+        XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, 33)
+        XCTAssertEqual(capacity["scheduled_voice_accepted_count"] as? Int, 32)
+        XCTAssertEqual(capacity["scheduled_voice_rejected_count"] as? Int, 1)
+        XCTAssertTrue(skipReasons.contains { item in
+            item["reason"] as? String == "c_mixer_voice_capacity_limit" && item["count"] as? Int == 1
+        })
     }
 
     func testDiagnosticsJSONIncludesPitchPeriodFields() throws {

@@ -56,7 +56,10 @@ frequency for focused follow-up diagnosis; filled reports and generated audio
 artifacts stay outside git. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
-`--allow-long-render`.
+`--allow-long-render`. Bounded adapter event-coverage diagnostics now compare
+parsed normal note cells against scheduled C-backed events, report skipped-note
+reasons and coordinates, expose first-playable-sample/keymap deferrals, and
+report C mixer voice-capacity rejections without changing audio behavior.
 
 Immediate audio accuracy sequence:
 
@@ -93,8 +96,9 @@ Immediate audio accuracy sequence:
 31. Minimal sample offset 9xx for bounded offline renders — done
 32. Local effect frequency report from correlated mismatch windows — done
 33. Developer render duration controls for bounded XM candidate WAV helper — done
-34. Feature-flagged runtime backend switch
-35. Reference comparison stabilization against MikMod/OpenMPT
+34. Bounded adapter event coverage / missing note trigger diagnostics — done
+35. Feature-flagged runtime backend switch
+36. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

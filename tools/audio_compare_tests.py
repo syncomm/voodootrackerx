@@ -61,6 +61,45 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
             "initial_speed": 6,
             "initial_bpm": 125,
         },
+        "event_coverage": {
+            "total_cells_visited": 8,
+            "empty_cells": 2,
+            "normal_note_cells": 3,
+            "note_off_cells": 1,
+            "invalid_note_cells": 0,
+            "instrument_only_cells": 0,
+            "note_with_instrument_cells": 2,
+            "note_with_missing_or_zero_instrument_cells": 1,
+            "scheduled_note_events": 1,
+            "skipped_note_events": 2,
+            "skipped_note_off_events_no_active_voice": 1,
+            "ignored_or_deferred_cells": 4,
+            "first_playable_sample_fallback_events": 1,
+            "sample_map_keymap_deferred_events": 1,
+            "event_outside_bounded_row_range_count": 0,
+            "event_capacity_limit_count": 0,
+            "c_mixer_voice_capacity_limit_count": 0,
+            "skip_reason_counts": [
+                {"reason": "missing_instrument", "count": 1},
+                {"reason": "sample_pcm_empty", "count": 1},
+            ],
+            "capacity": {
+                "c_mixer_voice_capacity": 32,
+                "scheduled_voice_attempt_count": 1,
+                "scheduled_voice_accepted_count": 1,
+                "scheduled_voice_rejected_count": 0,
+                "potentially_unscheduled_event_count": 0,
+            },
+            "first_skipped_note_coordinates": [
+                {
+                    "source": source,
+                    "channel_index": 2,
+                    "note": 49,
+                    "instrument_index": 0,
+                    "reason": "missing_instrument",
+                }
+            ],
+        },
         "row_timing": [
             {
                 "source": source,
@@ -663,6 +702,19 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("speed F03 6/125->3/125", markdown)
             self.assertIn("mapped 2/2; deferred loop", markdown)
             self.assertIn("| forward |", markdown)
+
+    def test_correlation_includes_event_coverage_summary_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Event Coverage", markdown)
+            self.assertIn("- Normal note cells: 3", markdown)
+            self.assertIn("- Scheduled note events: 1", markdown)
+            self.assertIn("- Skipped note events: 2", markdown)
+            self.assertIn("- Top skip reasons: missing_instrument=1, sample_pcm_empty=1", markdown)
+            self.assertIn("- C mixer scheduling: 1/1 accepted, 0 rejected, capacity 32", markdown)
+            self.assertIn("reason missing_instrument", markdown)
 
     def test_correlation_report_counts_deferred_ecx_note_cut_in_worst_windows(self):
         diagnostics = synthetic_diagnostics_json()

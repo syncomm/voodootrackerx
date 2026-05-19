@@ -42,6 +42,14 @@ selected instrument/sample identifiers, and mapped loop mode. They also record
 row start frames, effective speed/BPM per adapted row, and any `Fxx` timing
 cells encountered. Oversized frame requests are clamped to a conservative
 maximum before rendering.
+The bounded adapter diagnostics now include an event-coverage summary for
+missing-note investigations. It counts total visited cells, empty cells, normal
+note cells, note-off cells, invalid notes, instrument-only cells, note cells
+with and without an instrument, scheduled note events, skipped note events,
+note-off cells that had no active adapted voice, and ignored/deferred cells. It
+also classifies skip reasons such as missing instrument, unknown instrument,
+empty sample PCM, no playable sample, sample offset out of range, deferred
+effect interaction, and C mixer voice capacity rejection.
 Pitch diagnostics include the source note, selected sample base sample rate,
 output sample rate, sample relative note, raw/effective finetune, effective
 note value/index, song linear-frequency flag, frequency-table status, XM linear
@@ -88,6 +96,13 @@ approximations rather than full FT2/OpenMPT envelope parity.
 Runtime playback still uses `AVAudioPlayerNode` through the existing playback
 path; the C mixer is still not used for live playback, and full real XM playback
 through the C mixer has not been implemented.
+
+The event-coverage diagnostics are reporting only. They intentionally do not
+fix sample selection, implement instrument keymaps or multisample note mapping,
+increase voice capacity, add new effects, or change mixer DSP behavior. Scheduled
+events report the current first-playable-sample selection strategy and whether
+multi-sample/keymap behavior appears deferred so a later PR can target that
+behavior with evidence.
 
 The C-backed offline mixer now renders fractional source-sample positions with
 simple deterministic linear interpolation. Integer source positions still read
@@ -264,7 +279,7 @@ The current adapter does not:
 | `PlaybackPattern.rows` | `SyntheticPattern.rowCount` and flattened events | Sum included pattern row counts into one flat synthetic pattern. | Pattern delay and richer order timeline later. |
 | `PlaybackRow.index` | `SyntheticTrackerEvent.row` | Map to flattened row offset plus row index. | Pattern delay and row-repeat semantics later. |
 | `PlaybackCell.note` | Trigger/release decision and playback step | Trigger only for `1...96`, deriving a linear-frequency sample step from note/sample metadata when the song uses the linear frequency table. Note value `97` schedules a key-off/release frame for the active adapted voice on that channel when one is tracked. Empty and invalid notes are ignored safely. | Amiga pitch behavior, note cut/delay, retrigger, and broader effect-triggered release behavior later. |
-| `PlaybackCell.instrument` | Sample lookup | Use `PlaybackSong.sample(forInstrument:)`, currently first playable sample. | Multisample/keymap and instrument fallback semantics later. |
+| `PlaybackCell.instrument` | Sample lookup and event coverage diagnostics | Use the current first-playable-sample behavior. Diagnostics distinguish missing zero instruments, unknown instruments, empty sample PCM, instruments with no playable sample, selected sample index/length/loop mode, and first-playable-sample fallback usage. | Multisample/keymap and instrument fallback semantics later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` and event source offset for nonzero `9xx` | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op. Apply nonzero `9xx` only when a same-cell note/sample trigger emits a bounded offline event, using `xx * 256` source sample frames as the initial source position. Diagnose `900` as ignored/deferred/no-op. Diagnose out-of-range offsets and skip that voice deterministically. Keep other effect-column commands deferred. | Targeted effect integration PRs later, including `9xx` memory if needed. |
 | `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
@@ -290,6 +305,7 @@ The current adapter does not:
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
 | C voice limit is too small for dense rows. | First adapter renders tiny bounded fixtures. Later PRs can schedule in blocks or increase C storage after a focused decision. |
+| Local listening suggests missing notes before the C mixer. | Event-coverage diagnostics compare parsed normal note cells with scheduled C-backed events, report skipped coordinates and reasons, and expose C mixer voice-capacity rejections without changing playback behavior. |
 
 ## Test Strategy For Adapter PRs
 
@@ -332,6 +348,12 @@ bounded offline rendering:
   volume-column state, and parsed volume-envelope behavior.
 - Assert `900` is diagnosed as ignored/deferred/no-op and that out-of-range
   `9xx` offsets skip the voice safely with deterministic silence.
+- Assert event coverage counts visited cells, normal notes, note-offs, scheduled
+  notes, skipped notes, and skip reasons without changing render output.
+- Assert scheduled and skipped note diagnostics include source
+  order/pattern/row/channel coordinates and sample-selection metadata.
+- Assert C mixer voice capacity rejections are reported when a synthetic fixture
+  exceeds the current fixed voice limit.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -372,9 +394,13 @@ bounded offline rendering:
 13. Done: minimal nonzero `9xx` sample offset for bounded offline adapted
     renders, with `900` diagnosed as ignored/deferred/no-op and out-of-range
     offsets skipped safely.
-14. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+14. Done: bounded adapter event coverage and missing-note trigger diagnostics,
+    reporting parsed normal notes, scheduled events, skipped notes, skip
+    reasons, sample-selection fallback, and C mixer capacity rejections without
+    changing audio behavior.
+15. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-15. Feature-flagged runtime C mixer backend switch only after offline parity and
+16. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass

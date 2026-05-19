@@ -41,6 +41,12 @@ output directory.
 - Requested frames or duration:
 - Bounded order range:
 - Bounded row range:
+- Normal note cells:
+- Scheduled events:
+- Skipped notes:
+- Top skip reasons:
+- First skipped coordinates:
+- Suspected missing-note cause:
 - Adapter notes:
 
 ## Comparison Run
@@ -64,6 +70,7 @@ output directory.
 - Correlation notes:
 - Effect-frequency summary present:
 - Volume-column frequency summary present:
+- Event-coverage summary present:
 - Recommendation heuristic present:
 
 ## Top Mismatch Windows
@@ -85,6 +92,8 @@ output directory.
 - Fxx / row-timing clues:
 - Envelope / fadeout / key-off clues:
 - Loop metadata clues:
+- Event coverage / skipped-note clues:
+- First skipped coordinates:
 
 ## Effect / Volume Frequency Summary
 
@@ -118,6 +127,9 @@ or source-to-synthetic diagnostics.
 
 - Metric summary:
 - Trace or diagnostics correlation:
+- Event coverage summary:
+- Top skip reasons:
+- Suspected missing-note cause:
 - Correlation report summary:
 - Subjective listening notes from Gregory:
 - Local reproduction notes:

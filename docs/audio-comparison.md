@@ -50,6 +50,12 @@ first-pass volume-envelope sustain, loop, note value `97` key-off/release, and
 post-key-off fadeout decisions for bounded offline adapted events, including
 whether each decision was applied, deferred, or approximated. Non-linear/Amiga-table pitch
 behavior remains deferred and is reported as a neutral step fallback.
+Diagnostics JSON also includes an event-coverage summary for missing-note
+investigations. It compares parsed bounded `PlaybackSong` cells against
+scheduled C-backed adapter events, counts normal notes, note-offs, empty and
+invalid cells, skipped notes, skip reasons, first-playable-sample fallback
+usage, sample-map/keymap deferrals, and current C mixer voice-capacity
+rejections.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -58,6 +64,9 @@ maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
 volume-column decisions, Fxx timing changes, sample-offset decisions, envelope
 sustain/loop/key-off/fadeout status, and loop metadata.
+When diagnostics JSON contains event coverage, the correlation report includes
+a concise event-coverage section with normal note counts, scheduled events,
+skipped notes, top skip reasons, and first skipped coordinates.
 The same report also summarizes applied, ignored/no-op, deferred/unsupported,
 and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
@@ -151,6 +160,11 @@ automatic fix.
 5. If diagnostics JSON was exported, run
    `scripts/correlate-audio-comparison.py` to map worst mismatch windows to
    nearby bounded adapter rows/events. Keep the correlation report local.
+   Read the event-coverage summary first when listening reports suggest missing
+   notes. Missing/unknown instruments, empty sample PCM, no-playable-sample
+   reasons, first-playable-sample fallback/keymap deferrals, out-of-range
+   `9xx`, C mixer voice capacity rejections, and deferred effect interactions
+   should each guide a separate targeted follow-up PR.
 6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
@@ -231,6 +245,8 @@ ranges, then lists:
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
   counts, and overall bounded command frequency
+- event-coverage totals and skipped-note hotspots when diagnostics JSON
+  contains them
 - a transparent heuristic recommendation for the next narrow PR, such as note
   cut/delay, retrigger, sample-offset memory, pattern control effects, or more
   local review when no command clearly dominates
@@ -248,6 +264,11 @@ cut/delay or retrigger. If mismatch windows repeatedly line up with diagnosed
 mismatch windows are broad and steady while events look plausible, remaining
 resampling details or reference-render settings may be the better next
 investigation.
+If the event-coverage section shows parsed normal notes that never became
+scheduled events, prioritize the reported skip reasons before implementing more
+effects. Keep sample-map/keymap support, capacity fixes, sample-offset
+refinements, traversal diagnostics, and effect handling as separate targeted
+follow-up PRs.
 The recommendation line is a heuristic summary of the bounded diagnostics; it
 is not an automatic correctness decision and should be checked against listening
 notes, renderer settings, and the actual row/event context before opening the

@@ -3343,6 +3343,145 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(result.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 1)
     }
 
+    func testPlaybackSongOfflineRendererWindowedSingleWindowMatchesNonWindowedRender() {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let nonWindowed = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 64)
+
+        XCTAssertEqual(windowed.block, nonWindowed.block)
+        XCTAssertEqual(windowed.scheduledVoiceAttempts.map(\.eventIndex), [0])
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 64)
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowCount, 1)
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalScheduledCapacityRejects, 0)
+    }
+
+    func testPlaybackSongOfflineRendererWindowedRenderReusesScheduledCapacityAcrossRows() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let notesPerRow = 100
+        let rows = (0..<3).map { rowIndex in
+            PlaybackRow(index: rowIndex, cells: (0..<notesPerRow).map { _ in
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+            })
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let allAtOnce = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(windowed.windowedRenderSummary)
+
+        XCTAssertEqual(allAtOnce.diagnostics.eventCoverage.normalNoteCells, notesPerRow * rows.count)
+        XCTAssertEqual(allAtOnce.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 44)
+        XCTAssertEqual(windowed.scheduledVoiceRejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count, 0)
+        XCTAssertEqual(windowed.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 0)
+        XCTAssertEqual(summary.windowCount, 3)
+        XCTAssertEqual(summary.totalScheduledEvents, notesPerRow * rows.count)
+        XCTAssertEqual(summary.totalAcceptedScheduledEvents, notesPerRow * rows.count)
+        XCTAssertEqual(summary.totalScheduledCapacityRejects, 0)
+        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [100, 100, 100])
+        XCTAssertEqual(summary.windows.map(\.acceptedScheduledEventCount), [100, 100, 100])
+        XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [0, 0, 0])
+        XCTAssertGreaterThan(windowed.block.interleavedPCM.reduce(0, +), allAtOnce.block.interleavedPCM.reduce(0, +))
+    }
+
+    func testPlaybackSongOfflineRendererWindowedDiagnosticsAggregatePerWindowRejects() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let attemptedVoiceCount = CSoftwareMixer.maximumScheduledVoiceCount + 1
+        let rows = [
+            PlaybackRow(index: 0, cells: (0..<attemptedVoiceCount).map { _ in
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+            }),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+            ])
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
+        let summary = try XCTUnwrap(result.windowedRenderSummary)
+
+        XCTAssertEqual(summary.totalScheduledEvents, attemptedVoiceCount + 1)
+        XCTAssertEqual(summary.totalScheduledCapacityRejects, 1)
+        XCTAssertEqual(summary.firstWindowsWithRejects.map(\.windowIndex), [0])
+        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [attemptedVoiceCount, 1])
+        XCTAssertEqual(summary.windows.map(\.scheduledCapacityRejectedCount), [1, 0])
+        XCTAssertEqual(result.diagnostics.eventCoverage.cMixerVoiceCapacityLimitCount, 1)
+        XCTAssertTrue(result.diagnostics.eventCoverage.skipReasonCounts.contains { item in
+            item.reason == .cMixerVoiceCapacityLimit && item.count == 1
+        })
+    }
+
+    func testPlaybackSongOfflineRendererWindowedMultipleRunsAreDeterministic() {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 5
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let first = renderer.renderWindowed(request, windowRows: 1)
+        let second = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.windowedRenderSummary?.windowCount, 3)
+    }
+
     func testPlaybackSongOfflineRendererCanRenderByRowCount() {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25])
         let song = makePlaybackSong(

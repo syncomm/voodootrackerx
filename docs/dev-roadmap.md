@@ -67,7 +67,11 @@ documented `--seconds` / `--max-frames` controls gated by
 parsed normal note cells against scheduled C-backed events, report skipped-note
 reasons and coordinates, expose sample-selection methods and fallbacks, and
 report C mixer scheduled/active capacity values, reject counts, and rejected
-event coordinates without changing runtime playback.
+event coordinates without changing runtime playback. Long developer-only
+candidate WAV exports can now opt into `--window-rows` row-windowed offline
+scheduling to reuse the fixed C scheduled-voice pool across deterministic
+render windows, with aggregate/per-window capacity diagnostics and documented
+window-boundary state limitations.
 
 Immediate audio accuracy sequence:
 
@@ -109,7 +113,7 @@ Immediate audio accuracy sequence:
 36. C mixer scheduled voice capacity / diagnostics hardening — done
 37. Pattern traversal / Bxx-Dxx-EEx diagnostics for bounded offline renders — done
 38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`EEx` — separate later PR
-39. Chunked/windowed offline render scheduling for long candidate WAV exports — separate later PR
+39. Chunked/windowed offline render scheduling for long candidate WAV exports — done
 40. Feature-flagged runtime backend switch
 41. Reference comparison stabilization against MikMod/OpenMPT
 
@@ -205,6 +209,9 @@ Features:
 - fixed 256-voice scheduled/active C mixer storage for bounded offline renders,
   with diagnostics for configured capacities, accepted scheduled voices, reject
   counts, and rejected event coordinates
+- explicit `--window-rows` row-windowed scheduling for long developer-only
+  candidate WAV exports, with aggregate/per-window capacity diagnostics and
+  first-pass boundary limitations for sustained mixer state
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate

@@ -7,16 +7,31 @@ import argparse
 import json
 import math
 import sys
+from collections import Counter, defaultdict
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
+MAX_EXAMPLES_PER_COMMAND = 3
 
 
 class CorrelationError(Exception):
     """A user-facing correlation input or validation error."""
+
+
+@dataclass(frozen=True)
+class CommandOccurrence:
+    domain: str
+    label: str
+    status: str
+    source: dict[str, Any]
+    channel: Any
+    start_frame: int | None
+    end_frame: int | None
+    window_ranks: tuple[int, ...] = ()
 
 
 def load_json(path: Path, role: str) -> dict[str, Any]:
@@ -194,6 +209,295 @@ def timing_change_index(changes: list[dict[str, Any]]) -> dict[tuple[Any, Any, A
     return indexed
 
 
+def source_row_key(source: dict[str, Any]) -> tuple[Any, Any, Any]:
+    return (
+        source.get("order"),
+        source.get("pattern"),
+        source.get("row"),
+    )
+
+
+def row_frame_indexes(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[tuple[Any, Any, Any], tuple[int, int]], dict[Any, tuple[int, int]]]:
+    by_source: dict[tuple[Any, Any, Any], tuple[int, int]] = {}
+    by_synthetic_row: dict[Any, tuple[int, int]] = {}
+    for row in rows:
+        frame_range = (row["_start_frame"], row["_end_frame"])
+        by_source[source_row_key(nested_dict(row.get("source")))] = frame_range
+        synthetic_row = row.get("synthetic_row")
+        if synthetic_row is not None:
+            by_synthetic_row[synthetic_row] = frame_range
+    return by_source, by_synthetic_row
+
+
+def frame_range_for_diagnostic(
+    diagnostic: dict[str, Any],
+    rows_by_source: dict[tuple[Any, Any, Any], tuple[int, int]],
+    rows_by_synthetic: dict[Any, tuple[int, int]],
+) -> tuple[int | None, int | None]:
+    source = nested_dict(diagnostic.get("source"))
+    source_range = rows_by_source.get(source_row_key(source))
+    if source_range is not None:
+        return source_range
+    synthetic_row = diagnostic.get("synthetic_row")
+    synthetic_range = rows_by_synthetic.get(synthetic_row)
+    if synthetic_range is not None:
+        return synthetic_range
+    start_frame = integer(diagnostic.get("scheduled_start_frame"))
+    end_frame = integer(diagnostic.get("estimated_end_frame"))
+    if start_frame is None:
+        start_frame = integer(diagnostic.get("row_start_frame"))
+    if start_frame is None:
+        return None, None
+    if end_frame is None:
+        end_frame = start_frame + 1
+    return max(0, start_frame), max(start_frame + 1, end_frame)
+
+
+def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str:
+    effect_type = int_or_none(effect_type_value)
+    effect_param = int_or_none(effect_param_value) or 0
+    if effect_type is None:
+        return "unknown/unsupported"
+    effect_type &= 0xFF
+    effect_param &= 0xFF
+    if effect_type == 0x00:
+        return "0xy arpeggio" if effect_param != 0 else "none"
+    if effect_type == 0x01:
+        return "1xx portamento up"
+    if effect_type == 0x02:
+        return "2xx portamento down"
+    if effect_type == 0x03:
+        return "3xx tone portamento"
+    if effect_type == 0x04:
+        return "4xy vibrato"
+    if effect_type == 0x09:
+        return "900 sample offset / effect memory" if effect_param == 0 else "9xx sample offset"
+    if effect_type == 0x0A:
+        return "Axy volume slide"
+    if effect_type == 0x0B:
+        return "Bxx position jump"
+    if effect_type == 0x0C:
+        return "Cxx set volume"
+    if effect_type == 0x0D:
+        return "Dxx pattern break"
+    if effect_type == 0x0E:
+        subcommand = (effect_param >> 4) & 0x0F
+        if subcommand == 0x09:
+            return "E9x retrigger"
+        if subcommand == 0x0C:
+            return "ECx note cut"
+        if subcommand == 0x0D:
+            return "EDx note delay"
+        if subcommand == 0x0E:
+            return "EEx pattern delay"
+        return "unknown/unsupported"
+    if effect_type == 0x0F:
+        return "Fxx speed/BPM"
+    return "unknown/unsupported"
+
+
+def volume_command_label(volume_column: dict[str, Any]) -> str:
+    command = nested_dict(volume_column.get("command"))
+    name = command.get("name")
+    if name == "setVolume":
+        return "set volume"
+    if name == "volumeSlideDown":
+        return "volume slide down"
+    if name == "volumeSlideUp":
+        return "volume slide up"
+    if name == "fineVolumeSlideDown":
+        return "fine volume slide down"
+    if name == "fineVolumeSlideUp":
+        return "fine volume slide up"
+    if name == "setPanning":
+        return "set panning"
+    if name == "panningSlideLeft":
+        return "pan slide left"
+    if name == "panningSlideRight":
+        return "pan slide right"
+    if name == "setVibratoSpeed":
+        return "vibrato speed"
+    if name == "vibrato":
+        return "vibrato"
+    if name == "tonePortamento":
+        return "tone portamento"
+    if name == "none":
+        return "none"
+    return "unsupported/unknown"
+
+
+def volume_status(volume_column: dict[str, Any]) -> str:
+    classification = str(volume_column.get("classification", "")).lower()
+    if bool(volume_column.get("applied")) or classification == "supported":
+        return "applied"
+    if bool(volume_column.get("deferred")) or classification == "deferred":
+        return "deferred/unsupported"
+    if bool(volume_column.get("ignored_as_empty_or_no_op")) or classification == "ignored_no_op":
+        return "ignored/no-op"
+    return "unknown"
+
+
+def sample_offset_status(sample_offset: dict[str, Any]) -> str:
+    status = str(sample_offset.get("status", ""))
+    if bool(sample_offset.get("applied")) or status == "applied":
+        return "applied"
+    if status == "ignored_900_no_op" or bool(sample_offset.get("deferred")):
+        return "deferred/no-op"
+    if bool(sample_offset.get("skipped")) or status == "out_of_range_skipped":
+        return "ignored/no-op"
+    if status == "not_present":
+        return "ignored/no-op"
+    return "unknown"
+
+
+def timing_change_status(change: dict[str, Any]) -> str:
+    if bool(change.get("applied")):
+        return "applied"
+    if change.get("kind") == "ignored_f00":
+        return "ignored/no-op"
+    return "unknown"
+
+
+def extract_command_occurrences(
+    diagnostics: dict[str, Any],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    changes: list[dict[str, Any]],
+) -> list[CommandOccurrence]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    occurrences: list[CommandOccurrence] = []
+
+    sample_offset_keys = {
+        (
+            source_key(nested_dict(item.get("source")), item.get("channel_index")),
+            int_or_none(item.get("effect_type")),
+            int_or_none(item.get("effect_param")),
+        )
+        for item in nested_list(diagnostics.get("sample_offset_effects"))
+        if isinstance(item, dict)
+    }
+
+    volume_mapping_keys = {
+        source_key(nested_dict(item.get("source")), item.get("channel_index"))
+        for item in nested_list(diagnostics.get("volume_column_mappings"))
+        if isinstance(item, dict)
+    }
+
+    for field in nested_list(diagnostics.get("deferred_fields")):
+        if not isinstance(field, dict):
+            continue
+        domain = field.get("field")
+        source = nested_dict(field.get("source"))
+        channel = field.get("channel_index")
+        if domain == "effect":
+            effect_type = int_or_none(field.get("effect_type"))
+            effect_param = int_or_none(field.get("effect_param"))
+            if (source_key(source, channel), effect_type, effect_param) in sample_offset_keys:
+                continue
+            start_frame, end_frame = frame_range_for_diagnostic(field, rows_by_source, rows_by_synthetic)
+            occurrences.append(CommandOccurrence(
+                domain="effect",
+                label=effect_command_label(effect_type, effect_param),
+                status="deferred/unsupported",
+                source=source,
+                channel=channel,
+                start_frame=start_frame,
+                end_frame=end_frame,
+            ))
+        elif domain == "volume_column" and source_key(source, channel) not in volume_mapping_keys:
+            volume_column = nested_dict(field.get("volume_column"))
+            start_frame, end_frame = frame_range_for_diagnostic(field, rows_by_source, rows_by_synthetic)
+            occurrences.append(CommandOccurrence(
+                domain="volume",
+                label=volume_command_label(volume_column),
+                status=volume_status(volume_column),
+                source=source,
+                channel=channel,
+                start_frame=start_frame,
+                end_frame=end_frame,
+            ))
+
+    for sample_offset in nested_list(diagnostics.get("sample_offset_effects")):
+        if not isinstance(sample_offset, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(sample_offset, rows_by_source, rows_by_synthetic)
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(sample_offset.get("effect_type"), sample_offset.get("effect_param")),
+            status=sample_offset_status(sample_offset),
+            source=nested_dict(sample_offset.get("source")),
+            channel=sample_offset.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    if not nested_list(diagnostics.get("sample_offset_effects")):
+        for event in events:
+            sample_offset = nested_dict(event.get("sample_offset"))
+            if not sample_offset or not sample_offset.get("detected"):
+                continue
+            occurrences.append(CommandOccurrence(
+                domain="effect",
+                label=effect_command_label(sample_offset.get("effect_type"), sample_offset.get("effect_param")),
+                status=sample_offset_status(sample_offset),
+                source=nested_dict(event.get("source")),
+                channel=event.get("channel_index"),
+                start_frame=event.get("_start_frame"),
+                end_frame=event.get("_end_frame"),
+            ))
+
+    for change in changes:
+        start_frame, end_frame = frame_range_for_diagnostic(change, rows_by_source, rows_by_synthetic)
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(change.get("effect_type"), change.get("effect_param")),
+            status=timing_change_status(change),
+            source=nested_dict(change.get("source")),
+            channel=change.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    for mapping in nested_list(diagnostics.get("volume_column_mappings")):
+        if not isinstance(mapping, dict):
+            continue
+        volume_column = nested_dict(mapping.get("volume_column"))
+        start_frame, end_frame = frame_range_for_diagnostic(mapping, rows_by_source, rows_by_synthetic)
+        occurrences.append(CommandOccurrence(
+            domain="volume",
+            label=volume_command_label(volume_column),
+            status=volume_status(volume_column),
+            source=nested_dict(mapping.get("source")),
+            channel=mapping.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    return occurrences
+
+
+def tag_occurrences_with_windows(
+    occurrences: list[CommandOccurrence],
+    windows: list[dict[str, Any]],
+) -> list[CommandOccurrence]:
+    tagged = []
+    for occurrence in occurrences:
+        ranks: list[int] = []
+        if occurrence.start_frame is not None and occurrence.end_frame is not None:
+            for window in windows:
+                if overlaps(occurrence.start_frame, occurrence.end_frame, window["_start_frame"], window["_end_frame"]):
+                    ranks.append(int(window["_rank"]))
+        tagged.append(replace(occurrence, window_ranks=tuple(ranks)))
+    return tagged
+
+
+def int_or_none(value: Any) -> int | None:
+    parsed = integer(value)
+    return parsed if parsed is not None else None
+
+
 def correlated_windows(
     windows: list[dict[str, Any]],
     events: list[dict[str, Any]],
@@ -272,6 +576,10 @@ def build_correlation_report(
     rows = normalize_row_timing(diagnostics)
     changes = normalize_timing_changes(diagnostics)
     change_index = timing_change_index(changes)
+    command_occurrences = tag_occurrences_with_windows(
+        extract_command_occurrences(diagnostics, events, rows, changes),
+        windows,
+    )
     render = nested_dict(diagnostics.get("render"))
     correlated = correlated_windows(windows, events, rows, changes)
 
@@ -336,6 +644,8 @@ def build_correlation_report(
         lines.extend(["", "#### Relevant Fxx Timing Changes"])
         append_timing_change_table(lines, item["timing_changes"])
 
+    append_command_frequency_summary(lines, command_occurrences)
+
     lines.extend([
         "",
         "## Notes",
@@ -344,6 +654,206 @@ def build_correlation_report(
         "- Use this report to choose a focused follow-up PR; do not treat it as an automatic audio fix.",
     ])
     return "\n".join(lines) + "\n"
+
+
+def append_command_frequency_summary(lines: list[str], occurrences: list[CommandOccurrence]) -> None:
+    lines.extend([
+        "",
+        "## Effect And Volume Command Frequency",
+        "",
+        "Counts below are local diagnostic evidence from bounded adapter diagnostics. "
+        "They distinguish applied, ignored/no-op, deferred/unsupported, and unknown command handling.",
+    ])
+
+    worst_occurrences = [occurrence for occurrence in occurrences if occurrence.window_ranks]
+    append_frequency_section(
+        lines,
+        "Deferred effect commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="effect", status_prefix="deferred"),
+    )
+    append_frequency_section(
+        lines,
+        "Applied effect commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="effect", status_prefix="applied"),
+    )
+    append_frequency_section(
+        lines,
+        "Ignored/no-op effect commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="effect", status_prefix="ignored"),
+    )
+    append_frequency_section(
+        lines,
+        "Unknown effect commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="effect", status_prefix="unknown"),
+    )
+    append_frequency_section(
+        lines,
+        "Deferred volume-column commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="volume", status_prefix="deferred"),
+    )
+    append_frequency_section(
+        lines,
+        "Applied volume-column commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="volume", status_prefix="applied"),
+    )
+    append_frequency_section(
+        lines,
+        "Ignored/no-op volume-column commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="volume", status_prefix="ignored"),
+    )
+    append_frequency_section(
+        lines,
+        "Unknown volume-column commands in worst windows",
+        filtered_occurrences(worst_occurrences, domain="volume", status_prefix="unknown"),
+    )
+    append_frequency_section(lines, "Overall command frequency in bounded render", occurrences)
+    append_frequency_section(
+        lines,
+        "Overall deferred command frequency in bounded render",
+        [occurrence for occurrence in occurrences if occurrence.status.startswith("deferred")],
+    )
+    append_recommendation(lines, occurrences)
+
+
+def filtered_occurrences(
+    occurrences: list[CommandOccurrence],
+    *,
+    domain: str,
+    status_prefix: str,
+) -> list[CommandOccurrence]:
+    return [
+        occurrence for occurrence in occurrences
+        if occurrence.domain == domain and occurrence.status.startswith(status_prefix)
+    ]
+
+
+def append_frequency_section(
+    lines: list[str],
+    title: str,
+    occurrences: list[CommandOccurrence],
+) -> None:
+    lines.extend(["", f"### {title}"])
+    if not occurrences:
+        lines.append("- None.")
+        return
+
+    lines.extend([
+        "| Command | Status | Count | Worst Windows | Example Sources |",
+        "| --- | --- | ---: | --- | --- |",
+    ])
+    for item in grouped_occurrences(occurrences):
+        lines.append(
+            f"| {item['label']} | {item['status']} | {item['count']} | "
+            f"{item['windows']} | {item['examples']} |"
+        )
+
+
+def grouped_occurrences(
+    occurrences: list[CommandOccurrence],
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], list[CommandOccurrence]] = defaultdict(list)
+    for occurrence in occurrences:
+        groups[(occurrence.label, occurrence.status)].append(occurrence)
+
+    rows = []
+    for (label, status), items in groups.items():
+        window_ranks = sorted({rank for item in items for rank in item.window_ranks})
+        examples = unique_preserving_order(occurrence_source_label(item) for item in items)
+        rows.append({
+            "label": label,
+            "status": status,
+            "count": len(items),
+            "windows": ", ".join(str(rank) for rank in window_ranks) if window_ranks else "not in top windows",
+            "examples": "; ".join(examples[:MAX_EXAMPLES_PER_COMMAND]),
+        })
+    rows.sort(key=lambda row: (-row["count"], row["label"], row["status"]))
+    return rows
+
+
+def unique_preserving_order(values: Any) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
+
+
+def occurrence_source_label(occurrence: CommandOccurrence) -> str:
+    source = source_label(occurrence.source)
+    channel = format_optional(occurrence.channel)
+    return f"{source} ch {channel}"
+
+
+def append_recommendation(lines: list[str], occurrences: list[CommandOccurrence]) -> None:
+    recommendation, rationale, ranking = recommend_next_pr(occurrences)
+    lines.extend([
+        "",
+        "### Candidate next PR ranking",
+        f"- Recommended next PR: {recommendation}",
+        f"- Rationale: {rationale}",
+    ])
+    if not ranking:
+        lines.append("- Ranking signals: none from deferred commands in top mismatch windows.")
+        return
+    lines.append("- Ranking signals:")
+    for label, score in ranking:
+        lines.append(f"  - {label}: {score}")
+
+
+def recommend_next_pr(occurrences: list[CommandOccurrence]) -> tuple[str, str, list[tuple[str, int]]]:
+    deferred_worst = [
+        occurrence for occurrence in occurrences
+        if occurrence.domain == "effect"
+        and occurrence.status.startswith("deferred")
+        and occurrence.window_ranks
+    ]
+    if not deferred_worst:
+        return (
+            "No clear single target; review local listening/correlation evidence or improve diagnostics.",
+            "No deferred effect-column command appears in the top mismatch windows.",
+            [],
+        )
+
+    label_counts = Counter(occurrence.label for occurrence in deferred_worst)
+    scores = {
+        "Minimal Note Cut ECx / Note Delay EDx for Bounded Offline Renders":
+            label_counts["ECx note cut"] + label_counts["EDx note delay"],
+        "Minimal Retrigger E9x for Bounded Offline Renders":
+            label_counts["E9x retrigger"],
+        "Sample Offset 900 Effect Memory Follow-Up":
+            label_counts["900 sample offset / effect memory"],
+        "Pattern Control Effects Dxx/Bxx/EEx for Bounded Offline Traversal":
+            label_counts["Dxx pattern break"] + label_counts["Bxx position jump"] + label_counts["EEx pattern delay"],
+    }
+    ranking = sorted(
+        [(label, score) for label, score in scores.items() if score > 0],
+        key=lambda item: (-item[1], item[0]),
+    )
+    if not ranking:
+        return (
+            "No clear single target; review local listening/correlation evidence or improve diagnostics.",
+            "Deferred effect commands are present, but they do not match a focused heuristic bucket.",
+            [],
+        )
+
+    top_label, top_score = ranking[0]
+    total = sum(label_counts.values())
+    tied = len(ranking) > 1 and ranking[1][1] == top_score
+    minimum_score = 1 if total == 1 else max(2, math.ceil(total * 0.4))
+    if tied or top_score < minimum_score:
+        return (
+            "No clear single target; review local listening/correlation evidence or improve diagnostics.",
+            "The top deferred command bucket does not dominate the mismatch-window evidence.",
+            ranking,
+        )
+    return (
+        top_label,
+        "This heuristic only ranks deferred effect commands near the top mismatch windows; it is not an automatic correctness decision.",
+        ranking,
+    )
 
 
 def append_row_table(lines: list[str], rows: list[dict[str, Any]]) -> None:

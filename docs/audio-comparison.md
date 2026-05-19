@@ -58,6 +58,11 @@ maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
 volume-column decisions, Fxx timing changes, sample-offset decisions, envelope
 sustain/loop/key-off/fadeout status, and loop metadata.
+The same report also summarizes applied, ignored/no-op, deferred/unsupported,
+and unknown effect-column and volume-column command frequency near the worst
+mismatch windows and across the bounded diagnostics data. It includes a
+conservative candidate-next-PR ranking so the next audio-correctness change can
+be chosen from local evidence without implementing fixes automatically.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 
@@ -174,6 +179,13 @@ ranges, then lists:
   step, linear period/frequency intermediates, volume-column classification,
   Fxx timing changes, sample-offset status, envelope status, loop mode, and
   render interpolation status when those fields are present
+- deferred effect commands in the worst windows, applied effect commands in the
+  worst windows, deferred volume-column commands in the worst windows, applied
+  volume-column commands in the worst windows, ignored/no-op and unknown command
+  counts, and overall bounded command frequency
+- a transparent heuristic recommendation for the next narrow PR, such as note
+  cut/delay, retrigger, sample-offset memory, pattern control effects, or more
+  local review when no command clearly dominates
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
@@ -188,6 +200,10 @@ cut/delay or retrigger. If mismatch windows repeatedly line up with diagnosed
 mismatch windows are broad and steady while events look plausible, remaining
 resampling details or reference-render settings may be the better next
 investigation.
+The recommendation line is a heuristic summary of the bounded diagnostics; it
+is not an automatic correctness decision and should be checked against listening
+notes, renderer settings, and the actual row/event context before opening the
+follow-up implementation PR.
 
 Order 10 and order 30 of a local/private module can be useful exploratory
 bounded targets when they expose dense transitions. They remain local-only

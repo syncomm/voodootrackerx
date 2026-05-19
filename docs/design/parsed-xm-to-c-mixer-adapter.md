@@ -113,6 +113,23 @@ rejects, and rejected event coordinates. Scheduled events also report the
 current sample-selection method, fallback usage, missing/deferred keymap state,
 and capacity rejections so later PRs can target remaining audible gaps with
 evidence.
+For long/full-song candidate exports, `scheduled_voice_capacity` rejects are
+diagnosed separately from active voice pressure because they can indicate that
+the helper attempted to schedule too much of the future song into the fixed C
+scheduled-event pool at once. That is a later chunked/windowed offline
+scheduling problem, not a reason for this traversal-diagnostics PR to increase
+C capacity or change audio behavior.
+
+Bounded adapter diagnostics now also identify pattern traversal and timing
+hazards without changing render behavior. The diagnostics count `Bxx` position
+jump, `Dxx` pattern break, `EEx` pattern delay, `Fxx` speed/BPM timing changes
+for context, and other observed `E` subcommands. Each reported command includes
+source order/pattern/row/channel coordinates, raw effect type/parameter, a
+friendly decoded label, and a status such as applied, ignored/no-op,
+deferred/unsupported, or unknown. `Bxx`, `Dxx`, and `EEx` remain
+diagnostic/deferred only in this PR; bounded renders still flatten the requested
+order range and do not perform effect-driven traversal, pattern breaks, or
+pattern delays.
 
 The C-backed offline mixer now renders fractional source-sample positions with
 simple deterministic linear interpolation. Integer source positions still read
@@ -308,6 +325,7 @@ The current adapter does not:
 | `PlaybackCell.instrument` | Sample lookup and event coverage diagnostics | Resolve the selected instrument, then choose a mapped sample from the parsed XM 96-note sample map for normal notes `1...96` when a valid multi-sample mapping exists. Fall back safely to the first playable sample when no useful mapping exists, or skip when no valid sample can be selected. Diagnostics distinguish missing zero instruments, unknown instruments, empty sample PCM, invalid/non-playable map targets, selected sample index/length/loop mode, sample-map selection, fallback-after-invalid-map, first-playable fallback, and skipped-no-valid-sample cases. | Previous-instrument semantics and richer FT2/OpenMPT edge cases later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` and event source offset for nonzero `9xx` | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op. Apply nonzero `9xx` only when a same-cell note/sample trigger emits a bounded offline event, using `xx * 256` source sample frames as the initial source position. Diagnose `900` as ignored/deferred/no-op. Diagnose out-of-range offsets and skip that voice deterministically. Keep other effect-column commands deferred. | Targeted effect integration PRs later, including `9xx` memory if needed. |
+| `Bxx` / `Dxx` / `EEx` effect commands | Traversal hazard diagnostics | Count and report coordinates/status only. These commands are classified as deferred/unsupported and summarized as traversal hazards when present in the bounded range. | Minimal bounded traversal implementation for position jump, pattern break, and pattern delay later. |
 | `PlaybackInstrument.samples` / `noteSampleMap` | Sample selection source | Use `noteSampleMap[note - 1]` for normal XM notes when the instrument has a usable multi-sample map and the mapped sample is playable; otherwise apply the documented first-playable fallback/skip policy. | Previous-instrument behavior and richer instrument edge cases later. |
 | `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` and voice key-off/fadeout metadata on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. If valid parsed sustain/loop flags and point indices are present, pass mapped sustain and loop frames to the C mixer. If note value `97` later appears on the same adapted channel, pass an absolute release frame and a simple fadeout decrement. Diagnostics record absent, disabled, invalid/empty, mapped, applied, deferred, and approximated states. | Full FT2/OpenMPT envelope parity, panning envelopes, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
@@ -330,7 +348,7 @@ The current adapter does not:
 | Timing or sample-offset support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows and minimal nonzero `9xx` source starts on same-cell note triggers. Diagnose `F00`, `900`, out-of-range offsets, and all other effect-column commands without adding broad effect state. |
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
-| C voice limit is too small for dense rows. | The offline C mixer now uses a 256-voice fixed pool for scheduled/active voices. Keep any later increases or chunked scheduling focused and deterministic, with no heap allocation in the render hot path. |
+| C voice limit is too small for dense rows. | The offline C mixer now uses a 256-voice fixed pool for scheduled/active voices. Treat scheduled-event pool exhaustion separately from active voice pressure, especially in long renders that schedule too much future material up front. Keep any later increases or chunked/windowed scheduling focused and deterministic, with no heap allocation in the render hot path. |
 | Local listening suggests missing notes before the C mixer. | Event-coverage diagnostics compare parsed normal note cells with scheduled C-backed events, report skipped coordinates and reasons, and expose scheduled/active capacity values plus rejected event coordinates without changing runtime playback. |
 
 ## Test Strategy For Adapter PRs
@@ -393,6 +411,11 @@ bounded offline rendering:
   are reported when a synthetic fixture exceeds the fixed voice limit.
 - Assert dense synthetic fixtures above the former 32-voice limit and below the
   current 256-voice limit schedule without capacity rejects.
+- Assert traversal hazard diagnostics count `Bxx`, `Dxx`, and `EEx`, preserve
+  source coordinates, classify them as deferred/unsupported, and keep `Fxx`
+  classified as applied or ignored/no-op according to the existing timing
+  support.
+- Assert traversal diagnostics do not change rendered PCM output.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -443,9 +466,12 @@ bounded offline rendering:
 16. Done: C mixer scheduled voice capacity / diagnostics hardening, increasing
     the fixed offline scheduled/active voice pool to 256 and reporting capacity
     values plus rejected event coordinates without runtime backend changes.
-17. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+17. Done: pattern traversal and timing hazard diagnostics for bounded offline
+    renders, counting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed
+    `E` subcommands without implementing traversal behavior.
+18. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-18. Feature-flagged runtime C mixer backend switch only after offline parity and
+19. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass

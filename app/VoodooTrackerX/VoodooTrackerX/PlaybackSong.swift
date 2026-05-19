@@ -351,6 +351,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let rowMappings: [PlaybackSongSyntheticRowMapping]
     let rowTiming: [PlaybackSongSyntheticRowTimingDiagnostic]
     let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
+    let effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
@@ -386,6 +387,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var sampleOffsetEffectCount: Int {
         sampleOffsetEffects.count
+    }
+
+    var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
+        PlaybackSongSyntheticTraversalHazardSummary(effectCommandDiagnostics: effectCommandDiagnostics)
     }
 }
 
@@ -510,6 +515,7 @@ extension PlaybackSongSyntheticDiagnostics {
             rowMappings: rowMappings,
             rowTiming: rowTiming,
             timingChanges: timingChanges,
+            effectCommandDiagnostics: effectCommandDiagnostics,
             rowDiagnostics: rowDiagnostics,
             volumeColumnMappings: volumeColumnMappings,
             sampleOffsetEffects: sampleOffsetEffects,
@@ -604,6 +610,89 @@ struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {
     let bpmBefore: Int
     let speedAfter: Int
     let bpmAfter: Int
+}
+
+struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case ignoredNoOp
+        case deferredUnsupported
+        case unknown
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let decodedLabel: String
+    let status: Status
+    let isTraversalHazard: Bool
+
+    var isBxxPositionJump: Bool {
+        effectType == 0x0B
+    }
+
+    var isDxxPatternBreak: Bool {
+        effectType == 0x0D
+    }
+
+    var isEExPatternDelay: Bool {
+        effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0E
+    }
+
+    var isFxxTimingChange: Bool {
+        effectType == 0x0F
+    }
+}
+
+struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
+    static let firstHazardLimit = 10
+
+    let totalBxxPositionJump: Int
+    let totalDxxPatternBreak: Int
+    let totalEExPatternDelay: Int
+    let totalFxxSpeedBPM: Int
+    let totalOtherECommands: Int
+    let totalTraversalHazards: Int
+    let likelyIgnoresStructureChangingBehavior: Bool
+    let firstTraversalHazards: [PlaybackSongSyntheticEffectCommandDiagnostic]
+    let eCommandSubtypeCounts: [PlaybackSongSyntheticECommandSubtypeCount]
+
+    init(effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]) {
+        totalBxxPositionJump = effectCommandDiagnostics.filter { $0.isBxxPositionJump }.count
+        totalDxxPatternBreak = effectCommandDiagnostics.filter { $0.isDxxPatternBreak }.count
+        totalEExPatternDelay = effectCommandDiagnostics.filter { $0.isEExPatternDelay }.count
+        totalFxxSpeedBPM = effectCommandDiagnostics.filter { $0.isFxxTimingChange }.count
+        totalOtherECommands = effectCommandDiagnostics.filter {
+            $0.effectType == 0x0E && !$0.isEExPatternDelay
+        }.count
+        totalTraversalHazards = totalBxxPositionJump + totalDxxPatternBreak + totalEExPatternDelay
+        likelyIgnoresStructureChangingBehavior = totalTraversalHazards > 0
+        firstTraversalHazards = Array(effectCommandDiagnostics.filter { $0.isTraversalHazard }.prefix(Self.firstHazardLimit))
+        eCommandSubtypeCounts = Self.eCommandSubtypeCounts(from: effectCommandDiagnostics)
+    }
+
+    private static func eCommandSubtypeCounts(
+        from diagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]
+    ) -> [PlaybackSongSyntheticECommandSubtypeCount] {
+        var counts = [String: Int]()
+        for diagnostic in diagnostics where diagnostic.effectType == 0x0E {
+            counts[diagnostic.decodedLabel, default: 0] += 1
+        }
+        return counts
+            .map { PlaybackSongSyntheticECommandSubtypeCount(label: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count {
+                    return lhs.count > rhs.count
+                }
+                return lhs.label < rhs.label
+            }
+    }
+}
+
+struct PlaybackSongSyntheticECommandSubtypeCount: Equatable {
+    let label: String
+    let count: Int
 }
 
 struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
@@ -1540,6 +1629,7 @@ enum PlaybackSongSyntheticAdapter {
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
+        var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
         var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
         var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
@@ -1601,6 +1691,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumnMappings: &volumeColumnMappings,
                     sampleOffsetEffects: &sampleOffsetEffects,
                     keyOffEvents: &keyOffEvents,
+                    effectCommandDiagnostics: &effectCommandDiagnostics,
                     eventMappings: &eventMappings,
                     ignoredCells: &ignoredCells,
                     deferredCellFields: &deferredCellFields,
@@ -1626,6 +1717,7 @@ enum PlaybackSongSyntheticAdapter {
                 rowMappings: rowMappings,
                 rowTiming: timingPlan.rowTimingDiagnostics,
                 timingChanges: timingPlan.timingChanges,
+                effectCommandDiagnostics: effectCommandDiagnostics,
                 rowDiagnostics: rowDiagnostics,
                 volumeColumnMappings: volumeColumnMappings,
                 sampleOffsetEffects: sampleOffsetEffects,
@@ -1650,6 +1742,7 @@ enum PlaybackSongSyntheticAdapter {
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
         sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
@@ -1659,6 +1752,13 @@ enum PlaybackSongSyntheticAdapter {
         let ignoredStartCount = ignoredCells.count
         for (channelIndex, cell) in row.cells.enumerated() {
             eventCoverage.visit(cell)
+            if let effectCommandDiagnostic = effectCommandDiagnostic(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex
+            ) {
+                effectCommandDiagnostics.append(effectCommandDiagnostic)
+            }
             var channelState = channelStates[channelIndex] ?? ChannelState()
             let volumeColumn = applyVolumeColumn(
                 PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
@@ -2675,6 +2775,105 @@ enum PlaybackSongSyntheticAdapter {
             appliedOffsetFrames: computedOffsetFrames,
             selectedSampleLength: sampleLength
         )
+    }
+
+    private static func effectCommandDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int
+    ) -> PlaybackSongSyntheticEffectCommandDiagnostic? {
+        guard shouldReportEffectCommand(cell) else {
+            return nil
+        }
+        return PlaybackSongSyntheticEffectCommandDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            decodedLabel: effectCommandLabel(effectType: cell.effectType, effectParam: cell.effectParam),
+            status: effectCommandStatus(cell),
+            isTraversalHazard: isTraversalHazard(cell)
+        )
+    }
+
+    private static func shouldReportEffectCommand(_ cell: PlaybackCell) -> Bool {
+        switch cell.effectType {
+        case 0x0B, 0x0D, 0x0E, 0x0F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func effectCommandStatus(_ cell: PlaybackCell) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
+        switch cell.effectType {
+        case 0x0F:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x0B, 0x0D, 0x0E:
+            return .deferredUnsupported
+        default:
+            return .unknown
+        }
+    }
+
+    private static func isTraversalHazard(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x0B ||
+            cell.effectType == 0x0D ||
+            (cell.effectType == 0x0E && ((cell.effectParam >> 4) & 0x0F) == 0x0E)
+    }
+
+    private static func effectCommandLabel(effectType: UInt8, effectParam: UInt8) -> String {
+        switch effectType {
+        case 0x0B:
+            return "Bxx position jump"
+        case 0x0D:
+            return "Dxx pattern break"
+        case 0x0E:
+            return extendedEffectCommandLabel(effectParam: effectParam)
+        case 0x0F:
+            return "Fxx speed/BPM"
+        default:
+            return "unknown/unsupported"
+        }
+    }
+
+    private static func extendedEffectCommandLabel(effectParam: UInt8) -> String {
+        switch (effectParam >> 4) & 0x0F {
+        case 0x00:
+            return "E0x filter toggle"
+        case 0x01:
+            return "E1x fine portamento up"
+        case 0x02:
+            return "E2x fine portamento down"
+        case 0x03:
+            return "E3x glissando control"
+        case 0x04:
+            return "E4x vibrato control"
+        case 0x05:
+            return "E5x set finetune"
+        case 0x06:
+            return "E6x pattern loop"
+        case 0x07:
+            return "E7x tremolo control"
+        case 0x08:
+            return "E8x set panning"
+        case 0x09:
+            return "E9x retrigger"
+        case 0x0A:
+            return "EAx fine volume slide up"
+        case 0x0B:
+            return "EBx fine volume slide down"
+        case 0x0C:
+            return "ECx note cut"
+        case 0x0D:
+            return "EDx note delay"
+        case 0x0E:
+            return "EEx pattern delay"
+        case 0x0F:
+            return "EFx invert loop"
+        default:
+            return "unknown/unsupported"
+        }
     }
 
     private static func selectedSampleLength(_ sample: PlaybackSample) -> Int {

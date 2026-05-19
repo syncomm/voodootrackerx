@@ -627,6 +627,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
+                "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -647,8 +648,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
+                "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
             ],
             "event_coverage": eventCoverageJSON(from: result),
+            "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
+            "pattern_traversal_timing_effects": diagnostics.effectCommandDiagnostics.map(effectCommandDiagnosticJSON),
             "orders": diagnostics.adaptedOrders.map(orderJSON),
             "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
             "row_timing": diagnostics.rowTiming.map(rowTimingJSON),
@@ -722,6 +726,47 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "rejected_event_coordinates": rejectedEventCoordinatesJSON(from: result),
             ],
             "first_skipped_note_coordinates": firstSkippedNoteCoordinatesJSON(from: result.diagnostics.ignoredCells),
+        ]
+    }
+
+    private static func traversalHazardSummaryJSON(
+        _ summary: PlaybackSongSyntheticTraversalHazardSummary
+    ) -> [String: Any] {
+        [
+            "total_bxx_position_jump": summary.totalBxxPositionJump,
+            "total_dxx_pattern_break": summary.totalDxxPatternBreak,
+            "total_eex_pattern_delay": summary.totalEExPatternDelay,
+            "total_fxx_speed_bpm": summary.totalFxxSpeedBPM,
+            "total_other_e_commands": summary.totalOtherECommands,
+            "total_traversal_hazards": summary.totalTraversalHazards,
+            "likely_ignores_structure_changing_behavior": summary.likelyIgnoresStructureChangingBehavior,
+            "first_traversal_hazard_coordinates": summary.firstTraversalHazards.map(effectCommandDiagnosticJSON),
+            "e_command_subtype_counts": summary.eCommandSubtypeCounts.map(eCommandSubtypeCountJSON),
+        ]
+    }
+
+    private static func effectCommandDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticEffectCommandDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "effect_label": diagnostic.decodedLabel,
+            "decoded_label": diagnostic.decodedLabel,
+            "status": effectCommandStatusName(diagnostic.status),
+            "current_status": effectCommandStatusName(diagnostic.status),
+            "is_traversal_hazard": diagnostic.isTraversalHazard,
+        ]
+    }
+
+    private static func eCommandSubtypeCountJSON(
+        _ count: PlaybackSongSyntheticECommandSubtypeCount
+    ) -> [String: Any] {
+        [
+            "label": count.label,
+            "count": count.count,
         ]
     }
 
@@ -1222,6 +1267,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func effectCommandStatusName(_ status: PlaybackSongSyntheticEffectCommandDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .ignoredNoOp:
+            return "ignored/no-op"
+        case .deferredUnsupported:
+            return "deferred/unsupported"
+        case .unknown:
+            return "unknown"
+        }
+    }
+
     private static func loopModeName(_ mode: MixerSampleLoopMode) -> String {
         switch mode {
         case .none:
@@ -1417,6 +1475,7 @@ private func appendEventCoverageSummary(
     result: PlaybackSongOfflineRenderResult
 ) {
     let coverage = result.diagnostics.eventCoverage
+    let traversal = result.diagnostics.traversalHazardSummary
     let rejectedVoiceCount = result.scheduledVoiceRejectionReasons.compactMap { $0 }.count
     lines.append("Event coverage: parsed normal notes \(coverage.normalNoteCells), scheduled events \(coverage.scheduledNoteEvents), skipped notes \(coverage.skippedNoteEvents).")
     lines.append(
@@ -1433,6 +1492,9 @@ private func appendEventCoverageSummary(
     lines.append("First skipped note coordinates: \(skippedCoordinates.isEmpty ? "none" : skippedCoordinates.joined(separator: "; ")).")
     lines.append(
         "C mixer scheduling: \(result.scheduledVoiceIndices.count - rejectedVoiceCount)/\(result.scheduledVoiceIndices.count) accepted, \(rejectedVoiceCount) rejected, scheduled capacity \(CSoftwareMixer.maximumScheduledVoiceCount), active capacity \(CSoftwareMixer.maximumActiveVoiceCount)."
+    )
+    lines.append(
+        "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."
     )
 }
 

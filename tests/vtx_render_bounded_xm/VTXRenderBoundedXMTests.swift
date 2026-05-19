@@ -786,6 +786,114 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(sampleOffsetEffects.first?["status"] as? String, "applied")
     }
 
+    func testDiagnosticsJSONCountsTraversalHazardsWithCoordinatesAndStatuses() throws {
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0B, effectParam: 0x02),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0D, effectParam: 0x10),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xE2),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0F, effectParam: 0x06),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x94)
+            ])
+        ]
+        let song = PlaybackSong(
+            title: "traversal-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [:],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let summary = try XCTUnwrap(object["traversal_hazard_summary"] as? [String: Any])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
+        let firstHazards = try XCTUnwrap(summary["first_traversal_hazard_coordinates"] as? [[String: Any]])
+        let bxx = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "Bxx position jump" })
+        let dxx = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "Dxx pattern break" })
+        let eex = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "EEx pattern delay" })
+        let fxx = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "Fxx speed/BPM" })
+        let e9x = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "E9x retrigger" })
+
+        XCTAssertEqual(summary["total_bxx_position_jump"] as? Int, 1)
+        XCTAssertEqual(summary["total_dxx_pattern_break"] as? Int, 1)
+        XCTAssertEqual(summary["total_eex_pattern_delay"] as? Int, 1)
+        XCTAssertEqual(summary["total_fxx_speed_bpm"] as? Int, 1)
+        XCTAssertEqual(summary["total_other_e_commands"] as? Int, 1)
+        XCTAssertEqual(summary["total_traversal_hazards"] as? Int, 3)
+        XCTAssertEqual(summary["likely_ignores_structure_changing_behavior"] as? Bool, true)
+        XCTAssertEqual(firstHazards.count, 3)
+        XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["order"] as? Int, 0)
+        XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["pattern"] as? Int, 2)
+        XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["row"] as? Int, 0)
+        XCTAssertEqual(firstHazards.first?["channel_index"] as? Int, 0)
+        XCTAssertEqual(bxx["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(dxx["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(eex["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(e9x["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(fxx["current_status"] as? String, "applied")
+        XCTAssertEqual(fxx["is_traversal_hazard"] as? Bool, false)
+    }
+
+    func testTraversalDiagnosticsDoNotChangeRenderedAudio() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, -0.5],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let baseline = PlaybackSong(
+            title: "baseline",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [
+                PlaybackRow(index: 0, cells: [
+                    PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                ])
+            ])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let withTraversalHazard = PlaybackSong(
+            title: "with-traversal-hazard",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [
+                PlaybackRow(index: 0, cells: [
+                    PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0B, effectParam: 0x01)
+                ])
+            ])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        let baselineResult = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: baseline,
+            orderIndex: 0,
+            config: config,
+            frames: 3
+        ))
+        let traversalResult = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: withTraversalHazard,
+            orderIndex: 0,
+            config: config,
+            frames: 3
+        ))
+
+        XCTAssertEqual(traversalResult.block.interleavedPCM, baselineResult.block.interleavedPCM)
+        XCTAssertEqual(traversalResult.diagnostics.traversalHazardSummary.totalBxxPositionJump, 1)
+    }
+
     func testDiagnosticsJSONIncludesEnvelopeSemanticsAndKeyOffFields() throws {
         let envelope = PlaybackVolumeEnvelope(
             enabled: true,

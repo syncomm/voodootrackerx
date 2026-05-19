@@ -53,14 +53,24 @@ output directory.
 - Active capacity rejects:
 - Invalid scheduled voice rejects:
 - Rejected event coordinates:
+- Long-render scheduling note:
 - Sample-map selections:
 - First-playable fallback selections:
 - Fallback-after-invalid-map selections:
 - Skipped-no-valid-sample selections:
 - Missing/deferred sample-map selections:
+- Bxx position jumps:
+- Dxx pattern breaks:
+- EEx pattern delays:
+- Fxx speed/BPM timing changes:
+- Other E-command diagnostics:
+- Total traversal hazards:
+- First traversal hazard coordinates:
+- Traversal hazards before/in top mismatch windows:
 - Top skip reasons:
 - First skipped coordinates:
 - Suspected missing-note cause:
+- Suspected traversal/timing cause:
 - Adapter notes:
 
 ## Comparison Run
@@ -86,6 +96,7 @@ output directory.
 - Volume-column frequency summary present:
 - Event-coverage summary present:
 - Capacity summary present:
+- Pattern traversal / timing hazard summary present:
 - Recommendation heuristic present:
 
 ## Top Mismatch Windows
@@ -111,9 +122,13 @@ output directory.
 - Event coverage / skipped-note clues:
 - First skipped coordinates:
 - Capacity / rejected-event clues:
+- Pattern traversal / timing hazard clues:
 
 ## Effect / Volume Frequency Summary
 
+- Pattern traversal / timing hazards:
+- First traversal hazard coordinates:
+- Traversal recommendation signal:
 - Deferred effect commands in worst windows:
 - Applied effect commands in worst windows:
 - Ignored/no-op effect commands in worst windows:
@@ -131,7 +146,7 @@ Mark only categories supported by comparison output, listening checks, traces,
 or source-to-synthetic diagnostics.
 
 - [ ] timing / `Fxx` / row duration
-- [ ] order traversal / pattern break / position jump
+- [ ] order traversal / pattern break / position jump / pattern delay
 - [ ] panning / volume-column behavior
 - [ ] volume slides / envelope / fadeout / key-off
 - [ ] pitch / finetune / relative note / linear frequency
@@ -152,6 +167,7 @@ or source-to-synthetic diagnostics.
 - Top skip reasons:
 - Suspected missing-note cause:
 - Correlation report summary:
+- Pattern traversal / timing hazard summary:
 - Subjective listening notes from Gregory:
 - Local reproduction notes:
 
@@ -164,6 +180,7 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 - [ ] Additional Volume-Column Semantics:
 - [ ] Loop/Interpolation Investigation:
 - [ ] Bounded Order Traversal Improvement:
+- [ ] Minimal Pattern Delay EEx for Bounded Offline Renders:
 - [ ] Redistribution-Safe Audio Fixture Corpus:
 - [ ] Feature-Flagged Runtime Backend Skeleton only after enough offline confidence:
 

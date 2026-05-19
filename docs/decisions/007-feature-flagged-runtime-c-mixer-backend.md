@@ -61,8 +61,11 @@ A diagnostics follow-up keeps the same ADR boundaries: `VTX_AUDIO_BACKEND`
 remains opt-in, AVAudio remains the default, and a local-only
 `VTX_C_MIXER_RUNTIME_TRACE_PATH` JSONL trace records backend selection,
 PlaybackEngine event context, runtime C mixer add/clear/stop calls, render-frame
-counters, and the known per-channel stop clears-all limitation without claiming
-runtime stability or changing tracker follow behavior.
+counters, channel-scoped stop/replacement calls, and true global clear calls
+without claiming runtime stability or changing tracker follow behavior. A later
+runtime follow-up resolved the initial per-channel stop clears-all limitation by
+tagging runtime C mixer voices with caller-owned channel ids and stopping only
+matching tagged voices for channel stop and same-channel replacement.
 
 ## Feature Flag Proposal
 

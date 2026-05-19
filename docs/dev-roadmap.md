@@ -132,9 +132,11 @@ as the default fallback, uses an AVAudioEngine-hosted pull source, and keeps
 tracker viewport, parser, and broad UI work out of the backend PR. Runtime C
 mixer A/B listening diagnostics now add a local-only JSONL trace for backend
 selection, PlaybackEngine order/row/tick context, note/key/stop events, C mixer
-add/clear/stop calls, render-frame counters, and the known all-voice clear
-caused by per-channel stop in the experimental runtime path. The per-channel
-voice stop/replacement semantics fix remains separate future work.
+add/clear/stop calls, render-frame counters, and channel-scoped stop/replacement
+evidence. The experimental runtime C mixer now tags runtime voices by caller-owned
+channel id so same-channel replacement and channel stop use `c_mixer_stop_channel`
+instead of clearing all C mixer voices. True transport stop/reset still clears the
+runtime C mixer globally.
 
 Immediate audio accuracy sequence:
 
@@ -191,7 +193,7 @@ Immediate audio accuracy sequence:
 51. ADR: Feature-flagged runtime C mixer backend plan — done
 52. Feature-flagged runtime C mixer backend skeleton — done
 53. Runtime C mixer A/B listening diagnostics — done
-54. Runtime C mixer per-channel voice stop / replacement semantics — separate later PR
+54. Runtime C mixer per-channel voice stop / replacement semantics — done
 55. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
@@ -255,7 +257,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including all-voice clear/stop evidence for the current per-channel stop limitation
+- local-only runtime C mixer A/B diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence and true global clear/stop evidence
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

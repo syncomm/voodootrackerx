@@ -81,14 +81,14 @@ Show the first few trigger decisions:
 
 ```bash
 jq 'select(.decision == "triggered") | {tickIndex, orderIndex, rowIndex, channelIndex, speed, bpm, tickDuration, rowDuration, noteValue, instrumentIndex, relativeNote, finetune, sourceSampleRate, audioBufferSampleRate, targetFrequency, computedRate, rateBasis, computedVolume, envelopeEnabled, envelopeTick, envelopeValue, envelopeSustainActive, envelopeLoopActive, fadeoutValue, finalAppliedVolume, sampleOffset, sampleLength, loopEnabled, loopStartFrame, loopEndFrame, loopLengthFrames, loopType, loopTypeName, pingPongLoopApplied}' \
-  /tmp/darkl-vtx-playback.jsonl | head -80
+  /tmp/vtx-playback-trace.jsonl | head -80
 ```
 
 Find delayed notes, cuts, and retriggers:
 
 ```bash
 jq 'select(.decision == "delayed" or .decision == "cut" or .decision == "retriggered")' \
-  /tmp/darkl-vtx-playback.jsonl
+  /tmp/vtx-playback-trace.jsonl
 ```
 
 Compare with an audio report from `docs/audio-comparison.md` by matching the
@@ -125,6 +125,24 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
   unsupported.
 - Trace files can grow quickly because row decisions and tick updates are
   recorded per channel.
+
+## Runtime C Mixer Trace Notes
+
+The experimental runtime C mixer backend remains opt-in with
+`VTX_AUDIO_BACKEND=c_mixer`; unset or unknown values keep the default
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend. In Debug builds, set
+`VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl` to write a
+local-only JSONL trace for the runtime C mixer path.
+
+Channel-scoped stop and replacement diagnostics use `c_mixer_stop_channel`.
+Those events include the channel context when available, `stoppedVoiceCount`,
+`activeVoiceCountBefore`, `activeVoiceCountAfter`, `loadedVoiceCountBefore`,
+and `loadedVoiceCountAfter` when available. True transport-wide stop/reset
+actions use `c_mixer_clear_all` and `targetScope == "all_channels"`.
+
+Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
+another ignored local path, and do not commit traces derived from private/local
+modules.
 
 ## Manual Verification
 

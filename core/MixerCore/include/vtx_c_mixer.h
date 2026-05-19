@@ -115,6 +115,8 @@ typedef struct {
     int key_on;
     float fadeout_value;
     float fadeout_decrement_per_frame;
+    int has_channel_tag;
+    uint32_t channel_tag;
     int active;
 } VTXCMixerVoice;
 
@@ -151,6 +153,22 @@ VTXCMixerStatus vtx_c_mixer_configure(VTXCMixerState *state, VTXCMixerConfig con
 
 // Clears all active one-shot voices and returns the mixer to deterministic silence.
 VTXCMixerStatus vtx_c_mixer_clear_voices(VTXCMixerState *state);
+
+// Attaches a caller-owned channel tag to an existing voice. The C mixer treats
+// this as an opaque identifier; callers own tracker/channel semantics.
+VTXCMixerStatus vtx_c_mixer_set_voice_channel_tag(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint32_t channel_tag
+);
+
+// Stops and releases loaded voices with a matching channel tag. Untagged voices
+// are never matched by this call. The stopped count reports released voices.
+VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(
+    VTXCMixerState *state,
+    uint32_t channel_tag,
+    uint32_t *out_stopped_count
+);
 
 // Copies a caller-owned mono Float32 sample buffer into C-owned one-shot voice storage.
 VTXCMixerStatus vtx_c_mixer_add_one_shot_sample(

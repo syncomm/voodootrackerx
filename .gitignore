@@ -65,3 +65,4 @@ vtx-local-reference-comparison*/
 *-mikmod.wav
 *-voodootrackerx.wav
 *-playback-trace.jsonl
+*-runtime-trace.jsonl

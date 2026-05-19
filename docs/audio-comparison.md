@@ -109,6 +109,12 @@ and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
+Candidate diagnostics and the correlation report also include a focused
+pitch-modulation/deferred-effect summary for `0xy`, `1xx`, `2xx`, `3xx`, `4xy`,
+`5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. The
+report groups those counts into arpeggio, portamento, vibrato, and tremolo
+buckets, shows whether they appear near the worst mismatch windows, and
+recommends a conservative next pitch-effect PR only when one bucket dominates.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred/no-op counts, whether an active
@@ -210,7 +216,15 @@ diagnostics JSON:
 
 Use `--headroom-db` for a dB-style attenuation or `--gain` for an explicit
 linear multiplier. The options are mutually exclusive, and both are applied
-before PCM16 conversion:
+before PCM16 conversion. Treat any numeric headroom value in examples as a
+starting point, not a guarantee that clipping is eliminated. Inspect the
+reported pre-export peak first, then choose attenuation from that peak. The
+minimum dB value needed to bring the peak to full scale is approximately
+`20 * log10(1 / preExportPeak)`; add a safety margin such as another `1...3`
+dB. For example, a pre-export peak near `4.0` needs at least about `-12 dB`
+before any margin, so `--headroom-db -13` or `--headroom-db -14`, or an
+explicit `--gain` around `0.20`, is more appropriate than a smaller example
+attenuation.
 
 ```bash
 swift run vtx_render_bounded_xm \
@@ -469,10 +483,14 @@ ranges, then lists:
 - pattern traversal/timing hazards near the worst windows, including `Bxx`,
   `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands when
   diagnostics JSON contains them
+- pitch-modulation/deferred-effect counts near the worst windows and overall,
+  including arpeggio, portamento, vibrato, tremolo, and deferred
+  volume-column vibrato/tone-portamento commands
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as
-  portamento/vibrato/arpeggio diagnostics, sample-offset
+  a minimal arpeggio, portamento, vibrato, or tremolo implementation PR,
+  sample-offset
   memory, pattern control effects, mixer headroom diagnostics, or more local
   review when no command clearly dominates
 
@@ -490,6 +508,12 @@ diagnosed `900` or `E90` no-ops, decide separately whether effect memory is
 worth a narrow PR. If mismatch windows are broad and steady while events look
 plausible, remaining resampling details, loop details, headroom/clipping
 diagnostics, or reference-render settings may be the better next investigation.
+For pitch-modulation diagnostics, prefer the specific pitch bucket that
+dominates the top mismatch windows: arpeggio for dense `0xy`, portamento for
+`1xx`/`2xx`/`3xx`/`5xy` or volume-column tone portamento, vibrato for `4xy`/`6xy`
+or volume-column vibrato, and tremolo for `7xy`. If counts are sparse or split,
+record the evidence and do not start an implementation PR from that signal
+alone.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
 before implementing more effects. In long/full-song renders, separate

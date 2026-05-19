@@ -44,6 +44,9 @@ output directory.
 - Pre-export per-channel peak:
 - Pre-export overrange sample count:
 - Pre-export RMS:
+- Estimated minimum headroom from peak:
+- Safety margin added:
+- Headroom/gain rationale:
 - Post-gain peak:
 - Post-gain per-channel peak:
 - Post-gain RMS:
@@ -108,10 +111,19 @@ output directory.
 - Total traversal hazards:
 - First traversal hazard coordinates:
 - Traversal hazards before/in top mismatch windows:
+- Arpeggio 0xy count:
+- Portamento count (1xx/2xx/3xx/5xy/volume-column tone portamento):
+- Vibrato count (4xy/6xy/volume-column vibrato):
+- Tremolo 7xy count:
+- Pitch-modulation diagnostics before/in top mismatch windows:
+- Dominant deferred pitch-modulation category:
+- Recommended next pitch-effect PR:
+- Pitch-effect recommendation rationale:
 - Top skip reasons:
 - First skipped coordinates:
 - Suspected missing-note cause:
 - Suspected traversal/timing cause:
+- Suspected pitch-modulation cause:
 - Adapter notes:
 
 ## Comparison Run
@@ -138,6 +150,7 @@ output directory.
 - Event-coverage summary present:
 - Capacity summary present:
 - Pattern traversal / timing hazard summary present:
+- Pitch-modulation / deferred-effect summary present:
 - Volume/panning state-update summary present:
 - Recommendation heuristic present:
 
@@ -212,6 +225,9 @@ output directory.
 - E9x retriggers: applied / E90 no-op / no-active / out-of-row:
 - ECx note cuts: applied / no-active / out-of-row:
 - EDx note delays: applied / no-note / out-of-row:
+- Pitch-modulation deferred effects: arpeggio / portamento / vibrato / tremolo:
+- First dominant pitch-modulation coordinates:
+- Recommended next pitch-effect PR:
 - Overall deferred command frequency in bounded render:
 - Overall command frequency notes:
 
@@ -225,6 +241,7 @@ or source-to-synthetic diagnostics.
 - [ ] panning / volume-column behavior
 - [ ] volume slides / envelope / fadeout / key-off
 - [ ] pitch / finetune / relative note / linear frequency
+- [ ] pitch modulation / arpeggio / portamento / vibrato / tremolo
 - [ ] sample map / keymap / selected sample metadata
 - [ ] remaining interpolation / resampling / reference-render settings
 - [ ] sample offset / retrigger / note cut / note delay
@@ -247,6 +264,7 @@ or source-to-synthetic diagnostics.
 - Suspected missing-note cause:
 - Correlation report summary:
 - Pattern traversal / timing hazard summary:
+- Pitch-modulation / deferred-effect summary:
 - Click/discontinuity summary:
 - Largest jump correlation summary:
 - Subjective listening notes:
@@ -257,6 +275,10 @@ or source-to-synthetic diagnostics.
 Choose one narrow follow-up. Do not combine unrelated fixes.
 
 - [ ] Adapter Support for Specific Effect X:
+- [ ] Minimal Arpeggio 0xy for Bounded Offline Renders:
+- [ ] Minimal Portamento Foundation:
+- [ ] Minimal Vibrato Foundation:
+- [ ] Minimal Tremolo 7xy:
 - [ ] Focused Pitch/Period Accuracy Pass:
 - [ ] Additional Volume-Column Semantics:
 - [ ] Loop/Interpolation Investigation:
@@ -273,8 +295,10 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 ## Likely Next PR
 
 - Recommended next PR:
+- Recommended next pitch-effect PR:
 - Why this evidence supports it:
 - Recommendation heuristic rationale:
+- Pitch-effect recommendation rationale:
 - Manual review / listening notes that agree or disagree:
 - What this report does not prove:
 

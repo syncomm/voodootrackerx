@@ -107,6 +107,10 @@ for deterministic replacement. `E90` is diagnosed as an ignored/deferred no-op;
 effect memory and retrigger volume-change variants are not implemented. `E9x`
 with no active adapted voice is diagnosed as `no_active_voice`; `x >= speed` is
 diagnosed as out-of-row/no-op. Other XM effect-column commands remain deferred.
+Diagnostics now identify deferred pitch-modulation commands (`0xy`, `1xx`,
+`2xx`, `3xx`, `4xy`, `5xy`, `6xy`, and `7xy`) with source coordinates and
+friendly labels so local comparison reports can choose a narrow follow-up
+without changing render behavior.
 The bounded adapter applies only these
 conservative XM volume-column commands to bounded offline adapted event gain/pan:
 set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume
@@ -120,7 +124,9 @@ generic gain/pan update events with a fixed 32-frame deterministic micro-ramp.
 This is a small dezipper for already-supported state updates, not tick-level
 XM volume/panning automation. Volume-column vibrato,
 tone-portamento, undefined ranges, and zero-amount effect memory remain
-deferred or no-op as diagnosed. Parsed
+deferred or no-op as diagnosed; the bounded diagnostics count volume-column
+vibrato speed, vibrato, and tone-portamento separately for local prioritization.
+Parsed
 `PlaybackInstrument.volumeEnvelope` points are mapped to the existing
 frame-based `MixerEnvelope` representation for bounded offline adapted renders
 when a playable sample voice is emitted. The bounded offline path now includes
@@ -422,7 +428,7 @@ The current adapter does not:
 | Incorrect note-to-frequency behavior. | The adapter labels linear-frequency support explicitly and keeps Amiga behavior deferred. Tests cover monotonic linear steps, octave sanity, relative note, finetune, base/output sample rates, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming full FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
 | Instrument/sample selection complexity. | Keep selection inside the bounded adapter and `PlaybackInstrument` model. Use parsed XM note-sample maps only when already carried by `PlaybackSong`; validate mapped indices and fall back or skip deterministically. Do not move parser ownership or implement broader instrument fallback semantics. |
-| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, panning slides, `Cxx`, `8xx`, nonzero row-level `Axy`, and minimal row-level `Hxy` in the bounded adapter. Keep slides as row-level approximations, defer vibrato/tone-portamento/`Gxx`/other effect behavior in diagnostics except the explicitly documented `Fxx`, nonzero `9xx`, `E9x`, `ECx`, `EDx`, `Cxx`, `8xx`, `Axy`, and `Hxy` cases, and document compatibility limits in test names. |
+| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, panning slides, `Cxx`, `8xx`, nonzero row-level `Axy`, and minimal row-level `Hxy` in the bounded adapter. Keep slides as row-level approximations, defer vibrato/tone-portamento/arpeggio/tremolo/`Gxx`/other effect behavior in diagnostics except the explicitly documented `Fxx`, nonzero `9xx`, `E9x`, `ECx`, `EDx`, `Cxx`, `8xx`, `Axy`, and `Hxy` cases, and document compatibility limits in test names. |
 | Timing, sample-offset, retrigger, or Hxy support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows, minimal nonzero `9xx` source starts on same-cell note triggers, minimal `E9x` same-channel retriggers from the tracked active voice, the documented volume/panning state commands, and row-level `Hxy` global-volume changes. Diagnose `F00`, `900`, `E90`, `H00`, both-nibble `Hxy` policy, out-of-range offsets, no-active retriggers, out-of-row retriggers/cuts/delays, and all other effect-column commands without adding broad effect state. |
 | Gain/pan micro-ramping is mistaken for full automation. | Keep the ramp internal and fixed at 32 output frames. Apply it only to already-supported active-voice gain/pan update events in the offline C mixer path. Do not add UI/runtime settings, default-gain changes, tick-level slide semantics, or runtime playback integration. |
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |

@@ -749,6 +749,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let hxyAppliedCount = hxyEffectDiagnostics.filter { $0.status == .applied }.count
         let hxyIgnoredNoOpCount = hxyEffectDiagnostics.filter { $0.status == .ignoredNoOp }.count
         let hxyDeferredCount = hxyEffectDiagnostics.filter { $0.status == .deferredUnsupported }.count
+        let pitchModulationSummary = pitchModulationDeferredEffectSummaryJSON(diagnostics)
         return [
             "schema_version": 1,
             "tool": "vtx_render_bounded_xm",
@@ -803,6 +804,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "hxy_global_volume_slide_applied_count": hxyAppliedCount,
                 "hxy_global_volume_slide_ignored_no_op_count": hxyIgnoredNoOpCount,
                 "hxy_global_volume_slide_deferred_count": hxyDeferredCount,
+                "pitch_modulation_deferred_effect_count": pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
@@ -825,6 +827,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
             "pattern_traversal_timing_effects": diagnostics.effectCommandDiagnostics.map(effectCommandDiagnosticJSON),
+            "pitch_modulation_deferred_effect_summary": pitchModulationSummary,
+            "pitch_modulation_deferred_effects": pitchModulationDeferredEffectsJSON(diagnostics),
             "orders": diagnostics.adaptedOrders.map(orderJSON),
             "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
             "row_timing": diagnostics.rowTiming.map(rowTimingJSON),
@@ -1039,6 +1043,119 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "label": count.label,
             "count": count.count,
         ]
+    }
+
+    private static func pitchModulationDeferredEffectSummaryJSON(
+        _ diagnostics: PlaybackSongSyntheticDiagnostics
+    ) -> [String: Any] {
+        let effectCounts = Dictionary(
+            grouping: diagnostics.effectCommandDiagnostics
+                .filter { $0.status == .deferredUnsupported && $0.isPitchModulationDiagnostic }
+                .map(\.decodedLabel),
+            by: { $0 }
+        ).mapValues(\.count)
+        let volumeCounts = Dictionary(
+            grouping: diagnostics.volumeColumnMappings.compactMap { mapping in
+                mapping.volumeColumn.deferred ? pitchModulationVolumeColumnLabel(mapping.volumeColumn.command) : nil
+            },
+            by: { $0 }
+        ).mapValues(\.count)
+        let coordinates = pitchModulationDeferredEffectsJSON(diagnostics)
+        return [
+            "total_arpeggio_count": effectCounts["0xy arpeggio"] ?? 0,
+            "total_portamento_up_count": effectCounts["1xx portamento up"] ?? 0,
+            "total_portamento_down_count": effectCounts["2xx portamento down"] ?? 0,
+            "total_tone_portamento_count": effectCounts["3xx tone portamento"] ?? 0,
+            "total_vibrato_count": effectCounts["4xy vibrato"] ?? 0,
+            "total_tone_portamento_volume_slide_count": effectCounts["5xy tone portamento + volume slide"] ?? 0,
+            "total_vibrato_volume_slide_count": effectCounts["6xy vibrato + volume slide"] ?? 0,
+            "total_tremolo_count": effectCounts["7xy tremolo"] ?? 0,
+            "total_volume_column_vibrato_speed_count": volumeCounts["volume-column vibrato speed"] ?? 0,
+            "total_volume_column_vibrato_count": volumeCounts["volume-column vibrato"] ?? 0,
+            "total_volume_column_tone_portamento_count": volumeCounts["volume-column tone portamento"] ?? 0,
+            "total_deferred_pitch_modulation_effect_count": coordinates.count,
+            "first_deferred_effect_coordinates": Array(coordinates.prefix(10)),
+        ]
+    }
+
+    private static func pitchModulationDeferredEffectsJSON(
+        _ diagnostics: PlaybackSongSyntheticDiagnostics
+    ) -> [[String: Any]] {
+        var coordinates = [[String: Any]]()
+        for diagnostic in diagnostics.effectCommandDiagnostics
+            where diagnostic.status == .deferredUnsupported && diagnostic.isPitchModulationDiagnostic
+        {
+            coordinates.append([
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "command_source": "effect_column",
+                "effect_type": Int(diagnostic.effectType),
+                "effect_param": Int(diagnostic.effectParam),
+                "effect_label": diagnostic.decodedLabel,
+                "decoded_label": diagnostic.decodedLabel,
+                "status": effectCommandStatusName(diagnostic.status),
+                "current_status": effectCommandStatusName(diagnostic.status),
+            ])
+        }
+        for mapping in diagnostics.volumeColumnMappings {
+            guard mapping.volumeColumn.deferred,
+                  let label = pitchModulationVolumeColumnLabel(mapping.volumeColumn.command)
+            else {
+                continue
+            }
+            coordinates.append([
+                "source": positionJSON(mapping.source),
+                "channel_index": mapping.channelIndex,
+                "command_source": "volume_column",
+                "effect_type": "volume_column",
+                "effect_param": Int(mapping.volumeColumn.rawValue),
+                "raw_volume_column": Int(mapping.volumeColumn.rawValue),
+                "effect_label": label,
+                "decoded_label": label,
+                "status": volumeColumnCurrentStatusName(mapping.volumeColumn),
+                "current_status": volumeColumnCurrentStatusName(mapping.volumeColumn),
+            ])
+        }
+        return coordinates
+    }
+
+    private static func pitchModulationVolumeColumnLabel(
+        _ command: PlaybackSongSyntheticVolumeColumnCommand
+    ) -> String? {
+        switch command {
+        case .setVibratoSpeed:
+            return "volume-column vibrato speed"
+        case .vibrato:
+            return "volume-column vibrato"
+        case .tonePortamento:
+            return "volume-column tone portamento"
+        case .none,
+             .setVolume,
+             .volumeSlideDown,
+             .volumeSlideUp,
+             .fineVolumeSlideDown,
+             .fineVolumeSlideUp,
+             .setPanning,
+             .panningSlideLeft,
+             .panningSlideRight,
+             .unsupported:
+            return nil
+        }
+    }
+
+    private static func volumeColumnCurrentStatusName(
+        _ diagnostic: PlaybackSongSyntheticVolumeColumnDiagnostic
+    ) -> String {
+        if diagnostic.applied {
+            return "applied"
+        }
+        if diagnostic.deferred {
+            return "deferred/unsupported"
+        }
+        if diagnostic.ignoredAsEmptyOrNoOp {
+            return "ignored/no-op"
+        }
+        return "unknown"
     }
 
     private static func scheduledVoiceRejectedCount(from result: PlaybackSongOfflineRenderResult) -> Int {

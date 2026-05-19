@@ -1304,6 +1304,89 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("Recommended next PR: No clear single target", markdown)
             self.assertNotIn("Recommended next PR: Minimal Pattern Break Dxx / Position Jump Bxx", markdown)
 
+    def test_correlation_markdown_includes_pitch_modulation_section(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [
+            deferred_effect_field(0x00, 0x37, channel=1),
+            deferred_effect_field(0x04, 0x48, channel=2),
+        ]
+        diagnostics["volume_column_mappings"].append(deferred_volume_mapping(0xB4, "vibrato", channel=3))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Pitch Modulation / Deferred Effect Diagnostics", markdown)
+            self.assertIn("- Arpeggio: 1 overall, 1 near top mismatch windows", markdown)
+            self.assertIn("- Vibrato: 2 overall, 2 near top mismatch windows", markdown)
+            self.assertIn("| 0xy arpeggio | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("| vibrato | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 3 |", markdown)
+            self.assertIn("### First dominant deferred pitch-modulation coordinates", markdown)
+
+    def test_recommendation_heuristic_selects_dominant_pitch_bucket(self):
+        cases = [
+            (
+                "arpeggio",
+                [deferred_effect_field(0x00, 0x37, channel=1),
+                 deferred_effect_field(0x00, 0x47, channel=2),
+                 deferred_effect_field(0x00, 0x57, channel=3)],
+                [],
+                "Minimal Arpeggio 0xy for Bounded Offline Renders",
+                "- Arpeggio: 3 overall, 3 near top mismatch windows",
+            ),
+            (
+                "portamento",
+                [deferred_effect_field(0x01, 0x08, channel=1),
+                 deferred_effect_field(0x02, 0x09, channel=2),
+                 deferred_effect_field(0x03, 0x10, channel=3),
+                 deferred_effect_field(0x05, 0x20, channel=4)],
+                [deferred_volume_mapping(0xF4, "tonePortamento", channel=5)],
+                "Minimal Portamento Foundation",
+                "- Portamento: 5 overall, 5 near top mismatch windows",
+            ),
+            (
+                "vibrato",
+                [deferred_effect_field(0x04, 0x48, channel=1),
+                 deferred_effect_field(0x06, 0x30, channel=2)],
+                [deferred_volume_mapping(0xA4, "setVibratoSpeed", channel=3),
+                 deferred_volume_mapping(0xB5, "vibrato", channel=4)],
+                "Minimal Vibrato Foundation",
+                "- Vibrato: 4 overall, 4 near top mismatch windows",
+            ),
+            (
+                "tremolo",
+                [deferred_effect_field(0x07, 0x48, channel=1),
+                 deferred_effect_field(0x07, 0x58, channel=2),
+                 deferred_effect_field(0x07, 0x68, channel=3)],
+                [],
+                "Minimal Tremolo 7xy",
+                "- Tremolo: 3 overall, 3 near top mismatch windows",
+            ),
+        ]
+
+        for name, fields, volume_mappings, recommendation, count_line in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmpdir:
+                diagnostics = synthetic_diagnostics_json()
+                diagnostics["deferred_fields"] = fields
+                diagnostics["volume_column_mappings"].extend(volume_mappings)
+                report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+                markdown = report.read_text(encoding="utf-8")
+
+                self.assertIn(f"Recommended next pitch-effect PR: {recommendation}", markdown)
+                self.assertIn(f"Recommended next PR: {recommendation}", markdown)
+                self.assertIn(count_line, markdown)
+
+    def test_recommendation_heuristic_reports_no_clear_pitch_target_when_counts_are_sparse(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [deferred_effect_field(0x00, 0x37, channel=1)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("Recommended next pitch-effect PR: No clear pitch-effect target", markdown)
+            self.assertIn("Recommended next PR: No clear single target", markdown)
+
     def test_correlation_report_counts_deferred_ecx_note_cut_in_worst_windows(self):
         diagnostics = synthetic_diagnostics_json()
         diagnostics["deferred_fields"] = [deferred_effect_field(0x0E, 0xC3)]

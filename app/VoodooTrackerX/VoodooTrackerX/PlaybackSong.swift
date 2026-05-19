@@ -691,6 +691,17 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
     var isHxyGlobalVolumeSlide: Bool {
         effectType == 0x11
     }
+
+    var isPitchModulationDiagnostic: Bool {
+        switch effectType {
+        case 0x00:
+            return effectParam != 0
+        case 0x01...0x07:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 enum PlaybackSongSyntheticVoiceStateUpdateSource: Equatable {
@@ -4220,7 +4231,9 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func shouldReportEffectCommand(_ cell: PlaybackCell) -> Bool {
         switch cell.effectType {
-        case 0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11:
+        case 0x00:
+            return cell.effectParam != 0
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11:
             return true
         default:
             return false
@@ -4232,6 +4245,9 @@ enum PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
+        case 0x00 where cell.effectParam != 0,
+             0x01...0x07:
+            return .deferredUnsupported
         case 0x08, 0x0C:
             return .applied
         case 0x0A:
@@ -4269,6 +4285,22 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func effectCommandLabel(effectType: UInt8, effectParam: UInt8) -> String {
         switch effectType {
+        case 0x00:
+            return effectParam != 0 ? "0xy arpeggio" : "none"
+        case 0x01:
+            return "1xx portamento up"
+        case 0x02:
+            return "2xx portamento down"
+        case 0x03:
+            return "3xx tone portamento"
+        case 0x04:
+            return "4xy vibrato"
+        case 0x05:
+            return "5xy tone portamento + volume slide"
+        case 0x06:
+            return "6xy vibrato + volume slide"
+        case 0x07:
+            return "7xy tremolo"
         case 0x08:
             return "8xx set panning"
         case 0x0A:

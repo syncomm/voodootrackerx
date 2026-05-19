@@ -1353,6 +1353,68 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(fxx["is_traversal_hazard"] as? Bool, false)
     }
 
+    func testDiagnosticsJSONCountsDeferredPitchModulationEffectsWithCoordinates() throws {
+        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100)
+        let cells = [
+            (0, 0x00, 0x37), (0, 0x01, 0x08), (0, 0x02, 0x09), (0, 0x03, 0x10),
+            (0, 0x04, 0x48), (0, 0x05, 0x20), (0, 0x06, 0x30), (0, 0x07, 0x48),
+            (0xA4, 0, 0), (0xB5, 0, 0), (0xF6, 0, 0),
+        ].map { PlaybackCell(note: 49, instrument: 1, volumeColumn: UInt8($0.0), effectType: UInt8($0.1), effectParam: UInt8($0.2)) }
+        let row = PlaybackRow(index: 0, cells: cells)
+        let song = PlaybackSong(
+            title: "pitch-modulation-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let summary = try XCTUnwrap(object["pitch_modulation_deferred_effect_summary"] as? [String: Any])
+        let coordinates = try XCTUnwrap(object["pitch_modulation_deferred_effects"] as? [[String: Any]])
+        let first = try XCTUnwrap(coordinates.first)
+        let volumeTonePortamento = try XCTUnwrap(coordinates.first { $0["effect_label"] as? String == "volume-column tone portamento" })
+
+        [
+            "total_arpeggio_count",
+            "total_portamento_up_count",
+            "total_portamento_down_count",
+            "total_tone_portamento_count",
+            "total_vibrato_count",
+            "total_tone_portamento_volume_slide_count",
+            "total_vibrato_volume_slide_count",
+            "total_tremolo_count",
+            "total_volume_column_vibrato_speed_count",
+            "total_volume_column_vibrato_count",
+            "total_volume_column_tone_portamento_count",
+        ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 11)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 11)
+        XCTAssertEqual(coordinates.count, 11)
+        XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
+        XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
+        XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
+        XCTAssertEqual(first["channel_index"] as? Int, 0)
+        XCTAssertEqual(first["effect_type"] as? Int, 0)
+        XCTAssertEqual(first["effect_param"] as? Int, 0x37)
+        XCTAssertEqual(first["effect_label"] as? String, "0xy arpeggio")
+        XCTAssertEqual(first["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(volumeTonePortamento["command_source"] as? String, "volume_column")
+        XCTAssertEqual(volumeTonePortamento["effect_param"] as? Int, 0xF6)
+        XCTAssertEqual(volumeTonePortamento["current_status"] as? String, "deferred/unsupported")
+        XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
+        XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
+        XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
+    }
+
     func testTraversalDiagnosticsDoNotChangeRenderedAudio() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

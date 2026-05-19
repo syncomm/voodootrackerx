@@ -39,8 +39,13 @@ volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
 volume slides; where a carried voice is active, deterministic gain/pan update
 events can update that voice after its original note trigger, and changed
 active-voice gain/pan updates are smoothed by a fixed 32-frame C mixer
-micro-ramp in the bounded/offline path. `Hxy` global
-volume slide remains diagnosed/deferred. The bounded adapter also applies
+micro-ramp in the bounded/offline path. Minimal row-level `Hxy` global volume
+slide is also applied in the bounded/offline adapter: the adapter carries a
+clamped `0...64` global-volume value, defaults to `64`, applies up/down Hxy
+slides once at the source row, updates active voices through the same generic
+gain-update path, and uses that multiplier for later note triggers. `H00` is
+diagnosed as a no-op without effect memory, and both-nibble Hxy parameters use a
+diagnosed up-nibble-precedence policy. The bounded adapter also applies
 minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
 speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
 ignored no-op. It also applies minimal nonzero `9xx` sample offsets to same-cell
@@ -233,7 +238,11 @@ Features:
 - minimal bounded/offline volume/panning state updates for empty-note
   volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
   volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
-  volume slides, with `Hxy` global volume slide still diagnosed/deferred
+  volume slides
+- minimal row-level `Hxy` global volume slides for bounded offline adapted
+  renders, with clamped adapter global-volume state, active voice updates,
+  future trigger gain mapping, and diagnostics for no-op/clamped/both-nibble
+  cases
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - minimal nonzero `9xx` sample offset starts for same-cell bounded offline
   adapted note/sample triggers, with `900` and effect memory still deferred

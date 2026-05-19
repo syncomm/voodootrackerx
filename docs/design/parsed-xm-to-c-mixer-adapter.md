@@ -80,7 +80,14 @@ use the timing that was active at row start. `Cxx` set volume and `8xx` set
 panning update the bounded adapter channel state and can update the currently
 tracked active C voice on empty-note rows. `Axy` volume slide is a deterministic
 row-level approximation for nonzero parameters; `A00` effect memory is not
-implemented. `Hxy` global volume slide remains diagnosed as deferred/unsupported.
+implemented. `Hxy` global volume slide is also a minimal row-level bounded
+offline approximation: the adapter keeps a clamped XM global volume value
+`0...64`, defaults it to `64`, applies `Hxy` up/down changes once at the source
+row start, multiplies active and later event gains by `globalVolume / 64`, and
+uses generic C mixer gain update events for active voices. `H00` is a diagnosed
+no-op without effect memory. When both nibbles are nonzero, the bounded adapter
+diagnoses and uses the existing runtime-compatible up-nibble precedence policy.
+`Gxx` set global volume is still deferred in this offline adapter path.
 Minimal nonzero `9xx` sample offset
 support applies only to a note/sample trigger in the same cell and starts that
 adapted voice at `xx * 256` source sample frames. `900` is diagnosed as an
@@ -393,13 +400,13 @@ The current adapter does not:
 | `PlaybackCell.note` | Trigger/release decision and playback step | Trigger only for `1...96`, deriving a linear-frequency sample step from note/sample metadata when the song uses the linear frequency table. Note value `97` schedules a key-off/release frame for the active adapted voice on that channel when one is tracked. Empty and invalid notes are ignored safely. `EDx` can delay a normal same-cell note trigger within the current row. `E9x` can generate additional starts for the active channel voice inside the row. | Amiga pitch behavior, effect memory, and broader effect-triggered release behavior later. |
 | `PlaybackCell.instrument` | Sample lookup and event coverage diagnostics | Resolve the selected instrument, then choose a mapped sample from the parsed XM 96-note sample map for normal notes `1...96` when a valid multi-sample mapping exists. Fall back safely to the first playable sample when no useful mapping exists, or skip when no valid sample can be selected. Diagnostics distinguish missing zero instruments, unknown instruments, empty sample PCM, invalid/non-playable map targets, selected sample index/length/loop mode, sample-map selection, fallback-after-invalid-map, first-playable fallback, and skipped-no-valid-sample cases. | Previous-instrument semantics and richer FT2/OpenMPT edge cases later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Empty-note updates that change an active carried voice are smoothed by the C mixer's fixed 32-frame gain/pan micro-ramp. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
-| `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan, event source offset, and bounded channel state updates | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op. Apply nonzero `9xx` only when a same-cell note/sample trigger emits a bounded offline event, using `xx * 256` source sample frames as the initial source position. Diagnose `900` as ignored/deferred/no-op. Apply `Cxx` set volume and `8xx` set panning as channel state updates, and schedule a ramped gain/pan update for the active voice on empty-note rows when one is tracked and the value changes. Apply nonzero `Axy` as a row-level volume slide approximation. Apply minimal `E9x` retrigger, `ECx` note cut, and `EDx` note delay using the row's effective speed/BPM. Diagnose `E90`, `Hxy` global volume slide, out-of-range offsets, out-of-row retrigger/cut/delay ticks, and no-active/no-note cases deterministically. Keep other effect-column commands deferred. | Targeted effect integration PRs later, including `9xx`/`Axy`/`E90` memory, retrigger volume-change variants, tick-level slide behavior, global volume, and broader effect parity if needed. |
+| `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan, event source offset, and bounded channel/global state updates | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op. Apply nonzero `9xx` only when a same-cell note/sample trigger emits a bounded offline event, using `xx * 256` source sample frames as the initial source position. Diagnose `900` as ignored/deferred/no-op. Apply `Cxx` set volume and `8xx` set panning as channel state updates, and schedule a ramped gain/pan update for the active voice on empty-note rows when one is tracked and the value changes. Apply nonzero `Axy` as a row-level volume slide approximation. Apply minimal row-level `Hxy` global volume slides with clamped `0...64` global volume, `H00` no-op diagnostics, and diagnosed up-nibble precedence for both-nibble parameters. Apply minimal `E9x` retrigger, `ECx` note cut, and `EDx` note delay using the row's effective speed/BPM. Diagnose `E90`, `Gxx`, out-of-range offsets, out-of-row retrigger/cut/delay ticks, and no-active/no-note cases deterministically. Keep other effect-column commands deferred. | Targeted effect integration PRs later, including `9xx`/`Axy`/`E90` memory, retrigger volume-change variants, tick-level slide behavior, `Gxx` set global volume, and broader effect parity if needed. |
 | `Bxx` / `Dxx` / `EEx` effect commands | Traversal hazard diagnostics | Count and report coordinates/status only. These commands are classified as deferred/unsupported and summarized as traversal hazards when present in the bounded range. | Minimal bounded traversal implementation for position jump, pattern break, and pattern delay later. |
 | `PlaybackInstrument.samples` / `noteSampleMap` | Sample selection source | Use `noteSampleMap[note - 1]` for normal XM notes when the instrument has a usable multi-sample map and the mapped sample is playable; otherwise apply the documented first-playable fallback/skip policy. | Previous-instrument behavior and richer instrument edge cases later. |
 | `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` and voice key-off/fadeout metadata on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. If valid parsed sustain/loop flags and point indices are present, pass mapped sustain and loop frames to the C mixer. If note value `97` later appears on the same adapted channel, pass an absolute release frame and a simple fadeout decrement. Diagnostics record absent, disabled, invalid/empty, mapped, applied, deferred, and approximated states. | Full FT2/OpenMPT envelope parity, panning envelopes, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
-| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume after supported row-level volume-column commands. Parsed volume envelopes and post-key-off fadeout remain separate mixer multipliers at render time. | Global volume state and full effect integration later. |
-| Active adapted voice gain/pan | C mixer voice state update event | The adapter tracks the latest adapted event per channel. Empty-note volume/panning state commands and supported `Cxx`/`8xx`/`Axy` effect-column state commands can schedule a generic absolute-frame gain/pan update for that active C voice. The C mixer interpolates changed gain/pan values over a fixed 32-frame ramp, starting a later update from the current interpolated value when a ramp is interrupted. Minimal `ECx` note cut uses a separate immediate gain-zero set at the cut frame, so it remains a deterministic hard cut rather than a note-off/key-off envelope release or gain/pan dezipper. Windowed renders fold prior completed updates into carried continuation voices, carry active ramp state at boundaries, and schedule in-window updates at local frames. | Tick-level automation, overlapping old-voice policy beyond the latest tracked channel voice, global volume, and full tracker voice semantics later. |
+| `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume and global volume after supported row-level state commands. Parsed volume envelopes and post-key-off fadeout remain separate mixer multipliers at render time. | Tick-accurate global-volume automation and full effect integration later. |
+| Active adapted voice gain/pan | C mixer voice state update event | The adapter tracks the latest adapted event per channel. Empty-note volume/panning state commands, supported `Cxx`/`8xx`/`Axy` effect-column state commands, and applied `Hxy` global-volume changes can schedule generic absolute-frame gain/pan updates for active C voices. The C mixer interpolates changed gain/pan values over a fixed 32-frame ramp, starting a later update from the current interpolated value when a ramp is interrupted. Minimal `ECx` note cut uses a separate immediate gain-zero set at the cut frame, so it remains a deterministic hard cut rather than a note-off/key-off envelope release or gain/pan dezipper. Windowed renders fold prior completed updates into carried continuation voices, carry active ramp state at boundaries, and schedule in-window updates at local frames. Global volume state is planned in Swift across the bounded range, so later window events and carried active gains use the same planned multiplier. | Tick-level automation, overlapping old-voice policy beyond the latest tracked channel voice, `Gxx` set-global-volume, and full tracker voice semantics later. |
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and clamped finetune in the XM linear-period calculation for linear-frequency songs. Diagnostics include output sample rate, effective note/finetune, linear period/frequency, and neutral fallback status. | Amiga table behavior and pitch-changing effects later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. A valid nonzero `9xx` starts the C voice at the requested source sample frame before normal stepping/loop behavior continues. | FT2 loop quirks and richer sample-offset memory/interactions later. |
 | `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` and voice release/fadeout state | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row. Sustain holds at the mapped sustain frame while keyed-on. Envelope loops repeat between mapped loop start/end frames while keyed-on. Note value `97` releases the tracked adapted voice and allows envelope advance/fadeout. Fadeout uses a linear per-frame decrement derived from the parsed fadeout value as a first-pass approximation. `E9x` generated starts copy the mapped envelope and restart it as fresh events; `ECx` does not trigger key-off/fadeout and hard-cuts gain to zero. | Full FT2/OpenMPT envelope parity, panning envelopes, effect memory, and dynamic envelope retiming after later tempo changes. |
@@ -415,8 +422,8 @@ The current adapter does not:
 | Incorrect note-to-frequency behavior. | The adapter labels linear-frequency support explicitly and keeps Amiga behavior deferred. Tests cover monotonic linear steps, octave sanity, relative note, finetune, base/output sample rates, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming full FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
 | Instrument/sample selection complexity. | Keep selection inside the bounded adapter and `PlaybackInstrument` model. Use parsed XM note-sample maps only when already carried by `PlaybackSong`; validate mapped indices and fall back or skip deterministically. Do not move parser ownership or implement broader instrument fallback semantics. |
-| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, panning slides, `Cxx`, `8xx`, and nonzero row-level `Axy` in the bounded adapter. Keep slides as row-level approximations, defer vibrato/tone-portamento/global volume/other effect behavior in diagnostics except the explicitly documented `Fxx`, nonzero `9xx`, `E9x`, `Cxx`, `8xx`, and `Axy` cases, and document compatibility limits in test names. |
-| Timing, sample-offset, or retrigger support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows, minimal nonzero `9xx` source starts on same-cell note triggers, minimal `E9x` same-channel retriggers from the tracked active voice, and the documented volume/panning state commands. Diagnose `F00`, `900`, `E90`, `Hxy`, out-of-range offsets, no-active retriggers, out-of-row retriggers/cuts/delays, and all other effect-column commands without adding broad effect state. |
+| Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, panning slides, `Cxx`, `8xx`, nonzero row-level `Axy`, and minimal row-level `Hxy` in the bounded adapter. Keep slides as row-level approximations, defer vibrato/tone-portamento/`Gxx`/other effect behavior in diagnostics except the explicitly documented `Fxx`, nonzero `9xx`, `E9x`, `ECx`, `EDx`, `Cxx`, `8xx`, `Axy`, and `Hxy` cases, and document compatibility limits in test names. |
+| Timing, sample-offset, retrigger, or Hxy support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows, minimal nonzero `9xx` source starts on same-cell note triggers, minimal `E9x` same-channel retriggers from the tracked active voice, the documented volume/panning state commands, and row-level `Hxy` global-volume changes. Diagnose `F00`, `900`, `E90`, `H00`, both-nibble `Hxy` policy, out-of-range offsets, no-active retriggers, out-of-row retriggers/cuts/delays, and all other effect-column commands without adding broad effect state. |
 | Gain/pan micro-ramping is mistaken for full automation. | Keep the ramp internal and fixed at 32 output frames. Apply it only to already-supported active-voice gain/pan update events in the offline C mixer path. Do not add UI/runtime settings, default-gain changes, tick-level slide semantics, or runtime playback integration. |
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
 | Synthetic tests are confused with real compatibility. | Test names and docs should say "adapter smoke" or "bounded offline render", not "XM parity". Reference comparison remains later. |
@@ -460,7 +467,10 @@ bounded offline rendering:
 - Assert `Cxx` set volume and `8xx` set panning update bounded channel state
   and active voice gain/pan from the update frame forward.
 - Assert nonzero `Axy` is diagnosed and applied as a row-level volume slide
-  approximation, while `Hxy` remains diagnosed as deferred/unsupported.
+  approximation.
+- Assert `Hxy` global volume slide down/up affects active and later voices,
+  clamps safely, diagnoses `H00` as no-op, diagnoses both-nibble up precedence,
+  appears in JSON/correlation diagnostics, and carries through windowed renders.
 - Assert subsequent note triggers use prior bounded channel volume/pan state,
   and windowed carryover preserves gain/pan updates across row-window
   boundaries.
@@ -585,8 +595,8 @@ bounded offline rendering:
     unchanged.
 20. Done: minimal volume/panning state effects for bounded offline renders,
     applying empty-note volume-column set-volume/set-panning, `Cxx`, `8xx`,
-    and nonzero row-level `Axy` to channel/active voice state while keeping
-    `Hxy` deferred.
+    and nonzero row-level `Axy` to channel/active voice state before the later
+    targeted `Hxy` global-volume pass.
 21. Done: minimal `ECx` note cut and `EDx` note delay support for bounded
    offline renders, with diagnostics and windowed carryover handling where
    practical.
@@ -598,9 +608,12 @@ bounded offline rendering:
 24. Done: minimal `E9x` retrigger support for bounded/offline renders, with
     diagnostics, `E90` no-effect-memory reporting, same-channel replacement,
     metadata preservation, and windowed carryover handling where practical.
-25. Additional targeted effects such as global volume slide, arpeggio,
-   portamento, vibrato, pattern break, and position jump.
-26. Feature-flagged runtime C mixer backend switch only after offline parity and
+25. Done: minimal `Hxy` global volume slide support for bounded/offline renders,
+    with row-level clamped global-volume state, active voice gain updates,
+    JSON/correlation diagnostics, and windowed carryover behavior.
+26. Additional targeted effects such as arpeggio, portamento, vibrato, pattern
+   break, and position jump.
+27. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -630,8 +643,9 @@ trigger to tick `x`. `E9x` schedules fresh same-channel starts at ticks `x`,
 `2x`, `3x`, and so on while inside the row, preserving the tracked active
 sample metadata and restarting the mapped envelope for each generated event.
 `ED0` uses the row start. `E90` does not use effect memory, and `x >= speed`
-is diagnosed as out-of-row and skipped/no-opped safely. Global volume and
-global volume slide (`Gxx`/`Hxy`), pattern break, position jump, pattern delay,
+is diagnosed as out-of-row and skipped/no-opped safely. Minimal `Hxy` global
+volume slide is row-level and bounded/offline only; `Gxx` set global volume,
+pattern break, position jump, pattern delay,
 `9xx`/`E90` effect memory, `A00` volume slide memory, retrigger volume-change
 variants, and runtime playback integration remain out of scope. Runtime
 playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the C
@@ -671,12 +685,13 @@ This adapter bridge work does not:
 - implement XM effect-column commands other than minimal `Fxx` speed/BPM timing,
   minimal nonzero `9xx` sample offset, `Cxx` set volume, `8xx` set panning,
   nonzero row-level `Axy` volume slide, minimal `E9x` retrigger, minimal `ECx`
-  note cut, and minimal `EDx` note delay
+  note cut, minimal `EDx` note delay, and minimal row-level `Hxy` global volume
+  slide
 - implement full Amiga period/frequency behavior
 - implement full OpenMPT/MikMod resampler parity or runtime interpolation controls
 - implement `9xx` effect memory for `900`
 - implement `E90` effect memory or retrigger volume-change variants
-- implement global volume or global volume slide
+- implement `Gxx` set global volume or tick-accurate global volume slide
 - implement click/discontinuity detection or automatic saturation repair
 - change default offline export gain
 - add dynamic/unbounded mixer allocation or voice stealing

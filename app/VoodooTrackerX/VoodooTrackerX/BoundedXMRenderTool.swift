@@ -745,6 +745,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
     static func jsonObject(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
         let diagnostics = result.diagnostics
         let exportDiagnostics = exportDiagnostics(from: result)
+        let hxyEffectDiagnostics = diagnostics.effectCommandDiagnostics.filter(\.isHxyGlobalVolumeSlide)
+        let hxyAppliedCount = hxyEffectDiagnostics.filter { $0.status == .applied }.count
+        let hxyIgnoredNoOpCount = hxyEffectDiagnostics.filter { $0.status == .ignoredNoOp }.count
+        let hxyDeferredCount = hxyEffectDiagnostics.filter { $0.status == .deferredUnsupported }.count
         return [
             "schema_version": 1,
             "tool": "vtx_render_bounded_xm",
@@ -761,7 +765,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
                 "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
-                "Hxy global volume slide remains diagnostic/deferred in bounded offline renders.",
+                "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
                 "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
                 "Export gain/headroom is applied after Float32 offline rendering and before PCM16 conversion.",
@@ -795,6 +799,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "gain_pan_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
                 "gain_pan_ramped_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
                 "gain_pan_interrupted_ramp_count": interruptedRampCount(diagnostics.voiceStateUpdates),
+                "hxy_global_volume_slide_detected_count": hxyEffectDiagnostics.count,
+                "hxy_global_volume_slide_applied_count": hxyAppliedCount,
+                "hxy_global_volume_slide_ignored_no_op_count": hxyIgnoredNoOpCount,
+                "hxy_global_volume_slide_deferred_count": hxyDeferredCount,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
@@ -1198,6 +1206,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["has_ignored_volume_column"] = mapping.hasIgnoredVolumeColumn
         object["has_ignored_effect"] = mapping.hasIgnoredEffect
         object["effective_volume_value"] = mapping.effectiveVolumeValue
+        object["effective_global_volume_value"] = mapping.effectiveGlobalVolumeValue
+        object["effective_global_volume_multiplier"] = Double(mapping.effectiveGlobalVolumeMultiplier)
         object["effective_pan"] = Double(mapping.effectivePan)
         object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping)
         object["pitch"] = eventPitchJSON(mapping)
@@ -1436,6 +1446,18 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "hxy_global_volume_slide_deferred": count {
                 $0.deferred && isHxyGlobalVolumeSlideUpdate($0)
             },
+            "hxy_global_volume_slide_ignored_no_op": count {
+                $0.ignoredAsNoOp && isHxyGlobalVolumeSlideUpdate($0)
+            },
+            "hxy_global_volume_slide_active_voice_update_count": count {
+                $0.activeVoiceUpdated && isHxyGlobalVolumeSlideUpdate($0)
+            },
+            "hxy_global_volume_slide_clamped_count": count {
+                isHxyGlobalVolumeSlideUpdate($0) && $0.globalVolumeSlideClamped == true
+            },
+            "hxy_global_volume_slide_both_nibbles_nonzero_count": count {
+                isHxyGlobalVolumeSlideUpdate($0) && $0.globalVolumeSlideBothNibblesNonzero == true
+            },
         ]
     }
 
@@ -1530,11 +1552,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.effectType.map { Int($0) }, forKey: "effect_type", into: &object)
         put(update.effectParam.map { Int($0) }, forKey: "effect_param", into: &object)
         put(update.behavior.map(volumeColumnBehaviorName), forKey: "behavior", into: &object)
+        put(update.targetChannelIndex, forKey: "target_channel_index", into: &object)
         put(update.activeEventIndex, forKey: "active_event_index", into: &object)
         put(update.effectiveVolumeBefore, forKey: "effective_volume_before", into: &object)
         put(update.effectiveVolumeAfter, forKey: "effective_volume_after", into: &object)
         put(update.effectivePanBefore.map { Double($0) }, forKey: "effective_pan_before", into: &object)
         put(update.effectivePanAfter.map { Double($0) }, forKey: "effective_pan_after", into: &object)
+        put(update.globalVolumeBefore, forKey: "global_volume_before", into: &object)
+        put(update.globalVolumeAfter, forKey: "global_volume_after", into: &object)
+        put(update.globalVolumeMultiplierBefore.map { Double($0) }, forKey: "global_volume_multiplier_before", into: &object)
+        put(update.globalVolumeMultiplierAfter.map { Double($0) }, forKey: "global_volume_multiplier_after", into: &object)
+        put(update.globalVolumeSlideDirection?.rawValue, forKey: "global_volume_slide_direction", into: &object)
+        put(update.globalVolumeSlideAmount, forKey: "global_volume_slide_amount", into: &object)
+        put(update.globalVolumeSlideClamped, forKey: "global_volume_slide_clamped", into: &object)
+        put(update.globalVolumeSlideBothNibblesNonzero, forKey: "global_volume_slide_both_nibbles_nonzero", into: &object)
+        put(update.globalVolumeSlidePolicy, forKey: "global_volume_slide_policy", into: &object)
         put(update.gainBefore.map { Double($0) }, forKey: "gain_before", into: &object)
         put(update.gainAfter.map { Double($0) }, forKey: "gain_after", into: &object)
         put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)
@@ -1794,8 +1826,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "effect8xxSetPanning", "label": command.label, "value": value]
         case let .axyVolumeSlide(up, down):
             return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
-        case .hxyGlobalVolumeSlide:
-            return ["name": "hxyGlobalVolumeSlide", "label": command.label]
+        case let .hxyGlobalVolumeSlide(up, down):
+            return ["name": "hxyGlobalVolumeSlide", "label": command.label, "up": up, "down": down]
         }
     }
 
@@ -2247,6 +2279,22 @@ private func appendEventCoverageSummary(
     }.count
     lines.append(
         "Volume/panning state updates: \(appliedStateUpdates) applied, \(deferredStateUpdates) deferred, \(activeVoiceStateUpdates) active voice updates."
+    )
+    let hxyEffects = result.diagnostics.effectCommandDiagnostics.filter(\.isHxyGlobalVolumeSlide)
+    let hxyApplied = hxyEffects.filter { $0.status == .applied }.count
+    let hxyNoOp = hxyEffects.filter { $0.status == .ignoredNoOp }.count
+    let hxyDeferred = hxyEffects.filter { $0.status == .deferredUnsupported }.count
+    let hxyActiveUpdates = stateUpdates.filter { update in
+        guard update.activeVoiceUpdated else {
+            return false
+        }
+        if case .hxyGlobalVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }.count
+    lines.append(
+        "Global volume slide Hxy: \(hxyApplied) applied, \(hxyNoOp) no-op, \(hxyDeferred) deferred, \(hxyActiveUpdates) active voice updates."
     )
     lines.append(
         "Gain/pan update micro-ramp: enabled, \(CSoftwareMixer.gainPanUpdateRampFrameCount) frames, \(rampedStateUpdates) ramped active updates."

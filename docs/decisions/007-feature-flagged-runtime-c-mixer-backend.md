@@ -67,6 +67,13 @@ runtime follow-up resolved the initial per-channel stop clears-all limitation by
 tagging runtime C mixer voices with caller-owned channel ids and stopping only
 matching tagged voices for channel stop and same-channel replacement.
 
+An output-diagnostics follow-up extends the same local-only trace with render
+callback counters, requested/rendered frame counts, detected zero-fill/underrun
+evidence, output peak/RMS and clipping/overrange summaries, row-transition
+snapshots, backend lifecycle breadcrumbs, event counters, and explicit runtime
+headroom policy reporting. It does not make the C mixer default, change C mixer
+DSP semantics, implement new XM effects, or claim runtime stability.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

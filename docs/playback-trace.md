@@ -134,11 +134,41 @@ The experimental runtime C mixer backend remains opt-in with
 `VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl` to write a
 local-only JSONL trace for the runtime C mixer path.
 
+The runtime C mixer trace now includes output diagnostics intended to explain
+live-only pops, crackle, harsh transitions, and runtime/offline differences
+without changing playback semantics. Trace rows can include backend sample rate,
+channel count, render callback count, requested frame counts, cumulative
+requested/rendered frames, min/max/last callback frame counts, successful and
+failed render counts, zero-fill and underrun counters where detected, output
+peak/RMS summaries, overrange/clipping counts, and the runtime output headroom
+policy. The current runtime C path applies no equivalent of the offline
+`--auto-headroom` export policy; its diagnostic headroom policy is
+`unity_runtime_gain_no_auto_headroom`.
+
+Render callback diagnostics are collected in memory and surfaced on later
+main-side trace events. The audio callback does not write trace files, call
+AppKit, parse module data, or allocate large diagnostic structures. Lock
+contention that prevents the render callback from entering the mixer may still
+produce silence before all counters can be updated, so treat the counters as
+diagnostic evidence rather than a complete real-time profiler.
+
+Row transition breadcrumbs use `runtimeAction == "row_transition"` and include
+the current order, pattern, row, tick, active/loaded voice counts, render
+counters, and output-level snapshot. Backend lifecycle breadcrumbs such as
+`backend_initialized`, `backend_prepared`, `backend_start`,
+`backend_start_failed`, and `backend_reset` help identify whether a harsh
+transition coincides with a runtime backend rebuild or fallback.
+
 Channel-scoped stop and replacement diagnostics use `c_mixer_stop_channel`.
 Those events include the channel context when available, `stoppedVoiceCount`,
 `activeVoiceCountBefore`, `activeVoiceCountAfter`, `loadedVoiceCountBefore`,
 and `loadedVoiceCountAfter` when available. True transport-wide stop/reset
 actions use `c_mixer_clear_all` and `targetScope == "all_channels"`.
+Trace events also carry cumulative event counters for C mixer add-voice calls,
+gain/pan update attempts, sample-step update attempts, channel stops, and global
+clear-all calls. The current runtime path has no separate event queue, so
+`eventQueueBacklogCount` is reported as `0` when a runtime C mixer snapshot is
+available.
 
 Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local

@@ -68,6 +68,8 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let backendFlagValue: String?
     let fallbackReason: String?
     let experimentalCMixerEnabled: Bool
+    let sampleRate: Double?
+    let channelCount: Int?
     let orderIndex: Int?
     let patternIndex: Int?
     let rowIndex: Int?
@@ -90,9 +92,41 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let loadedVoiceCountAfter: Int?
     let stoppedVoiceCount: Int?
     let currentFrame: UInt64?
+    let scheduledVoiceCount: Int?
+    let eventQueueBacklogCount: Int?
+    let renderCallbackCount: UInt64?
     let renderCallCount: UInt64?
+    let successfulRenderCount: UInt64?
+    let failedRenderCount: UInt64?
+    let requestedFrameCount: Int?
+    let cumulativeRequestedFrameCount: UInt64?
     let renderedFrameCount: UInt64?
     let renderFrameCount: Int?
+    let minRequestedFrameCount: Int?
+    let maxRequestedFrameCount: Int?
+    let lastRequestedFrameCount: Int?
+    let lastRenderedFrameCount: Int?
+    let lastRenderSucceeded: Bool?
+    let zeroFillCount: UInt64?
+    let underrunCount: UInt64?
+    let silentOutputCallbackCount: UInt64?
+    let unexpectedSilentOutputCount: UInt64?
+    let outputPeak: Float?
+    let outputRMS: Float?
+    let lastOutputPeak: Float?
+    let lastOutputRMS: Float?
+    let overrangeSampleCount: UInt64?
+    let clippingSampleCount: UInt64?
+    let runtimeOutputGain: Float?
+    let runtimeHeadroomPolicy: String?
+    let runtimeAutoHeadroomEnabled: Bool?
+    let runtimeFixedHeadroomDB: Double?
+    let noteTriggerEventCount: UInt64?
+    let cMixerAddVoiceCount: UInt64?
+    let gainPanUpdateCount: UInt64?
+    let stepUpdateCount: UInt64?
+    let stopChannelCount: UInt64?
+    let clearAllCount: UInt64?
     let cMixerCallSucceeded: Bool?
     let reason: String?
 
@@ -103,6 +137,8 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         backendFlagValue: String? = nil,
         fallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
+        sampleRate: Double? = nil,
+        channelCount: Int? = nil,
         context: AudioRuntimeTraceContext? = nil,
         targetScope: String = "none",
         targetedAllVoices: Bool = false,
@@ -114,9 +150,41 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         loadedVoiceCountAfter: Int? = nil,
         stoppedVoiceCount: Int? = nil,
         currentFrame: UInt64? = nil,
+        scheduledVoiceCount: Int? = nil,
+        eventQueueBacklogCount: Int? = nil,
+        renderCallbackCount: UInt64? = nil,
         renderCallCount: UInt64? = nil,
+        successfulRenderCount: UInt64? = nil,
+        failedRenderCount: UInt64? = nil,
+        requestedFrameCount: Int? = nil,
+        cumulativeRequestedFrameCount: UInt64? = nil,
         renderedFrameCount: UInt64? = nil,
         renderFrameCount: Int? = nil,
+        minRequestedFrameCount: Int? = nil,
+        maxRequestedFrameCount: Int? = nil,
+        lastRequestedFrameCount: Int? = nil,
+        lastRenderedFrameCount: Int? = nil,
+        lastRenderSucceeded: Bool? = nil,
+        zeroFillCount: UInt64? = nil,
+        underrunCount: UInt64? = nil,
+        silentOutputCallbackCount: UInt64? = nil,
+        unexpectedSilentOutputCount: UInt64? = nil,
+        outputPeak: Float? = nil,
+        outputRMS: Float? = nil,
+        lastOutputPeak: Float? = nil,
+        lastOutputRMS: Float? = nil,
+        overrangeSampleCount: UInt64? = nil,
+        clippingSampleCount: UInt64? = nil,
+        runtimeOutputGain: Float? = nil,
+        runtimeHeadroomPolicy: String? = nil,
+        runtimeAutoHeadroomEnabled: Bool? = nil,
+        runtimeFixedHeadroomDB: Double? = nil,
+        noteTriggerEventCount: UInt64? = nil,
+        cMixerAddVoiceCount: UInt64? = nil,
+        gainPanUpdateCount: UInt64? = nil,
+        stepUpdateCount: UInt64? = nil,
+        stopChannelCount: UInt64? = nil,
+        clearAllCount: UInt64? = nil,
         cMixerCallSucceeded: Bool? = nil,
         reason: String? = nil
     ) {
@@ -126,6 +194,8 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.backendFlagValue = backendFlagValue
         self.fallbackReason = fallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
+        self.sampleRate = sampleRate
+        self.channelCount = channelCount
         orderIndex = context?.orderIndex
         patternIndex = context?.patternIndex
         rowIndex = context?.rowIndex
@@ -148,9 +218,41 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.loadedVoiceCountAfter = loadedVoiceCountAfter
         self.stoppedVoiceCount = stoppedVoiceCount
         self.currentFrame = currentFrame
+        self.scheduledVoiceCount = scheduledVoiceCount
+        self.eventQueueBacklogCount = eventQueueBacklogCount
+        self.renderCallbackCount = renderCallbackCount
         self.renderCallCount = renderCallCount
+        self.successfulRenderCount = successfulRenderCount
+        self.failedRenderCount = failedRenderCount
+        self.requestedFrameCount = requestedFrameCount
+        self.cumulativeRequestedFrameCount = cumulativeRequestedFrameCount
         self.renderedFrameCount = renderedFrameCount
         self.renderFrameCount = renderFrameCount
+        self.minRequestedFrameCount = minRequestedFrameCount
+        self.maxRequestedFrameCount = maxRequestedFrameCount
+        self.lastRequestedFrameCount = lastRequestedFrameCount
+        self.lastRenderedFrameCount = lastRenderedFrameCount
+        self.lastRenderSucceeded = lastRenderSucceeded
+        self.zeroFillCount = zeroFillCount
+        self.underrunCount = underrunCount
+        self.silentOutputCallbackCount = silentOutputCallbackCount
+        self.unexpectedSilentOutputCount = unexpectedSilentOutputCount
+        self.outputPeak = outputPeak
+        self.outputRMS = outputRMS
+        self.lastOutputPeak = lastOutputPeak
+        self.lastOutputRMS = lastOutputRMS
+        self.overrangeSampleCount = overrangeSampleCount
+        self.clippingSampleCount = clippingSampleCount
+        self.runtimeOutputGain = runtimeOutputGain
+        self.runtimeHeadroomPolicy = runtimeHeadroomPolicy
+        self.runtimeAutoHeadroomEnabled = runtimeAutoHeadroomEnabled
+        self.runtimeFixedHeadroomDB = runtimeFixedHeadroomDB
+        self.noteTriggerEventCount = noteTriggerEventCount
+        self.cMixerAddVoiceCount = cMixerAddVoiceCount
+        self.gainPanUpdateCount = gainPanUpdateCount
+        self.stepUpdateCount = stepUpdateCount
+        self.stopChannelCount = stopChannelCount
+        self.clearAllCount = clearAllCount
         self.cMixerCallSucceeded = cMixerCallSucceeded
         self.reason = reason
     }
@@ -290,8 +392,14 @@ enum PlaybackAudioOutputFactory {
                 backendFlagValue: selection.requestedValue,
                 fallbackReason: selection.fallbackReason,
                 experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
+                sampleRate: MixerRenderConfig.defaultSampleRate,
+                channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
+                runtimeOutputGain: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.outputGain : nil,
+                runtimeHeadroomPolicy: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.headroomPolicy : nil,
+                runtimeAutoHeadroomEnabled: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.autoHeadroomEnabled : nil,
+                runtimeFixedHeadroomDB: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.fixedHeadroomDB : nil,
                 cMixerCallSucceeded: nil,
                 reason: selection.fallbackReason
             ))
@@ -306,11 +414,73 @@ enum PlaybackAudioOutputFactory {
 }
 
 struct RuntimeCMixerRenderSnapshot: Equatable {
+    let sampleRate: Double
+    let channelCount: Int
     let activeVoiceCount: Int
     let loadedVoiceCount: Int
+    let scheduledVoiceCount: Int
+    let eventQueueBacklogCount: Int
+    let renderCallbackCount: UInt64
     let renderCallCount: UInt64
+    let successfulRenderCount: UInt64
+    let failedRenderCount: UInt64
+    let requestedFrameCount: Int?
+    let cumulativeRequestedFrameCount: UInt64
     let renderedFrameCount: UInt64
+    let minRequestedFrameCount: Int?
+    let maxRequestedFrameCount: Int?
+    let lastRequestedFrameCount: Int?
+    let lastRenderedFrameCount: Int?
+    let lastRenderSucceeded: Bool?
+    let zeroFillCount: UInt64
+    let underrunCount: UInt64
+    let silentOutputCallbackCount: UInt64
+    let unexpectedSilentOutputCount: UInt64
+    let outputPeak: Float
+    let outputRMS: Float
+    let lastOutputPeak: Float
+    let lastOutputRMS: Float
+    let overrangeSampleCount: UInt64
+    let clippingSampleCount: UInt64
+    let runtimeOutputGain: Float
+    let runtimeHeadroomPolicy: String
+    let runtimeAutoHeadroomEnabled: Bool
+    let runtimeFixedHeadroomDB: Double?
     let currentFrame: UInt64
+}
+
+private enum RuntimeCMixerOutputPolicy {
+    static let outputGain = Float(1)
+    static let headroomPolicy = "unity_runtime_gain_no_auto_headroom"
+    static let autoHeadroomEnabled = false
+    static let fixedHeadroomDB: Double? = nil
+}
+
+private struct RuntimeCMixerOutputMetrics: Equatable {
+    let sampleCount: Int
+    let peak: Float
+    let squareSum: Double
+    let overrangeSampleCount: Int
+    let clippingSampleCount: Int
+
+    var rms: Float {
+        guard sampleCount > 0 else {
+            return 0
+        }
+        return Float(sqrt(squareSum / Double(sampleCount)))
+    }
+
+    var isSilent: Bool {
+        peak <= 0.000_001
+    }
+
+    static let silence = RuntimeCMixerOutputMetrics(
+        sampleCount: 0,
+        peak: 0,
+        squareSum: 0,
+        overrangeSampleCount: 0,
+        clippingSampleCount: 0
+    )
 }
 
 struct RuntimeCMixerTriggerResult: Equatable {
@@ -343,7 +513,27 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var renderCallCount: UInt64 = 0
+    private var renderCallbackCount: UInt64 = 0
+    private var successfulRenderCount: UInt64 = 0
+    private var failedRenderCount: UInt64 = 0
+    private var cumulativeRequestedFrameCount: UInt64 = 0
     private var renderedFrameCount: UInt64 = 0
+    private var minRequestedFrameCount: Int?
+    private var maxRequestedFrameCount: Int?
+    private var lastRequestedFrameCount: Int?
+    private var lastRenderedFrameCount: Int?
+    private var lastRenderSucceeded: Bool?
+    private var zeroFillCount: UInt64 = 0
+    private var underrunCount: UInt64 = 0
+    private var silentOutputCallbackCount: UInt64 = 0
+    private var unexpectedSilentOutputCount: UInt64 = 0
+    private var cumulativeOutputSampleCount: UInt64 = 0
+    private var cumulativeOutputSquareSum = Double(0)
+    private var outputPeak = Float(0)
+    private var lastOutputPeak = Float(0)
+    private var lastOutputRMS = Float(0)
+    private var overrangeSampleCount: UInt64 = 0
+    private var clippingSampleCount: UInt64 = 0
 
     let config: MixerRenderConfig
 
@@ -464,14 +654,6 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     @discardableResult
     func render(into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int) -> Bool {
         let safeFrameCount = max(0, frameCount)
-        guard safeFrameCount > 0 else {
-            return true
-        }
-        guard safeFrameCount <= maximumRenderFrames,
-              outputInterleavedPCM.count >= safeFrameCount * mixer.config.channelCount else {
-            clear(outputInterleavedPCM)
-            return false
-        }
         guard lock.try() else {
             clear(outputInterleavedPCM)
             return false
@@ -479,9 +661,45 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         defer {
             lock.unlock()
         }
+        let activeVoiceCountBefore = mixer.activeVoiceCount
+        let loadedVoiceCountBefore = mixer.loadedVoiceCount
+        guard safeFrameCount > 0 else {
+            recordRenderCompletionLocked(
+                requestedFrameCount: safeFrameCount,
+                renderedFrameCount: 0,
+                succeeded: true,
+                zeroFilled: false,
+                activeVoiceCountBefore: activeVoiceCountBefore,
+                loadedVoiceCountBefore: loadedVoiceCountBefore,
+                outputMetrics: .silence
+            )
+            return true
+        }
+        guard safeFrameCount <= maximumRenderFrames,
+              outputInterleavedPCM.count >= safeFrameCount * mixer.config.channelCount else {
+            clear(outputInterleavedPCM)
+            recordRenderCompletionLocked(
+                requestedFrameCount: safeFrameCount,
+                renderedFrameCount: 0,
+                succeeded: false,
+                zeroFilled: true,
+                activeVoiceCountBefore: activeVoiceCountBefore,
+                loadedVoiceCountBefore: loadedVoiceCountBefore,
+                outputMetrics: .silence
+            )
+            return false
+        }
         _ = mixer.render(into: outputInterleavedPCM, frames: safeFrameCount)
-        renderCallCount &+= 1
-        renderedFrameCount &+= UInt64(safeFrameCount)
+        let sampleCount = safeFrameCount * mixer.config.channelCount
+        recordRenderCompletionLocked(
+            requestedFrameCount: safeFrameCount,
+            renderedFrameCount: safeFrameCount,
+            succeeded: true,
+            zeroFilled: false,
+            activeVoiceCountBefore: activeVoiceCountBefore,
+            loadedVoiceCountBefore: loadedVoiceCountBefore,
+            outputMetrics: outputMetrics(outputInterleavedPCM, sampleCount: sampleCount)
+        )
         return true
     }
 
@@ -492,8 +710,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         // allocation-heavy work. Voice/sample preparation happens on the main side before this callback; this
         // callback only renders the preloaded C mixer into preallocated scratch storage and copies it out.
         clear(ioData: ioData, frameCount: safeFrameCount)
-        guard safeFrameCount > 0,
-              safeFrameCount <= maximumRenderFrames else {
+        guard safeFrameCount > 0 else {
+            return noErr
+        }
+        guard safeFrameCount <= maximumRenderFrames else {
+            recordZeroFillCallback(frameCount: safeFrameCount)
             return noErr
         }
 
@@ -513,6 +734,24 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private func resetLocked() {
         mixer.clearVoices()
         mixer.reset()
+    }
+
+    private func recordZeroFillCallback(frameCount: Int) {
+        guard lock.try() else {
+            return
+        }
+        defer {
+            lock.unlock()
+        }
+        recordRenderCompletionLocked(
+            requestedFrameCount: max(0, frameCount),
+            renderedFrameCount: 0,
+            succeeded: false,
+            zeroFilled: true,
+            activeVoiceCountBefore: mixer.activeVoiceCount,
+            loadedVoiceCountBefore: mixer.loadedVoiceCount,
+            outputMetrics: .silence
+        )
     }
 
     private func stopChannelLocked(_ channel: Int, reason: String) -> RuntimeCMixerChannelStopResult {
@@ -541,12 +780,120 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private func snapshotLocked() -> RuntimeCMixerRenderSnapshot {
-        RuntimeCMixerRenderSnapshot(
+        let rms = cumulativeOutputSampleCount > 0
+            ? Float(sqrt(cumulativeOutputSquareSum / Double(cumulativeOutputSampleCount)))
+            : 0
+        return RuntimeCMixerRenderSnapshot(
+            sampleRate: mixer.config.sampleRate,
+            channelCount: mixer.config.channelCount,
             activeVoiceCount: mixer.activeVoiceCount,
             loadedVoiceCount: mixer.loadedVoiceCount,
+            scheduledVoiceCount: 0,
+            eventQueueBacklogCount: 0,
+            renderCallbackCount: renderCallbackCount,
             renderCallCount: renderCallCount,
+            successfulRenderCount: successfulRenderCount,
+            failedRenderCount: failedRenderCount,
+            requestedFrameCount: lastRequestedFrameCount,
+            cumulativeRequestedFrameCount: cumulativeRequestedFrameCount,
             renderedFrameCount: renderedFrameCount,
+            minRequestedFrameCount: minRequestedFrameCount,
+            maxRequestedFrameCount: maxRequestedFrameCount,
+            lastRequestedFrameCount: lastRequestedFrameCount,
+            lastRenderedFrameCount: lastRenderedFrameCount,
+            lastRenderSucceeded: lastRenderSucceeded,
+            zeroFillCount: zeroFillCount,
+            underrunCount: underrunCount,
+            silentOutputCallbackCount: silentOutputCallbackCount,
+            unexpectedSilentOutputCount: unexpectedSilentOutputCount,
+            outputPeak: outputPeak,
+            outputRMS: rms,
+            lastOutputPeak: lastOutputPeak,
+            lastOutputRMS: lastOutputRMS,
+            overrangeSampleCount: overrangeSampleCount,
+            clippingSampleCount: clippingSampleCount,
+            runtimeOutputGain: RuntimeCMixerOutputPolicy.outputGain,
+            runtimeHeadroomPolicy: RuntimeCMixerOutputPolicy.headroomPolicy,
+            runtimeAutoHeadroomEnabled: RuntimeCMixerOutputPolicy.autoHeadroomEnabled,
+            runtimeFixedHeadroomDB: RuntimeCMixerOutputPolicy.fixedHeadroomDB,
             currentFrame: mixer.currentFrame
+        )
+    }
+
+    private func recordRenderCompletionLocked(
+        requestedFrameCount: Int,
+        renderedFrameCount renderedFrames: Int,
+        succeeded: Bool,
+        zeroFilled: Bool,
+        activeVoiceCountBefore: Int,
+        loadedVoiceCountBefore: Int,
+        outputMetrics: RuntimeCMixerOutputMetrics
+    ) {
+        renderCallbackCount &+= 1
+        cumulativeRequestedFrameCount &+= UInt64(max(0, requestedFrameCount))
+        minRequestedFrameCount = minRequestedFrameCount.map { min($0, requestedFrameCount) } ?? requestedFrameCount
+        maxRequestedFrameCount = max(maxRequestedFrameCount ?? requestedFrameCount, requestedFrameCount)
+        lastRequestedFrameCount = requestedFrameCount
+        lastRenderedFrameCount = renderedFrames
+        lastRenderSucceeded = succeeded
+        lastOutputPeak = outputMetrics.peak
+        lastOutputRMS = outputMetrics.rms
+
+        if succeeded {
+            renderCallCount &+= 1
+            successfulRenderCount &+= 1
+            self.renderedFrameCount &+= UInt64(max(0, renderedFrames))
+            if outputMetrics.isSilent {
+                silentOutputCallbackCount &+= 1
+                if activeVoiceCountBefore > 0 || loadedVoiceCountBefore > 0 {
+                    unexpectedSilentOutputCount &+= 1
+                    underrunCount &+= 1
+                }
+            }
+            cumulativeOutputSampleCount &+= UInt64(max(0, outputMetrics.sampleCount))
+            cumulativeOutputSquareSum += outputMetrics.squareSum
+            outputPeak = max(outputPeak, outputMetrics.peak)
+            overrangeSampleCount &+= UInt64(max(0, outputMetrics.overrangeSampleCount))
+            clippingSampleCount &+= UInt64(max(0, outputMetrics.clippingSampleCount))
+        } else {
+            failedRenderCount &+= 1
+            if zeroFilled {
+                zeroFillCount &+= 1
+                underrunCount &+= 1
+            }
+        }
+    }
+
+    private func outputMetrics(
+        _ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        sampleCount: Int
+    ) -> RuntimeCMixerOutputMetrics {
+        let boundedSampleCount = min(max(0, sampleCount), outputInterleavedPCM.count)
+        guard boundedSampleCount > 0 else {
+            return .silence
+        }
+        var peak = Float(0)
+        var squareSum = Double(0)
+        var overrangeCount = 0
+        var clippingCount = 0
+        for index in 0..<boundedSampleCount {
+            let sample = outputInterleavedPCM[index].isFinite ? outputInterleavedPCM[index] : 0
+            let absolute = abs(sample)
+            peak = max(peak, absolute)
+            squareSum += Double(sample) * Double(sample)
+            if absolute > 1 {
+                overrangeCount += 1
+            }
+            if absolute >= 1 {
+                clippingCount += 1
+            }
+        }
+        return RuntimeCMixerOutputMetrics(
+            sampleCount: boundedSampleCount,
+            peak: peak,
+            squareSum: squareSum,
+            overrangeSampleCount: overrangeCount,
+            clippingSampleCount: clippingCount
         )
     }
 
@@ -639,6 +986,15 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?)
     func stop(channel: Int, context: AudioRuntimeTraceContext?)
     func stopAll(context: AudioRuntimeTraceContext?, reason: String)
+    func recordTransition(context: AudioRuntimeTraceContext?, reason: String)
+}
+
+private struct RuntimeCMixerEventCounters: Equatable {
+    var cMixerAddVoiceCount: UInt64 = 0
+    var gainPanUpdateCount: UInt64 = 0
+    var stepUpdateCount: UInt64 = 0
+    var stopChannelCount: UInt64 = 0
+    var clearAllCount: UInt64 = 0
 }
 
 @MainActor
@@ -652,6 +1008,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let traceWriter: RuntimeCMixerTraceWriting
     private var isPrepared = false
     private var isFallbackActive = false
+    private var eventCounters = RuntimeCMixerEventCounters()
 
     init(
         sampleRate: Double = MixerRenderConfig.defaultSampleRate,
@@ -670,6 +1027,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         sourceNode = makeRuntimeCMixerSourceNode(format: format, renderCore: renderCore)
         logger.info(
             "Initialized experimental C mixer runtime backend sample_rate=\(self.renderCore.config.sampleRate, privacy: .public) channel_count=\(self.renderCore.config.channelCount, privacy: .public)"
+        )
+        recordRuntimeEvent(
+            action: "backend_initialized",
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: nil,
+            reason: "runtime_c_mixer_initialized"
         )
     }
 
@@ -701,6 +1066,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         prepareIfNeeded()
         let result = renderCore.triggerWithDiagnostics(request)
         if let channelStop = result.channelStopBeforeAdd {
+            eventCounters.stopChannelCount &+= 1
             recordRuntimeEvent(
                 action: "c_mixer_stop_channel",
                 context: contextWithFallbackChannel(context, channel: channelStop.channel),
@@ -712,6 +1078,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 reason: channelStop.reason
             )
         }
+        eventCounters.cMixerAddVoiceCount &+= 1
         recordRuntimeEvent(
             action: "c_mixer_add_voice",
             context: context,
@@ -740,8 +1107,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             fallbackAudioEngine.update(channel: channel, controls: controls)
         } else {
             renderCore.update(channel: channel, controls: controls)
+            eventCounters.gainPanUpdateCount &+= 1
+            eventCounters.stepUpdateCount &+= 1
             recordRuntimeEvent(
-                action: "unsupported_runtime_action",
+                action: "c_mixer_update_gain_pan_step_deferred",
                 context: context,
                 targetScope: "channel",
                 snapshot: renderCore.snapshot(),
@@ -757,6 +1126,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func stop(channel: Int, context: AudioRuntimeTraceContext?) {
         let result = renderCore.stopChannelWithDiagnostics(channel, reason: "channel_stop")
+        eventCounters.stopChannelCount &+= 1
         recordRuntimeEvent(
             action: "c_mixer_stop_channel",
             context: contextWithFallbackChannel(context, channel: channel),
@@ -778,6 +1148,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
+        eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
             action: "c_mixer_clear_all",
             context: context,
@@ -795,6 +1166,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
     }
 
+    func recordTransition(context: AudioRuntimeTraceContext?, reason: String) {
+        recordRuntimeEvent(
+            action: "row_transition",
+            context: context,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: nil,
+            reason: reason
+        )
+    }
+
     func reset() {
         stopAll()
         engine.stop()
@@ -805,6 +1187,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
         engine.reset()
         isPrepared = false
+        recordRuntimeEvent(
+            action: "backend_reset",
+            context: nil,
+            targetScope: "all_channels",
+            targetedAllVoices: true,
+            snapshot: renderCore.snapshot(),
+            succeeded: true,
+            reason: "runtime_c_mixer_backend_reset"
+        )
     }
 
     private func prepareIfNeeded() {
@@ -815,6 +1206,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
         engine.prepare()
         isPrepared = true
+        recordRuntimeEvent(
+            action: "backend_prepared",
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: true,
+            reason: "runtime_c_mixer_source_node_prepared"
+        )
     }
 
     private func startEngineIfNeeded() -> Bool {
@@ -826,12 +1225,28 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             logger.info(
                 "Experimental C mixer runtime start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
             )
+            recordRuntimeEvent(
+                action: "backend_start",
+                context: nil,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: true,
+                reason: "runtime_c_mixer_engine_started"
+            )
             return true
         } catch {
             logger.error(
                 "Experimental C mixer runtime start succeeded=false falling_back=true error=\(error.localizedDescription, privacy: .public)"
             )
             renderCore.stopAll()
+            recordRuntimeEvent(
+                action: "backend_start_failed",
+                context: nil,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: false,
+                reason: "runtime_c_mixer_engine_start_failed"
+            )
             return false
         }
     }
@@ -854,6 +1269,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
             experimentalCMixerEnabled: true,
+            sampleRate: snapshot.sampleRate,
+            channelCount: snapshot.channelCount,
             context: context,
             targetScope: targetScope,
             targetedAllVoices: targetedAllVoices,
@@ -865,8 +1282,40 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             loadedVoiceCountAfter: snapshot.loadedVoiceCount,
             stoppedVoiceCount: stoppedVoiceCount,
             currentFrame: snapshot.currentFrame,
+            scheduledVoiceCount: snapshot.scheduledVoiceCount,
+            eventQueueBacklogCount: snapshot.eventQueueBacklogCount,
+            renderCallbackCount: snapshot.renderCallbackCount,
             renderCallCount: snapshot.renderCallCount,
+            successfulRenderCount: snapshot.successfulRenderCount,
+            failedRenderCount: snapshot.failedRenderCount,
+            requestedFrameCount: snapshot.requestedFrameCount,
+            cumulativeRequestedFrameCount: snapshot.cumulativeRequestedFrameCount,
             renderedFrameCount: snapshot.renderedFrameCount,
+            renderFrameCount: snapshot.lastRequestedFrameCount,
+            minRequestedFrameCount: snapshot.minRequestedFrameCount,
+            maxRequestedFrameCount: snapshot.maxRequestedFrameCount,
+            lastRequestedFrameCount: snapshot.lastRequestedFrameCount,
+            lastRenderedFrameCount: snapshot.lastRenderedFrameCount,
+            lastRenderSucceeded: snapshot.lastRenderSucceeded,
+            zeroFillCount: snapshot.zeroFillCount,
+            underrunCount: snapshot.underrunCount,
+            silentOutputCallbackCount: snapshot.silentOutputCallbackCount,
+            unexpectedSilentOutputCount: snapshot.unexpectedSilentOutputCount,
+            outputPeak: snapshot.outputPeak,
+            outputRMS: snapshot.outputRMS,
+            lastOutputPeak: snapshot.lastOutputPeak,
+            lastOutputRMS: snapshot.lastOutputRMS,
+            overrangeSampleCount: snapshot.overrangeSampleCount,
+            clippingSampleCount: snapshot.clippingSampleCount,
+            runtimeOutputGain: snapshot.runtimeOutputGain,
+            runtimeHeadroomPolicy: snapshot.runtimeHeadroomPolicy,
+            runtimeAutoHeadroomEnabled: snapshot.runtimeAutoHeadroomEnabled,
+            runtimeFixedHeadroomDB: snapshot.runtimeFixedHeadroomDB,
+            cMixerAddVoiceCount: eventCounters.cMixerAddVoiceCount,
+            gainPanUpdateCount: eventCounters.gainPanUpdateCount,
+            stepUpdateCount: eventCounters.stepUpdateCount,
+            stopChannelCount: eventCounters.stopChannelCount,
+            clearAllCount: eventCounters.clearAllCount,
             cMixerCallSucceeded: succeeded,
             reason: reason
         ))

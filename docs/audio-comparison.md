@@ -157,6 +157,27 @@ same-channel note replacement in the experimental runtime C mixer path should
 now emit `c_mixer_stop_channel` rather than `c_mixer_clear_all`. True transport
 stop/reset actions still emit `c_mixer_clear_all` and target all channels.
 
+The same trace now carries runtime output diagnostics for the experimental C
+mixer path: backend sample rate and channel count, render callback count,
+requested frame counts, cumulative requested/rendered frames, min/max/last
+callback sizes, successful/failed render counts, detected zero-fill and underrun
+counts, silent-output counts, output peak/RMS summaries, overrange/clipping
+counts, active/loaded voice snapshots, row-transition breadcrumbs, backend
+lifecycle breadcrumbs, and cumulative event counters for note triggers, C mixer
+add-voice calls, gain/pan update attempts, sample-step update attempts,
+channel-scoped stops, and clear-all calls. Runtime traces report
+`eventQueueBacklogCount` as `0` when no separate runtime event queue exists.
+This is intended to show whether a harsh transition lines up with a clear-all,
+many channel stops, a burst of new note triggers or control updates, a
+voice-count collapse/spike, zero-fill/underrun evidence, or a backend reset.
+
+Offline candidate WAV export gain/headroom remains separate from runtime
+playback. The offline helper can use `--gain`, `--headroom-db`, or
+`--auto-headroom` at the WAV export boundary; the experimental runtime C mixer
+trace reports its current policy as `unity_runtime_gain_no_auto_headroom`.
+This PR does not change C mixer DSP semantics, runtime gain, or the default
+AVAudio backend.
+
 Runtime traces, playback traces, logs, screenshots, WAVs, JSON reports, and
 notes derived from private/local modules must remain under `/tmp` or another
 ignored local path. Do not commit, upload, copy into fixtures, or require any

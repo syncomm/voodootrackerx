@@ -54,7 +54,7 @@ Status: done (includes golden JSON snapshots and deterministic `mc_dump --json` 
 ## Milestone 2: Audio Bring-Up (Reference Tones to Module Playback)
 
 Current stabilization note:
-- First audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
+- Default audible XM playback currently uses `AVAudioPlayerNode` plus `AVAudioUnitVarispeed` as a safe first-pass backend for sample triggering, Play/Stop behavior, and tracker follow integration.
 - This is not the final tracker-accurate mixer architecture; current playback is first-pass XM-compatible rather than FT2-period-accurate or MikMod/OpenMPT accurate.
 - Timing, pitch, panning/stereo placement, sample loops including ping-pong loops, instrument volume envelopes/fadeout, volume-column behavior, debug seeking, and playback trace export have all had compatibility passes.
 - ADR 004 accepted the transition toward a deterministic pull-based software mixer, and the initial software mixer path now exists behind the playback/audio boundary. It renders silence, synthetic one-shot sample voices, synthetic forward/ping-pong loops, simple deterministic linear interpolation for fractional C-backed sample steps, volume/panning envelope foundations, frame-scheduled synthetic voices, synthetic row/tick scheduled voices, minimal synthetic patterns, and tiny bounded `PlaybackSong` adapter segments with parsed instrument sample-map/keymap selection, parsed volume-envelope point mapping plus first-pass sustain/loop/key-off/fadeout semantics, explicit XM linear-frequency pitch/period sample-step mapping where supported, conservative adapter-level volume-column set-volume/set-panning plus row-level volume/panning slide mapping, bounded/offline active-voice gain/pan updates for empty-note volume-column set-volume/set-panning cells, `Cxx` set volume, `8xx` set panning, nonzero row-level `Axy` volume slides, minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento, and minimal row-level `Hxy` global volume slides with a fixed 32-frame gain/pan micro-ramp for changed active-voice updates, minimal `Fxx` speed/BPM timing changes, minimal nonzero `9xx` sample offset support, minimal `E9x` retrigger support, minimal `ECx` note cut and `EDx` note delay support, a fixed 256-voice scheduled/active C mixer pool for bounded offline renders, event-coverage diagnostics for missing-note investigation, and pattern traversal/timing hazard diagnostics for `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands offline only. It is not used for runtime playback.
@@ -68,7 +68,7 @@ Current stabilization note:
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
 - See `docs/decisions/005-software-mixer-core-language-boundary.md` for the architecture checkpoint that clarifies the final hot-path mixer boundary before more complex envelope, timing, and effect work.
-- See `docs/decisions/007-feature-flagged-runtime-c-mixer-backend.md` for the accepted planning guidance for a future opt-in runtime C mixer backend experiment. Runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the C mixer remains offline-only until a later implementation PR.
+- See `docs/decisions/007-feature-flagged-runtime-c-mixer-backend.md` for the accepted planning guidance and initial implementation note for the opt-in runtime C mixer backend experiment. Default runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the C mixer runtime path is experimental and enabled only with `VTX_AUDIO_BACKEND=c_mixer`.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -96,9 +96,9 @@ Current stabilization note:
 
 ## Milestone 2.7: Deterministic Software Mixer Transition
 
-The current runtime playback remains `AVAudioPlayerNode`-based. The software
+The default runtime playback remains `AVAudioPlayerNode`-based. The software
 mixer work should continue in small PRs and prove itself through offline renders
-and reference comparison before any runtime backend switch.
+and reference comparison before any default runtime backend switch.
 
 ### PR 2.7.1 — Software Mixer Skeleton Behind AudioEngine
 - Scope: add deterministic mixer types and silence rendering behind the existing audio/playback boundary
@@ -356,8 +356,9 @@ and reference comparison before any runtime backend switch.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime C Mixer Backend Skeleton
-- Scope: future implementation of an opt-in runtime C mixer backend behind a developer feature flag such as `VTX_AUDIO_BACKEND=c_mixer`, while keeping the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend as the default fallback.
+- Scope: implement an opt-in runtime C mixer backend skeleton behind `VTX_AUDIO_BACKEND=c_mixer`, while keeping the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend as the default fallback.
 - Verification: app playback smoke tests, backend selection tests, fallback validation, runtime diagnostics, and no parser or tracker viewport changes.
+- Status: done.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

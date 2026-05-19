@@ -8245,6 +8245,90 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(configuration.stopAfterSeconds, 10.5)
     }
 
+    func testRuntimeAudioBackendSelectionDefaultsToAVAudio() {
+        let selection = RuntimeAudioBackendSelection.resolve(environment: [:])
+
+        XCTAssertEqual(selection.backend, .avAudio)
+        XCTAssertNil(selection.requestedValue)
+        XCTAssertNil(selection.fallbackReason)
+        XCTAssertFalse(selection.experimentalCMixerEnabled)
+    }
+
+    func testRuntimeAudioBackendSelectionEnablesCMixerOnlyForFlagValue() {
+        let selection = RuntimeAudioBackendSelection.resolve(environment: [
+            RuntimeAudioBackendSelection.environmentKey: "c_mixer"
+        ])
+
+        XCTAssertEqual(selection.backend, .cMixer)
+        XCTAssertEqual(selection.requestedValue, "c_mixer")
+        XCTAssertNil(selection.fallbackReason)
+        XCTAssertTrue(selection.experimentalCMixerEnabled)
+    }
+
+    func testRuntimeAudioBackendSelectionFallsBackForUnknownValue() {
+        let selection = RuntimeAudioBackendSelection.resolve(environment: [
+            RuntimeAudioBackendSelection.environmentKey: "raw_core_audio"
+        ])
+
+        XCTAssertEqual(selection.backend, .avAudio)
+        XCTAssertEqual(selection.requestedValue, "raw_core_audio")
+        XCTAssertEqual(selection.fallbackReason, "unknown_backend")
+        XCTAssertFalse(selection.experimentalCMixerEnabled)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryDefaultsToAVAudioBackend() {
+        let output = PlaybackAudioOutputFactory.make(environment: [:])
+
+        XCTAssertTrue(output is PlaybackAudioEngine)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryUsesCMixerOnlyWhenFlagged() {
+        let output = PlaybackAudioOutputFactory.make(environment: [
+            RuntimeAudioBackendSelection.environmentKey: "c_mixer"
+        ])
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+    }
+
+    func testRuntimeCMixerRenderCoreRendersTriggeredSampleAndStops() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            maximumRenderFrames: 16
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 44_100
+        )
+        let request = AudioVoiceRequest(sample: sample, note: 49, channel: 0)
+
+        XCTAssertTrue(core.trigger(request))
+        var output = Array(repeating: Float(0), count: 6)
+        output.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 3))
+        }
+
+        XCTAssertEqual(output, [1, 1, 0.5, 0.5, 0.25, 0.25])
+
+        core.stopAll()
+        var silentOutput = Array(repeating: Float(1), count: 6)
+        silentOutput.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 3))
+        }
+        XCTAssertTrue(silentOutput.allSatisfy { abs($0) < 0.000_001 })
+
+        for _ in 0..<3 {
+            XCTAssertTrue(core.trigger(request))
+            core.stopAll()
+        }
+    }
+
     @MainActor
     func testPlaybackEngineRecordsTraceForTriggeredNote() {
         let audioOutput = TestPlaybackAudioOutput()

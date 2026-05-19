@@ -17,9 +17,12 @@ flow, tracker-style pattern display, static highlight row behavior, stable
 viewport navigation, first-pass XM playback, playback diagnostics, and an
 initial deterministic software mixer skeleton.
 
-Runtime playback still uses the `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
-backend. The software mixer path is groundwork for offline rendering and future
-reference comparison; it can render synthetic one-shot sample voices plus
+Default runtime playback still uses the `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed` backend. An experimental runtime C mixer skeleton now
+exists behind the developer-only `VTX_AUDIO_BACKEND=c_mixer` flag, but it is
+opt-in only and does not replace the AVAudio backend. The software mixer path is
+groundwork for offline rendering and future reference comparison; it can render
+synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
 absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
 bounded `PlaybackSong` adapter segments through the offline harness with
@@ -123,14 +126,10 @@ with bounded adapter diagnostics such as gain/pan updates, retriggers, note
 cuts/delays, note triggers, looped/carryover/window events, and
 key-off/fadeout evidence.
 The bounded/offline C mixer now reports gain/pan ramp settings and counts in
-diagnostics; runtime playback remains on `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed`.
-ADR 007 now documents the future feature-flagged runtime C mixer backend plan:
-the first runtime experiment should remain developer opt-in, keep the AVAudio
-backend as the default fallback, prefer an AVAudioEngine-hosted pull source
-before raw CoreAudio, and keep tracker viewport, parser, and broad UI work out
-of the backend implementation PR. No runtime C mixer backend or backend flag
-has been implemented yet.
+diagnostics. ADR 007's feature-flagged runtime C mixer plan now has an initial
+implementation skeleton: it remains developer opt-in, keeps the AVAudio backend
+as the default fallback, uses an AVAudioEngine-hosted pull source, and keeps
+tracker viewport, parser, and broad UI work out of the backend PR.
 
 Immediate audio accuracy sequence:
 
@@ -185,7 +184,7 @@ Immediate audio accuracy sequence:
 49. Minimal portamento up/down 1xx / 2xx for bounded offline renders — done
 50. Song-end duration / tail handling for vtx_render_bounded_xm — done
 51. ADR: Feature-flagged runtime C mixer backend plan — done
-52. Feature-flagged runtime C mixer backend skeleton
+52. Feature-flagged runtime C mixer backend skeleton — done
 53. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
@@ -248,6 +247,7 @@ Components:
 Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
+- experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs
@@ -321,9 +321,9 @@ Features:
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
-- ADR 007 documents the future feature-flagged runtime C mixer backend plan,
-  keeping the AVAudio backend default and the C mixer offline-only until a later
-  opt-in implementation PR
+- ADR 007 documents the feature-flagged runtime C mixer backend plan, and the
+  initial skeleton keeps the AVAudio backend default while making the C mixer
+  runtime path opt-in only
 
 ---
 

@@ -162,9 +162,10 @@ a conservative first pass for volume-envelope sustain frames, envelope loop
 frames, note value `97` key-off release, and instrument fadeout after key-off.
 These semantics are deterministic and diagnosed, but they are still
 approximations rather than full FT2/OpenMPT envelope parity.
-Runtime playback still uses `AVAudioPlayerNode` through the existing playback
-path; the C mixer is still not used for live playback, and full real XM playback
-through the C mixer has not been implemented.
+Default runtime playback still uses `AVAudioPlayerNode` through the existing
+playback path. An experimental live C mixer skeleton can be enabled with
+`VTX_AUDIO_BACKEND=c_mixer`, but full real XM playback through the C mixer has
+not been implemented.
 
 The bounded offline C mixer uses fixed deterministic voice storage. Scheduled
 and active voices currently share one preallocated C pool with capacity 256;
@@ -183,7 +184,7 @@ scheduled-event pool at once. That is the chunked/windowed offline scheduling
 problem, not a reason to keep increasing C capacity or change audio behavior.
 The developer-only bounded XM render helper now has an explicit
 `--window-rows` mode for long local candidate WAV exports. That mode keeps the
-C mixer offline-only, plans the bounded range through the existing Swift
+C mixer inside the offline helper path, plans the bounded range through the existing Swift
 adapter, schedules one row window into a fresh C mixer at a time, reschedules
 practical continuation voices at later window starts, renders that window,
 appends deterministic PCM, and aggregates scheduled-capacity and carryover
@@ -670,8 +671,8 @@ bounded offline rendering:
     windowed carryover where practical.
 28. Additional targeted effects such as `5xy`, arpeggio, vibrato, tremolo,
    pattern break, and position jump.
-29. Feature-flagged runtime C mixer backend switch only after offline parity and
-   diagnostics are strong enough to justify runtime risk.
+29. Done: initial feature-flagged runtime C mixer backend skeleton, opt-in only
+   and not the default backend.
 
 ## Envelope Semantics First Pass
 
@@ -704,9 +705,9 @@ is diagnosed as out-of-row and skipped/no-opped safely. Minimal `Hxy` global
 volume slide is row-level and bounded/offline only; `Gxx` set global volume,
 pattern break, position jump, pattern delay,
 `9xx`/`E90` effect memory, `A00` volume slide memory, retrigger volume-change
-variants, and runtime playback integration remain out of scope. Runtime
-playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the C
-mixer remains offline-only.
+variants, and broad runtime playback integration remain out of scope. Default
+runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
+C mixer runtime path remains experimental and opt-in only.
 
 ## Manual Verification Strategy
 

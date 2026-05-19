@@ -26,10 +26,10 @@ final class PlaybackEngine: PlaybackTransport {
     var playbackDidStop: (() -> Void)?
 
     init(
-        audioEngine: PlaybackAudioOutput = PlaybackAudioEngine(),
+        audioEngine: PlaybackAudioOutput? = nil,
         traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter()
     ) {
-        self.audioEngine = audioEngine
+        self.audioEngine = audioEngine ?? PlaybackAudioOutputFactory.make()
         self.traceWriter = traceWriter
     }
 

@@ -21,10 +21,11 @@ fixtures, or require them from automated tests.
 
 ## Current State
 
-Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`. The
-C-backed mixer remains offline-only and is not connected to the app Play
-button. Offline candidate/reference comparison remains the validation path
-before any future feature-flagged runtime C mixer experiment is enabled or
+Default runtime playback still uses `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed`. The C-backed mixer now has an experimental app playback
+skeleton behind `VTX_AUDIO_BACKEND=c_mixer`, but that path is opt-in only and
+does not replace the default AVAudio backend. Offline candidate/reference
+comparison remains the validation path before the runtime C mixer experiment is
 expanded; see ADR 007 for the runtime planning guidance.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
@@ -402,10 +403,10 @@ swift run vtx_render_bounded_xm \
   --progress
 ```
 
-Windowed mode is still a developer/offline helper path. It keeps runtime
-playback on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, keeps the C mixer
-offline-only, and does not implement new XM effects or change C mixer DSP
-semantics. It plans the bounded range through the existing adapter, schedules
+Windowed mode is still a developer/offline helper path. It does not change the
+default `AVAudioPlayerNode` / `AVAudioUnitVarispeed` runtime backend, does not
+enable the experimental runtime C mixer flag, and does not implement new XM
+effects or change C mixer DSP semantics. It plans the bounded range through the existing adapter, schedules
 only one row window into a fresh C mixer at a time, carries practical active
 voice state from earlier windows where the adapter can determine it, renders
 that window, appends the PCM, and aggregates diagnostics across windows.
@@ -787,8 +788,8 @@ Pick one narrow next PR from the evidence. Good candidates include adapter
 support for a specific effect, Amiga pitch behavior if non-linear modules need
 it, additional diagnostics, additional volume-column semantics, a remaining
 resampling or loop investigation, or a bounded order traversal improvement.
-Feature-flagged runtime C mixer backend work should wait until offline
-confidence is strong enough to justify runtime risk.
+Further feature-flagged runtime C mixer backend expansion should wait until
+offline confidence is strong enough to justify additional runtime risk.
 
 ## Local-Only Artifact Rules
 
@@ -823,8 +824,8 @@ For this workflow:
   details
 - confirm no generated WAVs, reports, traces, screenshots, or local modules are
   staged
-- confirm runtime playback behavior did not change
-- confirm the C mixer remains offline-only
+- confirm default runtime playback behavior did not change
+- confirm the runtime C mixer path remains opt-in only via `VTX_AUDIO_BACKEND=c_mixer`
 - confirm tracker viewport and parser architecture code were not modified
 - confirm export gain/headroom, when used, was applied before PCM16 conversion
 - confirm generated WAVs and diagnostics JSON remain local and unstaged

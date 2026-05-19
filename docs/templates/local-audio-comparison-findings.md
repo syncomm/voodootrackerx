@@ -165,6 +165,8 @@ output directory.
 - Unknown volume-column commands in worst windows:
 - Applied volume/panning state updates in worst windows:
 - Deferred volume/panning state updates in worst windows:
+- ECx note cuts: applied / no-active / out-of-row:
+- EDx note delays: applied / no-note / out-of-row:
 - Overall deferred command frequency in bounded render:
 - Overall command frequency notes:
 
@@ -181,12 +183,15 @@ or source-to-synthetic diagnostics.
 - [ ] sample map / keymap / selected sample metadata
 - [ ] remaining interpolation / resampling / reference-render settings
 - [ ] sample offset / retrigger / note cut / note delay
+- [ ] output headroom / clipping / render gain policy
 - [ ] loop behavior
 - [ ] unknown / needs trace correlation
 
 ## Evidence Notes
 
 - Metric summary:
+- Output peak / clipping summary:
+- Largest adjacent-sample jump summary:
 - Trace or diagnostics correlation:
 - Event coverage summary:
 - Capacity summary:
@@ -209,6 +214,7 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 - [ ] Loop/Interpolation Investigation:
 - [ ] Bounded Order Traversal Improvement:
 - [ ] Minimal Pattern Delay EEx for Bounded Offline Renders:
+- [ ] Mixer Output Headroom / Clipping Diagnostics and Render Gain Policy:
 - [ ] Redistribution-Safe Audio Fixture Corpus:
 - [ ] Feature-Flagged Runtime Backend Skeleton only after enough offline confidence:
 

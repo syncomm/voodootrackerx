@@ -340,7 +340,8 @@ ranges, then lists:
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
-  sample-offset status, envelope status, loop mode, and render interpolation
+  sample-offset status, minimal `ECx` note-cut diagnostics, minimal `EDx`
+  note-delay diagnostics, envelope status, loop mode, and render interpolation
   status when those fields are present
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
@@ -351,9 +352,9 @@ ranges, then lists:
   diagnostics JSON contains them
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
-- a transparent heuristic recommendation for the next narrow PR, such as note
-  cut/delay, retrigger, sample-offset memory, pattern control effects, or more
-  local review when no command clearly dominates
+- a transparent heuristic recommendation for the next narrow PR, such as
+  retrigger, sample-offset memory, pattern control effects, mixer headroom
+  diagnostics, or more local review when no command clearly dominates
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
@@ -361,13 +362,14 @@ or preceding-event context when available.
 
 Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral
-fallbacks, choose Amiga pitch behavior. If they line up with deferred
-effect-column events, choose one specific remaining effect such as note
-cut/delay or retrigger. If mismatch windows repeatedly line up with diagnosed
-`900` no-ops, decide separately whether effect memory is worth a narrow PR. If
-mismatch windows are broad and steady while events look plausible, remaining
-resampling details or reference-render settings may be the better next
-investigation.
+fallbacks, choose Amiga pitch behavior. If they line up with applied or
+deferred effect-column events, choose one specific remaining effect such as
+retrigger or a focused follow-up to minimal `ECx`/`EDx`. If mismatch windows
+repeatedly line up with diagnosed `900` no-ops, decide separately whether
+effect memory is worth a narrow PR. If mismatch windows are broad and steady
+while events look plausible, remaining resampling details, loop details,
+headroom/clipping diagnostics, or reference-render settings may be the better
+next investigation.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
 before implementing more effects. In long/full-song renders, separate
@@ -546,6 +548,7 @@ Likely categories to consider when filling the findings template:
 - pitch / finetune / relative note / linear frequency
 - remaining resampling / reference-render settings
 - sample offset / retrigger / note cut / note delay
+- output headroom / clipping / render gain policy
 - loop behavior
 - unknown / needs trace correlation
 

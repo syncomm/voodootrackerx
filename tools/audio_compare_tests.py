@@ -253,6 +253,56 @@ def deferred_effect_field(effect_type, effect_param, row=4, channel=1):
     }
 
 
+def note_cut_effect(status="applied", row=4, channel=1, tick=2, scheduled_frame=112):
+    return {
+        "source": {"order": 0, "pattern": 2, "row": row},
+        "channel_index": channel,
+        "synthetic_row": row,
+        "synthetic_tick": tick,
+        "effect_type": 0x0E,
+        "effect_param": 0xC0 | tick,
+        "status": status,
+        "detected": True,
+        "applied": status == "applied",
+        "deferred": False,
+        "ignored_as_no_op": status != "applied",
+        "out_of_row": status == "out_of_row_no_op",
+        "requested_tick": tick,
+        "row_speed": 6,
+        "row_bpm": 125,
+        "scheduled_frame": scheduled_frame,
+        "absolute_frame": scheduled_frame,
+        "active_event_index": 0 if status == "applied" else None,
+        "target_voice_indices": [0] if status == "applied" else [],
+        "target_voice_index": 0 if status == "applied" else None,
+    }
+
+
+def note_delay_effect(status="applied", row=4, channel=2, tick=2, original_frame=110, delayed_frame=112):
+    return {
+        "source": {"order": 0, "pattern": 2, "row": row},
+        "channel_index": channel,
+        "synthetic_row": row,
+        "synthetic_tick": tick,
+        "effect_type": 0x0E,
+        "effect_param": 0xD0 | tick,
+        "status": status,
+        "detected": True,
+        "applied": status == "applied",
+        "deferred": status == "no_note_deferred",
+        "ignored_as_no_op": status == "out_of_row_no_op",
+        "out_of_row": status == "out_of_row_no_op",
+        "requested_tick": tick,
+        "row_speed": 6,
+        "row_bpm": 125,
+        "original_frame": original_frame,
+        "delayed_frame": delayed_frame if status == "applied" else None,
+        "scheduled_frame": delayed_frame if status == "applied" else None,
+        "absolute_frame": delayed_frame if status == "applied" else None,
+        "event_index": 0 if status == "applied" else None,
+    }
+
+
 def traversal_effect(effect_type, effect_param, label, row=4, channel=1, status="deferred/unsupported"):
     return {
         "source": {"order": 0, "pattern": 2, "row": row},
@@ -273,9 +323,12 @@ def traversal_summary(effects):
         "total_dxx_pattern_break": sum(1 for effect in effects if effect["effect_label"] == "Dxx pattern break"),
         "total_eex_pattern_delay": sum(1 for effect in effects if effect["effect_label"] == "EEx pattern delay"),
         "total_fxx_speed_bpm": sum(1 for effect in effects if effect["effect_label"] == "Fxx speed/BPM"),
+        "total_ecx_note_cut": sum(1 for effect in effects if effect["effect_label"] == "ECx note cut"),
+        "total_edx_note_delay": sum(1 for effect in effects if effect["effect_label"] == "EDx note delay"),
         "total_other_e_commands": sum(
             1 for effect in effects
-            if effect["effect_type"] == 0x0E and effect["effect_label"] != "EEx pattern delay"
+            if effect["effect_type"] == 0x0E
+            and effect["effect_label"] not in {"EEx pattern delay", "ECx note cut", "EDx note delay"}
         ),
         "total_traversal_hazards": sum(1 for effect in effects if effect["is_traversal_hazard"]),
         "likely_ignores_structure_changing_behavior": any(effect["is_traversal_hazard"] for effect in effects),
@@ -898,6 +951,27 @@ class AudioCorrelationTests(unittest.TestCase):
             markdown = report.read_text(encoding="utf-8")
 
             self.assertIn("| EDx note delay | deferred/unsupported | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
+    def test_correlation_report_counts_applied_ecx_edx_from_supported_diagnostics(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["note_cut_effects"] = [note_cut_effect(channel=1, scheduled_frame=112)]
+        diagnostics["note_delay_effects"] = [note_delay_effect(channel=2, delayed_frame=113)]
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x0E, 0xC2, "ECx note cut", channel=1, status="applied"),
+            traversal_effect(0x0E, 0xD2, "EDx note delay", channel=2, status="applied"),
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- ECx note cuts: 1", markdown)
+            self.assertIn("- EDx note delays: 1", markdown)
+            self.assertIn("- Other E-command diagnostics: 0", markdown)
+            self.assertIn("### Applied effect commands in worst windows", markdown)
+            self.assertIn("| ECx note cut | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("| EDx note delay | applied | 1 | 1 | order 0 pattern 2 row 4 ch 2 |", markdown)
 
     def test_correlation_report_counts_deferred_e9x_retrigger_in_worst_windows(self):
         diagnostics = synthetic_diagnostics_json()

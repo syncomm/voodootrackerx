@@ -693,6 +693,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "C-backed offline sample stepping uses simple deterministic linear interpolation.",
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
+                "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
                 "Hxy global volume slide remains diagnostic/deferred in bounded offline renders.",
@@ -718,6 +719,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
+                "note_cut_effect_count": diagnostics.noteCutEffectCount,
+                "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
                 "active_voice_state_update_count": diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
@@ -738,6 +741,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "volume_panning_state_update_summary": voiceStateUpdateSummaryJSON(diagnostics.voiceStateUpdates),
             "volume_panning_state_updates": diagnostics.voiceStateUpdates.map(voiceStateUpdateJSON),
             "sample_offset_effects": diagnostics.sampleOffsetEffects.map(sampleOffsetDiagnosticJSON),
+            "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
+            "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -881,6 +886,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "total_dxx_pattern_break": summary.totalDxxPatternBreak,
             "total_eex_pattern_delay": summary.totalEExPatternDelay,
             "total_fxx_speed_bpm": summary.totalFxxSpeedBPM,
+            "total_ecx_note_cut": summary.totalECxNoteCut,
+            "total_edx_note_delay": summary.totalEDxNoteDelay,
             "total_other_e_commands": summary.totalOtherECommands,
             "total_traversal_hazards": summary.totalTraversalHazards,
             "likely_ignores_structure_changing_behavior": summary.likelyIgnoresStructureChangingBehavior,
@@ -994,7 +1001,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
             initialSourceFrame: initialSourceFrame,
             playbackStep: playbackStep
         )
-        let endFrame = max(startFrame, startFrame + duration.frames)
+        var durationFrames = duration.frames
+        var durationReason = duration.reason
+        var endFrame = max(startFrame, startFrame + duration.frames)
+        if let cutFrame = firstAppliedNoteCutFrame(
+            forEventIndex: mapping.eventIndex,
+            from: result.diagnostics.noteCutEffects
+        ), cutFrame >= startFrame {
+            endFrame = min(endFrame, cutFrame)
+            durationFrames = max(0, endFrame - startFrame)
+            durationReason = "note_cut"
+        }
 
         var object = [String: Any]()
         object["source"] = positionJSON(mapping.source)
@@ -1019,8 +1036,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["event_index"] = mapping.eventIndex
         object["scheduled_start_frame"] = startFrame
         object["estimated_end_frame"] = endFrame
-        object["estimated_duration_frames"] = duration.frames
-        object["duration_estimate_reason"] = duration.reason
+        object["estimated_duration_frames"] = durationFrames
+        object["duration_estimate_reason"] = durationReason
         object["sample_frame_count"] = sampleFrameCount
         object["initial_source_frame"] = initialSourceFrame
         object["gain"] = Double(event?.gain ?? 0)
@@ -1041,6 +1058,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["estimated_end_seconds"] = endSeconds
         }
         return object
+    }
+
+    private static func firstAppliedNoteCutFrame(
+        forEventIndex eventIndex: Int,
+        from cuts: [PlaybackSongSyntheticNoteCutDiagnostic]
+    ) -> Int? {
+        cuts
+            .filter { $0.applied && $0.activeEventIndex == eventIndex }
+            .compactMap(\.scheduledFrame)
+            .min()
     }
 
     private static func eventDurationJSONFields(
@@ -1445,6 +1472,79 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func noteCutDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticNoteCutDiagnostic,
+        from result: PlaybackSongOfflineRenderResult
+    ) -> [String: Any] {
+        var object: [String: Any] = [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": noteCutStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "out_of_row": diagnostic.outOfRow,
+            "requested_tick": diagnostic.requestedTick,
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
+            "absolute_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+        ]
+        let targetVoiceIndices = targetVoiceIndices(
+            forEventIndex: diagnostic.activeEventIndex,
+            in: result
+        )
+        object["target_voice_indices"] = targetVoiceIndices
+        object["target_voice_index"] = targetVoiceIndices.first.map { $0 as Any } ?? NSNull()
+        return object
+    }
+
+    private static func noteDelayDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticNoteDelayDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": noteDelayStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "out_of_row": diagnostic.outOfRow,
+            "requested_tick": diagnostic.requestedTick,
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "original_frame": diagnostic.originalFrame,
+            "delayed_frame": diagnostic.delayedFrame.map { $0 as Any } ?? NSNull(),
+            "scheduled_frame": diagnostic.delayedFrame.map { $0 as Any } ?? NSNull(),
+            "absolute_frame": diagnostic.delayedFrame.map { $0 as Any } ?? NSNull(),
+            "event_index": diagnostic.eventIndex.map { $0 as Any } ?? NSNull(),
+        ]
+    }
+
+    private static func targetVoiceIndices(
+        forEventIndex eventIndex: Int?,
+        in result: PlaybackSongOfflineRenderResult
+    ) -> [Int] {
+        guard let eventIndex else {
+            return []
+        }
+        return result.scheduledVoiceAttempts.compactMap { attempt in
+            guard attempt.eventIndex == eventIndex else {
+                return nil
+            }
+            return attempt.voiceIndex
+        }
+    }
+
     private static func positionJSON(_ position: PlaybackPosition) -> [String: Any] {
         [
             "order": position.orderIndex,
@@ -1605,6 +1705,28 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func noteCutStatusName(_ status: PlaybackSongSyntheticNoteCutDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .outOfRowNoOp:
+            return "out_of_row_no_op"
+        }
+    }
+
+    private static func noteDelayStatusName(_ status: PlaybackSongSyntheticNoteDelayDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noNoteDeferred:
+            return "no_note_deferred"
+        case .outOfRowNoOp:
+            return "out_of_row_no_op"
+        }
+    }
+
     private static func effectCommandStatusName(_ status: PlaybackSongSyntheticEffectCommandDiagnostic.Status) -> String {
         switch status {
         case .applied:
@@ -1704,6 +1826,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "sample_pcm_empty"
         case .sampleOffsetOutOfRange:
             return "sample_offset_out_of_range"
+        case .noteDelayOutOfRow:
+            return "note_delay_out_of_row"
+        case .noteDelayWithoutNote:
+            return "note_delay_without_note"
         case .noSelectedSampleForNote:
             return "no_selected_sample_for_note"
         case .unsupportedDeferredEffectInteraction:
@@ -1886,6 +2012,15 @@ private func appendEventCoverageSummary(
     let activeVoiceStateUpdates = stateUpdates.filter(\.activeVoiceUpdated).count
     lines.append(
         "Volume/panning state updates: \(appliedStateUpdates) applied, \(deferredStateUpdates) deferred, \(activeVoiceStateUpdates) active voice updates."
+    )
+    let appliedCuts = result.diagnostics.noteCutEffects.filter(\.applied).count
+    let deferredCuts = result.diagnostics.noteCutEffects.filter(\.deferred).count
+    let noActiveCuts = result.diagnostics.noteCutEffects.filter { $0.status == .noActiveVoice }.count
+    let appliedDelays = result.diagnostics.noteDelayEffects.filter(\.applied).count
+    let deferredDelays = result.diagnostics.noteDelayEffects.filter(\.deferred).count
+    let outOfRowDelays = result.diagnostics.noteDelayEffects.filter(\.outOfRow).count
+    lines.append(
+        "Note cut/delay: ECx \(appliedCuts) applied, \(deferredCuts) deferred, \(noActiveCuts) no-active; EDx \(appliedDelays) applied, \(deferredDelays) deferred, \(outOfRowDelays) out-of-row."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

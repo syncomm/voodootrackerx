@@ -356,6 +356,8 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
     let voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
+    let noteCutEffects: [PlaybackSongSyntheticNoteCutDiagnostic]
+    let noteDelayEffects: [PlaybackSongSyntheticNoteDelayDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
@@ -388,6 +390,14 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var sampleOffsetEffectCount: Int {
         sampleOffsetEffects.count
+    }
+
+    var noteCutEffectCount: Int {
+        noteCutEffects.count
+    }
+
+    var noteDelayEffectCount: Int {
+        noteDelayEffects.count
     }
 
     var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
@@ -521,6 +531,8 @@ extension PlaybackSongSyntheticDiagnostics {
             volumeColumnMappings: volumeColumnMappings,
             voiceStateUpdates: voiceStateUpdates,
             sampleOffsetEffects: sampleOffsetEffects,
+            noteCutEffects: noteCutEffects,
+            noteDelayEffects: noteDelayEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
             ignoredCells: ignoredCells,
@@ -642,6 +654,14 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
         effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0E
     }
 
+    var isECxNoteCut: Bool {
+        effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0C
+    }
+
+    var isEDxNoteDelay: Bool {
+        effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0D
+    }
+
     var isFxxTimingChange: Bool {
         effectType == 0x0F
     }
@@ -747,6 +767,8 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
     let totalDxxPatternBreak: Int
     let totalEExPatternDelay: Int
     let totalFxxSpeedBPM: Int
+    let totalECxNoteCut: Int
+    let totalEDxNoteDelay: Int
     let totalOtherECommands: Int
     let totalTraversalHazards: Int
     let likelyIgnoresStructureChangingBehavior: Bool
@@ -758,8 +780,10 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
         totalDxxPatternBreak = effectCommandDiagnostics.filter { $0.isDxxPatternBreak }.count
         totalEExPatternDelay = effectCommandDiagnostics.filter { $0.isEExPatternDelay }.count
         totalFxxSpeedBPM = effectCommandDiagnostics.filter { $0.isFxxTimingChange }.count
+        totalECxNoteCut = effectCommandDiagnostics.filter { $0.isECxNoteCut }.count
+        totalEDxNoteDelay = effectCommandDiagnostics.filter { $0.isEDxNoteDelay }.count
         totalOtherECommands = effectCommandDiagnostics.filter {
-            $0.effectType == 0x0E && !$0.isEExPatternDelay
+            $0.effectType == 0x0E && !$0.isEExPatternDelay && !$0.isECxNoteCut && !$0.isEDxNoteDelay
         }.count
         totalTraversalHazards = totalBxxPositionJump + totalDxxPatternBreak + totalEExPatternDelay
         likelyIgnoresStructureChangingBehavior = totalTraversalHazards > 0
@@ -814,6 +838,59 @@ struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
     let computedOffsetFrames: Int
     let appliedOffsetFrames: Int?
     let selectedSampleLength: Int?
+}
+
+struct PlaybackSongSyntheticNoteCutDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noActiveVoice
+        case outOfRowNoOp
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let outOfRow: Bool
+    let requestedTick: Int
+    let rowSpeed: Int
+    let rowBPM: Int
+    let scheduledFrame: Int?
+    let activeEventIndex: Int?
+}
+
+struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noNoteDeferred
+        case outOfRowNoOp
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let outOfRow: Bool
+    let requestedTick: Int
+    let rowSpeed: Int
+    let rowBPM: Int
+    let originalFrame: Int
+    let delayedFrame: Int?
+    let eventIndex: Int?
 }
 
 enum PlaybackSongSyntheticVolumeColumnCommand: Equatable {
@@ -1231,6 +1308,8 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
         case instrumentHasNoPlayableSample
         case samplePCMEmpty
         case sampleOffsetOutOfRange
+        case noteDelayOutOfRow
+        case noteDelayWithoutNote
         case noSelectedSampleForNote
         case unsupportedDeferredEffectInteraction
         case unknown
@@ -1725,6 +1804,8 @@ enum PlaybackSongSyntheticAdapter {
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
+        var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
+        var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
@@ -1782,12 +1863,15 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     song: song,
                     timingConfig: timingPlan.timingConfig(forSyntheticRow: syntheticRow),
+                    timingPlan: timingPlan,
                     scheduledStartFrame: timingPlan.frameFor(row: syntheticRow, tick: 0),
                     channelStates: &channelStates,
                     events: &events,
                     volumeColumnMappings: &volumeColumnMappings,
                     voiceStateUpdates: &voiceStateUpdates,
                     sampleOffsetEffects: &sampleOffsetEffects,
+                    noteCutEffects: &noteCutEffects,
+                    noteDelayEffects: &noteDelayEffects,
                     keyOffEvents: &keyOffEvents,
                     effectCommandDiagnostics: &effectCommandDiagnostics,
                     eventMappings: &eventMappings,
@@ -1820,6 +1904,8 @@ enum PlaybackSongSyntheticAdapter {
                 volumeColumnMappings: volumeColumnMappings,
                 voiceStateUpdates: voiceStateUpdates,
                 sampleOffsetEffects: sampleOffsetEffects,
+                noteCutEffects: noteCutEffects,
+                noteDelayEffects: noteDelayEffects,
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
@@ -1835,12 +1921,15 @@ enum PlaybackSongSyntheticAdapter {
         syntheticRow: Int,
         song: PlaybackSong,
         timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
         scheduledStartFrame: Int,
         channelStates: inout [Int: ChannelState],
         events: inout [SyntheticTrackerEvent],
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
         voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
         sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
+        noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic],
+        noteDelayEffects: inout [PlaybackSongSyntheticNoteDelayDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
@@ -1855,7 +1944,8 @@ enum PlaybackSongSyntheticAdapter {
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
                 source: source,
-                channelIndex: channelIndex
+                channelIndex: channelIndex,
+                timingConfig: timingConfig
             ) {
                 effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
@@ -1905,6 +1995,16 @@ enum PlaybackSongSyntheticAdapter {
                 includeKeyOff: false,
                 deferredCellFields: &deferredCellFields
             )
+            let noteDelay = noteDelayDiagnostic(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                timingPlan: timingPlan,
+                originalFrame: scheduledStartFrame,
+                eventIndex: nil
+            )
             if cell.note == 97 {
                 handleKeyOff(
                     source: source,
@@ -1921,26 +2021,81 @@ enum PlaybackSongSyntheticAdapter {
                     deferredCellFields: &deferredCellFields,
                     eventCoverage: &eventCoverage
                 )
+                if let noteDelay {
+                    noteDelayEffects.append(noteDelay)
+                }
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 channelStates[channelIndex] = channelState
                 continue
             }
             guard (1...96).contains(cell.note) else {
+                if let noteDelay {
+                    noteDelayEffects.append(noteDelay)
+                }
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
                     cell: cell,
-                    reason: ignoredNoteReason(cell, volumeColumn: volumeColumn),
+                    reason: noteDelay?.status == .noNoteDeferred
+                        ? .noteDelayWithoutNote
+                        : ignoredNoteReason(cell, volumeColumn: volumeColumn),
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
-                    hasIgnoredEffect: hasDeferredEffect(cell)
+                    hasIgnoredEffect: noteDelay != nil || hasDeferredEffect(cell)
                 )
                 ignoredCells.append(ignored)
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: false)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            if let noteDelay, noteDelay.outOfRow {
+                noteDelayEffects.append(noteDelay)
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: .noteDelayOutOfRow,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: true
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
                 continue
             }
 
             let instrumentIndex = Int(cell.instrument)
             guard instrumentIndex > 0 else {
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1952,9 +2107,20 @@ enum PlaybackSongSyntheticAdapter {
                 )
                 ignoredCells.append(ignored)
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
                 continue
             }
             guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1966,10 +2132,21 @@ enum PlaybackSongSyntheticAdapter {
                 )
                 ignoredCells.append(ignored)
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
                 continue
             }
             let sampleSelection = selectSample(forNote: cell.note, from: instrument)
             guard let sample = sampleSelection.sample else {
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1993,6 +2170,7 @@ enum PlaybackSongSyntheticAdapter {
                     method: sampleSelection.method,
                     sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
                 )
+                channelStates[channelIndex] = channelState
                 continue
             }
 
@@ -2008,6 +2186,16 @@ enum PlaybackSongSyntheticAdapter {
                 sampleOffsetEffects.append(sampleOffset)
             }
             if sampleOffset.skipped {
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -2028,6 +2216,7 @@ enum PlaybackSongSyntheticAdapter {
                 )
                 ignoredCells.append(ignored)
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
                 continue
             }
 
@@ -2049,10 +2238,12 @@ enum PlaybackSongSyntheticAdapter {
             )
             let gain = adaptedGain(sampleVolume: sample.volume, channelVolume: channelState.volumeValue)
             let pan = channelState.pan
+            let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
+            let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
             events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
-                tick: 0,
-                scheduledStartFrame: scheduledStartFrame,
+                tick: scheduledNoteTick,
+                scheduledStartFrame: scheduledNoteFrame,
                 sample: MixerSampleBuffer(monoPCM: sample.pcm),
                 gain: gain,
                 pan: pan,
@@ -2091,7 +2282,7 @@ enum PlaybackSongSyntheticAdapter {
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
                 syntheticRow: syntheticRow,
-                syntheticTick: 0,
+                syntheticTick: scheduledNoteTick,
                 eventIndex: eventIndex,
                 loopMode: loop.mode,
                 volumeColumn: volumeColumn,
@@ -2125,6 +2316,29 @@ enum PlaybackSongSyntheticAdapter {
                 pitchMappingApplied: pitchMapping.applied,
                 pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
             ))
+            if let noteDelay, noteDelay.applied {
+                noteDelayEffects.append(noteDelayDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    originalFrame: scheduledStartFrame,
+                    eventIndex: eventIndex
+                ) ?? noteDelay)
+            }
+            handleNoteCut(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                timingPlan: timingPlan,
+                channelState: &channelState,
+                noteCutEffects: &noteCutEffects
+            )
+            channelStates[channelIndex] = channelState
         }
         return PlaybackSongSyntheticRowDiagnostic(
             source: source,
@@ -2599,6 +2813,198 @@ enum PlaybackSongSyntheticAdapter {
         channelState.activeSampleVolume = nil
     }
 
+    private static func handleNoteCut(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState,
+        noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic]
+    ) {
+        guard let diagnostic = noteCutDiagnostic(
+            from: cell,
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            timingPlan: timingPlan,
+            activeEventIndex: channelState.activeEventIndex
+        ) else {
+            return
+        }
+        noteCutEffects.append(diagnostic)
+        guard diagnostic.applied else {
+            return
+        }
+        channelState.activeEventIndex = nil
+        channelState.activeEventMappingIndex = nil
+        channelState.activeSampleVolume = nil
+    }
+
+    private static func noteCutDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        activeEventIndex: Int?
+    ) -> PlaybackSongSyntheticNoteCutDiagnostic? {
+        guard isNoteCutEffect(cell) else {
+            return nil
+        }
+        let tick = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        guard tick < rowSpeed else {
+            return PlaybackSongSyntheticNoteCutDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRowNoOp,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: true,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                scheduledFrame: nil,
+                activeEventIndex: activeEventIndex
+            )
+        }
+        let cutFrame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+        guard let activeEventIndex else {
+            return PlaybackSongSyntheticNoteCutDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .noActiveVoice,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: false,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                scheduledFrame: cutFrame,
+                activeEventIndex: nil
+            )
+        }
+        return PlaybackSongSyntheticNoteCutDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: tick,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            outOfRow: false,
+            requestedTick: tick,
+            rowSpeed: rowSpeed,
+            rowBPM: rowBPM,
+            scheduledFrame: cutFrame,
+            activeEventIndex: activeEventIndex
+        )
+    }
+
+    private static func noteDelayDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        originalFrame: Int,
+        eventIndex: Int?
+    ) -> PlaybackSongSyntheticNoteDelayDiagnostic? {
+        guard isNoteDelayEffect(cell) else {
+            return nil
+        }
+        let tick = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        guard tick < rowSpeed else {
+            return PlaybackSongSyntheticNoteDelayDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRowNoOp,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: true,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                originalFrame: originalFrame,
+                delayedFrame: nil,
+                eventIndex: eventIndex
+            )
+        }
+        let delayedFrame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+        guard (1...96).contains(cell.note) else {
+            return PlaybackSongSyntheticNoteDelayDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .noNoteDeferred,
+                detected: true,
+                applied: false,
+                deferred: true,
+                ignoredAsNoOp: false,
+                outOfRow: false,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                originalFrame: originalFrame,
+                delayedFrame: nil,
+                eventIndex: eventIndex
+            )
+        }
+        return PlaybackSongSyntheticNoteDelayDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: tick,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            outOfRow: false,
+            requestedTick: tick,
+            rowSpeed: rowSpeed,
+            rowBPM: rowBPM,
+            originalFrame: originalFrame,
+            delayedFrame: delayedFrame,
+            eventIndex: eventIndex
+        )
+    }
+
     private static func eventMapping(
         _ mapping: PlaybackSongSyntheticEventMapping,
         applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
@@ -3054,6 +3460,25 @@ enum PlaybackSongSyntheticAdapter {
         return Float((Double(fadeoutValue) / 65_536.0) / framesPerDefaultTick)
     }
 
+    private static func extendedEffectSubcommand(_ cell: PlaybackCell) -> UInt8? {
+        guard cell.effectType == 0x0E else {
+            return nil
+        }
+        return (cell.effectParam >> 4) & 0x0F
+    }
+
+    private static func extendedEffectTick(_ cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func isNoteCutEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0C
+    }
+
+    private static func isNoteDelayEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0D
+    }
+
     private static func sampleOffsetDiagnostic(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -3149,7 +3574,8 @@ enum PlaybackSongSyntheticAdapter {
     private static func effectCommandDiagnostic(
         from cell: PlaybackCell,
         source: PlaybackPosition,
-        channelIndex: Int
+        channelIndex: Int,
+        timingConfig: SyntheticTrackerTimingConfig
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic? {
         guard shouldReportEffectCommand(cell) else {
             return nil
@@ -3160,7 +3586,7 @@ enum PlaybackSongSyntheticAdapter {
             effectType: cell.effectType,
             effectParam: cell.effectParam,
             decodedLabel: effectCommandLabel(effectType: cell.effectType, effectParam: cell.effectParam),
-            status: effectCommandStatus(cell),
+            status: effectCommandStatus(cell, timingConfig: timingConfig),
             isTraversalHazard: isTraversalHazard(cell)
         )
     }
@@ -3174,7 +3600,10 @@ enum PlaybackSongSyntheticAdapter {
         }
     }
 
-    private static func effectCommandStatus(_ cell: PlaybackCell) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
+    private static func effectCommandStatus(
+        _ cell: PlaybackCell,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
         case 0x08, 0x0C:
             return .applied
@@ -3184,6 +3613,14 @@ enum PlaybackSongSyntheticAdapter {
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x11:
             return .deferredUnsupported
+        case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
+            guard extendedEffectTick(cell) < timingConfig.speed else {
+                return .ignoredNoOp
+            }
+            if isNoteDelayEffect(cell), !(1...96).contains(cell.note) {
+                return .deferredUnsupported
+            }
+            return .applied
         case 0x0B, 0x0D, 0x0E:
             return .deferredUnsupported
         default:
@@ -3272,7 +3709,9 @@ enum PlaybackSongSyntheticAdapter {
             return false
         }
         if PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) ||
-            isNonzeroSampleOffsetEffect(cell) {
+            isNonzeroSampleOffsetEffect(cell) ||
+            isNoteCutEffect(cell) ||
+            isNoteDelayEffect(cell) {
             return false
         }
         switch cell.effectType {
@@ -3477,6 +3916,9 @@ enum PlaybackSongSyntheticAdapter {
             return .samplePCMEmpty
         case .sampleOffsetOutOfRange:
             return .sampleOffsetOutOfRange
+        case .noteDelayOutOfRow,
+             .noteDelayWithoutNote:
+            return .unsupportedDeferredEffectInteraction
         case .noSelectedSampleForNote:
             return .noSelectedSampleForNote
         case .unsupportedDeferredEffectInteraction:
@@ -3766,6 +4208,11 @@ final class PlaybackSongOfflineRenderSession {
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer
         )
+        PlaybackSongOfflineRenderer.scheduleNoteCuts(
+            adaptedPlan.diagnostics.noteCutEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
         let rejectionReasons = scheduledResults.map(\.rejectionReason)
         let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
@@ -3902,6 +4349,13 @@ final class PlaybackSongOfflineRenderer {
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame
             )
+            Self.scheduleNoteCuts(
+                adaptedPlan.diagnostics.noteCutEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
             attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
                 PlaybackSongScheduledVoiceAttempt(
                     eventIndex: pair.offset,
@@ -4033,6 +4487,35 @@ final class PlaybackSongOfflineRenderer {
                 scheduledFrame: update.scheduledFrame - windowStartFrame,
                 gain: update.gainAfter,
                 pan: update.panAfter
+            )
+        }
+    }
+
+    fileprivate static func scheduleNoteCuts(
+        _ cuts: [PlaybackSongSyntheticNoteCutDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for cut in cuts where cut.applied {
+            guard let activeEventIndex = cut.activeEventIndex,
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
+                  let scheduledFrame = cut.scheduledFrame else {
+                continue
+            }
+            guard scheduledFrame >= windowStartFrame else {
+                continue
+            }
+            if let windowEndFrame,
+               scheduledFrame >= windowEndFrame {
+                continue
+            }
+            _ = mixer.scheduleVoiceGainPanUpdate(
+                voiceIndex: voiceIndex,
+                scheduledFrame: scheduledFrame - windowStartFrame,
+                gain: 0,
+                pan: nil
             )
         }
     }
@@ -4180,6 +4663,13 @@ final class PlaybackSongOfflineRenderer {
                latestEventIndex != eventIndex {
                 return nil
             }
+            if hasAppliedNoteCut(
+                eventIndex: eventIndex,
+                before: windowStartFrame,
+                plan: plan
+            ) {
+                return nil
+            }
             let carriedEvent = eventApplyingVoiceStateUpdates(
                 to: event,
                 eventIndex: eventIndex,
@@ -4208,6 +4698,18 @@ final class PlaybackSongOfflineRenderer {
                 return carriedEvent
             }
             return carriedEvent.withGainPan(gain: update.gainAfter, pan: update.panAfter)
+        }
+    }
+
+    private static func hasAppliedNoteCut(
+        eventIndex: Int,
+        before boundaryFrame: Int,
+        plan: PlaybackSongSyntheticPlan
+    ) -> Bool {
+        plan.diagnostics.noteCutEffects.contains { cut in
+            cut.applied &&
+                cut.activeEventIndex == eventIndex &&
+                (cut.scheduledFrame ?? Int.max) < boundaryFrame
         }
     }
 

@@ -358,6 +358,28 @@ def sample_offset_status(sample_offset: dict[str, Any]) -> str:
     return "unknown"
 
 
+def note_cut_status(note_cut: dict[str, Any]) -> str:
+    status = str(note_cut.get("status", ""))
+    if bool(note_cut.get("applied")) or status == "applied":
+        return "applied"
+    if status in {"no_active_voice", "out_of_row_no_op"} or bool(note_cut.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    if bool(note_cut.get("deferred")):
+        return "deferred/unsupported"
+    return "unknown"
+
+
+def note_delay_status(note_delay: dict[str, Any]) -> str:
+    status = str(note_delay.get("status", ""))
+    if bool(note_delay.get("applied")) or status == "applied":
+        return "applied"
+    if status == "out_of_row_no_op" or bool(note_delay.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    if status == "no_note_deferred" or bool(note_delay.get("deferred")):
+        return "deferred/unsupported"
+    return "unknown"
+
+
 def timing_change_status(change: dict[str, Any]) -> str:
     if bool(change.get("applied")):
         return "applied"
@@ -435,6 +457,34 @@ def extract_command_occurrences(
             status=sample_offset_status(sample_offset),
             source=nested_dict(sample_offset.get("source")),
             channel=sample_offset.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    for note_cut in nested_list(diagnostics.get("note_cut_effects")):
+        if not isinstance(note_cut, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(note_cut, rows_by_source, rows_by_synthetic)
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(note_cut.get("effect_type"), note_cut.get("effect_param")),
+            status=note_cut_status(note_cut),
+            source=nested_dict(note_cut.get("source")),
+            channel=note_cut.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    for note_delay in nested_list(diagnostics.get("note_delay_effects")):
+        if not isinstance(note_delay, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(note_delay, rows_by_source, rows_by_synthetic)
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(note_delay.get("effect_type"), note_delay.get("effect_param")),
+            status=note_delay_status(note_delay),
+            source=nested_dict(note_delay.get("source")),
+            channel=note_delay.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
         ))
@@ -816,6 +866,8 @@ def append_traversal_hazard_summary(
     dxx_count = integer(summary.get("total_dxx_pattern_break"))
     eex_count = integer(summary.get("total_eex_pattern_delay"))
     fxx_count = integer(summary.get("total_fxx_speed_bpm"))
+    ecx_count = integer(summary.get("total_ecx_note_cut"))
+    edx_count = integer(summary.get("total_edx_note_delay"))
     other_e_count = integer(summary.get("total_other_e_commands"))
     total_hazards = integer(summary.get("total_traversal_hazards"))
     if bxx_count is None:
@@ -826,11 +878,15 @@ def append_traversal_hazard_summary(
         eex_count = derived_counts["EEx pattern delay"]
     if fxx_count is None:
         fxx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "Fxx speed/BPM")
+    if ecx_count is None:
+        ecx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "ECx note cut")
+    if edx_count is None:
+        edx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "EDx note delay")
     if other_e_count is None:
         other_e_count = sum(
             1 for effect in traversal_effects
             if int_or_none(effect.get("effect_type")) == 0x0E
-            and effect.get("effect_label") != "EEx pattern delay"
+            and effect.get("effect_label") not in {"EEx pattern delay", "ECx note cut", "EDx note delay"}
         )
     if total_hazards is None:
         total_hazards = bxx_count + dxx_count + eex_count
@@ -845,6 +901,8 @@ def append_traversal_hazard_summary(
         f"- Dxx pattern breaks: {dxx_count}",
         f"- EEx pattern delays: {eex_count}",
         f"- Fxx speed/BPM timing changes: {fxx_count}",
+        f"- ECx note cuts: {ecx_count}",
+        f"- EDx note delays: {edx_count}",
         f"- Other E-command diagnostics: {other_e_count}",
         f"- Total traversal hazards: {total_hazards}",
         f"- Bounded render likely ignores structure-changing behavior: {str(likely_ignores).lower()}",

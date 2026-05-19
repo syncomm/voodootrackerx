@@ -931,6 +931,86 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(sampleOffsetEffects.first?["status"] as? String, "applied")
     }
 
+    func testDiagnosticsJSONIncludesNoteCutAndDelayFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 8),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let song = PlaybackSong(
+            title: "note-cut-delay-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xD1)
+                    ]),
+                    PlaybackRow(index: 1, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xC1)
+                    ])
+                ])
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let noteCuts = try XCTUnwrap(object["note_cut_effects"] as? [[String: Any]])
+        let noteDelays = try XCTUnwrap(object["note_delay_effects"] as? [[String: Any]])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
+        let summary = try XCTUnwrap(object["traversal_hazard_summary"] as? [String: Any])
+        let event = try XCTUnwrap(events.first)
+        let delay = try XCTUnwrap(noteDelays.first)
+        let cut = try XCTUnwrap(noteCuts.first)
+
+        XCTAssertEqual(render["note_delay_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["note_cut_effect_count"] as? Int, 1)
+        XCTAssertEqual(delay["status"] as? String, "applied")
+        XCTAssertEqual(delay["requested_tick"] as? Int, 1)
+        XCTAssertEqual(delay["row_speed"] as? Int, 3)
+        XCTAssertEqual(delay["row_bpm"] as? Int, 250)
+        XCTAssertEqual(delay["original_frame"] as? Int, 0)
+        XCTAssertEqual(delay["delayed_frame"] as? Int, 1)
+        XCTAssertEqual(delay["event_index"] as? Int, 0)
+        XCTAssertEqual(cut["status"] as? String, "applied")
+        XCTAssertEqual(cut["requested_tick"] as? Int, 1)
+        XCTAssertEqual(cut["row_speed"] as? Int, 3)
+        XCTAssertEqual(cut["row_bpm"] as? Int, 250)
+        XCTAssertEqual(cut["scheduled_frame"] as? Int, 4)
+        XCTAssertEqual(cut["absolute_frame"] as? Int, 4)
+        XCTAssertEqual(cut["active_event_index"] as? Int, 0)
+        XCTAssertEqual(cut["target_voice_index"] as? Int, 0)
+        XCTAssertEqual(cut["target_voice_indices"] as? [Int], [0])
+        XCTAssertEqual(event["scheduled_start_frame"] as? Int, 1)
+        XCTAssertEqual(event["synthetic_tick"] as? Int, 1)
+        XCTAssertEqual(event["estimated_end_frame"] as? Int, 4)
+        XCTAssertEqual(event["estimated_duration_frames"] as? Int, 3)
+        XCTAssertEqual(event["duration_estimate_reason"] as? String, "note_cut")
+        XCTAssertEqual(summary["total_ecx_note_cut"] as? Int, 1)
+        XCTAssertEqual(summary["total_edx_note_delay"] as? Int, 1)
+        XCTAssertEqual(summary["total_other_e_commands"] as? Int, 0)
+        XCTAssertTrue(effects.contains { item in
+            item["effect_label"] as? String == "EDx note delay" && item["status"] as? String == "applied"
+        })
+        XCTAssertTrue(effects.contains { item in
+            item["effect_label"] as? String == "ECx note cut" && item["status"] as? String == "applied"
+        })
+    }
+
     func testDiagnosticsJSONIncludesVolumePanningStateUpdateSummary() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

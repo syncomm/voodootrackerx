@@ -86,8 +86,9 @@ with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
 volume-column decisions, volume/panning/global-volume state-update diagnostics,
-Fxx timing changes, sample-offset decisions, `E9x` retrigger decisions and generated
-frames, envelope sustain/loop/key-off/fadeout status, and loop metadata.
+Fxx timing changes, sample-offset decisions, `3xx` tone-portamento target/current
+sample-step diagnostics, `E9x` retrigger decisions and generated frames,
+envelope sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
@@ -110,11 +111,14 @@ mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
 Candidate diagnostics and the correlation report also include a focused
-pitch-modulation/deferred-effect summary for `0xy`, `1xx`, `2xx`, `3xx`, `4xy`,
-`5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. The
-report groups those counts into arpeggio, portamento, vibrato, and tremolo
-buckets, shows whether they appear near the worst mismatch windows, and
-recommends a conservative next pitch-effect PR only when one bucket dominates.
+pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `1xx`,
+`2xx`, `4xy`, `5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento
+ranges. Applied `3xx` tone portamento is reported in the general command
+frequency and dedicated tone-portamento diagnostics instead of the deferred
+pitch-modulation bucket. The report groups deferred pitch-modulation counts into
+arpeggio, portamento, vibrato, and tremolo buckets, shows whether they appear
+near the worst mismatch windows, and recommends a conservative next pitch-effect
+PR only when one bucket dominates.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred/no-op counts, whether an active
@@ -145,7 +149,8 @@ synthetic WAV files only.
 
 `tests/fixtures/minimal.xm` is a tiny redistribution-safe smoke fixture for
 parser/helper validation. It is not a meaningful audio-parity fixture for
-MikMod/OpenMPT comparison work.
+MikMod/OpenMPT comparison work. Bounded render and effect smoke tests should
+use generated or otherwise playable redistribution-safe XM inputs.
 
 ## Render Duration Safety
 
@@ -505,9 +510,10 @@ ranges, then lists:
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
-  sample-offset status, minimal `E9x` retrigger diagnostics, minimal `ECx`
-  note-cut diagnostics, minimal `EDx` note-delay diagnostics, envelope status,
-  loop mode, and render interpolation status when those fields are present
+  sample-offset status, minimal `3xx` tone-portamento diagnostics, minimal
+  `E9x` retrigger diagnostics, minimal `ECx` note-cut diagnostics, minimal
+  `EDx` note-delay diagnostics, envelope status, loop mode, and render
+  interpolation status when those fields are present
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
@@ -516,8 +522,8 @@ ranges, then lists:
   `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands when
   diagnostics JSON contains them
 - pitch-modulation/deferred-effect counts near the worst windows and overall,
-  including arpeggio, portamento, vibrato, tremolo, and deferred
-  volume-column vibrato/tone-portamento commands
+  including arpeggio, remaining deferred portamento-family commands, vibrato,
+  tremolo, and deferred volume-column vibrato/tone-portamento commands
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as
@@ -541,11 +547,13 @@ worth a narrow PR. If mismatch windows are broad and steady while events look
 plausible, remaining resampling details, loop details, headroom/clipping
 diagnostics, or reference-render settings may be the better next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
-dominates the top mismatch windows: arpeggio for dense `0xy`, portamento for
-`1xx`/`2xx`/`3xx`/`5xy` or volume-column tone portamento, vibrato for `4xy`/`6xy`
-or volume-column vibrato, and tremolo for `7xy`. If counts are sparse or split,
-record the evidence and do not start an implementation PR from that signal
-alone.
+dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
+portamento-family work for `1xx`/`2xx`/`5xy` or volume-column tone portamento,
+vibrato for `4xy`/`6xy` or volume-column vibrato, and tremolo for `7xy`. If
+counts are sparse or split, record the evidence and do not start an
+implementation PR from that signal alone. If windows line up with applied
+`3xx`, inspect its target/current step diagnostics before deciding whether a
+follow-up should refine tone portamento or move to another effect family.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
 before implementing more effects. In long/full-song renders, separate

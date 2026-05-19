@@ -287,10 +287,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testLongAllowedRenderUsesExplicitCap() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
         let outputURL = directory.appendingPathComponent("long-allowed-candidate.wav")
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -508,10 +509,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testProgressFlagProducesCoarseStatusOutput() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let outputURL = directory.appendingPathComponent("progress-candidate.wav")
         var progressLines = [String]()
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -545,10 +547,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testWindowedProgressOutputIncludesWindowProgress() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let outputURL = directory.appendingPathComponent("windowed-progress-candidate.wav")
         var progressLines = [String]()
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -579,10 +582,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testProgressRenderOutputMatchesDefaultRenderOutput() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let defaultOutputURL = directory.appendingPathComponent("default-candidate.wav")
         let progressOutputURL = directory.appendingPathComponent("progress-candidate.wav")
         let baseArguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: defaultOutputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -593,7 +597,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             seconds: nil
         )
         let progressArguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: progressOutputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -617,10 +621,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testWindowedSingleWindowOutputMatchesDefaultRenderOutput() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let defaultOutputURL = directory.appendingPathComponent("default-candidate.wav")
         let windowedOutputURL = directory.appendingPathComponent("windowed-candidate.wav")
         let baseArguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: defaultOutputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -631,7 +636,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             seconds: nil
         )
         let windowedArguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: windowedOutputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -653,10 +658,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testDefaultRunDoesNotEmitProgressStatusOutput() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let outputURL = directory.appendingPathComponent("default-no-progress-candidate.wav")
         var progressLines = [String]()
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -697,8 +703,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     }
 
     func testTrackedRepoOutputPathFailsClearly() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: repoRoot().appendingPathComponent("unsafe-candidate.wav").path,
             diagnosticsJSONPath: nil,
             order: 0,
@@ -717,9 +726,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testInvalidOrderRangeFailsClearly() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let outputURL = directory.appendingPathComponent("invalid-order-candidate.wav")
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: nil,
             order: 99,
@@ -735,10 +745,36 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         }
     }
 
-    func testRendersRedistributionSafeTinyXMFixtureToWAV() throws {
+    func testRendersGeneratedPlayableXMToWAV() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let outputURL = directory.appendingPathComponent("minimal-candidate.wav")
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("generated-playable-candidate.wav")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let data = try Data(contentsOf: outputURL)
+
+        XCTAssertGreaterThan(result.renderedFrameCount, 0)
+        XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, 1)
+        XCTAssertEqual(String(decoding: data.prefix(4), as: UTF8.self), "RIFF")
+        XCTAssertTrue(outputURL.path.hasPrefix(URL(fileURLWithPath: NSTemporaryDirectory()).path))
+    }
+
+    func testMinimalXMFixtureRemainsParserHelperPlumbingSmokeOnly() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("minimal-header-plumbing-candidate.wav")
         let arguments = RenderToolArguments(
             inputPath: fixturePath("minimal.xm").path,
             outputPath: outputURL.path,
@@ -755,6 +791,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let data = try Data(contentsOf: outputURL)
 
         XCTAssertGreaterThan(result.renderedFrameCount, 0)
+        XCTAssertGreaterThan(result.diagnostics.eventCoverage.normalNoteCells, 0)
+        XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, 0)
+        XCTAssertEqual(result.diagnostics.eventCoverage.skippedNoteEvents, result.diagnostics.eventCoverage.normalNoteCells)
         XCTAssertEqual(String(decoding: data.prefix(4), as: UTF8.self), "RIFF")
         XCTAssertTrue(outputURL.path.hasPrefix(URL(fileURLWithPath: NSTemporaryDirectory()).path))
     }
@@ -762,10 +801,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testRendersDiagnosticsJSONWhenRequested() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let outputURL = directory.appendingPathComponent("minimal-candidate.wav")
-        let diagnosticsURL = directory.appendingPathComponent("minimal-candidate-diagnostics.json")
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("generated-playable-candidate.wav")
+        let diagnosticsURL = directory.appendingPathComponent("generated-playable-candidate-diagnostics.json")
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: diagnosticsURL.path,
             order: 0,
@@ -821,7 +861,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
-        XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
+        XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
     }
 
     func testDiagnosticsJSONIncludesAutoHeadroomFieldsWhenEnabled() throws {
@@ -866,10 +906,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testWindowedDiagnosticsJSONIncludesAggregateWindowFields() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
         let outputURL = directory.appendingPathComponent("windowed-candidate.wav")
         let diagnosticsURL = directory.appendingPathComponent("windowed-candidate-diagnostics.json")
         let arguments = RenderToolArguments(
-            inputPath: fixturePath("minimal.xm").path,
+            inputPath: inputURL.path,
             outputPath: outputURL.path,
             diagnosticsJSONPath: diagnosticsURL.path,
             order: 0,
@@ -1564,14 +1605,15 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let render = try XCTUnwrap(object["render"] as? [String: Any])
         let summary = try XCTUnwrap(object["pitch_modulation_deferred_effect_summary"] as? [String: Any])
         let coordinates = try XCTUnwrap(object["pitch_modulation_deferred_effects"] as? [[String: Any]])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
         let first = try XCTUnwrap(coordinates.first)
         let volumeTonePortamento = try XCTUnwrap(coordinates.first { $0["effect_label"] as? String == "volume-column tone portamento" })
+        let effectTonePortamento = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "3xx tone portamento" })
 
         [
             "total_arpeggio_count",
             "total_portamento_up_count",
             "total_portamento_down_count",
-            "total_tone_portamento_count",
             "total_vibrato_count",
             "total_tone_portamento_volume_slide_count",
             "total_vibrato_volume_slide_count",
@@ -1580,9 +1622,12 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "total_volume_column_vibrato_count",
             "total_volume_column_tone_portamento_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 11)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 11)
-        XCTAssertEqual(coordinates.count, 11)
+        XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 10)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 10)
+        XCTAssertEqual(render["tone_portamento_3xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["tone_portamento_3xx_no_active_voice_count"] as? Int, 1)
+        XCTAssertEqual(coordinates.count, 10)
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
@@ -1594,9 +1639,61 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(volumeTonePortamento["command_source"] as? String, "volume_column")
         XCTAssertEqual(volumeTonePortamento["effect_param"] as? Int, 0xF6)
         XCTAssertEqual(volumeTonePortamento["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(effectTonePortamento["current_status"] as? String, "applied")
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "3xx tone portamento" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
+    }
+
+    func testDiagnosticsJSONReportsAppliedTonePortamento3xxDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: (0..<300).map { Float($0) / 1_000.0 },
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 1, cells: [PlaybackCell(note: 61, instrument: 1, volumeColumn: 0, effectType: 0x03, effectParam: 0x40)]),
+        ]
+        let song = PlaybackSong(
+            title: "tone-portamento-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let tonePortamento = try XCTUnwrap(object["tone_portamento_effects"] as? [[String: Any]])
+        let diagnostic: [String: Any] = try XCTUnwrap(tonePortamento.first)
+        let stepUpdates = try XCTUnwrap(diagnostic["step_updates"] as? [[String: Any]])
+        let targetStep = try XCTUnwrap(diagnostic["target_step"] as? Double)
+        let firstStepBefore = try XCTUnwrap(stepUpdates.first?["current_step_before"] as? Double)
+
+        XCTAssertEqual(render["tone_portamento_3xx_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["tone_portamento_3xx_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["tone_portamento_3xx_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(diagnostic["current_status"] as? String, "applied")
+        XCTAssertEqual(diagnostic["active_voice_found"] as? Bool, true)
+        XCTAssertEqual(diagnostic["target_note"] as? Int, 61)
+        XCTAssertEqual(targetStep, 2, accuracy: 0.000_001)
+        XCTAssertEqual(diagnostic["portamento_speed"] as? Int, 0x40)
+        XCTAssertEqual(stepUpdates.map { $0["scheduled_frame"] as? Int }, [5, 6, 7])
+        XCTAssertEqual(firstStepBefore, 1, accuracy: 0.000_001)
     }
 
     func testTraversalDiagnosticsDoNotChangeRenderedAudio() throws {
@@ -1726,6 +1823,106 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
     private func fixturePath(_ name: String) -> URL {
         repoRoot().appendingPathComponent("tests/fixtures").appendingPathComponent(name)
+    }
+
+    private func generatedPlayableXMPath(in directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("generated-playable.xm")
+        try generatedPlayableXMData().write(to: url)
+        return url
+    }
+
+    private func generatedPlayableXMData() -> Data {
+        var data = Data()
+
+        appendFixedString("Extended Module: ", count: 17, padding: 0x20, to: &data)
+        appendFixedString("VTX PLAYABLE TEST", count: 20, padding: 0x20, to: &data)
+        data.append(0x1A)
+        appendFixedString("VTX TEST", count: 20, padding: 0x20, to: &data)
+        appendLE16(0x0104, to: &data)
+        appendLE32(276, to: &data)
+        appendLE16(1, to: &data) // song length
+        appendLE16(0, to: &data) // restart position
+        appendLE16(1, to: &data) // channels
+        appendLE16(1, to: &data) // patterns
+        appendLE16(1, to: &data) // instruments
+        appendLE16(1, to: &data) // linear frequency table
+        appendLE16(6, to: &data)
+        appendLE16(125, to: &data)
+        data.append(0)
+        data.append(contentsOf: repeatElement(UInt8(0), count: 255))
+
+        let patternData: [UInt8] = [
+            49, 1, 0x40, 0x0F, 0x06,
+            0x80,
+            0x80,
+            0x80
+        ]
+        appendLE32(9, to: &data)
+        data.append(0)
+        appendLE16(4, to: &data)
+        appendLE16(patternData.count, to: &data)
+        data.append(contentsOf: patternData)
+
+        var instrument = Data(count: 263)
+        writeLE32(263, to: &instrument, at: 0)
+        writeFixedString("PLAYABLE", to: &instrument, at: 4, count: 22, padding: 0)
+        writeLE16(1, to: &instrument, at: 27)
+        writeLE32(40, to: &instrument, at: 29)
+        data.append(instrument)
+
+        var sampleHeader = Data(count: 40)
+        writeLE32(64, to: &sampleHeader, at: 0)
+        writeLE32(0, to: &sampleHeader, at: 4)
+        writeLE32(64, to: &sampleHeader, at: 8)
+        sampleHeader[12] = 64
+        sampleHeader[14] = 1
+        sampleHeader[15] = 128
+        writeFixedString("LOOP", to: &sampleHeader, at: 18, count: 22, padding: 0)
+        data.append(sampleHeader)
+
+        data.append(32)
+        data.append(contentsOf: repeatElement(UInt8(0), count: 63))
+
+        return data
+    }
+
+    private func appendLE16(_ value: Int, to data: inout Data) {
+        data.append(UInt8(value & 0xFF))
+        data.append(UInt8((value >> 8) & 0xFF))
+    }
+
+    private func appendLE32(_ value: Int, to data: inout Data) {
+        data.append(UInt8(value & 0xFF))
+        data.append(UInt8((value >> 8) & 0xFF))
+        data.append(UInt8((value >> 16) & 0xFF))
+        data.append(UInt8((value >> 24) & 0xFF))
+    }
+
+    private func appendFixedString(_ value: String, count: Int, padding: UInt8, to data: inout Data) {
+        let bytes = Array(value.utf8.prefix(count))
+        data.append(contentsOf: bytes)
+        if bytes.count < count {
+            data.append(contentsOf: repeatElement(padding, count: count - bytes.count))
+        }
+    }
+
+    private func writeLE16(_ value: Int, to data: inout Data, at offset: Int) {
+        data[offset] = UInt8(value & 0xFF)
+        data[offset + 1] = UInt8((value >> 8) & 0xFF)
+    }
+
+    private func writeLE32(_ value: Int, to data: inout Data, at offset: Int) {
+        data[offset] = UInt8(value & 0xFF)
+        data[offset + 1] = UInt8((value >> 8) & 0xFF)
+        data[offset + 2] = UInt8((value >> 16) & 0xFF)
+        data[offset + 3] = UInt8((value >> 24) & 0xFF)
+    }
+
+    private func writeFixedString(_ value: String, to data: inout Data, at offset: Int, count: Int, padding: UInt8) {
+        let bytes = Array(value.utf8.prefix(count))
+        for index in 0..<count {
+            data[offset + index] = index < bytes.count ? bytes[index] : padding
+        }
     }
 
     private func tinySong() -> PlaybackSong {

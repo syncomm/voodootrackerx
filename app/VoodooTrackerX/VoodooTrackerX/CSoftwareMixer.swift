@@ -418,6 +418,40 @@ final class CSoftwareMixer {
         return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
     }
 
+    /// Schedules an immediate sample-step update for an existing offline voice.
+    ///
+    /// Higher-level adapters own musical pitch semantics; the C mixer receives only frame-stamped source-step
+    /// changes for deterministic offline rendering.
+    @discardableResult
+    func scheduleVoicePlaybackStepUpdate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        playbackStep: Double
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              playbackStep.isFinite,
+              playbackStep > 0 else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_sample_step_update(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            playbackStep
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
         Self.requireOK(vtx_c_mixer_clear_voices(&state))

@@ -785,6 +785,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let hxyIgnoredNoOpCount = hxyEffectDiagnostics.filter { $0.status == .ignoredNoOp }.count
         let hxyDeferredCount = hxyEffectDiagnostics.filter { $0.status == .deferredUnsupported }.count
         let pitchModulationSummary = pitchModulationDeferredEffectSummaryJSON(diagnostics)
+        let tonePortamento3xxEffectCount = diagnostics.tonePortamentoEffectCount
+        let tonePortamento3xxAppliedCount = diagnostics.tonePortamentoEffects.filter(\.applied).count
+        let tonePortamento3xxNoActiveVoiceCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noActiveVoice }.count
+        let tonePortamento3xxNoTargetCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noTarget }.count
+        let tonePortamento3xxDeferredCount = diagnostics.tonePortamentoEffects.filter(\.deferred).count
+        let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
+        let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
+        let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
+        let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         return [
             "schema_version": 1,
             "tool": "vtx_render_bounded_xm",
@@ -799,6 +808,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
                 "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
+                "Minimal 3xx tone portamento is applied only in bounded offline adapter renders; 1xx/2xx/5xy and volume-column tone portamento remain deferred.",
                 "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
                 "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
                 "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
@@ -828,18 +838,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "note_cut_effect_count": diagnostics.noteCutEffectCount,
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "retrigger_effect_count": diagnostics.retriggerEffectCount,
+                "tone_portamento_3xx_effect_count": tonePortamento3xxEffectCount,
+                "tone_portamento_3xx_applied_count": tonePortamento3xxAppliedCount,
+                "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
+                "tone_portamento_3xx_no_target_count": tonePortamento3xxNoTargetCount,
+                "tone_portamento_3xx_deferred_count": tonePortamento3xxDeferredCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
-                "active_voice_state_update_count": diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count,
+                "active_voice_state_update_count": activeVoiceStateUpdateCount,
                 "gain_pan_ramp_enabled": true,
                 "gain_pan_ramp_frame_count": CSoftwareMixer.gainPanUpdateRampFrameCount,
-                "gain_pan_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
-                "gain_pan_ramped_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
-                "gain_pan_interrupted_ramp_count": interruptedRampCount(diagnostics.voiceStateUpdates),
+                "gain_pan_update_count": gainPanUpdateCount,
+                "gain_pan_ramped_update_count": gainPanUpdateCount,
+                "gain_pan_interrupted_ramp_count": gainPanInterruptedRampCount,
                 "hxy_global_volume_slide_detected_count": hxyEffectDiagnostics.count,
                 "hxy_global_volume_slide_applied_count": hxyAppliedCount,
                 "hxy_global_volume_slide_ignored_no_op_count": hxyIgnoredNoOpCount,
                 "hxy_global_volume_slide_deferred_count": hxyDeferredCount,
-                "pitch_modulation_deferred_effect_count": pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0,
+                "pitch_modulation_deferred_effect_count": pitchModulationDeferredEffectCount,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
@@ -881,6 +896,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
+            "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -930,6 +946,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "total_scheduled_capacity_rejects": 0,
                 "total_carried_voice_count": 0,
                 "total_released_voice_carryover_count": 0,
+                "total_carried_tone_portamento_voice_count": 0,
                 "total_boundary_continuation_count": 0,
                 "total_dropped_at_window_boundaries": 0,
                 "may_contain_boundary_cuts": false,
@@ -946,6 +963,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "total_rendered_frames": summary.totalRenderedFrames,
             "total_carried_voice_count": summary.totalCarriedVoices,
             "total_released_voice_carryover_count": summary.totalReleasedVoiceCarryovers,
+            "total_carried_tone_portamento_voice_count": summary.totalCarriedTonePortamentoVoices,
             "total_boundary_continuation_count": summary.totalBoundaryContinuations,
             "total_dropped_at_window_boundaries": summary.totalDroppedAtWindowBoundaries,
             "may_contain_boundary_cuts": summary.mayContainBoundaryCuts,
@@ -971,6 +989,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "rendered_frames": diagnostic.renderedFrames,
             "carried_voice_count": diagnostic.carriedVoiceCount,
             "released_voice_carryover_count": diagnostic.releasedVoiceCarryoverCount,
+            "carried_tone_portamento_voice_count": diagnostic.carriedTonePortamentoVoiceCount,
             "boundary_continuation_count": diagnostic.boundaryContinuationCount,
             "dropped_at_window_boundary_count": diagnostic.droppedAtWindowBoundaryCount,
             "may_contain_boundary_cuts": diagnostic.mayContainBoundaryCuts,
@@ -1918,6 +1937,63 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func tonePortamentoDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticTonePortamentoDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": tonePortamentoStatusName(diagnostic.status),
+            "current_status": tonePortamentoStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "target_exists_before": diagnostic.targetExistsBefore,
+            "target_exists_after": diagnostic.targetExistsAfter,
+            "target_note": diagnostic.targetNote.map { Int($0) as Any } ?? NSNull(),
+            "target_linear_period": diagnostic.targetLinearPeriod.map { $0 as Any } ?? NSNull(),
+            "target_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
+            "target_playback_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "portamento_speed": diagnostic.portamentoSpeed,
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "step_update_count": diagnostic.stepUpdates.count,
+            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "policy": diagnostic.policy,
+        ]
+    }
+
+    private static func tonePortamentoStepUpdateJSON(
+        _ update: PlaybackSongSyntheticTonePortamentoStepUpdate
+    ) -> [String: Any] {
+        [
+            "synthetic_tick": update.syntheticTick,
+            "scheduled_frame": update.scheduledFrame,
+            "absolute_frame": update.scheduledFrame,
+            "linear_period_before": update.linearPeriodBefore,
+            "linear_period_after": update.linearPeriodAfter,
+            "playback_step_before": update.playbackStepBefore,
+            "playback_step_after": update.playbackStepAfter,
+            "current_step_before": update.playbackStepBefore,
+            "current_step_after": update.playbackStepAfter,
+            "reached_target": update.reachedTarget,
+        ]
+    }
+
     private static func targetVoiceIndices(
         forEventIndex eventIndex: Int?,
         in result: PlaybackSongOfflineRenderResult
@@ -2125,6 +2201,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "no_active_voice"
         case .outOfRowNoOp:
             return "out_of_row_no_op"
+        }
+    }
+
+    private static func tonePortamentoStatusName(
+        _ status: PlaybackSongSyntheticTonePortamentoDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .noTarget:
+            return "no_target"
+        case .noSpeed:
+            return "no_speed"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
         }
     }
 

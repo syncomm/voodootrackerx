@@ -53,7 +53,13 @@ note/sample triggers in bounded offline renders only, diagnoses `900` as
 ignored/deferred/no-op, and skips out-of-range offsets safely. Minimal `ECx`
 note cut and `EDx` note delay are supported in bounded offline renders only;
 `ECx` hard-cuts the active adapted voice at the requested tick and `EDx` delays
-only normal same-cell note triggers. Minimal `E9x` retrigger is also supported
+only normal same-cell note triggers. Minimal `3xx` tone portamento is supported
+in bounded offline renders only; a normal-note `3xx` sets a linear-frequency
+target for the active voice without retriggering the sample, and later ticks
+schedule deterministic C mixer sample-step updates toward the target. No-active,
+no-target, no-speed, and non-linear pitch-table cases are diagnosed, while
+`1xx`, `2xx`, `5xy`, and volume-column tone portamento remain deferred. Minimal
+`E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
 offset, pitch, volume, pan, loop, and envelope mapping, and diagnoses `E90`,
@@ -65,7 +71,7 @@ XM instrument sample maps/keymaps when a valid multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,
 fallback-after-invalid-map, skipped-no-valid-sample, and missing/deferred
 keymap state. Amiga-table pitch behavior, full
-OpenMPT/MikMod resampler parity, pitch-changing effects, full XM volume-column
+OpenMPT/MikMod resampler parity, broader pitch-changing effects, full XM volume-column
 parity, and full effect parity remain deferred. The path does not yet render
 full XM song playback or drive live playback. Local/private XM bounded comparison findings
 now have a safe report template and local-only workflow guidance, and a
@@ -76,10 +82,11 @@ correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column, volume-column, and
 volume/panning state-update command frequency for focused follow-up diagnosis.
-It now also reports deferred pitch-modulation counts and source coordinates for
-arpeggio, portamento, vibrato, tremolo, and volume-column vibrato/tone-portamento
-commands, with a conservative pitch-effect next-PR recommendation when one
-bucket dominates local evidence.
+It now also reports applied `3xx` tone-portamento diagnostics plus deferred
+pitch-modulation counts and source coordinates for arpeggio, remaining
+portamento-family commands, vibrato, tremolo, and volume-column
+vibrato/tone-portamento commands, with a conservative pitch-effect next-PR
+recommendation when one bucket dominates local evidence.
 Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
 break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
@@ -161,8 +168,9 @@ Immediate audio accuracy sequence:
 45. Gain / pan update micro-ramping for bounded offline renders — done
 46. Minimal retrigger E9x for bounded offline renders — done
 47. Portamento / Vibrato / Arpeggio Diagnostics for Bounded Offline Renders — done
-48. Feature-flagged runtime backend switch
-49. Reference comparison stabilization against MikMod/OpenMPT
+48. Minimal tone portamento 3xx for bounded offline renders — done
+49. Feature-flagged runtime backend switch
+50. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -251,6 +259,10 @@ Features:
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - minimal nonzero `9xx` sample offset starts for same-cell bounded offline
   adapted note/sample triggers, with `900` and effect memory still deferred
+- minimal `3xx` tone portamento support for bounded offline adapted renders,
+  with no-retrigger target setting, generic C mixer sample-step updates,
+  diagnostics, and `1xx`/`2xx`/`5xy` plus volume-column tone portamento still
+  deferred
 - minimal `E9x` retrigger support for bounded offline adapted renders, with
   `E90` effect memory and retrigger volume-change variants still deferred
 - minimal `ECx` note cut and `EDx` note delay support for bounded offline
@@ -271,8 +283,9 @@ Features:
 - explicit `--window-rows` row-windowed scheduling for long developer-only
   candidate WAV exports, with aggregate/per-window capacity diagnostics and
   practical carryover of active sample position, forward/ping-pong loop state,
-  volume-envelope position, key-off/release, fadeout, gain, and pan across
-  fresh C mixer windows where the bounded adapter can determine it
+  volume-envelope position, key-off/release, fadeout, gain, pan, and active
+  `3xx` sample-step state across fresh C mixer windows where the bounded
+  adapter can determine it
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback

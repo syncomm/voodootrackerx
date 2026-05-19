@@ -242,7 +242,7 @@ or source-to-synthetic diagnostics.
 - Pattern traversal / timing hazard summary:
 - Click/discontinuity summary:
 - Largest jump correlation summary:
-- Subjective listening notes from Gregory:
+- Subjective listening notes:
 - Local reproduction notes:
 
 ## Possible Next PR Candidates

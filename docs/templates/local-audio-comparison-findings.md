@@ -136,6 +136,32 @@ output directory.
 - Volume/panning state-update summary present:
 - Recommendation heuristic present:
 
+## Click / Discontinuity Run
+
+- Tool:
+- Command:
+- Discontinuity JSON path:
+- Discontinuity Markdown path:
+- Jump threshold:
+- Top jump count:
+- WAV peak:
+- WAV RMS:
+- PCM16 clipping count:
+- Jumps above threshold:
+- Jumps per second:
+- Largest adjacent-sample jump:
+- Largest jump frame/time/channel:
+- Largest jump before/after sample values:
+- Top nearby event categories:
+- Gain/pan update clustering:
+- Volume/panning state-update clustering:
+- ECx note-cut clustering:
+- EDx note-delay clustering:
+- Loop-boundary / looped-voice clustering:
+- Window-boundary / carried-voice clustering:
+- Key-off/release/fadeout clustering:
+- Discontinuity evidence notes:
+
 ## Top Mismatch Windows
 
 | Rank | Time Range | Frame Range | RMS Difference | Max Abs Difference | Likely Rows/Channels/Events | Local Notes |
@@ -196,6 +222,7 @@ or source-to-synthetic diagnostics.
 - [ ] remaining interpolation / resampling / reference-render settings
 - [ ] sample offset / retrigger / note cut / note delay
 - [ ] output headroom / clipping / render gain policy
+- [ ] click / discontinuity / adjacent-sample jump clustering
 - [ ] loop behavior
 - [ ] unknown / needs trace correlation
 
@@ -213,6 +240,8 @@ or source-to-synthetic diagnostics.
 - Suspected missing-note cause:
 - Correlation report summary:
 - Pattern traversal / timing hazard summary:
+- Click/discontinuity summary:
+- Largest jump correlation summary:
 - Subjective listening notes from Gregory:
 - Local reproduction notes:
 
@@ -224,6 +253,10 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 - [ ] Focused Pitch/Period Accuracy Pass:
 - [ ] Additional Volume-Column Semantics:
 - [ ] Loop/Interpolation Investigation:
+- [ ] Gain/Pan Update Micro-Ramping:
+- [ ] ECx Cut Micro-Ramping:
+- [ ] Loop Boundary Click Mitigation:
+- [ ] Envelope/Fadeout Smoothing:
 - [ ] Bounded Order Traversal Improvement:
 - [ ] Minimal Pattern Delay EEx for Bounded Offline Renders:
 - [ ] Mixer Output Headroom / Clipping Diagnostics and Render Gain Policy:
@@ -243,6 +276,7 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 - [ ] Private/local XM modules were not committed, copied into fixtures, uploaded, or used in automated tests.
 - [ ] Candidate/reference WAVs remain local and out of git.
 - [ ] JSON/Markdown comparison reports remain local and out of git.
+- [ ] JSON/Markdown click/discontinuity reports remain local and out of git.
 - [ ] Candidate diagnostics JSON and correlation reports remain local and out of git.
 - [ ] Playback traces, screenshots, logs, and listening notes remain local and out of git.
 - [ ] The committed PR contains only source, tests, templates, and documentation intended for review.

@@ -23,7 +23,9 @@ fixtures, or require them from automated tests.
 
 Runtime playback still uses `AVAudioPlayerNode` / `AVAudioUnitVarispeed`. The
 C-backed mixer remains offline-only and is not connected to the app Play
-button.
+button. Offline candidate/reference comparison remains the validation path
+before any future feature-flagged runtime C mixer experiment is enabled or
+expanded; see ADR 007 for the runtime planning guidance.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`

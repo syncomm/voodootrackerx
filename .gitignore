@@ -53,6 +53,10 @@ vtx-local-reference-comparison*/
 *-audio-correlation.md
 *-correlation.md
 *-correlation.txt
+*-clicks.json
+*-clicks.md
+*-discontinuities.json
+*-discontinuities.md
 *-local-audio-findings.md
 *-local-audio-findings.txt
 *-candidate.wav

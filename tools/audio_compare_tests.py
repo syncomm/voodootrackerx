@@ -13,6 +13,7 @@ from pathlib import Path
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.py"
 SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
 CORRELATION_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "correlate-audio-comparison.py"
+DISCONTINUITY_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "analyze-audio-discontinuities.py"
 
 
 def load_audio_compare_module():
@@ -24,7 +25,17 @@ def load_audio_compare_module():
     return module
 
 
+def load_audio_discontinuities_module():
+    spec = importlib.util.spec_from_file_location("audio_discontinuities", DISCONTINUITY_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
+audio_discontinuities = load_audio_discontinuities_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -232,6 +243,78 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
     }
 
 
+def synthetic_discontinuity_diagnostics(category, frame=10):
+    source = {"order": 0, "pattern": 0, "row": 0}
+    diagnostics = {
+        "schema_version": 1,
+        "tool": "vtx_render_bounded_xm",
+        "render": {"sample_rate": 1000, "rendered_frame_count": 32},
+        "row_timing": [
+            {
+                "source": source,
+                "synthetic_row": 0,
+                "row_start_frame": 0,
+                "row_end_frame": 32,
+                "row_duration_frames": 32,
+            }
+        ],
+    }
+    if category == "gain_pan_update":
+        diagnostics["volume_panning_state_updates"] = [
+            {
+                "source": source,
+                "channel_index": 0,
+                "scheduled_frame": frame,
+                "command_label": "Cxx set volume",
+                "command_name": "cxxSetVolume",
+                "status": "applied",
+                "active_voice_updated": True,
+                "gain_before": 1.0,
+                "gain_after": 0.25,
+            }
+        ]
+    elif category == "ecx_note_cut":
+        diagnostics["note_cut_effects"] = [
+            {
+                "source": source,
+                "channel_index": 0,
+                "scheduled_frame": frame,
+                "effect_type": 0x0E,
+                "effect_param": 0xC2,
+                "status": "applied",
+                "applied": True,
+            }
+        ]
+    elif category == "window_boundary":
+        diagnostics["windowed_render"] = {
+            "enabled": True,
+            "per_window": [
+                {
+                    "window_index": 0,
+                    "start_row": 0,
+                    "end_row_exclusive": 1,
+                    "start_frame": 0,
+                    "end_frame": frame,
+                    "carried_voice_count": 0,
+                    "boundary_continuation_count": 0,
+                    "dropped_at_window_boundary_count": 0,
+                },
+                {
+                    "window_index": 1,
+                    "start_row": 1,
+                    "end_row_exclusive": 2,
+                    "start_frame": frame,
+                    "end_frame": frame + 10,
+                    "carried_voice_count": 1,
+                    "boundary_continuation_count": 1,
+                    "dropped_at_window_boundary_count": 0,
+                    "may_contain_boundary_cuts": False,
+                },
+            ],
+        }
+    return diagnostics
+
+
 def deferred_effect_field(effect_type, effect_param, row=4, channel=1):
     return {
         "source": {"order": 0, "pattern": 2, "row": row},
@@ -432,6 +515,218 @@ def sine_frames(sample_rate=8000, channels=1, seconds=0.25, amplitude=0.5):
         sample = math.sin(2.0 * math.pi * 440.0 * frame / sample_rate) * amplitude
         frames.append(tuple(sample for _ in range(channels)) if channels > 1 else sample)
     return frames
+
+
+class AudioDiscontinuityTests(unittest.TestCase):
+    def test_smooth_ramp_reports_no_large_jumps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "smooth-ramp.wav"
+            frames = [-0.1 + (0.2 * index / 63.0) for index in range(64)]
+            write_pcm16_wav(wav, sample_rate=1000, frames=frames)
+
+            analysis = audio_discontinuities.build_analysis(wav, top_count=5, threshold_pcm16=12000)
+
+            self.assertEqual(analysis["wav"]["sample_rate"], 1000)
+            self.assertEqual(analysis["analysis"]["threshold_jump_count"], 0)
+            self.assertLess(analysis["top_adjacent_sample_jumps"][0]["jump_magnitude_pcm16"], 12000)
+
+    def test_detects_known_synthetic_jump_at_expected_frame_time_and_channel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "known-jump.wav"
+            frames = [0.0] * 10 + [0.8] + [0.8] * 4
+            write_pcm16_wav(wav, sample_rate=1000, frames=frames)
+
+            analysis = audio_discontinuities.build_analysis(wav, top_count=3, threshold_pcm16=12000)
+            jump = analysis["top_adjacent_sample_jumps"][0]
+
+            self.assertEqual(jump["frame"], 10)
+            self.assertEqual(jump["time_seconds"], 0.01)
+            self.assertEqual(jump["channel_index"], 0)
+            self.assertGreater(jump["jump_magnitude_pcm16"], 26000)
+            self.assertEqual(analysis["analysis"]["threshold_jump_count"], 1)
+
+    def test_top_n_jumps_are_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "ranked-jumps.wav"
+            frames = [0.0, 0.25, -0.25, 0.75, -0.75, 0.1]
+            write_pcm16_wav(wav, sample_rate=1000, frames=frames)
+
+            analysis = audio_discontinuities.build_analysis(wav, top_count=3, threshold_pcm16=0)
+            jumps = analysis["top_adjacent_sample_jumps"]
+
+            self.assertEqual([jump["frame"] for jump in jumps], [4, 3, 5])
+            self.assertEqual([jump["rank"] for jump in jumps], [1, 2, 3])
+
+    def test_reports_pcm16_clipping_count_for_clipped_wav(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "clipped.wav"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0, 1.0, -1.0, 0.5])
+
+            analysis = audio_discontinuities.build_analysis(wav, top_count=2)
+
+            self.assertEqual(analysis["analysis"]["pcm16_clipping_count"], 2)
+
+    def test_works_without_diagnostics_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav = Path(tmpdir) / "no-diagnostics.wav"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0] * 4 + [0.9])
+
+            analysis = audio_discontinuities.build_analysis(wav, top_count=1)
+            jump = analysis["top_adjacent_sample_jumps"][0]
+
+            self.assertFalse(analysis["diagnostics_correlation"]["diagnostics_provided"])
+            self.assertEqual(jump["nearby_events"], [])
+            self.assertEqual(jump["nearby_event_categories"], [])
+
+    def test_correlates_jump_near_synthetic_gain_pan_update_event(self):
+        analysis = self.analysis_with_diagnostics("gain_pan_update")
+        jump = analysis["top_adjacent_sample_jumps"][0]
+
+        self.assertIn("gain_pan_update", jump["nearby_event_categories"])
+        self.assertIn("gain_pan_update", self.category_names(analysis))
+
+    def test_correlates_jump_near_synthetic_ecx_cut_event(self):
+        analysis = self.analysis_with_diagnostics("ecx_note_cut")
+        jump = analysis["top_adjacent_sample_jumps"][0]
+
+        self.assertIn("ecx_note_cut", jump["nearby_event_categories"])
+        self.assertIn("ecx_note_cut", self.category_names(analysis))
+
+    def test_correlates_jump_near_synthetic_window_boundary(self):
+        analysis = self.analysis_with_diagnostics("window_boundary")
+        jump = analysis["top_adjacent_sample_jumps"][0]
+
+        self.assertIn("window_boundary", jump["nearby_event_categories"])
+        self.assertIn("carried_voice_boundary", jump["nearby_event_categories"])
+
+    def test_missing_wav_path_cli_returns_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DISCONTINUITY_SCRIPT_PATH),
+                    "--wav",
+                    str(Path(tmpdir) / "missing.wav"),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("analyze-audio-discontinuities:", result.stderr)
+            self.assertIn("missing WAV", result.stderr)
+
+    def test_malformed_diagnostics_json_cli_returns_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            wav = tmpdir_path / "candidate.wav"
+            diagnostics = tmpdir_path / "bad-diagnostics.json"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0, 0.8])
+            diagnostics.write_text("{not json", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DISCONTINUITY_SCRIPT_PATH),
+                    "--wav",
+                    str(wav),
+                    "--diagnostics-json",
+                    str(diagnostics),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("malformed diagnostics JSON", result.stderr)
+
+    def test_json_output_is_valid_and_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            wav = tmpdir_path / "candidate.wav"
+            json_report = tmpdir_path / "clicks.json"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0] * 4 + [0.9])
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DISCONTINUITY_SCRIPT_PATH),
+                    "--wav",
+                    str(wav),
+                    "--json",
+                    str(json_report),
+                    "--top",
+                    "3",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            raw_json = json_report.read_text(encoding="utf-8")
+            parsed = json.loads(raw_json)
+            self.assertEqual(parsed["schema_version"], 1)
+            self.assertEqual(parsed["wav"]["path_name"], "candidate.wav")
+            self.assertNotIn(tmpdir, raw_json)
+            self.assertEqual(raw_json, json.dumps(parsed, indent=2, sort_keys=True) + "\n")
+
+    def test_markdown_output_contains_expected_sections(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            wav = tmpdir_path / "candidate.wav"
+            markdown_report = tmpdir_path / "clicks.md"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0] * 4 + [0.9])
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DISCONTINUITY_SCRIPT_PATH),
+                    "--wav",
+                    str(wav),
+                    "--markdown",
+                    str(markdown_report),
+                    "--top",
+                    "3",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            markdown = markdown_report.read_text(encoding="utf-8")
+            self.assertIn("# Audio Discontinuity Report", markdown)
+            self.assertIn("## Overall Clipping And Headroom Recap", markdown)
+            self.assertIn("## Top Adjacent-Sample Jumps", markdown)
+            self.assertIn("## Likely Nearby Event Categories", markdown)
+            self.assertIn("Diagnostic evidence only", markdown)
+
+    def analysis_with_diagnostics(self, category):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            wav = tmpdir_path / "candidate.wav"
+            diagnostics_path = tmpdir_path / "diagnostics.json"
+            write_pcm16_wav(wav, sample_rate=1000, frames=[0.0] * 10 + [0.9] + [0.9] * 4)
+            diagnostics_path.write_text(
+                json.dumps(synthetic_discontinuity_diagnostics(category, frame=10)),
+                encoding="utf-8",
+            )
+            return audio_discontinuities.build_analysis(
+                wav,
+                diagnostics_path,
+                top_count=3,
+                threshold_pcm16=12000,
+                correlation_frames=2,
+            )
+
+    def category_names(self, analysis):
+        return {
+            item["category"]
+            for item in analysis["diagnostics_correlation"]["summary_by_category"]
+        }
 
 
 class AudioCompareTests(unittest.TestCase):

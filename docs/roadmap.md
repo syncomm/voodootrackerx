@@ -62,6 +62,7 @@ Current stabilization note:
 - The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`.
 - Long developer-only candidate WAV exports can opt into `--window-rows` row-windowed offline scheduling so the fixed C scheduled-voice pool is reused across deterministic render windows. Diagnostics aggregate per-window scheduled, accepted, rejected, carried, continuation, and boundary-drop counts. Windowed renders now carry practical active voice state across fresh C mixer windows where the bounded adapter can determine it, including source sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, and pan, plus supported in-window gain/pan state updates for carried voices. Unsupported/deferred effects and full tracker voice semantics remain separate targeted work.
 - Developer-only candidate WAV exports now report pre-export Float32 peak/RMS/overrange counts, post-gain peak/RMS, and PCM16 clipping/clamping counts. Optional `--gain` and `--headroom-db` apply only at the export boundary before PCM16 conversion; default output gain remains unchanged when neither option is passed.
+- Local/offline click/discontinuity diagnostics can now analyze a rendered WAV for large adjacent-sample jumps and optionally correlate top jumps with bounded adapter diagnostics such as gain/pan updates, note cuts/delays, looped voices, carried voices, and window boundaries. This is diagnostics-only and does not change mixer DSP or runtime playback.
 - See `docs/decisions/002-first-pass-audio-backend.md` for the accepted backend decision and intended future path.
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
@@ -305,6 +306,11 @@ and reference comparison before any runtime backend switch.
 ### PR 2.7.10ab — Mixer Output Headroom / Clipping Diagnostics and Render Gain Policy
 - Scope: report pre-export Float32 peak/RMS/overrange counts, post-gain peak/RMS, PCM16 clipping counts, and an explicit developer render gain/headroom option for bounded candidate WAV export without changing runtime playback, default output gain, or C mixer DSP semantics.
 - Verification: deterministic synthetic WAV/export tests, bounded render helper tests, and local-only smoke evidence kept out of the repository.
+- Status: done.
+
+### PR 2.7.10ac — Mixer Click / Discontinuity Diagnostics For Candidate WAVs
+- Scope: add a local/offline analyzer for rendered WAV adjacent-sample jumps, threshold counts, clipping recap, and optional correlation with bounded adapter diagnostics for gain/pan updates, note cuts/delays, note triggers, looped/carryover/window events, and key-off/fadeout evidence.
+- Verification: synthetic temporary WAV and diagnostics JSON tests only, existing audio comparison/correlation tests, existing bounded render helper tests, and no runtime backend switching, mixer DSP changes, smoothing/ramping, default gain/headroom changes, parser refactor, tracker viewport changes, or private/local module fixtures.
 - Status: done.
 
 ### PR 2.7.11 — Feature-Flagged Runtime Backend Switch

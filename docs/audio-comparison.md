@@ -240,6 +240,43 @@ crackle remains after clipping is eliminated or reduced, treat click,
 discontinuity, loop-boundary, retrigger, gain/pan update, or effect-timing
 diagnostics as separate follow-up work.
 
+## Click / Discontinuity Diagnostics
+
+After export headroom eliminates PCM16 clipping but local listening still
+reports light crackle or static, inspect the candidate WAV for adjacent-sample
+jumps before choosing an audio-fix PR. `scripts/analyze-audio-discontinuities.py`
+is a local/offline helper for that purpose:
+
+```bash
+python3 scripts/analyze-audio-discontinuities.py \
+  --wav /tmp/vtx-candidate.wav \
+  --diagnostics-json /tmp/vtx-candidate-diagnostics.json \
+  --json /tmp/vtx-clicks.json \
+  --markdown /tmp/vtx-clicks.md \
+  --top 50 \
+  --threshold 12000
+```
+
+The diagnostics JSON is optional. Without it, the report still summarizes WAV
+format, peak/RMS, PCM16 clipping count when applicable, the largest
+adjacent-sample jumps per channel, threshold counts, and jumps per second. With
+`vtx_render_bounded_xm` diagnostics JSON, the report also maps top jumps to
+nearby local adapter events such as gain/pan state updates, volume-column
+updates, note triggers, `ECx` note cuts, `EDx` note delays, key-off/release or
+fadeout events, looped voices when exposed, carried voices, and row-window
+boundaries.
+
+Treat the result as diagnostic evidence, not proof. A jump near a gain/pan
+update suggests a focused gain/pan smoothing investigation; a jump near an
+`ECx` cut suggests a cut-ramping investigation; a jump near a looped voice or
+window boundary suggests loop-boundary or carryover investigation. Do not use
+this helper to implement automatic fixes, smoothing, ramping, gain changes, or
+runtime playback changes.
+
+Generated discontinuity JSON/Markdown reports derived from private/local
+modules must remain under `/tmp` or another ignored local directory and must not
+be committed.
+
 ## Windowed Long Candidate Renders
 
 Long local candidate renders may contain far more adapted note events than the
@@ -330,13 +367,16 @@ automatic fix.
    When the problem sounds like wrong song structure or groove, inspect the
    pattern traversal/timing hazard section for `Bxx`, `Dxx`, `EEx`, contextual
    `Fxx`, and nearby `E` subcommands before choosing an implementation PR.
-6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
+6. If clipping is eliminated but crackle/static remains audible, run
+   `scripts/analyze-audio-discontinuities.py` on the candidate WAV and optional
+   candidate diagnostics JSON. Keep the click/discontinuity reports local.
+7. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
-   then fill it from the comparison JSON/Markdown, correlation report, trace
-   notes, and local listening notes. Do not commit the filled report when it contains
-   private-module-derived findings.
-7. Inspect the worst mismatch windows and classify the likely mismatch category.
+   then fill it from the comparison JSON/Markdown, correlation report,
+   discontinuity report, trace notes, and local listening notes. Do not commit
+   the filled report when it contains private-module-derived findings.
+8. Inspect the worst mismatch windows and largest jumps, then classify the likely mismatch category.
    Use that classification to choose one narrow next PR.
 
 The committed template is blank and safe to review. Filled reports, local WAVs,
@@ -587,6 +627,9 @@ The JSON and Markdown reports include:
 
 JSON output intentionally stores only input basenames, not absolute local paths,
 so automation can parse reports without leaking machine-specific locations.
+`scripts/analyze-audio-discontinuities.py` separately reports top
+adjacent-sample jumps in a single local WAV and follows the same basename-only
+reporting rule for its WAV and optional diagnostics JSON inputs.
 
 ## Interpreting Worst Windows
 
@@ -616,6 +659,7 @@ Likely categories to consider when filling the findings template:
 - remaining resampling / reference-render settings
 - sample offset / retrigger / note cut / note delay
 - output headroom / clipping / render gain policy
+- click / discontinuity / adjacent-sample jump clustering
 - loop behavior
 - unknown / needs trace correlation
 
@@ -632,6 +676,7 @@ Keep all generated files outside the repo, for example under `/tmp`:
 
 - candidate/reference WAV files
 - JSON and Markdown comparison reports
+- JSON and Markdown click/discontinuity reports
 - playback trace JSONL files
 - screenshots and manual listening notes
 - any files derived from local/private XM modules
@@ -652,6 +697,7 @@ stage only source, tests, and documentation intended for the PR.
 For this workflow:
 
 - compare two tiny local WAV files with `scripts/audio-compare.py`
+- analyze a tiny local WAV file with `scripts/analyze-audio-discontinuities.py`
 - generate and parse JSON output
 - inspect the Markdown summary for format, level, mismatch, and worst-window
   details

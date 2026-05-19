@@ -88,7 +88,10 @@ tracker voice semantics remain separate targeted work. Developer-only bounded
 candidate WAV exports now also report Float32 output headroom/clipping
 diagnostics and can apply explicit `--gain` or `--headroom-db` before PCM16
 conversion without changing runtime playback, C mixer DSP semantics, or the
-default output gain.
+default output gain. Local/offline click/discontinuity diagnostics can now
+analyze candidate WAV adjacent-sample jumps and optionally correlate top jumps
+with bounded adapter diagnostics such as gain/pan updates, note cuts/delays,
+note triggers, looped/carryover/window events, and key-off/fadeout evidence.
 
 Immediate audio accuracy sequence:
 
@@ -135,8 +138,9 @@ Immediate audio accuracy sequence:
 41. Minimal volume/panning state effects for bounded offline renders — done
 42. Minimal note cut ECx / note delay EDx for bounded offline renders — done
 43. Mixer output headroom / clipping diagnostics and render gain policy — done
-44. Feature-flagged runtime backend switch
-45. Reference comparison stabilization against MikMod/OpenMPT
+44. Mixer click / discontinuity diagnostics for candidate WAVs — done
+45. Feature-flagged runtime backend switch
+46. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -247,6 +251,9 @@ Features:
 - export-time output gain/headroom controls and clipping diagnostics for
   developer-only bounded PCM16 candidate WAVs, applied after Float32 rendering
   and before PCM16 conversion without changing C mixer DSP semantics
+- local/offline click/discontinuity diagnostics for candidate WAV
+  adjacent-sample jumps and optional correlation with bounded adapter events,
+  without smoothing/ramping or audio behavior changes
 - minimal bounded/offline `ECx` note-cut and `EDx` note-delay diagnostics,
   including applied, no-active/no-note, and out-of-row cases
 - pattern traversal/timing hazard diagnostics for bounded offline renders,

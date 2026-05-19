@@ -80,8 +80,11 @@ event coordinates before choosing an effect-handling PR.
 For long candidate renders, treat `scheduled_voice_capacity` as distinct from
 active voice pressure: it can mean the helper scheduled too many future events
 into the fixed offline pool up front, even when active mixer capacity is mostly
-not the limiting factor. That points to a later chunked/windowed offline render
-scheduling PR rather than another fixed-capacity increase.
+not the limiting factor. For developer-only long local candidate renders,
+`vtx_render_bounded_xm --window-rows N` can now opt into row-windowed offline
+scheduling so each window reuses the fixed C scheduled-voice pool instead of
+requiring the full range to fit at once. Keep this separate from active voice
+pressure and from effect/traversal parity work.
 The same report also summarizes applied, ignored/no-op, deferred/unsupported,
 and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
@@ -154,9 +157,49 @@ Markdown reports, traces, screenshots, logs, filled local findings, or local
 module files.
 
 For longer local renders, add `--progress` to print render percentage by
-rendered frame count while the helper runs. The output also reports
-loading/build phases, the effective frame and duration cap, and the final
-WAV-writing phase.
+rendered frame count while the helper runs. When `--window-rows` is used,
+progress reports window `i / N`, percentage by rendered frames, and per-window
+scheduled/accepted/rejected event counts. The output also reports loading/build
+phases, the effective frame and duration cap, and the final WAV-writing phase.
+
+## Windowed Long Candidate Renders
+
+Long local candidate renders may contain far more adapted note events than the
+fixed C scheduled-voice pool can hold at once. The pool is intentionally fixed
+and deterministic for the offline C mixer path, so the developer helper offers
+an explicit row-windowed scheduling mode:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-long-candidate.wav \
+  --diagnostics-json /tmp/vtx-long-candidate-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --seconds 240 \
+  --allow-long-render \
+  --window-rows 64 \
+  --progress
+```
+
+Windowed mode is still a developer/offline helper path. It keeps runtime
+playback on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, keeps the C mixer
+offline-only, and does not implement new XM effects or change C mixer DSP
+semantics. It plans the bounded range through the existing adapter, schedules
+only one row window into a fresh C mixer at a time, renders that window, appends
+the PCM, and aggregates diagnostics across windows. Diagnostics include
+`windowed_render_enabled`, `window_rows`, `window_count`, aggregate scheduled,
+accepted, and rejected counts, per-window scheduled/accepted/rejected counts,
+the first rejecting windows, and known state-carryover limitations.
+
+The first-pass limitation is window-boundary state. The renderer does not
+serialize active C mixer voices, sample playback positions, envelope positions,
+or fadeout state into the next window. Rows and note events contained wholly
+inside a window preserve the existing bounded adapter behavior, but sustained
+voices can be cut at window boundaries. Choose a window size large enough for
+local candidate listening and use diagnostics/listening notes to decide whether
+a later window-state carryover PR is warranted.
 
 ## Local Bounded Findings Workflow
 

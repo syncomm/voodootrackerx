@@ -3215,29 +3215,92 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
 }
 
 /// Result from rendering an adapted `PlaybackSong` segment through the C-backed offline mixer.
+struct PlaybackSongScheduledVoiceAttempt: Equatable {
+    let eventIndex: Int
+    let voiceIndex: Int?
+    let rejectionReason: CSoftwareMixerScheduledVoiceRejectionReason?
+    let windowIndex: Int?
+}
+
+struct PlaybackSongWindowedRenderWindowDiagnostic: Equatable {
+    let windowIndex: Int
+    let startRow: Int
+    let endRowExclusive: Int
+    let startFrame: Int
+    let endFrame: Int
+    let renderedFrames: Int
+    let scheduledEventCount: Int
+    let acceptedScheduledEventCount: Int
+    let rejectedScheduledEventCount: Int
+    let scheduledCapacityRejectedCount: Int
+    let invalidScheduledVoiceRejectedCount: Int
+}
+
+struct PlaybackSongWindowedRenderSummary: Equatable {
+    static let firstRejectingWindowLimit = 10
+    static let stateCarryoverLimitations = [
+        "Windowed offline renders reset C mixer voice state at window boundaries.",
+        "Sustained voices, envelope position, fadeout, and sample playback position are not serialized across windows in this first pass.",
+        "Rows and note events contained wholly inside a window preserve the existing bounded adapter behavior.",
+    ]
+
+    let windowRows: Int
+    let windows: [PlaybackSongWindowedRenderWindowDiagnostic]
+    let totalRenderedFrames: Int
+    let totalScheduledEvents: Int
+    let totalAcceptedScheduledEvents: Int
+    let totalRejectedScheduledEvents: Int
+    let totalScheduledCapacityRejects: Int
+    let totalInvalidScheduledVoiceRejects: Int
+    let knownStateCarryoverLimitations: [String]
+
+    var windowCount: Int {
+        windows.count
+    }
+
+    var firstWindowsWithRejects: [PlaybackSongWindowedRenderWindowDiagnostic] {
+        Array(windows.filter { $0.rejectedScheduledEventCount > 0 }.prefix(Self.firstRejectingWindowLimit))
+    }
+}
+
 struct PlaybackSongOfflineRenderResult: Equatable {
     let request: PlaybackSongOfflineRenderRequest
     let plan: PlaybackSongSyntheticPlan
     let block: MixerRenderBlock
     let scheduledVoiceIndices: [Int?]
     let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
+    let scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]
+    let windowedRenderSummary: PlaybackSongWindowedRenderSummary?
 
     init(
         request: PlaybackSongOfflineRenderRequest,
         plan: PlaybackSongSyntheticPlan,
         block: MixerRenderBlock,
         scheduledVoiceIndices: [Int?],
-        scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?] = []
+        scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?] = [],
+        scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]? = nil,
+        windowedRenderSummary: PlaybackSongWindowedRenderSummary? = nil
     ) {
         self.request = request
         self.plan = plan
         self.block = block
         self.scheduledVoiceIndices = scheduledVoiceIndices
+        let normalizedRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
         if scheduledVoiceRejectionReasons.count == scheduledVoiceIndices.count {
-            self.scheduledVoiceRejectionReasons = scheduledVoiceRejectionReasons
+            normalizedRejectionReasons = scheduledVoiceRejectionReasons
         } else {
-            self.scheduledVoiceRejectionReasons = scheduledVoiceIndices.map { $0 == nil ? .invalidScheduledVoice : nil }
+            normalizedRejectionReasons = scheduledVoiceIndices.map { $0 == nil ? .invalidScheduledVoice : nil }
         }
+        self.scheduledVoiceRejectionReasons = normalizedRejectionReasons
+        self.scheduledVoiceAttempts = scheduledVoiceAttempts ?? scheduledVoiceIndices.enumerated().map { eventIndex, voiceIndex in
+            PlaybackSongScheduledVoiceAttempt(
+                eventIndex: eventIndex,
+                voiceIndex: voiceIndex,
+                rejectionReason: normalizedRejectionReasons.indices.contains(eventIndex) ? normalizedRejectionReasons[eventIndex] : nil,
+                windowIndex: nil
+            )
+        }
+        self.windowedRenderSummary = windowedRenderSummary
     }
 
     var diagnostics: PlaybackSongSyntheticDiagnostics {
@@ -3345,6 +3408,106 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
+    func renderWindowed(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int,
+        progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
+    ) -> PlaybackSongOfflineRenderResult {
+        let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
+        let safeWindowRows = max(1, windowRows)
+        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+            effectiveRequest.song,
+            startOrderIndex: effectiveRequest.startOrderIndex,
+            orderCount: effectiveRequest.orderCount,
+            sampleRate: effectiveRequest.config.sampleRate
+        )
+        let totalFrames = effectiveRequest.boundedFrameCount
+        let windows = Self.windowSpecs(
+            for: adaptedPlan,
+            totalFrames: totalFrames,
+            windowRows: safeWindowRows
+        )
+        let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
+        var renderedFrames = 0
+        var interleavedPCM = [Float]()
+        interleavedPCM.reserveCapacity(totalFrames * effectiveRequest.config.channelCount)
+        var attempts = [PlaybackSongScheduledVoiceAttempt]()
+        var windowDiagnostics = [PlaybackSongWindowedRenderWindowDiagnostic]()
+        var outputConfig = CSoftwareMixer(config: effectiveRequest.config).config
+
+        for spec in windows {
+            let mixer = CSoftwareMixer(config: effectiveRequest.config)
+            outputConfig = mixer.config
+            let eventPairs = Self.eventPairs(
+                in: spec,
+                plan: adaptedPlan,
+                scheduler: scheduler
+            )
+            let localEvents = eventPairs.map { _, event in
+                Self.localEvent(from: event, windowStartFrame: spec.startFrame, scheduler: scheduler)
+            }
+            let scheduledResults = scheduler.scheduleWithResults(localEvents, on: mixer)
+            attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
+                PlaybackSongScheduledVoiceAttempt(
+                    eventIndex: pair.offset,
+                    voiceIndex: result.voiceIndex,
+                    rejectionReason: result.rejectionReason,
+                    windowIndex: spec.index
+                )
+            })
+
+            let block = mixer.render(frames: spec.frameCount)
+            renderedFrames += block.frameCount
+            interleavedPCM.append(contentsOf: block.interleavedPCM)
+
+            let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(
+                windowIndex: spec.index,
+                startRow: spec.startRow,
+                endRowExclusive: spec.endRowExclusive,
+                startFrame: spec.startFrame,
+                endFrame: spec.endFrame,
+                renderedFrames: block.frameCount,
+                scheduledEventCount: scheduledResults.count,
+                acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count,
+                rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count,
+                scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
+                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+            )
+            windowDiagnostics.append(diagnostic)
+            progress?(spec.index + 1, windows.count, diagnostic)
+        }
+
+        let scheduledCapacityRejectedCount = attempts.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count
+        let eventCoverage = adaptedPlan.diagnostics.eventCoverage
+            .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
+        let finalPlan = adaptedPlan.replacingEventCoverage(eventCoverage)
+        let block = MixerRenderBlock(
+            config: outputConfig,
+            frameCount: renderedFrames,
+            interleavedPCM: interleavedPCM
+        )
+        let summary = PlaybackSongWindowedRenderSummary(
+            windowRows: safeWindowRows,
+            windows: windowDiagnostics,
+            totalRenderedFrames: renderedFrames,
+            totalScheduledEvents: attempts.count,
+            totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
+            totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
+            totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
+            totalInvalidScheduledVoiceRejects: attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations
+        )
+        return PlaybackSongOfflineRenderResult(
+            request: effectiveRequest,
+            plan: finalPlan,
+            block: block,
+            scheduledVoiceIndices: attempts.map(\.voiceIndex),
+            scheduledVoiceRejectionReasons: attempts.map(\.rejectionReason),
+            scheduledVoiceAttempts: attempts,
+            windowedRenderSummary: summary
+        )
+    }
+
     func render(_ request: PlaybackSongOfflineRenderRequest, splitFrameCounts: [Int]) -> PlaybackSongOfflineRenderResult {
         let requestedFrames = splitFrameCounts.reduce(0) { partialResult, frames in
             let safeFrames = max(0, frames)
@@ -3391,6 +3554,17 @@ final class PlaybackSongOfflineRenderer {
         return result
     }
 
+    @discardableResult
+    func exportWindowedWAV(
+        _ request: PlaybackSongOfflineRenderRequest,
+        to url: URL,
+        windowRows: Int
+    ) throws -> PlaybackSongOfflineRenderResult {
+        let result = renderWindowed(request, windowRows: windowRows)
+        try MixerWAVExporter.writePCM16WAV(from: result.block, to: url)
+        return result
+    }
+
     private func effectiveRequest(
         from request: PlaybackSongOfflineRenderRequest,
         frames: Int
@@ -3398,6 +3572,116 @@ final class PlaybackSongOfflineRenderer {
         request.replacingFrameCount(
             frames,
             maximumFrameCount: min(request.maximumFrameCount, maximumFrameCount)
+        )
+    }
+
+    private struct RenderWindowSpec: Equatable {
+        let index: Int
+        let startRow: Int
+        let endRowExclusive: Int
+        let startFrame: Int
+        let endFrame: Int
+
+        var frameCount: Int {
+            max(0, endFrame - startFrame)
+        }
+    }
+
+    private static func windowSpecs(
+        for plan: PlaybackSongSyntheticPlan,
+        totalFrames: Int,
+        windowRows: Int
+    ) -> [RenderWindowSpec] {
+        guard totalFrames > 0 else {
+            return []
+        }
+        let safeWindowRows = max(1, windowRows)
+        let syntheticRowCount = max(0, plan.diagnostics.syntheticRowCount)
+        guard syntheticRowCount > 0 else {
+            return [
+                RenderWindowSpec(
+                    index: 0,
+                    startRow: 0,
+                    endRowExclusive: 0,
+                    startFrame: 0,
+                    endFrame: totalFrames
+                )
+            ]
+        }
+
+        let rowStartFrames = Dictionary(
+            uniqueKeysWithValues: plan.diagnostics.rowTiming.map { ($0.syntheticRow, $0.rowStartFrame) }
+        )
+        var specs = [RenderWindowSpec]()
+        var startRow = 0
+        while startRow < syntheticRowCount {
+            let endRow = min(syntheticRowCount, startRow + safeWindowRows)
+            let startFrame = min(totalFrames, max(0, rowStartFrames[startRow] ?? specs.last?.endFrame ?? 0))
+            let plannedEndFrame = endRow < syntheticRowCount
+                ? (rowStartFrames[endRow] ?? totalFrames)
+                : totalFrames
+            let endFrame = min(totalFrames, max(startFrame, plannedEndFrame))
+            if startFrame < totalFrames, endFrame > startFrame {
+                specs.append(RenderWindowSpec(
+                    index: specs.count,
+                    startRow: startRow,
+                    endRowExclusive: endRow,
+                    startFrame: startFrame,
+                    endFrame: endFrame
+                ))
+            }
+            startRow = endRow
+        }
+        if specs.isEmpty {
+            return [
+                RenderWindowSpec(
+                    index: 0,
+                    startRow: 0,
+                    endRowExclusive: 0,
+                    startFrame: 0,
+                    endFrame: totalFrames
+                )
+            ]
+        }
+        return specs
+    }
+
+    private static func eventPairs(
+        in window: RenderWindowSpec,
+        plan: PlaybackSongSyntheticPlan,
+        scheduler: SyntheticTrackerScheduler
+    ) -> [(offset: Int, element: SyntheticTrackerEvent)] {
+        plan.pattern.events.enumerated().filter { _, event in
+            let startFrame = scheduler.frame(for: event)
+            return event.row >= window.startRow &&
+                event.row < window.endRowExclusive &&
+                startFrame >= window.startFrame &&
+                startFrame < window.endFrame
+        }
+    }
+
+    private static func localEvent(
+        from event: SyntheticTrackerEvent,
+        windowStartFrame: Int,
+        scheduler: SyntheticTrackerScheduler
+    ) -> SyntheticTrackerEvent {
+        let absoluteStartFrame = scheduler.frame(for: event)
+        let localStartFrame = max(0, absoluteStartFrame - windowStartFrame)
+        let localKeyOffFrame = event.keyOffFrame.map { max(localStartFrame, $0 - windowStartFrame) }
+        return SyntheticTrackerEvent(
+            row: event.row,
+            tick: event.tick,
+            scheduledStartFrame: localStartFrame,
+            sample: event.sample,
+            gain: event.gain,
+            pan: event.pan,
+            playbackStep: event.playbackStep,
+            loop: event.loop,
+            initialSourceFrame: event.initialSourceFrame,
+            volumeEnvelope: event.volumeEnvelope,
+            panEnvelope: event.panEnvelope,
+            keyOffFrame: localKeyOffFrame,
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement
         )
     }
 }

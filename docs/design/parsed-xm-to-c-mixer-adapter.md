@@ -116,9 +116,22 @@ evidence.
 For long/full-song candidate exports, `scheduled_voice_capacity` rejects are
 diagnosed separately from active voice pressure because they can indicate that
 the helper attempted to schedule too much of the future song into the fixed C
-scheduled-event pool at once. That is a later chunked/windowed offline
-scheduling problem, not a reason for this traversal-diagnostics PR to increase
-C capacity or change audio behavior.
+scheduled-event pool at once. That is the chunked/windowed offline scheduling
+problem, not a reason to keep increasing C capacity or change audio behavior.
+The developer-only bounded XM render helper now has an explicit
+`--window-rows` mode for long local candidate WAV exports. That mode keeps the
+C mixer offline-only, plans the bounded range through the existing Swift
+adapter, schedules one row window into a fresh C mixer at a time, renders that
+window, appends deterministic PCM, and aggregates scheduled-capacity diagnostics
+across windows.
+
+Windowed rendering is not full runtime playback or full XM traversal parity.
+Runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the
+app Play button is not wired to the C mixer. The first-pass windowed helper does
+not serialize active C mixer voices, sample playback position, envelope
+position, or fadeout state across window boundaries, so sustained voices may be
+cut at a boundary. Rows and note events contained wholly within a window retain
+the existing bounded adapter behavior.
 
 Bounded adapter diagnostics now also identify pattern traversal and timing
 hazards without changing render behavior. The diagnostics count `Bxx` position
@@ -307,7 +320,9 @@ The current adapter does not:
 - implement note delay, note cut, or retrigger behavior
 - implement Amiga-table period/frequency behavior or pitch-changing effects
 - implement full OpenMPT/MikMod resampler parity or configurable interpolation modes
-- provide full-song WAV export or a public module-rendering CLI
+- provide full runtime playback, full-song traversal parity, or a public
+  module-rendering CLI; `vtx_render_bounded_xm --window-rows` remains a
+  developer/offline long candidate helper
 - use private/local XM modules in automated tests
 
 ## Data Mapping
@@ -416,6 +431,10 @@ bounded offline rendering:
   classified as applied or ignored/no-op according to the existing timing
   support.
 - Assert traversal diagnostics do not change rendered PCM output.
+- Assert windowed long candidate renders reuse scheduled-event capacity across
+  deterministic row windows and aggregate per-window accepted/rejected counts.
+- Assert windowed single-window renders match the existing non-windowed bounded
+  output where practical.
 - Assert note/sample metadata produces deterministic playback steps while a
   neutral step preserves one-source-frame-per-output-frame behavior.
 - Assert split render determinism for the scheduled output.
@@ -469,9 +488,13 @@ bounded offline rendering:
 17. Done: pattern traversal and timing hazard diagnostics for bounded offline
     renders, counting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed
     `E` subcommands without implementing traversal behavior.
-18. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+18. Done: chunked/windowed offline render scheduling for long developer
+    candidate WAV exports, reusing fixed C scheduled-event capacity across
+    deterministic row windows with aggregate diagnostics and documented
+    window-boundary state limitations.
+19. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-19. Feature-flagged runtime C mixer backend switch only after offline parity and
+20. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -543,6 +566,8 @@ This adapter bridge work does not:
 - implement pattern break or position jump
 - implement full tempo/BPM timing semantics beyond minimal bounded `Fxx`
 - provide full-song WAV export or a public module-rendering CLI
+- provide window-state serialization across row-window boundaries in the
+  first-pass developer helper
 - delete or rewrite the Swift `SoftwareMixer`
 - refactor parser architecture
 - touch tracker viewport/rendering behavior

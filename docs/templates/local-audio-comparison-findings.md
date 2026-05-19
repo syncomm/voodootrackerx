@@ -54,6 +54,14 @@ output directory.
 - Invalid scheduled voice rejects:
 - Rejected event coordinates:
 - Long-render scheduling note:
+- Windowed render enabled:
+- Window rows:
+- Window count:
+- Windowed total scheduled events:
+- Windowed total accepted events:
+- Windowed scheduled capacity rejects:
+- First windows with rejects:
+- Window-boundary state/carryover notes:
 - Sample-map selections:
 - First-playable fallback selections:
 - Fallback-after-invalid-map selections:

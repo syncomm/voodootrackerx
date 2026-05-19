@@ -13,6 +13,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--rows", "16",
             "--sample-rate", "48000",
             "--max-frames", "96000",
+            "--window-rows", "64",
         ])
 
         XCTAssertEqual(arguments.inputPath, "/tmp/module.xm")
@@ -23,6 +24,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.rows, 16)
         XCTAssertEqual(arguments.sampleRate, 48_000)
         XCTAssertEqual(arguments.maxFrames, 96_000)
+        XCTAssertEqual(arguments.windowRows, 64)
         XCTAssertFalse(arguments.allowLongRender)
         XCTAssertFalse(arguments.progress)
     }
@@ -36,6 +38,26 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         ])
 
         XCTAssertTrue(arguments.progress)
+    }
+
+    func testInvalidWindowRowsFailClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--window-rows", "0",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Window row count must be greater than zero"))
+        }
+
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--window-rows", "abc",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Invalid integer for --window-rows"))
+        }
     }
 
     func testDefaultRenderStillUsesConservativeClamp() throws {
@@ -189,10 +211,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
         XCTAssertTrue(usage.contains("--seconds N"))
         XCTAssertTrue(usage.contains("--max-frames N"))
+        XCTAssertTrue(usage.contains("--window-rows N"))
         XCTAssertTrue(usage.contains("--allow-long-render"))
         XCTAssertTrue(usage.contains("--progress"))
         XCTAssertTrue(usage.contains("Default safety clamp"))
-        XCTAssertTrue(usage.contains("percentage by rendered frames"))
+        XCTAssertTrue(usage.contains("rendered frames or row windows"))
 
         let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
         let request = PlaybackSongOfflineRenderRequest(
@@ -221,6 +244,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
         XCTAssertTrue(summary.contains("Requested order range: 0..<1"))
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
+        XCTAssertTrue(summary.contains("Windowed render: disabled"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
         XCTAssertTrue(summary.contains("Effective frame cap: \(defaultLimit + 1)"))
         XCTAssertTrue(summary.contains("Render cap mode: explicit override with --allow-long-render"))
@@ -263,6 +287,39 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(progressText.contains("export succeeded"))
     }
 
+    func testWindowedProgressOutputIncludesWindowProgress() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("windowed-progress-candidate.wav")
+        var progressLines = [String]()
+        let arguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 2,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            windowRows: 1,
+            progress: true
+        )
+
+        let result = try RenderTool(
+            currentDirectory: repoRoot(),
+            progressOutput: { progressLines.append($0) }
+        ).run(arguments)
+        let progressText = progressLines.joined(separator: "\n")
+
+        XCTAssertEqual(result.windowedRenderSummary?.windowRows, 1)
+        XCTAssertEqual(result.windowedRenderSummary?.windowCount, 2)
+        XCTAssertTrue(progressText.contains("rendering window 1 / 2"))
+        XCTAssertTrue(progressText.contains("rendering window 2 / 2"))
+        XCTAssertTrue(progressText.contains("scheduled"))
+        XCTAssertTrue(progressText.contains("writing WAV completed"))
+    }
+
     func testProgressRenderOutputMatchesDefaultRenderOutput() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -299,6 +356,42 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         ).run(progressArguments)
 
         XCTAssertEqual(try Data(contentsOf: progressOutputURL), try Data(contentsOf: defaultOutputURL))
+    }
+
+    func testWindowedSingleWindowOutputMatchesDefaultRenderOutput() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultOutputURL = directory.appendingPathComponent("default-candidate.wav")
+        let windowedOutputURL = directory.appendingPathComponent("windowed-candidate.wav")
+        let baseArguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: defaultOutputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil
+        )
+        let windowedArguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: windowedOutputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            windowRows: 64
+        )
+
+        _ = try RenderTool(currentDirectory: repoRoot()).run(baseArguments)
+        let windowed = try RenderTool(currentDirectory: repoRoot()).run(windowedArguments)
+
+        XCTAssertEqual(windowed.windowedRenderSummary?.windowCount, 1)
+        XCTAssertEqual(try Data(contentsOf: windowedOutputURL), try Data(contentsOf: defaultOutputURL))
     }
 
     func testDefaultRunDoesNotEmitProgressStatusOutput() throws {
@@ -439,6 +532,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
+        XCTAssertEqual(render["windowed_render_enabled"] as? Bool, false)
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)
         XCTAssertEqual(render["maximum_duration_seconds"] as? Double, 60)
@@ -448,6 +542,48 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
+    }
+
+    func testWindowedDiagnosticsJSONIncludesAggregateWindowFields() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("windowed-candidate.wav")
+        let diagnosticsURL = directory.appendingPathComponent("windowed-candidate-diagnostics.json")
+        let arguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: diagnosticsURL.path,
+            order: 0,
+            orderCount: 1,
+            rows: 2,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            windowRows: 1
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let diagnosticsData = try Data(contentsOf: diagnosticsURL)
+        let diagnostics = try XCTUnwrap(JSONSerialization.jsonObject(with: diagnosticsData) as? [String: Any])
+        let render = try XCTUnwrap(diagnostics["render"] as? [String: Any])
+        let windowed = try XCTUnwrap(diagnostics["windowed_render"] as? [String: Any])
+        let perWindow = try XCTUnwrap(windowed["per_window"] as? [[String: Any]])
+        let coverage = try XCTUnwrap(diagnostics["event_coverage"] as? [String: Any])
+        let capacity = try XCTUnwrap(coverage["capacity"] as? [String: Any])
+
+        XCTAssertEqual(render["windowed_render_enabled"] as? Bool, true)
+        XCTAssertEqual(render["window_rows"] as? Int, 1)
+        XCTAssertEqual(render["window_count"] as? Int, 2)
+        XCTAssertEqual(windowed["enabled"] as? Bool, true)
+        XCTAssertEqual(windowed["window_rows"] as? Int, 1)
+        XCTAssertEqual(windowed["window_count"] as? Int, 2)
+        XCTAssertEqual(windowed["total_rendered_frames"] as? Int, result.renderedFrameCount)
+        XCTAssertEqual(windowed["total_scheduled_events"] as? Int, result.scheduledVoiceAttempts.count)
+        XCTAssertEqual(windowed["total_accepted_scheduled_events"] as? Int, result.scheduledVoiceAttempts.filter { $0.voiceIndex != nil }.count)
+        XCTAssertNotNil(windowed["known_state_carryover_limitations"] as? [String])
+        XCTAssertEqual(perWindow.count, 2)
+        XCTAssertNotNil(perWindow.first?["scheduled_event_count"] as? Int)
+        XCTAssertEqual(capacity["scheduled_voice_attempt_count"] as? Int, result.scheduledVoiceAttempts.count)
     }
 
     func testDiagnosticsJSONEventCoverageIncludesScheduledAndSkippedCoordinates() throws {

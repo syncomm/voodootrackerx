@@ -33,6 +33,7 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidOutputPath(String)
     case invalidOrderRange(String)
     case invalidRenderLimit(String)
+    case invalidWindowRows(String)
     case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
 
     var errorDescription: String? {
@@ -56,7 +57,8 @@ enum RenderToolError: LocalizedError, Equatable {
         case let .invalidInputPath(message),
              let .invalidOutputPath(message),
              let .invalidOrderRange(message),
-             let .invalidRenderLimit(message):
+             let .invalidRenderLimit(message),
+             let .invalidWindowRows(message):
             return message
         case let .longRenderRequiresAllowLongRender(frames, defaultLimit):
             return "Requested render cap \(frames) frames exceeds the default safety clamp \(defaultLimit) frames. Pass --allow-long-render intentionally for longer local renders."
@@ -74,6 +76,7 @@ struct RenderToolArguments: Equatable {
     let sampleRate: Double
     let maxFrames: Int?
     let seconds: Double?
+    let windowRows: Int?
     let allowLongRender: Bool
     let progress: Bool
 
@@ -87,6 +90,7 @@ struct RenderToolArguments: Equatable {
         sampleRate: Double,
         maxFrames: Int?,
         seconds: Double?,
+        windowRows: Int? = nil,
         allowLongRender: Bool = false,
         progress: Bool = false
     ) {
@@ -99,6 +103,7 @@ struct RenderToolArguments: Equatable {
         self.sampleRate = sampleRate
         self.maxFrames = maxFrames
         self.seconds = seconds
+        self.windowRows = windowRows
         self.allowLongRender = allowLongRender
         self.progress = progress
     }
@@ -113,6 +118,7 @@ struct RenderToolArguments: Equatable {
         var sampleRate = MixerRenderConfig.defaultSampleRate
         var maxFrames: Int?
         var seconds: Double?
+        var windowRows: Int?
         var allowLongRender = false
         var progress = false
         var seen = Set<String>()
@@ -167,6 +173,8 @@ struct RenderToolArguments: Equatable {
                 maxFrames = try parsePositiveInt(value, name: argument)
             case "--seconds":
                 seconds = try parsePositiveDouble(value, name: argument)
+            case "--window-rows":
+                windowRows = try parseWindowRows(value, name: argument)
             default:
                 throw RenderToolError.unknownArgument(argument)
             }
@@ -196,6 +204,7 @@ struct RenderToolArguments: Equatable {
             sampleRate: sampleRate,
             maxFrames: maxFrames,
             seconds: seconds,
+            windowRows: windowRows,
             allowLongRender: allowLongRender,
             progress: progress
         )
@@ -261,6 +270,14 @@ struct RenderToolArguments: Equatable {
         let parsed = try parseDouble(value, name: name)
         guard parsed > 0 else {
             throw RenderToolError.invalidDouble(name: name, value: value)
+        }
+        return parsed
+    }
+
+    private static func parseWindowRows(_ value: String, name: String) throws -> Int {
+        let parsed = try parseInt(value, name: name)
+        guard parsed > 0 else {
+            throw RenderToolError.invalidWindowRows("Window row count must be greater than zero; got \(value).")
         }
         return parsed
     }
@@ -363,6 +380,17 @@ struct RenderTool {
         arguments: RenderToolArguments,
         startedAt: Date
     ) throws -> PlaybackSongOfflineRenderResult {
+        if let windowRows = arguments.windowRows {
+            let result = try renderWindowedAndExportWAV(
+                request,
+                to: outputURL,
+                renderer: renderer,
+                windowRows: windowRows,
+                arguments: arguments
+            )
+            emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
+            return result
+        }
         if arguments.progress {
             let result = renderWithProgress(request, renderer: renderer, arguments: arguments)
             emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
@@ -372,6 +400,28 @@ struct RenderTool {
             return result
         }
         return try renderer.exportWAV(request, to: outputURL)
+    }
+
+    func renderWindowedAndExportWAV(
+        _ request: PlaybackSongOfflineRenderRequest,
+        to outputURL: URL,
+        renderer: PlaybackSongOfflineRenderer,
+        windowRows: Int,
+        arguments: RenderToolArguments
+    ) throws -> PlaybackSongOfflineRenderResult {
+        let result = renderer.renderWindowed(request, windowRows: windowRows) { completedWindow, totalWindows, window in
+            emitWindowRenderProgress(
+                completedWindow: completedWindow,
+                totalWindows: totalWindows,
+                window: window,
+                totalFrames: request.boundedFrameCount,
+                arguments: arguments
+            )
+        }
+        emitProgress("writing WAV", arguments: arguments)
+        try MixerWAVExporter.writePCM16WAV(from: result.block, to: outputURL)
+        emitProgress("writing WAV completed", arguments: arguments)
+        return result
     }
 
     func renderWithProgress(
@@ -430,6 +480,23 @@ struct RenderTool {
             : 100
         emitProgress(
             "rendering bounded candidate: \(min(100, max(0, percent)))% (\(completedFrames) / \(totalFrames) frames)",
+            arguments: arguments
+        )
+    }
+
+    func emitWindowRenderProgress(
+        completedWindow: Int,
+        totalWindows: Int,
+        window: PlaybackSongWindowedRenderWindowDiagnostic,
+        totalFrames: Int,
+        arguments: RenderToolArguments
+    ) {
+        let completedFrames = min(totalFrames, max(0, window.endFrame))
+        let percent = totalFrames > 0
+            ? Int((Double(completedFrames) / Double(totalFrames) * 100.0).rounded(.down))
+            : 100
+        emitProgress(
+            "rendering window \(completedWindow) / \(totalWindows): \(min(100, max(0, percent)))% (\(completedFrames) / \(totalFrames) frames), rows \(window.startRow)..<\(window.endRowExclusive), scheduled \(window.scheduledEventCount), accepted \(window.acceptedScheduledEventCount), rejected \(window.rejectedScheduledEventCount)",
             arguments: arguments
         )
     }
@@ -628,6 +695,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
+                "Windowed renders are developer/offline helper renders only and reset C mixer voice state at window boundaries.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -649,7 +717,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
+                "windowed_render_enabled": result.windowedRenderSummary != nil,
+                "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
+                "window_count": result.windowedRenderSummary?.windowCount ?? 0,
             ],
+            "windowed_render": windowedRenderJSON(from: result),
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
             "pattern_traversal_timing_effects": diagnostics.effectCommandDiagnostics.map(effectCommandDiagnosticJSON),
@@ -667,6 +739,53 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func windowedRenderJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
+        guard let summary = result.windowedRenderSummary else {
+            return [
+                "enabled": false,
+                "window_rows": NSNull(),
+                "window_count": 0,
+                "total_rendered_frames": result.renderedFrameCount,
+                "total_scheduled_events": result.scheduledVoiceAttempts.count,
+                "total_accepted_scheduled_events": result.scheduledVoiceAttempts.filter { $0.voiceIndex != nil }.count,
+                "total_scheduled_capacity_rejects": 0,
+                "per_window": [],
+                "first_windows_with_rejects": [],
+                "known_state_carryover_limitations": [],
+            ]
+        }
+        return [
+            "enabled": true,
+            "window_rows": summary.windowRows,
+            "window_count": summary.windowCount,
+            "total_rendered_frames": summary.totalRenderedFrames,
+            "total_scheduled_events": summary.totalScheduledEvents,
+            "total_accepted_scheduled_events": summary.totalAcceptedScheduledEvents,
+            "total_rejected_scheduled_events": summary.totalRejectedScheduledEvents,
+            "total_scheduled_capacity_rejects": summary.totalScheduledCapacityRejects,
+            "total_invalid_scheduled_voice_rejects": summary.totalInvalidScheduledVoiceRejects,
+            "per_window": summary.windows.map(windowDiagnosticJSON),
+            "first_windows_with_rejects": summary.firstWindowsWithRejects.map(windowDiagnosticJSON),
+            "known_state_carryover_limitations": summary.knownStateCarryoverLimitations,
+        ]
+    }
+
+    private static func windowDiagnosticJSON(_ diagnostic: PlaybackSongWindowedRenderWindowDiagnostic) -> [String: Any] {
+        [
+            "window_index": diagnostic.windowIndex,
+            "start_row": diagnostic.startRow,
+            "end_row_exclusive": diagnostic.endRowExclusive,
+            "start_frame": diagnostic.startFrame,
+            "end_frame": diagnostic.endFrame,
+            "rendered_frames": diagnostic.renderedFrames,
+            "scheduled_event_count": diagnostic.scheduledEventCount,
+            "accepted_scheduled_event_count": diagnostic.acceptedScheduledEventCount,
+            "rejected_scheduled_event_count": diagnostic.rejectedScheduledEventCount,
+            "scheduled_capacity_rejected_count": diagnostic.scheduledCapacityRejectedCount,
+            "invalid_scheduled_voice_rejected_count": diagnostic.invalidScheduledVoiceRejectedCount,
+        ]
+    }
+
     private static func eventJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {
         result.diagnostics.eventMappings.map { mapping in
             eventJSON(for: mapping, from: result)
@@ -676,7 +795,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     private static func eventCoverageJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
         let coverage = result.diagnostics.eventCoverage
         let rejectedVoiceCount = scheduledVoiceRejectedCount(from: result)
-        let acceptedVoiceCount = result.scheduledVoiceIndices.compactMap { $0 }.count
+        let acceptedVoiceCount = result.scheduledVoiceAttempts.filter { $0.voiceIndex != nil }.count
         let scheduledCapacityRejectedCount = scheduledVoiceRejectionCount(
             from: result,
             reason: .scheduledVoiceCapacity
@@ -714,7 +833,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "c_mixer_active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
                 "scheduled_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
                 "active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
-                "scheduled_voice_attempt_count": result.scheduledVoiceIndices.count,
+                "scheduled_voice_attempt_count": result.scheduledVoiceAttempts.count,
                 "scheduled_voice_accepted_count": acceptedVoiceCount,
                 "scheduled_voice_rejected_count": rejectedVoiceCount,
                 "scheduled_voice_capacity_rejected_count": scheduledCapacityRejectedCount,
@@ -771,35 +890,38 @@ enum PlaybackSongDiagnosticsJSONExporter {
     }
 
     private static func scheduledVoiceRejectedCount(from result: PlaybackSongOfflineRenderResult) -> Int {
-        result.scheduledVoiceRejectionReasons.compactMap { $0 }.count
+        result.scheduledVoiceAttempts.compactMap(\.rejectionReason).count
     }
 
     private static func scheduledVoiceRejectionCount(
         from result: PlaybackSongOfflineRenderResult,
         reason: CSoftwareMixerScheduledVoiceRejectionReason
     ) -> Int {
-        result.scheduledVoiceRejectionReasons.filter { $0 == reason }.count
+        result.scheduledVoiceAttempts.filter { $0.rejectionReason == reason }.count
     }
 
     private static func rejectedEventCoordinatesJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {
         let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: result.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
-        return result.scheduledVoiceRejectionReasons.enumerated().compactMap { eventIndex, rejectionReason -> [String: Any]? in
-            guard let rejectionReason else {
+        return result.scheduledVoiceAttempts.compactMap { attempt -> [String: Any]? in
+            guard let rejectionReason = attempt.rejectionReason else {
                 return nil
             }
             var object: [String: Any] = [
-                "event_index": eventIndex,
+                "event_index": attempt.eventIndex,
                 "reason": rejectionReason.rawValue,
             ]
-            if let mapping = mappingsByEventIndex[eventIndex] {
+            if let windowIndex = attempt.windowIndex {
+                object["window_index"] = windowIndex
+            }
+            if let mapping = mappingsByEventIndex[attempt.eventIndex] {
                 object["source"] = positionJSON(mapping.source)
                 object["channel_index"] = mapping.channelIndex
                 object["note"] = Int(mapping.note)
                 object["instrument_index"] = mapping.instrumentIndex
                 object["sample_index"] = mapping.sampleIndex
                 object["sample_selection_method"] = mapping.sampleSelectionMethod.rawValue
-                if result.plan.pattern.events.indices.contains(eventIndex) {
-                    object["scheduled_start_frame"] = result.plan.pattern.events[eventIndex].scheduledStartFrame ?? 0
+                if result.plan.pattern.events.indices.contains(attempt.eventIndex) {
+                    object["scheduled_start_frame"] = result.plan.pattern.events[attempt.eventIndex].scheduledStartFrame ?? 0
                 }
             }
             return object
@@ -1413,12 +1535,13 @@ func renderToolUsage() -> String {
       --sample-rate HZ      Output sample rate. Default: 44100.
       --seconds N           Render this many seconds; converted to seconds * sample-rate frames.
       --max-frames N        Explicit maximum output frames.
+      --window-rows N       Opt into row-windowed offline scheduling for long local renders.
       --allow-long-render   Required when --seconds/--max-frames exceeds the default safety clamp.
       --progress            Print render percentage and phase/status messages to stderr.
       --help                Show this help.
 
     Default safety clamp: \(PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) frames (60 seconds at 44100 Hz).
-    --progress reports render percentage by rendered frames, then a coarse WAV-writing phase.
+    --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --seconds and --max-frames are mutually exclusive. Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
     This helper uses the offline C-backed PlaybackSongOfflineRenderer.exportWAV path only.
@@ -1451,6 +1574,11 @@ func renderToolSummary(
     } else {
         lines.append("Requested rows: not specified")
     }
+    if let windowRows = arguments.windowRows {
+        lines.append("Windowed render: enabled, \(windowRows) rows per window.")
+    } else {
+        lines.append("Windowed render: disabled.")
+    }
     lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
     lines.append("Effective frame cap: \(result.maximumFrameCount)")
     lines.append(String(format: "Effective duration cap: %.3f seconds", capDuration))
@@ -1463,11 +1591,27 @@ func renderToolSummary(
     if result.wasFrameCountBounded {
         lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")
     }
+    appendWindowedRenderSummary(to: &lines, result: result)
     if arguments.diagnosticsJSONPath != nil || arguments.progress {
         appendEventCoverageSummary(to: &lines, result: result)
     }
     lines.append("Export succeeded.")
     return lines.joined(separator: "\n")
+}
+
+private func appendWindowedRenderSummary(
+    to lines: inout [String],
+    result: PlaybackSongOfflineRenderResult
+) {
+    guard let summary = result.windowedRenderSummary else {
+        return
+    }
+    lines.append(
+        "Windowed scheduling: \(summary.windowCount) windows, \(summary.totalAcceptedScheduledEvents)/\(summary.totalScheduledEvents) accepted, \(summary.totalScheduledCapacityRejects) scheduled capacity rejects."
+    )
+    lines.append(
+        "Window carryover limitation: C mixer voice state is reset at window boundaries; sustained voices are not serialized across windows in this first pass."
+    )
 }
 
 private func appendEventCoverageSummary(
@@ -1476,7 +1620,7 @@ private func appendEventCoverageSummary(
 ) {
     let coverage = result.diagnostics.eventCoverage
     let traversal = result.diagnostics.traversalHazardSummary
-    let rejectedVoiceCount = result.scheduledVoiceRejectionReasons.compactMap { $0 }.count
+    let rejectedVoiceCount = result.scheduledVoiceAttempts.compactMap(\.rejectionReason).count
     lines.append("Event coverage: parsed normal notes \(coverage.normalNoteCells), scheduled events \(coverage.scheduledNoteEvents), skipped notes \(coverage.skippedNoteEvents).")
     lines.append(
         "Sample selection: sample_map \(coverage.sampleMapSelectionEvents), first_playable_fallback \(coverage.firstPlayableSampleFallbackEvents), fallback_after_invalid_map \(coverage.fallbackAfterInvalidSampleMapEvents), skipped_no_valid_sample \(coverage.skippedNoValidSampleEvents), missing_or_deferred_keymap \(coverage.sampleMapKeymapDeferredEvents)."
@@ -1491,7 +1635,7 @@ private func appendEventCoverageSummary(
         }
     lines.append("First skipped note coordinates: \(skippedCoordinates.isEmpty ? "none" : skippedCoordinates.joined(separator: "; ")).")
     lines.append(
-        "C mixer scheduling: \(result.scheduledVoiceIndices.count - rejectedVoiceCount)/\(result.scheduledVoiceIndices.count) accepted, \(rejectedVoiceCount) rejected, scheduled capacity \(CSoftwareMixer.maximumScheduledVoiceCount), active capacity \(CSoftwareMixer.maximumActiveVoiceCount)."
+        "C mixer scheduling: \(result.scheduledVoiceAttempts.count - rejectedVoiceCount)/\(result.scheduledVoiceAttempts.count) accepted, \(rejectedVoiceCount) rejected, scheduled capacity \(CSoftwareMixer.maximumScheduledVoiceCount), active capacity \(CSoftwareMixer.maximumActiveVoiceCount)."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

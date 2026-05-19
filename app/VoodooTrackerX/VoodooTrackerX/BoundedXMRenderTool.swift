@@ -757,6 +757,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
                 "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
+                "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
                 "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
@@ -786,6 +787,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
                 "note_cut_effect_count": diagnostics.noteCutEffectCount,
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
+                "retrigger_effect_count": diagnostics.retriggerEffectCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
                 "active_voice_state_update_count": diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count,
                 "gain_pan_ramp_enabled": true,
@@ -826,6 +828,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "sample_offset_effects": diagnostics.sampleOffsetEffects.map(sampleOffsetDiagnosticJSON),
             "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
+            "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -994,6 +997,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "total_dxx_pattern_break": summary.totalDxxPatternBreak,
             "total_eex_pattern_delay": summary.totalEExPatternDelay,
             "total_fxx_speed_bpm": summary.totalFxxSpeedBPM,
+            "total_e9x_retrigger": summary.totalE9xRetrigger,
             "total_ecx_note_cut": summary.totalECxNoteCut,
             "total_edx_note_delay": summary.totalEDxNoteDelay,
             "total_other_e_commands": summary.totalOtherECommands,
@@ -1683,6 +1687,43 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func retriggerDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticRetriggerDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": retriggerStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "out_of_row": diagnostic.outOfRow,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_sample_found": diagnostic.activeVoiceFound,
+            "retrigger_interval_ticks": diagnostic.retriggerIntervalTicks,
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "retrigger_ticks": diagnostic.retriggerTicks,
+            "retrigger_frames": diagnostic.retriggerFrames,
+            "generated_retrigger_frames": diagnostic.retriggerFrames,
+            "retrigger_event_indices": diagnostic.retriggerEventIndices,
+            "replaced_event_indices": diagnostic.replacedEventIndices,
+            "active_event_index_before": diagnostic.activeEventIndexBefore.map { $0 as Any } ?? NSNull(),
+            "selected_sample_index": diagnostic.selectedSampleIndex.map { $0 as Any } ?? NSNull(),
+            "selected_sample_length": diagnostic.selectedSampleLength.map { $0 as Any } ?? NSNull(),
+            "initial_source_frame": diagnostic.initialSourceFrame.map { $0 as Any } ?? NSNull(),
+            "playback_step": diagnostic.playbackStep.map { $0 as Any } ?? NSNull(),
+            "gain": diagnostic.gain.map { $0 as Any } ?? NSNull(),
+            "pan": diagnostic.pan.map { $0 as Any } ?? NSNull(),
+            "envelope_policy": diagnostic.envelopePolicy,
+        ]
+    }
+
     private static func targetVoiceIndices(
         forEventIndex eventIndex: Int?,
         in result: PlaybackSongOfflineRenderResult
@@ -1875,6 +1916,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "applied"
         case .noNoteDeferred:
             return "no_note_deferred"
+        case .outOfRowNoOp:
+            return "out_of_row_no_op"
+        }
+    }
+
+    private static func retriggerStatusName(_ status: PlaybackSongSyntheticRetriggerDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .ignoredE90NoEffectMemory:
+            return "ignored_e90_no_effect_memory"
+        case .noActiveVoice:
+            return "no_active_voice"
         case .outOfRowNoOp:
             return "out_of_row_no_op"
         }
@@ -2203,8 +2257,15 @@ private func appendEventCoverageSummary(
     let appliedDelays = result.diagnostics.noteDelayEffects.filter(\.applied).count
     let deferredDelays = result.diagnostics.noteDelayEffects.filter(\.deferred).count
     let outOfRowDelays = result.diagnostics.noteDelayEffects.filter(\.outOfRow).count
+    let appliedRetriggers = result.diagnostics.retriggerEffects.filter(\.applied).count
+    let deferredRetriggers = result.diagnostics.retriggerEffects.filter(\.deferred).count
+    let noActiveRetriggers = result.diagnostics.retriggerEffects.filter { $0.status == .noActiveVoice }.count
+    let outOfRowRetriggers = result.diagnostics.retriggerEffects.filter(\.outOfRow).count
     lines.append(
         "Note cut/delay: ECx \(appliedCuts) applied, \(deferredCuts) deferred, \(noActiveCuts) no-active; EDx \(appliedDelays) applied, \(deferredDelays) deferred, \(outOfRowDelays) out-of-row."
+    )
+    lines.append(
+        "Retrigger: E9x \(appliedRetriggers) applied, \(deferredRetriggers) deferred, \(noActiveRetriggers) no-active, \(outOfRowRetriggers) out-of-row/no-op."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

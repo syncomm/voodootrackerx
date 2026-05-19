@@ -358,6 +358,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
     let noteCutEffects: [PlaybackSongSyntheticNoteCutDiagnostic]
     let noteDelayEffects: [PlaybackSongSyntheticNoteDelayDiagnostic]
+    let retriggerEffects: [PlaybackSongSyntheticRetriggerDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
@@ -398,6 +399,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var noteDelayEffectCount: Int {
         noteDelayEffects.count
+    }
+
+    var retriggerEffectCount: Int {
+        retriggerEffects.count
     }
 
     var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
@@ -533,6 +538,7 @@ extension PlaybackSongSyntheticDiagnostics {
             sampleOffsetEffects: sampleOffsetEffects,
             noteCutEffects: noteCutEffects,
             noteDelayEffects: noteDelayEffects,
+            retriggerEffects: retriggerEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
             ignoredCells: ignoredCells,
@@ -654,6 +660,10 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
         effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0E
     }
 
+    var isE9xRetrigger: Bool {
+        effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x09
+    }
+
     var isECxNoteCut: Bool {
         effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0C
     }
@@ -767,6 +777,7 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
     let totalDxxPatternBreak: Int
     let totalEExPatternDelay: Int
     let totalFxxSpeedBPM: Int
+    let totalE9xRetrigger: Int
     let totalECxNoteCut: Int
     let totalEDxNoteDelay: Int
     let totalOtherECommands: Int
@@ -780,10 +791,11 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
         totalDxxPatternBreak = effectCommandDiagnostics.filter { $0.isDxxPatternBreak }.count
         totalEExPatternDelay = effectCommandDiagnostics.filter { $0.isEExPatternDelay }.count
         totalFxxSpeedBPM = effectCommandDiagnostics.filter { $0.isFxxTimingChange }.count
+        totalE9xRetrigger = effectCommandDiagnostics.filter { $0.isE9xRetrigger }.count
         totalECxNoteCut = effectCommandDiagnostics.filter { $0.isECxNoteCut }.count
         totalEDxNoteDelay = effectCommandDiagnostics.filter { $0.isEDxNoteDelay }.count
         totalOtherECommands = effectCommandDiagnostics.filter {
-            $0.effectType == 0x0E && !$0.isEExPatternDelay && !$0.isECxNoteCut && !$0.isEDxNoteDelay
+            $0.effectType == 0x0E && !$0.isE9xRetrigger && !$0.isEExPatternDelay && !$0.isECxNoteCut && !$0.isEDxNoteDelay
         }.count
         totalTraversalHazards = totalBxxPositionJump + totalDxxPatternBreak + totalEExPatternDelay
         likelyIgnoresStructureChangingBehavior = totalTraversalHazards > 0
@@ -891,6 +903,44 @@ struct PlaybackSongSyntheticNoteDelayDiagnostic: Equatable {
     let originalFrame: Int
     let delayedFrame: Int?
     let eventIndex: Int?
+}
+
+struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case ignoredE90NoEffectMemory
+        case noActiveVoice
+        case outOfRowNoOp
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let outOfRow: Bool
+    let activeVoiceFound: Bool
+    let retriggerIntervalTicks: Int
+    let rowSpeed: Int
+    let rowBPM: Int
+    let retriggerTicks: [Int]
+    let retriggerFrames: [Int]
+    let retriggerEventIndices: [Int]
+    let replacedEventIndices: [Int]
+    let activeEventIndexBefore: Int?
+    let selectedSampleIndex: Int?
+    let selectedSampleLength: Int?
+    let initialSourceFrame: Int?
+    let playbackStep: Double?
+    let gain: Float?
+    let pan: Float?
+    let envelopePolicy: String
 }
 
 enum PlaybackSongSyntheticVolumeColumnCommand: Equatable {
@@ -1806,6 +1856,7 @@ enum PlaybackSongSyntheticAdapter {
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
         var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
+        var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
@@ -1872,6 +1923,7 @@ enum PlaybackSongSyntheticAdapter {
                     sampleOffsetEffects: &sampleOffsetEffects,
                     noteCutEffects: &noteCutEffects,
                     noteDelayEffects: &noteDelayEffects,
+                    retriggerEffects: &retriggerEffects,
                     keyOffEvents: &keyOffEvents,
                     effectCommandDiagnostics: &effectCommandDiagnostics,
                     eventMappings: &eventMappings,
@@ -1906,6 +1958,7 @@ enum PlaybackSongSyntheticAdapter {
                 sampleOffsetEffects: sampleOffsetEffects,
                 noteCutEffects: noteCutEffects,
                 noteDelayEffects: noteDelayEffects,
+                retriggerEffects: retriggerEffects,
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
@@ -1930,6 +1983,7 @@ enum PlaybackSongSyntheticAdapter {
         sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
         noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic],
         noteDelayEffects: inout [PlaybackSongSyntheticNoteDelayDiagnostic],
+        retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
@@ -2021,6 +2075,20 @@ enum PlaybackSongSyntheticAdapter {
                     deferredCellFields: &deferredCellFields,
                     eventCoverage: &eventCoverage
                 )
+                _ = handleRetrigger(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    volumeColumn: volumeColumn,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    events: &events,
+                    eventMappings: &eventMappings,
+                    retriggerEffects: &retriggerEffects,
+                    eventCoverage: &eventCoverage
+                )
                 if let noteDelay {
                     noteDelayEffects.append(noteDelay)
                 }
@@ -2051,6 +2119,24 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState,
                     noteCutEffects: &noteCutEffects
                 )
+                let retrigger = handleRetrigger(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    volumeColumn: volumeColumn,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    events: &events,
+                    eventMappings: &eventMappings,
+                    retriggerEffects: &retriggerEffects,
+                    eventCoverage: &eventCoverage
+                )
+                if retrigger?.applied == true {
+                    channelStates[channelIndex] = channelState
+                    continue
+                }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -2328,6 +2414,20 @@ enum PlaybackSongSyntheticAdapter {
                     eventIndex: eventIndex
                 ) ?? noteDelay)
             }
+            _ = handleRetrigger(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                volumeColumn: volumeColumn,
+                timingConfig: timingConfig,
+                timingPlan: timingPlan,
+                channelState: &channelState,
+                events: &events,
+                eventMappings: &eventMappings,
+                retriggerEffects: &retriggerEffects,
+                eventCoverage: &eventCoverage
+            )
             handleNoteCut(
                 from: cell,
                 source: source,
@@ -2813,6 +2913,173 @@ enum PlaybackSongSyntheticAdapter {
         channelState.activeSampleVolume = nil
     }
 
+    @discardableResult
+    private static func handleRetrigger(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState,
+        events: inout [SyntheticTrackerEvent],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
+        eventCoverage: inout EventCoverageBuilder
+    ) -> PlaybackSongSyntheticRetriggerDiagnostic? {
+        guard isRetriggerEffect(cell) else {
+            return nil
+        }
+
+        let interval = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        let activeEventIndexBefore = channelState.activeEventIndex
+        let activeMappingIndexBefore = channelState.activeEventMappingIndex
+        let activeVoiceFound = activeEventIndexBefore.map { events.indices.contains($0) } == true &&
+            activeMappingIndexBefore.map { eventMappings.indices.contains($0) } == true &&
+            channelState.activeSampleVolume != nil
+
+        func diagnostic(
+            status: PlaybackSongSyntheticRetriggerDiagnostic.Status,
+            ticks: [Int] = [],
+            frames: [Int] = [],
+            eventIndices: [Int] = [],
+            replacedEventIndices: [Int] = []
+        ) -> PlaybackSongSyntheticRetriggerDiagnostic {
+            let applied = status == .applied
+            let deferred = status == .ignoredE90NoEffectMemory
+            let ignoredAsNoOp = status == .ignoredE90NoEffectMemory ||
+                status == .noActiveVoice ||
+                status == .outOfRowNoOp
+            let outOfRow = status == .outOfRowNoOp
+            let activeMapping = activeMappingIndexBefore.flatMap {
+                eventMappings.indices.contains($0) ? eventMappings[$0] : nil
+            }
+            let activeEvent = activeEventIndexBefore.flatMap {
+                events.indices.contains($0) ? events[$0] : nil
+            }
+            return PlaybackSongSyntheticRetriggerDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: status,
+                detected: true,
+                applied: applied,
+                deferred: deferred,
+                ignoredAsNoOp: ignoredAsNoOp,
+                outOfRow: outOfRow,
+                activeVoiceFound: activeVoiceFound,
+                retriggerIntervalTicks: interval,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                retriggerTicks: ticks,
+                retriggerFrames: frames,
+                retriggerEventIndices: eventIndices,
+                replacedEventIndices: replacedEventIndices,
+                activeEventIndexBefore: activeEventIndexBefore,
+                selectedSampleIndex: activeMapping?.sampleIndex,
+                selectedSampleLength: activeMapping?.selectedSampleLength,
+                initialSourceFrame: activeEvent?.initialSourceFrame,
+                playbackStep: activeEvent?.playbackStep,
+                gain: activeEvent?.gain,
+                pan: activeEvent?.pan,
+                envelopePolicy: "fresh_event_restarts_envelope"
+            )
+        }
+
+        guard interval > 0 else {
+            let result = diagnostic(status: .ignoredE90NoEffectMemory)
+            retriggerEffects.append(result)
+            return result
+        }
+        guard interval < rowSpeed else {
+            let result = diagnostic(status: .outOfRowNoOp)
+            retriggerEffects.append(result)
+            return result
+        }
+        guard let activeEventIndex = activeEventIndexBefore,
+              let activeMappingIndex = activeMappingIndexBefore,
+              events.indices.contains(activeEventIndex),
+              eventMappings.indices.contains(activeMappingIndex),
+              let activeSampleVolume = channelState.activeSampleVolume else {
+            let result = diagnostic(status: .noActiveVoice)
+            retriggerEffects.append(result)
+            return result
+        }
+
+        let sourceEvent = events[activeEventIndex]
+        let sourceMapping = eventMappings[activeMappingIndex]
+        let gain = adaptedGain(sampleVolume: activeSampleVolume, channelVolume: channelState.volumeValue)
+        let pan = channelState.pan
+        var ticks = [Int]()
+        var frames = [Int]()
+        var eventIndices = [Int]()
+        var replacedEventIndices = [Int]()
+        var previousEventIndex = activeEventIndex
+
+        var tick = interval
+        while tick < rowSpeed {
+            let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            let eventIndex = events.count
+            events.append(SyntheticTrackerEvent(
+                row: syntheticRow,
+                tick: tick,
+                scheduledStartFrame: frame,
+                sample: sourceEvent.sample,
+                gain: gain,
+                pan: pan,
+                playbackStep: sourceEvent.playbackStep,
+                loop: sourceEvent.loop,
+                initialSourceFrame: sourceEvent.initialSourceFrame,
+                volumeEnvelope: sourceEvent.volumeEnvelope,
+                panEnvelope: sourceEvent.panEnvelope
+            ))
+            eventMappings.append(retriggeredEventMapping(
+                from: sourceMapping,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                eventIndex: eventIndex,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                volumeColumn: volumeColumn,
+                effectiveVolumeValue: channelState.volumeValue,
+                effectivePan: pan
+            ))
+            eventCoverage.recordScheduledNote(
+                method: sourceMapping.sampleSelectionMethod,
+                firstPlayableSampleFallbackUsed: sourceMapping.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sourceMapping.sampleMapKeymapBehaviorDeferred
+            )
+            ticks.append(tick)
+            frames.append(frame)
+            eventIndices.append(eventIndex)
+            replacedEventIndices.append(previousEventIndex)
+            previousEventIndex = eventIndex
+            tick += interval
+        }
+
+        channelState.activeEventIndex = previousEventIndex
+        channelState.activeEventMappingIndex = eventMappings.count - 1
+        channelState.activeSampleVolume = activeSampleVolume
+
+        let result = diagnostic(
+            status: .applied,
+            ticks: ticks,
+            frames: frames,
+            eventIndices: eventIndices,
+            replacedEventIndices: replacedEventIndices
+        )
+        retriggerEffects.append(result)
+        return result
+    }
+
     private static func handleNoteCut(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -3043,6 +3310,73 @@ enum PlaybackSongSyntheticAdapter {
             hasDeferredVolumeEnvelopeLoop: semantics.loopDeferred,
             hasDeferredVolumeEnvelopeFadeout: semantics.fadeoutDeferred,
             volumeEnvelopeSemantics: semantics,
+            sampleBaseSampleRate: mapping.sampleBaseSampleRate,
+            sampleRelativeNote: mapping.sampleRelativeNote,
+            sampleFinetune: mapping.sampleFinetune,
+            outputSampleRate: mapping.outputSampleRate,
+            effectiveNoteValue: mapping.effectiveNoteValue,
+            effectiveNoteIndex: mapping.effectiveNoteIndex,
+            effectiveFinetune: mapping.effectiveFinetune,
+            linearPeriod: mapping.linearPeriod,
+            linearFrequency: mapping.linearFrequency,
+            finetuneStatus: mapping.finetuneStatus,
+            usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
+            frequencyTableStatus: mapping.frequencyTableStatus,
+            linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
+            playbackStep: mapping.playbackStep,
+            pitchMappingApplied: mapping.pitchMappingApplied,
+            pitchMappingUsedNeutralStep: mapping.pitchMappingUsedNeutralStep
+        )
+    }
+
+    private static func retriggeredEventMapping(
+        from mapping: PlaybackSongSyntheticEventMapping,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        syntheticTick: Int,
+        eventIndex: Int,
+        effectType: UInt8,
+        effectParam: UInt8,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        effectiveVolumeValue: Int,
+        effectivePan: Float
+    ) -> PlaybackSongSyntheticEventMapping {
+        PlaybackSongSyntheticEventMapping(
+            source: source,
+            channelIndex: channelIndex,
+            note: mapping.note,
+            instrumentIndex: mapping.instrumentIndex,
+            sampleIndex: mapping.sampleIndex,
+            selectedSampleLength: mapping.selectedSampleLength,
+            sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
+            mappedSampleIndex: mapping.mappedSampleIndex,
+            mappedSampleValid: mapping.mappedSampleValid,
+            sampleSelectionMethod: mapping.sampleSelectionMethod,
+            sampleSelectionStrategy: mapping.sampleSelectionStrategy,
+            firstPlayableSampleFallbackUsed: mapping.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: mapping.sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: mapping.sampleMapKeymapMissingOrDeferred,
+            effectType: effectType,
+            effectParam: effectParam,
+            syntheticRow: syntheticRow,
+            syntheticTick: syntheticTick,
+            eventIndex: eventIndex,
+            loopMode: mapping.loopMode,
+            volumeColumn: volumeColumn,
+            sampleOffset: mapping.sampleOffset,
+            hasIgnoredVolumeColumn: volumeColumn.rawValue != 0 && !volumeColumn.applied,
+            hasIgnoredEffect: false,
+            effectiveVolumeValue: effectiveVolumeValue,
+            effectivePan: effectivePan,
+            volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
+            sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
+            mappedVolumeEnvelopePointCount: mapping.mappedVolumeEnvelopePointCount,
+            hasDeferredVolumeEnvelopeSustain: mapping.hasDeferredVolumeEnvelopeSustain,
+            hasDeferredVolumeEnvelopeLoop: mapping.hasDeferredVolumeEnvelopeLoop,
+            hasDeferredVolumeEnvelopeFadeout: mapping.hasDeferredVolumeEnvelopeFadeout,
+            volumeEnvelopeSemantics: mapping.volumeEnvelopeSemantics,
             sampleBaseSampleRate: mapping.sampleBaseSampleRate,
             sampleRelativeNote: mapping.sampleRelativeNote,
             sampleFinetune: mapping.sampleFinetune,
@@ -3479,6 +3813,10 @@ enum PlaybackSongSyntheticAdapter {
         extendedEffectSubcommand(cell) == 0x0D
     }
 
+    private static func isRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x09
+    }
+
     private static func sampleOffsetDiagnostic(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -3613,6 +3951,12 @@ enum PlaybackSongSyntheticAdapter {
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x11:
             return .deferredUnsupported
+        case 0x0E where isRetriggerEffect(cell):
+            let interval = extendedEffectTick(cell)
+            guard interval > 0 else {
+                return .ignoredNoOp
+            }
+            return interval < timingConfig.speed ? .applied : .ignoredNoOp
         case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
             guard extendedEffectTick(cell) < timingConfig.speed else {
                 return .ignoredNoOp
@@ -3710,6 +4054,7 @@ enum PlaybackSongSyntheticAdapter {
         }
         if PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) ||
             isNonzeroSampleOffsetEffect(cell) ||
+            isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) {
             return false
@@ -3724,6 +4069,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x09 && cell.effectParam != 0
+    }
+
+    private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        isRetriggerEffect(cell) && extendedEffectTick(cell) > 0
     }
 
     private static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {
@@ -4231,6 +4580,11 @@ final class PlaybackSongOfflineRenderSession {
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer
         )
+        PlaybackSongOfflineRenderer.scheduleRetriggerCuts(
+            adaptedPlan.diagnostics.retriggerEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
         let rejectionReasons = scheduledResults.map(\.rejectionReason)
         let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
@@ -4369,6 +4723,13 @@ final class PlaybackSongOfflineRenderer {
             )
             Self.scheduleNoteCuts(
                 adaptedPlan.diagnostics.noteCutEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
+            Self.scheduleRetriggerCuts(
+                adaptedPlan.diagnostics.retriggerEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -4539,6 +4900,35 @@ final class PlaybackSongOfflineRenderer {
                 gain: 0,
                 pan: nil
             )
+        }
+    }
+
+    fileprivate static func scheduleRetriggerCuts(
+        _ retriggers: [PlaybackSongSyntheticRetriggerDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for retrigger in retriggers where retrigger.applied {
+            for (eventIndex, scheduledFrame) in zip(retrigger.replacedEventIndices, retrigger.retriggerFrames) {
+                guard let voiceIndex = voiceIndexByEventIndex[eventIndex] else {
+                    continue
+                }
+                guard scheduledFrame >= windowStartFrame else {
+                    continue
+                }
+                if let windowEndFrame,
+                   scheduledFrame >= windowEndFrame {
+                    continue
+                }
+                _ = mixer.scheduleVoiceGainPanImmediateUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: scheduledFrame - windowStartFrame,
+                    gain: 0,
+                    pan: nil
+                )
+            }
         }
     }
 

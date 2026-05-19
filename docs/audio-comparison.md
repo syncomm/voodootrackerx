@@ -38,7 +38,8 @@ volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
-changes, and minimal nonzero `9xx` sample offsets on same-cell note triggers.
+changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
+minimal `E9x` retriggers for the tracked active adapted voice.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
 bounded offline renders from the update frame forward. Those bounded/offline
@@ -83,8 +84,8 @@ with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
 volume-column decisions, volume/panning state-update diagnostics, Fxx timing
-changes, sample-offset decisions, envelope sustain/loop/key-off/fadeout status,
-and loop metadata.
+changes, sample-offset decisions, `E9x` retrigger decisions and generated
+frames, envelope sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
@@ -113,11 +114,11 @@ was updated, effective channel volume/pan before and after, and the source
 order/pattern/row/channel plus synthetic frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
-pattern break, `EEx` pattern delay, contextual `Fxx` timing changes, and other
-observed `E` subcommands while keeping `Bxx`, `Dxx`, and `EEx`
-diagnostic/deferred only. The correlation report includes these hazards near
-worst mismatch windows and can conservatively recommend a traversal-focused PR
-when those hazards dominate the local evidence.
+pattern break, `EEx` pattern delay, contextual `Fxx` timing changes, minimal
+`E9x` retriggers, and other observed `E` subcommands while keeping `Bxx`,
+`Dxx`, and `EEx` diagnostic/deferred only. The correlation report includes
+these hazards near worst mismatch windows and can conservatively recommend a
+traversal-focused PR when those hazards dominate the local evidence.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 
@@ -267,9 +268,9 @@ format, peak/RMS, PCM16 clipping count when applicable, the largest
 adjacent-sample jumps per channel, threshold counts, and jumps per second. With
 `vtx_render_bounded_xm` diagnostics JSON, the report also maps top jumps to
 nearby local adapter events such as gain/pan state updates, volume-column
-updates, note triggers, `ECx` note cuts, `EDx` note delays, key-off/release or
-fadeout events, looped voices when exposed, carried voices, and row-window
-boundaries.
+updates, note triggers, `E9x` retriggers, `ECx` note cuts, `EDx` note delays,
+key-off/release or fadeout events, looped voices when exposed, carried voices,
+and row-window boundaries.
 
 Treat the result as diagnostic evidence, not proof. A jump near a gain/pan
 update after this micro-ramping pass suggests checking whether the jump
@@ -335,10 +336,11 @@ looped voices without switching runtime playback or adding broad effect support.
 Remaining limitations are still important. Carryover is approximate bounded
 offline behavior, not FT2/OpenMPT parity or a generic mixer-state serialization
 framework. Unsupported/deferred effects, deferred volume-column semantics,
-pattern traversal effects, note cut/delay/retrigger, and other effect-driven
-voice state can still make continuity wrong. Boundary drops can still occur if
-too many continuation voices need to be rescheduled into one window. Use the
-carryover diagnostics and listening notes to decide whether a later
+pattern traversal effects, advanced note cut/delay/retrigger quirks, and other
+effect-driven voice state can still make continuity wrong. Boundary drops can
+still occur if too many continuation voices need to be rescheduled into one
+window. Use the carryover diagnostics and listening notes to decide whether a
+later
 window-carryover follow-up or a targeted effect PR is warranted.
 
 ## Local Bounded Findings Workflow
@@ -454,9 +456,9 @@ ranges, then lists:
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
-  sample-offset status, minimal `ECx` note-cut diagnostics, minimal `EDx`
-  note-delay diagnostics, envelope status, loop mode, and render interpolation
-  status when those fields are present
+  sample-offset status, minimal `E9x` retrigger diagnostics, minimal `ECx`
+  note-cut diagnostics, minimal `EDx` note-delay diagnostics, envelope status,
+  loop mode, and render interpolation status when those fields are present
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
@@ -467,8 +469,9 @@ ranges, then lists:
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as
-  retrigger, sample-offset memory, pattern control effects, mixer headroom
-  diagnostics, or more local review when no command clearly dominates
+  global volume slide, portamento/vibrato/arpeggio diagnostics, sample-offset
+  memory, pattern control effects, mixer headroom diagnostics, or more local
+  review when no command clearly dominates
 
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
@@ -478,12 +481,12 @@ Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
-retrigger or a focused follow-up to minimal `ECx`/`EDx`. If mismatch windows
-repeatedly line up with diagnosed `900` no-ops, decide separately whether
-effect memory is worth a narrow PR. If mismatch windows are broad and steady
-while events look plausible, remaining resampling details, loop details,
-headroom/clipping diagnostics, or reference-render settings may be the better
-next investigation.
+global volume slide, portamento, vibrato, arpeggio, or a focused follow-up to
+minimal `E9x`/`ECx`/`EDx`. If mismatch windows repeatedly line up with
+diagnosed `900` or `E90` no-ops, decide separately whether effect memory is
+worth a narrow PR. If mismatch windows are broad and steady while events look
+plausible, remaining resampling details, loop details, headroom/clipping
+diagnostics, or reference-render settings may be the better next investigation.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
 before implementing more effects. In long/full-song renders, separate

@@ -669,10 +669,12 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)
         XCTAssertEqual(render["maximum_duration_seconds"] as? Double, 60)
+        XCTAssertEqual(render["retrigger_effect_count"] as? Int, result.diagnostics.retriggerEffectCount)
         XCTAssertEqual(coverage["normal_note_cells"] as? Int, result.diagnostics.eventCoverage.normalNoteCells)
         XCTAssertEqual(coverage["scheduled_note_events"] as? Int, result.diagnostics.eventCoverage.scheduledNoteEvents)
         XCTAssertEqual(coverage["skipped_note_events"] as? Int, result.diagnostics.eventCoverage.skippedNoteEvents)
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
+        XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
     }
@@ -805,6 +807,56 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         ])
         XCTAssertEqual(firstSkipped.first?["channel_index"] as? Int, 1)
         XCTAssertEqual((firstSkipped.first?["source"] as? [String: Any])?["row"] as? Int, 3)
+    }
+
+    func testDiagnosticsJSONIncludesE9xRetriggerDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0x92)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let summary = try XCTUnwrap(object["traversal_hazard_summary"] as? [String: Any])
+        let retriggers = try XCTUnwrap(object["retrigger_effects"] as? [[String: Any]])
+        let first = try XCTUnwrap(retriggers.first)
+
+        XCTAssertEqual(render["retrigger_effect_count"] as? Int, 1)
+        XCTAssertEqual(summary["total_e9x_retrigger"] as? Int, 1)
+        XCTAssertEqual(first["status"] as? String, "applied")
+        XCTAssertEqual(first["applied"] as? Bool, true)
+        XCTAssertEqual(first["active_voice_found"] as? Bool, true)
+        XCTAssertEqual(first["retrigger_interval_ticks"] as? Int, 2)
+        XCTAssertEqual(first["row_speed"] as? Int, 6)
+        XCTAssertEqual(first["row_bpm"] as? Int, 250)
+        XCTAssertEqual(first["retrigger_ticks"] as? [Int], [2, 4])
+        XCTAssertEqual(first["retrigger_frames"] as? [Int], [2, 4])
+        XCTAssertEqual(first["retrigger_event_indices"] as? [Int], [1, 2])
+        XCTAssertEqual(first["replaced_event_indices"] as? [Int], [0, 1])
+        XCTAssertEqual(first["envelope_policy"] as? String, "fresh_event_restarts_envelope")
     }
 
     func testDiagnosticsJSONReportsCMixerVoiceCapacityRejections() throws {
@@ -1278,7 +1330,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(summary["total_dxx_pattern_break"] as? Int, 1)
         XCTAssertEqual(summary["total_eex_pattern_delay"] as? Int, 1)
         XCTAssertEqual(summary["total_fxx_speed_bpm"] as? Int, 1)
-        XCTAssertEqual(summary["total_other_e_commands"] as? Int, 1)
+        XCTAssertEqual(summary["total_e9x_retrigger"] as? Int, 1)
+        XCTAssertEqual(summary["total_other_e_commands"] as? Int, 0)
         XCTAssertEqual(summary["total_traversal_hazards"] as? Int, 3)
         XCTAssertEqual(summary["likely_ignores_structure_changing_behavior"] as? Bool, true)
         XCTAssertEqual(firstHazards.count, 3)
@@ -1289,7 +1342,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(bxx["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(dxx["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(eex["current_status"] as? String, "deferred/unsupported")
-        XCTAssertEqual(e9x["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(e9x["current_status"] as? String, "applied")
         XCTAssertEqual(fxx["current_status"] as? String, "applied")
         XCTAssertEqual(fxx["is_traversal_hazard"] as? Bool, false)
     }

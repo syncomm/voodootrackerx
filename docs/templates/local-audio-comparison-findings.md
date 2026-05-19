@@ -99,6 +99,7 @@ output directory.
 - Dxx pattern breaks:
 - EEx pattern delays:
 - Fxx speed/BPM timing changes:
+- E9x retriggers:
 - Other E-command diagnostics:
 - Total traversal hazards:
 - First traversal hazard coordinates:
@@ -155,6 +156,7 @@ output directory.
 - Top nearby event categories:
 - Gain/pan update clustering:
 - Volume/panning state-update clustering:
+- E9x retrigger clustering:
 - ECx note-cut clustering:
 - EDx note-delay clustering:
 - Loop-boundary / looped-voice clustering:
@@ -203,6 +205,7 @@ output directory.
 - Unknown volume-column commands in worst windows:
 - Applied volume/panning state updates in worst windows:
 - Deferred volume/panning state updates in worst windows:
+- E9x retriggers: applied / E90 no-op / no-active / out-of-row:
 - ECx note cuts: applied / no-active / out-of-row:
 - EDx note delays: applied / no-note / out-of-row:
 - Overall deferred command frequency in bounded render:

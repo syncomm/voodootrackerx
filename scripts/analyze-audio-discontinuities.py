@@ -445,6 +445,26 @@ def normalize_diagnostic_events(diagnostics: dict[str, Any], sample_rate: int) -
         append_effect_event(events, item, "ecx_note_cut", "ECx note cut", sample_rate, rows_by_source, rows_by_synthetic)
     for item in nested_list(diagnostics.get("note_delay_effects")):
         append_effect_event(events, item, "edx_note_delay", "EDx note delay", sample_rate, rows_by_source, rows_by_synthetic)
+    for item in nested_list(diagnostics.get("retrigger_effects")):
+        if not isinstance(item, dict):
+            continue
+        frames = [
+            value for value in (integer(frame) for frame in nested_list(item.get("retrigger_frames")))
+            if value is not None
+        ]
+        if frames:
+            for frame in frames:
+                append_effect_event(
+                    events,
+                    {**item, "scheduled_frame": frame},
+                    "e9x_retrigger",
+                    "E9x retrigger",
+                    sample_rate,
+                    rows_by_source,
+                    rows_by_synthetic,
+                )
+        else:
+            append_effect_event(events, item, "e9x_retrigger", "E9x retrigger", sample_rate, rows_by_source, rows_by_synthetic)
     for item in nested_list(diagnostics.get("key_off_events")):
         append_effect_event(events, item, "key_off_release", "key-off/release/fadeout", sample_rate, rows_by_source, rows_by_synthetic)
     for item in nested_list(diagnostics.get("sample_offset_effects")):
@@ -709,6 +729,7 @@ def build_markdown_report(analysis: dict[str, Any]) -> str:
         category_line(correlation, "volume_panning_state_update", "Volume/panning state updates"),
         category_line(correlation, "ecx_note_cut", "ECx note cuts"),
         category_line(correlation, "edx_note_delay", "EDx note delays"),
+        category_line(correlation, "e9x_retrigger", "E9x retriggers"),
         category_line(correlation, "loop_boundary", "Loop boundaries"),
         category_line(correlation, "looped_voice_event", "Looped voice events"),
         category_line(correlation, "window_boundary", "Window boundaries"),

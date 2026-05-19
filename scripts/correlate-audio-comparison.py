@@ -380,6 +380,17 @@ def note_delay_status(note_delay: dict[str, Any]) -> str:
     return "unknown"
 
 
+def retrigger_status(retrigger: dict[str, Any]) -> str:
+    status = str(retrigger.get("status", ""))
+    if bool(retrigger.get("applied")) or status == "applied":
+        return "applied"
+    if status == "ignored_e90_no_effect_memory" or bool(retrigger.get("deferred")):
+        return "deferred/no-op"
+    if status in {"no_active_voice", "out_of_row_no_op"} or bool(retrigger.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    return "unknown"
+
+
 def timing_change_status(change: dict[str, Any]) -> str:
     if bool(change.get("applied")):
         return "applied"
@@ -407,6 +418,16 @@ def extract_command_occurrences(
         if isinstance(item, dict)
     }
 
+    retrigger_keys = {
+        (
+            source_key(nested_dict(item.get("source")), item.get("channel_index")),
+            int_or_none(item.get("effect_type")),
+            int_or_none(item.get("effect_param")),
+        )
+        for item in nested_list(diagnostics.get("retrigger_effects"))
+        if isinstance(item, dict)
+    }
+
     volume_mapping_keys = {
         source_key(nested_dict(item.get("source")), item.get("channel_index"))
         for item in nested_list(diagnostics.get("volume_column_mappings"))
@@ -423,6 +444,8 @@ def extract_command_occurrences(
             effect_type = int_or_none(field.get("effect_type"))
             effect_param = int_or_none(field.get("effect_param"))
             if (source_key(source, channel), effect_type, effect_param) in sample_offset_keys:
+                continue
+            if (source_key(source, channel), effect_type, effect_param) in retrigger_keys:
                 continue
             start_frame, end_frame = frame_range_for_diagnostic(field, rows_by_source, rows_by_synthetic)
             occurrences.append(CommandOccurrence(
@@ -485,6 +508,27 @@ def extract_command_occurrences(
             status=note_delay_status(note_delay),
             source=nested_dict(note_delay.get("source")),
             channel=note_delay.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    for retrigger in nested_list(diagnostics.get("retrigger_effects")):
+        if not isinstance(retrigger, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(retrigger, rows_by_source, rows_by_synthetic)
+        frames = [
+            value for value in (integer(frame) for frame in nested_list(retrigger.get("retrigger_frames")))
+            if value is not None
+        ]
+        if frames:
+            start_frame = min(frames)
+            end_frame = max(frames) + 1
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(retrigger.get("effect_type"), retrigger.get("effect_param")),
+            status=retrigger_status(retrigger),
+            source=nested_dict(retrigger.get("source")),
+            channel=retrigger.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
         ))
@@ -866,6 +910,7 @@ def append_traversal_hazard_summary(
     dxx_count = integer(summary.get("total_dxx_pattern_break"))
     eex_count = integer(summary.get("total_eex_pattern_delay"))
     fxx_count = integer(summary.get("total_fxx_speed_bpm"))
+    e9x_count = integer(summary.get("total_e9x_retrigger"))
     ecx_count = integer(summary.get("total_ecx_note_cut"))
     edx_count = integer(summary.get("total_edx_note_delay"))
     other_e_count = integer(summary.get("total_other_e_commands"))
@@ -878,6 +923,8 @@ def append_traversal_hazard_summary(
         eex_count = derived_counts["EEx pattern delay"]
     if fxx_count is None:
         fxx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "Fxx speed/BPM")
+    if e9x_count is None:
+        e9x_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "E9x retrigger")
     if ecx_count is None:
         ecx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "ECx note cut")
     if edx_count is None:
@@ -886,7 +933,7 @@ def append_traversal_hazard_summary(
         other_e_count = sum(
             1 for effect in traversal_effects
             if int_or_none(effect.get("effect_type")) == 0x0E
-            and effect.get("effect_label") not in {"EEx pattern delay", "ECx note cut", "EDx note delay"}
+            and effect.get("effect_label") not in {"E9x retrigger", "EEx pattern delay", "ECx note cut", "EDx note delay"}
         )
     if total_hazards is None:
         total_hazards = bxx_count + dxx_count + eex_count
@@ -901,6 +948,7 @@ def append_traversal_hazard_summary(
         f"- Dxx pattern breaks: {dxx_count}",
         f"- EEx pattern delays: {eex_count}",
         f"- Fxx speed/BPM timing changes: {fxx_count}",
+        f"- E9x retriggers: {e9x_count}",
         f"- ECx note cuts: {ecx_count}",
         f"- EDx note delays: {edx_count}",
         f"- Other E-command diagnostics: {other_e_count}",

@@ -48,7 +48,11 @@ note/sample triggers in bounded offline renders only, diagnoses `900` as
 ignored/deferred/no-op, and skips out-of-range offsets safely. Minimal `ECx`
 note cut and `EDx` note delay are supported in bounded offline renders only;
 `ECx` hard-cuts the active adapted voice at the requested tick and `EDx` delays
-only normal same-cell note triggers. Fractional
+only normal same-cell note triggers. Minimal `E9x` retrigger is also supported
+in bounded offline renders only; it schedules same-channel retrigger starts at
+the row's effective tick frames, preserves the tracked active voice's sample,
+offset, pitch, volume, pan, loop, and envelope mapping, and diagnoses `E90`,
+no-active-voice, and out-of-row cases without effect memory. Fractional
 C-backed offline sample steps now use simple
 deterministic linear interpolation, including safe no-loop ends, forward-loop
 wraps, and ping-pong turnarounds. Bounded offline note triggers now use parsed
@@ -92,8 +96,9 @@ diagnostics and can apply explicit `--gain` or `--headroom-db` before PCM16
 conversion without changing runtime playback, C mixer DSP semantics, or the
 default output gain. Local/offline click/discontinuity diagnostics can now
 analyze candidate WAV adjacent-sample jumps and optionally correlate top jumps
-with bounded adapter diagnostics such as gain/pan updates, note cuts/delays,
-note triggers, looped/carryover/window events, and key-off/fadeout evidence.
+with bounded adapter diagnostics such as gain/pan updates, retriggers, note
+cuts/delays, note triggers, looped/carryover/window events, and
+key-off/fadeout evidence.
 The bounded/offline C mixer now reports gain/pan ramp settings and counts in
 diagnostics; runtime playback remains on `AVAudioPlayerNode` /
 `AVAudioUnitVarispeed`.
@@ -145,8 +150,9 @@ Immediate audio accuracy sequence:
 43. Mixer output headroom / clipping diagnostics and render gain policy — done
 44. Mixer click / discontinuity diagnostics for candidate WAVs — done
 45. Gain / pan update micro-ramping for bounded offline renders — done
-46. Feature-flagged runtime backend switch
-47. Reference comparison stabilization against MikMod/OpenMPT
+46. Minimal retrigger E9x for bounded offline renders — done
+47. Feature-flagged runtime backend switch
+48. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -231,8 +237,10 @@ Features:
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - minimal nonzero `9xx` sample offset starts for same-cell bounded offline
   adapted note/sample triggers, with `900` and effect memory still deferred
+- minimal `E9x` retrigger support for bounded offline adapted renders, with
+  `E90` effect memory and retrigger volume-change variants still deferred
 - minimal `ECx` note cut and `EDx` note delay support for bounded offline
-  adapted renders, with retrigger and broader effect parity still deferred
+  adapted renders, with broader effect parity still deferred
 - first-pass parsed volume-envelope sustain, envelope loop, note value `97`
   key-off release, and post-key-off fadeout behavior for bounded offline adapted
   renders, without full FT2/OpenMPT envelope parity or panning envelopes
@@ -263,8 +271,9 @@ Features:
 - local/offline click/discontinuity diagnostics for candidate WAV
   adjacent-sample jumps and optional correlation with bounded adapter events,
   with the analyzer itself remaining diagnostics-only
-- minimal bounded/offline `ECx` note-cut and `EDx` note-delay diagnostics,
-  including applied, no-active/no-note, and out-of-row cases
+- minimal bounded/offline `E9x` retrigger, `ECx` note-cut, and `EDx`
+  note-delay diagnostics, including applied, no-active/no-note, E90 no-op, and
+  out-of-row cases
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate

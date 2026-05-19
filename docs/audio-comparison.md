@@ -75,10 +75,10 @@ skipped-no-valid-sample cases, missing/deferred keymap state, current C mixer
 scheduled/active capacity values, accepted scheduled voices, capacity reject
 counts, and rejected event coordinates.
 The helper also reports export-level headroom and clipping diagnostics for the
-Float32 render block before PCM16 conversion. Optional `--gain` and
-`--headroom-db` controls apply only at the WAV export boundary, after Float32
-offline rendering and before PCM16 encoding. Default export gain remains
-unchanged when neither option is passed.
+Float32 render block before PCM16 conversion. Optional `--gain`,
+`--headroom-db`, and `--auto-headroom` controls apply only at the WAV export
+boundary, after Float32 offline rendering and before PCM16 encoding. Default
+export gain remains unchanged when none of those options is passed.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -210,21 +210,36 @@ diagnostics JSON:
 - pre-export RMS
 - post-gain peak and per-channel peak
 - post-gain RMS
+- auto-headroom enabled flag and fixed safety margin when used
+- computed export gain and equivalent computed headroom dB
 - PCM16 clipping/clamping sample count after gain
 - clipping-detected flag for post-gain PCM16 clipping/clamping and a recommendation
   to rerender with headroom when that count is nonzero
 
 Use `--headroom-db` for a dB-style attenuation or `--gain` for an explicit
-linear multiplier. The options are mutually exclusive, and both are applied
-before PCM16 conversion. Treat any numeric headroom value in examples as a
-starting point, not a guarantee that clipping is eliminated. Inspect the
-reported pre-export peak first, then choose attenuation from that peak. The
-minimum dB value needed to bring the peak to full scale is approximately
-`20 * log10(1 / preExportPeak)`; add a safety margin such as another `1...3`
-dB. For example, a pre-export peak near `4.0` needs at least about `-12 dB`
-before any margin, so `--headroom-db -13` or `--headroom-db -14`, or an
-explicit `--gain` around `0.20`, is more appropriate than a smaller example
-attenuation.
+linear multiplier. Use `--auto-headroom` when a local developer candidate WAV
+should choose its own export gain from the rendered Float32 peak. These options
+are mutually exclusive, and all three are applied before PCM16 conversion.
+Treat any numeric headroom value in examples as a starting point, not a
+guarantee that clipping is eliminated. Inspect the reported pre-export peak
+first, then choose attenuation from that peak or rerender with
+`--auto-headroom`. The minimum dB value needed to bring the peak to full scale
+is approximately `20 * log10(1 / preExportPeak)`; add a safety margin such as
+another `1...3` dB. For example, a pre-export peak near `4.0` needs at least
+about `-12 dB` before any margin, so `--headroom-db -13`,
+`--headroom-db -14`, or an explicit `--gain` around `0.20`, is more
+appropriate than a smaller example attenuation.
+
+`--auto-headroom` uses a fixed `-1 dB` safety margin. If the rendered Float32
+peak is at or below `1.0`, it keeps export gain at `1.0`. If the peak is above
+`1.0`, it computes `gain = (1.0 / peak) * pow(10, -1.0 / 20.0)`, reports the
+computed gain and equivalent dB, and applies that gain only before PCM16 WAV
+encoding.
+
+Auto-headroom is local/offline candidate-export policy only. It does not change
+runtime playback, does not switch the app to the C mixer, does not change C
+mixer DSP semantics, and does not affect default output behavior when
+`--auto-headroom` is omitted.
 
 ```bash
 swift run vtx_render_bounded_xm \
@@ -255,6 +270,23 @@ swift run vtx_render_bounded_xm \
   --allow-long-render \
   --window-rows 64 \
   --gain 0.5
+```
+
+Auto-headroom form:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-auto-headroom-candidate.wav \
+  --diagnostics-json /tmp/vtx-auto-headroom-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --seconds 240 \
+  --allow-long-render \
+  --window-rows 64 \
+  --auto-headroom \
+  --progress
 ```
 
 This is an export policy only. It does not change internal mixer math, C mixer

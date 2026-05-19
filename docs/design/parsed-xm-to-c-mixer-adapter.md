@@ -50,6 +50,12 @@ note-off cells that had no active adapted voice, and ignored/deferred cells. It
 also classifies skip reasons such as missing instrument, unknown instrument,
 empty sample PCM, no playable sample, sample offset out of range, deferred
 effect interaction, and C mixer voice capacity rejection.
+Bounded offline note triggers now use parsed XM instrument note-sample maps
+when the selected instrument has a usable multi-sample mapping. Diagnostics
+record whether a map is present, the mapped sample index, whether that mapped
+sample is playable, the selected sample index, and the selection method:
+`sample_map`, `first_playable_fallback`, `fallback_after_invalid_map`, or
+`skipped_no_valid_sample`.
 Pitch diagnostics include the source note, selected sample base sample rate,
 output sample rate, sample relative note, raw/effective finetune, effective
 note value/index, song linear-frequency flag, frequency-table status, XM linear
@@ -98,11 +104,10 @@ path; the C mixer is still not used for live playback, and full real XM playback
 through the C mixer has not been implemented.
 
 The event-coverage diagnostics are reporting only. They intentionally do not
-fix sample selection, implement instrument keymaps or multisample note mapping,
-increase voice capacity, add new effects, or change mixer DSP behavior. Scheduled
-events report the current first-playable-sample selection strategy and whether
-multi-sample/keymap behavior appears deferred so a later PR can target that
-behavior with evidence.
+increase voice capacity, add new effects, or change mixer DSP behavior.
+Scheduled events report the current sample-selection method, fallback usage,
+missing/deferred keymap state, and C mixer capacity rejections so later PRs can
+target remaining audible gaps with evidence.
 
 The C-backed offline mixer now renders fractional source-sample positions with
 simple deterministic linear interpolation. Integer source positions still read
@@ -131,7 +136,7 @@ decisions:
 | `PlaybackPattern` | One decoded pattern with a stable pattern index and ordered rows. |
 | `PlaybackRow` | One row index plus per-channel `PlaybackCell` values. |
 | `PlaybackCell` | Raw XM cell fields: note, instrument, volume column, effect type, and effect parameter. Empty note is `0`; note-off is `97`; normal note triggers are `1...96`. |
-| `PlaybackInstrument` | App-side instrument container with samples and a parsed volume envelope. Current sample selection is `firstPlayableSample`. |
+| `PlaybackInstrument` | App-side instrument container with samples, a parsed XM 96-note sample map when present, and a parsed volume envelope. The bounded offline adapter uses the map for valid multi-sample triggers and falls back safely otherwise. |
 | `PlaybackSample` | Decoded mono Float32 PCM plus sample volume, relative note, finetune, base sample rate, sample length, and loop metadata in sample frames. It exposes `isPlayable` and a clamped `loopRegion`. |
 | `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed bounded offline adapter consumes enabled volume-envelope point shapes plus first-pass sustain, loop, key-off, and fadeout metadata for bounded offline renders only. |
 | `PlaybackTiming` | XM-style timing values. Tick duration is `2.5 / bpm`; row duration is tick duration times clamped speed. |
@@ -227,7 +232,9 @@ The current adapter implementation is intentionally small:
 - Treat notes `1...96` as triggers with a minimal deterministic playback step,
   `0` as empty, `97` as a channel-local key-off for the most recently adapted
   active voice on that channel when one is tracked, and other values as ignored.
-- Select `PlaybackInstrument.firstPlayableSample`.
+- Select a sample from `PlaybackInstrument.noteSampleMap` for normal notes
+  `1...96` when a valid multi-sample map is present; otherwise use the existing
+  first-playable-sample fallback.
 - Copy `PlaybackSample.pcm` into `MixerSampleBuffer`.
 - Use `PlaybackSample.volume` as base event gain, multiplying it by the current
   Swift-side adapter channel volume. Supported set-volume and volume slide
@@ -241,6 +248,20 @@ The current adapter implementation is intentionally small:
 - Render only tiny bounded offline segments in tests.
 - Use synthetic or redistribution-safe parsed fixtures, or tiny hand-built
   `PlaybackSong` fixtures.
+
+Sample selection fallback policy:
+
+- Single-sample instruments preserve the previous first-playable behavior.
+- Missing sample maps fall back to the first playable sample and are diagnosed
+  as `first_playable_fallback`.
+- Valid mapped playable samples are diagnosed as `sample_map`.
+- Mapped sample indices that are out of bounds or refer to non-playable/empty
+  samples fall back to the first playable sample when one exists and are
+  diagnosed as `fallback_after_invalid_map`.
+- If no valid sample exists after map lookup and fallback, the trigger is
+  skipped safely and diagnosed as `skipped_no_valid_sample`.
+- Selected mapped samples keep their own PCM, volume, relative note, finetune,
+  base sample rate, loop metadata, and volume envelope behavior.
 
 Important limitation: the adapter now makes note values affect source stepping
 for linear-frequency songs, but it still should not claim full FT2/OpenMPT
@@ -279,10 +300,10 @@ The current adapter does not:
 | `PlaybackPattern.rows` | `SyntheticPattern.rowCount` and flattened events | Sum included pattern row counts into one flat synthetic pattern. | Pattern delay and richer order timeline later. |
 | `PlaybackRow.index` | `SyntheticTrackerEvent.row` | Map to flattened row offset plus row index. | Pattern delay and row-repeat semantics later. |
 | `PlaybackCell.note` | Trigger/release decision and playback step | Trigger only for `1...96`, deriving a linear-frequency sample step from note/sample metadata when the song uses the linear frequency table. Note value `97` schedules a key-off/release frame for the active adapted voice on that channel when one is tracked. Empty and invalid notes are ignored safely. | Amiga pitch behavior, note cut/delay, retrigger, and broader effect-triggered release behavior later. |
-| `PlaybackCell.instrument` | Sample lookup and event coverage diagnostics | Use the current first-playable-sample behavior. Diagnostics distinguish missing zero instruments, unknown instruments, empty sample PCM, instruments with no playable sample, selected sample index/length/loop mode, and first-playable-sample fallback usage. | Multisample/keymap and instrument fallback semantics later. |
+| `PlaybackCell.instrument` | Sample lookup and event coverage diagnostics | Resolve the selected instrument, then choose a mapped sample from the parsed XM 96-note sample map for normal notes `1...96` when a valid multi-sample mapping exists. Fall back safely to the first playable sample when no useful mapping exists, or skip when no valid sample can be selected. Diagnostics distinguish missing zero instruments, unknown instruments, empty sample PCM, invalid/non-playable map targets, selected sample index/length/loop mode, sample-map selection, fallback-after-invalid-map, first-playable fallback, and skipped-no-valid-sample cases. | Previous-instrument semantics and richer FT2/OpenMPT edge cases later. |
 | `PlaybackCell.volumeColumn` | Event gain/pan and diagnostics | Apply set-volume (`0x10...0x50`), volume slide down/up (`0x60...0x7F`), fine volume slide down/up (`0x80...0x9F`), set-panning (`0xC0...0xCF`), and panning slide left/right (`0xD0...0xEF`) as row-level Swift adapter state updates. Events emitted on that row use the post-command state. Diagnostics report raw value, decoded command, applied/deferred state, slide amount/direction, effective volume/pan before/after when applicable, source order/pattern/row/channel, and synthetic row/tick. | Tick-level ramps, effect memory, vibrato, tone portamento, undefined ranges, and full volume-column parity later. |
 | `PlaybackCell.effectType` / `PlaybackCell.effectParam` | Swift timing plan for `Fxx` and event source offset for nonzero `9xx` | Apply minimal `Fxx` speed/BPM changes to following bounded rows; diagnose `F00` as ignored/no-op. Apply nonzero `9xx` only when a same-cell note/sample trigger emits a bounded offline event, using `xx * 256` source sample frames as the initial source position. Diagnose `900` as ignored/deferred/no-op. Diagnose out-of-range offsets and skip that voice deterministically. Keep other effect-column commands deferred. | Targeted effect integration PRs later, including `9xx` memory if needed. |
-| `PlaybackInstrument.samples` | Sample selection source | Use `firstPlayableSample`. | Keymap, note range, and previous-instrument behavior later. |
+| `PlaybackInstrument.samples` / `noteSampleMap` | Sample selection source | Use `noteSampleMap[note - 1]` for normal XM notes when the instrument has a usable multi-sample map and the mapped sample is playable; otherwise apply the documented first-playable fallback/skip policy. | Previous-instrument behavior and richer instrument edge cases later. |
 | `PlaybackInstrument.volumeEnvelope` | `MixerEnvelope` and voice key-off/fadeout metadata on `SyntheticTrackerEvent` | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row and the render sample rate. If valid parsed sustain/loop flags and point indices are present, pass mapped sustain and loop frames to the C mixer. If note value `97` later appears on the same adapted channel, pass an absolute release frame and a simple fadeout decrement. Diagnostics record absent, disabled, invalid/empty, mapped, applied, deferred, and approximated states. | Full FT2/OpenMPT envelope parity, panning envelopes, and dynamic envelope retiming after later tempo changes. |
 | `PlaybackSample.pcm` | `MixerSampleBuffer` / C-owned voice sample storage | Copy mono Float32 PCM through `MixerSampleBuffer` and `CSoftwareMixer`. | Ownership optimization and reuse/caching later. |
 | `PlaybackSample.volume` | `SyntheticTrackerEvent.gain` | Use as base gain and multiply by the current adapter channel volume after supported row-level volume-column commands. Parsed volume envelopes and post-key-off fadeout remain separate mixer multipliers at render time. | Global volume state and full effect integration later. |
@@ -294,12 +315,12 @@ The current adapter does not:
 
 | Risk | Mitigation |
 | --- | --- |
-| Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, minimal nonzero `9xx`, bounded orders, note triggers, first playable sample, gain, pan default, row-level volume/panning state, and loops only. Everything else is documented as deferred. |
+| Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, minimal nonzero `9xx`, bounded orders, note triggers, sample-map/keymap selection with fallback, gain, pan default, row-level volume/panning state, and loops only. Everything else is documented as deferred. |
 | Accidental runtime backend switch. | Keep adapter under offline/test harness paths. Do not touch `PlaybackEngine`, `PlaybackAudioEngine`, transport wiring, or AppKit controls in the adapter PR. |
 | Parser architecture drift. | Adapter consumes `PlaybackSong` only. It must not parse files, change `ModuleCore`, or move Swift parser responsibilities. |
 | Incorrect note-to-frequency behavior. | The adapter labels linear-frequency support explicitly and keeps Amiga behavior deferred. Tests cover monotonic linear steps, octave sanity, relative note, finetune, base/output sample rates, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming full FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
-| Instrument/sample selection complexity. | Use `firstPlayableSample` exactly like `PlaybackSong.sample(forInstrument:)`. Defer keymaps and multisample selection. |
+| Instrument/sample selection complexity. | Keep selection inside the bounded adapter and `PlaybackInstrument` model. Use parsed XM note-sample maps only when already carried by `PlaybackSong`; validate mapped indices and fall back or skip deterministically. Do not move parser ownership or implement broader instrument fallback semantics. |
 | Full volume-column and effect semantics may be mistaken as supported. | Apply only set-volume, set-panning, volume slides, fine volume slides, and panning slides in the bounded adapter. Keep these as row-level approximations, defer vibrato/tone-portamento/effect-column behavior in diagnostics except the explicitly documented `Fxx` and nonzero `9xx` cases, and document compatibility limits in test names. |
 | Timing or sample-offset support is mistaken for full effect parity. | Apply only minimal `Fxx` speed/BPM timing changes to following bounded rows and minimal nonzero `9xx` source starts on same-cell note triggers. Diagnose `F00`, `900`, out-of-range offsets, and all other effect-column commands without adding broad effect state. |
 | Local/private module temptation. | Keep private/local XM modules manual-only and outside the repo. Automated tests use hand-built songs or redistribution-safe fixtures. |
@@ -348,6 +369,16 @@ bounded offline rendering:
   volume-column state, and parsed volume-envelope behavior.
 - Assert `900` is diagnosed as ignored/deferred/no-op and that out-of-range
   `9xx` offsets skip the voice safely with deterministic silence.
+- Assert single-sample instruments preserve first-playable behavior.
+- Assert multi-sample instruments with note-sample maps select different
+  samples for different notes.
+- Assert mapped sample volume, relative note, finetune, base sample rate, loop
+  metadata, parsed envelope behavior, volume-column state, `Fxx` timing, and
+  nonzero `9xx` offsets are applied using the selected mapped sample.
+- Assert invalid mapped indices and mapped empty PCM are diagnosed and fall back
+  or skip according to the documented policy.
+- Assert missing sample maps fall back to first playable samples without losing
+  normal notes unexpectedly.
 - Assert event coverage counts visited cells, normal notes, note-offs, scheduled
   notes, skipped notes, and skip reasons without changing render output.
 - Assert scheduled and skipped note diagnostics include source
@@ -398,9 +429,12 @@ bounded offline rendering:
     reporting parsed normal notes, scheduled events, skipped notes, skip
     reasons, sample-selection fallback, and C mixer capacity rejections without
     changing audio behavior.
-15. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
+15. Done: bounded offline instrument sample-map/keymap selection, reporting
+    sample-map selections, first-playable fallbacks, invalid-map fallbacks, and
+    skipped-no-valid-sample cases without runtime backend changes.
+16. Additional targeted effects such as note delay/cut, retrigger, arpeggio,
    portamento, vibrato, pattern break, and position jump.
-16. Feature-flagged runtime C mixer backend switch only after offline parity and
+17. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -466,6 +500,7 @@ This adapter bridge work does not:
 - implement `9xx` effect memory for `900`
 - implement note delay, note cut, or retrigger
 - implement global volume
+- change C mixer voice/event capacity
 - implement full volume-column semantics beyond set-volume, set-panning, and
   the supported row-level volume/panning slide subset
 - implement pattern break or position jump

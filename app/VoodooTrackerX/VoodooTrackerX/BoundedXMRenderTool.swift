@@ -625,6 +625,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "C-backed offline sample stepping uses simple deterministic linear interpolation.",
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
+                "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -684,8 +685,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "skipped_note_events": coverage.skippedNoteEvents,
             "skipped_note_off_events_no_active_voice": coverage.skippedNoteOffEventsNoActiveVoice,
             "ignored_or_deferred_cells": coverage.ignoredOrDeferredCells,
+            "sample_map_selection_events": coverage.sampleMapSelectionEvents,
             "first_playable_sample_fallback_events": coverage.firstPlayableSampleFallbackEvents,
+            "fallback_after_invalid_sample_map_events": coverage.fallbackAfterInvalidSampleMapEvents,
+            "skipped_no_valid_sample_events": coverage.skippedNoValidSampleEvents,
             "sample_map_keymap_deferred_events": coverage.sampleMapKeymapDeferredEvents,
+            "sample_map_keymap_missing_or_deferred_events": coverage.sampleMapKeymapDeferredEvents,
             "event_outside_bounded_row_range_count": coverage.eventOutsideBoundedRowRangeCount,
             "event_capacity_limit_count": coverage.eventCapacityLimitCount,
             "c_mixer_voice_capacity_limit_count": coverage.cMixerVoiceCapacityLimitCount,
@@ -753,9 +758,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["instrument_index"] = mapping.instrumentIndex
         object["sample_index"] = mapping.sampleIndex
         object["selected_sample_length"] = mapping.selectedSampleLength
+        object["sample_map_keymap_present"] = mapping.sampleMapKeymapPresent
+        object["mapped_sample_index"] = nullableJSONValue(mapping.mappedSampleIndex)
+        object["mapped_sample_valid"] = mapping.mappedSampleValid
+        object["sample_selection_method"] = mapping.sampleSelectionMethod.rawValue
+        object["selected_sample_selection_method"] = mapping.sampleSelectionMethod.rawValue
         object["sample_selection_strategy"] = mapping.sampleSelectionStrategy
         object["first_playable_sample_fallback_used"] = mapping.firstPlayableSampleFallbackUsed
         object["sample_map_keymap_behavior_deferred"] = mapping.sampleMapKeymapBehaviorDeferred
+        object["sample_map_keymap_missing_or_deferred"] = mapping.sampleMapKeymapMissingOrDeferred
         object["effect_type"] = Int(mapping.effectType)
         object["effect_param"] = Int(mapping.effectParam)
         object["synthetic_row"] = mapping.syntheticRow
@@ -960,8 +971,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "selected_sample_index": cell.selectedSampleIndex.map { $0 as Any } ?? NSNull(),
             "selected_sample_length": cell.selectedSampleLength.map { $0 as Any } ?? NSNull(),
             "selected_sample_loop_mode": cell.selectedSampleLoopMode.map(loopModeName) ?? NSNull(),
+            "sample_map_keymap_present": cell.sampleMapKeymapPresent,
+            "mapped_sample_index": cell.mappedSampleIndex.map { $0 as Any } ?? NSNull(),
+            "mapped_sample_valid": cell.mappedSampleValid,
+            "sample_selection_method": cell.sampleSelectionMethod.rawValue,
+            "selected_sample_selection_method": cell.sampleSelectionMethod.rawValue,
             "first_playable_sample_fallback_used": cell.firstPlayableSampleFallbackUsed,
             "sample_map_keymap_behavior_deferred": cell.sampleMapKeymapBehaviorDeferred,
+            "sample_map_keymap_missing_or_deferred": cell.sampleMapKeymapMissingOrDeferred,
             "sample_relative_note": cell.sampleRelativeNote.map { $0 as Any } ?? NSNull(),
             "sample_finetune": cell.sampleFinetune.map { $0 as Any } ?? NSNull(),
             "sample_base_sample_rate": cell.sampleBaseSampleRate.map { $0 as Any } ?? NSNull(),
@@ -1214,6 +1231,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "sample_pcm_empty"
         case .sampleOffsetOutOfRange:
             return "sample_offset_out_of_range"
+        case .noSelectedSampleForNote:
+            return "no_selected_sample_for_note"
         case .unsupportedDeferredEffectInteraction:
             return "unsupported_deferred_effect_interaction"
         case .unknown:
@@ -1347,6 +1366,9 @@ private func appendEventCoverageSummary(
     let coverage = result.diagnostics.eventCoverage
     let rejectedVoiceCount = result.scheduledVoiceIndices.filter { $0 == nil }.count
     lines.append("Event coverage: parsed normal notes \(coverage.normalNoteCells), scheduled events \(coverage.scheduledNoteEvents), skipped notes \(coverage.skippedNoteEvents).")
+    lines.append(
+        "Sample selection: sample_map \(coverage.sampleMapSelectionEvents), first_playable_fallback \(coverage.firstPlayableSampleFallbackEvents), fallback_after_invalid_map \(coverage.fallbackAfterInvalidSampleMapEvents), skipped_no_valid_sample \(coverage.skippedNoValidSampleEvents), missing_or_deferred_keymap \(coverage.sampleMapKeymapDeferredEvents)."
+    )
     let topReasons = coverage.skipReasonCounts.prefix(3).map { "\($0.reason.rawValue)=\($0.count)" }
     lines.append("Top skip reasons: \(topReasons.isEmpty ? "none" : topReasons.joined(separator: ", ")).")
     let skippedCoordinates = result.diagnostics.ignoredCells

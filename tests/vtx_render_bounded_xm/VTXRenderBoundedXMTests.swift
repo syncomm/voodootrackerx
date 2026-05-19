@@ -506,11 +506,21 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(coverage["normal_note_cells"] as? Int, 4)
         XCTAssertEqual(coverage["scheduled_note_events"] as? Int, 1)
         XCTAssertEqual(coverage["skipped_note_events"] as? Int, 3)
+        XCTAssertEqual(coverage["sample_map_selection_events"] as? Int, 0)
+        XCTAssertEqual(coverage["first_playable_sample_fallback_events"] as? Int, 1)
+        XCTAssertEqual(coverage["fallback_after_invalid_sample_map_events"] as? Int, 0)
+        XCTAssertEqual(coverage["skipped_no_valid_sample_events"] as? Int, 1)
         XCTAssertEqual(firstEvent["sample_index"] as? Int, 1)
         XCTAssertEqual(firstEvent["selected_sample_length"] as? Int, 2)
-        XCTAssertEqual(firstEvent["sample_selection_strategy"] as? String, "first_playable_sample")
+        XCTAssertEqual(firstEvent["sample_map_keymap_present"] as? Bool, false)
+        XCTAssertTrue(firstEvent["mapped_sample_index"] is NSNull)
+        XCTAssertEqual(firstEvent["mapped_sample_valid"] as? Bool, false)
+        XCTAssertEqual(firstEvent["sample_selection_method"] as? String, "first_playable_fallback")
+        XCTAssertEqual(firstEvent["selected_sample_selection_method"] as? String, "first_playable_fallback")
+        XCTAssertEqual(firstEvent["sample_selection_strategy"] as? String, "first_playable_fallback")
         XCTAssertEqual(firstEvent["first_playable_sample_fallback_used"] as? Bool, true)
         XCTAssertEqual(firstEvent["sample_map_keymap_behavior_deferred"] as? Bool, true)
+        XCTAssertEqual(firstEvent["sample_map_keymap_missing_or_deferred"] as? Bool, true)
         XCTAssertEqual(ignored.map { $0["skip_reason"] as? String }, [
             "missing_instrument",
             "sample_pcm_empty",
@@ -562,6 +572,67 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(skipReasons.contains { item in
             item["reason"] as? String == "c_mixer_voice_capacity_limit" && item["count"] as? Int == 1
         })
+    }
+
+    func testDiagnosticsJSONReportsSampleMapSelectionSummary() throws {
+        let firstSample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let mappedSample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            pcm: [0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        var noteSampleMap = Array(repeating: 0, count: 96)
+        noteSampleMap[48] = 1
+        let song = PlaybackSong(
+            title: "sample-map",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ])
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [firstSample, mappedSample], noteSampleMap: noteSampleMap)
+            ],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let coverage = try XCTUnwrap(object["event_coverage"] as? [String: Any])
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let event = try XCTUnwrap(events.first)
+
+        XCTAssertEqual(coverage["sample_map_selection_events"] as? Int, 1)
+        XCTAssertEqual(coverage["first_playable_sample_fallback_events"] as? Int, 0)
+        XCTAssertEqual(coverage["fallback_after_invalid_sample_map_events"] as? Int, 0)
+        XCTAssertEqual(coverage["skipped_no_valid_sample_events"] as? Int, 0)
+        XCTAssertEqual(event["sample_index"] as? Int, 1)
+        XCTAssertEqual(event["sample_map_keymap_present"] as? Bool, true)
+        XCTAssertEqual(event["mapped_sample_index"] as? Int, 1)
+        XCTAssertEqual(event["mapped_sample_valid"] as? Bool, true)
+        XCTAssertEqual(event["sample_selection_method"] as? String, "sample_map")
+        XCTAssertEqual(event["first_playable_sample_fallback_used"] as? Bool, false)
     }
 
     func testDiagnosticsJSONIncludesPitchPeriodFields() throws {

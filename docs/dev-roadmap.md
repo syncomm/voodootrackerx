@@ -41,7 +41,11 @@ same-cell note/sample triggers in bounded offline renders only, diagnoses `900`
 as ignored/deferred/no-op, and skips out-of-range offsets safely. Fractional
 C-backed offline sample steps now use simple
 deterministic linear interpolation, including safe no-loop ends, forward-loop
-wraps, and ping-pong turnarounds. Amiga-table pitch behavior, full
+wraps, and ping-pong turnarounds. Bounded offline note triggers now use parsed
+XM instrument sample maps/keymaps when a valid multi-sample mapping is present,
+with diagnostics for sample-map selection, first-playable fallback,
+fallback-after-invalid-map, skipped-no-valid-sample, and missing/deferred
+keymap state. Amiga-table pitch behavior, full
 OpenMPT/MikMod resampler parity, pitch-changing effects, full XM volume-column
 parity, and full effect parity remain deferred. The path does not yet render
 full XM song playback or drive live playback. Local/private XM bounded comparison findings
@@ -58,7 +62,7 @@ artifacts stay outside git. The developer-only helper keeps its default
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. Bounded adapter event-coverage diagnostics now compare
 parsed normal note cells against scheduled C-backed events, report skipped-note
-reasons and coordinates, expose first-playable-sample/keymap deferrals, and
+reasons and coordinates, expose sample-selection methods and fallbacks, and
 report C mixer voice-capacity rejections without changing audio behavior.
 
 Immediate audio accuracy sequence:
@@ -97,8 +101,9 @@ Immediate audio accuracy sequence:
 32. Local effect frequency report from correlated mismatch windows — done
 33. Developer render duration controls for bounded XM candidate WAV helper — done
 34. Bounded adapter event coverage / missing note trigger diagnostics — done
-35. Feature-flagged runtime backend switch
-36. Reference comparison stabilization against MikMod/OpenMPT
+35. PlaybackSong adapter instrument sample-map/keymap support — done
+36. Feature-flagged runtime backend switch
+37. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

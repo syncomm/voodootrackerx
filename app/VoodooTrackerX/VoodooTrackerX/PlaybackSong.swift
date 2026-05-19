@@ -155,15 +155,38 @@ struct PlaybackInstrument: Equatable {
     let index: Int
     let samples: [PlaybackSample]
     let volumeEnvelope: PlaybackVolumeEnvelope
+    let noteSampleMap: [Int]?
 
-    init(index: Int, samples: [PlaybackSample], volumeEnvelope: PlaybackVolumeEnvelope = .disabled) {
+    init(
+        index: Int,
+        samples: [PlaybackSample],
+        volumeEnvelope: PlaybackVolumeEnvelope = .disabled,
+        noteSampleMap: [Int]? = nil
+    ) {
         self.index = index
         self.samples = samples
         self.volumeEnvelope = volumeEnvelope
+        self.noteSampleMap = noteSampleMap?.count == 96 ? noteSampleMap : nil
     }
 
     var firstPlayableSample: PlaybackSample? {
         samples.first { $0.isPlayable }
+    }
+
+    var hasNoteSampleMap: Bool {
+        noteSampleMap != nil
+    }
+
+    func mappedSampleIndex(forNote note: UInt8) -> Int? {
+        guard (1...96).contains(note),
+              let noteSampleMap else {
+            return nil
+        }
+        return noteSampleMap[Int(note) - 1]
+    }
+
+    func sample(mappedSampleIndex: Int) -> PlaybackSample? {
+        samples.first { $0.sampleIndex == mappedSampleIndex }
     }
 }
 
@@ -385,6 +408,13 @@ enum PlaybackSongSyntheticSkipReason: String, Equatable, Hashable {
     case unknown = "unknown"
 }
 
+enum PlaybackSongSyntheticSampleSelectionMethod: String, Equatable {
+    case sampleMap = "sample_map"
+    case firstPlayableFallback = "first_playable_fallback"
+    case fallbackAfterInvalidMap = "fallback_after_invalid_map"
+    case skippedNoValidSample = "skipped_no_valid_sample"
+}
+
 struct PlaybackSongSyntheticSkipReasonCount: Equatable {
     let reason: PlaybackSongSyntheticSkipReason
     let count: Int
@@ -403,7 +433,10 @@ struct PlaybackSongSyntheticEventCoverageSummary: Equatable {
     let skippedNoteEvents: Int
     let skippedNoteOffEventsNoActiveVoice: Int
     let ignoredOrDeferredCells: Int
+    let sampleMapSelectionEvents: Int
     let firstPlayableSampleFallbackEvents: Int
+    let fallbackAfterInvalidSampleMapEvents: Int
+    let skippedNoValidSampleEvents: Int
     let sampleMapKeymapDeferredEvents: Int
     let eventOutsideBoundedRowRangeCount: Int
     let eventCapacityLimitCount: Int
@@ -430,7 +463,10 @@ extension PlaybackSongSyntheticEventCoverageSummary {
             skippedNoteEvents: skippedNoteEvents,
             skippedNoteOffEventsNoActiveVoice: skippedNoteOffEventsNoActiveVoice,
             ignoredOrDeferredCells: ignoredOrDeferredCells,
+            sampleMapSelectionEvents: sampleMapSelectionEvents,
             firstPlayableSampleFallbackEvents: firstPlayableSampleFallbackEvents,
+            fallbackAfterInvalidSampleMapEvents: fallbackAfterInvalidSampleMapEvents,
+            skippedNoValidSampleEvents: skippedNoValidSampleEvents,
             sampleMapKeymapDeferredEvents: sampleMapKeymapDeferredEvents,
             eventOutsideBoundedRowRangeCount: eventOutsideBoundedRowRangeCount,
             eventCapacityLimitCount: eventCapacityLimitCount,
@@ -954,9 +990,14 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let instrumentIndex: Int
     let sampleIndex: Int
     let selectedSampleLength: Int
+    let sampleMapKeymapPresent: Bool
+    let mappedSampleIndex: Int?
+    let mappedSampleValid: Bool
+    let sampleSelectionMethod: PlaybackSongSyntheticSampleSelectionMethod
     let sampleSelectionStrategy: String
     let firstPlayableSampleFallbackUsed: Bool
     let sampleMapKeymapBehaviorDeferred: Bool
+    let sampleMapKeymapMissingOrDeferred: Bool
     let effectType: UInt8
     let effectParam: UInt8
     let syntheticRow: Int
@@ -1006,6 +1047,7 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
         case instrumentHasNoPlayableSample
         case samplePCMEmpty
         case sampleOffsetOutOfRange
+        case noSelectedSampleForNote
         case unsupportedDeferredEffectInteraction
         case unknown
     }
@@ -1019,8 +1061,13 @@ struct PlaybackSongSyntheticIgnoredCell: Equatable {
     let selectedSampleIndex: Int?
     let selectedSampleLength: Int?
     let selectedSampleLoopMode: MixerSampleLoopMode?
+    let sampleMapKeymapPresent: Bool
+    let mappedSampleIndex: Int?
+    let mappedSampleValid: Bool
+    let sampleSelectionMethod: PlaybackSongSyntheticSampleSelectionMethod
     let firstPlayableSampleFallbackUsed: Bool
     let sampleMapKeymapBehaviorDeferred: Bool
+    let sampleMapKeymapMissingOrDeferred: Bool
     let sampleRelativeNote: Int?
     let sampleFinetune: Int?
     let sampleBaseSampleRate: Double?
@@ -1301,8 +1348,13 @@ enum PlaybackSongSyntheticAdapter {
         let sample: PlaybackSample?
         let diagnosticSample: PlaybackSample?
         let skippedReason: PlaybackSongSyntheticIgnoredCell.Reason?
+        let sampleMapKeymapPresent: Bool
+        let mappedSampleIndex: Int?
+        let mappedSampleValid: Bool
+        let method: PlaybackSongSyntheticSampleSelectionMethod
         let firstPlayableSampleFallbackUsed: Bool
         let sampleMapKeymapBehaviorDeferred: Bool
+        let sampleMapKeymapMissingOrDeferred: Bool
     }
 
     private struct EventCoverageBuilder: Equatable {
@@ -1318,7 +1370,10 @@ enum PlaybackSongSyntheticAdapter {
         var skippedNoteEvents = 0
         var skippedNoteOffEventsNoActiveVoice = 0
         var ignoredOrDeferredCells = 0
+        var sampleMapSelectionEvents = 0
         var firstPlayableSampleFallbackEvents = 0
+        var fallbackAfterInvalidSampleMapEvents = 0
+        var skippedNoValidSampleEvents = 0
         var sampleMapKeymapDeferredEvents = 0
         var eventOutsideBoundedRowRangeCount = 0
         var eventCapacityLimitCount = 0
@@ -1346,10 +1401,32 @@ enum PlaybackSongSyntheticAdapter {
             }
         }
 
-        mutating func recordScheduledNote(firstPlayableSampleFallbackUsed: Bool, sampleMapKeymapBehaviorDeferred: Bool) {
+        mutating func recordScheduledNote(
+            method: PlaybackSongSyntheticSampleSelectionMethod,
+            firstPlayableSampleFallbackUsed: Bool,
+            sampleMapKeymapBehaviorDeferred: Bool
+        ) {
             scheduledNoteEvents += 1
+            if method == .sampleMap {
+                sampleMapSelectionEvents += 1
+            }
             if firstPlayableSampleFallbackUsed {
                 firstPlayableSampleFallbackEvents += 1
+            }
+            if method == .fallbackAfterInvalidMap {
+                fallbackAfterInvalidSampleMapEvents += 1
+            }
+            if sampleMapKeymapBehaviorDeferred {
+                sampleMapKeymapDeferredEvents += 1
+            }
+        }
+
+        mutating func recordSkippedSampleSelection(
+            method: PlaybackSongSyntheticSampleSelectionMethod,
+            sampleMapKeymapBehaviorDeferred: Bool
+        ) {
+            if method == .skippedNoValidSample {
+                skippedNoValidSampleEvents += 1
             }
             if sampleMapKeymapBehaviorDeferred {
                 sampleMapKeymapDeferredEvents += 1
@@ -1390,7 +1467,10 @@ enum PlaybackSongSyntheticAdapter {
                 skippedNoteEvents: skippedNoteEvents,
                 skippedNoteOffEventsNoActiveVoice: skippedNoteOffEventsNoActiveVoice,
                 ignoredOrDeferredCells: ignoredOrDeferredCells,
+                sampleMapSelectionEvents: sampleMapSelectionEvents,
                 firstPlayableSampleFallbackEvents: firstPlayableSampleFallbackEvents,
+                fallbackAfterInvalidSampleMapEvents: fallbackAfterInvalidSampleMapEvents,
+                skippedNoValidSampleEvents: skippedNoValidSampleEvents,
                 sampleMapKeymapDeferredEvents: sampleMapKeymapDeferredEvents,
                 eventOutsideBoundedRowRangeCount: eventOutsideBoundedRowRangeCount,
                 eventCapacityLimitCount: eventCapacityLimitCount,
@@ -1665,7 +1745,7 @@ enum PlaybackSongSyntheticAdapter {
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
                 continue
             }
-            let sampleSelection = selectSample(from: instrument)
+            let sampleSelection = selectSample(forNote: cell.note, from: instrument)
             guard let sample = sampleSelection.sample else {
                 let ignored = ignoredCell(
                     source: source,
@@ -1673,14 +1753,23 @@ enum PlaybackSongSyntheticAdapter {
                     cell: cell,
                     reason: sampleSelection.skippedReason ?? .unknown,
                     diagnosticSample: sampleSelection.diagnosticSample,
+                    sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                    mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                    mappedSampleValid: sampleSelection.mappedSampleValid,
+                    sampleSelectionMethod: sampleSelection.method,
                     firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
                     sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                    sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
                 )
                 ignoredCells.append(ignored)
                 eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                eventCoverage.recordSkippedSampleSelection(
+                    method: sampleSelection.method,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
+                )
                 continue
             }
 
@@ -1703,8 +1792,13 @@ enum PlaybackSongSyntheticAdapter {
                     reason: .sampleOffsetOutOfRange,
                     diagnosticSample: sample,
                     sampleOffsetFrames: sampleOffset.computedOffsetFrames,
+                    sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                    mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                    mappedSampleValid: sampleSelection.mappedSampleValid,
+                    sampleSelectionMethod: sampleSelection.method,
                     firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
                     sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                    sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
@@ -1745,6 +1839,7 @@ enum PlaybackSongSyntheticAdapter {
                 volumeEnvelope: envelopeMapping.envelope
             ))
             eventCoverage.recordScheduledNote(
+                method: sampleSelection.method,
                 firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
                 sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
             )
@@ -1761,9 +1856,14 @@ enum PlaybackSongSyntheticAdapter {
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
                 selectedSampleLength: sampleLength,
-                sampleSelectionStrategy: "first_playable_sample",
+                sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                mappedSampleValid: sampleSelection.mappedSampleValid,
+                sampleSelectionMethod: sampleSelection.method,
+                sampleSelectionStrategy: sampleSelection.method.rawValue,
                 firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
                 sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
                 syntheticRow: syntheticRow,
@@ -2041,9 +2141,14 @@ enum PlaybackSongSyntheticAdapter {
             instrumentIndex: mapping.instrumentIndex,
             sampleIndex: mapping.sampleIndex,
             selectedSampleLength: mapping.selectedSampleLength,
+            sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
+            mappedSampleIndex: mapping.mappedSampleIndex,
+            mappedSampleValid: mapping.mappedSampleValid,
+            sampleSelectionMethod: mapping.sampleSelectionMethod,
             sampleSelectionStrategy: mapping.sampleSelectionStrategy,
             firstPlayableSampleFallbackUsed: mapping.firstPlayableSampleFallbackUsed,
             sampleMapKeymapBehaviorDeferred: mapping.sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: mapping.sampleMapKeymapMissingOrDeferred,
             effectType: mapping.effectType,
             effectParam: mapping.effectParam,
             syntheticRow: mapping.syntheticRow,
@@ -2590,15 +2695,69 @@ enum PlaybackSongSyntheticAdapter {
         cell.effectType == 0x09 && cell.effectParam != 0
     }
 
-    private static func selectSample(from instrument: PlaybackInstrument) -> SampleSelection {
-        let sampleMapKeymapBehaviorDeferred = instrument.samples.count > 1
+    private static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {
+        let mapPresent = instrument.hasNoteSampleMap
+        let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
+        let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }
+        let mappedSampleValid = mappedSample?.isPlayable == true
+        let shouldUseMap = mapPresent && instrument.samples.count > 1
+        let mapMissingOrDeferred = !mapPresent && instrument.samples.count > 1
+
+        if shouldUseMap {
+            if let mappedSample, mappedSample.isPlayable {
+                return SampleSelection(
+                    sample: mappedSample,
+                    diagnosticSample: mappedSample,
+                    skippedReason: nil,
+                    sampleMapKeymapPresent: true,
+                    mappedSampleIndex: mappedSampleIndex,
+                    mappedSampleValid: true,
+                    method: .sampleMap,
+                    firstPlayableSampleFallbackUsed: false,
+                    sampleMapKeymapBehaviorDeferred: false,
+                    sampleMapKeymapMissingOrDeferred: false
+                )
+            }
+            if let fallback = instrument.firstPlayableSample {
+                return SampleSelection(
+                    sample: fallback,
+                    diagnosticSample: mappedSample ?? fallback,
+                    skippedReason: nil,
+                    sampleMapKeymapPresent: true,
+                    mappedSampleIndex: mappedSampleIndex,
+                    mappedSampleValid: mappedSampleValid,
+                    method: .fallbackAfterInvalidMap,
+                    firstPlayableSampleFallbackUsed: true,
+                    sampleMapKeymapBehaviorDeferred: false,
+                    sampleMapKeymapMissingOrDeferred: false
+                )
+            }
+            return SampleSelection(
+                sample: nil,
+                diagnosticSample: mappedSample ?? instrument.samples.first,
+                skippedReason: skippedReasonForInvalidMappedSample(mappedSample),
+                sampleMapKeymapPresent: true,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: false,
+                method: .skippedNoValidSample,
+                firstPlayableSampleFallbackUsed: false,
+                sampleMapKeymapBehaviorDeferred: false,
+                sampleMapKeymapMissingOrDeferred: false
+            )
+        }
+
         if let sample = instrument.firstPlayableSample {
             return SampleSelection(
                 sample: sample,
                 diagnosticSample: sample,
                 skippedReason: nil,
+                sampleMapKeymapPresent: mapPresent,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: mappedSampleValid,
+                method: .firstPlayableFallback,
                 firstPlayableSampleFallbackUsed: true,
-                sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+                sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+                sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
             )
         }
         if let emptySample = instrument.samples.first(where: { $0.pcm.isEmpty }) {
@@ -2606,17 +2765,39 @@ enum PlaybackSongSyntheticAdapter {
                 sample: nil,
                 diagnosticSample: emptySample,
                 skippedReason: .samplePCMEmpty,
+                sampleMapKeymapPresent: mapPresent,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: mappedSampleValid,
+                method: .skippedNoValidSample,
                 firstPlayableSampleFallbackUsed: false,
-                sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+                sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+                sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
             )
         }
         return SampleSelection(
             sample: nil,
             diagnosticSample: instrument.samples.first,
             skippedReason: .instrumentHasNoPlayableSample,
+            sampleMapKeymapPresent: mapPresent,
+            mappedSampleIndex: mappedSampleIndex,
+            mappedSampleValid: mappedSampleValid,
+            method: .skippedNoValidSample,
             firstPlayableSampleFallbackUsed: false,
-            sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred
+            sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+            sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
         )
+    }
+
+    private static func skippedReasonForInvalidMappedSample(
+        _ sample: PlaybackSample?
+    ) -> PlaybackSongSyntheticIgnoredCell.Reason {
+        guard let sample else {
+            return .noSelectedSampleForNote
+        }
+        if sample.pcm.isEmpty {
+            return .samplePCMEmpty
+        }
+        return .instrumentHasNoPlayableSample
     }
 
     private static func ignoredCell(
@@ -2626,8 +2807,13 @@ enum PlaybackSongSyntheticAdapter {
         reason: PlaybackSongSyntheticIgnoredCell.Reason,
         diagnosticSample: PlaybackSample? = nil,
         sampleOffsetFrames: Int? = nil,
+        sampleMapKeymapPresent: Bool = false,
+        mappedSampleIndex: Int? = nil,
+        mappedSampleValid: Bool = false,
+        sampleSelectionMethod: PlaybackSongSyntheticSampleSelectionMethod = .skippedNoValidSample,
         firstPlayableSampleFallbackUsed: Bool = false,
         sampleMapKeymapBehaviorDeferred: Bool = false,
+        sampleMapKeymapMissingOrDeferred: Bool = false,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         hasIgnoredVolumeColumn: Bool,
         hasIgnoredEffect: Bool
@@ -2642,8 +2828,13 @@ enum PlaybackSongSyntheticAdapter {
             selectedSampleIndex: diagnosticSample?.sampleIndex,
             selectedSampleLength: diagnosticSample.map(selectedSampleLength),
             selectedSampleLoopMode: diagnosticSample.map { mixerLoop(from: $0).mode },
+            sampleMapKeymapPresent: sampleMapKeymapPresent,
+            mappedSampleIndex: mappedSampleIndex,
+            mappedSampleValid: mappedSampleValid,
+            sampleSelectionMethod: sampleSelectionMethod,
             firstPlayableSampleFallbackUsed: firstPlayableSampleFallbackUsed,
             sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: sampleMapKeymapMissingOrDeferred,
             sampleRelativeNote: diagnosticSample?.relativeNote,
             sampleFinetune: diagnosticSample?.finetune,
             sampleBaseSampleRate: diagnosticSample?.baseSampleRate,
@@ -2691,6 +2882,8 @@ enum PlaybackSongSyntheticAdapter {
             return .samplePCMEmpty
         case .sampleOffsetOutOfRange:
             return .sampleOffsetOutOfRange
+        case .noSelectedSampleForNote:
+            return .noSelectedSampleForNote
         case .unsupportedDeferredEffectInteraction:
             return .unsupportedDeferredEffectInteraction
         case .unknown:

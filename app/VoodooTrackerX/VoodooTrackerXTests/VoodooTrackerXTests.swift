@@ -492,6 +492,14 @@ private func makePlaybackVolumeEnvelope(
     )
 }
 
+private func makeNoteSampleMap(defaultSampleIndex: Int = 0, overrides: [UInt8: Int] = [:]) -> [Int] {
+    var map = Array(repeating: defaultSampleIndex, count: 96)
+    for (note, sampleIndex) in overrides where (1...96).contains(note) {
+        map[Int(note) - 1] = sampleIndex
+    }
+    return map
+}
+
 private enum TestPlaybackMode: Equatable {
     case stopped
     case playing
@@ -2134,6 +2142,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(mapping.note, 49)
         XCTAssertEqual(mapping.instrumentIndex, 1)
         XCTAssertEqual(mapping.sampleIndex, 0)
+        XCTAssertFalse(mapping.sampleMapKeymapPresent)
+        XCTAssertNil(mapping.mappedSampleIndex)
+        XCTAssertFalse(mapping.mappedSampleValid)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .firstPlayableFallback)
+        XCTAssertEqual(mapping.sampleSelectionStrategy, "first_playable_fallback")
+        XCTAssertTrue(mapping.firstPlayableSampleFallbackUsed)
+        XCTAssertFalse(mapping.sampleMapKeymapBehaviorDeferred)
+        XCTAssertFalse(mapping.sampleMapKeymapMissingOrDeferred)
         XCTAssertEqual(mapping.syntheticRow, 1)
         XCTAssertEqual(mapping.syntheticTick, 0)
         XCTAssertEqual(mapping.eventIndex, 0)
@@ -2268,15 +2284,23 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(coverage.scheduledNoteEvents, 1)
         XCTAssertEqual(coverage.skippedNoteEvents, 4)
         XCTAssertEqual(coverage.skippedNoteOffEventsNoActiveVoice, 1)
+        XCTAssertEqual(coverage.sampleMapSelectionEvents, 0)
         XCTAssertEqual(coverage.firstPlayableSampleFallbackEvents, 1)
+        XCTAssertEqual(coverage.fallbackAfterInvalidSampleMapEvents, 0)
+        XCTAssertEqual(coverage.skippedNoValidSampleEvents, 2)
         XCTAssertEqual(coverage.sampleMapKeymapDeferredEvents, 1)
         XCTAssertEqual(scheduled.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
         XCTAssertEqual(scheduled.channelIndex, 6)
         XCTAssertEqual(scheduled.sampleIndex, 1)
         XCTAssertEqual(scheduled.selectedSampleLength, 2)
-        XCTAssertEqual(scheduled.sampleSelectionStrategy, "first_playable_sample")
+        XCTAssertFalse(scheduled.sampleMapKeymapPresent)
+        XCTAssertNil(scheduled.mappedSampleIndex)
+        XCTAssertFalse(scheduled.mappedSampleValid)
+        XCTAssertEqual(scheduled.sampleSelectionMethod, .firstPlayableFallback)
+        XCTAssertEqual(scheduled.sampleSelectionStrategy, "first_playable_fallback")
         XCTAssertTrue(scheduled.firstPlayableSampleFallbackUsed)
         XCTAssertTrue(scheduled.sampleMapKeymapBehaviorDeferred)
+        XCTAssertTrue(scheduled.sampleMapKeymapMissingOrDeferred)
         XCTAssertEqual(result.diagnostics.ignoredCells.map(\.skipReason), [
             .emptyCell,
             .noteOffKeyOffOnly,
@@ -2289,6 +2313,189 @@ final class VoodooTrackerXTests: XCTestCase {
         ])
         XCTAssertEqual(result.diagnostics.ignoredCells[2].source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
         XCTAssertEqual(result.diagnostics.ignoredCells[2].channelIndex, 2)
+    }
+
+    func testPlaybackSongSyntheticAdapterUsesNoteSampleMapForMultiSampleInstrument() throws {
+        let lowSample = makePlaybackSample(sampleIndex: 0, pcm: [1], baseSampleRate: 100)
+        let highSample = makePlaybackSample(sampleIndex: 1, pcm: [0.25], baseSampleRate: 100)
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+            PlaybackCell(note: 61, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [lowSample, highSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 0, 61: 1])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.sampleIndex), [0, 1])
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.mappedSampleIndex), [0, 1])
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.sampleSelectionMethod), [.sampleMap, .sampleMap])
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.firstPlayableSampleFallbackUsed), [false, false])
+        XCTAssertEqual(result.diagnostics.eventCoverage.normalNoteCells, 2)
+        XCTAssertEqual(result.diagnostics.eventCoverage.scheduledNoteEvents, 2)
+        XCTAssertEqual(result.diagnostics.eventCoverage.sampleMapSelectionEvents, 2)
+        XCTAssertEqual(result.diagnostics.eventCoverage.firstPlayableSampleFallbackEvents, 0)
+        XCTAssertEqual(result.diagnostics.eventCoverage.skippedNoteEvents, 0)
+    }
+
+    func testPlaybackSongSyntheticAdapterMappedSampleMetadataDrivesPitchLoopVolumeAndEnvelope() throws {
+        let unusedSample = makePlaybackSample(sampleIndex: 0, pcm: [9], baseSampleRate: 100)
+        let mappedSample = makePlaybackSample(
+            sampleIndex: 1,
+            pcm: [0, 1, 2, 3, 4],
+            volume: 0.5,
+            relativeNote: 12,
+            finetune: 64,
+            baseSampleRate: 100,
+            loopStart: 1,
+            loopLength: 3,
+            loopType: 1
+        )
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 1, value: 32)
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [unusedSample, mappedSample],
+                    volumeEnvelope: envelope,
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(mapping.sampleIndex, 1)
+        XCTAssertEqual(mapping.sampleRelativeNote, 12)
+        XCTAssertEqual(mapping.sampleFinetune, 64)
+        XCTAssertEqual(mapping.sampleBaseSampleRate, 100)
+        XCTAssertEqual(mapping.playbackStep, 2 * pow(2.0, 0.5 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(event.gain, 0.5)
+        XCTAssertEqual(event.loop, MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4))
+        XCTAssertEqual(mapping.volumeEnvelopeStatus, .mapped)
+        XCTAssertEqual(mapping.mappedVolumeEnvelopePointCount, 2)
+    }
+
+    func testPlaybackSongSyntheticAdapterFallsBackAfterInvalidMappedSampleIndex() throws {
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [0.25], baseSampleRate: 100)
+        let alternateSample = makePlaybackSample(sampleIndex: 1, pcm: [0.5], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, alternateSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 9])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.sampleIndex, 0)
+        XCTAssertEqual(mapping.mappedSampleIndex, 9)
+        XCTAssertFalse(mapping.mappedSampleValid)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .fallbackAfterInvalidMap)
+        XCTAssertTrue(mapping.firstPlayableSampleFallbackUsed)
+        XCTAssertEqual(result.diagnostics.eventCoverage.fallbackAfterInvalidSampleMapEvents, 1)
+        XCTAssertEqual(result.diagnostics.eventCoverage.firstPlayableSampleFallbackEvents, 1)
+        XCTAssertEqual(result.block.interleavedPCM, [0.25])
+    }
+
+    func testPlaybackSongSyntheticAdapterMappedEmptyPCMUsesFallbackWhenAvailable() throws {
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [0.25], baseSampleRate: 100)
+        let emptyMappedSample = makePlaybackSample(sampleIndex: 1, pcm: [], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, emptyMappedSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.sampleIndex, 0)
+        XCTAssertEqual(mapping.mappedSampleIndex, 1)
+        XCTAssertFalse(mapping.mappedSampleValid)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .fallbackAfterInvalidMap)
+        XCTAssertEqual(result.block.interleavedPCM, [0.25])
+    }
+
+    func testPlaybackSongSyntheticAdapterSkipsMappedEmptyPCMWhenNoFallbackExists() throws {
+        let emptyMappedSample = makePlaybackSample(sampleIndex: 0, pcm: [], volume: 1, baseSampleRate: 100)
+        let zeroVolumeSample = makePlaybackSample(sampleIndex: 1, pcm: [1], volume: 0, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [emptyMappedSample, zeroVolumeSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 0])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+        let ignored = try XCTUnwrap(result.diagnostics.ignoredCells.first)
+
+        XCTAssertEqual(result.plan.pattern.events, [])
+        XCTAssertEqual(result.block.interleavedPCM, [0])
+        XCTAssertEqual(ignored.reason, .samplePCMEmpty)
+        XCTAssertEqual(ignored.skipReason, .samplePCMEmpty)
+        XCTAssertEqual(ignored.mappedSampleIndex, 0)
+        XCTAssertEqual(ignored.sampleSelectionMethod, .skippedNoValidSample)
+        XCTAssertEqual(result.diagnostics.eventCoverage.skippedNoValidSampleEvents, 1)
     }
 
     func testPlaybackSongSyntheticAdapterFlattensBoundedMultiOrderRows() {
@@ -3311,6 +3518,77 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(offset, mapping.sampleOffset)
     }
 
+    func testPlaybackSongAdapterSampleOffset9xxUsesMappedSample() throws {
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: Array(repeating: Float(9), count: 300), baseSampleRate: 100)
+        let mappedSample = makeRampPlaybackSample(frameCount: 300, sampleIndex: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, mappedSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ]
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(mapping.sampleIndex, 1)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(mapping.sampleOffset.status, .applied)
+        XCTAssertEqual(mapping.sampleOffset.appliedOffsetFrames, 256)
+        XCTAssertPCMEqual(result.block.interleavedPCM, [0.256, 0.257, 0.258, 0.259])
+    }
+
+    func testPlaybackSongAdapterFxxTimingAndVolumeColumnWorkWithMappedSample() throws {
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: [9], baseSampleRate: 100)
+        let mappedSample = makePlaybackSample(sampleIndex: 1, pcm: [1], volume: 0.5, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x03),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x20)
+                ]
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, mappedSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(event.scheduledStartFrame, 6)
+        XCTAssertEqual(event.gain, 0.125)
+        XCTAssertEqual(mapping.sampleIndex, 1)
+        XCTAssertEqual(mapping.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(mapping.volumeColumn.command, .setVolume(value: 16))
+        XCTAssertEqual(mapping.effectiveVolumeValue, 16)
+        XCTAssertEqual(result.diagnostics.rowTiming.map(\.rowStartFrame), [0, 6])
+        XCTAssertEqual(result.diagnostics.timingChanges.first?.kind, .speed)
+        XCTAssertEqual(result.block.interleavedPCM, Array(repeating: Float(0), count: 6) + [0.125, 0])
+    }
+
     func testPlaybackSongAdapterSampleOffset9xxCombinesWithPitchStep() throws {
         let sample = makeRampPlaybackSample(frameCount: 300, baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -3618,11 +3896,18 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     func testPlaybackSongAdapterSampleOffset9xxSplitResetAndWAVExportRemainDeterministic() throws {
-        let sample = makeRampPlaybackSample(frameCount: 300)
+        let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: Array(repeating: Float(9), count: 300), baseSampleRate: 100)
+        let mappedSample = makeRampPlaybackSample(frameCount: 300, sampleIndex: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [fallbackSample, mappedSample],
+                    noteSampleMap: makeNoteSampleMap(overrides: [49: 1])
+                )
+            ]
         )
         let request = PlaybackSongOfflineRenderRequest(
             song: song,
@@ -3634,6 +3919,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let firstURL = tempDirectory.appendingPathComponent("first-candidate.wav")
         let secondURL = tempDirectory.appendingPathComponent("second-candidate.wav")
 
@@ -3649,6 +3935,8 @@ final class VoodooTrackerXTests: XCTestCase {
         try renderer.exportWAV(request, to: secondURL)
 
         XCTAssertPCMEqual(single.block.interleavedPCM, [0.256, 0.257, 0.258, 0.259])
+        XCTAssertEqual(single.diagnostics.eventMappings.first?.sampleSelectionMethod, .sampleMap)
+        XCTAssertEqual(single.diagnostics.eventMappings.first?.sampleIndex, 1)
         XCTAssertEqual(repeated.block, single.block)
         XCTAssertEqual(split.block, single.block)
         XCTAssertEqual(resetFirst, resetSecond)

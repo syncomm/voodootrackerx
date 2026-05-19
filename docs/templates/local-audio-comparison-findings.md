@@ -44,6 +44,11 @@ output directory.
 - Normal note cells:
 - Scheduled events:
 - Skipped notes:
+- Sample-map selections:
+- First-playable fallback selections:
+- Fallback-after-invalid-map selections:
+- Skipped-no-valid-sample selections:
+- Missing/deferred sample-map selections:
 - Top skip reasons:
 - First skipped coordinates:
 - Suspected missing-note cause:
@@ -88,6 +93,7 @@ output directory.
 - Top overlapping rows/channels/events:
 - Recent preceding events when no overlap:
 - Pitch-step / frequency-table clues:
+- Sample-selection / keymap clues:
 - Volume-column / panning clues:
 - Fxx / row-timing clues:
 - Envelope / fadeout / key-off clues:
@@ -118,6 +124,7 @@ or source-to-synthetic diagnostics.
 - [ ] panning / volume-column behavior
 - [ ] volume slides / envelope / fadeout / key-off
 - [ ] pitch / finetune / relative note / linear frequency
+- [ ] sample map / keymap / selected sample metadata
 - [ ] remaining interpolation / resampling / reference-render settings
 - [ ] sample offset / retrigger / note cut / note delay
 - [ ] loop behavior
@@ -128,6 +135,7 @@ or source-to-synthetic diagnostics.
 - Metric summary:
 - Trace or diagnostics correlation:
 - Event coverage summary:
+- Sample selection summary:
 - Top skip reasons:
 - Suspected missing-note cause:
 - Correlation report summary:

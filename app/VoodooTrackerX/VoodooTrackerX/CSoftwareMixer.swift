@@ -480,16 +480,34 @@ final class CSoftwareMixer {
             return MixerRenderBlock(config: config, frameCount: 0, interleavedPCM: [])
         }
 
-        let status = interleavedPCM.withUnsafeMutableBufferPointer { buffer in
-            vtx_c_mixer_render(&state, buffer.baseAddress, UInt32(frameCount))
+        interleavedPCM.withUnsafeMutableBufferPointer { buffer in
+            _ = render(into: buffer, frames: frameCount)
         }
-        Self.requireOK(status)
 
         return MixerRenderBlock(
             config: config,
             frameCount: frameCount,
             interleavedPCM: interleavedPCM
         )
+    }
+
+    /// Renders into caller-owned interleaved Float32 storage.
+    ///
+    /// Runtime hosts use this to avoid allocating a fresh Swift array from an audio pull callback. The caller
+    /// must provide at least `frames * config.channelCount` samples of writable storage.
+    @discardableResult
+    func render(into interleavedPCM: UnsafeMutableBufferPointer<Float>, frames: Int) -> Int {
+        let frameCount = max(0, frames)
+        guard frameCount > 0 else {
+            return 0
+        }
+        precondition(
+            interleavedPCM.count >= frameCount * config.channelCount,
+            "C mixer output buffer is smaller than the requested frame count"
+        )
+        let status = vtx_c_mixer_render(&state, interleavedPCM.baseAddress, UInt32(frameCount))
+        Self.requireOK(status)
+        return frameCount
     }
 
     /// Resets the C mixer state so repeated renders from the same inputs are deterministic.

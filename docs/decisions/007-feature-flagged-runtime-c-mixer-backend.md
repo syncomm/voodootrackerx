@@ -2,11 +2,12 @@
 
 ## Status
 
-Accepted as planning guidance for a future opt-in runtime experiment.
+Accepted. Initial implementation skeleton landed behind the developer-only
+feature flag; the backend remains experimental and opt-in.
 
 ## Context
 
-Runtime playback currently remains on `AVAudioPlayerNode` and
+Default runtime playback currently remains on `AVAudioPlayerNode` and
 `AVAudioUnitVarispeed`. That backend enabled stable first audible playback,
 transport smoke testing, and tracker-follow integration, but it cannot own the
 sample-accurate tracker rendering timeline needed for long-term playback
@@ -32,10 +33,10 @@ risk and must remain opt-in, reversible, and clearly experimental.
 
 ## Decision
 
-Plan a future feature-flagged runtime C mixer backend without making it the
+Use a feature-flagged runtime C mixer backend experiment without making it the
 default backend.
 
-The future runtime C mixer backend must:
+The runtime C mixer backend must:
 
 - Keep `AVAudioPlayerNode` / `AVAudioUnitVarispeed` as the default runtime
   backend.
@@ -50,9 +51,11 @@ The future runtime C mixer backend must:
 - Avoid becoming the runtime default until later parity and stability gates are
   met.
 
-This ADR does not implement the runtime backend, backend selection, feature
-flags, `AVAudioSourceNode`, CoreAudio callback code, UI preferences, parser
-changes, tracker viewport changes, or new XM effects.
+The implementation branch follows this ADR by adding backend selection,
+`VTX_AUDIO_BACKEND=c_mixer`, and an `AVAudioSourceNode`-hosted C mixer source
+while keeping the AVAudio backend as the default. It does not add UI
+preferences, parser changes, tracker viewport changes, new XM effects, or
+parity claims.
 
 ## Feature Flag Proposal
 
@@ -84,7 +87,7 @@ from raw CoreAudio by itself. Raw CoreAudio can remain a later option if
 latency, buffer-size behavior, performance, or control requirements justify the
 extra surface area.
 
-## Future Implementation Scope
+## Initial Implementation Scope
 
 The first implementation PR should stay small:
 
@@ -135,7 +138,6 @@ show:
 
 ## Non-Goals
 
-- Implement the runtime C mixer backend in this PR.
 - Switch default playback.
 - Remove `AVAudioPlayerNode` or `AVAudioUnitVarispeed`.
 - Add user-facing preferences or UI.

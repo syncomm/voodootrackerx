@@ -11,8 +11,8 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 - Working macOS AppKit prototype with module open/load, tracker-style pattern display, static highlight row behavior, and keyboard navigation.
 - MOD/XM parser work is covered by focused unit tests, golden snapshots, and small redistribution-safe fixtures.
 - First-pass XM playback exists for development and smoke testing, but it is not yet MikMod/OpenMPT accurate.
-- Runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based.
-- The C-backed mixer path is offline-only and used for deterministic bounded renders, diagnostics, and local comparison work.
+- Default runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based.
+- The C-backed mixer path is used for deterministic bounded renders, diagnostics, and local comparison work. An experimental runtime C mixer skeleton is available only when launched with `VTX_AUDIO_BACKEND=c_mixer`.
 - The app is under active development and should not be treated as production-ready.
 
 ## Build/Test Quick Start
@@ -60,6 +60,8 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and `Left`/`Right`.
 
+Developers can opt into the experimental runtime C mixer skeleton with `VTX_AUDIO_BACKEND=c_mixer`. Unset or unknown values keep the default AVAudio backend.
+
 ## Developer Audio Comparison
 
 Detailed audio comparison guidance lives in [docs/audio-comparison.md](docs/audio-comparison.md). Local/private modules may be used for manual listening, smoke testing, bounded candidate WAV renders, and local reference comparisons, but they are not repo fixtures and must not be committed, uploaded, copied into tests, or required by CI.
@@ -79,7 +81,7 @@ swift run vtx_render_bounded_xm \
   --sample-rate 44100
 ```
 
-The helper is developer-only. It does not change runtime playback, does not make the C mixer the app playback backend, and does not provide full XM song rendering.
+The helper is developer-only. It does not change the default runtime backend, does not require the experimental runtime flag, and does not provide full XM song rendering.
 
 ## Documentation Map
 

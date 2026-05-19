@@ -130,6 +130,36 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
+The experimental runtime C mixer applies a conservative output gain at the
+runtime handoff before samples are copied to the AVAudio source-node buffers.
+The default policy is `default_runtime_headroom_db`, currently `-10 dB`, which
+keeps the live experiment away from heavy unity-gain clipping seen in local
+diagnostic traces. This does not affect the default AVAudio backend.
+
+For local C-mixer-only smoke runs, override the runtime policy with exactly one
+of these variables:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_GAIN=0.5 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_HEADROOM_DB=-9 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+`VTX_C_MIXER_RUNTIME_GAIN` accepts finite values greater than `0` and at most `1`.
+`VTX_C_MIXER_RUNTIME_HEADROOM_DB` accepts finite `0` or negative dB values and
+converts them to linear gain. If both variables are set, or either value is
+invalid, the runtime C mixer falls back to the default conservative policy and
+reports `runtimeGainConfigurationWarning` in the trace. These variables are
+ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental backend.
+
 When comparing a specific start point, use the existing debug launch controls:
 
 ```bash
@@ -161,22 +191,27 @@ The same trace now carries runtime output diagnostics for the experimental C
 mixer path: backend sample rate and channel count, render callback count,
 requested frame counts, cumulative requested/rendered frames, min/max/last
 callback sizes, successful/failed render counts, detected zero-fill and underrun
-counts, silent-output counts, output peak/RMS summaries, overrange/clipping
-counts, active/loaded voice snapshots, row-transition breadcrumbs, backend
-lifecycle breadcrumbs, and cumulative event counters for note triggers, C mixer
+counts, silent-output counts, post-gain output peak/RMS summaries,
+post-gain overrange/clipping counts, `clippingDetected`,
+`runtimeClippingRecommendation` when clipping remains, runtime output gain,
+configured runtime headroom dB when applicable, runtime gain policy labels,
+active/loaded voice snapshots, row-transition breadcrumbs, backend lifecycle
+breadcrumbs, and cumulative event counters for note triggers, C mixer
 add-voice calls, gain/pan update attempts, sample-step update attempts,
 channel-scoped stops, and clear-all calls. Runtime traces report
 `eventQueueBacklogCount` as `0` when no separate runtime event queue exists.
 This is intended to show whether a harsh transition lines up with a clear-all,
 many channel stops, a burst of new note triggers or control updates, a
-voice-count collapse/spike, zero-fill/underrun evidence, or a backend reset.
+voice-count collapse/spike, zero-fill/underrun evidence, remaining clipping
+after runtime gain, or a backend reset.
 
 Offline candidate WAV export gain/headroom remains separate from runtime
 playback. The offline helper can use `--gain`, `--headroom-db`, or
-`--auto-headroom` at the WAV export boundary; the experimental runtime C mixer
-trace reports its current policy as `unity_runtime_gain_no_auto_headroom`.
-This PR does not change C mixer DSP semantics, runtime gain, or the default
-AVAudio backend.
+`--auto-headroom` at the WAV export boundary. The experimental runtime C mixer
+uses its own fixed runtime gain policy and does not run offline
+`--auto-headroom` during live playback. This does not change C mixer DSP
+semantics, make the runtime C mixer the default, or affect the default AVAudio
+backend.
 
 Runtime traces, playback traces, logs, screenshots, WAVs, JSON reports, and
 notes derived from private/local modules must remain under `/tmp` or another

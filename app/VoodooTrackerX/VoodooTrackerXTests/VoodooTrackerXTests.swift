@@ -8342,10 +8342,13 @@ final class VoodooTrackerXTests: XCTestCase {
             lastOutputRMS: 0.125,
             overrangeSampleCount: 0,
             clippingSampleCount: 0,
+            clippingDetected: false,
             runtimeOutputGain: 1,
             runtimeHeadroomPolicy: "unity_runtime_gain_no_auto_headroom",
+            runtimeGainPolicyLabel: "unity_runtime_gain_no_auto_headroom",
             runtimeAutoHeadroomEnabled: false,
             runtimeFixedHeadroomDB: nil,
+            runtimeClippingRecommendation: nil,
             noteTriggerEventCount: 4,
             cMixerAddVoiceCount: 2,
             gainPanUpdateCount: 3,
@@ -8401,7 +8404,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["lastRenderSucceeded"] as? Bool, true)
         XCTAssertEqual(object["zeroFillCount"] as? Int, 1)
         XCTAssertEqual(object["underrunCount"] as? Int, 1)
+        XCTAssertEqual(object["clippingDetected"] as? Bool, false)
         XCTAssertEqual(object["runtimeHeadroomPolicy"] as? String, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(object["runtimeGainPolicyLabel"] as? String, "unity_runtime_gain_no_auto_headroom")
         XCTAssertEqual(object["runtimeAutoHeadroomEnabled"] as? Bool, false)
         XCTAssertEqual(object["noteTriggerEventCount"] as? Int, 4)
         XCTAssertEqual(object["cMixerAddVoiceCount"] as? Int, 2)
@@ -8459,6 +8464,71 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertFalse(selection.experimentalCMixerEnabled)
     }
 
+    func testRuntimeCMixerDefaultGainPolicyUsesConservativeHeadroom() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [:])
+
+        XCTAssertEqual(policy.headroomPolicy, "default_runtime_headroom_db")
+        XCTAssertEqual(policy.outputGain, Float(pow(10.0, RuntimeCMixerOutputPolicy.defaultHeadroomDB / 20.0)), accuracy: 0.000_001)
+        XCTAssertEqual(policy.fixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
+        XCTAssertFalse(policy.autoHeadroomEnabled)
+        XCTAssertNil(policy.configurationWarning)
+    }
+
+    func testRuntimeCMixerGainPolicyParsesExplicitGain() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5"
+        ])
+
+        XCTAssertEqual(policy.headroomPolicy, "env_runtime_gain")
+        XCTAssertEqual(policy.outputGain, 0.5, accuracy: 0.000_001)
+        XCTAssertNil(policy.fixedHeadroomDB)
+        XCTAssertNil(policy.configurationWarning)
+    }
+
+    func testRuntimeCMixerGainPolicyFallsBackForInvalidGain() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1.5"
+        ])
+
+        XCTAssertEqual(policy.headroomPolicy, "default_runtime_headroom_db_fallback")
+        XCTAssertEqual(policy.outputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, accuracy: 0.000_001)
+        XCTAssertEqual(policy.fixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
+        XCTAssertEqual(policy.configurationWarning, "invalid_runtime_gain")
+    }
+
+    func testRuntimeCMixerGainPolicyParsesNegativeHeadroomDB() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6"
+        ])
+
+        XCTAssertEqual(policy.headroomPolicy, "env_runtime_headroom_db")
+        XCTAssertEqual(policy.outputGain, Float(pow(10.0, -6.0 / 20.0)), accuracy: 0.000_001)
+        XCTAssertEqual(policy.fixedHeadroomDB, -6)
+        XCTAssertNil(policy.configurationWarning)
+    }
+
+    func testRuntimeCMixerGainPolicyRejectsPositiveHeadroomDB() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "3"
+        ])
+
+        XCTAssertEqual(policy.headroomPolicy, "default_runtime_headroom_db_fallback")
+        XCTAssertEqual(policy.outputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, accuracy: 0.000_001)
+        XCTAssertEqual(policy.fixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
+        XCTAssertEqual(policy.configurationWarning, "invalid_runtime_headroom_db")
+    }
+
+    func testRuntimeCMixerGainPolicyFallsBackWhenGainAndHeadroomAreBothSet() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5",
+            RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6"
+        ])
+
+        XCTAssertEqual(policy.headroomPolicy, "default_runtime_headroom_db_fallback")
+        XCTAssertEqual(policy.outputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, accuracy: 0.000_001)
+        XCTAssertEqual(policy.configurationWarning, "conflicting_runtime_gain_policy")
+    }
+
     @MainActor
     func testPlaybackAudioOutputFactoryDefaultsToAVAudioBackend() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
@@ -8468,6 +8538,24 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAction, "backend_selected")
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryIgnoresCMixerGainPolicyForAVAudioBackend() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5",
+                RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6"
+            ],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is PlaybackAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
+        XCTAssertNil(traceWriter.events.first?.runtimeOutputGain)
+        XCTAssertNil(traceWriter.events.first?.runtimeHeadroomPolicy)
+        XCTAssertNil(traceWriter.events.first?.runtimeGainConfigurationWarning)
     }
 
     @MainActor
@@ -8484,8 +8572,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.sampleRate, 44_100)
         XCTAssertEqual(traceWriter.events.first?.channelCount, 2)
-        XCTAssertEqual(traceWriter.events.first?.runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(traceWriter.events.first?.runtimeHeadroomPolicy, "default_runtime_headroom_db")
+        XCTAssertEqual(traceWriter.events.first?.runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
         XCTAssertEqual(traceWriter.events.first?.runtimeAutoHeadroomEnabled, false)
+        XCTAssertEqual(traceWriter.events.first?.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
     }
 
     @MainActor
@@ -8525,7 +8615,8 @@ final class VoodooTrackerXTests: XCTestCase {
             XCTAssertTrue(core.render(into: buffer, frameCount: 3))
         }
 
-        XCTAssertEqual(output, [1, 1, 0.5, 0.5, 0.25, 0.25])
+        let gain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+        XCTAssertEqual(output, [gain, gain, 0.5 * gain, 0.5 * gain, 0.25 * gain, 0.25 * gain])
 
         core.stopAll()
         var silentOutput = Array(repeating: Float(1), count: 6)
@@ -8571,10 +8662,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.outputRMS, 0)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
-        XCTAssertEqual(snapshot.runtimeOutputGain, 1)
-        XCTAssertEqual(snapshot.runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(snapshot.clippingDetected, false)
+        XCTAssertEqual(snapshot.runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
+        XCTAssertEqual(snapshot.runtimeHeadroomPolicy, "default_runtime_headroom_db")
         XCTAssertEqual(snapshot.runtimeAutoHeadroomEnabled, false)
-        XCTAssertNil(snapshot.runtimeFixedHeadroomDB)
+        XCTAssertEqual(snapshot.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
+        XCTAssertNil(snapshot.runtimeClippingRecommendation)
     }
 
     func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {
@@ -8618,12 +8711,76 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.lastRenderSucceeded, true)
         XCTAssertEqual(snapshot.zeroFillCount, 0)
         XCTAssertEqual(snapshot.silentOutputCallbackCount, 0)
-        XCTAssertEqual(snapshot.lastOutputPeak, 1)
-        XCTAssertEqual(snapshot.outputPeak, 1)
-        XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)), accuracy: 0.000_001)
+        let gain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+        XCTAssertEqual(snapshot.lastOutputPeak, gain, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.outputPeak, gain, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)) * gain, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
-        XCTAssertEqual(snapshot.clippingSampleCount, 2)
+        XCTAssertEqual(snapshot.clippingSampleCount, 0)
+        XCTAssertFalse(snapshot.clippingDetected)
         XCTAssertEqual(snapshot.currentFrame, 2)
+    }
+
+    func testRuntimeCMixerRenderCoreAppliesExplicitOutputGain() {
+        let policy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5"
+        ])
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            maximumRenderFrames: 16,
+            outputPolicy: policy
+        )
+        let sample = makePlaybackSample(pcm: [1, -0.5], baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        var output = Array(repeating: Float(0), count: 4)
+        output.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 2))
+        }
+
+        XCTAssertEqual(output, [0.5, 0.5, -0.25, -0.25])
+        XCTAssertEqual(core.snapshot().runtimeHeadroomPolicy, "env_runtime_gain")
+    }
+
+    func testRuntimeCMixerClippingDiagnosticsDecreaseForHotRenderWhenGainIsApplied() {
+        let unityPolicy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+        ])
+        let reducedPolicy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.25"
+        ])
+        let hotSample = makePlaybackSample(pcm: [2, -2, 0.5], baseSampleRate: 44_100)
+
+        let unityCore = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: unityPolicy
+        )
+        XCTAssertTrue(unityCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
+        var unityOutput = Array(repeating: Float(0), count: 3)
+        unityOutput.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(unityCore.render(into: buffer, frameCount: 3))
+        }
+
+        let reducedCore = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: reducedPolicy
+        )
+        XCTAssertTrue(reducedCore.trigger(AudioVoiceRequest(sample: hotSample, note: 49, channel: 0)))
+        var reducedOutput = Array(repeating: Float(0), count: 3)
+        reducedOutput.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(reducedCore.render(into: buffer, frameCount: 3))
+        }
+
+        let unitySnapshot = unityCore.snapshot()
+        let reducedSnapshot = reducedCore.snapshot()
+        XCTAssertTrue(unitySnapshot.clippingDetected)
+        XCTAssertEqual(unitySnapshot.clippingSampleCount, 2)
+        XCTAssertEqual(unitySnapshot.runtimeClippingRecommendation, RuntimeCMixerOutputPolicy.clippingRecommendation)
+        XCTAssertFalse(reducedSnapshot.clippingDetected)
+        XCTAssertEqual(reducedSnapshot.clippingSampleCount, 0)
+        XCTAssertLessThan(reducedSnapshot.outputPeak, unitySnapshot.outputPeak)
     }
 
     func testRuntimeCMixerRenderCoreDistinguishesSilentOutputFromZeroFill() {
@@ -8684,7 +8841,7 @@ final class VoodooTrackerXTests: XCTestCase {
         output.withUnsafeMutableBufferPointer { buffer in
             XCTAssertTrue(core.render(into: buffer, frameCount: 3))
         }
-        XCTAssertEqual(output, [0.25, 0.25, 0.25])
+        XCTAssertEqual(output, Array(repeating: 0.25 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 3))
     }
 
     func testRuntimeCMixerRenderCoreReplacesPriorVoiceOnSameChannel() {
@@ -8708,7 +8865,7 @@ final class VoodooTrackerXTests: XCTestCase {
         output.withUnsafeMutableBufferPointer { buffer in
             XCTAssertTrue(core.render(into: buffer, frameCount: 2))
         }
-        XCTAssertEqual(output, [0.75, 0.75])
+        XCTAssertEqual(output, Array(repeating: 0.75 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 2))
     }
 
     @MainActor
@@ -8825,7 +8982,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(transitions[0].channelCount, 2)
         XCTAssertEqual(transitions[0].renderCallbackCount, 0)
         XCTAssertEqual(transitions[0].eventQueueBacklogCount, 0)
-        XCTAssertEqual(transitions[0].runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(transitions[0].runtimeHeadroomPolicy, "default_runtime_headroom_db")
+        XCTAssertEqual(transitions[0].runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
         XCTAssertEqual(transitions[1].rowIndex, 1)
         XCTAssertNotNil(transitions[1].activeVoiceCount)
         XCTAssertNotNil(transitions[1].loadedVoiceCount)

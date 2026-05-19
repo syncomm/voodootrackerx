@@ -117,10 +117,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let lastOutputRMS: Float?
     let overrangeSampleCount: UInt64?
     let clippingSampleCount: UInt64?
+    let clippingDetected: Bool?
     let runtimeOutputGain: Float?
     let runtimeHeadroomPolicy: String?
+    let runtimeGainPolicyLabel: String?
     let runtimeAutoHeadroomEnabled: Bool?
     let runtimeFixedHeadroomDB: Double?
+    let runtimeGainConfigurationWarning: String?
+    let runtimeClippingRecommendation: String?
     let noteTriggerEventCount: UInt64?
     let cMixerAddVoiceCount: UInt64?
     let gainPanUpdateCount: UInt64?
@@ -175,10 +179,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         lastOutputRMS: Float? = nil,
         overrangeSampleCount: UInt64? = nil,
         clippingSampleCount: UInt64? = nil,
+        clippingDetected: Bool? = nil,
         runtimeOutputGain: Float? = nil,
         runtimeHeadroomPolicy: String? = nil,
+        runtimeGainPolicyLabel: String? = nil,
         runtimeAutoHeadroomEnabled: Bool? = nil,
         runtimeFixedHeadroomDB: Double? = nil,
+        runtimeGainConfigurationWarning: String? = nil,
+        runtimeClippingRecommendation: String? = nil,
         noteTriggerEventCount: UInt64? = nil,
         cMixerAddVoiceCount: UInt64? = nil,
         gainPanUpdateCount: UInt64? = nil,
@@ -243,10 +251,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.lastOutputRMS = lastOutputRMS
         self.overrangeSampleCount = overrangeSampleCount
         self.clippingSampleCount = clippingSampleCount
+        self.clippingDetected = clippingDetected
         self.runtimeOutputGain = runtimeOutputGain
         self.runtimeHeadroomPolicy = runtimeHeadroomPolicy
+        self.runtimeGainPolicyLabel = runtimeGainPolicyLabel
         self.runtimeAutoHeadroomEnabled = runtimeAutoHeadroomEnabled
         self.runtimeFixedHeadroomDB = runtimeFixedHeadroomDB
+        self.runtimeGainConfigurationWarning = runtimeGainConfigurationWarning
+        self.runtimeClippingRecommendation = runtimeClippingRecommendation
         self.noteTriggerEventCount = noteTriggerEventCount
         self.cMixerAddVoiceCount = cMixerAddVoiceCount
         self.gainPanUpdateCount = gainPanUpdateCount
@@ -376,10 +388,18 @@ enum PlaybackAudioOutputFactory {
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
     ) -> PlaybackAudioOutput {
         let selection = RuntimeAudioBackendSelection.resolve(environment: environment)
+        let outputPolicy = selection.backend == .cMixer
+            ? RuntimeCMixerOutputPolicy.resolve(environment: environment)
+            : nil
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
                 "Unknown VTX_AUDIO_BACKEND value '\(requestedValue, privacy: .public)'; falling back to av_audio reason=\(fallbackReason, privacy: .public)"
+            )
+        }
+        if let warning = outputPolicy?.configurationWarning {
+            logger.warning(
+                "Runtime C mixer output policy warning=\(warning, privacy: .public) gain=\(outputPolicy?.outputGain ?? 1, privacy: .public)"
             )
         }
         logger.info(
@@ -396,10 +416,12 @@ enum PlaybackAudioOutputFactory {
                 channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
-                runtimeOutputGain: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.outputGain : nil,
-                runtimeHeadroomPolicy: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.headroomPolicy : nil,
-                runtimeAutoHeadroomEnabled: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.autoHeadroomEnabled : nil,
-                runtimeFixedHeadroomDB: selection.backend == .cMixer ? RuntimeCMixerOutputPolicy.fixedHeadroomDB : nil,
+                runtimeOutputGain: outputPolicy?.outputGain,
+                runtimeHeadroomPolicy: outputPolicy?.headroomPolicy,
+                runtimeGainPolicyLabel: outputPolicy?.headroomPolicy,
+                runtimeAutoHeadroomEnabled: outputPolicy?.autoHeadroomEnabled,
+                runtimeFixedHeadroomDB: outputPolicy?.fixedHeadroomDB,
+                runtimeGainConfigurationWarning: outputPolicy?.configurationWarning,
                 cMixerCallSucceeded: nil,
                 reason: selection.fallbackReason
             ))
@@ -408,7 +430,10 @@ enum PlaybackAudioOutputFactory {
         case .avAudio:
             return PlaybackAudioEngine()
         case .cMixer:
-            return RuntimeCMixerAudioEngine(traceWriter: runtimeCMixerTraceWriter)
+            return RuntimeCMixerAudioEngine(
+                outputPolicy: outputPolicy ?? .defaultPolicy,
+                traceWriter: runtimeCMixerTraceWriter
+            )
         }
     }
 }
@@ -442,18 +467,108 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let lastOutputRMS: Float
     let overrangeSampleCount: UInt64
     let clippingSampleCount: UInt64
+    let clippingDetected: Bool
     let runtimeOutputGain: Float
     let runtimeHeadroomPolicy: String
     let runtimeAutoHeadroomEnabled: Bool
     let runtimeFixedHeadroomDB: Double?
+    let runtimeGainConfigurationWarning: String?
+    let runtimeClippingRecommendation: String?
     let currentFrame: UInt64
 }
 
-private enum RuntimeCMixerOutputPolicy {
-    static let outputGain = Float(1)
-    static let headroomPolicy = "unity_runtime_gain_no_auto_headroom"
-    static let autoHeadroomEnabled = false
-    static let fixedHeadroomDB: Double? = nil
+struct RuntimeCMixerOutputPolicy: Equatable {
+    static let gainEnvironmentKey = "VTX_C_MIXER_RUNTIME_GAIN"
+    static let headroomDBEnvironmentKey = "VTX_C_MIXER_RUNTIME_HEADROOM_DB"
+    static let defaultHeadroomDB = -10.0
+    static let clippingRecommendation = "reduce VTX_C_MIXER_RUNTIME_GAIN or set a more negative VTX_C_MIXER_RUNTIME_HEADROOM_DB"
+
+    static let defaultPolicy = RuntimeCMixerOutputPolicy(
+        outputGain: Float(pow(10.0, defaultHeadroomDB / 20.0)),
+        headroomPolicy: "default_runtime_headroom_db",
+        fixedHeadroomDB: defaultHeadroomDB
+    )
+
+    let outputGain: Float
+    let headroomPolicy: String
+    let autoHeadroomEnabled: Bool
+    let fixedHeadroomDB: Double?
+    let configurationWarning: String?
+
+    init(
+        outputGain: Float,
+        headroomPolicy: String,
+        autoHeadroomEnabled: Bool = false,
+        fixedHeadroomDB: Double? = nil,
+        configurationWarning: String? = nil
+    ) {
+        self.outputGain = outputGain.isFinite && outputGain > 0 ? outputGain : Self.defaultPolicy.outputGain
+        self.headroomPolicy = headroomPolicy
+        self.autoHeadroomEnabled = autoHeadroomEnabled
+        self.fixedHeadroomDB = fixedHeadroomDB
+        self.configurationWarning = configurationWarning
+    }
+
+    static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeCMixerOutputPolicy {
+        let rawGain = trimmedEnvironmentValue(environment[gainEnvironmentKey])
+        let rawHeadroomDB = trimmedEnvironmentValue(environment[headroomDBEnvironmentKey])
+
+        if rawGain != nil, rawHeadroomDB != nil {
+            return defaultPolicy.withWarning("conflicting_runtime_gain_policy")
+        }
+
+        if let rawGain {
+            guard let parsedGain = Double(rawGain),
+                  parsedGain.isFinite,
+                  parsedGain > 0,
+                  parsedGain <= 1 else {
+                return defaultPolicy.withWarning("invalid_runtime_gain")
+            }
+            return RuntimeCMixerOutputPolicy(
+                outputGain: Float(parsedGain),
+                headroomPolicy: "env_runtime_gain"
+            )
+        }
+
+        if let rawHeadroomDB {
+            guard let parsedHeadroomDB = Double(rawHeadroomDB),
+                  parsedHeadroomDB.isFinite,
+                  parsedHeadroomDB <= 0 else {
+                return defaultPolicy.withWarning("invalid_runtime_headroom_db")
+            }
+            let gain = pow(10.0, parsedHeadroomDB / 20.0)
+            guard gain.isFinite,
+                  gain > 0,
+                  gain <= 1 else {
+                return defaultPolicy.withWarning("invalid_runtime_headroom_db")
+            }
+            return RuntimeCMixerOutputPolicy(
+                outputGain: Float(gain),
+                headroomPolicy: "env_runtime_headroom_db",
+                fixedHeadroomDB: parsedHeadroomDB
+            )
+        }
+
+        return defaultPolicy
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func withWarning(_ warning: String) -> RuntimeCMixerOutputPolicy {
+        RuntimeCMixerOutputPolicy(
+            outputGain: outputGain,
+            headroomPolicy: "\(headroomPolicy)_fallback",
+            autoHeadroomEnabled: autoHeadroomEnabled,
+            fixedHeadroomDB: fixedHeadroomDB,
+            configurationWarning: warning
+        )
+    }
 }
 
 private struct RuntimeCMixerOutputMetrics: Equatable {
@@ -536,9 +651,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var clippingSampleCount: UInt64 = 0
 
     let config: MixerRenderConfig
+    let outputPolicy: RuntimeCMixerOutputPolicy
 
-    init(config: MixerRenderConfig = MixerRenderConfig(), maximumRenderFrames: Int = 16_384) {
+    init(
+        config: MixerRenderConfig = MixerRenderConfig(),
+        maximumRenderFrames: Int = 16_384,
+        outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy
+    ) {
         self.config = config
+        self.outputPolicy = outputPolicy
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         mixer = CSoftwareMixer(config: config)
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
@@ -691,6 +812,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         _ = mixer.render(into: outputInterleavedPCM, frames: safeFrameCount)
         let sampleCount = safeFrameCount * mixer.config.channelCount
+        applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
         recordRenderCompletionLocked(
             requestedFrameCount: safeFrameCount,
             renderedFrameCount: safeFrameCount,
@@ -812,10 +934,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             lastOutputRMS: lastOutputRMS,
             overrangeSampleCount: overrangeSampleCount,
             clippingSampleCount: clippingSampleCount,
-            runtimeOutputGain: RuntimeCMixerOutputPolicy.outputGain,
-            runtimeHeadroomPolicy: RuntimeCMixerOutputPolicy.headroomPolicy,
-            runtimeAutoHeadroomEnabled: RuntimeCMixerOutputPolicy.autoHeadroomEnabled,
-            runtimeFixedHeadroomDB: RuntimeCMixerOutputPolicy.fixedHeadroomDB,
+            clippingDetected: clippingSampleCount > 0,
+            runtimeOutputGain: outputPolicy.outputGain,
+            runtimeHeadroomPolicy: outputPolicy.headroomPolicy,
+            runtimeAutoHeadroomEnabled: outputPolicy.autoHeadroomEnabled,
+            runtimeFixedHeadroomDB: outputPolicy.fixedHeadroomDB,
+            runtimeGainConfigurationWarning: outputPolicy.configurationWarning,
+            runtimeClippingRecommendation: clippingSampleCount > 0 ? RuntimeCMixerOutputPolicy.clippingRecommendation : nil,
             currentFrame: mixer.currentFrame
         )
     }
@@ -895,6 +1020,20 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             overrangeSampleCount: overrangeCount,
             clippingSampleCount: clippingCount
         )
+    }
+
+    private func applyOutputGain(
+        _ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        sampleCount: Int
+    ) {
+        let gain = outputPolicy.outputGain
+        guard gain != 1 else {
+            return
+        }
+        let boundedSampleCount = min(max(0, sampleCount), outputInterleavedPCM.count)
+        for index in 0..<boundedSampleCount {
+            outputInterleavedPCM[index] *= gain
+        }
     }
 
     private func mixerLoop(for sample: PlaybackSample) -> MixerSampleLoop {
@@ -1013,10 +1152,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     init(
         sampleRate: Double = MixerRenderConfig.defaultSampleRate,
         channelCount: Int = MixerRenderConfig.defaultChannelCount,
+        outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
-        renderCore = RuntimeCMixerRenderCore(config: config)
+        renderCore = RuntimeCMixerRenderCore(config: config, outputPolicy: outputPolicy)
         self.traceWriter = traceWriter
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -1307,10 +1447,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             lastOutputRMS: snapshot.lastOutputRMS,
             overrangeSampleCount: snapshot.overrangeSampleCount,
             clippingSampleCount: snapshot.clippingSampleCount,
+            clippingDetected: snapshot.clippingDetected,
             runtimeOutputGain: snapshot.runtimeOutputGain,
             runtimeHeadroomPolicy: snapshot.runtimeHeadroomPolicy,
+            runtimeGainPolicyLabel: snapshot.runtimeHeadroomPolicy,
             runtimeAutoHeadroomEnabled: snapshot.runtimeAutoHeadroomEnabled,
             runtimeFixedHeadroomDB: snapshot.runtimeFixedHeadroomDB,
+            runtimeGainConfigurationWarning: snapshot.runtimeGainConfigurationWarning,
+            runtimeClippingRecommendation: snapshot.runtimeClippingRecommendation,
             cMixerAddVoiceCount: eventCounters.cMixerAddVoiceCount,
             gainPanUpdateCount: eventCounters.gainPanUpdateCount,
             stepUpdateCount: eventCounters.stepUpdateCount,

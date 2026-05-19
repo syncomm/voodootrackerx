@@ -41,8 +41,13 @@ row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, and minimal nonzero `9xx` sample offsets on same-cell note triggers.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
-bounded offline renders from the update frame forward. `Hxy` global volume
-slide remains diagnosed as deferred/unsupported. Normal note triggers also use
+bounded offline renders from the update frame forward. Those bounded/offline
+gain and pan update events are smoothed by a fixed 32-frame deterministic
+micro-ramp in the C mixer, including empty-note volume-column set-volume,
+empty-note volume-column set-panning, `Cxx`, `8xx`, and nonzero row-level
+`Axy` updates that actually change an active voice. `ECx` note cuts remain
+hard cuts. `Hxy` global volume slide remains diagnosed as deferred/unsupported.
+Normal note triggers also use
 parsed XM instrument note-sample maps/keymaps when a valid bounded offline
 mapping exists, with deterministic first-playable fallback or skip diagnostics
 when it does not. Local comparisons are therefore more meaningful for simple
@@ -237,8 +242,8 @@ swift run vtx_render_bounded_xm \
 This is an export policy only. It does not change internal mixer math, C mixer
 DSP semantics, runtime playback, parser behavior, or tracker UI behavior. If
 crackle remains after clipping is eliminated or reduced, treat click,
-discontinuity, loop-boundary, retrigger, gain/pan update, or effect-timing
-diagnostics as separate follow-up work.
+discontinuity, loop-boundary, retrigger, residual gain/pan update, or
+effect-timing diagnostics as separate follow-up work.
 
 ## Click / Discontinuity Diagnostics
 
@@ -267,11 +272,14 @@ fadeout events, looped voices when exposed, carried voices, and row-window
 boundaries.
 
 Treat the result as diagnostic evidence, not proof. A jump near a gain/pan
-update suggests a focused gain/pan smoothing investigation; a jump near an
-`ECx` cut suggests a cut-ramping investigation; a jump near a looped voice or
-window boundary suggests loop-boundary or carryover investigation. Do not use
-this helper to implement automatic fixes, smoothing, ramping, gain changes, or
-runtime playback changes.
+update after this micro-ramping pass suggests checking whether the jump
+magnitude decreased, whether the update interrupted an active ramp, or whether
+another nearby event is the stronger lead. A jump near an `ECx` cut suggests a
+separate cut-ramping investigation; a jump near a looped voice or window
+boundary suggests loop-boundary or carryover investigation. Use the analyzer
+before and after targeted smoothing PRs to compare adjacent-sample jump
+magnitudes. Do not use this helper to implement automatic fixes, broad
+smoothing, gain changes, or runtime playback changes.
 
 Generated discontinuity JSON/Markdown reports derived from private/local
 modules must remain under `/tmp` or another ignored local directory and must not

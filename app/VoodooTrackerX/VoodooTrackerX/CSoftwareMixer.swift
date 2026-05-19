@@ -63,6 +63,20 @@ struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
     let rejectionReason: CSoftwareMixerVoiceStateUpdateRejectionReason?
 }
 
+struct CSoftwareMixerValueRampRuntimeState: Equatable {
+    let start: Float
+    let target: Float
+    let totalFrames: Int
+    let positionFrame: Int
+
+    init(start: Float, target: Float, totalFrames: Int, positionFrame: Int) {
+        self.start = start.isFinite ? start : 0
+        self.target = target.isFinite ? target : 0
+        self.totalFrames = max(1, totalFrames)
+        self.positionFrame = min(max(0, positionFrame), max(0, totalFrames - 1))
+    }
+}
+
 struct CSoftwareMixerVoiceRuntimeState: Equatable {
     let samplePosition: Double
     let pingPongDirection: Int
@@ -70,6 +84,8 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
     let panEnvelopePositionFrame: Int
     let keyOn: Bool
     let fadeoutValue: Float
+    let gainRamp: CSoftwareMixerValueRampRuntimeState?
+    let panRamp: CSoftwareMixerValueRampRuntimeState?
 
     init(
         samplePosition: Double,
@@ -77,7 +93,9 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
         volumeEnvelopePositionFrame: Int = 0,
         panEnvelopePositionFrame: Int = 0,
         keyOn: Bool = true,
-        fadeoutValue: Float = 1
+        fadeoutValue: Float = 1,
+        gainRamp: CSoftwareMixerValueRampRuntimeState? = nil,
+        panRamp: CSoftwareMixerValueRampRuntimeState? = nil
     ) {
         self.samplePosition = samplePosition.isFinite && samplePosition >= 0 ? samplePosition : 0
         self.pingPongDirection = pingPongDirection < 0 ? -1 : 1
@@ -85,6 +103,8 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
         self.panEnvelopePositionFrame = max(0, panEnvelopePositionFrame)
         self.keyOn = keyOn
         self.fadeoutValue = fadeoutValue.isFinite ? min(1, max(0, fadeoutValue)) : 1
+        self.gainRamp = gainRamp
+        self.panRamp = panRamp
     }
 }
 
@@ -100,6 +120,7 @@ final class CSoftwareMixer {
     static let maximumScheduledVoiceCount = Int(VTX_C_MIXER_MAX_SCHEDULED_VOICES)
     static let maximumActiveVoiceCount = Int(VTX_C_MIXER_MAX_ACTIVE_VOICES)
     static let maximumVoiceStateEventCount = Int(VTX_C_MIXER_MAX_VOICE_STATE_EVENTS)
+    static let gainPanUpdateRampFrameCount = Int(vtx_c_mixer_gain_pan_update_ramp_frame_count())
 
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
@@ -317,6 +338,13 @@ final class CSoftwareMixer {
             runtimeState.fadeoutValue
         )
         Self.requireOK(status)
+        let rampStatus = vtx_c_mixer_set_voice_gain_pan_ramp_state(
+            &state,
+            UInt32(voiceIndex),
+            Self.cRampState(from: runtimeState.gainRamp),
+            Self.cRampState(from: runtimeState.panRamp)
+        )
+        Self.requireOK(rampStatus)
     }
 
     /// Schedules a generic gain and/or pan update for an existing offline voice.
@@ -339,6 +367,40 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_gain_pan_update(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            gain == nil ? 0 : 1,
+            gain ?? 0,
+            pan == nil ? 0 : 1,
+            pan ?? 0
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
+    /// Schedules an immediate gain and/or pan set for hard-cut offline semantics such as ECx note cut.
+    @discardableResult
+    func scheduleVoiceGainPanImmediateUpdate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        gain: Float? = nil,
+        pan: Float? = nil
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              gain != nil || pan != nil else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
             &state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
@@ -465,6 +527,27 @@ final class CSoftwareMixer {
                 body(cEnvelopePointer)
             }
         }
+    }
+
+    private static func cRampState(
+        from state: CSoftwareMixerValueRampRuntimeState?
+    ) -> VTXCMixerValueRampRuntimeState {
+        guard let state else {
+            return VTXCMixerValueRampRuntimeState(
+                active: 0,
+                start: 0,
+                target: 0,
+                total_frames: 0,
+                position_frame: 0
+            )
+        }
+        return VTXCMixerValueRampRuntimeState(
+            active: 1,
+            start: state.start,
+            target: state.target,
+            total_frames: UInt32(clamping: state.totalFrames),
+            position_frame: UInt32(clamping: state.positionFrame)
+        )
     }
 
     private static func requireOK(_ status: VTXCMixerStatus) {

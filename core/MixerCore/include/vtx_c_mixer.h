@@ -21,6 +21,11 @@ extern "C" {
 // These are generic mixer automation events; callers own any tracker-specific decoding.
 #define VTX_C_MIXER_MAX_VOICE_STATE_EVENTS 4096u
 
+// Fixed deterministic dezipper for offline gain/pan update events.
+// At 44.1 kHz this is roughly 0.73 ms, short enough to avoid changing tracker
+// timing while reducing single-frame gain/pan discontinuities.
+#define VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES 32u
+
 // Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
 // not wired into this C-backed path yet.
 #define VTX_C_MIXER_MAX_ENVELOPE_POINTS 12u
@@ -46,6 +51,14 @@ typedef struct {
     uint32_t position_frame;
     float value;
 } VTXCMixerEnvelopePoint;
+
+typedef struct {
+    int active;
+    float start;
+    float target;
+    uint32_t total_frames;
+    uint32_t position_frame;
+} VTXCMixerValueRampRuntimeState;
 
 typedef struct {
     const VTXCMixerEnvelopePoint *points;
@@ -80,6 +93,16 @@ typedef struct {
     float initial_pan;
     float gain;
     float pan;
+    int gain_ramp_active;
+    float gain_ramp_start;
+    float gain_ramp_target;
+    uint32_t gain_ramp_total_frames;
+    uint32_t gain_ramp_position_frame;
+    int pan_ramp_active;
+    float pan_ramp_start;
+    float pan_ramp_target;
+    uint32_t pan_ramp_total_frames;
+    uint32_t pan_ramp_position_frame;
     VTXCMixerLoopMode loop_mode;
     uint32_t loop_start_frame;
     uint32_t loop_end_frame;
@@ -101,6 +124,7 @@ typedef struct {
     float gain;
     int update_pan;
     float pan;
+    int ramp_enabled;
 } VTXCMixerVoiceStateEvent;
 
 typedef struct {
@@ -114,6 +138,7 @@ typedef struct {
 } VTXCMixerState;
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
+uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void);
 VTXCMixerStatus vtx_c_mixer_init(VTXCMixerState *state, VTXCMixerConfig config);
 VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state);
 VTXCMixerStatus vtx_c_mixer_configure(VTXCMixerState *state, VTXCMixerConfig config);
@@ -272,9 +297,32 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     float fadeout_value
 );
 
+// Imports caller-computed gain/pan ramp continuation state into an existing
+// offline voice. This is only for deterministic window-continuation renders.
+VTXCMixerStatus vtx_c_mixer_set_voice_gain_pan_ramp_state(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    VTXCMixerValueRampRuntimeState gain_ramp,
+    VTXCMixerValueRampRuntimeState pan_ramp
+);
+
 // Schedules a generic gain and/or pan update for an existing offline voice at an
 // absolute output frame. At least one of update_gain/update_pan must be nonzero.
+// Supported gain/pan updates use the fixed micro-ramp above.
 VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
+);
+
+// Schedules an immediate gain and/or pan set for an existing offline voice.
+// This is reserved for hard-cut semantics such as ECx note cut, which must not
+// be softened by the gain/pan update micro-ramp.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
     VTXCMixerState *state,
     uint32_t voice_index,
     uint64_t scheduled_frame,

@@ -472,6 +472,19 @@ private func makeRampPlaybackSample(
     )
 }
 
+private func XCTAssertFloatArrayEqual(
+    _ actual: [Float],
+    _ expected: [Float],
+    accuracy: Float = 0.000_001,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertEqual(actual.count, expected.count, file: file, line: line)
+    for index in 0..<min(actual.count, expected.count) {
+        XCTAssertEqual(actual[index], expected[index], accuracy: accuracy, "index \(index)", file: file, line: line)
+    }
+}
+
 private func makePlaybackVolumeEnvelope(
     enabled: Bool = true,
     points: [PlaybackEnvelopePoint],
@@ -1119,6 +1132,121 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(cBlock.interleavedPCM, [0.25, 0.5])
     }
 
+    func testCSoftwareMixerGainUpdateMicroRampsInsteadOfStepping() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)))
+
+        let update = mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 1, gain: 0.5)
+        let block = mixer.render(frames: 35)
+
+        XCTAssertTrue(update.wasAccepted)
+        XCTAssertEqual(CSoftwareMixer.gainPanUpdateRampFrameCount, 32)
+        XCTAssertEqual(block.interleavedPCM[0], 1)
+        XCTAssertEqual(block.interleavedPCM[1], 0.984375, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[16], 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[32], 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[33], 0.5, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerPanUpdateMicroRampsInsteadOfStepping() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)), pan: 0)
+
+        let update = mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 1, pan: 1)
+        let block = mixer.render(frames: 35)
+
+        XCTAssertTrue(update.wasAccepted)
+        XCTAssertEqual(block.interleavedPCM[0], 1)
+        XCTAssertEqual(block.interleavedPCM[1], 1)
+        XCTAssertEqual(block.interleavedPCM[2], 0.96875, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[3], 1, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[64], 0, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[65], 1, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerCombinedGainAndPanUpdateRampsBothValues() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)), gain: 1, pan: 0)
+
+        let update = mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 1, gain: 0.5, pan: 1)
+        let block = mixer.render(frames: 35)
+
+        XCTAssertTrue(update.wasAccepted)
+        XCTAssertEqual(block.interleavedPCM[2], 0.9536133, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[3], 0.984375, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[64], 0, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[65], 0.5, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerRenderWithoutGainPanUpdatesRemainsUnchanged() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
+        _ = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1, 0.5, -0.5]), gain: 0.5, pan: -1)
+
+        let block = mixer.render(frames: 3)
+
+        XCTAssertEqual(block.interleavedPCM, [0.5, 0, 0.25, 0, -0.25, 0])
+    }
+
+    func testCSoftwareMixerGainPanUpdateAfterVoiceEndsIsSafe() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [1]))
+
+        let update = mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 2, gain: 0.25, pan: -1)
+        let block = mixer.render(frames: 4)
+
+        XCTAssertTrue(update.wasAccepted)
+        XCTAssertEqual(block.interleavedPCM, [1, 0, 0, 0])
+    }
+
+    func testCSoftwareMixerSecondUpdateDuringActiveRampStartsFromInterpolatedValue() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 80)))
+
+        XCTAssertTrue(mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 1, gain: 0).wasAccepted)
+        XCTAssertTrue(mixer.scheduleVoiceGainPanUpdate(voiceIndex: voiceIndex, scheduledFrame: 17, gain: 0.5).wasAccepted)
+        let block = mixer.render(frames: 40)
+
+        XCTAssertEqual(block.interleavedPCM[16], 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[17], 0.46972656, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[18], 0.47070312, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerImmediateGainUpdatePreservesHardCutSemantics() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 8)))
+
+        XCTAssertTrue(mixer.scheduleVoiceGainPanImmediateUpdate(voiceIndex: voiceIndex, scheduledFrame: 2, gain: 0).wasAccepted)
+        let block = mixer.render(frames: 5)
+
+        XCTAssertEqual(block.interleavedPCM, [1, 1, 0, 0, 0])
+    }
+
+    func testCSoftwareMixerGainPanRampSplitAndResetRemainDeterministic() {
+        let sample = MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 80))
+        let singleMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let splitMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let resetMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let singleVoice = singleMixer.addVoice(sample: sample)
+        let splitVoice = splitMixer.addVoice(sample: sample)
+        let resetVoice = resetMixer.addVoice(sample: sample)
+        singleMixer.scheduleVoiceGainPanUpdate(voiceIndex: singleVoice, scheduledFrame: 1, gain: 0.5)
+        splitMixer.scheduleVoiceGainPanUpdate(voiceIndex: splitVoice, scheduledFrame: 1, gain: 0.5)
+        resetMixer.scheduleVoiceGainPanUpdate(voiceIndex: resetVoice, scheduledFrame: 1, gain: 0.5)
+
+        let single = singleMixer.render(frames: 40)
+        let split = splitMixer.render(frames: 3).interleavedPCM +
+            splitMixer.render(frames: 7).interleavedPCM +
+            splitMixer.render(frames: 30).interleavedPCM
+        let resetFirst = resetMixer.render(frames: 40)
+        _ = resetMixer.render(frames: 4)
+        resetMixer.reset()
+        let resetSecond = resetMixer.render(frames: 40)
+
+        XCTAssertFloatArrayEqual(split, single.interleavedPCM)
+        XCTAssertEqual(resetFirst, resetSecond)
+        XCTAssertEqual(resetFirst, single)
+    }
+
     func testCSoftwareMixerMultipleSmallRendersMatchOneLargerRender() {
         let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.5])
         let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2))
@@ -1708,7 +1836,7 @@ final class VoodooTrackerXTests: XCTestCase {
         mixer.reset()
         let reset = mixer.render(frames: 4)
 
-        XCTAssertEqual(first.interleavedPCM, [1, 1, 1, 1, 0.25, 0.25, 0, 0.25])
+        XCTAssertFloatArrayEqual(first.interleavedPCM, [1, 1, 1, 1, 0.9765625, 0.9765625, 0.92333984, 0.953125])
         XCTAssertEqual(reset, first)
     }
 
@@ -5979,7 +6107,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 0.984375, 0.96875])
         XCTAssertEqual(update.scheduledFrame, 1)
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectiveVolumeBefore, 64)
@@ -6016,7 +6144,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
         let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.hasEmptyNote && $0.commandSource == .volumeColumn })
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 1, 0, 1, 0, 1])
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [1, 1, 0.96875, 1, 0.9375, 1])
         XCTAssertEqual(update.activeVoiceUpdated, true)
         XCTAssertEqual(update.effectivePanBefore, 0)
         XCTAssertEqual(update.effectivePanAfter, 1)
@@ -6070,11 +6198,11 @@ final class VoodooTrackerXTests: XCTestCase {
         let cxxUpdate = try XCTUnwrap(volume.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0C })
         let panUpdate = try XCTUnwrap(pan.diagnostics.voiceStateUpdates.first { $0.effectType == 0x08 })
 
-        XCTAssertEqual(volume.block.interleavedPCM, [1, 0.5, 0.5])
+        XCTAssertFloatArrayEqual(volume.block.interleavedPCM, [1, 0.984375, 0.96875])
         XCTAssertEqual(cxxUpdate.activeVoiceUpdated, true)
         XCTAssertEqual(cxxUpdate.effectiveVolumeBefore, 64)
         XCTAssertEqual(cxxUpdate.effectiveVolumeAfter, 32)
-        XCTAssertEqual(pan.block.interleavedPCM, [1, 1, 0, 1, 0, 1])
+        XCTAssertFloatArrayEqual(pan.block.interleavedPCM, [1, 1, 0.96875, 1, 0.9375, 1])
         XCTAssertEqual(panUpdate.activeVoiceUpdated, true)
         XCTAssertEqual(panUpdate.effectivePanBefore, 0)
         XCTAssertEqual(panUpdate.effectivePanAfter, 1)
@@ -6134,11 +6262,42 @@ final class VoodooTrackerXTests: XCTestCase {
         let defaultRender = renderer.render(request)
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(defaultRender.block.interleavedPCM, [1, 0.5, 0.5])
-        XCTAssertEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [1, 0.984375, 0.96875])
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
         XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 1)
         XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
         XCTAssertEqual(windowed.diagnostics.voiceStateUpdates.first?.activeVoiceUpdated, true)
+    }
+
+    func testPlaybackSongAdapterWindowedCarryoverPreservesActiveGainRampState() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 2),
+                    makePlaybackRow(index: 3)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 2)
+
+        XCTAssertFloatArrayEqual(defaultRender.block.interleavedPCM, [1, 0.984375, 0.96875, 0.953125])
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedVoices ?? 0, 0)
     }
 
     func testPlaybackSongAdapterAxyAppliesAndHxyRemainsDeferredWithDiagnostics() throws {
@@ -6184,7 +6343,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let axyUpdate = try XCTUnwrap(axy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
         let hxyUpdate = try XCTUnwrap(hxy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x11 })
 
-        XCTAssertEqual(axy.block.interleavedPCM, [1, 0.9375, 0.9375])
+        XCTAssertFloatArrayEqual(axy.block.interleavedPCM, [1, 0.9980469, 0.99609375])
         XCTAssertEqual(axyUpdate.activeVoiceUpdated, true)
         XCTAssertEqual(axyUpdate.effectiveVolumeBefore, 64)
         XCTAssertEqual(axyUpdate.effectiveVolumeAfter, 60)

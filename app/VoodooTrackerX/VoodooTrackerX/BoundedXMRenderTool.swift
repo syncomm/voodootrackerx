@@ -759,6 +759,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
                 "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
+                "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
                 "Hxy global volume slide remains diagnostic/deferred in bounded offline renders.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
                 "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
@@ -787,6 +788,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
                 "active_voice_state_update_count": diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count,
+                "gain_pan_ramp_enabled": true,
+                "gain_pan_ramp_frame_count": CSoftwareMixer.gainPanUpdateRampFrameCount,
+                "gain_pan_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
+                "gain_pan_ramped_update_count": changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates),
+                "gain_pan_interrupted_ramp_count": interruptedRampCount(diagnostics.voiceStateUpdates),
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
@@ -1025,6 +1031,44 @@ enum PlaybackSongDiagnosticsJSONExporter {
 
     private static func scheduledVoiceRejectedCount(from result: PlaybackSongOfflineRenderResult) -> Int {
         result.scheduledVoiceAttempts.compactMap(\.rejectionReason).count
+    }
+
+    private static func changedVoiceStateUpdateCount(
+        _ updates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    ) -> Int {
+        updates.filter { update in
+            update.activeVoiceUpdated &&
+                ((update.gainBefore != nil && update.gainAfter != nil && update.gainBefore != update.gainAfter) ||
+                    (update.panBefore != nil && update.panAfter != nil && update.panBefore != update.panAfter))
+        }.count
+    }
+
+    private static func interruptedRampCount(
+        _ updates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    ) -> Int {
+        var lastGainUpdateFrameByEventIndex = [Int: Int]()
+        var lastPanUpdateFrameByEventIndex = [Int: Int]()
+        var interruptedCount = 0
+        for update in updates where update.activeVoiceUpdated {
+            guard let eventIndex = update.activeEventIndex else {
+                continue
+            }
+            if update.gainBefore != update.gainAfter {
+                if let previousFrame = lastGainUpdateFrameByEventIndex[eventIndex],
+                   update.scheduledFrame - previousFrame < CSoftwareMixer.gainPanUpdateRampFrameCount {
+                    interruptedCount += 1
+                }
+                lastGainUpdateFrameByEventIndex[eventIndex] = update.scheduledFrame
+            }
+            if update.panBefore != update.panAfter {
+                if let previousFrame = lastPanUpdateFrameByEventIndex[eventIndex],
+                   update.scheduledFrame - previousFrame < CSoftwareMixer.gainPanUpdateRampFrameCount {
+                    interruptedCount += 1
+                }
+                lastPanUpdateFrameByEventIndex[eventIndex] = update.scheduledFrame
+            }
+        }
+        return interruptedCount
     }
 
     private static func scheduledVoiceRejectionCount(
@@ -1347,6 +1391,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "ignored_no_op_count": count(\.ignoredAsNoOp),
             "active_voice_updated_count": count(\.activeVoiceUpdated),
             "active_voice_not_updated_count": count { !$0.activeVoiceUpdated },
+            "gain_pan_ramp_enabled": true,
+            "gain_pan_ramp_frame_count": CSoftwareMixer.gainPanUpdateRampFrameCount,
+            "gain_pan_update_count": changedVoiceStateUpdateCount(updates),
+            "gain_pan_ramped_update_count": changedVoiceStateUpdateCount(updates),
+            "gain_pan_interrupted_ramp_count": interruptedRampCount(updates),
             "empty_note_volume_column_set_volume_applied": count {
                 $0.applied && isEmptyNoteVolumeColumnSetVolume($0)
             },
@@ -1470,6 +1519,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "deferred": update.deferred,
             "ignored_as_no_op": update.ignoredAsNoOp,
             "active_voice_updated": update.activeVoiceUpdated,
+            "gain_pan_ramp_enabled": update.activeVoiceUpdated && (update.gainBefore != update.gainAfter || update.panBefore != update.panAfter),
+            "gain_pan_ramp_frame_count": CSoftwareMixer.gainPanUpdateRampFrameCount,
         ]
         put(update.rawVolumeColumn.map { Int($0) }, forKey: "raw_volume_column", into: &object)
         put(update.effectType.map { Int($0) }, forKey: "effect_type", into: &object)
@@ -2135,8 +2186,16 @@ private func appendEventCoverageSummary(
     let appliedStateUpdates = stateUpdates.filter(\.applied).count
     let deferredStateUpdates = stateUpdates.filter(\.deferred).count
     let activeVoiceStateUpdates = stateUpdates.filter(\.activeVoiceUpdated).count
+    let rampedStateUpdates = stateUpdates.filter { update in
+        update.activeVoiceUpdated &&
+            ((update.gainBefore != nil && update.gainAfter != nil && update.gainBefore != update.gainAfter) ||
+                (update.panBefore != nil && update.panAfter != nil && update.panBefore != update.panAfter))
+    }.count
     lines.append(
         "Volume/panning state updates: \(appliedStateUpdates) applied, \(deferredStateUpdates) deferred, \(activeVoiceStateUpdates) active voice updates."
+    )
+    lines.append(
+        "Gain/pan update micro-ramp: enabled, \(CSoftwareMixer.gainPanUpdateRampFrameCount) frames, \(rampedStateUpdates) ramped active updates."
     )
     let appliedCuts = result.diagnostics.noteCutEffects.filter(\.applied).count
     let deferredCuts = result.diagnostics.noteCutEffects.filter(\.deferred).count

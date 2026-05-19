@@ -16,6 +16,52 @@ struct AudioVoiceRequest: Equatable {
     var sampleStartOffset: Int = 0
 }
 
+struct AudioRuntimeTraceContext: Equatable {
+    let orderIndex: Int?
+    let patternIndex: Int?
+    let rowIndex: Int?
+    let tickInRow: Int?
+    let channelIndex: Int?
+    let noteValue: UInt8?
+    let instrumentIndex: Int?
+    let effectType: UInt8?
+    let effectParam: UInt8?
+    let volumeColumn: UInt8?
+    let speed: Int?
+    let bpm: Int?
+    let tickIndex: UInt64?
+
+    init(
+        orderIndex: Int? = nil,
+        patternIndex: Int? = nil,
+        rowIndex: Int? = nil,
+        tickInRow: Int? = nil,
+        channelIndex: Int? = nil,
+        noteValue: UInt8? = nil,
+        instrumentIndex: Int? = nil,
+        effectType: UInt8? = nil,
+        effectParam: UInt8? = nil,
+        volumeColumn: UInt8? = nil,
+        speed: Int? = nil,
+        bpm: Int? = nil,
+        tickIndex: UInt64? = nil
+    ) {
+        self.orderIndex = orderIndex
+        self.patternIndex = patternIndex
+        self.rowIndex = rowIndex
+        self.tickInRow = tickInRow
+        self.channelIndex = channelIndex
+        self.noteValue = noteValue
+        self.instrumentIndex = instrumentIndex
+        self.effectType = effectType
+        self.effectParam = effectParam
+        self.volumeColumn = volumeColumn
+        self.speed = speed
+        self.bpm = bpm
+        self.tickIndex = tickIndex
+    }
+}
+
 enum PlaybackVolumeCalculator {
     static func clamped(_ value: Float) -> Float {
         min(1, max(0, value))

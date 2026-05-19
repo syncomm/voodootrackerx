@@ -69,6 +69,7 @@ Current stabilization note:
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
 - See `docs/decisions/005-software-mixer-core-language-boundary.md` for the architecture checkpoint that clarifies the final hot-path mixer boundary before more complex envelope, timing, and effect work.
 - See `docs/decisions/007-feature-flagged-runtime-c-mixer-backend.md` for the accepted planning guidance and initial implementation note for the opt-in runtime C mixer backend experiment. Default runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the C mixer runtime path is experimental and enabled only with `VTX_AUDIO_BACKEND=c_mixer`.
+- Runtime C mixer A/B listening diagnostics now provide local-only backend selection and event traces through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including PlaybackEngine order/row/tick context, C mixer add/clear/stop calls, render-frame counters, and explicit evidence when the current per-channel stop path clears all experimental C mixer voices. The backend remains opt-in and the per-channel voice stop/replacement fix is a separate follow-up.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -359,6 +360,16 @@ and reference comparison before any default runtime backend switch.
 - Scope: implement an opt-in runtime C mixer backend skeleton behind `VTX_AUDIO_BACKEND=c_mixer`, while keeping the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend as the default fallback.
 - Verification: app playback smoke tests, backend selection tests, fallback validation, runtime diagnostics, and no parser or tracker viewport changes.
 - Status: done.
+
+### PR 2.7.11a — Runtime C Mixer A/B Listening Diagnostics
+- Scope: add local-only diagnostics for the experimental runtime C mixer backend, including backend selection, PlaybackEngine order/row/tick/channel context, note trigger/key-off/channel-stop events, C mixer add/clear/stop calls, render-frame counters, and explicit tracing for the known per-channel stop clears-all limitation.
+- Verification: backend selection tests, runtime trace path parsing, JSONL trace tests, note trigger context tests, all-voice clear/stop trace tests, existing offline render tests, app build/test, and local-only manual smoke with generated traces kept out of git.
+- Status: done.
+
+### PR 2.7.11b — Runtime C Mixer Per-Channel Voice Stop / Replacement Semantics
+- Scope: replace the current experimental runtime clears-all stop behavior with channel-scoped voice stop/replacement semantics after trace evidence confirms the failure mode.
+- Verification: focused runtime C mixer tests, Play/Stop smoke, A/B listening traces, and no default backend switch.
+- Status: planned.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

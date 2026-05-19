@@ -142,6 +142,9 @@ typedef struct {
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
 uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void);
+uint32_t vtx_c_mixer_loaded_voice_count(const VTXCMixerState *state);
+uint32_t vtx_c_mixer_active_voice_count(const VTXCMixerState *state);
+uint64_t vtx_c_mixer_current_frame(const VTXCMixerState *state);
 VTXCMixerStatus vtx_c_mixer_init(VTXCMixerState *state, VTXCMixerConfig config);
 VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state);
 VTXCMixerStatus vtx_c_mixer_configure(VTXCMixerState *state, VTXCMixerConfig config);

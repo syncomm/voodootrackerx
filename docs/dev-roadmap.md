@@ -129,7 +129,12 @@ The bounded/offline C mixer now reports gain/pan ramp settings and counts in
 diagnostics. ADR 007's feature-flagged runtime C mixer plan now has an initial
 implementation skeleton: it remains developer opt-in, keeps the AVAudio backend
 as the default fallback, uses an AVAudioEngine-hosted pull source, and keeps
-tracker viewport, parser, and broad UI work out of the backend PR.
+tracker viewport, parser, and broad UI work out of the backend PR. Runtime C
+mixer A/B listening diagnostics now add a local-only JSONL trace for backend
+selection, PlaybackEngine order/row/tick context, note/key/stop events, C mixer
+add/clear/stop calls, render-frame counters, and the known all-voice clear
+caused by per-channel stop in the experimental runtime path. The per-channel
+voice stop/replacement semantics fix remains separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -185,7 +190,9 @@ Immediate audio accuracy sequence:
 50. Song-end duration / tail handling for vtx_render_bounded_xm — done
 51. ADR: Feature-flagged runtime C mixer backend plan — done
 52. Feature-flagged runtime C mixer backend skeleton — done
-53. Reference comparison stabilization against MikMod/OpenMPT
+53. Runtime C mixer A/B listening diagnostics — done
+54. Runtime C mixer per-channel voice stop / replacement semantics — separate later PR
+55. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -248,6 +255,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
+- local-only runtime C mixer A/B diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including all-voice clear/stop evidence for the current per-channel stop limitation
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

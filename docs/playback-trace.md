@@ -14,7 +14,7 @@ Trace export is disabled by default. In Debug builds, set
 `VTX_PLAYBACK_TRACE_PATH` to the local JSONL file path before launching the app:
 
 ```bash
-VTX_PLAYBACK_TRACE_PATH=/tmp/darkl-vtx-playback.jsonl \
+VTX_PLAYBACK_TRACE_PATH=/tmp/vtx-playback-trace.jsonl \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
@@ -28,8 +28,8 @@ xcodebuild \
   -derivedDataPath build \
   build
 
-VTX_PLAYBACK_TRACE_PATH=/tmp/darkl-vtx-playback.jsonl \
-VTX_OPEN_PATH=/path/to/local.xm \
+VTX_PLAYBACK_TRACE_PATH=/tmp/vtx-playback-trace.jsonl \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
@@ -52,6 +52,7 @@ Recorded fields include:
 - `tickIndex`, `orderIndex`, `patternIndex`, `rowIndex`, `tickInRow`
 - `speed`, `bpm`, `tickDuration`, `rowDuration`
 - `channelIndex`
+- `runtimeAudioBackend`: selected runtime backend name when available
 - `usesLinearFrequencyTable`
 - `noteValue`, `instrumentIndex`, `sampleIndex`, `relativeNote`, `finetune`
 - `effectCommand`, `effectParameter`, `effect`

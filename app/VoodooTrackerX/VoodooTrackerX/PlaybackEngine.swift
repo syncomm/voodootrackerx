@@ -6,6 +6,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
     private let audioEngine: PlaybackAudioOutput
     private let traceWriter: PlaybackTraceWriting
+    private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -27,9 +28,11 @@ final class PlaybackEngine: PlaybackTransport {
 
     init(
         audioEngine: PlaybackAudioOutput? = nil,
-        traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter()
+        traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter(),
+        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
     ) {
-        self.audioEngine = audioEngine ?? PlaybackAudioOutputFactory.make()
+        self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
+        self.audioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(runtimeCMixerTraceWriter: runtimeCMixerTraceWriter)
         self.traceWriter = traceWriter
     }
 
@@ -93,7 +96,7 @@ final class PlaybackEngine: PlaybackTransport {
         let shouldPlay = autoplay ?? state.isPlaying
         timer?.invalidate()
         timer = nil
-        audioEngine.stopAll()
+        stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "debug_seek")
         currentPosition = resolvedStart.position
         resetRuntimeState(resetTiming: true)
         activeDebugStartTraceContext = shouldPlay
@@ -132,7 +135,7 @@ final class PlaybackEngine: PlaybackTransport {
         if resetAudio {
             audioEngine.reset()
         } else {
-            audioEngine.stopAll()
+            stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "transport_stop")
         }
         currentPosition = song?.startPosition
         pendingPositionCommand = nil
@@ -156,7 +159,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         timer?.invalidate()
         timer = nil
-        audioEngine.stopAll()
+        stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "transport_pause")
         apply(action: .pause, nextState: PlaybackState(mode: .paused, context: state.context))
     }
 
@@ -351,7 +354,11 @@ final class PlaybackEngine: PlaybackTransport {
             }
             channelState.advanceEnvelopeTick()
             channelStates[channelIndex] = channelState
-            audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
+            updateAudioChannel(
+                channelIndex,
+                controls: effectiveControls(for: channelState),
+                context: runtimeTraceContext(at: position, tickInRow: tickInRow, channelIndex: channelIndex, channelState: channelState)
+            )
             traceChannelEvent(
                 at: position,
                 tickInRow: tickInRow,
@@ -361,7 +368,11 @@ final class PlaybackEngine: PlaybackTransport {
                 reason: "tick_controls_updated"
             )
             if channelState.volumeEnvelopeState.isFullyFadedOut {
-                audioEngine.stop(channel: channelIndex)
+                stopAudioChannel(
+                    channelIndex,
+                    context: runtimeTraceContext(at: position, tickInRow: tickInRow, channelIndex: channelIndex, channelState: channelState),
+                    reason: "envelope_fadeout_completed"
+                )
                 channelStates.removeValue(forKey: channelIndex)
                 continue
             }
@@ -378,7 +389,11 @@ final class PlaybackEngine: PlaybackTransport {
                   channelState.noteCutTick == 0 else {
                 continue
             }
-            audioEngine.stop(channel: channelIndex)
+            stopAudioChannel(
+                channelIndex,
+                context: runtimeTraceContext(at: currentPosition, tickInRow: 0, channelIndex: channelIndex, channelState: channelState),
+                reason: "note_cut_tick_0"
+            )
             traceChannelEvent(
                 at: currentPosition,
                 tickInRow: 0,
@@ -392,7 +407,11 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func applyTimingEffects(channelIndex: Int, channelState: PlaybackChannelState, tickInRow: Int, position: PlaybackPosition) {
         if channelState.noteCutTick == tickInRow {
-            audioEngine.stop(channel: channelIndex)
+            stopAudioChannel(
+                channelIndex,
+                context: runtimeTraceContext(at: position, tickInRow: tickInRow, channelIndex: channelIndex, channelState: channelState),
+                reason: "note_cut"
+            )
             traceChannelEvent(
                 at: position,
                 tickInRow: tickInRow,
@@ -413,7 +432,17 @@ final class PlaybackEngine: PlaybackTransport {
                 decision: .triggered,
                 reason: "delayed_note_triggered"
             )
-            trigger(delayedRequest, channelIndex: channelIndex)
+            trigger(
+                delayedRequest,
+                channelIndex: channelIndex,
+                context: runtimeTraceContext(
+                    at: position,
+                    tickInRow: tickInRow,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    request: delayedRequest
+                )
+            )
             delayedVoiceRequests[channelIndex] = nil
         }
         if let interval = channelState.retriggerInterval,
@@ -429,7 +458,17 @@ final class PlaybackEngine: PlaybackTransport {
                 decision: .retriggered,
                 reason: "retrigger_interval"
             )
-            trigger(request, channelIndex: channelIndex)
+            trigger(
+                request,
+                channelIndex: channelIndex,
+                context: runtimeTraceContext(
+                    at: position,
+                    tickInRow: tickInRow,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    request: request
+                )
+            )
         }
     }
 
@@ -465,6 +504,13 @@ final class PlaybackEngine: PlaybackTransport {
                     channelIndex: channelIndex,
                     channelState: channelState,
                     decision: .updated,
+                    reason: "key_off"
+                )
+                recordRuntimeEngineAction(
+                    action: "key_off",
+                    context: runtimeTraceContext(at: position, tickInRow: 0, channelIndex: channelIndex, channelState: channelState),
+                    targetScope: "channel",
+                    targetedAllVoices: false,
                     reason: "key_off"
                 )
                 continue
@@ -548,12 +594,33 @@ final class PlaybackEngine: PlaybackTransport {
                 decision: .triggered,
                 reason: "row_note"
             )
-            trigger(request, channelIndex: channelIndex)
+            trigger(
+                request,
+                channelIndex: channelIndex,
+                context: runtimeTraceContext(
+                    at: position,
+                    tickInRow: 0,
+                    channelIndex: channelIndex,
+                    channelState: channelState,
+                    request: request
+                )
+            )
         }
     }
 
-    private func trigger(_ request: AudioVoiceRequest, channelIndex: Int) {
-        audioEngine.trigger(request)
+    private func trigger(_ request: AudioVoiceRequest, channelIndex: Int, context: AudioRuntimeTraceContext?) {
+        recordRuntimeEngineAction(
+            action: "note_trigger",
+            context: context,
+            targetScope: "channel",
+            targetedAllVoices: false,
+            reason: "playback_engine_note_trigger"
+        )
+        if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
+            diagnosticOutput.trigger(request, context: context)
+        } else {
+            audioEngine.trigger(request)
+        }
         lastVoiceRequests[channelIndex] = request
     }
 
@@ -562,14 +629,119 @@ final class PlaybackEngine: PlaybackTransport {
             guard let channelState = channelStates[channelIndex] else {
                 continue
             }
-            audioEngine.update(channel: channelIndex, controls: effectiveControls(for: channelState))
+            updateAudioChannel(
+                channelIndex,
+                controls: effectiveControls(for: channelState),
+                context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: channelIndex, channelState: channelState)
+            )
         }
+    }
+
+    private func updateAudioChannel(_ channelIndex: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?) {
+        if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
+            diagnosticOutput.update(channel: channelIndex, controls: controls, context: context)
+        } else {
+            audioEngine.update(channel: channelIndex, controls: controls)
+        }
+    }
+
+    private func stopAudioChannel(_ channelIndex: Int, context: AudioRuntimeTraceContext?, reason: String) {
+        recordRuntimeEngineAction(
+            action: "channel_stop",
+            context: context,
+            targetScope: "channel",
+            targetedAllVoices: false,
+            reason: reason
+        )
+        if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
+            diagnosticOutput.stop(channel: channelIndex, context: context)
+        } else {
+            audioEngine.stop(channel: channelIndex)
+        }
+    }
+
+    private func stopAllAudio(context: AudioRuntimeTraceContext?, reason: String) {
+        if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
+            diagnosticOutput.stopAll(context: context, reason: reason)
+        } else {
+            audioEngine.stopAll()
+        }
+    }
+
+    private func recordRuntimeEngineAction(
+        action: String,
+        context: AudioRuntimeTraceContext?,
+        targetScope: String,
+        targetedAllVoices: Bool,
+        reason: String
+    ) {
+        guard runtimeCMixerTraceWriter.isEnabled else {
+            return
+        }
+        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .avAudio
+        runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
+            runtimeAction: action,
+            runtimeAudioBackend: backend.diagnosticName,
+            experimentalCMixerEnabled: backend == .cMixer,
+            context: context,
+            targetScope: targetScope,
+            targetedAllVoices: targetedAllVoices,
+            cMixerCallSucceeded: nil,
+            reason: reason
+        ))
     }
 
     private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {
         var controls = channelState.audioControls
         controls.volumeScale = PlaybackVolumeCalculator.clamped(controls.volumeScale * globalState.volume)
         return controls
+    }
+
+    private func runtimeTraceContext(
+        at position: PlaybackPosition?,
+        tickInRow: Int,
+        channelIndex: Int?,
+        channelState: PlaybackChannelState? = nil,
+        request: AudioVoiceRequest? = nil
+    ) -> AudioRuntimeTraceContext? {
+        guard let position else {
+            return nil
+        }
+        let traceCell: PlaybackCell?
+        if let channelIndex {
+            traceCell = cell(at: position, channelIndex: channelIndex)
+        } else {
+            traceCell = nil
+        }
+        let noteValue: UInt8?
+        if let note = traceCell?.note, note > 0 {
+            noteValue = note
+        } else if let request {
+            noteValue = request.note
+        } else {
+            noteValue = channelState?.baseNote
+        }
+        let instrumentIndex: Int?
+        if let instrument = traceCell?.instrument, instrument > 0 {
+            instrumentIndex = Int(instrument)
+        } else {
+            instrumentIndex = request?.sample.instrumentIndex
+        }
+        return AudioRuntimeTraceContext(
+            orderIndex: position.orderIndex,
+            patternIndex: position.patternIndex,
+            rowIndex: position.rowIndex,
+            tickInRow: tickInRow,
+            channelIndex: channelIndex,
+            noteValue: noteValue,
+            instrumentIndex: instrumentIndex,
+            effectType: traceCell?.effectType,
+            effectParam: traceCell?.effectParam,
+            volumeColumn: traceCell?.volumeColumn,
+            speed: timing.speed,
+            bpm: timing.bpm,
+            tickIndex: traceTickIndex
+        )
     }
 
     private func state(forChannel channelIndex: Int) -> PlaybackChannelState {
@@ -733,6 +905,7 @@ final class PlaybackEngine: PlaybackTransport {
             bpm: timing.bpm,
             tickDuration: timing.tickDuration,
             rowDuration: timing.rowDuration,
+            runtimeAudioBackend: (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.diagnosticName,
             usesLinearFrequencyTable: song?.usesLinearFrequencyTable,
             startedFromDebugSeek: debugTrace != nil,
             requestedStartOrder: debugTrace?.requestedStartOrder,

@@ -57,6 +57,13 @@ while keeping the AVAudio backend as the default. It does not add UI
 preferences, parser changes, tracker viewport changes, new XM effects, or
 parity claims.
 
+A diagnostics follow-up keeps the same ADR boundaries: `VTX_AUDIO_BACKEND`
+remains opt-in, AVAudio remains the default, and a local-only
+`VTX_C_MIXER_RUNTIME_TRACE_PATH` JSONL trace records backend selection,
+PlaybackEngine event context, runtime C mixer add/clear/stop calls, render-frame
+counters, and the known per-channel stop clears-all limitation without claiming
+runtime stability or changing tracker follow behavior.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

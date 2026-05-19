@@ -718,6 +718,29 @@ uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void) {
     return VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
 }
 
+uint32_t vtx_c_mixer_loaded_voice_count(const VTXCMixerState *state) {
+    return state == NULL ? 0u : state->voice_count;
+}
+
+uint32_t vtx_c_mixer_active_voice_count(const VTXCMixerState *state) {
+    uint32_t voice_index;
+    uint32_t active_count = 0u;
+
+    if (state == NULL) {
+        return 0u;
+    }
+    for (voice_index = 0; voice_index < state->voice_count; voice_index++) {
+        if (state->voices[voice_index].active) {
+            active_count++;
+        }
+    }
+    return active_count;
+}
+
+uint64_t vtx_c_mixer_current_frame(const VTXCMixerState *state) {
+    return state == NULL ? 0u : state->current_frame;
+}
+
 VTXCMixerStatus vtx_c_mixer_init(VTXCMixerState *state, VTXCMixerConfig config) {
     if (state == NULL) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;

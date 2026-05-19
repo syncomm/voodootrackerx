@@ -359,6 +359,35 @@ final class CSoftwareMixer {
         Self.requireOK(rampStatus)
     }
 
+    /// Tags an existing C-backed voice with an opaque caller-owned channel identifier.
+    ///
+    /// The C mixer does not interpret the tag. Runtime playback uses it to stop/release voices for one
+    /// tracker channel without clearing voices owned by other channels.
+    func setChannelTag(_ channel: Int, forVoiceAt voiceIndex: Int) {
+        precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
+        precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
+        let status = vtx_c_mixer_set_voice_channel_tag(
+            &state,
+            UInt32(voiceIndex),
+            UInt32(channel)
+        )
+        Self.requireOK(status)
+    }
+
+    /// Stops and releases C-backed voices tagged with one caller-owned channel identifier.
+    @discardableResult
+    func stopVoices(channel: Int) -> Int {
+        precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
+        var stoppedCount = UInt32(0)
+        let status = vtx_c_mixer_stop_voices_for_channel_tag(
+            &state,
+            UInt32(channel),
+            &stoppedCount
+        )
+        Self.requireOK(status)
+        return Int(stoppedCount)
+    }
+
     /// Schedules a generic gain and/or pan update for an existing offline voice.
     ///
     /// The bounded adapter owns XM command interpretation; the C mixer receives only frame-stamped gain/pan

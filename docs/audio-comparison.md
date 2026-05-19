@@ -146,19 +146,16 @@ VTX_DEBUG_STOP_AFTER_SECONDS=45 \
 
 The runtime C mixer trace records backend selection, PlaybackEngine
 order/pattern/row/tick/channel context, note trigger and key-off events, C mixer
-add-voice calls, unsupported runtime update calls, per-channel stops, all-voice
-clear/stop calls, C call success/failure when available, active/loaded voice
-counts when available, and approximate C mixer render cursor/frame counters.
+add-voice calls, unsupported runtime update calls, channel-scoped voice stops,
+true global clear/stop calls, C call success/failure when available, voices
+stopped counts when available, active/loaded voice counts before and after stop
+actions when available, and approximate C mixer render cursor/frame counters.
 This makes it possible to check whether note events continue after an audible
 drop, whether the C backend continues receiving events, and whether an
-all-voice clear/stop coincides with the dropout.
-
-One current known limitation is intentionally visible in the trace:
-per-channel runtime C mixer stop/replacement currently clears all C mixer
-voices. Look for `channel_stop` followed by `c_mixer_clear_all` with reason
-`per_channel_stop_currently_clears_all_runtime_c_voices`. If local listening
-shows the audible drop correlates with that all-voice clear, the next focused
-PR should be Runtime C Mixer Per-Channel Voice Stop / Replacement Semantics.
+unexpected all-voice clear/stop coincides with the dropout. Channel stop and
+same-channel note replacement in the experimental runtime C mixer path should
+now emit `c_mixer_stop_channel` rather than `c_mixer_clear_all`. True transport
+stop/reset actions still emit `c_mixer_clear_all` and target all channels.
 
 Runtime traces, playback traces, logs, screenshots, WAVs, JSON reports, and
 notes derived from private/local modules must remain under `/tmp` or another

@@ -17,6 +17,34 @@ DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "EEx pattern delay"}
+PITCH_LABEL_TO_CATEGORY = {
+    "0xy arpeggio": "arpeggio",
+    "1xx portamento up": "portamento",
+    "2xx portamento down": "portamento",
+    "3xx tone portamento": "portamento",
+    "5xy tone portamento + volume slide": "portamento",
+    "tone portamento": "portamento",
+    "volume-column tone portamento": "portamento",
+    "4xy vibrato": "vibrato",
+    "6xy vibrato + volume slide": "vibrato",
+    "vibrato speed": "vibrato",
+    "vibrato": "vibrato",
+    "volume-column vibrato speed": "vibrato",
+    "volume-column vibrato": "vibrato",
+    "7xy tremolo": "tremolo",
+}
+PITCH_CATEGORY_DISPLAY = {
+    "arpeggio": "Arpeggio",
+    "portamento": "Portamento",
+    "vibrato": "Vibrato",
+    "tremolo": "Tremolo",
+}
+PITCH_CATEGORY_RECOMMENDATIONS = {
+    "arpeggio": "Minimal Arpeggio 0xy for Bounded Offline Renders",
+    "portamento": "Minimal Portamento Foundation",
+    "vibrato": "Minimal Vibrato Foundation",
+    "tremolo": "Minimal Tremolo 7xy",
+}
 
 
 class CorrelationError(Exception):
@@ -32,6 +60,7 @@ class CommandOccurrence:
     channel: Any
     start_frame: int | None
     end_frame: int | None
+    parameter: Any = None
     window_ranks: tuple[int, ...] = ()
 
 
@@ -276,6 +305,12 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "3xx tone portamento"
     if effect_type == 0x04:
         return "4xy vibrato"
+    if effect_type == 0x05:
+        return "5xy tone portamento + volume slide"
+    if effect_type == 0x06:
+        return "6xy vibrato + volume slide"
+    if effect_type == 0x07:
+        return "7xy tremolo"
     if effect_type == 0x09:
         return "900 sample offset / effect memory" if effect_param == 0 else "9xx sample offset"
     if effect_type == 0x0A:
@@ -456,6 +491,7 @@ def extract_command_occurrences(
                 channel=channel,
                 start_frame=start_frame,
                 end_frame=end_frame,
+                parameter=effect_param,
             ))
         elif domain == "volume_column" and source_key(source, channel) not in volume_mapping_keys:
             volume_column = nested_dict(field.get("volume_column"))
@@ -468,6 +504,7 @@ def extract_command_occurrences(
                 channel=channel,
                 start_frame=start_frame,
                 end_frame=end_frame,
+                parameter=volume_column.get("raw_value", field.get("volume_column_raw")),
             ))
 
     for sample_offset in nested_list(diagnostics.get("sample_offset_effects")):
@@ -482,6 +519,7 @@ def extract_command_occurrences(
             channel=sample_offset.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=sample_offset.get("effect_param"),
         ))
 
     for note_cut in nested_list(diagnostics.get("note_cut_effects")):
@@ -496,6 +534,7 @@ def extract_command_occurrences(
             channel=note_cut.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=note_cut.get("effect_param"),
         ))
 
     for note_delay in nested_list(diagnostics.get("note_delay_effects")):
@@ -510,6 +549,7 @@ def extract_command_occurrences(
             channel=note_delay.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=note_delay.get("effect_param"),
         ))
 
     for retrigger in nested_list(diagnostics.get("retrigger_effects")):
@@ -531,6 +571,7 @@ def extract_command_occurrences(
             channel=retrigger.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=retrigger.get("effect_param"),
         ))
 
     if not nested_list(diagnostics.get("sample_offset_effects")):
@@ -546,6 +587,7 @@ def extract_command_occurrences(
                 channel=event.get("channel_index"),
                 start_frame=event.get("_start_frame"),
                 end_frame=event.get("_end_frame"),
+                parameter=sample_offset.get("effect_param"),
             ))
 
     for change in changes:
@@ -558,6 +600,7 @@ def extract_command_occurrences(
             channel=change.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=change.get("effect_param"),
         ))
 
     for mapping in nested_list(diagnostics.get("volume_column_mappings")):
@@ -573,6 +616,7 @@ def extract_command_occurrences(
             channel=mapping.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=volume_column.get("raw_value"),
         ))
 
     for update in nested_list(diagnostics.get("volume_panning_state_updates")):
@@ -601,6 +645,7 @@ def extract_command_occurrences(
             channel=update.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
+            parameter=update.get("effect_param", update.get("raw_volume_column")),
         ))
 
     return occurrences
@@ -800,6 +845,7 @@ def build_correlation_report(
         nested_dict(diagnostics.get("traversal_hazard_summary")),
         traversal_effects,
     )
+    append_pitch_modulation_summary(lines, command_occurrences)
 
     lines.extend([
         "",
@@ -993,6 +1039,131 @@ def append_traversal_hazard_summary(
         )
 
 
+def append_pitch_modulation_summary(
+    lines: list[str],
+    occurrences: list[CommandOccurrence],
+) -> None:
+    pitch_occurrences = pitch_modulation_occurrences(occurrences)
+    overall_counts = pitch_category_counts(pitch_occurrences)
+    near_window_occurrences = [occurrence for occurrence in pitch_occurrences if occurrence.window_ranks]
+    near_counts = pitch_category_counts(near_window_occurrences)
+    recommendation, rationale, ranking = recommend_pitch_effect_pr(pitch_occurrences)
+
+    lines.extend([
+        "",
+        "## Pitch Modulation / Deferred Effect Diagnostics",
+        f"- Arpeggio: {overall_counts['arpeggio']} overall, {near_counts['arpeggio']} near top mismatch windows",
+        f"- Portamento: {overall_counts['portamento']} overall, {near_counts['portamento']} near top mismatch windows",
+        f"- Vibrato: {overall_counts['vibrato']} overall, {near_counts['vibrato']} near top mismatch windows",
+        f"- Tremolo: {overall_counts['tremolo']} overall, {near_counts['tremolo']} near top mismatch windows",
+        f"- Recommended next pitch-effect PR: {recommendation}",
+        f"- Pitch-effect rationale: {rationale}",
+    ])
+
+    if not pitch_occurrences:
+        lines.append("- Deferred pitch-modulation effect coordinates: none")
+        return
+
+    dominant_category = ranking[0][0] if ranking else dominant_pitch_category(overall_counts)
+    if dominant_category is None:
+        lines.append("- First dominant deferred pitch-modulation coordinates: none")
+        return
+    dominant_near = [
+        occurrence for occurrence in near_window_occurrences
+        if PITCH_LABEL_TO_CATEGORY.get(occurrence.label) == dominant_category
+    ]
+    dominant_all = [
+        occurrence for occurrence in pitch_occurrences
+        if PITCH_LABEL_TO_CATEGORY.get(occurrence.label) == dominant_category
+    ]
+    examples = dominant_near or dominant_all
+    if not examples:
+        lines.append("- First dominant deferred pitch-modulation coordinates: none")
+        return
+
+    lines.extend([
+        "",
+        "### First dominant deferred pitch-modulation coordinates",
+        "| Category | Effect | Status | Source | Channel | Param | Worst Windows |",
+        "| --- | --- | --- | --- | ---: | ---: | --- |",
+    ])
+    for occurrence in examples[:MAX_EXAMPLES_PER_COMMAND]:
+        windows = ", ".join(str(rank) for rank in occurrence.window_ranks) if occurrence.window_ranks else "not in top windows"
+        category = PITCH_CATEGORY_DISPLAY.get(
+            PITCH_LABEL_TO_CATEGORY.get(occurrence.label, ""),
+            "Pitch modulation",
+        )
+        lines.append(
+            f"| {category} | {occurrence.label} | {occurrence.status} | "
+            f"{source_label(occurrence.source)} | {format_optional(occurrence.channel)} | "
+            f"{format_optional(occurrence.parameter)} | {windows} |"
+        )
+
+
+def pitch_modulation_occurrences(
+    occurrences: list[CommandOccurrence],
+) -> list[CommandOccurrence]:
+    return [
+        occurrence for occurrence in occurrences
+        if occurrence.status.startswith("deferred")
+        and occurrence.label in PITCH_LABEL_TO_CATEGORY
+    ]
+
+
+def pitch_category_counts(
+    occurrences: list[CommandOccurrence],
+) -> Counter:
+    counts: Counter = Counter()
+    for occurrence in occurrences:
+        category = PITCH_LABEL_TO_CATEGORY.get(occurrence.label)
+        if category is not None:
+            counts[category] += 1
+    return counts
+
+
+def dominant_pitch_category(counts: Counter) -> str | None:
+    ranked = sorted(
+        ((category, counts[category]) for category in PITCH_CATEGORY_DISPLAY if counts[category] > 0),
+        key=lambda item: (-item[1], item[0]),
+    )
+    return ranked[0][0] if ranked else None
+
+
+def recommend_pitch_effect_pr(
+    occurrences: list[CommandOccurrence],
+) -> tuple[str, str, list[tuple[str, int]]]:
+    near = [occurrence for occurrence in occurrences if occurrence.window_ranks]
+    evidence = near if near else occurrences
+    counts = pitch_category_counts(evidence)
+    ranking = sorted(
+        [(category, counts[category]) for category in PITCH_CATEGORY_DISPLAY if counts[category] > 0],
+        key=lambda item: (-item[1], item[0]),
+    )
+    if not ranking:
+        return (
+            "No clear pitch-effect target",
+            "No deferred arpeggio, portamento, vibrato, or tremolo diagnostics were present.",
+            [],
+        )
+
+    top_category, top_score = ranking[0]
+    total = sum(score for _, score in ranking)
+    tied = len(ranking) > 1 and ranking[1][1] == top_score
+    minimum_score = max(2, math.ceil(total * 0.4))
+    if tied or top_score < minimum_score:
+        return (
+            "No clear pitch-effect target",
+            "Deferred pitch-modulation counts are sparse or split across categories.",
+            ranking,
+        )
+
+    return (
+        PITCH_CATEGORY_RECOMMENDATIONS[top_category],
+        "This heuristic ranks deferred pitch-modulation diagnostics in the top mismatch windows when present, otherwise overall bounded diagnostics.",
+        ranking,
+    )
+
+
 def traversal_counts(traversal_effects: list[dict[str, Any]]) -> Counter:
     return Counter(
         effect.get("effect_label", effect.get("decoded_label"))
@@ -1178,8 +1349,7 @@ def recommend_next_pr(
 ) -> tuple[str, str, list[tuple[str, int]]]:
     deferred_worst = [
         occurrence for occurrence in occurrences
-        if occurrence.domain == "effect"
-        and occurrence.status.startswith("deferred")
+        if occurrence.status.startswith("deferred")
         and occurrence.window_ranks
     ]
     traversal_effects = traversal_effects or []
@@ -1187,7 +1357,7 @@ def recommend_next_pr(
     if not deferred_worst and not traversal_signals:
         return (
             "No clear single target; review local listening/correlation evidence or improve diagnostics.",
-            "No deferred effect-column command or traversal hazard appears in or before the top mismatch windows.",
+            "No deferred command or traversal hazard appears in or before the top mismatch windows.",
             [],
         )
 
@@ -1212,6 +1382,11 @@ def recommend_next_pr(
         "Minimal Pattern Delay EEx for Bounded Offline Renders":
             traversal_delay_score,
     }
+    pitch_recommendation, _, pitch_ranking = recommend_pitch_effect_pr(
+        [occurrence for occurrence in deferred_worst if occurrence.label in PITCH_LABEL_TO_CATEGORY]
+    )
+    if pitch_ranking and pitch_recommendation != "No clear pitch-effect target":
+        scores[pitch_recommendation] = pitch_ranking[0][1]
     ranking = sorted(
         [(label, score) for label, score in scores.items() if score > 0],
         key=lambda item: (-item[1], item[0]),

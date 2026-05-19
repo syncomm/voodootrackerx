@@ -76,6 +76,10 @@ correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column, volume-column, and
 volume/panning state-update command frequency for focused follow-up diagnosis.
+It now also reports deferred pitch-modulation counts and source coordinates for
+arpeggio, portamento, vibrato, tremolo, and volume-column vibrato/tone-portamento
+commands, with a conservative pitch-effect next-PR recommendation when one
+bucket dominates local evidence.
 Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
 break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
@@ -156,8 +160,9 @@ Immediate audio accuracy sequence:
 44. Mixer click / discontinuity diagnostics for candidate WAVs — done
 45. Gain / pan update micro-ramping for bounded offline renders — done
 46. Minimal retrigger E9x for bounded offline renders — done
-47. Feature-flagged runtime backend switch
-48. Reference comparison stabilization against MikMod/OpenMPT
+47. Portamento / Vibrato / Arpeggio Diagnostics for Bounded Offline Renders — done
+48. Feature-flagged runtime backend switch
+49. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

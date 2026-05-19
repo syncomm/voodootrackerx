@@ -77,11 +77,23 @@ separated from fallback-heavy mapped-sample behavior, invalid maps, and current
 C mixer capacity limits. When missing notes line up with capacity diagnostics,
 check the scheduled capacity, active capacity, rejected count, and rejected
 event coordinates before choosing an effect-handling PR.
+For long candidate renders, treat `scheduled_voice_capacity` as distinct from
+active voice pressure: it can mean the helper scheduled too many future events
+into the fixed offline pool up front, even when active mixer capacity is mostly
+not the limiting factor. That points to a later chunked/windowed offline render
+scheduling PR rather than another fixed-capacity increase.
 The same report also summarizes applied, ignored/no-op, deferred/unsupported,
 and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
+Candidate diagnostics now include a pattern traversal/timing hazard summary for
+wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
+pattern break, `EEx` pattern delay, contextual `Fxx` timing changes, and other
+observed `E` subcommands while keeping `Bxx`, `Dxx`, and `EEx`
+diagnostic/deferred only. The correlation report includes these hazards near
+worst mismatch windows and can conservatively recommend a traversal-focused PR
+when those hazards dominate the local evidence.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 
@@ -177,6 +189,9 @@ automatic fix.
    out-of-range `9xx`, C mixer scheduled/active capacity rejections with
    rejected coordinates, and deferred effect interactions should each guide a
    separate targeted follow-up PR.
+   When the problem sounds like wrong song structure or groove, inspect the
+   pattern traversal/timing hazard section for `Bxx`, `Dxx`, `EEx`, contextual
+   `Fxx`, and nearby `E` subcommands before choosing an implementation PR.
 6. Copy `docs/templates/local-audio-comparison-findings.md` to a local path
    such as
    `/tmp/vtx-local-reference-comparison/local-module-order-10-audio-findings.md`,
@@ -258,6 +273,9 @@ ranges, then lists:
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
   counts, and overall bounded command frequency
+- pattern traversal/timing hazards near the worst windows, including `Bxx`,
+  `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands when
+  diagnostics JSON contains them
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as note
@@ -279,11 +297,13 @@ resampling details or reference-render settings may be the better next
 investigation.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
-before implementing more effects. If sample-map selections remain low for a bounded target, confirm
+before implementing more effects. In long/full-song renders, separate
+`scheduled_voice_capacity` from active capacity symptoms before deciding whether
+the next PR should be chunked/windowed scheduling or effect traversal. If sample-map selections remain low for a bounded target, confirm
 whether the local module's active instruments actually map those notes to
 multiple playable samples before treating it as an adapter bug. Keep capacity
-fixes, sample-offset refinements, traversal diagnostics, and effect handling as
-separate targeted follow-up PRs.
+fixes, sample-offset refinements, traversal behavior implementation, and effect
+handling as separate targeted follow-up PRs.
 The recommendation line is a heuristic summary of the bounded diagnostics; it
 is not an automatic correctness decision and should be checked against listening
 notes, renderer settings, and the actual row/event context before opening the

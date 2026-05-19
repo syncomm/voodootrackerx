@@ -56,8 +56,11 @@ optionally export local bounded adapter diagnostics JSON, and a local
 correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column and volume-column command
-frequency for focused follow-up diagnosis; filled reports and generated audio
-artifacts stay outside git. The developer-only helper keeps its default
+frequency for focused follow-up diagnosis. Bounded diagnostics also count
+pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
+break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
+subcommands without implementing traversal behavior; filled reports and
+generated audio artifacts stay outside git. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. Bounded adapter event-coverage diagnostics now compare
@@ -104,8 +107,11 @@ Immediate audio accuracy sequence:
 34. Bounded adapter event coverage / missing note trigger diagnostics — done
 35. PlaybackSong adapter instrument sample-map/keymap support — done
 36. C mixer scheduled voice capacity / diagnostics hardening — done
-37. Feature-flagged runtime backend switch
-38. Reference comparison stabilization against MikMod/OpenMPT
+37. Pattern traversal / Bxx-Dxx-EEx diagnostics for bounded offline renders — done
+38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`EEx` — separate later PR
+39. Chunked/windowed offline render scheduling for long candidate WAV exports — separate later PR
+40. Feature-flagged runtime backend switch
+41. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -199,6 +205,9 @@ Features:
 - fixed 256-voice scheduled/active C mixer storage for bounded offline renders,
   with diagnostics for configured capacities, accepted scheduled voices, reject
   counts, and rejected event coordinates
+- pattern traversal/timing hazard diagnostics for bounded offline renders,
+  reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
+  subcommands while keeping actual traversal implementation separate
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 
 ---

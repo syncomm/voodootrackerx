@@ -16,6 +16,7 @@ from typing import Any
 DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
+TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "EEx pattern delay"}
 
 
 class CorrelationError(Exception):
@@ -493,9 +494,59 @@ def tag_occurrences_with_windows(
     return tagged
 
 
+def normalize_traversal_effects(
+    diagnostics: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    effects: list[dict[str, Any]] = []
+    for raw_effect in nested_list(diagnostics.get("pattern_traversal_timing_effects")):
+        if not isinstance(raw_effect, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(raw_effect, rows_by_source, rows_by_synthetic)
+        effects.append({
+            **raw_effect,
+            "_start_frame": start_frame,
+            "_end_frame": end_frame,
+            "_window_relations": [],
+        })
+    effects.sort(key=lambda item: (
+        sort_int(item.get("_start_frame")),
+        sort_int(nested_dict(item.get("source")).get("order")),
+        sort_int(nested_dict(item.get("source")).get("row")),
+        sort_int(item.get("channel_index")),
+    ))
+    return effects
+
+
+def tag_traversal_effects_with_windows(
+    effects: list[dict[str, Any]],
+    windows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tagged = []
+    for effect in effects:
+        start_frame = integer(effect.get("_start_frame"))
+        end_frame = integer(effect.get("_end_frame"))
+        relations = []
+        if start_frame is not None and end_frame is not None:
+            for window in windows:
+                rank = int(window["_rank"])
+                if overlaps(start_frame, end_frame, window["_start_frame"], window["_end_frame"]):
+                    relations.append(f"{rank} overlaps")
+                elif start_frame <= window["_end_frame"]:
+                    relations.append(f"{rank} before")
+        tagged.append({**effect, "_window_relations": relations})
+    return tagged
+
+
 def int_or_none(value: Any) -> int | None:
     parsed = integer(value)
     return parsed if parsed is not None else None
+
+
+def sort_int(value: Any) -> int:
+    parsed = integer(value)
+    return parsed if parsed is not None else sys.maxsize
 
 
 def correlated_windows(
@@ -580,6 +631,10 @@ def build_correlation_report(
         extract_command_occurrences(diagnostics, events, rows, changes),
         windows,
     )
+    traversal_effects = tag_traversal_effects_with_windows(
+        normalize_traversal_effects(diagnostics, rows),
+        windows,
+    )
     render = nested_dict(diagnostics.get("render"))
     correlated = correlated_windows(windows, events, rows, changes)
 
@@ -613,6 +668,11 @@ def build_correlation_report(
         if interpolation:
             lines.append(f"- Sample interpolation: {interpolation}")
     append_event_coverage_summary(lines, nested_dict(diagnostics.get("event_coverage")))
+    append_traversal_hazard_summary(
+        lines,
+        nested_dict(diagnostics.get("traversal_hazard_summary")),
+        traversal_effects,
+    )
 
     lines.extend([
         "",
@@ -645,7 +705,7 @@ def build_correlation_report(
         lines.extend(["", "#### Relevant Fxx Timing Changes"])
         append_timing_change_table(lines, item["timing_changes"])
 
-    append_command_frequency_summary(lines, command_occurrences)
+    append_command_frequency_summary(lines, command_occurrences, traversal_effects)
 
     lines.extend([
         "",
@@ -713,6 +773,102 @@ def append_event_coverage_summary(lines: list[str], coverage: dict[str, Any]) ->
         lines.append("- First skipped note coordinates: none")
 
 
+def append_traversal_hazard_summary(
+    lines: list[str],
+    summary: dict[str, Any],
+    traversal_effects: list[dict[str, Any]],
+) -> None:
+    derived_counts = traversal_counts(traversal_effects)
+    bxx_count = integer(summary.get("total_bxx_position_jump"))
+    dxx_count = integer(summary.get("total_dxx_pattern_break"))
+    eex_count = integer(summary.get("total_eex_pattern_delay"))
+    fxx_count = integer(summary.get("total_fxx_speed_bpm"))
+    other_e_count = integer(summary.get("total_other_e_commands"))
+    total_hazards = integer(summary.get("total_traversal_hazards"))
+    if bxx_count is None:
+        bxx_count = derived_counts["Bxx position jump"]
+    if dxx_count is None:
+        dxx_count = derived_counts["Dxx pattern break"]
+    if eex_count is None:
+        eex_count = derived_counts["EEx pattern delay"]
+    if fxx_count is None:
+        fxx_count = sum(1 for effect in traversal_effects if effect.get("effect_label") == "Fxx speed/BPM")
+    if other_e_count is None:
+        other_e_count = sum(
+            1 for effect in traversal_effects
+            if int_or_none(effect.get("effect_type")) == 0x0E
+            and effect.get("effect_label") != "EEx pattern delay"
+        )
+    if total_hazards is None:
+        total_hazards = bxx_count + dxx_count + eex_count
+    likely_ignores = summary.get("likely_ignores_structure_changing_behavior")
+    if not isinstance(likely_ignores, bool):
+        likely_ignores = total_hazards > 0
+
+    lines.extend([
+        "",
+        "## Pattern Traversal / Timing Hazards",
+        f"- Bxx position jumps: {bxx_count}",
+        f"- Dxx pattern breaks: {dxx_count}",
+        f"- EEx pattern delays: {eex_count}",
+        f"- Fxx speed/BPM timing changes: {fxx_count}",
+        f"- Other E-command diagnostics: {other_e_count}",
+        f"- Total traversal hazards: {total_hazards}",
+        f"- Bounded render likely ignores structure-changing behavior: {str(likely_ignores).lower()}",
+    ])
+
+    e_counts = [
+        item for item in nested_list(summary.get("e_command_subtype_counts"))
+        if isinstance(item, dict)
+    ]
+    if e_counts:
+        lines.append(
+            "- E-command subtype counts: "
+            + ", ".join(
+                f"{format_optional(item.get('label'))}={format_optional(item.get('count'))}"
+                for item in e_counts
+            )
+        )
+
+    hazards_near_windows = [
+        effect for effect in traversal_effects
+        if is_traversal_hazard_effect(effect) and effect.get("_window_relations")
+    ]
+    if not hazards_near_windows:
+        lines.append("- Traversal hazards in or before top mismatch windows: none")
+        return
+
+    lines.extend([
+        "",
+        "| Effect | Status | Source | Channel | Param | Window Relation |",
+        "| --- | --- | --- | ---: | ---: | --- |",
+    ])
+    for effect in hazards_near_windows[:10]:
+        lines.append(
+            f"| {format_optional(effect.get('effect_label', effect.get('decoded_label')))} | "
+            f"{format_optional(effect.get('current_status', effect.get('status')))} | "
+            f"{source_label(nested_dict(effect.get('source')))} | "
+            f"{format_optional(effect.get('channel_index'))} | "
+            f"{format_optional(effect.get('effect_param'))} | "
+            f"{'; '.join(effect.get('_window_relations', []))} |"
+        )
+
+
+def traversal_counts(traversal_effects: list[dict[str, Any]]) -> Counter:
+    return Counter(
+        effect.get("effect_label", effect.get("decoded_label"))
+        for effect in traversal_effects
+        if is_traversal_hazard_effect(effect)
+    )
+
+
+def is_traversal_hazard_effect(effect: dict[str, Any]) -> bool:
+    if bool(effect.get("is_traversal_hazard")):
+        return True
+    label = effect.get("effect_label", effect.get("decoded_label"))
+    return label in TRAVERSAL_HAZARD_LABELS
+
+
 def skipped_note_label(item: dict[str, Any]) -> str:
     source = source_label(nested_dict(item.get("source")))
     return (
@@ -722,7 +878,11 @@ def skipped_note_label(item: dict[str, Any]) -> str:
     )
 
 
-def append_command_frequency_summary(lines: list[str], occurrences: list[CommandOccurrence]) -> None:
+def append_command_frequency_summary(
+    lines: list[str],
+    occurrences: list[CommandOccurrence],
+    traversal_effects: list[dict[str, Any]],
+) -> None:
     lines.extend([
         "",
         "## Effect And Volume Command Frequency",
@@ -778,7 +938,7 @@ def append_command_frequency_summary(lines: list[str], occurrences: list[Command
         "Overall deferred command frequency in bounded render",
         [occurrence for occurrence in occurrences if occurrence.status.startswith("deferred")],
     )
-    append_recommendation(lines, occurrences)
+    append_recommendation(lines, occurrences, traversal_effects)
 
 
 def filtered_occurrences(
@@ -853,8 +1013,12 @@ def occurrence_source_label(occurrence: CommandOccurrence) -> str:
     return f"{source} ch {channel}"
 
 
-def append_recommendation(lines: list[str], occurrences: list[CommandOccurrence]) -> None:
-    recommendation, rationale, ranking = recommend_next_pr(occurrences)
+def append_recommendation(
+    lines: list[str],
+    occurrences: list[CommandOccurrence],
+    traversal_effects: list[dict[str, Any]],
+) -> None:
+    recommendation, rationale, ranking = recommend_next_pr(occurrences, traversal_effects)
     lines.extend([
         "",
         "### Candidate next PR ranking",
@@ -869,21 +1033,34 @@ def append_recommendation(lines: list[str], occurrences: list[CommandOccurrence]
         lines.append(f"  - {label}: {score}")
 
 
-def recommend_next_pr(occurrences: list[CommandOccurrence]) -> tuple[str, str, list[tuple[str, int]]]:
+def recommend_next_pr(
+    occurrences: list[CommandOccurrence],
+    traversal_effects: list[dict[str, Any]] | None = None,
+) -> tuple[str, str, list[tuple[str, int]]]:
     deferred_worst = [
         occurrence for occurrence in occurrences
         if occurrence.domain == "effect"
         and occurrence.status.startswith("deferred")
         and occurrence.window_ranks
     ]
-    if not deferred_worst:
+    traversal_effects = traversal_effects or []
+    traversal_signals = traversal_signal_counts(traversal_effects)
+    if not deferred_worst and not traversal_signals:
         return (
             "No clear single target; review local listening/correlation evidence or improve diagnostics.",
-            "No deferred effect-column command appears in the top mismatch windows.",
+            "No deferred effect-column command or traversal hazard appears in or before the top mismatch windows.",
             [],
         )
 
     label_counts = Counter(occurrence.label for occurrence in deferred_worst)
+    traversal_break_jump_score = max(
+        label_counts["Dxx pattern break"] + label_counts["Bxx position jump"],
+        traversal_signals["Dxx pattern break"] + traversal_signals["Bxx position jump"],
+    )
+    traversal_delay_score = max(
+        label_counts["EEx pattern delay"],
+        traversal_signals["EEx pattern delay"],
+    )
     scores = {
         "Minimal Note Cut ECx / Note Delay EDx for Bounded Offline Renders":
             label_counts["ECx note cut"] + label_counts["EDx note delay"],
@@ -891,8 +1068,10 @@ def recommend_next_pr(occurrences: list[CommandOccurrence]) -> tuple[str, str, l
             label_counts["E9x retrigger"],
         "Sample Offset 900 Effect Memory Follow-Up":
             label_counts["900 sample offset / effect memory"],
-        "Pattern Control Effects Dxx/Bxx/EEx for Bounded Offline Traversal":
-            label_counts["Dxx pattern break"] + label_counts["Bxx position jump"] + label_counts["EEx pattern delay"],
+        "Minimal Pattern Break Dxx / Position Jump Bxx for Bounded Offline Traversal":
+            traversal_break_jump_score,
+        "Minimal Pattern Delay EEx for Bounded Offline Renders":
+            traversal_delay_score,
     }
     ranking = sorted(
         [(label, score) for label, score in scores.items() if score > 0],
@@ -906,7 +1085,7 @@ def recommend_next_pr(occurrences: list[CommandOccurrence]) -> tuple[str, str, l
         )
 
     top_label, top_score = ranking[0]
-    total = sum(label_counts.values())
+    total = max(sum(label_counts.values()), sum(traversal_signals.values()))
     tied = len(ranking) > 1 and ranking[1][1] == top_score
     minimum_score = 1 if total == 1 else max(2, math.ceil(total * 0.4))
     if tied or top_score < minimum_score:
@@ -917,9 +1096,30 @@ def recommend_next_pr(occurrences: list[CommandOccurrence]) -> tuple[str, str, l
         )
     return (
         top_label,
-        "This heuristic only ranks deferred effect commands near the top mismatch windows; it is not an automatic correctness decision.",
+        "This heuristic only ranks deferred effect commands and traversal hazards in or before the top mismatch windows; it is not an automatic correctness decision.",
         ranking,
     )
+
+
+def traversal_signal_counts(traversal_effects: list[dict[str, Any]]) -> Counter:
+    counts: Counter = Counter()
+    seen = set()
+    for effect in traversal_effects:
+        if not is_traversal_hazard_effect(effect) or not effect.get("_window_relations"):
+            continue
+        label = effect.get("effect_label", effect.get("decoded_label"))
+        if label not in TRAVERSAL_HAZARD_LABELS:
+            continue
+        identity = (
+            source_key(nested_dict(effect.get("source")), effect.get("channel_index")),
+            int_or_none(effect.get("effect_type")),
+            int_or_none(effect.get("effect_param")),
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        counts[label] += 1
+    return counts
 
 
 def append_row_table(lines: list[str], rows: list[dict[str, Any]]) -> None:

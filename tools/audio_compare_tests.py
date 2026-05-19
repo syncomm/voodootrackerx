@@ -253,6 +253,39 @@ def deferred_effect_field(effect_type, effect_param, row=4, channel=1):
     }
 
 
+def traversal_effect(effect_type, effect_param, label, row=4, channel=1, status="deferred/unsupported"):
+    return {
+        "source": {"order": 0, "pattern": 2, "row": row},
+        "channel_index": channel,
+        "effect_type": effect_type,
+        "effect_param": effect_param,
+        "effect_label": label,
+        "decoded_label": label,
+        "status": status,
+        "current_status": status,
+        "is_traversal_hazard": label in {"Bxx position jump", "Dxx pattern break", "EEx pattern delay"},
+    }
+
+
+def traversal_summary(effects):
+    return {
+        "total_bxx_position_jump": sum(1 for effect in effects if effect["effect_label"] == "Bxx position jump"),
+        "total_dxx_pattern_break": sum(1 for effect in effects if effect["effect_label"] == "Dxx pattern break"),
+        "total_eex_pattern_delay": sum(1 for effect in effects if effect["effect_label"] == "EEx pattern delay"),
+        "total_fxx_speed_bpm": sum(1 for effect in effects if effect["effect_label"] == "Fxx speed/BPM"),
+        "total_other_e_commands": sum(
+            1 for effect in effects
+            if effect["effect_type"] == 0x0E and effect["effect_label"] != "EEx pattern delay"
+        ),
+        "total_traversal_hazards": sum(1 for effect in effects if effect["is_traversal_hazard"]),
+        "likely_ignores_structure_changing_behavior": any(effect["is_traversal_hazard"] for effect in effects),
+        "first_traversal_hazard_coordinates": [
+            effect for effect in effects if effect["is_traversal_hazard"]
+        ][:10],
+        "e_command_subtype_counts": [],
+    }
+
+
 def deferred_volume_mapping(raw_value, command_name, channel=2):
     return {
         "source": {"order": 0, "pattern": 2, "row": 4},
@@ -740,6 +773,60 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Top skip reasons: missing_instrument=1, sample_pcm_empty=1", markdown)
             self.assertIn("- C mixer scheduling: 1/1 accepted, 0 rejected, scheduled capacity 256, active capacity 256", markdown)
             self.assertIn("reason missing_instrument", markdown)
+
+    def test_correlation_markdown_includes_traversal_hazard_section(self):
+        effects = [
+            traversal_effect(0x0B, 0x02, "Bxx position jump", channel=1),
+            traversal_effect(0x0D, 0x10, "Dxx pattern break", channel=2),
+            traversal_effect(0x0E, 0xE2, "EEx pattern delay", channel=3),
+            traversal_effect(0x0F, 0x06, "Fxx speed/BPM", channel=4, status="applied"),
+            traversal_effect(0x0E, 0x94, "E9x retrigger", channel=5),
+        ]
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["pattern_traversal_timing_effects"] = effects
+        diagnostics["traversal_hazard_summary"] = traversal_summary(effects)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Pattern Traversal / Timing Hazards", markdown)
+            self.assertIn("- Bxx position jumps: 1", markdown)
+            self.assertIn("- Dxx pattern breaks: 1", markdown)
+            self.assertIn("- EEx pattern delays: 1", markdown)
+            self.assertIn("- Fxx speed/BPM timing changes: 1", markdown)
+            self.assertIn("- Other E-command diagnostics: 1", markdown)
+            self.assertIn("| Bxx position jump | deferred/unsupported | order 0 pattern 2 row 4 | 1 | 2 | 1 overlaps |", markdown)
+
+    def test_recommendation_heuristic_suggests_traversal_when_hazards_dominate(self):
+        effects = [
+            traversal_effect(0x0B, 0x02, "Bxx position jump", channel=1),
+            traversal_effect(0x0D, 0x10, "Dxx pattern break", channel=2),
+        ]
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["deferred_fields"] = [
+            deferred_effect_field(0x0B, 0x02, channel=1),
+            deferred_effect_field(0x0D, 0x10, channel=2),
+        ]
+        diagnostics["pattern_traversal_timing_effects"] = effects
+        diagnostics["traversal_hazard_summary"] = traversal_summary(effects)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn(
+                "Recommended next PR: Minimal Pattern Break Dxx / Position Jump Bxx for Bounded Offline Traversal",
+                markdown,
+            )
+
+    def test_recommendation_heuristic_does_not_suggest_traversal_without_hazards(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("Recommended next PR: No clear single target", markdown)
+            self.assertNotIn("Recommended next PR: Minimal Pattern Break Dxx / Position Jump Bxx", markdown)
 
     def test_correlation_report_counts_deferred_ecx_note_cut_in_worst_windows(self):
         diagnostics = synthetic_diagnostics_json()

@@ -68,6 +68,7 @@ Current stabilization note:
 - See `docs/decisions/003-first-pass-playback-accuracy.md` for the current playback accuracy model and known approximations.
 - See `docs/decisions/004-software-mixer-transition.md` for the current mixer transition plan.
 - See `docs/decisions/005-software-mixer-core-language-boundary.md` for the architecture checkpoint that clarifies the final hot-path mixer boundary before more complex envelope, timing, and effect work.
+- See `docs/decisions/007-feature-flagged-runtime-c-mixer-backend.md` for the accepted planning guidance for a future opt-in runtime C mixer backend experiment. Runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the C mixer remains offline-only until a later implementation PR.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -349,9 +350,14 @@ and reference comparison before any runtime backend switch.
 - Verification: deterministic helper duration tests using generated or redistribution-safe inputs only, documentation that calculated duration is based on the bounded adapter's current traversal/timing model rather than full FT2/OpenMPT song-duration parity, and no runtime backend switching or private/local module fixtures.
 - Status: done.
 
-### PR 2.7.11 — Feature-Flagged Runtime Backend Switch
-- Scope: add an opt-in runtime mixer backend while keeping the `AVAudioPlayerNode` backend available
-- Verification: app playback smoke tests, backend selection tests, and fallback validation
+### PR 2.7.10ak — ADR: Feature-Flagged Runtime C Mixer Backend Plan
+- Scope: document the future opt-in runtime C mixer backend plan, including the recommended environment flag, AVAudio backend fallback, AVAudioEngine-hosted pull-source recommendation, real-time safety rules, validation gates, and non-goals.
+- Verification: documentation checks and privacy scan only; no runtime backend switching, feature-flag implementation, Swift/C code changes, parser refactor, tracker viewport changes, tests, or generated artifacts.
+- Status: done.
+
+### PR 2.7.11 — Feature-Flagged Runtime C Mixer Backend Skeleton
+- Scope: future implementation of an opt-in runtime C mixer backend behind a developer feature flag such as `VTX_AUDIO_BACKEND=c_mixer`, while keeping the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend as the default fallback.
+- Verification: app playback smoke tests, backend selection tests, fallback validation, runtime diagnostics, and no parser or tracker viewport changes.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

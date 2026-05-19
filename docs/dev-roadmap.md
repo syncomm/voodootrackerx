@@ -125,6 +125,12 @@ key-off/fadeout evidence.
 The bounded/offline C mixer now reports gain/pan ramp settings and counts in
 diagnostics; runtime playback remains on `AVAudioPlayerNode` /
 `AVAudioUnitVarispeed`.
+ADR 007 now documents the future feature-flagged runtime C mixer backend plan:
+the first runtime experiment should remain developer opt-in, keep the AVAudio
+backend as the default fallback, prefer an AVAudioEngine-hosted pull source
+before raw CoreAudio, and keep tracker viewport, parser, and broad UI work out
+of the backend implementation PR. No runtime C mixer backend or backend flag
+has been implemented yet.
 
 Immediate audio accuracy sequence:
 
@@ -178,8 +184,9 @@ Immediate audio accuracy sequence:
 48. Minimal tone portamento 3xx for bounded offline renders — done
 49. Minimal portamento up/down 1xx / 2xx for bounded offline renders — done
 50. Song-end duration / tail handling for vtx_render_bounded_xm — done
-51. Feature-flagged runtime backend switch
-52. Reference comparison stabilization against MikMod/OpenMPT
+51. ADR: Feature-flagged runtime C mixer backend plan — done
+52. Feature-flagged runtime C mixer backend skeleton
+53. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -314,6 +321,9 @@ Features:
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
+- ADR 007 documents the future feature-flagged runtime C mixer backend plan,
+  keeping the AVAudio backend default and the C mixer offline-only until a later
+  opt-in implementation PR
 
 ---
 

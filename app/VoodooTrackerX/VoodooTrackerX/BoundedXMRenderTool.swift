@@ -10,11 +10,11 @@ public enum BoundedXMRenderToolCLI {
             printSummary(arguments: arguments, result: result)
             return 0
         } catch RenderToolError.helpRequested {
-            print(usage())
+            print(renderToolUsage())
             return 0
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            FileHandle.standardError.write(Data("\(toolName): \(message)\n\n\(usage())\n".utf8))
+            FileHandle.standardError.write(Data("\(toolName): \(message)\n\n\(renderToolUsage())\n".utf8))
             return 1
         }
     }
@@ -32,6 +32,8 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidInputPath(String)
     case invalidOutputPath(String)
     case invalidOrderRange(String)
+    case invalidRenderLimit(String)
+    case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
 
     var errorDescription: String? {
         switch self {
@@ -53,8 +55,11 @@ enum RenderToolError: LocalizedError, Equatable {
             return "\(first) and \(second) cannot be used together"
         case let .invalidInputPath(message),
              let .invalidOutputPath(message),
-             let .invalidOrderRange(message):
+             let .invalidOrderRange(message),
+             let .invalidRenderLimit(message):
             return message
+        case let .longRenderRequiresAllowLongRender(frames, defaultLimit):
+            return "Requested render cap \(frames) frames exceeds the default safety clamp \(defaultLimit) frames. Pass --allow-long-render intentionally for longer local renders."
         }
     }
 }
@@ -69,6 +74,34 @@ struct RenderToolArguments: Equatable {
     let sampleRate: Double
     let maxFrames: Int?
     let seconds: Double?
+    let allowLongRender: Bool
+    let progress: Bool
+
+    init(
+        inputPath: String,
+        outputPath: String,
+        diagnosticsJSONPath: String?,
+        order: Int,
+        orderCount: Int,
+        rows: Int?,
+        sampleRate: Double,
+        maxFrames: Int?,
+        seconds: Double?,
+        allowLongRender: Bool = false,
+        progress: Bool = false
+    ) {
+        self.inputPath = inputPath
+        self.outputPath = outputPath
+        self.diagnosticsJSONPath = diagnosticsJSONPath
+        self.order = order
+        self.orderCount = orderCount
+        self.rows = rows
+        self.sampleRate = sampleRate
+        self.maxFrames = maxFrames
+        self.seconds = seconds
+        self.allowLongRender = allowLongRender
+        self.progress = progress
+    }
 
     static func parse(_ argv: [String]) throws -> RenderToolArguments {
         var inputPath: String?
@@ -80,6 +113,8 @@ struct RenderToolArguments: Equatable {
         var sampleRate = MixerRenderConfig.defaultSampleRate
         var maxFrames: Int?
         var seconds: Double?
+        var allowLongRender = false
+        var progress = false
         var seen = Set<String>()
         var index = 0
 
@@ -90,6 +125,22 @@ struct RenderToolArguments: Equatable {
             }
             guard argument.hasPrefix("--") else {
                 throw RenderToolError.unknownArgument(argument)
+            }
+            if argument == "--allow-long-render" {
+                if !seen.insert(argument).inserted {
+                    throw RenderToolError.duplicateArgument(argument)
+                }
+                allowLongRender = true
+                index += 1
+                continue
+            }
+            if argument == "--progress" {
+                if !seen.insert(argument).inserted {
+                    throw RenderToolError.duplicateArgument(argument)
+                }
+                progress = true
+                index += 1
+                continue
             }
             guard let value = value(after: argument, in: argv, at: &index) else {
                 throw RenderToolError.missingValue(argument)
@@ -128,6 +179,12 @@ struct RenderToolArguments: Equatable {
         if maxFrames != nil && seconds != nil {
             throw RenderToolError.mutuallyExclusive("--max-frames", "--seconds")
         }
+        try validateExplicitRenderLimit(
+            maxFrames: maxFrames,
+            seconds: seconds,
+            sampleRate: sampleRate,
+            allowLongRender: allowLongRender
+        )
 
         return RenderToolArguments(
             inputPath: try required(inputPath, "--input"),
@@ -138,8 +195,24 @@ struct RenderToolArguments: Equatable {
             rows: rows,
             sampleRate: sampleRate,
             maxFrames: maxFrames,
-            seconds: seconds
+            seconds: seconds,
+            allowLongRender: allowLongRender,
+            progress: progress
         )
+    }
+
+    var usesDefaultRenderClamp: Bool {
+        maxFrames == nil && seconds == nil
+    }
+
+    func effectiveFrameCap(sampleRate: Double) -> Int {
+        if let maxFrames {
+            return maxFrames
+        }
+        if let seconds {
+            return Self.frameCount(seconds: seconds, sampleRate: sampleRate)
+        }
+        return PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
     }
 
     private static func value(after argument: String, in argv: [String], at index: inout Int) -> String? {
@@ -191,18 +264,62 @@ struct RenderToolArguments: Equatable {
         }
         return parsed
     }
+
+    private static func validateExplicitRenderLimit(
+        maxFrames: Int?,
+        seconds: Double?,
+        sampleRate: Double,
+        allowLongRender: Bool
+    ) throws {
+        let frames: Int?
+        if let maxFrames {
+            frames = maxFrames
+        } else if let seconds {
+            frames = frameCount(seconds: seconds, sampleRate: sampleRate)
+        } else {
+            frames = nil
+        }
+        guard let frames else {
+            return
+        }
+        guard frames > 0 else {
+            throw RenderToolError.invalidRenderLimit("Render duration is too small to produce at least one frame.")
+        }
+        guard frames <= RenderTool.absoluteMaximumFrameCount else {
+            throw RenderToolError.invalidRenderLimit(
+                "Requested render cap \(frames) frames exceeds the helper's hard safety limit \(RenderTool.absoluteMaximumFrameCount) frames."
+            )
+        }
+        let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+        if frames > defaultLimit, !allowLongRender {
+            throw RenderToolError.longRenderRequiresAllowLongRender(frames: frames, defaultLimit: defaultLimit)
+        }
+    }
+
+    private static func frameCount(seconds: Double, sampleRate: Double) -> Int {
+        RenderTool.frameCount(seconds: seconds, sampleRate: sampleRate)
+    }
 }
 
 struct RenderTool {
+    static let absoluteMaximumFrameCount = 100_000_000
+
     let fileManager: FileManager
     let currentDirectory: URL
+    let progressOutput: (String) -> Void
 
-    init(fileManager: FileManager = .default, currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) {
+    init(
+        fileManager: FileManager = .default,
+        currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        progressOutput: @escaping (String) -> Void = RenderTool.writeProgressToStandardError
+    ) {
         self.fileManager = fileManager
         self.currentDirectory = currentDirectory
+        self.progressOutput = progressOutput
     }
 
     func run(_ arguments: RenderToolArguments) throws -> PlaybackSongOfflineRenderResult {
+        let start = Date()
         let inputURL = URL(fileURLWithPath: arguments.inputPath).standardizedFileURL
         let outputURL = URL(fileURLWithPath: arguments.outputPath).standardizedFileURL
         let diagnosticsURL = arguments.diagnosticsJSONPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -213,17 +330,123 @@ struct RenderTool {
             try validateDiagnosticsOutput(diagnosticsURL)
         }
 
+        emitProgress("loading module", arguments: arguments)
         let metadata = try ModuleMetadataLoader().load(fromPath: inputURL.path)
+        emitProgress("building playback song", arguments: arguments)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: inputURL.path)
         try validateOrderRange(start: arguments.order, count: arguments.orderCount, orderTotal: song.orders.count)
 
         let config = MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: MixerRenderConfig.defaultChannelCount)
         let request = renderRequest(song: song, arguments: arguments, config: config)
-        let result = try PlaybackSongOfflineRenderer().exportWAV(request, to: outputURL)
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: request.maximumFrameCount)
+        emitProgress("render started", arguments: arguments)
+        emitProgress(renderCapProgressLine(for: request), arguments: arguments)
+        let result = try renderAndExportWAV(
+            request,
+            to: outputURL,
+            renderer: renderer,
+            arguments: arguments,
+            startedAt: start
+        )
         if let diagnosticsURL {
+            emitProgress("writing diagnostics JSON", arguments: arguments)
             try PlaybackSongDiagnosticsJSONExporter.write(result, to: diagnosticsURL)
         }
+        emitProgress("export succeeded", arguments: arguments)
         return result
+    }
+
+    func renderAndExportWAV(
+        _ request: PlaybackSongOfflineRenderRequest,
+        to outputURL: URL,
+        renderer: PlaybackSongOfflineRenderer,
+        arguments: RenderToolArguments,
+        startedAt: Date
+    ) throws -> PlaybackSongOfflineRenderResult {
+        if arguments.progress {
+            let result = renderWithProgress(request, renderer: renderer, arguments: arguments)
+            emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
+            emitProgress("writing WAV", arguments: arguments)
+            try MixerWAVExporter.writePCM16WAV(from: result.block, to: outputURL)
+            emitProgress("writing WAV completed", arguments: arguments)
+            return result
+        }
+        return try renderer.exportWAV(request, to: outputURL)
+    }
+
+    func renderWithProgress(
+        _ request: PlaybackSongOfflineRenderRequest,
+        renderer: PlaybackSongOfflineRenderer,
+        arguments: RenderToolArguments
+    ) -> PlaybackSongOfflineRenderResult {
+        let session = renderer.prepare(request)
+        let totalFrames = session.request.boundedFrameCount
+        let chunkSize = progressChunkSize(totalFrames: totalFrames)
+        var completedFrames = 0
+        var interleavedPCM = [Float]()
+        interleavedPCM.reserveCapacity(totalFrames * session.config.channelCount)
+        emitRenderProgress(completedFrames: completedFrames, totalFrames: totalFrames, arguments: arguments)
+        while completedFrames < totalFrames {
+            let requestedFrames = min(chunkSize, totalFrames - completedFrames)
+            let chunk = session.render(frames: requestedFrames)
+            guard chunk.frameCount > 0 else {
+                break
+            }
+            completedFrames += chunk.frameCount
+            interleavedPCM.append(contentsOf: chunk.interleavedPCM)
+            emitRenderProgress(completedFrames: completedFrames, totalFrames: totalFrames, arguments: arguments)
+        }
+        let block = MixerRenderBlock(
+            config: session.config,
+            frameCount: completedFrames,
+            interleavedPCM: interleavedPCM
+        )
+        return PlaybackSongOfflineRenderResult(
+            request: session.request.replacingFrameCount(completedFrames),
+            plan: session.plan,
+            block: block,
+            scheduledVoiceIndices: session.scheduledVoiceIndices
+        )
+    }
+
+    func progressChunkSize(totalFrames: Int) -> Int {
+        guard totalFrames > 0 else {
+            return 1
+        }
+        return max(1, Int((Double(totalFrames) / 10.0).rounded(.up)))
+    }
+
+    func emitProgress(_ message: String, arguments: RenderToolArguments) {
+        guard arguments.progress else {
+            return
+        }
+        progressOutput("[\(toolName)] \(message)")
+    }
+
+    func emitRenderProgress(completedFrames: Int, totalFrames: Int, arguments: RenderToolArguments) {
+        let percent = totalFrames > 0
+            ? Int((Double(completedFrames) / Double(totalFrames) * 100.0).rounded(.down))
+            : 100
+        emitProgress(
+            "rendering bounded candidate: \(min(100, max(0, percent)))% (\(completedFrames) / \(totalFrames) frames)",
+            arguments: arguments
+        )
+    }
+
+    func renderCapProgressLine(for request: PlaybackSongOfflineRenderRequest) -> String {
+        let duration = request.config.sampleRate > 0
+            ? Double(request.maximumFrameCount) / request.config.sampleRate
+            : 0
+        return String(format: "effective frame cap: %d frames (%.3f seconds)", request.maximumFrameCount, duration)
+    }
+
+    func renderCompletedProgressLine(for result: PlaybackSongOfflineRenderResult, startedAt: Date) -> String {
+        let elapsed = max(0, Date().timeIntervalSince(startedAt))
+        return String(format: "render completed: rendered %d frames in %.3f seconds", result.renderedFrameCount, elapsed)
+    }
+
+    static func writeProgressToStandardError(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
     }
 
     func renderRequest(
@@ -231,7 +454,7 @@ struct RenderTool {
         arguments: RenderToolArguments,
         config: MixerRenderConfig
     ) -> PlaybackSongOfflineRenderRequest {
-        let maximumFrameCount = max(0, arguments.maxFrames ?? PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount)
+        let maximumFrameCount = max(0, arguments.effectiveFrameCap(sampleRate: config.sampleRate))
         if let rows = arguments.rows {
             return PlaybackSongOfflineRenderRequest(
                 song: song,
@@ -412,6 +635,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "requested_frame_count": result.requestedFrameCount,
                 "rendered_frame_count": result.renderedFrameCount,
                 "maximum_frame_count": result.maximumFrameCount,
+                "maximum_duration_seconds": seconds(forFrame: result.maximumFrameCount, sampleRate: result.block.config.sampleRate) ?? 0,
                 "was_frame_count_bounded": result.wasFrameCountBounded,
                 "initial_speed": diagnostics.initialSpeed,
                 "initial_bpm": diagnostics.initialBPM,
@@ -960,7 +1184,7 @@ private extension URL {
     }
 }
 
-private func usage() -> String {
+func renderToolUsage() -> String {
     """
     Usage:
       \(toolName) --input /path/to/module.xm --output /tmp/vtx-candidate.wav --order 10 [options]
@@ -974,39 +1198,65 @@ private func usage() -> String {
       --order-count N       Number of playable orders to include. Default: 1.
       --rows N              Render this many flattened rows from the bounded range.
       --sample-rate HZ      Output sample rate. Default: 44100.
-      --max-frames N        Maximum output frames. Default: 60 seconds at 44100 Hz.
-      --seconds N           Render this many seconds instead of --rows/--max-frames.
+      --seconds N           Render this many seconds; converted to seconds * sample-rate frames.
+      --max-frames N        Explicit maximum output frames.
+      --allow-long-render   Required when --seconds/--max-frames exceeds the default safety clamp.
+      --progress            Print render percentage and phase/status messages to stderr.
       --help                Show this help.
 
+    Default safety clamp: \(PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) frames (60 seconds at 44100 Hz).
+    --progress reports render percentage by rendered frames, then a coarse WAV-writing phase.
+    --seconds and --max-frames are mutually exclusive. Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
     This helper uses the offline C-backed PlaybackSongOfflineRenderer.exportWAV path only.
     """
+}
+
+func renderToolSummary(
+    arguments: RenderToolArguments,
+    result: PlaybackSongOfflineRenderResult
+) -> String {
+    let renderedDuration = result.block.config.sampleRate > 0
+        ? Double(result.renderedFrameCount) / result.block.config.sampleRate
+        : 0
+    let capDuration = result.block.config.sampleRate > 0
+        ? Double(result.maximumFrameCount) / result.block.config.sampleRate
+        : 0
+    var lines = [
+        "Developer-only bounded XM candidate WAV render.",
+        "Generated WAVs/reports/traces/screenshots are local artifacts and must not be committed.",
+        "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
+        "Module: \(URL(fileURLWithPath: arguments.inputPath).standardizedFileURL.path)",
+        "Output: \(URL(fileURLWithPath: arguments.outputPath).standardizedFileURL.path)",
+    ]
+    if let diagnosticsJSONPath = arguments.diagnosticsJSONPath {
+        lines.append("Diagnostics JSON: \(URL(fileURLWithPath: diagnosticsJSONPath).standardizedFileURL.path)")
+    }
+    lines.append("Requested order range: \(arguments.order)..<\(arguments.order + arguments.orderCount)")
+    if let rows = arguments.rows {
+        lines.append("Requested rows: \(rows)")
+    } else {
+        lines.append("Requested rows: not specified")
+    }
+    lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
+    lines.append("Effective frame cap: \(result.maximumFrameCount)")
+    lines.append(String(format: "Effective duration cap: %.3f seconds", capDuration))
+    let clampMode = arguments.usesDefaultRenderClamp
+        ? "default safety clamp"
+        : "explicit override\(arguments.allowLongRender ? " with --allow-long-render" : "")"
+    lines.append("Render cap mode: \(clampMode)")
+    lines.append("Rendered frames: \(result.renderedFrameCount)")
+    lines.append(String(format: "Rendered duration: %.3f seconds", renderedDuration))
+    if result.wasFrameCountBounded {
+        lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")
+    }
+    lines.append("Export succeeded.")
+    return lines.joined(separator: "\n")
 }
 
 private func printSummary(
     arguments: RenderToolArguments,
     result: PlaybackSongOfflineRenderResult
 ) {
-    let duration = result.block.config.sampleRate > 0
-        ? Double(result.renderedFrameCount) / result.block.config.sampleRate
-        : 0
-    print("Developer-only bounded XM candidate WAV render.")
-    print("Generated WAVs/reports/traces/screenshots are local artifacts and must not be committed.")
-    print("Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.")
-    print("Module: \(URL(fileURLWithPath: arguments.inputPath).standardizedFileURL.path)")
-    print("Output: \(URL(fileURLWithPath: arguments.outputPath).standardizedFileURL.path)")
-    if let diagnosticsJSONPath = arguments.diagnosticsJSONPath {
-        print("Diagnostics JSON: \(URL(fileURLWithPath: diagnosticsJSONPath).standardizedFileURL.path)")
-    }
-    print("Order range: \(arguments.order)..<\(arguments.order + arguments.orderCount)")
-    if let rows = arguments.rows {
-        print("Rows requested: \(rows)")
-    }
-    print("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
-    print("Rendered frames: \(result.renderedFrameCount)")
-    print(String(format: "Rendered duration: %.3f seconds", duration))
-    if result.wasFrameCountBounded {
-        print("Frame count was clamped to \(result.maximumFrameCount) frames.")
-    }
-    print("Export succeeded.")
+    print(renderToolSummary(arguments: arguments, result: result))
 }

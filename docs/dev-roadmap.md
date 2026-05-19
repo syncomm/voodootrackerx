@@ -53,7 +53,10 @@ correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column and volume-column command
 frequency for focused follow-up diagnosis; filled reports and generated audio
-artifacts stay outside git.
+artifacts stay outside git. The developer-only helper keeps its default
+60-second safety clamp, and explicit longer local candidate WAV renders now use
+documented `--seconds` / `--max-frames` controls gated by
+`--allow-long-render`.
 
 Immediate audio accuracy sequence:
 
@@ -89,8 +92,9 @@ Immediate audio accuracy sequence:
 30. Deferred envelope sustain/loop/key-off/fadeout semantics for bounded offline renders — done
 31. Minimal sample offset 9xx for bounded offline renders — done
 32. Local effect frequency report from correlated mismatch windows — done
-33. Feature-flagged runtime backend switch
-34. Reference comparison stabilization against MikMod/OpenMPT
+33. Developer render duration controls for bounded XM candidate WAV helper — done
+34. Feature-flagged runtime backend switch
+35. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -176,6 +180,7 @@ Features:
   renders, without full FT2/OpenMPT envelope parity or panning envelopes
 - deterministic PCM16 WAV export for bounded offline adapted `PlaybackSong` candidate renders, local-only
 - developer-only bounded XM candidate WAV helper using the existing metadata loader, playback builder, and offline export path
+- explicit developer-only render duration/frame controls for longer local bounded candidate WAVs, preserving the default safety clamp
 - optional local bounded adapter diagnostics JSON export from the candidate WAV helper
 - local-only bounded candidate/reference WAV smoke wrapper that delegates to `scripts/audio-compare.py`
 - local-only mismatch-window correlation report that maps comparison JSON to approximate adapter rows/events and summarizes applied, ignored/no-op, deferred/unsupported, and unknown command frequency in the worst windows

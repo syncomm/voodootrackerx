@@ -23,6 +23,307 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.rows, 16)
         XCTAssertEqual(arguments.sampleRate, 48_000)
         XCTAssertEqual(arguments.maxFrames, 96_000)
+        XCTAssertFalse(arguments.allowLongRender)
+        XCTAssertFalse(arguments.progress)
+    }
+
+    func testArgumentParsingAcceptsProgressFlag() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--progress",
+        ])
+
+        XCTAssertTrue(arguments.progress)
+    }
+
+    func testDefaultRenderStillUsesConservativeClamp() throws {
+        let request = RenderTool().renderRequest(
+            song: tinySong(),
+            arguments: RenderToolArguments(
+                inputPath: "/tmp/module.xm",
+                outputPath: "/tmp/vtx-candidate.wav",
+                diagnosticsJSONPath: nil,
+                order: 0,
+                orderCount: 1,
+                rows: nil,
+                sampleRate: 44_100,
+                maxFrames: nil,
+                seconds: nil
+            ),
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2)
+        )
+
+        XCTAssertEqual(request.requestedFrameCount, PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount)
+        XCTAssertEqual(request.maximumFrameCount, PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount)
+    }
+
+    func testSecondsParsesAndSetsExpectedFrameCap() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--sample-rate", "48000",
+            "--seconds", "2.5",
+        ])
+
+        let request = RenderTool().renderRequest(
+            song: tinySong(),
+            arguments: arguments,
+            config: MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: 2)
+        )
+
+        XCTAssertEqual(arguments.seconds, 2.5)
+        XCTAssertEqual(request.requestedFrameCount, 120_000)
+        XCTAssertEqual(request.maximumFrameCount, 120_000)
+    }
+
+    func testMaxFramesParsesAndSetsExpectedFrameCap() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--max-frames", "12345",
+        ])
+
+        let request = RenderTool().renderRequest(
+            song: tinySong(),
+            arguments: arguments,
+            config: MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: 2)
+        )
+
+        XCTAssertEqual(arguments.maxFrames, 12_345)
+        XCTAssertEqual(request.requestedFrameCount, 12_345)
+        XCTAssertEqual(request.maximumFrameCount, 12_345)
+    }
+
+    func testSecondsAndMaxFramesFailClearlyTogether() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--seconds", "1",
+            "--max-frames", "44100",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--max-frames", "--seconds"))
+        }
+    }
+
+    func testInvalidSecondsFailClearly() {
+        for value in ["-1", "0", "nan", "abc"] {
+            XCTAssertThrowsError(try RenderToolArguments.parse([
+                "--input", "/tmp/module.xm",
+                "--output", "/tmp/vtx-candidate.wav",
+                "--order", "0",
+                "--seconds", value,
+            ]), "value \(value) should fail") { error in
+                XCTAssertTrue(error.localizedDescription.contains("Invalid number for --seconds"))
+            }
+        }
+    }
+
+    func testInvalidMaxFramesFailClearly() {
+        for value in ["-1", "0", "abc"] {
+            XCTAssertThrowsError(try RenderToolArguments.parse([
+                "--input", "/tmp/module.xm",
+                "--output", "/tmp/vtx-candidate.wav",
+                "--order", "0",
+                "--max-frames", value,
+            ]), "value \(value) should fail") { error in
+                XCTAssertTrue(error.localizedDescription.contains("Invalid integer for --max-frames"))
+            }
+        }
+    }
+
+    func testLongRenderOverrideRequiresAllowLongRender() throws {
+        let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--max-frames", "\(defaultLimit + 1)",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--allow-long-render"))
+        }
+
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--max-frames", "\(defaultLimit + 1)",
+            "--allow-long-render",
+        ])
+
+        XCTAssertTrue(arguments.allowLongRender)
+        XCTAssertEqual(arguments.maxFrames, defaultLimit + 1)
+    }
+
+    func testLongAllowedRenderUsesExplicitCap() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+        let outputURL = directory.appendingPathComponent("long-allowed-candidate.wav")
+        let arguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: defaultLimit + 1,
+            seconds: nil,
+            allowLongRender: true
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+
+        XCTAssertEqual(result.maximumFrameCount, defaultLimit + 1)
+        XCTAssertEqual(result.renderedFrameCount, defaultLimit + 1)
+    }
+
+    func testHelpAndSummaryDescribeClampAndOverrideBehavior() {
+        let usage = renderToolUsage()
+
+        XCTAssertTrue(usage.contains("--seconds N"))
+        XCTAssertTrue(usage.contains("--max-frames N"))
+        XCTAssertTrue(usage.contains("--allow-long-render"))
+        XCTAssertTrue(usage.contains("--progress"))
+        XCTAssertTrue(usage.contains("Default safety clamp"))
+        XCTAssertTrue(usage.contains("percentage by rendered frames"))
+
+        let defaultLimit = PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+        let request = PlaybackSongOfflineRenderRequest(
+            song: tinySong(),
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frames: 1,
+            maximumFrameCount: defaultLimit + 1
+        )
+        let result = PlaybackSongOfflineRenderer(maximumFrameCount: defaultLimit + 1).render(request)
+        let summary = renderToolSummary(
+            arguments: RenderToolArguments(
+                inputPath: "/tmp/module.xm",
+                outputPath: "/tmp/vtx-candidate.wav",
+                diagnosticsJSONPath: nil,
+                order: 0,
+                orderCount: 1,
+                rows: nil,
+                sampleRate: 44_100,
+                maxFrames: defaultLimit + 1,
+                seconds: nil,
+                allowLongRender: true
+            ),
+            result: result
+        )
+
+        XCTAssertTrue(summary.contains("Requested order range: 0..<1"))
+        XCTAssertTrue(summary.contains("Requested rows: not specified"))
+        XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
+        XCTAssertTrue(summary.contains("Effective frame cap: \(defaultLimit + 1)"))
+        XCTAssertTrue(summary.contains("Render cap mode: explicit override with --allow-long-render"))
+    }
+
+    func testProgressFlagProducesCoarseStatusOutput() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("progress-candidate.wav")
+        var progressLines = [String]()
+        let arguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil,
+            progress: true
+        )
+
+        let result = try RenderTool(
+            currentDirectory: repoRoot(),
+            progressOutput: { progressLines.append($0) }
+        ).run(arguments)
+        let progressText = progressLines.joined(separator: "\n")
+
+        XCTAssertGreaterThan(result.renderedFrameCount, 0)
+        XCTAssertTrue(progressText.contains("loading module"))
+        XCTAssertTrue(progressText.contains("building playback song"))
+        XCTAssertTrue(progressText.contains("render started"))
+        XCTAssertTrue(progressText.contains("effective frame cap: 2646000 frames (60.000 seconds)"))
+        XCTAssertTrue(progressText.contains("rendering bounded candidate: 0% (0 / 5292 frames)"))
+        XCTAssertTrue(progressText.contains("rendering bounded candidate: 100% (5292 / 5292 frames)"))
+        XCTAssertTrue(progressText.contains("render completed: rendered"))
+        XCTAssertTrue(progressText.contains("writing WAV"))
+        XCTAssertTrue(progressText.contains("writing WAV completed"))
+        XCTAssertTrue(progressText.contains("export succeeded"))
+    }
+
+    func testProgressRenderOutputMatchesDefaultRenderOutput() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultOutputURL = directory.appendingPathComponent("default-candidate.wav")
+        let progressOutputURL = directory.appendingPathComponent("progress-candidate.wav")
+        let baseArguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: defaultOutputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: 44_100,
+            seconds: nil
+        )
+        let progressArguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: progressOutputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: nil,
+            sampleRate: 44_100,
+            maxFrames: 44_100,
+            seconds: nil,
+            progress: true
+        )
+
+        _ = try RenderTool(currentDirectory: repoRoot()).run(baseArguments)
+        _ = try RenderTool(
+            currentDirectory: repoRoot(),
+            progressOutput: { _ in }
+        ).run(progressArguments)
+
+        XCTAssertEqual(try Data(contentsOf: progressOutputURL), try Data(contentsOf: defaultOutputURL))
+    }
+
+    func testDefaultRunDoesNotEmitProgressStatusOutput() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("default-no-progress-candidate.wav")
+        var progressLines = [String]()
+        let arguments = RenderToolArguments(
+            inputPath: fixturePath("minimal.xm").path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil
+        )
+
+        _ = try RenderTool(
+            currentDirectory: repoRoot(),
+            progressOutput: { progressLines.append($0) }
+        ).run(arguments)
+
+        XCTAssertTrue(progressLines.isEmpty)
     }
 
     func testMissingInputPathFailsClearly() throws {
@@ -138,6 +439,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
+        XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)
+        XCTAssertEqual(render["maximum_duration_seconds"] as? Double, 60)
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
     }
@@ -307,6 +610,21 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
     private func fixturePath(_ name: String) -> URL {
         repoRoot().appendingPathComponent("tests/fixtures").appendingPathComponent(name)
+    }
+
+    private func tinySong() -> PlaybackSong {
+        PlaybackSong(
+            title: "tiny",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: [])
+                ])
+            ],
+            instrumentsByIndex: [:],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
     }
 
     private func temporaryDirectory() throws -> URL {

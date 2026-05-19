@@ -37,7 +37,9 @@ It also applies minimal bounded/offline state updates for empty-note
 volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
 volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
 volume slides; where a carried voice is active, deterministic gain/pan update
-events can update that voice after its original note trigger. `Hxy` global
+events can update that voice after its original note trigger, and changed
+active-voice gain/pan updates are smoothed by a fixed 32-frame C mixer
+micro-ramp in the bounded/offline path. `Hxy` global
 volume slide remains diagnosed/deferred. The bounded adapter also applies
 minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
 speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
@@ -92,6 +94,9 @@ default output gain. Local/offline click/discontinuity diagnostics can now
 analyze candidate WAV adjacent-sample jumps and optionally correlate top jumps
 with bounded adapter diagnostics such as gain/pan updates, note cuts/delays,
 note triggers, looped/carryover/window events, and key-off/fadeout evidence.
+The bounded/offline C mixer now reports gain/pan ramp settings and counts in
+diagnostics; runtime playback remains on `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed`.
 
 Immediate audio accuracy sequence:
 
@@ -139,8 +144,9 @@ Immediate audio accuracy sequence:
 42. Minimal note cut ECx / note delay EDx for bounded offline renders — done
 43. Mixer output headroom / clipping diagnostics and render gain policy — done
 44. Mixer click / discontinuity diagnostics for candidate WAVs — done
-45. Feature-flagged runtime backend switch
-46. Reference comparison stabilization against MikMod/OpenMPT
+45. Gain / pan update micro-ramping for bounded offline renders — done
+46. Feature-flagged runtime backend switch
+47. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -248,12 +254,15 @@ Features:
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback
+- fixed 32-frame gain/pan update micro-ramping for changed active-voice
+  bounded/offline C mixer update events, with interrupted ramps restarting from
+  the current interpolated value and `ECx` note cuts remaining immediate
 - export-time output gain/headroom controls and clipping diagnostics for
   developer-only bounded PCM16 candidate WAVs, applied after Float32 rendering
   and before PCM16 conversion without changing C mixer DSP semantics
 - local/offline click/discontinuity diagnostics for candidate WAV
   adjacent-sample jumps and optional correlation with bounded adapter events,
-  without smoothing/ramping or audio behavior changes
+  with the analyzer itself remaining diagnostics-only
 - minimal bounded/offline `ECx` note-cut and `EDx` note-delay diagnostics,
   including applied, no-active/no-note, and out-of-row cases
 - pattern traversal/timing hazard diagnostics for bounded offline renders,

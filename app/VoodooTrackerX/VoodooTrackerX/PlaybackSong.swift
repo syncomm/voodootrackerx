@@ -4489,8 +4489,7 @@ final class PlaybackSongOfflineRenderer {
     ) {
         for update in updates where update.activeVoiceUpdated {
             guard let activeEventIndex = update.activeEventIndex,
-                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
-                  update.gainAfter != nil || update.panAfter != nil else {
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
             guard update.scheduledFrame >= windowStartFrame else {
@@ -4500,11 +4499,16 @@ final class PlaybackSongOfflineRenderer {
                update.scheduledFrame >= windowEndFrame {
                 continue
             }
+            let gain = changedGain(from: update)
+            let pan = changedPan(from: update)
+            guard gain != nil || pan != nil else {
+                continue
+            }
             _ = mixer.scheduleVoiceGainPanUpdate(
                 voiceIndex: voiceIndex,
                 scheduledFrame: update.scheduledFrame - windowStartFrame,
-                gain: update.gainAfter,
-                pan: update.panAfter
+                gain: gain,
+                pan: pan
             )
         }
     }
@@ -4529,13 +4533,35 @@ final class PlaybackSongOfflineRenderer {
                scheduledFrame >= windowEndFrame {
                 continue
             }
-            _ = mixer.scheduleVoiceGainPanUpdate(
+            _ = mixer.scheduleVoiceGainPanImmediateUpdate(
                 voiceIndex: voiceIndex,
                 scheduledFrame: scheduledFrame - windowStartFrame,
                 gain: 0,
                 pan: nil
             )
         }
+    }
+
+    private static func changedGain(
+        from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Float? {
+        guard let before = update.gainBefore,
+              let after = update.gainAfter,
+              before != after else {
+            return nil
+        }
+        return after
+    }
+
+    private static func changedPan(
+        from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Float? {
+        guard let before = update.panBefore,
+              let after = update.panAfter,
+              before != after else {
+            return nil
+        }
+        return after
     }
 
     /// Renders a bounded adapted `PlaybackSong` segment through the offline C-backed mixer and writes PCM16 WAV.
@@ -4597,6 +4623,41 @@ final class PlaybackSongOfflineRenderer {
     private struct SourcePositionState: Equatable {
         let samplePosition: Double
         let pingPongDirection: Int
+    }
+
+    private struct GainPanRampSimulation: Equatable {
+        let start: Float
+        let target: Float
+        let scheduledFrame: Int
+        let totalFrames: Int
+
+        func value(at frame: Int) -> Float {
+            let elapsedFrames = max(0, frame - scheduledFrame)
+            let progressFrame = min(totalFrames, elapsedFrames + 1)
+            let progress = Float(progressFrame) / Float(totalFrames)
+            return start + ((target - start) * progress)
+        }
+
+        func runtimeState(at boundaryFrame: Int) -> CSoftwareMixerValueRampRuntimeState? {
+            let elapsedFrames = boundaryFrame - scheduledFrame
+            guard elapsedFrames >= 0,
+                  elapsedFrames < totalFrames else {
+                return nil
+            }
+            return CSoftwareMixerValueRampRuntimeState(
+                start: start,
+                target: target,
+                totalFrames: totalFrames,
+                positionFrame: elapsedFrames
+            )
+        }
+    }
+
+    private struct GainPanStateAtBoundary: Equatable {
+        let gain: Float
+        let pan: Float
+        let gainRamp: CSoftwareMixerValueRampRuntimeState?
+        let panRamp: CSoftwareMixerValueRampRuntimeState?
     }
 
     private static func windowSpecs(
@@ -4690,35 +4751,93 @@ final class PlaybackSongOfflineRenderer {
             ) {
                 return nil
             }
-            let carriedEvent = eventApplyingVoiceStateUpdates(
-                to: event,
+            let gainPanState = gainPanStateAtBoundary(
+                for: event,
                 eventIndex: eventIndex,
                 plan: plan,
                 before: windowStartFrame
             )
+            let carriedEvent = event.withGainPan(gain: gainPanState.gain, pan: gainPanState.pan)
             return continuation(
                 eventIndex: eventIndex,
                 event: carriedEvent,
                 eventStartFrame: eventStartFrame,
-                boundaryFrame: windowStartFrame
+                boundaryFrame: windowStartFrame,
+                gainRamp: gainPanState.gainRamp,
+                panRamp: gainPanState.panRamp
             )
         }
     }
 
-    private static func eventApplyingVoiceStateUpdates(
-        to event: SyntheticTrackerEvent,
+    private static func gainPanStateAtBoundary(
+        for event: SyntheticTrackerEvent,
         eventIndex: Int,
         plan: PlaybackSongSyntheticPlan,
         before boundaryFrame: Int
-    ) -> SyntheticTrackerEvent {
-        plan.diagnostics.voiceStateUpdates.reduce(event) { carriedEvent, update in
+    ) -> GainPanStateAtBoundary {
+        var gain = event.gain
+        var pan = event.pan
+        var gainRamp: GainPanRampSimulation?
+        var panRamp: GainPanRampSimulation?
+        let rampFrames = CSoftwareMixer.gainPanUpdateRampFrameCount
+
+        for update in plan.diagnostics.voiceStateUpdates {
             guard update.activeVoiceUpdated,
                   update.activeEventIndex == eventIndex,
                   update.scheduledFrame < boundaryFrame else {
-                return carriedEvent
+                continue
             }
-            return carriedEvent.withGainPan(gain: update.gainAfter, pan: update.panAfter)
+            if let target = changedGain(from: update) {
+                let start = effectiveValue(
+                    fallback: gain,
+                    ramp: gainRamp,
+                    at: update.scheduledFrame
+                )
+                gainRamp = GainPanRampSimulation(
+                    start: start,
+                    target: target,
+                    scheduledFrame: update.scheduledFrame,
+                    totalFrames: rampFrames
+                )
+                gain = target
+            }
+            if let target = changedPan(from: update) {
+                let start = effectiveValue(
+                    fallback: pan,
+                    ramp: panRamp,
+                    at: update.scheduledFrame
+                )
+                panRamp = GainPanRampSimulation(
+                    start: start,
+                    target: target,
+                    scheduledFrame: update.scheduledFrame,
+                    totalFrames: rampFrames
+                )
+                pan = target
+            }
         }
+        let effectiveGain = effectiveValue(fallback: gain, ramp: gainRamp, at: boundaryFrame)
+        let effectivePan = effectiveValue(fallback: pan, ramp: panRamp, at: boundaryFrame)
+        return GainPanStateAtBoundary(
+            gain: gainRamp?.runtimeState(at: boundaryFrame)?.target ?? effectiveGain,
+            pan: panRamp?.runtimeState(at: boundaryFrame)?.target ?? effectivePan,
+            gainRamp: gainRamp?.runtimeState(at: boundaryFrame),
+            panRamp: panRamp?.runtimeState(at: boundaryFrame)
+        )
+    }
+
+    private static func effectiveValue(
+        fallback: Float,
+        ramp: GainPanRampSimulation?,
+        at frame: Int
+    ) -> Float {
+        guard let ramp else {
+            return fallback
+        }
+        if frame - ramp.scheduledFrame >= ramp.totalFrames {
+            return ramp.target
+        }
+        return ramp.value(at: frame)
     }
 
     private static func hasAppliedNoteCut(
@@ -4763,7 +4882,9 @@ final class PlaybackSongOfflineRenderer {
         eventIndex: Int,
         event: SyntheticTrackerEvent,
         eventStartFrame: Int,
-        boundaryFrame: Int
+        boundaryFrame: Int,
+        gainRamp: CSoftwareMixerValueRampRuntimeState?,
+        panRamp: CSoftwareMixerValueRampRuntimeState?
     ) -> WindowContinuation? {
         let elapsedFrames = max(0, boundaryFrame - eventStartFrame)
         guard elapsedFrames > 0,
@@ -4813,7 +4934,9 @@ final class PlaybackSongOfflineRenderer {
                 volumeEnvelopePositionFrame: volumeEnvelopePosition,
                 panEnvelopePositionFrame: panEnvelopePosition,
                 keyOn: keyOn,
-                fadeoutValue: fadeoutValue
+                fadeoutValue: fadeoutValue,
+                gainRamp: gainRamp,
+                panRamp: panRamp
             ),
             keyOffFrame: localKeyOffFrame
         )

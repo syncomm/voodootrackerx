@@ -89,6 +89,118 @@ static float vtx_c_mixer_right_pan_gain(float pan) {
     return pan >= 0.0f ? 1.0f : 1.0f + pan;
 }
 
+static float vtx_c_mixer_effective_ramped_value(
+    int ramp_active,
+    float start,
+    float target,
+    uint32_t total_frames,
+    uint32_t position_frame,
+    float fallback
+) {
+    float progress;
+
+    if (!ramp_active || total_frames == 0u) {
+        return fallback;
+    }
+    if (position_frame + 1u >= total_frames) {
+        return target;
+    }
+    progress = (float)(position_frame + 1u) / (float)total_frames;
+    return start + ((target - start) * progress);
+}
+
+static float vtx_c_mixer_effective_gain(const VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return 0.0f;
+    }
+    return vtx_c_mixer_effective_ramped_value(
+        voice->gain_ramp_active,
+        voice->gain_ramp_start,
+        voice->gain_ramp_target,
+        voice->gain_ramp_total_frames,
+        voice->gain_ramp_position_frame,
+        voice->gain
+    );
+}
+
+static float vtx_c_mixer_effective_pan(const VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return 0.0f;
+    }
+    return vtx_c_mixer_effective_ramped_value(
+        voice->pan_ramp_active,
+        voice->pan_ramp_start,
+        voice->pan_ramp_target,
+        voice->pan_ramp_total_frames,
+        voice->pan_ramp_position_frame,
+        voice->pan
+    );
+}
+
+static void vtx_c_mixer_clear_gain_ramp(VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return;
+    }
+    voice->gain_ramp_active = 0;
+    voice->gain_ramp_start = 0.0f;
+    voice->gain_ramp_target = 0.0f;
+    voice->gain_ramp_total_frames = 0u;
+    voice->gain_ramp_position_frame = 0u;
+}
+
+static void vtx_c_mixer_clear_pan_ramp(VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return;
+    }
+    voice->pan_ramp_active = 0;
+    voice->pan_ramp_start = 0.0f;
+    voice->pan_ramp_target = 0.0f;
+    voice->pan_ramp_total_frames = 0u;
+    voice->pan_ramp_position_frame = 0u;
+}
+
+static void vtx_c_mixer_start_gain_ramp(VTXCMixerVoice *voice, float target) {
+    if (voice == NULL) {
+        return;
+    }
+    target = vtx_c_mixer_sanitized_gain(target);
+    voice->gain_ramp_start = vtx_c_mixer_effective_gain(voice);
+    voice->gain_ramp_target = target;
+    voice->gain_ramp_total_frames = VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
+    voice->gain_ramp_position_frame = 0u;
+    voice->gain_ramp_active = voice->gain_ramp_total_frames > 0u;
+    voice->gain = target;
+}
+
+static void vtx_c_mixer_start_pan_ramp(VTXCMixerVoice *voice, float target) {
+    if (voice == NULL) {
+        return;
+    }
+    target = vtx_c_mixer_sanitized_pan(target);
+    voice->pan_ramp_start = vtx_c_mixer_effective_pan(voice);
+    voice->pan_ramp_target = target;
+    voice->pan_ramp_total_frames = VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
+    voice->pan_ramp_position_frame = 0u;
+    voice->pan_ramp_active = voice->pan_ramp_total_frames > 0u;
+    voice->pan = target;
+}
+
+static void vtx_c_mixer_set_gain_immediate(VTXCMixerVoice *voice, float gain) {
+    if (voice == NULL) {
+        return;
+    }
+    voice->gain = vtx_c_mixer_sanitized_gain(gain);
+    vtx_c_mixer_clear_gain_ramp(voice);
+}
+
+static void vtx_c_mixer_set_pan_immediate(VTXCMixerVoice *voice, float pan) {
+    if (voice == NULL) {
+        return;
+    }
+    voice->pan = vtx_c_mixer_sanitized_pan(pan);
+    vtx_c_mixer_clear_pan_ramp(voice);
+}
+
 static VTXCMixerLoopMode vtx_c_mixer_sanitized_loop_mode(VTXCMixerLoopMode loop_mode) {
     switch (loop_mode) {
     case VTX_C_MIXER_LOOP_FORWARD:
@@ -265,6 +377,28 @@ static void vtx_c_mixer_advance_voice_envelopes(VTXCMixerVoice *voice) {
     vtx_c_mixer_advance_envelope(&voice->pan_envelope, voice->key_on);
 }
 
+static void vtx_c_mixer_advance_value_ramps(VTXCMixerVoice *voice) {
+    if (voice == NULL) {
+        return;
+    }
+    if (voice->gain_ramp_active) {
+        if (voice->gain_ramp_position_frame + 1u >= voice->gain_ramp_total_frames) {
+            voice->gain = voice->gain_ramp_target;
+            vtx_c_mixer_clear_gain_ramp(voice);
+        } else {
+            voice->gain_ramp_position_frame++;
+        }
+    }
+    if (voice->pan_ramp_active) {
+        if (voice->pan_ramp_position_frame + 1u >= voice->pan_ramp_total_frames) {
+            voice->pan = voice->pan_ramp_target;
+            vtx_c_mixer_clear_pan_ramp(voice);
+        } else {
+            voice->pan_ramp_position_frame++;
+        }
+    }
+}
+
 static void vtx_c_mixer_update_voice_key_state(VTXCMixerVoice *voice, uint64_t absolute_frame) {
     if (voice == NULL || !voice->key_on || !voice->has_key_off_frame) {
         return;
@@ -287,10 +421,18 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
         if (event->voice_index < state->voice_count) {
             voice = &state->voices[event->voice_index];
             if (event->update_gain) {
-                voice->gain = vtx_c_mixer_sanitized_gain(event->gain);
+                if (event->ramp_enabled) {
+                    vtx_c_mixer_start_gain_ramp(voice, event->gain);
+                } else {
+                    vtx_c_mixer_set_gain_immediate(voice, event->gain);
+                }
             }
             if (event->update_pan) {
-                voice->pan = vtx_c_mixer_sanitized_pan(event->pan);
+                if (event->ramp_enabled) {
+                    vtx_c_mixer_start_pan_ramp(voice, event->pan);
+                } else {
+                    vtx_c_mixer_set_pan_immediate(voice, event->pan);
+                }
             }
         }
         state->next_voice_state_event_index++;
@@ -563,6 +705,10 @@ VTXCMixerConfig vtx_c_mixer_default_config(void) {
     return config;
 }
 
+uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void) {
+    return VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES;
+}
+
 VTXCMixerStatus vtx_c_mixer_init(VTXCMixerState *state, VTXCMixerConfig config) {
     if (state == NULL) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
@@ -585,6 +731,8 @@ VTXCMixerStatus vtx_c_mixer_reset(VTXCMixerState *state) {
         voice->ping_pong_direction = 1;
         voice->gain = voice->initial_gain;
         voice->pan = voice->initial_pan;
+        vtx_c_mixer_clear_gain_ramp(voice);
+        vtx_c_mixer_clear_pan_ramp(voice);
         voice->volume_envelope.position_frame = 0u;
         voice->pan_envelope.position_frame = 0u;
         voice->key_on = 1;
@@ -891,14 +1039,65 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     return VTX_C_MIXER_STATUS_OK;
 }
 
-VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
+VTXCMixerStatus vtx_c_mixer_set_voice_gain_pan_ramp_state(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    VTXCMixerValueRampRuntimeState gain_ramp,
+    VTXCMixerValueRampRuntimeState pan_ramp
+) {
+    VTXCMixerVoice *voice;
+
+    if (state == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (gain_ramp.active &&
+        (!isfinite(gain_ramp.start) ||
+         !isfinite(gain_ramp.target) ||
+         gain_ramp.total_frames == 0u ||
+         gain_ramp.position_frame >= gain_ramp.total_frames)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    if (pan_ramp.active &&
+        (!isfinite(pan_ramp.start) ||
+         !isfinite(pan_ramp.target) ||
+         pan_ramp.total_frames == 0u ||
+         pan_ramp.position_frame >= pan_ramp.total_frames)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+
+    voice = &state->voices[voice_index];
+    if (gain_ramp.active) {
+        voice->gain_ramp_active = 1;
+        voice->gain_ramp_start = vtx_c_mixer_sanitized_gain(gain_ramp.start);
+        voice->gain_ramp_target = vtx_c_mixer_sanitized_gain(gain_ramp.target);
+        voice->gain_ramp_total_frames = gain_ramp.total_frames;
+        voice->gain_ramp_position_frame = gain_ramp.position_frame;
+        voice->gain = voice->gain_ramp_target;
+    } else {
+        vtx_c_mixer_clear_gain_ramp(voice);
+    }
+    if (pan_ramp.active) {
+        voice->pan_ramp_active = 1;
+        voice->pan_ramp_start = vtx_c_mixer_sanitized_pan(pan_ramp.start);
+        voice->pan_ramp_target = vtx_c_mixer_sanitized_pan(pan_ramp.target);
+        voice->pan_ramp_total_frames = pan_ramp.total_frames;
+        voice->pan_ramp_position_frame = pan_ramp.position_frame;
+        voice->pan = voice->pan_ramp_target;
+    } else {
+        vtx_c_mixer_clear_pan_ramp(voice);
+    }
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     VTXCMixerState *state,
     uint32_t voice_index,
     uint64_t scheduled_frame,
     int update_gain,
     float gain,
     int update_pan,
-    float pan
+    float pan,
+    int ramp_enabled
 ) {
     VTXCMixerVoiceStateEvent event;
     uint32_t insert_index;
@@ -923,6 +1122,7 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
     event.gain = vtx_c_mixer_sanitized_gain(gain);
     event.update_pan = update_pan ? 1 : 0;
     event.pan = vtx_c_mixer_sanitized_pan(pan);
+    event.ramp_enabled = ramp_enabled ? 1 : 0;
 
     insert_index = state->voice_state_event_count;
     while (insert_index > state->next_voice_state_event_index &&
@@ -935,6 +1135,48 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
     state->voice_state_events[insert_index] = event;
     state->voice_state_event_count++;
     return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
+) {
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(
+        state,
+        voice_index,
+        scheduled_frame,
+        update_gain,
+        gain,
+        update_pan,
+        pan,
+        1
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan
+) {
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(
+        state,
+        voice_index,
+        scheduled_frame,
+        update_gain,
+        gain,
+        update_pan,
+        pan,
+        0
+    );
 }
 
 VTXCMixerStatus vtx_c_mixer_render(
@@ -1000,14 +1242,15 @@ VTXCMixerStatus vtx_c_mixer_render(
             }
 
             mono_sample = vtx_c_mixer_linear_interpolated_sample(voice, source_index) *
-                voice->gain *
+                vtx_c_mixer_effective_gain(voice) *
                 vtx_c_mixer_evaluate_envelope(&voice->volume_envelope, 1.0f) *
                 voice->fadeout_value;
             if (channel_count_size == 1) {
                 output_interleaved_float32[frame_offset] += mono_sample;
             } else {
                 float effective_pan = vtx_c_mixer_sanitized_pan(
-                    voice->pan + vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
+                    vtx_c_mixer_effective_pan(voice) +
+                    vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
                 );
                 output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_left_pan_gain(effective_pan);
                 output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_right_pan_gain(effective_pan);
@@ -1015,6 +1258,7 @@ VTXCMixerStatus vtx_c_mixer_render(
 
             vtx_c_mixer_advance_sample_position(voice);
             vtx_c_mixer_advance_voice_envelopes(voice);
+            vtx_c_mixer_advance_value_ramps(voice);
             vtx_c_mixer_advance_voice_fadeout(voice);
         }
         vtx_c_mixer_advance_render_cursor(state);

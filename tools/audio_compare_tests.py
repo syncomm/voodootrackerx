@@ -530,6 +530,25 @@ class AudioDiscontinuityTests(unittest.TestCase):
             self.assertEqual(analysis["analysis"]["threshold_jump_count"], 0)
             self.assertLess(analysis["top_adjacent_sample_jumps"][0]["jump_magnitude_pcm16"], 12000)
 
+    def test_synthetic_ramped_gain_update_reduces_adjacent_sample_jump(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            instant_wav = tmpdir_path / "instant-gain-update.wav"
+            ramped_wav = tmpdir_path / "ramped-gain-update.wav"
+            instant_frames = [0.0] * 4 + [1.0] * 36
+            ramped_frames = [0.0] * 4 + [index / 32.0 for index in range(1, 33)] + [1.0] * 4
+            write_pcm16_wav(instant_wav, sample_rate=1000, frames=instant_frames)
+            write_pcm16_wav(ramped_wav, sample_rate=1000, frames=ramped_frames)
+
+            instant = audio_discontinuities.build_analysis(instant_wav, top_count=1, threshold_pcm16=12000)
+            ramped = audio_discontinuities.build_analysis(ramped_wav, top_count=1, threshold_pcm16=12000)
+
+            instant_jump = instant["top_adjacent_sample_jumps"][0]["jump_magnitude_pcm16"]
+            ramped_jump = ramped["top_adjacent_sample_jumps"][0]["jump_magnitude_pcm16"]
+            self.assertGreater(instant_jump, 30000)
+            self.assertLess(ramped_jump, instant_jump / 20)
+            self.assertEqual(ramped["analysis"]["threshold_jump_count"], 0)
+
     def test_detects_known_synthetic_jump_at_expected_frame_time_and_channel(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             wav = Path(tmpdir) / "known-jump.wav"

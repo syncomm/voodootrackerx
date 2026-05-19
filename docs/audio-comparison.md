@@ -66,6 +66,11 @@ usage, sample-map/keymap selections, fallback-after-invalid-map cases,
 skipped-no-valid-sample cases, missing/deferred keymap state, current C mixer
 scheduled/active capacity values, accepted scheduled voices, capacity reject
 counts, and rejected event coordinates.
+The helper also reports export-level headroom and clipping diagnostics for the
+Float32 render block before PCM16 conversion. Optional `--gain` and
+`--headroom-db` controls apply only at the WAV export boundary, after Float32
+offline rendering and before PCM16 encoding. Default export gain remains
+unchanged when neither option is passed.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
@@ -174,6 +179,66 @@ progress reports window `i / N`, percentage by rendered frames, and per-window
 carried voice, scheduled, accepted, and rejected event counts. The output also
 reports loading/build phases, the effective frame and duration cap, and the
 final WAV-writing phase.
+
+## Export Headroom And Clipping Diagnostics
+
+`vtx_render_bounded_xm` writes PCM16 WAV files, so Float32 samples outside the
+`-1.0...1.0` range must be clamped during export. Full-scale saturation can
+make local candidate renders crackle or mask other offline-render issues. The
+helper now reports export-level diagnostics in its command summary and optional
+diagnostics JSON:
+
+- effective export gain
+- requested export headroom dB when supplied
+- pre-export Float32 peak and per-channel peak
+- pre-export overrange sample count where `abs(sample) > 1.0`
+- pre-export RMS
+- post-gain peak and per-channel peak
+- post-gain RMS
+- PCM16 clipping/clamping sample count after gain
+- clipping-detected flag for post-gain PCM16 clipping/clamping and a recommendation
+  to rerender with headroom when that count is nonzero
+
+Use `--headroom-db` for a dB-style attenuation or `--gain` for an explicit
+linear multiplier. The options are mutually exclusive, and both are applied
+before PCM16 conversion:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-headroom-candidate.wav \
+  --diagnostics-json /tmp/vtx-headroom-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --seconds 240 \
+  --allow-long-render \
+  --window-rows 64 \
+  --headroom-db -6 \
+  --progress
+```
+
+Equivalent linear-gain form:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-gain-candidate.wav \
+  --diagnostics-json /tmp/vtx-gain-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --seconds 240 \
+  --allow-long-render \
+  --window-rows 64 \
+  --gain 0.5
+```
+
+This is an export policy only. It does not change internal mixer math, C mixer
+DSP semantics, runtime playback, parser behavior, or tracker UI behavior. If
+crackle remains after clipping is eliminated or reduced, treat click,
+discontinuity, loop-boundary, retrigger, gain/pan update, or effect-timing
+diagnostics as separate follow-up work.
 
 ## Windowed Long Candidate Renders
 
@@ -309,7 +374,8 @@ swift run vtx_render_bounded_xm \
   --order-count 2 \
   --sample-rate 44100 \
   --seconds 180 \
-  --allow-long-render
+  --allow-long-render \
+  --headroom-db -6
 ```
 
 Local/private XM modules are allowed for local smoke testing on a developer
@@ -480,9 +546,10 @@ mikmod -norc -q --playmode 0 --noloops \
 
 Renderer settings matter. Record renderer name/version, sample rate,
 interpolation mode, ramping/fade behavior, loop handling, gain, and any bounded
-duration settings in local notes or PR summaries. Different renderer defaults
-can move mismatch windows or change RMS metrics even when both renders are
-reasonable.
+duration settings in local notes or PR summaries. Also record candidate export
+gain/headroom and clipping diagnostics when comparing PCM16 candidate WAVs.
+Different renderer defaults can move mismatch windows or change RMS metrics
+even when both renders are reasonable.
 
 For agents: never start a MikMod disk-writer render that can grow without a
 clear stop condition. Monitor the file size and process status while it runs.
@@ -593,3 +660,5 @@ For this workflow:
 - confirm runtime playback behavior did not change
 - confirm the C mixer remains offline-only
 - confirm tracker viewport and parser architecture code were not modified
+- confirm export gain/headroom, when used, was applied before PCM16 conversion
+- confirm generated WAVs and diagnostics JSON remain local and unstaged

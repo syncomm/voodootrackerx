@@ -254,6 +254,62 @@ enum MixerWAVExportError: LocalizedError, Equatable {
     }
 }
 
+/// Output policy for local/offline PCM16 WAV export.
+///
+/// The gain is applied only at the WAV export boundary, after offline Float32 rendering and before PCM16
+/// conversion. It does not change mixer state, C mixer DSP, or runtime playback.
+struct MixerWAVExportPolicy: Equatable {
+    static let unity = MixerWAVExportPolicy(gain: 1)
+
+    let gain: Float
+    let headroomDB: Double?
+
+    init(gain: Float = 1, headroomDB: Double? = nil) {
+        self.gain = gain.isFinite && gain > 0 ? gain : 1
+        self.headroomDB = headroomDB
+    }
+
+    init(headroomDB: Double) {
+        self.init(
+            gain: Float(pow(10.0, headroomDB / 20.0)),
+            headroomDB: headroomDB
+        )
+    }
+}
+
+/// Export-time level statistics for local PCM16 WAV diagnostics.
+struct MixerWAVExportDiagnostics: Equatable {
+    let policy: MixerWAVExportPolicy
+    let preExportPeak: Float
+    let preExportPerChannelPeak: [Float]
+    let preExportOverrangeSampleCount: Int
+    let preExportRMS: Float
+    let postGainPeak: Float
+    let postGainPerChannelPeak: [Float]
+    let postGainRMS: Float
+    let pcm16ClippingSampleCount: Int
+
+    var preExportOverrangeDetected: Bool {
+        preExportOverrangeSampleCount > 0
+    }
+
+    var clippingDetected: Bool {
+        pcm16ClippingSampleCount > 0
+    }
+
+    var recommendation: String? {
+        guard clippingDetected else {
+            return nil
+        }
+        return "PCM16 clipping/clamping detected after export gain; rerender with --headroom-db <negative dB> or --gain <linear gain>."
+    }
+}
+
+struct MixerWAVExportResult: Equatable {
+    let data: Data
+    let diagnostics: MixerWAVExportDiagnostics
+}
+
 /// Deterministic RIFF/WAVE PCM16 writer for offline mixer render blocks.
 ///
 /// This helper is local/offline infrastructure only. It does not add a runtime playback backend,
@@ -261,7 +317,17 @@ enum MixerWAVExportError: LocalizedError, Equatable {
 enum MixerWAVExporter {
     static let bitsPerSample = 16
 
-    static func pcm16WAVData(from block: MixerRenderBlock) throws -> Data {
+    static func pcm16WAVData(
+        from block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> Data {
+        try pcm16WAVExport(from: block, exportPolicy: exportPolicy).data
+    }
+
+    static func pcm16WAVExport(
+        from block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportResult {
         let channelCount = block.config.channelCount
         guard channelCount > 0, channelCount <= Int(UInt16.max) else {
             throw MixerWAVExportError.invalidChannelCount(channelCount)
@@ -317,13 +383,72 @@ enum MixerWAVExporter {
         appendLE32(UInt32(dataByteCount), to: &data)
 
         for sample in block.interleavedPCM {
-            appendLEInt16(pcm16Sample(from: sample), to: &data)
+            appendLEInt16(pcm16Sample(from: scaledSample(sample, gain: exportPolicy.gain)), to: &data)
         }
-        return data
+        return MixerWAVExportResult(
+            data: data,
+            diagnostics: diagnostics(for: block, exportPolicy: exportPolicy)
+        )
     }
 
-    static func writePCM16WAV(from block: MixerRenderBlock, to url: URL) throws {
-        try pcm16WAVData(from: block).write(to: url, options: [])
+    @discardableResult
+    static func writePCM16WAV(
+        from block: MixerRenderBlock,
+        to url: URL,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportDiagnostics {
+        let result = try pcm16WAVExport(from: block, exportPolicy: exportPolicy)
+        try result.data.write(to: url, options: [])
+        return result.diagnostics
+    }
+
+    static func diagnostics(
+        for block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) -> MixerWAVExportDiagnostics {
+        let channelCount = max(1, block.config.channelCount)
+        var prePerChannelPeak = Array(repeating: Float(0), count: channelCount)
+        var postPerChannelPeak = Array(repeating: Float(0), count: channelCount)
+        var preSquareSum = Double(0)
+        var postSquareSum = Double(0)
+        var prePeak = Float(0)
+        var postPeak = Float(0)
+        var preOverrange = 0
+        var pcm16Clipping = 0
+
+        for (sampleIndex, sample) in block.interleavedPCM.enumerated() {
+            let channel = sampleIndex % channelCount
+            let finiteSample = sample.isFinite ? sample : 0
+            let preAbs = abs(finiteSample)
+            let postSample = scaledSample(finiteSample, gain: exportPolicy.gain)
+            let postAbs = abs(postSample)
+
+            prePeak = max(prePeak, preAbs)
+            postPeak = max(postPeak, postAbs)
+            prePerChannelPeak[channel] = max(prePerChannelPeak[channel], preAbs)
+            postPerChannelPeak[channel] = max(postPerChannelPeak[channel], postAbs)
+            preSquareSum += Double(finiteSample) * Double(finiteSample)
+            postSquareSum += Double(postSample) * Double(postSample)
+            if preAbs > 1 {
+                preOverrange += 1
+            }
+            if abs(Double(finiteSample) * Double(exportPolicy.gain)) >= 1 {
+                pcm16Clipping += 1
+            }
+        }
+
+        let sampleCount = max(1, block.interleavedPCM.count)
+        return MixerWAVExportDiagnostics(
+            policy: exportPolicy,
+            preExportPeak: prePeak,
+            preExportPerChannelPeak: prePerChannelPeak,
+            preExportOverrangeSampleCount: preOverrange,
+            preExportRMS: Float(sqrt(preSquareSum / Double(sampleCount))),
+            postGainPeak: postPeak,
+            postGainPerChannelPeak: postPerChannelPeak,
+            postGainRMS: Float(sqrt(postSquareSum / Double(sampleCount))),
+            pcm16ClippingSampleCount: pcm16Clipping
+        )
     }
 
     static func pcm16Sample(from sample: Float) -> Int16 {
@@ -336,6 +461,22 @@ enum MixerWAVExporter {
             return Int16.max
         }
         return Int16((Double(clamped) * Double(Int16.max)).rounded(.toNearestOrAwayFromZero))
+    }
+
+    private static func scaledSample(_ sample: Float, gain: Float) -> Float {
+        let finiteSample = sample.isFinite ? Double(sample) : 0
+        let finiteGain = gain.isFinite && gain > 0 ? Double(gain) : 1
+        let scaled = finiteSample * finiteGain
+        guard scaled.isFinite else {
+            return 0
+        }
+        if scaled > Double(Float.greatestFiniteMagnitude) {
+            return Float.greatestFiniteMagnitude
+        }
+        if scaled < -Double(Float.greatestFiniteMagnitude) {
+            return -Float.greatestFiniteMagnitude
+        }
+        return Float(scaled)
     }
 
     private static func appendASCII(_ string: String, to data: inout Data) {

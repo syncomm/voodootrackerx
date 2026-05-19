@@ -34,6 +34,7 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidOrderRange(String)
     case invalidRenderLimit(String)
     case invalidWindowRows(String)
+    case invalidExportGainPolicy(String)
     case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
 
     var errorDescription: String? {
@@ -58,7 +59,8 @@ enum RenderToolError: LocalizedError, Equatable {
              let .invalidOutputPath(message),
              let .invalidOrderRange(message),
              let .invalidRenderLimit(message),
-             let .invalidWindowRows(message):
+             let .invalidWindowRows(message),
+             let .invalidExportGainPolicy(message):
             return message
         case let .longRenderRequiresAllowLongRender(frames, defaultLimit):
             return "Requested render cap \(frames) frames exceeds the default safety clamp \(defaultLimit) frames. Pass --allow-long-render intentionally for longer local renders."
@@ -79,6 +81,8 @@ struct RenderToolArguments: Equatable {
     let windowRows: Int?
     let allowLongRender: Bool
     let progress: Bool
+    let gain: Double?
+    let headroomDB: Double?
 
     init(
         inputPath: String,
@@ -92,7 +96,9 @@ struct RenderToolArguments: Equatable {
         seconds: Double?,
         windowRows: Int? = nil,
         allowLongRender: Bool = false,
-        progress: Bool = false
+        progress: Bool = false,
+        gain: Double? = nil,
+        headroomDB: Double? = nil
     ) {
         self.inputPath = inputPath
         self.outputPath = outputPath
@@ -106,6 +112,8 @@ struct RenderToolArguments: Equatable {
         self.windowRows = windowRows
         self.allowLongRender = allowLongRender
         self.progress = progress
+        self.gain = gain
+        self.headroomDB = headroomDB
     }
 
     static func parse(_ argv: [String]) throws -> RenderToolArguments {
@@ -121,6 +129,8 @@ struct RenderToolArguments: Equatable {
         var windowRows: Int?
         var allowLongRender = false
         var progress = false
+        var gain: Double?
+        var headroomDB: Double?
         var seen = Set<String>()
         var index = 0
 
@@ -175,6 +185,10 @@ struct RenderToolArguments: Equatable {
                 seconds = try parsePositiveDouble(value, name: argument)
             case "--window-rows":
                 windowRows = try parseWindowRows(value, name: argument)
+            case "--gain":
+                gain = try parseExportGain(value, name: argument)
+            case "--headroom-db":
+                headroomDB = try parseHeadroomDB(value, name: argument)
             default:
                 throw RenderToolError.unknownArgument(argument)
             }
@@ -186,6 +200,9 @@ struct RenderToolArguments: Equatable {
         }
         if maxFrames != nil && seconds != nil {
             throw RenderToolError.mutuallyExclusive("--max-frames", "--seconds")
+        }
+        if gain != nil && headroomDB != nil {
+            throw RenderToolError.mutuallyExclusive("--gain", "--headroom-db")
         }
         try validateExplicitRenderLimit(
             maxFrames: maxFrames,
@@ -206,7 +223,9 @@ struct RenderToolArguments: Equatable {
             seconds: seconds,
             windowRows: windowRows,
             allowLongRender: allowLongRender,
-            progress: progress
+            progress: progress,
+            gain: gain,
+            headroomDB: headroomDB
         )
     }
 
@@ -222,6 +241,16 @@ struct RenderToolArguments: Equatable {
             return Self.frameCount(seconds: seconds, sampleRate: sampleRate)
         }
         return PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+    }
+
+    var exportPolicy: MixerWAVExportPolicy {
+        if let headroomDB {
+            return MixerWAVExportPolicy(headroomDB: headroomDB)
+        }
+        if let gain {
+            return MixerWAVExportPolicy(gain: Float(gain))
+        }
+        return .unity
     }
 
     private static func value(after argument: String, in argv: [String], at index: inout Int) -> String? {
@@ -278,6 +307,27 @@ struct RenderToolArguments: Equatable {
         let parsed = try parseInt(value, name: name)
         guard parsed > 0 else {
             throw RenderToolError.invalidWindowRows("Window row count must be greater than zero; got \(value).")
+        }
+        return parsed
+    }
+
+    private static func parseExportGain(_ value: String, name: String) throws -> Double {
+        let parsed = try parseDouble(value, name: name)
+        guard parsed > 0,
+              parsed <= Double(Float.greatestFiniteMagnitude) else {
+            throw RenderToolError.invalidDouble(name: name, value: value)
+        }
+        return parsed
+    }
+
+    private static func parseHeadroomDB(_ value: String, name: String) throws -> Double {
+        let parsed = try parseDouble(value, name: name)
+        guard parsed <= 0 else {
+            throw RenderToolError.invalidExportGainPolicy("Headroom dB must be zero or negative; got \(value).")
+        }
+        let gain = Float(pow(10.0, parsed / 20.0))
+        guard gain.isFinite, gain > 0 else {
+            throw RenderToolError.invalidExportGainPolicy("Headroom dB is too low to produce a nonzero export gain; got \(value).")
         }
         return parsed
     }
@@ -394,12 +444,16 @@ struct RenderTool {
         if arguments.progress {
             let result = renderWithProgress(request, renderer: renderer, arguments: arguments)
             emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
-            emitProgress("writing WAV", arguments: arguments)
-            try MixerWAVExporter.writePCM16WAV(from: result.block, to: outputURL)
+            emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
+            let diagnostics = try MixerWAVExporter.writePCM16WAV(
+                from: result.block,
+                to: outputURL,
+                exportPolicy: arguments.exportPolicy
+            )
             emitProgress("writing WAV completed", arguments: arguments)
-            return result
+            return result.replacingExportDiagnostics(diagnostics)
         }
-        return try renderer.exportWAV(request, to: outputURL)
+        return try renderer.exportWAV(request, to: outputURL, exportPolicy: arguments.exportPolicy)
     }
 
     func renderWindowedAndExportWAV(
@@ -418,10 +472,14 @@ struct RenderTool {
                 arguments: arguments
             )
         }
-        emitProgress("writing WAV", arguments: arguments)
-        try MixerWAVExporter.writePCM16WAV(from: result.block, to: outputURL)
+        emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
+        let diagnostics = try MixerWAVExporter.writePCM16WAV(
+            from: result.block,
+            to: outputURL,
+            exportPolicy: arguments.exportPolicy
+        )
         emitProgress("writing WAV completed", arguments: arguments)
-        return result
+        return result.replacingExportDiagnostics(diagnostics)
     }
 
     func renderWithProgress(
@@ -506,6 +564,10 @@ struct RenderTool {
             ? Double(request.maximumFrameCount) / request.config.sampleRate
             : 0
         return String(format: "effective frame cap: %d frames (%.3f seconds)", request.maximumFrameCount, duration)
+    }
+
+    func wavWritingProgressLine(arguments: RenderToolArguments) -> String {
+        String(format: "writing WAV (export gain %.6f)", arguments.exportPolicy.gain)
     }
 
     func renderCompletedProgressLine(for result: PlaybackSongOfflineRenderResult, startedAt: Date) -> String {
@@ -682,6 +744,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
 
     static func jsonObject(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
         let diagnostics = result.diagnostics
+        let exportDiagnostics = exportDiagnostics(from: result)
         return [
             "schema_version": 1,
             "tool": "vtx_render_bounded_xm",
@@ -699,6 +762,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Hxy global volume slide remains diagnostic/deferred in bounded offline renders.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
                 "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
+                "Export gain/headroom is applied after Float32 offline rendering and before PCM16 conversion.",
             ],
             "render": [
                 "requested_start_order_index": diagnostics.requestedStartOrderIndex,
@@ -727,7 +791,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
                 "window_count": result.windowedRenderSummary?.windowCount ?? 0,
+                "export_gain": Double(exportDiagnostics.policy.gain),
+                "export_headroom_db": nullableJSONValue(exportDiagnostics.policy.headroomDB),
+                "pre_export_peak": Double(exportDiagnostics.preExportPeak),
+                "pre_export_per_channel_peak": exportDiagnostics.preExportPerChannelPeak.map { Double($0) },
+                "pre_export_overrange_sample_count": exportDiagnostics.preExportOverrangeSampleCount,
+                "pre_export_rms": Double(exportDiagnostics.preExportRMS),
+                "post_gain_peak": Double(exportDiagnostics.postGainPeak),
+                "post_gain_per_channel_peak": exportDiagnostics.postGainPerChannelPeak.map { Double($0) },
+                "post_gain_rms": Double(exportDiagnostics.postGainRMS),
+                "pcm16_clipping_sample_count": exportDiagnostics.pcm16ClippingSampleCount,
+                "clipping_detected": exportDiagnostics.clippingDetected,
+                "clipping_recommendation": nullableJSONValue(exportDiagnostics.recommendation),
             ],
+            "export_diagnostics": exportDiagnosticsJSON(exportDiagnostics),
             "windowed_render": windowedRenderJSON(from: result),
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
@@ -747,6 +824,31 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
             "deferred_fields": diagnostics.deferredCellFields.map(deferredFieldJSON),
+        ]
+    }
+
+    private static func exportDiagnostics(
+        from result: PlaybackSongOfflineRenderResult
+    ) -> MixerWAVExportDiagnostics {
+        result.exportDiagnostics ?? MixerWAVExporter.diagnostics(for: result.block)
+    }
+
+    private static func exportDiagnosticsJSON(
+        _ diagnostics: MixerWAVExportDiagnostics
+    ) -> [String: Any] {
+        [
+            "export_gain": Double(diagnostics.policy.gain),
+            "export_headroom_db": nullableJSONValue(diagnostics.policy.headroomDB),
+            "pre_export_peak": Double(diagnostics.preExportPeak),
+            "pre_export_per_channel_peak": diagnostics.preExportPerChannelPeak.map { Double($0) },
+            "pre_export_overrange_sample_count": diagnostics.preExportOverrangeSampleCount,
+            "pre_export_rms": Double(diagnostics.preExportRMS),
+            "post_gain_peak": Double(diagnostics.postGainPeak),
+            "post_gain_per_channel_peak": diagnostics.postGainPerChannelPeak.map { Double($0) },
+            "post_gain_rms": Double(diagnostics.postGainRMS),
+            "pcm16_clipping_sample_count": diagnostics.pcm16ClippingSampleCount,
+            "clipping_detected": diagnostics.clippingDetected,
+            "recommendation": nullableJSONValue(diagnostics.recommendation),
         ]
     }
 
@@ -1902,11 +2004,14 @@ func renderToolUsage() -> String {
       --seconds N           Render this many seconds; converted to seconds * sample-rate frames.
       --max-frames N        Explicit maximum output frames.
       --window-rows N       Opt into row-windowed offline scheduling for long local renders.
+      --gain N              Apply linear export gain before PCM16 conversion. Default: 1.0.
+      --headroom-db N       Apply dB headroom before PCM16 conversion; value must be <= 0.
       --allow-long-render   Required when --seconds/--max-frames exceeds the default safety clamp.
       --progress            Print render percentage and phase/status messages to stderr.
       --help                Show this help.
 
     Default safety clamp: \(PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) frames (60 seconds at 44100 Hz).
+    --gain and --headroom-db are mutually exclusive and do not change mixer math or runtime playback.
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --seconds and --max-frames are mutually exclusive. Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
@@ -1924,6 +2029,10 @@ func renderToolSummary(
     let capDuration = result.block.config.sampleRate > 0
         ? Double(result.maximumFrameCount) / result.block.config.sampleRate
         : 0
+    let exportDiagnostics = result.exportDiagnostics ?? MixerWAVExporter.diagnostics(
+        for: result.block,
+        exportPolicy: arguments.exportPolicy
+    )
     var lines = [
         "Developer-only bounded XM candidate WAV render.",
         "Generated WAVs/reports/traces/screenshots are local artifacts and must not be committed.",
@@ -1948,12 +2057,28 @@ func renderToolSummary(
     lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
     lines.append("Effective frame cap: \(result.maximumFrameCount)")
     lines.append(String(format: "Effective duration cap: %.3f seconds", capDuration))
+    lines.append(String(format: "Effective export gain: %.6f", exportDiagnostics.policy.gain))
+    if let headroomDB = exportDiagnostics.policy.headroomDB {
+        lines.append(String(format: "Export headroom dB: %.3f", headroomDB))
+    } else {
+        lines.append("Export headroom dB: not specified")
+    }
     let clampMode = arguments.usesDefaultRenderClamp
         ? "default safety clamp"
         : "explicit override\(arguments.allowLongRender ? " with --allow-long-render" : "")"
     lines.append("Render cap mode: \(clampMode)")
     lines.append("Rendered frames: \(result.renderedFrameCount)")
     lines.append(String(format: "Rendered duration: %.3f seconds", renderedDuration))
+    lines.append(String(format: "Pre-export peak: %.6f", exportDiagnostics.preExportPeak))
+    lines.append(String(format: "Post-gain peak: %.6f", exportDiagnostics.postGainPeak))
+    lines.append("Pre-export overrange samples: \(exportDiagnostics.preExportOverrangeSampleCount)")
+    lines.append("PCM16 clipping/clamping samples after gain: \(exportDiagnostics.pcm16ClippingSampleCount)")
+    lines.append(String(format: "Overall RMS before/after gain: %.6f / %.6f", exportDiagnostics.preExportRMS, exportDiagnostics.postGainRMS))
+    if let recommendation = exportDiagnostics.recommendation {
+        lines.append("Warning: \(recommendation)")
+    } else if exportDiagnostics.preExportOverrangeDetected {
+        lines.append("Notice: Pre-export overrange samples were present, but export gain kept PCM16 output below clipping.")
+    }
     if result.wasFrameCountBounded {
         lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")
     }

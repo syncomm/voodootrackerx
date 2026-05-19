@@ -6500,6 +6500,80 @@ final class VoodooTrackerXTests: XCTestCase {
         ])
     }
 
+    func testMixerWAVExporterDefaultPolicyMatchesPreviousPCM16Output() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 5,
+            interleavedPCM: [-1, -0.25, 0, 0.25, 1]
+        )
+
+        let defaultData = try MixerWAVExporter.pcm16WAVData(from: block)
+        let explicitUnityData = try MixerWAVExporter.pcm16WAVData(from: block, exportPolicy: .unity)
+
+        XCTAssertEqual(defaultData, explicitUnityData)
+    }
+
+    func testMixerWAVExporterAppliesGainBeforePCM16Conversion() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 3,
+            interleavedPCM: [1, -1, 0.5]
+        )
+
+        let wav = try parsePCM16WAV(try MixerWAVExporter.pcm16WAVData(
+            from: block,
+            exportPolicy: MixerWAVExportPolicy(gain: 0.5)
+        ))
+
+        XCTAssertEqual(wav.samples, [16_384, -16_384, 8_192])
+    }
+
+    func testMixerWAVExporterReportsHeadroomAndClippingDiagnostics() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            frameCount: 2,
+            interleavedPCM: [1.5, -0.25, 0.5, -2]
+        )
+
+        let unity = MixerWAVExporter.diagnostics(for: block)
+        let headroom = MixerWAVExporter.diagnostics(
+            for: block,
+            exportPolicy: MixerWAVExportPolicy(headroomDB: -6)
+        )
+
+        XCTAssertEqual(unity.policy.gain, 1)
+        XCTAssertEqual(unity.preExportPeak, 2)
+        XCTAssertEqual(unity.preExportPerChannelPeak, [1.5, 2])
+        XCTAssertEqual(unity.preExportOverrangeSampleCount, 2)
+        XCTAssertEqual(unity.pcm16ClippingSampleCount, 2)
+        XCTAssertTrue(unity.clippingDetected)
+        XCTAssertNotNil(unity.recommendation)
+        XCTAssertEqual(headroom.policy.headroomDB, -6)
+        XCTAssertEqual(headroom.policy.gain, Float(pow(10.0, -6.0 / 20.0)), accuracy: 0.000_001)
+        XCTAssertEqual(headroom.postGainPeak, 2 * headroom.policy.gain, accuracy: 0.000_001)
+        XCTAssertEqual(headroom.pcm16ClippingSampleCount, 1)
+    }
+
+    func testMixerWAVExporterGainCanEliminatePCM16ClippingForHotRenderBlock() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [1.5, -1.5]
+        )
+
+        let unity = MixerWAVExporter.diagnostics(for: block)
+        let reduced = MixerWAVExporter.diagnostics(
+            for: block,
+            exportPolicy: MixerWAVExportPolicy(gain: 0.5)
+        )
+
+        XCTAssertEqual(unity.pcm16ClippingSampleCount, 2)
+        XCTAssertEqual(reduced.pcm16ClippingSampleCount, 0)
+        XCTAssertFalse(reduced.clippingDetected)
+        XCTAssertTrue(reduced.preExportOverrangeDetected)
+        XCTAssertEqual(reduced.postGainPeak, 0.75)
+    }
+
     func testMixerWAVExporterHandlesEmptyRenderBlockSafely() throws {
         let block = MixerRenderBlock(
             config: MixerRenderConfig(sampleRate: 22_050, channelCount: 2),
@@ -6568,6 +6642,37 @@ final class VoodooTrackerXTests: XCTestCase {
             Array(wav.samples.prefix(18)),
             Array(repeating: Int16(0), count: 14) + [16_384, 16_384, -16_384, -16_384]
         )
+    }
+
+    func testPlaybackSongOfflineRendererExportWAVAppliesGainPolicy() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        )
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let outputURL = tempDirectory.appendingPathComponent("gained-candidate.wav")
+
+        let result = try PlaybackSongOfflineRenderer().exportWAV(
+            request,
+            to: outputURL,
+            exportPolicy: MixerWAVExportPolicy(gain: 0.5)
+        )
+        let wav = try parsePCM16WAV(Data(contentsOf: outputURL))
+
+        XCTAssertEqual(wav.samples, [16_384])
+        XCTAssertEqual(result.exportDiagnostics?.policy.gain, 0.5)
+        XCTAssertEqual(result.exportDiagnostics?.postGainPeak, 0.5)
     }
 
     func testPlaybackSongWAVExportIsDeterministicAndPreservesSplitRenderDeterminism() throws {

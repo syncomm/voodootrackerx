@@ -4121,6 +4121,7 @@ struct PlaybackSongOfflineRenderResult: Equatable {
     let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
     let scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]
     let windowedRenderSummary: PlaybackSongWindowedRenderSummary?
+    let exportDiagnostics: MixerWAVExportDiagnostics?
 
     init(
         request: PlaybackSongOfflineRenderRequest,
@@ -4129,7 +4130,8 @@ struct PlaybackSongOfflineRenderResult: Equatable {
         scheduledVoiceIndices: [Int?],
         scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?] = [],
         scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]? = nil,
-        windowedRenderSummary: PlaybackSongWindowedRenderSummary? = nil
+        windowedRenderSummary: PlaybackSongWindowedRenderSummary? = nil,
+        exportDiagnostics: MixerWAVExportDiagnostics? = nil
     ) {
         self.request = request
         self.plan = plan
@@ -4151,6 +4153,7 @@ struct PlaybackSongOfflineRenderResult: Equatable {
             )
         }
         self.windowedRenderSummary = windowedRenderSummary
+        self.exportDiagnostics = exportDiagnostics
     }
 
     var diagnostics: PlaybackSongSyntheticDiagnostics {
@@ -4171,6 +4174,21 @@ struct PlaybackSongOfflineRenderResult: Equatable {
 
     var wasFrameCountBounded: Bool {
         request.wasFrameCountBounded
+    }
+
+    func replacingExportDiagnostics(
+        _ diagnostics: MixerWAVExportDiagnostics?
+    ) -> PlaybackSongOfflineRenderResult {
+        PlaybackSongOfflineRenderResult(
+            request: request,
+            plan: plan,
+            block: block,
+            scheduledVoiceIndices: scheduledVoiceIndices,
+            scheduledVoiceRejectionReasons: scheduledVoiceRejectionReasons,
+            scheduledVoiceAttempts: scheduledVoiceAttempts,
+            windowedRenderSummary: windowedRenderSummary,
+            exportDiagnostics: diagnostics
+        )
     }
 }
 
@@ -4527,22 +4545,24 @@ final class PlaybackSongOfflineRenderer {
     @discardableResult
     func exportWAV(
         _ request: PlaybackSongOfflineRenderRequest,
-        to url: URL
+        to url: URL,
+        exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> PlaybackSongOfflineRenderResult {
         let result = render(request)
-        try MixerWAVExporter.writePCM16WAV(from: result.block, to: url)
-        return result
+        let diagnostics = try MixerWAVExporter.writePCM16WAV(from: result.block, to: url, exportPolicy: exportPolicy)
+        return result.replacingExportDiagnostics(diagnostics)
     }
 
     @discardableResult
     func exportWindowedWAV(
         _ request: PlaybackSongOfflineRenderRequest,
         to url: URL,
-        windowRows: Int
+        windowRows: Int,
+        exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> PlaybackSongOfflineRenderResult {
         let result = renderWindowed(request, windowRows: windowRows)
-        try MixerWAVExporter.writePCM16WAV(from: result.block, to: url)
-        return result
+        let diagnostics = try MixerWAVExporter.writePCM16WAV(from: result.block, to: url, exportPolicy: exportPolicy)
+        return result.replacingExportDiagnostics(diagnostics)
     }
 
     private func effectiveRequest(

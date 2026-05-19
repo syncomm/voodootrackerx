@@ -173,6 +173,15 @@ ping-pong loops interpolate safely through turnarounds. This is a bounded
 offline resampling foundation only; it is not full OpenMPT/MikMod resampler
 parity and does not add runtime playback settings.
 
+The developer-only bounded XM render helper now also has an export-time
+headroom policy for local candidate WAVs. `--gain` and `--headroom-db` are
+applied after the C-backed Float32 render block is produced and before PCM16
+WAV conversion. Diagnostics report pre-export peak/RMS/overrange counts,
+post-gain peak/RMS, and PCM16 clipping/clamping counts. This is a
+developer-helper export concern only; it does not change adapter scheduling, C
+mixer DSP semantics, runtime playback, parser ownership, or the default output
+gain when no option is passed.
+
 ## Current Parsed Playback Model
 
 `PlaybackSongBuilder` is the current app-side bridge from
@@ -229,12 +238,15 @@ periods, or parser structures.
 | `MixerEnvelope` | Synthetic frame-based envelope copied into C voice storage. Parsed XM volume envelope points are mapped into this shape for bounded offline adapted renders only. |
 | `CSoftwareMixer` | Thin Swift wrapper around MixerCore. It copies sample PCM and envelopes into C-owned voice storage, schedules voices at absolute frames, renders deterministic interleaved Float32 offline blocks, and supports reset/clear operations. It is not connected to live playback. |
 | `MixerCore` C API | Fixed-size C mixer state and voice storage for deterministic offline one-shot, forward-loop, ping-pong-loop, simple linear interpolation, envelope, pan, and absolute-frame scheduled rendering. |
+| `MixerWAVExporter` | Offline PCM16 WAV export boundary. Developer helper gain/headroom policy and clipping diagnostics live here, after Float32 rendering and before PCM16 conversion. |
 
 Layer ownership in the synthetic path:
 
 - Swift owns row/tick scheduling and any future parsed-song traversal.
 - `CSoftwareMixer` owns Swift-to-C copying and narrow render calls.
 - MixerCore owns only low-level deterministic sample/voice rendering.
+- WAV export gain/headroom belongs to the developer helper/export boundary, not
+  to MixerCore or adapter command semantics.
 
 ## Adapter Boundary
 
@@ -375,6 +387,7 @@ The current adapter does not:
 | `PlaybackSample.relativeNote` / `finetune` / `baseSampleRate` | Synthetic event playback step and diagnostics | Use base sample rate, relative note, and clamped finetune in the XM linear-period calculation for linear-frequency songs. Diagnostics include output sample rate, effective note/finetune, linear period/frequency, and neutral fallback status. | Amiga table behavior and pitch-changing effects later. |
 | `PlaybackSample.loopRegion` | `MixerSampleLoop` | Map disabled to `.none`, loop type `1` to `.forward`, and loop type `2` to `.pingPong`. Let C-side sanitization reject unsafe loops. A valid nonzero `9xx` starts the C voice at the requested source sample frame before normal stepping/loop behavior continues. | FT2 loop quirks and richer sample-offset memory/interactions later. |
 | `PlaybackVolumeEnvelope.points` / flags / fadeout | `MixerEnvelope` and voice release/fadeout state | Convert enabled, valid volume envelope points to frame-based mixer points using the timing active for the event row. Sustain holds at the mapped sustain frame while keyed-on. Envelope loops repeat between mapped loop start/end frames while keyed-on. Note value `97` releases the tracked adapted voice and allows envelope advance/fadeout. Fadeout uses a linear per-frame decrement derived from the parsed fadeout value as a first-pass approximation. `ECx` does not trigger key-off/fadeout; it hard-cuts gain to zero. | Full FT2/OpenMPT envelope parity, panning envelopes, retrigger, and dynamic envelope retiming after later tempo changes. |
+| Developer export gain/headroom | `MixerWAVExporter` PCM16 conversion policy | Default gain is unchanged. Optional `--gain` or `--headroom-db` scales the rendered Float32 block immediately before PCM16 conversion and reports clipping diagnostics. | Click/discontinuity diagnostics and any actual audio-compatibility fixes remain separate PRs. |
 
 ## Risks And Mitigations
 
@@ -546,9 +559,11 @@ bounded offline rendering:
 21. Done: minimal `ECx` note cut and `EDx` note delay support for bounded
    offline renders, with diagnostics and windowed carryover handling where
    practical.
-22. Additional targeted effects such as retrigger, arpeggio, portamento,
+22. Done: developer-helper output headroom/clipping diagnostics and explicit
+   export gain/headroom policy for bounded PCM16 candidate WAVs.
+23. Additional targeted effects such as retrigger, arpeggio, portamento,
    vibrato, pattern break, and position jump.
-23. Feature-flagged runtime C mixer backend switch only after offline parity and
+24. Feature-flagged runtime C mixer backend switch only after offline parity and
    diagnostics are strong enough to justify runtime risk.
 
 ## Envelope Semantics First Pass
@@ -620,6 +635,8 @@ This adapter bridge work does not:
 - implement `9xx` effect memory for `900`
 - implement retrigger
 - implement global volume or global volume slide
+- implement click/discontinuity detection or automatic saturation repair
+- change default offline export gain
 - add dynamic/unbounded mixer allocation or voice stealing
 - implement full volume-column semantics beyond set-volume, set-panning, and
   the supported row-level volume/panning slide subset

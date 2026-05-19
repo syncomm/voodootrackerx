@@ -84,7 +84,11 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, and pan. Unsupported/deferred effects and full
-tracker voice semantics remain separate targeted work.
+tracker voice semantics remain separate targeted work. Developer-only bounded
+candidate WAV exports now also report Float32 output headroom/clipping
+diagnostics and can apply explicit `--gain` or `--headroom-db` before PCM16
+conversion without changing runtime playback, C mixer DSP semantics, or the
+default output gain.
 
 Immediate audio accuracy sequence:
 
@@ -130,7 +134,7 @@ Immediate audio accuracy sequence:
 40. Window state carryover refinement for windowed offline candidate renders — done
 41. Minimal volume/panning state effects for bounded offline renders — done
 42. Minimal note cut ECx / note delay EDx for bounded offline renders — done
-43. Mixer output headroom / clipping diagnostics and render gain policy — planned
+43. Mixer output headroom / clipping diagnostics and render gain policy — done
 44. Feature-flagged runtime backend switch
 45. Reference comparison stabilization against MikMod/OpenMPT
 
@@ -240,6 +244,9 @@ Features:
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback
+- export-time output gain/headroom controls and clipping diagnostics for
+  developer-only bounded PCM16 candidate WAVs, applied after Float32 rendering
+  and before PCM16 conversion without changing C mixer DSP semantics
 - minimal bounded/offline `ECx` note-cut and `EDx` note-delay diagnostics,
   including applied, no-active/no-note, and out-of-row cases
 - pattern traversal/timing hazard diagnostics for bounded offline renders,

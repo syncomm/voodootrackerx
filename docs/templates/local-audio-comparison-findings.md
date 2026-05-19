@@ -38,6 +38,18 @@ output directory.
 - Candidate diagnostics JSON path:
 - Sample rate:
 - Channels:
+- Export gain:
+- Export headroom dB:
+- Pre-export Float32 peak:
+- Pre-export per-channel peak:
+- Pre-export overrange sample count:
+- Pre-export RMS:
+- Post-gain peak:
+- Post-gain per-channel peak:
+- Post-gain RMS:
+- PCM16 clipping/clamping count:
+- Post-gain PCM16 clipping detected:
+- Clipping recommendation:
 - Requested frames or duration:
 - Bounded order range:
 - Bounded row range:

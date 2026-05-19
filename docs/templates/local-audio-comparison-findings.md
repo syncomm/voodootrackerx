@@ -53,6 +53,12 @@ output directory.
 - PCM16 clipping/clamping count:
 - Post-gain PCM16 clipping detected:
 - Clipping recommendation:
+- Render duration mode:
+- Calculated song-end frames:
+- Tail seconds:
+- Tail frames:
+- Effective frame cap:
+- Effective duration seconds:
 - Requested frames or duration:
 - Bounded order range:
 - Bounded row range:

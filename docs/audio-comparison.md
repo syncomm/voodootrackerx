@@ -192,6 +192,41 @@ swift run vtx_render_bounded_xm \
   --allow-long-render
 ```
 
+For local listening where the selected order range ends before a large hard
+duration cap, use `--until-song-end` instead. This computes the bounded
+selected order-range end from the same adapter timing model used by
+`vtx_render_bounded_xm`, including the minimal supported `Fxx` speed/BPM timing
+changes. It does not implement full FT2/OpenMPT song duration parity, song
+loop/restart behavior, `Bxx`/`Dxx` traversal, or `EEx` pattern delay traversal.
+Treat it as a practical bounded adapter duration helper.
+
+`--tail-seconds N` may be used with `--until-song-end` to add a short local
+release/listening tail after the calculated bounded range end. When omitted,
+the tail defaults to `0` seconds. `--until-song-end` is mutually exclusive with
+`--seconds`, `--max-frames`, and `--rows`; `--tail-seconds` is accepted only
+with `--until-song-end`. If the calculated song-end plus tail exceeds the
+default safety clamp, pass `--allow-long-render` intentionally.
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-song-end-candidate.wav \
+  --diagnostics-json /tmp/vtx-song-end-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 44100 \
+  --until-song-end \
+  --tail-seconds 3 \
+  --window-rows 64 \
+  --auto-headroom \
+  --progress
+```
+
+Command output and diagnostics JSON report the render duration mode, calculated
+song-end frames, tail seconds/frames, effective frame cap, and effective
+duration. `--seconds` and `--max-frames` remain hard debug caps for fixed
+duration/frame-count renders.
+
 Long candidate WAVs and diagnostics JSON can be large. Write them under `/tmp`
 or an ignored scratch directory, and do not commit generated WAVs, JSON reports,
 Markdown reports, traces, screenshots, logs, filled local findings, or local
@@ -201,8 +236,8 @@ For longer local renders, add `--progress` to print render percentage by
 rendered frame count while the helper runs. When `--window-rows` is used,
 progress reports window `i / N`, percentage by rendered frames, and per-window
 carried voice, scheduled, accepted, and rejected event counts. The output also
-reports loading/build phases, the effective frame and duration cap, and the
-final WAV-writing phase.
+reports loading/build phases, the render duration mode, the effective frame and
+duration cap, and the final WAV-writing phase.
 
 ## Export Headroom And Clipping Diagnostics
 

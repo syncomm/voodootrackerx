@@ -680,6 +680,26 @@ static void vtx_c_mixer_remove_voice_state_events_for_voice(VTXCMixerState *stat
         : next_voice_state_event_index;
 }
 
+static void vtx_c_mixer_compact_consumed_voice_state_events(VTXCMixerState *state) {
+    uint32_t read_index;
+    uint32_t write_index = 0u;
+
+    if (state == NULL || state->next_voice_state_event_index == 0u) {
+        return;
+    }
+    if (state->next_voice_state_event_index >= state->voice_state_event_count) {
+        state->voice_state_event_count = 0u;
+        state->next_voice_state_event_index = 0u;
+        return;
+    }
+    for (read_index = state->next_voice_state_event_index; read_index < state->voice_state_event_count; read_index++) {
+        state->voice_state_events[write_index] = state->voice_state_events[read_index];
+        write_index++;
+    }
+    state->voice_state_event_count = write_index;
+    state->next_voice_state_event_index = 0u;
+}
+
 static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     VTXCMixerState *state,
     const float *sample_pcm,
@@ -1260,6 +1280,7 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
         )) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
+    vtx_c_mixer_compact_consumed_voice_state_events(state);
     if (state->voice_state_event_count >= VTX_C_MIXER_MAX_VOICE_STATE_EVENTS) {
         return VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED;
     }
@@ -1327,6 +1348,30 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
         1,
         sample_step,
         0
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    int update_gain,
+    float gain,
+    int update_pan,
+    float pan,
+    double sample_step
+) {
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(
+        state,
+        voice_index,
+        scheduled_frame,
+        update_gain,
+        gain,
+        update_pan,
+        pan,
+        1,
+        sample_step,
+        1
     );
 }
 

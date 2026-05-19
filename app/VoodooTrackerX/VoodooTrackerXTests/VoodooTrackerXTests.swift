@@ -631,6 +631,14 @@ private func XCTAssertPCMEqual(
     }
 }
 
+private func renderRuntimePCM(_ core: RuntimeCMixerRenderCore, frames: Int) -> [Float] {
+    var output = Array(repeating: Float(0), count: frames * core.config.channelCount)
+    output.withUnsafeMutableBufferPointer { buffer in
+        XCTAssertTrue(core.render(into: buffer, frameCount: frames))
+    }
+    return output
+}
+
 private func swiftOneShotBlock(
     sample: MixerSampleBuffer,
     frames: Int,
@@ -818,6 +826,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vtx_c_mixer_set_voice_channel_tag(nil, 0, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_set_voice_channel_tag(&state, 0, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_stop_voices_for_channel_tag(nil, 0, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(nil, 0, 0, 1, 1, 1, 0, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(&state, 0, 0, 1, 1, 1, 0, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(nil, nil, 0), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 1), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
         XCTAssertEqual(vtx_c_mixer_render(&state, nil, 0), VTX_C_MIXER_STATUS_OK)
@@ -8417,6 +8427,54 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["cMixerCallSucceeded"] as? Bool, true)
     }
 
+    func testRuntimeCMixerTraceDistinguishesAppliedAndDeferredUpdates() throws {
+        let applied = RuntimeCMixerTraceEvent(
+            runtimeAction: "c_mixer_update_gain_pan_step_applied",
+            runtimeAudioBackend: "c_mixer",
+            experimentalCMixerEnabled: true,
+            context: AudioRuntimeTraceContext(orderIndex: 1, patternIndex: 2, rowIndex: 3, tickInRow: 4, channelIndex: 5),
+            targetScope: "channel",
+            activeVoiceCountBefore: 1,
+            activeVoiceCountAfter: 1,
+            targetVoiceIndex: 7,
+            gainBefore: 1,
+            gainAfter: 0.5,
+            panBefore: 0,
+            panAfter: 1,
+            sampleStepBefore: 1,
+            sampleStepAfter: 2,
+            cMixerCallSucceeded: true,
+            reason: "runtime_c_mixer_update_gain_pan_step_applied"
+        )
+        let deferred = RuntimeCMixerTraceEvent(
+            runtimeAction: "c_mixer_update_gain_pan_step_deferred_missing_data",
+            runtimeAudioBackend: "c_mixer",
+            experimentalCMixerEnabled: true,
+            context: AudioRuntimeTraceContext(orderIndex: 1, patternIndex: 2, rowIndex: 3, tickInRow: 4, channelIndex: 6),
+            targetScope: "channel",
+            cMixerCallSucceeded: nil,
+            reason: "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice"
+        )
+
+        let appliedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: applied)) as? [String: Any])
+        let deferredObject = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: deferred)) as? [String: Any])
+
+        XCTAssertEqual(appliedObject["runtimeAction"] as? String, "c_mixer_update_gain_pan_step_applied")
+        XCTAssertEqual(appliedObject["channelIndex"] as? Int, 5)
+        XCTAssertEqual(appliedObject["targetVoiceIndex"] as? Int, 7)
+        XCTAssertEqual(appliedObject["gainBefore"] as? Double, 1)
+        XCTAssertEqual(appliedObject["gainAfter"] as? Double, 0.5)
+        XCTAssertEqual(appliedObject["panBefore"] as? Double, 0)
+        XCTAssertEqual(appliedObject["panAfter"] as? Double, 1)
+        XCTAssertEqual(appliedObject["sampleStepBefore"] as? Double, 1)
+        XCTAssertEqual(appliedObject["sampleStepAfter"] as? Double, 2)
+        XCTAssertEqual(appliedObject["cMixerCallSucceeded"] as? Bool, true)
+        XCTAssertEqual(deferredObject["runtimeAction"] as? String, "c_mixer_update_gain_pan_step_deferred_missing_data")
+        XCTAssertEqual(deferredObject["channelIndex"] as? Int, 6)
+        XCTAssertEqual(deferredObject["reason"] as? String, "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice")
+        XCTAssertNil(deferredObject["targetVoiceIndex"])
+    }
+
     func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
         let configuration = PlaybackDebugLaunchConfiguration.parse(environment: [
             PlaybackDebugLaunchConfiguration.startOrderEnvironmentKey: "30",
@@ -8866,6 +8924,149 @@ final class VoodooTrackerXTests: XCTestCase {
             XCTAssertTrue(core.render(into: buffer, frameCount: 2))
         }
         XCTAssertEqual(output, Array(repeating: 0.75 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 2))
+    }
+
+    func testRuntimeCMixerGainPanUpdateTargetsOnlyRequestedChannel() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 64,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let firstSample = makePlaybackSample(pcm: Array(repeating: 1, count: 80), baseSampleRate: 44_100)
+        let secondSample = makePlaybackSample(instrumentIndex: 2, pcm: Array(repeating: 2, count: 80), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: firstSample, note: 49, channel: 0)))
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: secondSample, note: 49, channel: 1)))
+        let update = core.updateWithDiagnostics(
+            channel: 1,
+            controls: AudioChannelControls(volumeScale: 0.25, pitchOffsetSemitones: 0, panning: 0)
+        )
+        let output = renderRuntimePCM(core, frames: 40)
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_applied")
+        XCTAssertEqual(update.channel, 1)
+        XCTAssertEqual(update.targetVoiceIndex, 1)
+        XCTAssertEqual(update.gainBefore ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(update.gainAfter ?? -1, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(output[39], 1.5, accuracy: 0.000_001)
+    }
+
+    func testRuntimeCMixerStepUpdateTargetsOnlyRequestedChannel() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let firstSample = makePlaybackSample(pcm: [100, 101, 102, 103, 104, 105, 106, 107], baseSampleRate: 44_100)
+        let secondSample = makePlaybackSample(instrumentIndex: 2, pcm: [0, 1, 2, 3, 4, 5, 6, 7], baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: firstSample, note: 49, channel: 0)))
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: secondSample, note: 49, channel: 1)))
+        let update = core.updateWithDiagnostics(
+            channel: 1,
+            controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: 12, panning: 0)
+        )
+        let output = renderRuntimePCM(core, frames: 4)
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_step_applied")
+        XCTAssertEqual(update.channel, 1)
+        XCTAssertEqual(update.targetVoiceIndex, 1)
+        XCTAssertEqual(update.sampleStepBefore ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(update.sampleStepAfter ?? -1, 2, accuracy: 0.000_001)
+        XCTAssertEqual(output, [100, 103, 106, 109])
+    }
+
+    func testRuntimeCMixerCombinedGainPanStepUpdateIsDeterministic() {
+        func makeCore() -> RuntimeCMixerRenderCore {
+            let core = RuntimeCMixerRenderCore(
+                config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+                maximumRenderFrames: 80,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+                ])
+            )
+            let sample = makePlaybackSample(
+                pcm: (0..<160).map { Float($0) },
+                baseSampleRate: 44_100
+            )
+            XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+            return core
+        }
+        let first = makeCore()
+        let second = makeCore()
+
+        let firstUpdate = first.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 12, panning: 1)
+        )
+        let secondUpdate = second.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 12, panning: 1)
+        )
+
+        XCTAssertEqual(firstUpdate.traceAction, "c_mixer_update_gain_pan_step_applied")
+        XCTAssertEqual(firstUpdate.reason, "runtime_c_mixer_update_gain_pan_step_applied")
+        XCTAssertEqual(firstUpdate.gainBefore ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate.gainAfter ?? -1, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate.panBefore ?? -1, 0, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate.panAfter ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate.sampleStepBefore ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate.sampleStepAfter ?? -1, 2, accuracy: 0.000_001)
+        XCTAssertEqual(firstUpdate, secondUpdate)
+        XCTAssertEqual(renderRuntimePCM(first, frames: 40), renderRuntimePCM(second, frames: 40))
+    }
+
+    func testRuntimeCMixerMissingUpdateDataStaysDeferredWithReason() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+
+        let update = core.updateWithDiagnostics(channel: 3, controls: AudioChannelControls())
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_missing_data")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice")
+        XCTAssertNil(update.targetVoiceIndex)
+        XCTAssertNil(update.succeeded)
+    }
+
+    func testRuntimeCMixerUnsupportedUpdateStaysDeferredWithReason() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: .nan, panning: 0)
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_unsupported")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_invalid_update_values")
+        XCTAssertEqual(update.targetVoiceIndex, 0)
+        XCTAssertEqual(update.succeeded, false)
+    }
+
+    func testRuntimeCMixerUnchangedUpdateStaysDeferredWithReason() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        let update = core.updateWithDiagnostics(channel: 0, controls: AudioChannelControls())
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_unsupported")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_no_change")
+        XCTAssertEqual(update.targetVoiceIndex, 0)
+        XCTAssertNil(update.succeeded)
     }
 
     @MainActor

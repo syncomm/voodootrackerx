@@ -82,6 +82,14 @@ local C-mixer-only diagnostics with `VTX_C_MIXER_RUNTIME_GAIN` or
 This remains separate from offline `--auto-headroom`, does not affect the
 default AVAudio backend, and does not claim runtime parity or stability.
 
+A runtime update-bridge follow-up applies supported gain/pan/sample-step
+control updates to the current channel-tagged runtime C mixer voice using the
+same generic C mixer voice-state update primitives as the bounded offline path.
+Applied trace events distinguish gain/pan, sample-step, and combined updates;
+missing target state and unsupported update values remain deferred diagnostics.
+This matures the experimental backend without making it default, adding a UI
+toggle, changing tracker follow behavior, or expanding XM effect coverage.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

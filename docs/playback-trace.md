@@ -196,6 +196,22 @@ Those events include the channel context when available, `stoppedVoiceCount`,
 `activeVoiceCountBefore`, `activeVoiceCountAfter`, `loadedVoiceCountBefore`,
 and `loadedVoiceCountAfter` when available. True transport-wide stop/reset
 actions use `c_mixer_clear_all` and `targetScope == "all_channels"`.
+Supported runtime C mixer control updates now use applied/deferred diagnostic
+actions instead of one generic no-op event. Applied update rows are
+`c_mixer_update_gain_pan_applied`, `c_mixer_update_step_applied`, or
+`c_mixer_update_gain_pan_step_applied`. Deferred rows use
+`c_mixer_update_gain_pan_step_deferred_missing_data` when the runtime handoff
+does not have a current channel voice/sample-step target, or
+`c_mixer_update_gain_pan_step_deferred_unsupported` when the supplied update
+values are invalid or cannot be represented by the supported C mixer update
+primitive, including no-change refreshes that do not need a C mixer call.
+Update rows include the target channel via `channelIndex`,
+`targetVoiceIndex` when available, active/loaded voice counts before and after
+when available, and `gainBefore`/`gainAfter`, `panBefore`/`panAfter`, and
+`sampleStepBefore`/`sampleStepAfter` when available. Gain/pan updates keep the
+C mixer's fixed micro-ramp; sample-step updates apply at the scheduled runtime
+mixer frame.
+
 Trace events also carry cumulative event counters for C mixer add-voice calls,
 gain/pan update attempts, sample-step update attempts, channel stops, and global
 clear-all calls. The current runtime path has no separate event queue, so

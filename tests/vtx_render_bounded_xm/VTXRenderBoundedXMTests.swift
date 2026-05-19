@@ -28,6 +28,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.windowRows, 64)
         XCTAssertEqual(arguments.gain, 0.5)
         XCTAssertNil(arguments.headroomDB)
+        XCTAssertFalse(arguments.autoHeadroom)
         XCTAssertEqual(arguments.exportPolicy.gain, 0.5)
         XCTAssertFalse(arguments.allowLongRender)
         XCTAssertFalse(arguments.progress)
@@ -44,6 +45,19 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNil(arguments.gain)
         XCTAssertEqual(arguments.headroomDB, -6)
         XCTAssertEqual(arguments.exportPolicy.gain, Float(pow(10.0, -6.0 / 20.0)), accuracy: 0.000_001)
+    }
+
+    func testArgumentParsingAcceptsAutoHeadroom() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--auto-headroom",
+        ])
+
+        XCTAssertTrue(arguments.autoHeadroom)
+        XCTAssertNil(arguments.gain)
+        XCTAssertNil(arguments.headroomDB)
     }
 
     func testArgumentParsingAcceptsProgressFlag() throws {
@@ -86,6 +100,30 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--headroom-db", "-6",
         ])) { error in
             XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--gain", "--headroom-db"))
+        }
+    }
+
+    func testAutoHeadroomFailsClearlyWithGain() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--auto-headroom",
+            "--gain", "0.5",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--auto-headroom", "--gain"))
+        }
+    }
+
+    func testAutoHeadroomFailsClearlyWithHeadroomDB() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--auto-headroom",
+            "--headroom-db", "-6",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--auto-headroom", "--headroom-db"))
         }
     }
 
@@ -270,6 +308,59 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(result.renderedFrameCount, defaultLimit + 1)
     }
 
+    func testAutoHeadroomKeepsUnityGainWhenPeakIsAtOrBelowOne() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 3,
+            interleavedPCM: [0.25, -0.75, 1.0]
+        )
+        let policy = MixerWAVExportPolicy.autoHeadroom(for: block)
+        let diagnostics = MixerWAVExporter.diagnostics(for: block, exportPolicy: policy)
+
+        XCTAssertTrue(policy.autoHeadroomEnabled)
+        XCTAssertEqual(policy.gain, 1)
+        XCTAssertEqual(diagnostics.preExportPeak, 1)
+        XCTAssertEqual(diagnostics.postGainPeak, 1)
+        XCTAssertEqual(diagnostics.computedHeadroomDB, 0, accuracy: 0.000_001)
+    }
+
+    func testAutoHeadroomAppliesSafetyMarginForHotRender() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [2.0, -0.5]
+        )
+        let policy = MixerWAVExportPolicy.autoHeadroom(for: block)
+        let diagnostics = MixerWAVExporter.diagnostics(for: block, exportPolicy: policy)
+        let unclippedFullScaleGain = Float(1.0 / 2.0)
+        let expectedSafetyMargin = Float(pow(10.0, MixerWAVExportPolicy.autoHeadroomSafetyDB / 20.0))
+
+        XCTAssertTrue(policy.autoHeadroomEnabled)
+        XCTAssertEqual(policy.autoHeadroomSafetyDB, -1)
+        XCTAssertLessThan(policy.gain, unclippedFullScaleGain)
+        XCTAssertEqual(policy.gain, unclippedFullScaleGain * expectedSafetyMargin, accuracy: 0.000_001)
+        XCTAssertEqual(diagnostics.preExportPeak, 2)
+        XCTAssertEqual(diagnostics.postGainPeak, expectedSafetyMargin, accuracy: 0.000_001)
+        XCTAssertEqual(diagnostics.pcm16ClippingSampleCount, 0)
+        XCTAssertFalse(diagnostics.clippingDetected)
+    }
+
+    func testDefaultExportBehaviorRemainsUnityGain() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [0.25, -0.25]
+        )
+
+        let defaultData = try MixerWAVExporter.pcm16WAVData(from: block)
+        let unityData = try MixerWAVExporter.pcm16WAVData(from: block, exportPolicy: .unity)
+        let defaultDiagnostics = MixerWAVExporter.diagnostics(for: block)
+
+        XCTAssertEqual(defaultData, unityData)
+        XCTAssertEqual(defaultDiagnostics.policy.gain, 1)
+        XCTAssertFalse(defaultDiagnostics.autoHeadroomEnabled)
+    }
+
     func testHelpAndSummaryDescribeClampAndOverrideBehavior() {
         let usage = renderToolUsage()
 
@@ -278,6 +369,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--window-rows N"))
         XCTAssertTrue(usage.contains("--gain N"))
         XCTAssertTrue(usage.contains("--headroom-db N"))
+        XCTAssertTrue(usage.contains("--auto-headroom"))
+        XCTAssertTrue(usage.contains("-1 dB margin"))
         XCTAssertTrue(usage.contains("--allow-long-render"))
         XCTAssertTrue(usage.contains("--progress"))
         XCTAssertTrue(usage.contains("Default safety clamp"))
@@ -313,11 +406,58 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
         XCTAssertTrue(summary.contains("Windowed render: disabled"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
+        XCTAssertTrue(summary.contains("Auto-headroom: disabled"))
         XCTAssertTrue(summary.contains("Effective export gain: 1.000000"))
+        XCTAssertTrue(summary.contains("Computed export gain: 1.000000 (0.000 dB)"))
         XCTAssertTrue(summary.contains("Pre-export peak: 0.000000"))
         XCTAssertTrue(summary.contains("PCM16 clipping/clamping samples after gain: 0"))
         XCTAssertTrue(summary.contains("Effective frame cap: \(defaultLimit + 1)"))
         XCTAssertTrue(summary.contains("Render cap mode: explicit override with --allow-long-render"))
+    }
+
+    func testSummaryReportsAutoHeadroomComputedGain() {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [2.0, -2.0]
+        )
+        let exportPolicy = MixerWAVExportPolicy.autoHeadroom(for: block)
+        let exportDiagnostics = MixerWAVExporter.diagnostics(for: block, exportPolicy: exportPolicy)
+        let result = PlaybackSongOfflineRenderResult(
+            request: PlaybackSongOfflineRenderRequest(
+                song: tinySong(),
+                orderIndex: 0,
+                config: block.config,
+                frames: 2
+            ),
+            plan: PlaybackSongSyntheticAdapter.adapt(tinySong(), orderIndex: 0, sampleRate: block.config.sampleRate),
+            block: block,
+            scheduledVoiceIndices: [],
+            exportDiagnostics: exportDiagnostics
+        )
+
+        let summary = renderToolSummary(
+            arguments: RenderToolArguments(
+                inputPath: "/tmp/module.xm",
+                outputPath: "/tmp/vtx-candidate.wav",
+                diagnosticsJSONPath: nil,
+                order: 0,
+                orderCount: 1,
+                rows: nil,
+                sampleRate: 44_100,
+                maxFrames: 2,
+                seconds: nil,
+                autoHeadroom: true
+            ),
+            result: result
+        )
+
+        XCTAssertTrue(summary.contains("Auto-headroom: enabled"))
+        XCTAssertTrue(summary.contains("safety margin -1.000 dB"))
+        XCTAssertTrue(summary.contains("Computed export gain: 0.445625 (-7.021 dB)"))
+        XCTAssertTrue(summary.contains("Pre-export peak: 2.000000"))
+        XCTAssertTrue(summary.contains("Post-gain peak: 0.891251"))
+        XCTAssertTrue(summary.contains("PCM16 clipping/clamping samples after gain: 0"))
     }
 
     func testSummaryReportsGainHeadroomAndClippingWarning() {
@@ -653,15 +793,20 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["gain_pan_update_count"] as? Int, 0)
         XCTAssertEqual(render["gain_pan_ramped_update_count"] as? Int, 0)
         XCTAssertEqual(render["gain_pan_interrupted_ramp_count"] as? Int, 0)
+        XCTAssertEqual(render["auto_headroom_enabled"] as? Bool, false)
+        XCTAssertTrue(render["auto_headroom_safety_db"] is NSNull)
         XCTAssertEqual(render["export_gain"] as? Double, 1)
         XCTAssertTrue(render["export_headroom_db"] is NSNull)
         XCTAssertNotNil(render["pre_export_peak"] as? Double)
         XCTAssertNotNil(render["pre_export_per_channel_peak"] as? [Double])
         XCTAssertNotNil(render["pre_export_overrange_sample_count"] as? Int)
         XCTAssertNotNil(render["pre_export_rms"] as? Double)
+        XCTAssertEqual(render["computed_export_gain"] as? Double, 1)
+        XCTAssertEqual(render["computed_headroom_db"] as? Double, 0)
         XCTAssertNotNil(render["post_gain_peak"] as? Double)
         XCTAssertNotNil(render["post_gain_per_channel_peak"] as? [Double])
         XCTAssertNotNil(render["post_gain_rms"] as? Double)
+        XCTAssertNotNil(render["pcm16_clipping_count"] as? Int)
         XCTAssertNotNil(render["pcm16_clipping_sample_count"] as? Int)
         XCTAssertNotNil(render["clipping_detected"] as? Bool)
         XCTAssertNotNil(diagnostics["export_diagnostics"] as? [String: Any])
@@ -677,6 +822,45 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(fixturePath("minimal.xm").path))
+    }
+
+    func testDiagnosticsJSONIncludesAutoHeadroomFieldsWhenEnabled() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 2,
+            interleavedPCM: [2.0, -2.0]
+        )
+        let policy = MixerWAVExportPolicy.autoHeadroom(for: block)
+        let exportDiagnostics = MixerWAVExporter.diagnostics(for: block, exportPolicy: policy)
+        let result = PlaybackSongOfflineRenderResult(
+            request: PlaybackSongOfflineRenderRequest(
+                song: tinySong(),
+                orderIndex: 0,
+                config: block.config,
+                frames: 2
+            ),
+            plan: PlaybackSongSyntheticAdapter.adapt(tinySong(), orderIndex: 0, sampleRate: block.config.sampleRate),
+            block: block,
+            scheduledVoiceIndices: [],
+            exportDiagnostics: exportDiagnostics
+        )
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let export = try XCTUnwrap(object["export_diagnostics"] as? [String: Any])
+
+        XCTAssertEqual(render["auto_headroom_enabled"] as? Bool, true)
+        XCTAssertEqual(render["auto_headroom_safety_db"] as? Double, -1)
+        XCTAssertEqual(render["pre_export_peak"] as? Double, 2)
+        XCTAssertEqual(render["computed_export_gain"] as? Double, Double(policy.gain))
+        XCTAssertEqual(render["computed_headroom_db"] as? Double, policy.computedHeadroomDB)
+        XCTAssertEqual(render["post_gain_peak"] as? Double, Double(exportDiagnostics.postGainPeak))
+        XCTAssertEqual(render["pcm16_clipping_count"] as? Int, 0)
+        XCTAssertEqual(render["pcm16_clipping_sample_count"] as? Int, 0)
+        XCTAssertEqual(render["clipping_detected"] as? Bool, false)
+        XCTAssertEqual(export["auto_headroom_enabled"] as? Bool, true)
+        XCTAssertEqual(export["computed_export_gain"] as? Double, Double(policy.gain))
+        XCTAssertEqual(export["pcm16_clipping_count"] as? Int, 0)
     }
 
     func testWindowedDiagnosticsJSONIncludesAggregateWindowFields() throws {

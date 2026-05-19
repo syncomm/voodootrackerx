@@ -260,19 +260,49 @@ enum MixerWAVExportError: LocalizedError, Equatable {
 /// conversion. It does not change mixer state, C mixer DSP, or runtime playback.
 struct MixerWAVExportPolicy: Equatable {
     static let unity = MixerWAVExportPolicy(gain: 1)
+    static let autoHeadroomSafetyDB = -1.0
 
     let gain: Float
     let headroomDB: Double?
+    let autoHeadroomEnabled: Bool
+    let autoHeadroomSafetyDB: Double?
+    let computedHeadroomDB: Double
 
-    init(gain: Float = 1, headroomDB: Double? = nil) {
-        self.gain = gain.isFinite && gain > 0 ? gain : 1
+    init(
+        gain: Float = 1,
+        headroomDB: Double? = nil,
+        autoHeadroomEnabled: Bool = false,
+        autoHeadroomSafetyDB: Double? = nil,
+        computedHeadroomDB: Double? = nil
+    ) {
+        let safeGain = gain.isFinite && gain > 0 ? gain : 1
+        self.gain = safeGain
         self.headroomDB = headroomDB
+        self.autoHeadroomEnabled = autoHeadroomEnabled
+        self.autoHeadroomSafetyDB = autoHeadroomSafetyDB
+        self.computedHeadroomDB = computedHeadroomDB ?? (20.0 * log10(Double(safeGain)))
     }
 
     init(headroomDB: Double) {
         self.init(
             gain: Float(pow(10.0, headroomDB / 20.0)),
             headroomDB: headroomDB
+        )
+    }
+
+    static func autoHeadroom(for block: MixerRenderBlock) -> MixerWAVExportPolicy {
+        let preExportPeak = MixerWAVExporter.diagnostics(for: block).preExportPeak
+        let gain: Float
+        if preExportPeak > 1 {
+            let safetyMargin = pow(10.0, autoHeadroomSafetyDB / 20.0)
+            gain = Float((1.0 / Double(preExportPeak)) * safetyMargin)
+        } else {
+            gain = 1
+        }
+        return MixerWAVExportPolicy(
+            gain: gain,
+            autoHeadroomEnabled: true,
+            autoHeadroomSafetyDB: autoHeadroomSafetyDB
         )
     }
 }
@@ -288,6 +318,22 @@ struct MixerWAVExportDiagnostics: Equatable {
     let postGainPerChannelPeak: [Float]
     let postGainRMS: Float
     let pcm16ClippingSampleCount: Int
+
+    var autoHeadroomEnabled: Bool {
+        policy.autoHeadroomEnabled
+    }
+
+    var autoHeadroomSafetyDB: Double? {
+        policy.autoHeadroomSafetyDB
+    }
+
+    var computedExportGain: Float {
+        policy.gain
+    }
+
+    var computedHeadroomDB: Double {
+        policy.computedHeadroomDB
+    }
 
     var preExportOverrangeDetected: Bool {
         preExportOverrangeSampleCount > 0

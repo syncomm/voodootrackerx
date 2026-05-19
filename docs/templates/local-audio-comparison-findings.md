@@ -68,6 +68,16 @@ output directory.
 - Windowed unsupported carryover reasons:
 - First windows with rejects:
 - Window-boundary state/carryover notes:
+- Volume/panning state updates total:
+- Volume/panning state updates applied:
+- Volume/panning state updates deferred:
+- Active voice volume/panning updates:
+- Empty-note volume-column set-volume applied/deferred:
+- Empty-note volume-column set-panning applied/deferred:
+- Cxx set-volume applied/deferred:
+- 8xx set-panning applied/deferred:
+- Axy volume slide applied/deferred:
+- Hxy global volume slide applied/deferred:
 - Sample-map selections:
 - First-playable fallback selections:
 - Fallback-after-invalid-map selections:
@@ -111,6 +121,7 @@ output directory.
 - Event-coverage summary present:
 - Capacity summary present:
 - Pattern traversal / timing hazard summary present:
+- Volume/panning state-update summary present:
 - Recommendation heuristic present:
 
 ## Top Mismatch Windows
@@ -130,6 +141,7 @@ output directory.
 - Pitch-step / frequency-table clues:
 - Sample-selection / keymap clues:
 - Volume-column / panning clues:
+- Volume/panning active voice update clues:
 - Fxx / row-timing clues:
 - Envelope / fadeout / key-off clues:
 - Loop metadata clues:
@@ -151,6 +163,8 @@ output directory.
 - Applied volume-column commands in worst windows:
 - Ignored/no-op volume-column commands in worst windows:
 - Unknown volume-column commands in worst windows:
+- Applied volume/panning state updates in worst windows:
+- Deferred volume/panning state updates in worst windows:
 - Overall deferred command frequency in bounded render:
 - Overall command frequency notes:
 

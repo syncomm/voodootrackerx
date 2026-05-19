@@ -31,14 +31,19 @@ only, with first-pass sustain, envelope loop, note value `97` key-off release,
 and post-key-off fadeout semantics now represented in that offline path. Adapted
 note triggers carry explicit XM linear-frequency period/frequency
 sample-step mapping where `PlaybackSong.usesLinearFrequencyTable` is true, and
-the adapter applies only volume-column set-volume,
-set-panning, and a conservative row-level subset of volume-column volume and
-panning slides to event gain/pan. The bounded adapter also applies minimal
-`Fxx` timing changes for offline renders only: `F01...F1F` updates speed,
-`F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. It also applies minimal nonzero `9xx` sample offsets to
-same-cell note/sample triggers in bounded offline renders only, diagnoses `900`
-as ignored/deferred/no-op, and skips out-of-range offsets safely. Fractional
+the adapter applies volume-column set-volume/set-panning plus a conservative
+row-level subset of volume-column volume and panning slides to event gain/pan.
+It also applies minimal bounded/offline state updates for empty-note
+volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
+volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
+volume slides; where a carried voice is active, deterministic gain/pan update
+events can update that voice after its original note trigger. `Hxy` global
+volume slide remains diagnosed/deferred. The bounded adapter also applies
+minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
+speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
+ignored no-op. It also applies minimal nonzero `9xx` sample offsets to same-cell
+note/sample triggers in bounded offline renders only, diagnoses `900` as
+ignored/deferred/no-op, and skips out-of-range offsets safely. Fractional
 C-backed offline sample steps now use simple
 deterministic linear interpolation, including safe no-loop ends, forward-loop
 wraps, and ping-pong turnarounds. Bounded offline note triggers now use parsed
@@ -55,8 +60,9 @@ from local XM files through the existing offline export path. The helper can
 optionally export local bounded adapter diagnostics JSON, and a local
 correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
-deferred/unsupported, and unknown effect-column and volume-column command
-frequency for focused follow-up diagnosis. Bounded diagnostics also count
+deferred/unsupported, and unknown effect-column, volume-column, and
+volume/panning state-update command frequency for focused follow-up diagnosis.
+Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
 break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
 subcommands without implementing traversal behavior; filled reports and
@@ -119,8 +125,9 @@ Immediate audio accuracy sequence:
 38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`EEx` — separate later PR
 39. Chunked/windowed offline render scheduling for long candidate WAV exports — done
 40. Window state carryover refinement for windowed offline candidate renders — done
-41. Feature-flagged runtime backend switch
-42. Reference comparison stabilization against MikMod/OpenMPT
+41. Minimal volume/panning state effects for bounded offline renders — done
+42. Feature-flagged runtime backend switch
+43. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -198,6 +205,10 @@ Features:
 - explicit XM linear-frequency period/frequency sample-step mapping for bounded offline adapted renders, with Amiga pitch behavior still deferred
 - simple deterministic linear interpolation for fractional C-backed offline sample steps, without full OpenMPT/MikMod resampler parity
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
+- minimal bounded/offline volume/panning state updates for empty-note
+  volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
+  volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
+  volume slides, with `Hxy` global volume slide still diagnosed/deferred
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
 - minimal nonzero `9xx` sample offset starts for same-cell bounded offline
   adapted note/sample triggers, with `900` and effect memory still deferred
@@ -219,6 +230,9 @@ Features:
   practical carryover of active sample position, forward/ping-pong loop state,
   volume-envelope position, key-off/release, fadeout, gain, and pan across
   fresh C mixer windows where the bounded adapter can determine it
+- deterministic offline active-voice gain/pan update events so supported
+  bounded adapter state changes can affect carried voices after their note
+  trigger without changing runtime playback
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate

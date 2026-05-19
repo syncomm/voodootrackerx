@@ -44,6 +44,11 @@ enum CSoftwareMixerScheduledVoiceRejectionReason: String, Equatable {
     case invalidScheduledVoice = "invalid_scheduled_voice"
 }
 
+enum CSoftwareMixerVoiceStateUpdateRejectionReason: String, Equatable {
+    case voiceStateEventCapacity = "voice_state_event_capacity"
+    case invalidVoiceStateUpdate = "invalid_voice_state_update"
+}
+
 struct CSoftwareMixerScheduledVoiceResult: Equatable {
     let voiceIndex: Int?
     let rejectionReason: CSoftwareMixerScheduledVoiceRejectionReason?
@@ -51,6 +56,11 @@ struct CSoftwareMixerScheduledVoiceResult: Equatable {
     var wasAccepted: Bool {
         voiceIndex != nil
     }
+}
+
+struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
+    let wasAccepted: Bool
+    let rejectionReason: CSoftwareMixerVoiceStateUpdateRejectionReason?
 }
 
 struct CSoftwareMixerVoiceRuntimeState: Equatable {
@@ -89,6 +99,7 @@ final class CSoftwareMixer {
     static let maximumVoiceCount = Int(VTX_C_MIXER_MAX_VOICES)
     static let maximumScheduledVoiceCount = Int(VTX_C_MIXER_MAX_SCHEDULED_VOICES)
     static let maximumActiveVoiceCount = Int(VTX_C_MIXER_MAX_ACTIVE_VOICES)
+    static let maximumVoiceStateEventCount = Int(VTX_C_MIXER_MAX_VOICE_STATE_EVENTS)
 
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
@@ -308,6 +319,43 @@ final class CSoftwareMixer {
         Self.requireOK(status)
     }
 
+    /// Schedules a generic gain and/or pan update for an existing offline voice.
+    ///
+    /// The bounded adapter owns XM command interpretation; the C mixer receives only frame-stamped gain/pan
+    /// values for deterministic offline rendering.
+    @discardableResult
+    func scheduleVoiceGainPanUpdate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        gain: Float? = nil,
+        pan: Float? = nil
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              gain != nil || pan != nil else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_gain_pan_update(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            gain == nil ? 0 : 1,
+            gain ?? 0,
+            pan == nil ? 0 : 1,
+            pan ?? 0
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
         Self.requireOK(vtx_c_mixer_clear_voices(&state))
@@ -427,5 +475,13 @@ final class CSoftwareMixer {
         status == VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED
             ? .scheduledVoiceCapacity
             : .invalidScheduledVoice
+    }
+
+    private static func voiceStateUpdateRejectionReason(
+        for status: VTXCMixerStatus
+    ) -> CSoftwareMixerVoiceStateUpdateRejectionReason {
+        status == VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED
+            ? .voiceStateEventCapacity
+            : .invalidVoiceStateUpdate
     }
 }

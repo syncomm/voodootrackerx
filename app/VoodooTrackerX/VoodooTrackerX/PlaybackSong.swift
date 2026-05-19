@@ -354,6 +354,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
+    let voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
@@ -518,6 +519,7 @@ extension PlaybackSongSyntheticDiagnostics {
             effectCommandDiagnostics: effectCommandDiagnostics,
             rowDiagnostics: rowDiagnostics,
             volumeColumnMappings: volumeColumnMappings,
+            voiceStateUpdates: voiceStateUpdates,
             sampleOffsetEffects: sampleOffsetEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
@@ -642,6 +644,99 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
 
     var isFxxTimingChange: Bool {
         effectType == 0x0F
+    }
+
+    var isCxxSetVolume: Bool {
+        effectType == 0x0C
+    }
+
+    var is8xxSetPanning: Bool {
+        effectType == 0x08
+    }
+
+    var isAxyVolumeSlide: Bool {
+        effectType == 0x0A
+    }
+
+    var isHxyGlobalVolumeSlide: Bool {
+        effectType == 0x11
+    }
+}
+
+enum PlaybackSongSyntheticVoiceStateUpdateSource: Equatable {
+    case volumeColumn
+    case effectColumn
+}
+
+enum PlaybackSongSyntheticVoiceStateUpdateStatus: Equatable {
+    case applied
+    case ignoredNoOp
+    case deferredUnsupported
+}
+
+enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
+    case volumeColumn(PlaybackSongSyntheticVolumeColumnCommand)
+    case cxxSetVolume(value: Int)
+    case effect8xxSetPanning(value: Int)
+    case axyVolumeSlide(up: Int, down: Int)
+    case hxyGlobalVolumeSlide
+
+    var label: String {
+        switch self {
+        case let .volumeColumn(command):
+            return command.name
+        case .cxxSetVolume:
+            return "Cxx set volume"
+        case .effect8xxSetPanning:
+            return "8xx set panning"
+        case .axyVolumeSlide:
+            return "Axy volume slide"
+        case .hxyGlobalVolumeSlide:
+            return "Hxy global volume slide"
+        }
+    }
+}
+
+struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let scheduledFrame: Int
+    let cellNote: UInt8
+    let instrumentIndex: Int
+    let commandSource: PlaybackSongSyntheticVoiceStateUpdateSource
+    let command: PlaybackSongSyntheticVoiceStateUpdateCommand
+    let rawVolumeColumn: UInt8?
+    let effectType: UInt8?
+    let effectParam: UInt8?
+    let status: PlaybackSongSyntheticVoiceStateUpdateStatus
+    let behavior: PlaybackSongSyntheticVolumeColumnBehavior?
+    let activeVoiceUpdated: Bool
+    let activeEventIndex: Int?
+    let effectiveVolumeBefore: Int?
+    let effectiveVolumeAfter: Int?
+    let effectivePanBefore: Float?
+    let effectivePanAfter: Float?
+    let gainBefore: Float?
+    let gainAfter: Float?
+    let panBefore: Float?
+    let panAfter: Float?
+
+    var applied: Bool {
+        status == .applied
+    }
+
+    var deferred: Bool {
+        status == .deferredUnsupported
+    }
+
+    var ignoredAsNoOp: Bool {
+        status == .ignoredNoOp
+    }
+
+    var hasEmptyNote: Bool {
+        cellNote == 0
     }
 }
 
@@ -1427,6 +1522,7 @@ enum PlaybackSongSyntheticAdapter {
         var panningValue = 127.5
         var activeEventIndex: Int?
         var activeEventMappingIndex: Int?
+        var activeSampleVolume: Float?
 
         var pan: Float {
             PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
@@ -1627,6 +1723,7 @@ enum PlaybackSongSyntheticAdapter {
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
         var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
+        var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
@@ -1689,6 +1786,7 @@ enum PlaybackSongSyntheticAdapter {
                     channelStates: &channelStates,
                     events: &events,
                     volumeColumnMappings: &volumeColumnMappings,
+                    voiceStateUpdates: &voiceStateUpdates,
                     sampleOffsetEffects: &sampleOffsetEffects,
                     keyOffEvents: &keyOffEvents,
                     effectCommandDiagnostics: &effectCommandDiagnostics,
@@ -1720,6 +1818,7 @@ enum PlaybackSongSyntheticAdapter {
                 effectCommandDiagnostics: effectCommandDiagnostics,
                 rowDiagnostics: rowDiagnostics,
                 volumeColumnMappings: volumeColumnMappings,
+                voiceStateUpdates: voiceStateUpdates,
                 sampleOffsetEffects: sampleOffsetEffects,
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
@@ -1740,6 +1839,7 @@ enum PlaybackSongSyntheticAdapter {
         channelStates: inout [Int: ChannelState],
         events: inout [SyntheticTrackerEvent],
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
+        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
         sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
@@ -1760,10 +1860,33 @@ enum PlaybackSongSyntheticAdapter {
                 effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
             var channelState = channelStates[channelIndex] ?? ChannelState()
+            let channelStateBeforeVolumeColumn = channelState
             let volumeColumn = applyVolumeColumn(
                 PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
                 to: &channelState
             )
+            if let update = voiceStateUpdate(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledStartFrame,
+                cell: cell,
+                volumeColumn: volumeColumn,
+                channelStateBefore: channelStateBeforeVolumeColumn,
+                channelStateAfter: channelState
+            ) {
+                voiceStateUpdates.append(update)
+            }
+            if let update = applyEffectColumnState(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledStartFrame,
+                channelState: &channelState
+            ) {
+                voiceStateUpdates.append(update)
+            }
             channelStates[channelIndex] = channelState
             if cell.volumeColumn != 0 {
                 volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
@@ -1806,7 +1929,7 @@ enum PlaybackSongSyntheticAdapter {
                     source: source,
                     channelIndex: channelIndex,
                     cell: cell,
-                    reason: ignoredNoteReason(cell),
+                    reason: ignoredNoteReason(cell, volumeColumn: volumeColumn),
                     volumeColumn: volumeColumn,
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffect(cell)
@@ -1948,6 +2071,7 @@ enum PlaybackSongSyntheticAdapter {
             }
             channelState.activeEventIndex = eventIndex
             channelState.activeEventMappingIndex = eventMappings.count
+            channelState.activeSampleVolume = sample.volume
             channelStates[channelIndex] = channelState
             eventMappings.append(PlaybackSongSyntheticEventMapping(
                 source: source,
@@ -2008,6 +2132,250 @@ enum PlaybackSongSyntheticAdapter {
             cellCount: row.cells.count,
             emittedEventCount: events.count - eventStartCount,
             ignoredCellCount: ignoredCells.count - ignoredStartCount
+        )
+    }
+
+    private static func voiceStateUpdate(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        channelStateBefore: ChannelState,
+        channelStateAfter: ChannelState
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
+        guard cell.volumeColumn != 0 else {
+            return nil
+        }
+        if volumeColumn.deferred {
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .volumeColumn,
+                command: .volumeColumn(volumeColumn.command),
+                rawVolumeColumn: cell.volumeColumn,
+                effectType: nil,
+                effectParam: nil,
+                status: .deferredUnsupported,
+                behavior: volumeColumn.behavior,
+                channelStateBefore: channelStateBefore,
+                channelStateAfter: channelStateBefore
+            )
+        }
+        guard volumeColumn.applied,
+              reportsVolumeColumnStateUpdate(volumeColumn.command) else {
+            return nil
+        }
+        return voiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame,
+            cell: cell,
+            commandSource: .volumeColumn,
+            command: .volumeColumn(volumeColumn.command),
+            rawVolumeColumn: cell.volumeColumn,
+            effectType: nil,
+            effectParam: nil,
+            status: .applied,
+            behavior: volumeColumn.behavior,
+            channelStateBefore: channelStateBefore,
+            channelStateAfter: channelStateAfter
+        )
+    }
+
+    private static func reportsVolumeColumnStateUpdate(
+        _ command: PlaybackSongSyntheticVolumeColumnCommand
+    ) -> Bool {
+        switch command {
+        case .setVolume,
+             .volumeSlideDown,
+             .volumeSlideUp,
+             .fineVolumeSlideDown,
+             .fineVolumeSlideUp,
+             .setPanning,
+             .panningSlideLeft,
+             .panningSlideRight:
+            return true
+        case .none,
+             .setVibratoSpeed,
+             .vibrato,
+             .tonePortamento,
+             .unsupported:
+            return false
+        }
+    }
+
+    private static func applyEffectColumnState(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
+        switch cell.effectType {
+        case 0x0C:
+            let before = channelState
+            channelState.volumeValue = clampedVolumeValue(Int(cell.effectParam))
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .cxxSetVolume(value: channelState.volumeValue),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: nil,
+                channelStateBefore: before,
+                channelStateAfter: channelState
+            )
+        case 0x08:
+            let before = channelState
+            let panningValue = clampedPanningValue(Double(Int(cell.effectParam)))
+            channelState.panningValue = panningValue
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .effect8xxSetPanning(value: Int(panningValue.rounded())),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: nil,
+                channelStateBefore: before,
+                channelStateAfter: channelState
+            )
+        case 0x0A:
+            let before = channelState
+            guard cell.effectParam != 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: .axyVolumeSlide(up: 0, down: 0),
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before
+                )
+            }
+            let up = Int((cell.effectParam & 0xF0) >> 4)
+            let down = Int(cell.effectParam & 0x0F)
+            if up > 0 {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + up)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - down)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .axyVolumeSlide(up: up, down: up > 0 ? 0 : down),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState
+            )
+        case 0x11:
+            let before = channelState
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .hxyGlobalVolumeSlide,
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .deferredUnsupported,
+                behavior: nil,
+                channelStateBefore: before,
+                channelStateAfter: before
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func voiceStateUpdateDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        commandSource: PlaybackSongSyntheticVoiceStateUpdateSource,
+        command: PlaybackSongSyntheticVoiceStateUpdateCommand,
+        rawVolumeColumn: UInt8?,
+        effectType: UInt8?,
+        effectParam: UInt8?,
+        status: PlaybackSongSyntheticVoiceStateUpdateStatus,
+        behavior: PlaybackSongSyntheticVolumeColumnBehavior?,
+        channelStateBefore: ChannelState,
+        channelStateAfter: ChannelState
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+        let activeSampleVolume = channelStateBefore.activeSampleVolume
+        let gainBefore = activeSampleVolume.map {
+            adaptedGain(sampleVolume: $0, channelVolume: channelStateBefore.volumeValue)
+        }
+        let gainAfter = activeSampleVolume.map {
+            adaptedGain(sampleVolume: $0, channelVolume: channelStateAfter.volumeValue)
+        }
+        let canUpdateActiveVoice = status == .applied &&
+            cell.note == 0 &&
+            channelStateBefore.activeEventIndex != nil &&
+            activeSampleVolume != nil
+        return PlaybackSongSyntheticVoiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            cellNote: cell.note,
+            instrumentIndex: Int(cell.instrument),
+            commandSource: commandSource,
+            command: command,
+            rawVolumeColumn: rawVolumeColumn,
+            effectType: effectType,
+            effectParam: effectParam,
+            status: status,
+            behavior: behavior,
+            activeVoiceUpdated: canUpdateActiveVoice,
+            activeEventIndex: canUpdateActiveVoice ? channelStateBefore.activeEventIndex : nil,
+            effectiveVolumeBefore: channelStateBefore.volumeValue,
+            effectiveVolumeAfter: channelStateAfter.volumeValue,
+            effectivePanBefore: channelStateBefore.pan,
+            effectivePanAfter: channelStateAfter.pan,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            panBefore: channelStateBefore.pan,
+            panAfter: channelStateAfter.pan
         )
     }
 
@@ -2228,6 +2596,7 @@ enum PlaybackSongSyntheticAdapter {
         }
         channelState.activeEventIndex = nil
         channelState.activeEventMappingIndex = nil
+        channelState.activeSampleVolume = nil
     }
 
     private static func eventMapping(
@@ -2798,7 +3167,7 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func shouldReportEffectCommand(_ cell: PlaybackCell) -> Bool {
         switch cell.effectType {
-        case 0x0B, 0x0D, 0x0E, 0x0F:
+        case 0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11:
             return true
         default:
             return false
@@ -2807,8 +3176,14 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func effectCommandStatus(_ cell: PlaybackCell) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
+        case 0x08, 0x0C:
+            return .applied
+        case 0x0A:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x0F:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x11:
+            return .deferredUnsupported
         case 0x0B, 0x0D, 0x0E:
             return .deferredUnsupported
         default:
@@ -2824,14 +3199,22 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func effectCommandLabel(effectType: UInt8, effectParam: UInt8) -> String {
         switch effectType {
+        case 0x08:
+            return "8xx set panning"
+        case 0x0A:
+            return "Axy volume slide"
         case 0x0B:
             return "Bxx position jump"
+        case 0x0C:
+            return "Cxx set volume"
         case 0x0D:
             return "Dxx pattern break"
         case 0x0E:
             return extendedEffectCommandLabel(effectParam: effectParam)
         case 0x0F:
             return "Fxx speed/BPM"
+        case 0x11:
+            return "Hxy global volume slide"
         default:
             return "unknown/unsupported"
         }
@@ -2885,9 +3268,19 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     private static func hasDeferredEffect(_ cell: PlaybackCell) -> Bool {
-        hasEffect(cell) &&
-            !PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) &&
-            !isNonzeroSampleOffsetEffect(cell)
+        guard hasEffect(cell) else {
+            return false
+        }
+        if PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) ||
+            isNonzeroSampleOffsetEffect(cell) {
+            return false
+        }
+        switch cell.effectType {
+        case 0x08, 0x0A, 0x0C:
+            return false
+        default:
+            return true
+        }
     }
 
     private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {
@@ -3044,13 +3437,16 @@ enum PlaybackSongSyntheticAdapter {
         )
     }
 
-    private static func ignoredNoteReason(_ cell: PlaybackCell) -> PlaybackSongSyntheticIgnoredCell.Reason {
+    private static func ignoredNoteReason(
+        _ cell: PlaybackCell,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+    ) -> PlaybackSongSyntheticIgnoredCell.Reason {
         switch cell.note {
         case 0:
             if cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
                 return .instrumentOnly
             }
-            if cell.effectType != 0 || cell.effectParam != 0 || cell.volumeColumn != 0 {
+            if hasDeferredEffect(cell) || volumeColumn.deferred {
                 return .unsupportedDeferredEffectInteraction
             }
             return .emptyNote
@@ -3365,6 +3761,11 @@ final class PlaybackSongOfflineRenderSession {
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
         let voiceIndices = scheduledResults.map(\.voiceIndex)
+        PlaybackSongOfflineRenderer.scheduleVoiceStateUpdates(
+            adaptedPlan.diagnostics.voiceStateUpdates,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
         let rejectionReasons = scheduledResults.map(\.rejectionReason)
         let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
@@ -3387,6 +3788,12 @@ final class PlaybackSongOfflineRenderSession {
     func reset() {
         mixer.reset()
         renderedFrameCount = 0
+    }
+
+    private static func voiceIndexByEventIndex(from voiceIndices: [Int?]) -> [Int: Int] {
+        Dictionary(uniqueKeysWithValues: voiceIndices.enumerated().compactMap { eventIndex, voiceIndex in
+            voiceIndex.map { (eventIndex, $0) }
+        })
     }
 }
 
@@ -3477,6 +3884,24 @@ final class PlaybackSongOfflineRenderer {
                 Self.localEvent(from: event, windowStartFrame: spec.startFrame, scheduler: scheduler)
             }
             let scheduledResults = scheduler.scheduleWithResults(localEvents, on: mixer)
+            var voiceIndexByEventIndex = [Int: Int]()
+            for (continuation, result) in zip(continuations, continuationResults) {
+                if let voiceIndex = result.voiceIndex {
+                    voiceIndexByEventIndex[continuation.eventIndex] = voiceIndex
+                }
+            }
+            for (pair, result) in zip(eventPairs, scheduledResults) {
+                if let voiceIndex = result.voiceIndex {
+                    voiceIndexByEventIndex[pair.offset] = voiceIndex
+                }
+            }
+            Self.scheduleVoiceStateUpdates(
+                adaptedPlan.diagnostics.voiceStateUpdates,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
             attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
                 PlaybackSongScheduledVoiceAttempt(
                     eventIndex: pair.offset,
@@ -3581,6 +4006,35 @@ final class PlaybackSongOfflineRenderer {
             scheduledVoiceIndices: session.scheduledVoiceIndices,
             scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
         )
+    }
+
+    fileprivate static func scheduleVoiceStateUpdates(
+        _ updates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for update in updates where update.activeVoiceUpdated {
+            guard let activeEventIndex = update.activeEventIndex,
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
+                  update.gainAfter != nil || update.panAfter != nil else {
+                continue
+            }
+            guard update.scheduledFrame >= windowStartFrame else {
+                continue
+            }
+            if let windowEndFrame,
+               update.scheduledFrame >= windowEndFrame {
+                continue
+            }
+            _ = mixer.scheduleVoiceGainPanUpdate(
+                voiceIndex: voiceIndex,
+                scheduledFrame: update.scheduledFrame - windowStartFrame,
+                gain: update.gainAfter,
+                pan: update.panAfter
+            )
+        }
     }
 
     /// Renders a bounded adapted `PlaybackSong` segment through the offline C-backed mixer and writes PCM16 WAV.
@@ -3726,12 +4180,34 @@ final class PlaybackSongOfflineRenderer {
                latestEventIndex != eventIndex {
                 return nil
             }
+            let carriedEvent = eventApplyingVoiceStateUpdates(
+                to: event,
+                eventIndex: eventIndex,
+                plan: plan,
+                before: windowStartFrame
+            )
             return continuation(
                 eventIndex: eventIndex,
-                event: event,
+                event: carriedEvent,
                 eventStartFrame: eventStartFrame,
                 boundaryFrame: windowStartFrame
             )
+        }
+    }
+
+    private static func eventApplyingVoiceStateUpdates(
+        to event: SyntheticTrackerEvent,
+        eventIndex: Int,
+        plan: PlaybackSongSyntheticPlan,
+        before boundaryFrame: Int
+    ) -> SyntheticTrackerEvent {
+        plan.diagnostics.voiceStateUpdates.reduce(event) { carriedEvent, update in
+            guard update.activeVoiceUpdated,
+                  update.activeEventIndex == eventIndex,
+                  update.scheduledFrame < boundaryFrame else {
+                return carriedEvent
+            }
+            return carriedEvent.withGainPan(gain: update.gainAfter, pan: update.panAfter)
         }
     }
 

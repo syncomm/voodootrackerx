@@ -931,6 +931,90 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(sampleOffsetEffects.first?["status"] as? String, "applied")
     }
 
+    func testDiagnosticsJSONIncludesVolumePanningStateUpdateSummary() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 8),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let song = PlaybackSong(
+            title: "state-updates",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ]),
+                    PlaybackRow(index: 1, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0x30, effectType: 0, effectParam: 0)
+                    ]),
+                    PlaybackRow(index: 2, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0xCF, effectType: 0, effectParam: 0)
+                    ]),
+                    PlaybackRow(index: 3, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0C, effectParam: 0x20)
+                    ]),
+                    PlaybackRow(index: 4, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x08, effectParam: 0xFF)
+                    ]),
+                    PlaybackRow(index: 5, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x04)
+                    ]),
+                    PlaybackRow(index: 6, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x11, effectParam: 0x10)
+                    ])
+                ])
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 7
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let capacity = try XCTUnwrap(try XCTUnwrap(object["event_coverage"] as? [String: Any])["capacity"] as? [String: Any])
+        let summary = try XCTUnwrap(object["volume_panning_state_update_summary"] as? [String: Any])
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
+        let firstVolumeUpdate = try XCTUnwrap(updates.first { $0["command_name"] as? String == "setVolume" })
+        let hxy = try XCTUnwrap(updates.first { $0["command_name"] as? String == "hxyGlobalVolumeSlide" })
+
+        XCTAssertEqual(render["volume_panning_state_update_count"] as? Int, 6)
+        XCTAssertEqual(render["active_voice_state_update_count"] as? Int, 5)
+        XCTAssertEqual(capacity["c_mixer_voice_state_event_capacity"] as? Int, CSoftwareMixer.maximumVoiceStateEventCount)
+        XCTAssertEqual(summary["total_state_updates"] as? Int, 6)
+        XCTAssertEqual(summary["active_voice_updated_count"] as? Int, 5)
+        XCTAssertEqual(summary["empty_note_volume_column_set_volume_applied"] as? Int, 1)
+        XCTAssertEqual(summary["empty_note_volume_column_set_panning_applied"] as? Int, 1)
+        XCTAssertEqual(summary["cxx_set_volume_applied"] as? Int, 1)
+        XCTAssertEqual(summary["effect_8xx_set_panning_applied"] as? Int, 1)
+        XCTAssertEqual(summary["axy_volume_slide_applied"] as? Int, 1)
+        XCTAssertEqual(summary["hxy_global_volume_slide_deferred"] as? Int, 1)
+        XCTAssertEqual(firstVolumeUpdate["scheduled_frame"] as? Int, 1)
+        XCTAssertEqual(firstVolumeUpdate["active_voice_updated"] as? Bool, true)
+        XCTAssertEqual(firstVolumeUpdate["effective_volume_before"] as? Int, 64)
+        XCTAssertEqual(firstVolumeUpdate["effective_volume_after"] as? Int, 32)
+        XCTAssertEqual(firstVolumeUpdate["gain_before"] as? Double, 1)
+        XCTAssertEqual(firstVolumeUpdate["gain_after"] as? Double, 0.5)
+        XCTAssertEqual(hxy["status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(hxy["active_voice_updated"] as? Bool, false)
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "Cxx set volume" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "8xx set panning" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "Axy volume slide" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "Hxy global volume slide" && $0["status"] as? String == "deferred/unsupported" })
+    }
+
     func testDiagnosticsJSONCountsTraversalHazardsWithCoordinatesAndStatuses() throws {
         let rows = [
             PlaybackRow(index: 0, cells: [

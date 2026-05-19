@@ -237,6 +237,9 @@ def frame_range_for_diagnostic(
     rows_by_source: dict[tuple[Any, Any, Any], tuple[int, int]],
     rows_by_synthetic: dict[Any, tuple[int, int]],
 ) -> tuple[int | None, int | None]:
+    scheduled_frame = integer(diagnostic.get("scheduled_frame"))
+    if scheduled_frame is not None:
+        return max(0, scheduled_frame), scheduled_frame + 1
     source = nested_dict(diagnostic.get("source"))
     source_range = rows_by_source.get(source_row_key(source))
     if source_range is not None:
@@ -296,6 +299,8 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "unknown/unsupported"
     if effect_type == 0x0F:
         return "Fxx speed/BPM"
+    if effect_type == 0x11:
+        return "Hxy global volume slide"
     return "unknown/unsupported"
 
 
@@ -472,6 +477,34 @@ def extract_command_occurrences(
             status=volume_status(volume_column),
             source=nested_dict(mapping.get("source")),
             channel=mapping.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+        ))
+
+    for update in nested_list(diagnostics.get("volume_panning_state_updates")):
+        if not isinstance(update, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(update, rows_by_source, rows_by_synthetic)
+        command_source = update.get("command_source")
+        command_name = str(update.get("command_name", ""))
+        label = str(update.get("command_label") or command_name or "volume/pan state update")
+        if command_source == "volume_column":
+            domain = "volume"
+            if update.get("cell_note") == 0 and command_name == "setVolume":
+                label = "empty-note volume-column set volume state update"
+            elif update.get("cell_note") == 0 and command_name == "setPanning":
+                label = "empty-note volume-column set panning state update"
+            else:
+                volume_column = nested_dict(nested_dict(update.get("command")).get("volume_column"))
+                label = f"volume-column {volume_command_label(volume_column)} state update"
+        else:
+            domain = "effect"
+        occurrences.append(CommandOccurrence(
+            domain=domain,
+            label=label,
+            status=str(update.get("status", "unknown")),
+            source=nested_dict(update.get("source")),
+            channel=update.get("channel_index"),
             start_frame=start_frame,
             end_frame=end_frame,
         ))

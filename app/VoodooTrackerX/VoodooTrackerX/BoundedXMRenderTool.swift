@@ -694,6 +694,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
                 "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
                 "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
+                "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
+                "Hxy global volume slide remains diagnostic/deferred in bounded offline renders.",
                 "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
                 "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
             ],
@@ -716,6 +718,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
+                "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
+                "active_voice_state_update_count": diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
@@ -731,6 +735,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
             "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
             "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
+            "volume_panning_state_update_summary": voiceStateUpdateSummaryJSON(diagnostics.voiceStateUpdates),
+            "volume_panning_state_updates": diagnostics.voiceStateUpdates.map(voiceStateUpdateJSON),
             "sample_offset_effects": diagnostics.sampleOffsetEffects.map(sampleOffsetDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
@@ -849,6 +855,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "c_mixer_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
                 "c_mixer_scheduled_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
                 "c_mixer_active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
+                "c_mixer_voice_state_event_capacity": CSoftwareMixer.maximumVoiceStateEventCount,
                 "scheduled_voice_capacity": CSoftwareMixer.maximumScheduledVoiceCount,
                 "active_voice_capacity": CSoftwareMixer.maximumActiveVoiceCount,
                 "scheduled_voice_attempt_count": result.scheduledVoiceAttempts.count,
@@ -1198,6 +1205,159 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func voiceStateUpdateSummaryJSON(
+        _ updates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+    ) -> [String: Any] {
+        func count(_ predicate: (PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Bool) -> Int {
+            updates.filter(predicate).count
+        }
+        return [
+            "total_state_updates": updates.count,
+            "applied_count": count(\.applied),
+            "deferred_count": count(\.deferred),
+            "ignored_no_op_count": count(\.ignoredAsNoOp),
+            "active_voice_updated_count": count(\.activeVoiceUpdated),
+            "active_voice_not_updated_count": count { !$0.activeVoiceUpdated },
+            "empty_note_volume_column_set_volume_applied": count {
+                $0.applied && isEmptyNoteVolumeColumnSetVolume($0)
+            },
+            "empty_note_volume_column_set_volume_deferred": count {
+                $0.deferred && isEmptyNoteVolumeColumnSetVolume($0)
+            },
+            "empty_note_volume_column_set_panning_applied": count {
+                $0.applied && isEmptyNoteVolumeColumnSetPanning($0)
+            },
+            "empty_note_volume_column_set_panning_deferred": count {
+                $0.deferred && isEmptyNoteVolumeColumnSetPanning($0)
+            },
+            "cxx_set_volume_applied": count {
+                $0.applied && isCxxSetVolumeUpdate($0)
+            },
+            "cxx_set_volume_deferred": count {
+                $0.deferred && isCxxSetVolumeUpdate($0)
+            },
+            "effect_8xx_set_panning_applied": count {
+                $0.applied && is8xxSetPanningUpdate($0)
+            },
+            "effect_8xx_set_panning_deferred": count {
+                $0.deferred && is8xxSetPanningUpdate($0)
+            },
+            "axy_volume_slide_applied": count {
+                $0.applied && isAxyVolumeSlideUpdate($0)
+            },
+            "axy_volume_slide_deferred": count {
+                $0.deferred && isAxyVolumeSlideUpdate($0)
+            },
+            "hxy_global_volume_slide_applied": count {
+                $0.applied && isHxyGlobalVolumeSlideUpdate($0)
+            },
+            "hxy_global_volume_slide_deferred": count {
+                $0.deferred && isHxyGlobalVolumeSlideUpdate($0)
+            },
+        ]
+    }
+
+    private static func isEmptyNoteVolumeColumnSetVolume(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        guard update.hasEmptyNote,
+              update.commandSource == .volumeColumn,
+              case let .volumeColumn(command) = update.command else {
+            return false
+        }
+        if case .setVolume = command {
+            return true
+        }
+        return false
+    }
+
+    private static func isEmptyNoteVolumeColumnSetPanning(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        guard update.hasEmptyNote,
+              update.commandSource == .volumeColumn,
+              case let .volumeColumn(command) = update.command else {
+            return false
+        }
+        if case .setPanning = command {
+            return true
+        }
+        return false
+    }
+
+    private static func isCxxSetVolumeUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .cxxSetVolume = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func is8xxSetPanningUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .effect8xxSetPanning = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func isAxyVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .axyVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func isHxyGlobalVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .hxyGlobalVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func voiceStateUpdateJSON(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> [String: Any] {
+        var object: [String: Any] = [
+            "source": positionJSON(update.source),
+            "channel_index": update.channelIndex,
+            "synthetic_row": update.syntheticRow,
+            "synthetic_tick": update.syntheticTick,
+            "scheduled_frame": update.scheduledFrame,
+            "cell_note": Int(update.cellNote),
+            "instrument_index": update.instrumentIndex,
+            "command_source": voiceStateUpdateSourceName(update.commandSource),
+            "command_label": update.command.label,
+            "command_name": voiceStateCommandName(update.command),
+            "command": voiceStateCommandJSON(update.command),
+            "status": voiceStateUpdateStatusName(update.status),
+            "applied": update.applied,
+            "deferred": update.deferred,
+            "ignored_as_no_op": update.ignoredAsNoOp,
+            "active_voice_updated": update.activeVoiceUpdated,
+        ]
+        put(update.rawVolumeColumn.map { Int($0) }, forKey: "raw_volume_column", into: &object)
+        put(update.effectType.map { Int($0) }, forKey: "effect_type", into: &object)
+        put(update.effectParam.map { Int($0) }, forKey: "effect_param", into: &object)
+        put(update.behavior.map(volumeColumnBehaviorName), forKey: "behavior", into: &object)
+        put(update.activeEventIndex, forKey: "active_event_index", into: &object)
+        put(update.effectiveVolumeBefore, forKey: "effective_volume_before", into: &object)
+        put(update.effectiveVolumeAfter, forKey: "effective_volume_after", into: &object)
+        put(update.effectivePanBefore.map { Double($0) }, forKey: "effective_pan_before", into: &object)
+        put(update.effectivePanAfter.map { Double($0) }, forKey: "effective_pan_after", into: &object)
+        put(update.gainBefore.map { Double($0) }, forKey: "gain_before", into: &object)
+        put(update.gainAfter.map { Double($0) }, forKey: "gain_after", into: &object)
+        put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)
+        put(update.panAfter.map { Double($0) }, forKey: "pan_after", into: &object)
+        return object
+    }
+
     private static func ignoredCellJSON(_ cell: PlaybackSongSyntheticIgnoredCell) -> [String: Any] {
         [
             "source": positionJSON(cell.source),
@@ -1324,6 +1484,44 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func voiceStateCommandJSON(
+        _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
+    ) -> [String: Any] {
+        switch command {
+        case let .volumeColumn(command):
+            return [
+                "name": voiceStateCommandName(.volumeColumn(command)),
+                "label": command.name,
+                "volume_column": volumeCommandJSON(command),
+            ]
+        case let .cxxSetVolume(value):
+            return ["name": "cxxSetVolume", "label": command.label, "value": value]
+        case let .effect8xxSetPanning(value):
+            return ["name": "effect8xxSetPanning", "label": command.label, "value": value]
+        case let .axyVolumeSlide(up, down):
+            return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
+        case .hxyGlobalVolumeSlide:
+            return ["name": "hxyGlobalVolumeSlide", "label": command.label]
+        }
+    }
+
+    private static func voiceStateCommandName(
+        _ command: PlaybackSongSyntheticVoiceStateUpdateCommand
+    ) -> String {
+        switch command {
+        case let .volumeColumn(command):
+            return command.name
+        case .cxxSetVolume:
+            return "cxxSetVolume"
+        case .effect8xxSetPanning:
+            return "effect8xxSetPanning"
+        case .axyVolumeSlide:
+            return "axyVolumeSlide"
+        case .hxyGlobalVolumeSlide:
+            return "hxyGlobalVolumeSlide"
+        }
+    }
+
     private static func put(_ value: Any?, forKey key: String, into object: inout [String: Any]) {
         if let value {
             object[key] = value
@@ -1417,6 +1615,30 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "deferred/unsupported"
         case .unknown:
             return "unknown"
+        }
+    }
+
+    private static func voiceStateUpdateSourceName(
+        _ source: PlaybackSongSyntheticVoiceStateUpdateSource
+    ) -> String {
+        switch source {
+        case .volumeColumn:
+            return "volume_column"
+        case .effectColumn:
+            return "effect_column"
+        }
+    }
+
+    private static func voiceStateUpdateStatusName(
+        _ status: PlaybackSongSyntheticVoiceStateUpdateStatus
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .ignoredNoOp:
+            return "ignored/no-op"
+        case .deferredUnsupported:
+            return "deferred/unsupported"
         }
     }
 
@@ -1657,6 +1879,13 @@ private func appendEventCoverageSummary(
     lines.append("First skipped note coordinates: \(skippedCoordinates.isEmpty ? "none" : skippedCoordinates.joined(separator: "; ")).")
     lines.append(
         "C mixer scheduling: \(result.scheduledVoiceAttempts.count - rejectedVoiceCount)/\(result.scheduledVoiceAttempts.count) accepted, \(rejectedVoiceCount) rejected, scheduled capacity \(CSoftwareMixer.maximumScheduledVoiceCount), active capacity \(CSoftwareMixer.maximumActiveVoiceCount)."
+    )
+    let stateUpdates = result.diagnostics.voiceStateUpdates
+    let appliedStateUpdates = stateUpdates.filter(\.applied).count
+    let deferredStateUpdates = stateUpdates.filter(\.deferred).count
+    let activeVoiceStateUpdates = stateUpdates.filter(\.activeVoiceUpdated).count
+    lines.append(
+        "Volume/panning state updates: \(appliedStateUpdates) applied, \(deferredStateUpdates) deferred, \(activeVoiceStateUpdates) active voice updates."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

@@ -21,6 +21,7 @@ final class PlaybackEngine: PlaybackTransport {
     private var lastVoiceRequests = [Int: AudioVoiceRequest]()
     private var delayedVoiceRequests = [Int: AudioVoiceRequest]()
     private var traceTickIndex: UInt64 = 0
+    private var runtimeNoteTriggerEventCount: UInt64 = 0
     private var activeDebugStartTraceContext: PlaybackDebugStartTraceContext?
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
@@ -49,6 +50,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         traceTickIndex = 0
+        runtimeNoteTriggerEventCount = 0
         activeDebugStartTraceContext = nil
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
@@ -147,6 +149,7 @@ final class PlaybackEngine: PlaybackTransport {
         timing = song?.initialTiming ?? .xmDefault
         activeDebugStartTraceContext = nil
         traceWriter.flush()
+        runtimeCMixerTraceWriter.flush()
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
@@ -186,6 +189,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         traceTickIndex = 0
+        runtimeNoteTriggerEventCount = 0
         if resetTiming {
             timing = song?.initialTiming ?? .xmDefault
         }
@@ -235,6 +239,7 @@ final class PlaybackEngine: PlaybackTransport {
     private func enter(position: PlaybackPosition) {
         positionDidChange?(position)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
+        recordRuntimeRowTransition(at: position)
         prepareRowPlaybackState(at: position)
         triggerAudio(at: position)
         applyImmediateTimingEffects()
@@ -678,17 +683,40 @@ final class PlaybackEngine: PlaybackTransport {
         guard runtimeCMixerTraceWriter.isEnabled else {
             return
         }
+        let noteTriggerEventCount: UInt64?
+        if action == "note_trigger" {
+            runtimeNoteTriggerEventCount &+= 1
+            noteTriggerEventCount = runtimeNoteTriggerEventCount
+        } else {
+            noteTriggerEventCount = nil
+        }
         let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .avAudio
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: backend.diagnosticName,
             experimentalCMixerEnabled: backend == .cMixer,
+            sampleRate: audioEngine.audioBufferSampleRate,
             context: context,
             targetScope: targetScope,
             targetedAllVoices: targetedAllVoices,
+            noteTriggerEventCount: noteTriggerEventCount,
             cMixerCallSucceeded: nil,
             reason: reason
         ))
+    }
+
+    private func recordRuntimeRowTransition(at position: PlaybackPosition) {
+        guard let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput else {
+            return
+        }
+        diagnosticOutput.recordTransition(
+            context: runtimeTraceContext(
+                at: position,
+                tickInRow: tickState.tickInRow,
+                channelIndex: nil
+            ),
+            reason: "playback_engine_row_enter"
+        )
     }
 
     private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {

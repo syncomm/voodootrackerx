@@ -8291,6 +8291,8 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeAudioBackend: "c_mixer",
             backendFlagValue: "c_mixer",
             experimentalCMixerEnabled: true,
+            sampleRate: 44_100,
+            channelCount: 2,
             context: AudioRuntimeTraceContext(
                 orderIndex: 1,
                 patternIndex: 3,
@@ -8315,8 +8317,41 @@ final class VoodooTrackerXTests: XCTestCase {
             loadedVoiceCountAfter: 1,
             stoppedVoiceCount: 1,
             currentFrame: 256,
+            scheduledVoiceCount: 0,
+            eventQueueBacklogCount: 0,
+            renderCallbackCount: 3,
             renderCallCount: 2,
+            successfulRenderCount: 2,
+            failedRenderCount: 1,
+            requestedFrameCount: 256,
+            cumulativeRequestedFrameCount: 768,
             renderedFrameCount: 512,
+            renderFrameCount: 256,
+            minRequestedFrameCount: 128,
+            maxRequestedFrameCount: 512,
+            lastRequestedFrameCount: 256,
+            lastRenderedFrameCount: 256,
+            lastRenderSucceeded: true,
+            zeroFillCount: 1,
+            underrunCount: 1,
+            silentOutputCallbackCount: 0,
+            unexpectedSilentOutputCount: 0,
+            outputPeak: 0.75,
+            outputRMS: 0.25,
+            lastOutputPeak: 0.5,
+            lastOutputRMS: 0.125,
+            overrangeSampleCount: 0,
+            clippingSampleCount: 0,
+            runtimeOutputGain: 1,
+            runtimeHeadroomPolicy: "unity_runtime_gain_no_auto_headroom",
+            runtimeAutoHeadroomEnabled: false,
+            runtimeFixedHeadroomDB: nil,
+            noteTriggerEventCount: 4,
+            cMixerAddVoiceCount: 2,
+            gainPanUpdateCount: 3,
+            stepUpdateCount: 3,
+            stopChannelCount: 1,
+            clearAllCount: 1,
             cMixerCallSucceeded: true,
             reason: "test"
         )
@@ -8331,6 +8366,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeAudioBackend"] as? String, "c_mixer")
         XCTAssertEqual(object["backendFlagValue"] as? String, "c_mixer")
         XCTAssertEqual(object["experimentalCMixerEnabled"] as? Bool, true)
+        XCTAssertEqual(object["sampleRate"] as? Double, 44_100)
+        XCTAssertEqual(object["channelCount"] as? Int, 2)
         XCTAssertEqual(object["orderIndex"] as? Int, 1)
         XCTAssertEqual(object["rowIndex"] as? Int, 16)
         XCTAssertEqual(object["tickInRow"] as? Int, 2)
@@ -8349,7 +8386,29 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["loadedVoiceCountAfter"] as? Int, 1)
         XCTAssertEqual(object["stoppedVoiceCount"] as? Int, 1)
         XCTAssertEqual(object["currentFrame"] as? Int, 256)
+        XCTAssertEqual(object["scheduledVoiceCount"] as? Int, 0)
+        XCTAssertEqual(object["eventQueueBacklogCount"] as? Int, 0)
+        XCTAssertEqual(object["renderCallbackCount"] as? Int, 3)
+        XCTAssertEqual(object["successfulRenderCount"] as? Int, 2)
+        XCTAssertEqual(object["failedRenderCount"] as? Int, 1)
+        XCTAssertEqual(object["requestedFrameCount"] as? Int, 256)
+        XCTAssertEqual(object["cumulativeRequestedFrameCount"] as? Int, 768)
         XCTAssertEqual(object["renderedFrameCount"] as? Int, 512)
+        XCTAssertEqual(object["minRequestedFrameCount"] as? Int, 128)
+        XCTAssertEqual(object["maxRequestedFrameCount"] as? Int, 512)
+        XCTAssertEqual(object["lastRequestedFrameCount"] as? Int, 256)
+        XCTAssertEqual(object["lastRenderedFrameCount"] as? Int, 256)
+        XCTAssertEqual(object["lastRenderSucceeded"] as? Bool, true)
+        XCTAssertEqual(object["zeroFillCount"] as? Int, 1)
+        XCTAssertEqual(object["underrunCount"] as? Int, 1)
+        XCTAssertEqual(object["runtimeHeadroomPolicy"] as? String, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(object["runtimeAutoHeadroomEnabled"] as? Bool, false)
+        XCTAssertEqual(object["noteTriggerEventCount"] as? Int, 4)
+        XCTAssertEqual(object["cMixerAddVoiceCount"] as? Int, 2)
+        XCTAssertEqual(object["gainPanUpdateCount"] as? Int, 3)
+        XCTAssertEqual(object["stepUpdateCount"] as? Int, 3)
+        XCTAssertEqual(object["stopChannelCount"] as? Int, 1)
+        XCTAssertEqual(object["clearAllCount"] as? Int, 1)
         XCTAssertEqual(object["cMixerCallSucceeded"] as? Bool, true)
     }
 
@@ -8423,6 +8482,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.sampleRate, 44_100)
+        XCTAssertEqual(traceWriter.events.first?.channelCount, 2)
+        XCTAssertEqual(traceWriter.events.first?.runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(traceWriter.events.first?.runtimeAutoHeadroomEnabled, false)
     }
 
     @MainActor
@@ -8477,6 +8540,43 @@ final class VoodooTrackerXTests: XCTestCase {
         }
     }
 
+    func testRuntimeCMixerRenderCoreDiagnosticsInitializeCleanly() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2),
+            maximumRenderFrames: 16
+        )
+
+        let snapshot = core.snapshot()
+
+        XCTAssertEqual(snapshot.sampleRate, 48_000)
+        XCTAssertEqual(snapshot.channelCount, 2)
+        XCTAssertEqual(snapshot.activeVoiceCount, 0)
+        XCTAssertEqual(snapshot.loadedVoiceCount, 0)
+        XCTAssertEqual(snapshot.scheduledVoiceCount, 0)
+        XCTAssertEqual(snapshot.eventQueueBacklogCount, 0)
+        XCTAssertEqual(snapshot.renderCallbackCount, 0)
+        XCTAssertEqual(snapshot.renderCallCount, 0)
+        XCTAssertEqual(snapshot.successfulRenderCount, 0)
+        XCTAssertEqual(snapshot.failedRenderCount, 0)
+        XCTAssertNil(snapshot.requestedFrameCount)
+        XCTAssertEqual(snapshot.cumulativeRequestedFrameCount, 0)
+        XCTAssertEqual(snapshot.renderedFrameCount, 0)
+        XCTAssertNil(snapshot.minRequestedFrameCount)
+        XCTAssertNil(snapshot.maxRequestedFrameCount)
+        XCTAssertEqual(snapshot.zeroFillCount, 0)
+        XCTAssertEqual(snapshot.underrunCount, 0)
+        XCTAssertEqual(snapshot.silentOutputCallbackCount, 0)
+        XCTAssertEqual(snapshot.unexpectedSilentOutputCount, 0)
+        XCTAssertEqual(snapshot.outputPeak, 0)
+        XCTAssertEqual(snapshot.outputRMS, 0)
+        XCTAssertEqual(snapshot.overrangeSampleCount, 0)
+        XCTAssertEqual(snapshot.clippingSampleCount, 0)
+        XCTAssertEqual(snapshot.runtimeOutputGain, 1)
+        XCTAssertEqual(snapshot.runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(snapshot.runtimeAutoHeadroomEnabled, false)
+        XCTAssertNil(snapshot.runtimeFixedHeadroomDB)
+    }
+
     func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
@@ -8504,9 +8604,64 @@ final class VoodooTrackerXTests: XCTestCase {
         }
 
         let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.renderCallbackCount, 1)
         XCTAssertEqual(snapshot.renderCallCount, 1)
+        XCTAssertEqual(snapshot.successfulRenderCount, 1)
+        XCTAssertEqual(snapshot.failedRenderCount, 0)
+        XCTAssertEqual(snapshot.requestedFrameCount, 2)
+        XCTAssertEqual(snapshot.cumulativeRequestedFrameCount, 2)
         XCTAssertEqual(snapshot.renderedFrameCount, 2)
+        XCTAssertEqual(snapshot.minRequestedFrameCount, 2)
+        XCTAssertEqual(snapshot.maxRequestedFrameCount, 2)
+        XCTAssertEqual(snapshot.lastRequestedFrameCount, 2)
+        XCTAssertEqual(snapshot.lastRenderedFrameCount, 2)
+        XCTAssertEqual(snapshot.lastRenderSucceeded, true)
+        XCTAssertEqual(snapshot.zeroFillCount, 0)
+        XCTAssertEqual(snapshot.silentOutputCallbackCount, 0)
+        XCTAssertEqual(snapshot.lastOutputPeak, 1)
+        XCTAssertEqual(snapshot.outputPeak, 1)
+        XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)), accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.overrangeSampleCount, 0)
+        XCTAssertEqual(snapshot.clippingSampleCount, 2)
         XCTAssertEqual(snapshot.currentFrame, 2)
+    }
+
+    func testRuntimeCMixerRenderCoreDistinguishesSilentOutputFromZeroFill() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 2
+        )
+
+        var silentOutput = Array(repeating: Float(1), count: 2)
+        silentOutput.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 2))
+        }
+        XCTAssertEqual(silentOutput, [0, 0])
+
+        var snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.renderCallbackCount, 1)
+        XCTAssertEqual(snapshot.successfulRenderCount, 1)
+        XCTAssertEqual(snapshot.failedRenderCount, 0)
+        XCTAssertEqual(snapshot.silentOutputCallbackCount, 1)
+        XCTAssertEqual(snapshot.unexpectedSilentOutputCount, 0)
+        XCTAssertEqual(snapshot.zeroFillCount, 0)
+
+        var zeroFilledOutput = Array(repeating: Float(1), count: 4)
+        zeroFilledOutput.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertFalse(core.render(into: buffer, frameCount: 4))
+        }
+        XCTAssertEqual(zeroFilledOutput, [0, 0, 0, 0])
+
+        snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.renderCallbackCount, 2)
+        XCTAssertEqual(snapshot.successfulRenderCount, 1)
+        XCTAssertEqual(snapshot.failedRenderCount, 1)
+        XCTAssertEqual(snapshot.silentOutputCallbackCount, 1)
+        XCTAssertEqual(snapshot.zeroFillCount, 1)
+        XCTAssertEqual(snapshot.underrunCount, 1)
+        XCTAssertEqual(snapshot.lastRenderSucceeded, false)
+        XCTAssertEqual(snapshot.lastRequestedFrameCount, 4)
+        XCTAssertEqual(snapshot.lastRenderedFrameCount, 0)
     }
 
     func testRuntimeCMixerRenderCoreStopsOnlyRequestedChannel() {
@@ -8590,6 +8745,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNotNil(stopChannel?.stoppedVoiceCount)
         XCTAssertNotNil(stopChannel?.activeVoiceCountBefore)
         XCTAssertNotNil(stopChannel?.activeVoiceCountAfter)
+        XCTAssertEqual(stopChannel?.stopChannelCount, 1)
         XCTAssertNil(traceWriter.events.first {
             $0.runtimeAction == "c_mixer_clear_all" &&
                 $0.reason == "per_channel_stop_currently_clears_all_runtime_c_voices"
@@ -8602,6 +8758,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(clearAll?.targetedAllVoices, true)
         XCTAssertEqual(clearAll?.reason, "transport_stop")
         XCTAssertNotNil(clearAll?.stoppedVoiceCount)
+        XCTAssertGreaterThanOrEqual(clearAll?.clearAllCount ?? 0, 1)
     }
 
     @MainActor
@@ -8632,10 +8789,46 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(replacementStop?.rowIndex, 1)
         XCTAssertEqual(replacementStop?.channelIndex, 0)
         XCTAssertNotNil(replacementStop?.stoppedVoiceCount)
+        XCTAssertEqual(replacementStop?.stopChannelCount, 1)
         XCTAssertNil(traceWriter.events.first {
             $0.runtimeAction == "c_mixer_clear_all" &&
                 $0.reason == "per_channel_stop_currently_clears_all_runtime_c_voices"
         })
+    }
+
+    @MainActor
+    func testRuntimeCMixerTraceRecordsRowTransitionsWithRenderSnapshot() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
+        let sample = makePlaybackSample(pcm: [0.25, 0.25], baseSampleRate: 44_100)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 125)
+        ))
+
+        engine.play(from: nil)
+        engine.advanceOneTick()
+
+        let transitions = traceWriter.events.filter { $0.runtimeAction == "row_transition" }
+        XCTAssertEqual(transitions.count, 2)
+        XCTAssertEqual(transitions[0].orderIndex, 0)
+        XCTAssertEqual(transitions[0].patternIndex, 2)
+        XCTAssertEqual(transitions[0].rowIndex, 0)
+        XCTAssertEqual(transitions[0].sampleRate, 44_100)
+        XCTAssertEqual(transitions[0].channelCount, 2)
+        XCTAssertEqual(transitions[0].renderCallbackCount, 0)
+        XCTAssertEqual(transitions[0].eventQueueBacklogCount, 0)
+        XCTAssertEqual(transitions[0].runtimeHeadroomPolicy, "unity_runtime_gain_no_auto_headroom")
+        XCTAssertEqual(transitions[1].rowIndex, 1)
+        XCTAssertNotNil(transitions[1].activeVoiceCount)
+        XCTAssertNotNil(transitions[1].loadedVoiceCount)
     }
 
     @MainActor
@@ -8738,6 +8931,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(event?.effect, "0902")
         XCTAssertEqual(event?.volumeColumn, "30")
         XCTAssertEqual(event?.targetScope, "channel")
+        XCTAssertEqual(event?.noteTriggerEventCount, 1)
     }
 
     @MainActor

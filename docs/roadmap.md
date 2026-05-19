@@ -70,6 +70,7 @@ Current stabilization note:
 - See `docs/decisions/005-software-mixer-core-language-boundary.md` for the architecture checkpoint that clarifies the final hot-path mixer boundary before more complex envelope, timing, and effect work.
 - See `docs/decisions/007-feature-flagged-runtime-c-mixer-backend.md` for the accepted planning guidance and initial implementation note for the opt-in runtime C mixer backend experiment. Default runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the C mixer runtime path is experimental and enabled only with `VTX_AUDIO_BACKEND=c_mixer`.
 - Runtime C mixer A/B listening diagnostics now provide local-only backend selection and event traces through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including PlaybackEngine order/row/tick context, C mixer add/clear/stop calls, render-frame counters, channel-scoped stop/replacement evidence, and true global clear/stop evidence. The backend remains opt-in and experimental; tracker-follow bridging, runtime parity, and any default backend switch remain later work.
+- Runtime C mixer output diagnostics now extend the same local-only trace with render callback counters, requested/rendered frame counts, detected zero-fill/underrun evidence, output peak/RMS and clipping/overrange summaries, row-transition snapshots, backend lifecycle breadcrumbs, event counters, and explicit reporting that the runtime C path does not apply the offline helper's `--auto-headroom` export policy. Audible runtime fixes remain separate follow-up PRs; the AVAudio backend remains the default.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -369,6 +370,11 @@ and reference comparison before any default runtime backend switch.
 ### PR 2.7.11b — Runtime C Mixer Per-Channel Voice Stop / Replacement Semantics
 - Scope: replace the current experimental runtime clears-all stop behavior with channel-scoped voice stop/replacement semantics after trace evidence confirms the failure mode.
 - Verification: focused runtime C mixer tests, Play/Stop smoke, A/B listening traces, and no default backend switch.
+- Status: done.
+
+### PR 2.7.11c — Runtime C Mixer Output Diagnostics / Offline Parity Investigation
+- Scope: add diagnostics-first runtime C mixer output traces for explaining live-only pops/crackle and harsh order transitions against the clean bounded offline C mixer render path. Include render callback counters, requested/rendered frame counts, zero-fill/underrun evidence where detected, peak/RMS/clipping/overrange summaries, runtime headroom policy breadcrumbs, row-transition snapshots, event counters, and backend lifecycle breadcrumbs.
+- Verification: focused synthetic runtime diagnostics and trace tests, existing offline render/comparison tests, app build/test, Play/Stop smoke, local-only trace generation, and no default backend switch.
 - Status: done.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT

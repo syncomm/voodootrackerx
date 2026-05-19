@@ -136,7 +136,12 @@ add/clear/stop calls, render-frame counters, and channel-scoped stop/replacement
 evidence. The experimental runtime C mixer now tags runtime voices by caller-owned
 channel id so same-channel replacement and channel stop use `c_mixer_stop_channel`
 instead of clearing all C mixer voices. True transport stop/reset still clears the
-runtime C mixer globally.
+runtime C mixer globally. Runtime C mixer output diagnostics now extend that
+local-only trace with render callback counters, requested/rendered frame counts,
+zero-fill/underrun evidence where detected, output peak/RMS and
+clipping/overrange summaries, row-transition snapshots, backend lifecycle breadcrumbs,
+and explicit runtime headroom policy reporting. Runtime output fixes remain
+separate follow-up work, and AVAudio remains the default runtime backend.
 
 Immediate audio accuracy sequence:
 
@@ -194,7 +199,8 @@ Immediate audio accuracy sequence:
 52. Feature-flagged runtime C mixer backend skeleton — done
 53. Runtime C mixer A/B listening diagnostics — done
 54. Runtime C mixer per-channel voice stop / replacement semantics — done
-55. Reference comparison stabilization against MikMod/OpenMPT
+55. Runtime C mixer output diagnostics / offline parity investigation — done
+56. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -257,7 +263,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence and true global clear/stop evidence
+- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, render callback counters, output level summaries, row-transition snapshots, and runtime headroom policy breadcrumbs
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

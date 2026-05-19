@@ -1361,6 +1361,67 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| 3xx tone portamento | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
             self.assertIn("### Overall command frequency in bounded render", markdown)
 
+    def test_correlation_report_counts_applied_1xx_2xx_portamento_slides(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x01, 0x40, "1xx portamento up", status="applied"),
+            traversal_effect(0x02, 0x20, "2xx portamento down", row=5, channel=2, status="applied"),
+        ]
+        diagnostics["portamento_slide_effects"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x01,
+                "effect_param": 0x40,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "active_voice_found": True,
+                "slide_direction": "up",
+                "slide_amount": 0x40,
+                "current_step_before": 1.0,
+                "current_step_after": 1.25,
+                "row_speed": 4,
+                "row_bpm": 250,
+                "step_updates": [{"scheduled_frame": 110, "current_step_before": 1.0, "current_step_after": 1.25}],
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 5},
+                "channel_index": 2,
+                "synthetic_row": 5,
+                "synthetic_tick": 0,
+                "effect_type": 0x02,
+                "effect_param": 0x20,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "active_voice_found": True,
+                "slide_direction": "down",
+                "slide_amount": 0x20,
+                "current_step_before": 1.25,
+                "current_step_after": 1.1,
+                "row_speed": 4,
+                "row_bpm": 250,
+                "step_updates": [{"scheduled_frame": 115, "current_step_before": 1.25, "current_step_after": 1.1}],
+            },
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| 1xx portamento up | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+            self.assertIn("| 2xx portamento down | applied | 1 | 1 | order 0 pattern 2 row 5 ch 2 |", markdown)
+
     def test_recommendation_heuristic_selects_dominant_pitch_bucket(self):
         cases = [
             (

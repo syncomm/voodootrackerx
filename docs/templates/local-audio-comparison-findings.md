@@ -112,10 +112,14 @@ output directory.
 - First traversal hazard coordinates:
 - Traversal hazards before/in top mismatch windows:
 - Arpeggio 0xy count:
-- Deferred portamento count (1xx/2xx/5xy/volume-column tone portamento):
+- Applied 1xx portamento-up count:
+- Applied 1xx no-active / zero-param / deferred count:
+- Applied 2xx portamento-down count:
+- Applied 2xx no-active / zero-param / deferred count:
 - Applied 3xx tone-portamento count:
 - Applied 3xx no-active/no-target/no-speed count:
 - Applied 3xx target/current step notes:
+- Deferred portamento count (5xy/volume-column tone portamento):
 - Vibrato count (4xy/6xy/volume-column vibrato):
 - Tremolo 7xy count:
 - Pitch-modulation diagnostics before/in top mismatch windows:
@@ -228,8 +232,10 @@ output directory.
 - E9x retriggers: applied / E90 no-op / no-active / out-of-row:
 - ECx note cuts: applied / no-active / out-of-row:
 - EDx note delays: applied / no-note / out-of-row:
+- 1xx portamento up: applied / no-active / zero-param / deferred:
+- 2xx portamento down: applied / no-active / zero-param / deferred:
 - 3xx tone portamento: applied / no-active / no-target / no-speed / deferred:
-- 3xx target/current step or window-carryover notes:
+- 1xx/2xx/3xx current/target step or window-carryover notes:
 - Pitch-modulation deferred effects: arpeggio / portamento / vibrato / tremolo:
 - First dominant pitch-modulation coordinates:
 - Recommended next pitch-effect PR:
@@ -281,9 +287,10 @@ Choose one narrow follow-up. Do not combine unrelated fixes.
 
 - [ ] Adapter Support for Specific Effect X:
 - [ ] Minimal Arpeggio 0xy for Bounded Offline Renders:
-- [ ] Minimal Portamento Foundation:
+- [ ] 5xy Tone Portamento + Volume Slide:
 - [ ] Minimal Vibrato Foundation:
 - [ ] Minimal Tremolo 7xy:
+- [ ] Song-End Duration / Tail Handling for vtx_render_bounded_xm:
 - [ ] Focused Pitch/Period Accuracy Pass:
 - [ ] Additional Volume-Column Semantics:
 - [ ] Loop/Interpolation Investigation:

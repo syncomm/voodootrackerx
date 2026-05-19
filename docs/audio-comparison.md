@@ -39,6 +39,7 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
+minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento, and
 minimal `E9x` retriggers for the tracked active adapted voice.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
@@ -86,7 +87,8 @@ with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
 volume-column decisions, volume/panning/global-volume state-update diagnostics,
-Fxx timing changes, sample-offset decisions, `3xx` tone-portamento target/current
+Fxx timing changes, sample-offset decisions, `1xx`/`2xx` portamento-slide
+current sample-step diagnostics, `3xx` tone-portamento target/current
 sample-step diagnostics, `E9x` retrigger decisions and generated frames,
 envelope sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
@@ -111,14 +113,15 @@ mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
 Candidate diagnostics and the correlation report also include a focused
-pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `1xx`,
-`2xx`, `4xy`, `5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento
-ranges. Applied `3xx` tone portamento is reported in the general command
-frequency and dedicated tone-portamento diagnostics instead of the deferred
-pitch-modulation bucket. The report groups deferred pitch-modulation counts into
-arpeggio, portamento, vibrato, and tremolo buckets, shows whether they appear
-near the worst mismatch windows, and recommends a conservative next pitch-effect
-PR only when one bucket dominates.
+pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `4xy`,
+`5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
+`1xx`/`2xx` portamento slides and applied `3xx` tone portamento are reported in
+the general command frequency and dedicated portamento diagnostics instead of
+the deferred pitch-modulation bucket. The report groups deferred
+pitch-modulation counts into arpeggio, remaining portamento-family, vibrato,
+and tremolo buckets, shows whether they appear near the worst mismatch windows,
+and recommends a conservative next pitch-effect PR only when one bucket
+dominates.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred/no-op counts, whether an active
@@ -140,8 +143,9 @@ OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
 semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
 minimal bounded `Fxx`, `Gxx` set-global-volume behavior,
-tick-accurate volume slide behavior, full song traversal, and full reference
-resampler parity remain deferred.
+tick-accurate volume and pitch-slide behavior, `5xy` tone portamento plus
+volume slide, full song traversal, and full reference resampler parity remain
+deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -510,10 +514,11 @@ ranges, then lists:
 - source order/pattern/row/channel, note, instrument/sample, gain, pan, pitch
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
-  sample-offset status, minimal `3xx` tone-portamento diagnostics, minimal
-  `E9x` retrigger diagnostics, minimal `ECx` note-cut diagnostics, minimal
-  `EDx` note-delay diagnostics, envelope status, loop mode, and render
-  interpolation status when those fields are present
+  sample-offset status, minimal `1xx`/`2xx` portamento-slide diagnostics,
+  minimal `3xx` tone-portamento diagnostics, minimal `E9x` retrigger
+  diagnostics, minimal `ECx` note-cut diagnostics, minimal `EDx` note-delay
+  diagnostics, envelope status, loop mode, and render interpolation status when
+  those fields are present
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
@@ -548,12 +553,12 @@ plausible, remaining resampling details, loop details, headroom/clipping
 diagnostics, or reference-render settings may be the better next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
 dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
-portamento-family work for `1xx`/`2xx`/`5xy` or volume-column tone portamento,
-vibrato for `4xy`/`6xy` or volume-column vibrato, and tremolo for `7xy`. If
-counts are sparse or split, record the evidence and do not start an
-implementation PR from that signal alone. If windows line up with applied
-`3xx`, inspect its target/current step diagnostics before deciding whether a
-follow-up should refine tone portamento or move to another effect family.
+portamento-family work for `5xy` or volume-column tone portamento, vibrato for
+`4xy`/`6xy` or volume-column vibrato, and tremolo for `7xy`. If counts are
+sparse or split, record the evidence and do not start an implementation PR from
+that signal alone. If windows line up with applied `1xx`/`2xx` or `3xx`, inspect
+their current/target step diagnostics before deciding whether a follow-up should
+refine portamento or move to another effect family.
 If the event-coverage section shows parsed normal notes that never became
 scheduled events, prioritize the reported skip reasons and capacity fields
 before implementing more effects. In long/full-song renders, separate

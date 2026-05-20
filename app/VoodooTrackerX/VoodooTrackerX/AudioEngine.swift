@@ -256,6 +256,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeUpdateEpsilon: Double?
     let runtimeUpdateEpsilonPolicy: String?
     let runtimeUpdateEpsilonConfigurationWarning: String?
+    let runtimeCaptureEnabled: Bool?
+    let runtimeCapturePathName: String?
+    let runtimeCaptureSampleRate: Double?
+    let runtimeCaptureChannelCount: Int?
+    let runtimeCaptureSeconds: Double?
+    let runtimeCaptureFrameLimit: Int?
+    let runtimeCapturedFrameCount: Int?
+    let runtimeCaptureDurationSeconds: Double?
+    let runtimeCaptureTruncated: Bool?
+    let runtimeCaptureOutputPeak: Float?
+    let runtimeCaptureOutputRMS: Float?
+    let runtimeCaptureOverrangeSampleCount: UInt64?
+    let runtimeCaptureClippingSampleCount: UInt64?
+    let runtimeCaptureWriteSucceeded: Bool?
+    let runtimeCaptureWriteError: String?
+    let runtimeCaptureConfigurationWarning: String?
     let noteTriggerEventCount: UInt64?
     let cMixerAddVoiceCount: UInt64?
     let gainPanUpdateCount: UInt64?
@@ -443,6 +459,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeUpdateEpsilon: Double? = nil,
         runtimeUpdateEpsilonPolicy: String? = nil,
         runtimeUpdateEpsilonConfigurationWarning: String? = nil,
+        runtimeCaptureEnabled: Bool? = nil,
+        runtimeCapturePathName: String? = nil,
+        runtimeCaptureSampleRate: Double? = nil,
+        runtimeCaptureChannelCount: Int? = nil,
+        runtimeCaptureSeconds: Double? = nil,
+        runtimeCaptureFrameLimit: Int? = nil,
+        runtimeCapturedFrameCount: Int? = nil,
+        runtimeCaptureDurationSeconds: Double? = nil,
+        runtimeCaptureTruncated: Bool? = nil,
+        runtimeCaptureOutputPeak: Float? = nil,
+        runtimeCaptureOutputRMS: Float? = nil,
+        runtimeCaptureOverrangeSampleCount: UInt64? = nil,
+        runtimeCaptureClippingSampleCount: UInt64? = nil,
+        runtimeCaptureWriteSucceeded: Bool? = nil,
+        runtimeCaptureWriteError: String? = nil,
+        runtimeCaptureConfigurationWarning: String? = nil,
         noteTriggerEventCount: UInt64? = nil,
         cMixerAddVoiceCount: UInt64? = nil,
         gainPanUpdateCount: UInt64? = nil,
@@ -640,6 +672,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeUpdateEpsilon = runtimeUpdateEpsilon
         self.runtimeUpdateEpsilonPolicy = runtimeUpdateEpsilonPolicy
         self.runtimeUpdateEpsilonConfigurationWarning = runtimeUpdateEpsilonConfigurationWarning
+        self.runtimeCaptureEnabled = runtimeCaptureEnabled
+        self.runtimeCapturePathName = runtimeCapturePathName
+        self.runtimeCaptureSampleRate = runtimeCaptureSampleRate
+        self.runtimeCaptureChannelCount = runtimeCaptureChannelCount
+        self.runtimeCaptureSeconds = runtimeCaptureSeconds
+        self.runtimeCaptureFrameLimit = runtimeCaptureFrameLimit
+        self.runtimeCapturedFrameCount = runtimeCapturedFrameCount
+        self.runtimeCaptureDurationSeconds = runtimeCaptureDurationSeconds
+        self.runtimeCaptureTruncated = runtimeCaptureTruncated
+        self.runtimeCaptureOutputPeak = runtimeCaptureOutputPeak
+        self.runtimeCaptureOutputRMS = runtimeCaptureOutputRMS
+        self.runtimeCaptureOverrangeSampleCount = runtimeCaptureOverrangeSampleCount
+        self.runtimeCaptureClippingSampleCount = runtimeCaptureClippingSampleCount
+        self.runtimeCaptureWriteSucceeded = runtimeCaptureWriteSucceeded
+        self.runtimeCaptureWriteError = runtimeCaptureWriteError
+        self.runtimeCaptureConfigurationWarning = runtimeCaptureConfigurationWarning
         self.noteTriggerEventCount = noteTriggerEventCount
         self.cMixerAddVoiceCount = cMixerAddVoiceCount
         self.gainPanUpdateCount = gainPanUpdateCount
@@ -780,6 +828,244 @@ enum RuntimeCMixerTraceConfiguration {
     }
 }
 
+struct RuntimeCMixerCaptureConfiguration: Equatable {
+    static let pathEnvironmentKey = "VTX_C_MIXER_RUNTIME_CAPTURE_PATH"
+    static let secondsEnvironmentKey = "VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS"
+    static let defaultCaptureSeconds = 240.0
+    static let maximumCaptureSeconds = 240.0
+
+    let url: URL
+    let pathName: String
+    let seconds: Double
+    let secondsPolicy: String
+    let configurationWarning: String?
+
+    static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeCMixerCaptureConfiguration? {
+        guard let rawPath = trimmedEnvironmentValue(environment[pathEnvironmentKey]) else {
+            return nil
+        }
+        let url = URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath)
+        let pathName = url.lastPathComponent.isEmpty ? "runtime-c-mixer-capture.wav" : url.lastPathComponent
+        let rawSeconds = trimmedEnvironmentValue(environment[secondsEnvironmentKey])
+        let secondsResult = seconds(from: rawSeconds)
+        return RuntimeCMixerCaptureConfiguration(
+            url: url,
+            pathName: pathName,
+            seconds: secondsResult.seconds,
+            secondsPolicy: secondsResult.policy,
+            configurationWarning: secondsResult.warning
+        )
+    }
+
+    func frameLimit(sampleRate: Double) -> Int {
+        let safeSampleRate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : MixerRenderConfig.defaultSampleRate
+        let frames = (safeSampleRate * seconds).rounded(.up)
+        guard frames.isFinite,
+              frames > 0,
+              frames <= Double(Int.max) else {
+            return Int.max
+        }
+        return max(1, Int(frames))
+    }
+
+    private static func seconds(from rawValue: String?) -> (seconds: Double, policy: String, warning: String?) {
+        guard let rawValue else {
+            return (defaultCaptureSeconds, "default_runtime_capture_seconds", nil)
+        }
+        guard let parsed = Double(rawValue),
+              parsed.isFinite,
+              parsed > 0 else {
+            return (defaultCaptureSeconds, "default_runtime_capture_seconds_fallback", "invalid_runtime_capture_seconds")
+        }
+        guard parsed <= maximumCaptureSeconds else {
+            return (maximumCaptureSeconds, "max_runtime_capture_seconds_fallback", "runtime_capture_seconds_capped")
+        }
+        return (parsed, "env_runtime_capture_seconds", nil)
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+struct RuntimeCMixerCaptureSnapshot: Equatable {
+    let enabled: Bool
+    let pathName: String?
+    let sampleRate: Double?
+    let channelCount: Int?
+    let seconds: Double?
+    let frameLimit: Int?
+    let capturedFrameCount: Int
+    let truncated: Bool
+    let outputPeak: Float
+    let outputRMS: Float
+    let overrangeSampleCount: UInt64
+    let clippingSampleCount: UInt64
+    let configurationWarning: String?
+
+    var durationSeconds: Double? {
+        guard let sampleRate,
+              sampleRate > 0 else {
+            return nil
+        }
+        return Double(capturedFrameCount) / sampleRate
+    }
+
+    static let disabled = RuntimeCMixerCaptureSnapshot(
+        enabled: false,
+        pathName: nil,
+        sampleRate: nil,
+        channelCount: nil,
+        seconds: nil,
+        frameLimit: nil,
+        capturedFrameCount: 0,
+        truncated: false,
+        outputPeak: 0,
+        outputRMS: 0,
+        overrangeSampleCount: 0,
+        clippingSampleCount: 0,
+        configurationWarning: nil
+    )
+}
+
+struct RuntimeCMixerCaptureBlockSnapshot: Equatable {
+    let configuration: RuntimeCMixerCaptureConfiguration
+    let snapshot: RuntimeCMixerCaptureSnapshot
+    let block: MixerRenderBlock
+}
+
+final class RuntimeCMixerCaptureBuffer {
+    let configuration: RuntimeCMixerCaptureConfiguration
+    let config: MixerRenderConfig
+    let frameLimit: Int
+
+    private var interleavedPCM: [Float]
+    private var capturedFrameCount = 0
+    private var truncated = false
+    private var outputPeak = Float(0)
+    private var outputSquareSum = Double(0)
+    private var capturedSampleCount: UInt64 = 0
+    private var overrangeSampleCount: UInt64 = 0
+    private var clippingSampleCount: UInt64 = 0
+
+    init(configuration: RuntimeCMixerCaptureConfiguration, config: MixerRenderConfig) {
+        self.configuration = configuration
+        self.config = config
+        frameLimit = configuration.frameLimit(sampleRate: config.sampleRate)
+        let channelCount = max(1, config.channelCount)
+        let sampleCount = frameLimit.multipliedReportingOverflow(by: channelCount)
+        interleavedPCM = Array(repeating: 0, count: sampleCount.overflow ? 0 : max(0, sampleCount.partialValue))
+    }
+
+    var snapshot: RuntimeCMixerCaptureSnapshot {
+        let rms = capturedSampleCount > 0
+            ? Float(sqrt(outputSquareSum / Double(capturedSampleCount)))
+            : 0
+        return RuntimeCMixerCaptureSnapshot(
+            enabled: true,
+            pathName: configuration.pathName,
+            sampleRate: config.sampleRate,
+            channelCount: config.channelCount,
+            seconds: configuration.seconds,
+            frameLimit: frameLimit,
+            capturedFrameCount: capturedFrameCount,
+            truncated: truncated,
+            outputPeak: outputPeak,
+            outputRMS: rms,
+            overrangeSampleCount: overrangeSampleCount,
+            clippingSampleCount: clippingSampleCount,
+            configurationWarning: configuration.configurationWarning
+        )
+    }
+
+    func capture(_ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int, channelCount: Int) {
+        let safeChannelCount = max(1, channelCount)
+        let availableFrames = outputInterleavedPCM.count / safeChannelCount
+        let requestedFrames = min(max(0, frameCount), availableFrames)
+        guard requestedFrames > 0 else {
+            return
+        }
+        guard !truncated,
+              capturedFrameCount < frameLimit,
+              !interleavedPCM.isEmpty else {
+            truncated = true
+            return
+        }
+
+        let remainingFrames = max(0, frameLimit - capturedFrameCount)
+        let framesToCopy = min(requestedFrames, remainingFrames)
+        let samplesToCopy = framesToCopy * safeChannelCount
+        let destinationStart = capturedFrameCount * safeChannelCount
+        guard samplesToCopy > 0,
+              destinationStart >= 0,
+              destinationStart + samplesToCopy <= interleavedPCM.count else {
+            truncated = true
+            return
+        }
+
+        for sampleIndex in 0..<samplesToCopy {
+            let sample = outputInterleavedPCM[sampleIndex].isFinite ? outputInterleavedPCM[sampleIndex] : 0
+            interleavedPCM[destinationStart + sampleIndex] = sample
+            let absolute = abs(sample)
+            outputPeak = max(outputPeak, absolute)
+            outputSquareSum += Double(sample) * Double(sample)
+            capturedSampleCount &+= 1
+            if absolute > 1 {
+                overrangeSampleCount &+= 1
+            }
+            if absolute >= 1 {
+                clippingSampleCount &+= 1
+            }
+        }
+
+        capturedFrameCount += framesToCopy
+        if framesToCopy < requestedFrames || capturedFrameCount >= frameLimit {
+            truncated = true
+        }
+    }
+
+    func blockSnapshot() -> RuntimeCMixerCaptureBlockSnapshot? {
+        let sampleCount = capturedFrameCount * max(1, config.channelCount)
+        guard sampleCount <= interleavedPCM.count else {
+            return nil
+        }
+        return RuntimeCMixerCaptureBlockSnapshot(
+            configuration: configuration,
+            snapshot: snapshot,
+            block: MixerRenderBlock(
+                config: config,
+                frameCount: capturedFrameCount,
+                interleavedPCM: Array(interleavedPCM.prefix(sampleCount))
+            )
+        )
+    }
+
+    func reset() {
+        capturedFrameCount = 0
+        truncated = false
+        outputPeak = 0
+        outputSquareSum = 0
+        capturedSampleCount = 0
+        overrangeSampleCount = 0
+        clippingSampleCount = 0
+    }
+}
+
+enum RuntimeCMixerCaptureWAVWriter {
+    @discardableResult
+    static func write(_ capture: RuntimeCMixerCaptureBlockSnapshot) throws -> MixerWAVExportDiagnostics {
+        try FileManager.default.createDirectory(
+            at: capture.configuration.url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        return try MixerWAVExporter.writePCM16WAV(from: capture.block, to: capture.configuration.url)
+    }
+}
+
 @MainActor
 enum PlaybackAudioOutputFactory {
     private static let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "AudioBackend")
@@ -795,6 +1081,9 @@ enum PlaybackAudioOutputFactory {
         let updatePolicy = selection.backend == .cMixer
             ? RuntimeCMixerUpdatePolicy.resolve(environment: environment)
             : nil
+        let captureConfiguration = selection.backend == .cMixer
+            ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
+            : nil
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
@@ -809,6 +1098,12 @@ enum PlaybackAudioOutputFactory {
         if let warning = updatePolicy?.configurationWarning {
             logger.warning(
                 "Runtime C mixer update policy warning=\(warning, privacy: .public) epsilon=\(updatePolicy?.updateEpsilon ?? RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon, privacy: .public)"
+            )
+        }
+        if let captureConfiguration,
+           let warning = captureConfiguration.configurationWarning {
+            logger.warning(
+                "Runtime C mixer capture policy warning=\(warning, privacy: .public) path_name=\(captureConfiguration.pathName, privacy: .public)"
             )
         }
         logger.info(
@@ -837,6 +1132,20 @@ enum PlaybackAudioOutputFactory {
                 runtimeUpdateEpsilon: updatePolicy?.updateEpsilon,
                 runtimeUpdateEpsilonPolicy: updatePolicy?.updateEpsilonPolicy,
                 runtimeUpdateEpsilonConfigurationWarning: updatePolicy?.configurationWarning,
+                runtimeCaptureEnabled: selection.backend == .cMixer && captureConfiguration != nil,
+                runtimeCapturePathName: captureConfiguration?.pathName,
+                runtimeCaptureSampleRate: captureConfiguration == nil ? nil : MixerRenderConfig.defaultSampleRate,
+                runtimeCaptureChannelCount: captureConfiguration == nil ? nil : MixerRenderConfig.defaultChannelCount,
+                runtimeCaptureSeconds: captureConfiguration?.seconds,
+                runtimeCaptureFrameLimit: captureConfiguration?.frameLimit(sampleRate: MixerRenderConfig.defaultSampleRate),
+                runtimeCapturedFrameCount: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureDurationSeconds: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureTruncated: captureConfiguration == nil ? nil : false,
+                runtimeCaptureOutputPeak: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureOutputRMS: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureOverrangeSampleCount: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureClippingSampleCount: captureConfiguration == nil ? nil : 0,
+                runtimeCaptureConfigurationWarning: captureConfiguration?.configurationWarning,
                 cMixerCallSucceeded: nil,
                 reason: selection.fallbackReason
             ))
@@ -848,6 +1157,7 @@ enum PlaybackAudioOutputFactory {
             return RuntimeCMixerAudioEngine(
                 outputPolicy: outputPolicy ?? .defaultPolicy,
                 updatePolicy: updatePolicy ?? .defaultPolicy,
+                captureConfiguration: captureConfiguration,
                 traceWriter: runtimeCMixerTraceWriter
             )
         }
@@ -913,6 +1223,7 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let runtimeUpdateEpsilon: Double
     let runtimeUpdateEpsilonPolicy: String
     let runtimeUpdateEpsilonConfigurationWarning: String?
+    let capture: RuntimeCMixerCaptureSnapshot
     let currentFrame: UInt64
     let appliedPlannedEventCount: UInt64
     let exactFrameAppliedEventCount: UInt64
@@ -1409,6 +1720,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private let lock = NSLock()
     private let mixer: CSoftwareMixer
+    private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
@@ -1472,13 +1784,20 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         config: MixerRenderConfig = MixerRenderConfig(),
         maximumRenderFrames: Int = 16_384,
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
-        updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy
+        updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
+        captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
         self.updatePolicy = updatePolicy
         self.maximumRenderFrames = max(1, maximumRenderFrames)
-        mixer = CSoftwareMixer(config: config)
+        let configuredMixer = CSoftwareMixer(config: config)
+        mixer = configuredMixer
+        if let captureConfiguration {
+            captureBuffer = RuntimeCMixerCaptureBuffer(configuration: captureConfiguration, config: configuredMixer.config)
+        } else {
+            captureBuffer = nil
+        }
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
         topOutputAdjacentSampleJumps.reserveCapacity(Self.transientDiagnosticTopCount)
         topOutputPeaks.reserveCapacity(Self.transientDiagnosticTopCount)
@@ -1561,6 +1880,26 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let diagnostics = appliedAdapterEventDiagnostics
         appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
         return diagnostics
+    }
+
+    func captureBlockSnapshotForWriting() -> RuntimeCMixerCaptureBlockSnapshot? {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        guard let capture = captureBuffer?.blockSnapshot(),
+              capture.snapshot.capturedFrameCount > 0 else {
+            return nil
+        }
+        return capture
+    }
+
+    func resetCaptureBuffer() {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        captureBuffer?.reset()
     }
 
     @discardableResult
@@ -2807,6 +3146,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         guard safeFrameCount <= maximumRenderFrames,
               outputInterleavedPCM.count >= safeFrameCount * mixer.config.channelCount else {
             clear(outputInterleavedPCM)
+            captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
             recordRenderCompletionLocked(
                 requestedFrameCount: safeFrameCount,
                 renderedFrameCount: 0,
@@ -2832,6 +3172,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
         let sampleCount = safeFrameCount * mixer.config.channelCount
         applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
+        captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
         recordRenderCompletionLocked(
             requestedFrameCount: safeFrameCount,
             renderedFrameCount: safeFrameCount,
@@ -2848,6 +3189,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
         )
         return true
+    }
+
+    private func captureOutputLocked(_ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int) {
+        captureBuffer?.capture(
+            outputInterleavedPCM,
+            frameCount: frameCount,
+            channelCount: mixer.config.channelCount
+        )
     }
 
     private func renderCallbackWithScheduledAdapterEventsLocked(
@@ -3189,6 +3538,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             runtimeUpdateEpsilon: updatePolicy.updateEpsilon,
             runtimeUpdateEpsilonPolicy: updatePolicy.updateEpsilonPolicy,
             runtimeUpdateEpsilonConfigurationWarning: updatePolicy.configurationWarning,
+            capture: captureBuffer?.snapshot ?? .disabled,
             currentFrame: mixer.currentFrame,
             appliedPlannedEventCount: appliedPlannedEventCount,
             exactFrameAppliedEventCount: exactFrameAppliedEventCount,
@@ -3811,10 +4161,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         channelCount: Int = MixerRenderConfig.defaultChannelCount,
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
+        captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
-        renderCore = RuntimeCMixerRenderCore(config: config, outputPolicy: outputPolicy, updatePolicy: updatePolicy)
+        renderCore = RuntimeCMixerRenderCore(
+            config: config,
+            outputPolicy: outputPolicy,
+            updatePolicy: updatePolicy,
+            captureConfiguration: captureConfiguration
+        )
         self.traceWriter = traceWriter
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -4537,6 +4893,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if isFallbackActive {
             fallbackAudioEngine.stopAll()
         }
+        finishRuntimeCaptureIfNeeded(reason: reason)
         resetRuntimeAdapterEventConsumption()
     }
 
@@ -4713,6 +5070,44 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
     }
 
+    private func finishRuntimeCaptureIfNeeded(reason: String) {
+        guard let capture = renderCore.captureBlockSnapshotForWriting() else {
+            return
+        }
+        let captureAction: String
+        let writeSucceeded: Bool
+        let writeError: String?
+        let captureReason: String
+        do {
+            try RuntimeCMixerCaptureWAVWriter.write(capture)
+            writeSucceeded = true
+            writeError = nil
+            captureAction = capture.snapshot.truncated ? "capture_truncated" : "capture_written"
+            captureReason = capture.snapshot.truncated
+                ? "runtime_c_mixer_capture_truncated"
+                : "runtime_c_mixer_capture_finished_\(reason)"
+        } catch {
+            logger.error(
+                "Runtime C mixer capture write failed path_name=\(capture.configuration.pathName, privacy: .public) error=capture_wav_write_failed"
+            )
+            writeSucceeded = false
+            writeError = "capture_wav_write_failed"
+            captureAction = "capture_write_failed"
+            captureReason = "runtime_c_mixer_capture_write_failed"
+        }
+        recordRuntimeEvent(
+            action: captureAction,
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: writeSucceeded,
+            captureWriteSucceeded: writeSucceeded,
+            captureWriteError: writeError,
+            reason: captureReason
+        )
+        renderCore.resetCaptureBuffer()
+    }
+
     private func simpleRuntimeEventSource() -> RuntimeCMixerAdapterEventSource {
         adapterEventPlan.generated ? .hybrid : .playbackEngineSimple
     }
@@ -4763,6 +5158,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         transition: RuntimeCMixerTransitionTraceFields? = nil,
         runtimeEventFallbackReason: String? = nil,
         publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
+        captureWriteSucceeded: Bool? = nil,
+        captureWriteError: String? = nil,
         reason: String?
     ) {
         guard traceWriter.isEnabled else {
@@ -4944,6 +5341,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeUpdateEpsilon: snapshot.runtimeUpdateEpsilon,
             runtimeUpdateEpsilonPolicy: snapshot.runtimeUpdateEpsilonPolicy,
             runtimeUpdateEpsilonConfigurationWarning: snapshot.runtimeUpdateEpsilonConfigurationWarning,
+            runtimeCaptureEnabled: snapshot.capture.enabled,
+            runtimeCapturePathName: snapshot.capture.pathName,
+            runtimeCaptureSampleRate: snapshot.capture.sampleRate,
+            runtimeCaptureChannelCount: snapshot.capture.channelCount,
+            runtimeCaptureSeconds: snapshot.capture.seconds,
+            runtimeCaptureFrameLimit: snapshot.capture.frameLimit,
+            runtimeCapturedFrameCount: snapshot.capture.capturedFrameCount,
+            runtimeCaptureDurationSeconds: snapshot.capture.durationSeconds,
+            runtimeCaptureTruncated: snapshot.capture.truncated,
+            runtimeCaptureOutputPeak: snapshot.capture.outputPeak,
+            runtimeCaptureOutputRMS: snapshot.capture.outputRMS,
+            runtimeCaptureOverrangeSampleCount: snapshot.capture.overrangeSampleCount,
+            runtimeCaptureClippingSampleCount: snapshot.capture.clippingSampleCount,
+            runtimeCaptureWriteSucceeded: captureWriteSucceeded,
+            runtimeCaptureWriteError: captureWriteError,
+            runtimeCaptureConfigurationWarning: snapshot.capture.configurationWarning,
             cMixerAddVoiceCount: eventCounters.cMixerAddVoiceCount,
             gainPanUpdateCount: eventCounters.gainPanUpdateCount,
             stepUpdateCount: eventCounters.stepUpdateCount,

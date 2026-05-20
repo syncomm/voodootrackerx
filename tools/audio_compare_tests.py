@@ -1957,6 +1957,59 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                 {"conflicting_runtime_gain_policy": 1},
             )
 
+    def test_synthetic_trace_reports_runtime_capture_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeCaptureEnabled=True,
+                        runtimeCapturePathName="runtime-capture.wav",
+                        runtimeCaptureSampleRate=44100,
+                        runtimeCaptureChannelCount=2,
+                        runtimeCaptureSeconds=240,
+                        runtimeCaptureFrameLimit=10584000,
+                        runtimeCapturedFrameCount=0,
+                        runtimeCaptureTruncated=False,
+                    ),
+                    self.event(
+                        "capture_truncated",
+                        runtimeCaptureEnabled=True,
+                        runtimeCapturePathName="runtime-capture.wav",
+                        runtimeCaptureSampleRate=44100,
+                        runtimeCaptureChannelCount=2,
+                        runtimeCaptureSeconds=240,
+                        runtimeCaptureFrameLimit=10584000,
+                        runtimeCapturedFrameCount=10584000,
+                        runtimeCaptureDurationSeconds=240,
+                        runtimeCaptureTruncated=True,
+                        runtimeCaptureOutputPeak=0.75,
+                        runtimeCaptureOutputRMS=0.125,
+                        runtimeCaptureOverrangeSampleCount=0,
+                        runtimeCaptureClippingSampleCount=0,
+                        runtimeCaptureWriteSucceeded=True,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            capture = summary["capture"]
+
+            self.assertTrue(capture["enabled"])
+            self.assertEqual(capture["path_name"], "runtime-capture.wav")
+            self.assertEqual(capture["sample_rate"], 44100)
+            self.assertEqual(capture["channel_count"], 2)
+            self.assertEqual(capture["seconds"], 240)
+            self.assertEqual(capture["frame_limit"], 10584000)
+            self.assertEqual(capture["captured_frame_count"], 10584000)
+            self.assertEqual(capture["duration_seconds"], 240)
+            self.assertTrue(capture["truncated"])
+            self.assertEqual(capture["output_peak"], 0.75)
+            self.assertEqual(capture["output_rms"], 0.125)
+            self.assertTrue(capture["write_succeeded"])
+            self.assertFalse(capture["write_failed"])
+
     def test_synthetic_trace_with_clipping_and_underrun_reports_health_counters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(

@@ -201,9 +201,15 @@ lower-threshold adjacent-sample jump, and same-frame burst diagnostics visible
 without altering event timing or C mixer DSP. Exact offline-style runtime
 auto-headroom remains separate future work requiring a pre-playback preflight or
 dry-render peak-analysis pass from the selected start position.
-Stop/spacebar behavior, event-burst ordering/mitigation, live output capture,
-broader runtime stabilization, and any tracker viewport polish remain separate
-future work.
+Runtime C mixer live output capture tooling is now available for local-only
+offline-vs-live comparison: when `VTX_AUDIO_BACKEND=c_mixer` and
+`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` are set, the experimental backend captures
+the post-runtime-gain AVAudio source-node output into a bounded in-memory buffer
+and writes a local WAV outside the audio callback on stop/reset. Capture
+summaries report basename-only paths, captured frames, truncation, gain policy,
+peak/RMS, and clipping counters. Actual pop mitigation remains separate future
+work. Stop/spacebar behavior, event-burst ordering/mitigation, broader runtime
+stabilization, and any tracker viewport polish remain separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -274,7 +280,8 @@ Immediate audio accuracy sequence:
 65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — done
 66. Runtime C Mixer Transient / Event-Burst Diagnostics — done
 67. Runtime C Mixer Peak-Safe Headroom / Burst Transient Stabilization — done
-68. Reference comparison stabilization against MikMod/OpenMPT
+68. Runtime C Mixer Live Output Capture / Offline WAV Comparison — done
+69. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

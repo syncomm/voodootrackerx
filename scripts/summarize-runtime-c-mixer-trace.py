@@ -1497,6 +1497,28 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "auto_headroom_enabled": any(event.get("runtimeAutoHeadroomEnabled") is True for event in events),
         "configuration_warning_counts": dict(sorted(runtime_policy_warning_counts.items())),
     }
+    capture_enabled = any(event.get("runtimeCaptureEnabled") is True for event in events)
+    capture_sample_rate = first_number(events, "runtimeCaptureSampleRate")
+    capture_duration = max_numeric(events, "runtimeCaptureDurationSeconds")
+    capture = {
+        "enabled": capture_enabled,
+        "path_name": first_string(events, "runtimeCapturePathName"),
+        "sample_rate": rounded(capture_sample_rate) if capture_sample_rate is not None else None,
+        "channel_count": int(first_number(events, "runtimeCaptureChannelCount") or 0) if capture_enabled else None,
+        "seconds": rounded(first_number(events, "runtimeCaptureSeconds")) if first_number(events, "runtimeCaptureSeconds") is not None else None,
+        "frame_limit": int(max_numeric(events, "runtimeCaptureFrameLimit") or 0) if capture_enabled else None,
+        "captured_frame_count": int(max_numeric(events, "runtimeCapturedFrameCount") or 0),
+        "duration_seconds": rounded(capture_duration) if capture_duration is not None else None,
+        "truncated": any(event.get("runtimeCaptureTruncated") is True for event in events),
+        "output_peak": rounded(max_numeric(events, "runtimeCaptureOutputPeak") or 0.0),
+        "output_rms": rounded(max_numeric(events, "runtimeCaptureOutputRMS") or 0.0),
+        "overrange_sample_count": int(max_numeric(events, "runtimeCaptureOverrangeSampleCount") or 0),
+        "clipping_sample_count": int(max_numeric(events, "runtimeCaptureClippingSampleCount") or 0),
+        "write_succeeded": any(event.get("runtimeCaptureWriteSucceeded") is True for event in events),
+        "write_failed": any(event.get("runtimeCaptureWriteSucceeded") is False for event in events),
+        "write_error": first_string(events, "runtimeCaptureWriteError"),
+        "configuration_warning": first_string(events, "runtimeCaptureConfigurationWarning"),
+    }
     last_output_discontinuity_events = [
         event for event in events
         if event.get("lastOutputDiscontinuityRuntimeFrame") is not None
@@ -1740,6 +1762,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
                 "sample_jump": rounded(number(last_output_discontinuity_events[-1].get("lastOutputDiscontinuitySampleJump")) or 0.0) if last_output_discontinuity_events else None,
             },
         },
+        "capture": capture,
         "runtime_policy": runtime_policy,
         "voices": {
             "active_voice_range": numeric_range(events, "activeVoiceCount", "activeVoiceCountBefore", "activeVoiceCountAfter"),
@@ -1890,6 +1913,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
 
 def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
+    capture = summary["capture"]
     runtime_policy = summary["runtime_policy"]
     stops = summary["stops"]
     updates = summary["updates"]
@@ -1908,6 +1932,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
         f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",
         f"- Likely transient correlation: {health['likely_correlation_category']}",
+        f"- Runtime capture: enabled={capture['enabled']} path_name={capture['path_name']} frames={capture['captured_frame_count']} duration={capture['duration_seconds']} truncated={capture['truncated']} peak={capture['output_peak']} clipping={capture['clipping_sample_count']} write_succeeded={capture['write_succeeded']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",

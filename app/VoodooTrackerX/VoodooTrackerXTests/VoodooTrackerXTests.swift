@@ -8317,6 +8317,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(RuntimeCMixerTraceConfiguration.traceURL(environment: [:]))
     }
 
+    func testRuntimeCMixerCaptureConfigurationIsDisabledByDefault() {
+        XCTAssertNil(RuntimeCMixerCaptureConfiguration.resolve(environment: [:]))
+    }
+
+    func testRuntimeCMixerCaptureConfigurationParsesPathAndSecondsCap() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-capture-\(UUID().uuidString).wav")
+
+        let configured = RuntimeCMixerCaptureConfiguration.resolve(environment: [
+            RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: url.path,
+            RuntimeCMixerCaptureConfiguration.secondsEnvironmentKey: "0.25"
+        ])
+        let capped = RuntimeCMixerCaptureConfiguration.resolve(environment: [
+            RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: url.path,
+            RuntimeCMixerCaptureConfiguration.secondsEnvironmentKey: "999"
+        ])
+
+        XCTAssertEqual(configured?.url.path, url.path)
+        XCTAssertEqual(configured?.pathName, url.lastPathComponent)
+        XCTAssertEqual(configured?.seconds, 0.25)
+        XCTAssertEqual(configured?.secondsPolicy, "env_runtime_capture_seconds")
+        XCTAssertNil(configured?.configurationWarning)
+        XCTAssertEqual(configured?.frameLimit(sampleRate: 100), 25)
+        XCTAssertEqual(capped?.seconds, RuntimeCMixerCaptureConfiguration.maximumCaptureSeconds)
+        XCTAssertEqual(capped?.configurationWarning, "runtime_capture_seconds_capped")
+    }
+
     @MainActor
     func testRuntimeCMixerTraceWriterEmitsValidJSONL() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-trace-\(UUID().uuidString).jsonl")
@@ -8430,6 +8456,22 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeAutoHeadroomEnabled: false,
             runtimeFixedHeadroomDB: nil,
             runtimeClippingRecommendation: nil,
+            runtimeCaptureEnabled: true,
+            runtimeCapturePathName: "runtime-capture.wav",
+            runtimeCaptureSampleRate: 44_100,
+            runtimeCaptureChannelCount: 2,
+            runtimeCaptureSeconds: 240,
+            runtimeCaptureFrameLimit: 10_584_000,
+            runtimeCapturedFrameCount: 512,
+            runtimeCaptureDurationSeconds: 0.011_609_977,
+            runtimeCaptureTruncated: false,
+            runtimeCaptureOutputPeak: 0.5,
+            runtimeCaptureOutputRMS: 0.125,
+            runtimeCaptureOverrangeSampleCount: 0,
+            runtimeCaptureClippingSampleCount: 0,
+            runtimeCaptureWriteSucceeded: true,
+            runtimeCaptureWriteError: nil,
+            runtimeCaptureConfigurationWarning: nil,
             noteTriggerEventCount: 4,
             cMixerAddVoiceCount: 2,
             gainPanUpdateCount: 3,
@@ -8542,6 +8584,20 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeGainPolicySource"] as? String, "default")
         XCTAssertEqual(object["runtimeGainPolicyIsEnvironmentOverride"] as? Bool, false)
         XCTAssertEqual(object["runtimeAutoHeadroomEnabled"] as? Bool, false)
+        XCTAssertEqual(object["runtimeCaptureEnabled"] as? Bool, true)
+        XCTAssertEqual(object["runtimeCapturePathName"] as? String, "runtime-capture.wav")
+        XCTAssertEqual(object["runtimeCaptureSampleRate"] as? Double, 44_100)
+        XCTAssertEqual(object["runtimeCaptureChannelCount"] as? Int, 2)
+        XCTAssertEqual(object["runtimeCaptureSeconds"] as? Double, 240)
+        XCTAssertEqual(object["runtimeCaptureFrameLimit"] as? Int, 10_584_000)
+        XCTAssertEqual(object["runtimeCapturedFrameCount"] as? Int, 512)
+        XCTAssertEqual(object["runtimeCaptureDurationSeconds"] as? Double, 0.011_609_977)
+        XCTAssertEqual(object["runtimeCaptureTruncated"] as? Bool, false)
+        XCTAssertEqual(object["runtimeCaptureOutputPeak"] as? Double, 0.5)
+        XCTAssertEqual(object["runtimeCaptureOutputRMS"] as? Double, 0.125)
+        XCTAssertEqual(object["runtimeCaptureOverrangeSampleCount"] as? Int, 0)
+        XCTAssertEqual(object["runtimeCaptureClippingSampleCount"] as? Int, 0)
+        XCTAssertEqual(object["runtimeCaptureWriteSucceeded"] as? Bool, true)
         XCTAssertEqual(object["noteTriggerEventCount"] as? Int, 4)
         XCTAssertEqual(object["cMixerAddVoiceCount"] as? Int, 2)
         XCTAssertEqual(object["gainPanUpdateCount"] as? Int, 3)
@@ -8811,15 +8867,18 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAction, "backend_selected")
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
     }
 
     @MainActor
     func testPlaybackAudioOutputFactoryIgnoresCMixerGainPolicyForAVAudioBackend() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("ignored-capture-\(UUID().uuidString).wav")
         let output = PlaybackAudioOutputFactory.make(
             environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5",
-                RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6"
+                RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6",
+                RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path
             ],
             runtimeCMixerTraceWriter: traceWriter
         )
@@ -8832,6 +8891,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(traceWriter.events.first?.runtimeGainPolicySource)
         XCTAssertNil(traceWriter.events.first?.runtimeGainPolicyIsEnvironmentOverride)
         XCTAssertNil(traceWriter.events.first?.runtimeGainConfigurationWarning)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+        XCTAssertNil(traceWriter.events.first?.runtimeCapturePathName)
     }
 
     @MainActor
@@ -8857,6 +8918,35 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
         XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
         XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryEnablesCaptureOnlyForCMixerBackendWithPath() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-capture-\(UUID().uuidString).wav")
+        defer {
+            try? FileManager.default.removeItem(at: captureURL)
+        }
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeAudioBackendSelection.environmentKey: "c_mixer",
+                RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path,
+                RuntimeCMixerCaptureConfiguration.secondsEnvironmentKey: "0.5"
+            ],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCapturePathName, captureURL.lastPathComponent)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureChannelCount, MixerRenderConfig.defaultChannelCount)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureSeconds, 0.5)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureFrameLimit, Int((MixerRenderConfig.defaultSampleRate * 0.5).rounded(.up)))
+        XCTAssertEqual(traceWriter.events.first?.runtimeCapturedFrameCount, 0)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureTruncated, false)
     }
 
     @MainActor
@@ -8892,6 +8982,102 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(headroomTraceWriter.events.first?.runtimeGainPolicySource, "environment_override")
         XCTAssertEqual(headroomTraceWriter.events.first?.runtimeGainPolicyIsEnvironmentOverride, true)
         XCTAssertEqual(headroomTraceWriter.events.first?.runtimeFixedHeadroomDB, -6)
+    }
+
+    func testRuntimeCMixerCaptureBufferRecordsFramesInOrder() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ordered-capture-\(UUID().uuidString).wav")
+        let configuration = RuntimeCMixerCaptureConfiguration(
+            url: url,
+            pathName: url.lastPathComponent,
+            seconds: 1,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let buffer = RuntimeCMixerCaptureBuffer(
+            configuration: configuration,
+            config: MixerRenderConfig(sampleRate: 4, channelCount: 2)
+        )
+        var first = [Float(0.1), -0.2, 0.3, -0.4]
+        var second = [Float(0.5), -0.6]
+
+        first.withUnsafeMutableBufferPointer { pointer in
+            buffer.capture(pointer, frameCount: 2, channelCount: 2)
+        }
+        second.withUnsafeMutableBufferPointer { pointer in
+            buffer.capture(pointer, frameCount: 1, channelCount: 2)
+        }
+
+        let capture = try XCTUnwrap(buffer.blockSnapshot())
+        XCTAssertEqual(capture.snapshot.enabled, true)
+        XCTAssertEqual(capture.snapshot.pathName, url.lastPathComponent)
+        XCTAssertEqual(capture.snapshot.sampleRate, 4)
+        XCTAssertEqual(capture.snapshot.channelCount, 2)
+        XCTAssertEqual(capture.snapshot.capturedFrameCount, 3)
+        XCTAssertEqual(capture.snapshot.truncated, false)
+        XCTAssertEqual(capture.snapshot.outputPeak, 0.6, accuracy: 0.000_001)
+        XCTAssertEqual(capture.snapshot.outputRMS, Float(sqrt(0.91 / 6.0)), accuracy: 0.000_001)
+        XCTAssertPCMEqual(capture.block.interleavedPCM, [0.1, -0.2, 0.3, -0.4, 0.5, -0.6])
+    }
+
+    func testRuntimeCMixerCaptureBufferRespectsFrameCapAndReportsTruncation() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("truncated-capture-\(UUID().uuidString).wav")
+        let configuration = RuntimeCMixerCaptureConfiguration(
+            url: url,
+            pathName: url.lastPathComponent,
+            seconds: 0.03,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let buffer = RuntimeCMixerCaptureBuffer(
+            configuration: configuration,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        )
+        var output = [Float(0.25), 0.5, 0.75, 1.0, -1.25]
+
+        output.withUnsafeMutableBufferPointer { pointer in
+            buffer.capture(pointer, frameCount: 5, channelCount: 1)
+        }
+
+        let capture = try XCTUnwrap(buffer.blockSnapshot())
+        XCTAssertEqual(capture.snapshot.frameLimit, 3)
+        XCTAssertEqual(capture.snapshot.capturedFrameCount, 3)
+        XCTAssertEqual(capture.snapshot.truncated, true)
+        XCTAssertEqual(capture.snapshot.clippingSampleCount, 0)
+        XCTAssertEqual(capture.snapshot.overrangeSampleCount, 0)
+        XCTAssertPCMEqual(capture.block.interleavedPCM, [0.25, 0.5, 0.75])
+    }
+
+    func testRuntimeCMixerCaptureWriterProducesValidPCM16WAV() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("capture-writer-\(UUID().uuidString).wav")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+        }
+        let configuration = RuntimeCMixerCaptureConfiguration(
+            url: url,
+            pathName: url.lastPathComponent,
+            seconds: 1,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let buffer = RuntimeCMixerCaptureBuffer(
+            configuration: configuration,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2)
+        )
+        var output = [Float(0), 0.5, -0.5, 1.0]
+        output.withUnsafeMutableBufferPointer { pointer in
+            buffer.capture(pointer, frameCount: 2, channelCount: 2)
+        }
+        let capture = try XCTUnwrap(buffer.blockSnapshot())
+
+        let diagnostics = try RuntimeCMixerCaptureWAVWriter.write(capture)
+        let wav = try parsePCM16WAV(Data(contentsOf: url))
+
+        XCTAssertEqual(wav.sampleRate, 100)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(wav.bitsPerSample, 16)
+        XCTAssertEqual(wav.samples, [0, 16_384, -16_384, Int16.max])
+        XCTAssertEqual(diagnostics.postGainPeak, 1)
+        XCTAssertEqual(diagnostics.pcm16ClippingSampleCount, 1)
     }
 
     func testRuntimeCMixerAdapterEventPlanBuildsFromPlaybackSongFixture() {
@@ -9518,6 +9704,129 @@ final class VoodooTrackerXTests: XCTestCase {
         }
     }
 
+    func testRuntimeCMixerCaptureDoesNotChangeRenderedSampleValues() {
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("unchanged-capture-\(UUID().uuidString).wav")
+        let captureConfiguration = RuntimeCMixerCaptureConfiguration(
+            url: captureURL,
+            pathName: captureURL.lastPathComponent,
+            seconds: 1,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+        let outputPolicy = RuntimeCMixerOutputPolicy.resolve(environment: [
+            RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+        ])
+        let baseline = RuntimeCMixerRenderCore(config: config, maximumRenderFrames: 16, outputPolicy: outputPolicy)
+        let captured = RuntimeCMixerRenderCore(
+            config: config,
+            maximumRenderFrames: 16,
+            outputPolicy: outputPolicy,
+            captureConfiguration: captureConfiguration
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, 0.5, 0.75],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let request = AudioVoiceRequest(sample: sample, note: 49, channel: 0)
+
+        XCTAssertTrue(baseline.trigger(request))
+        XCTAssertTrue(captured.trigger(request))
+        let baselineOutput = renderRuntimePCM(baseline, frames: 3)
+        let capturedOutput = renderRuntimePCM(captured, frames: 3)
+
+        XCTAssertPCMEqual(capturedOutput, baselineOutput)
+        XCTAssertPCMEqual(captured.captureBlockSnapshotForWriting()?.block.interleavedPCM ?? [], capturedOutput)
+    }
+
+    @MainActor
+    func testRuntimeCMixerAudioEngineWritesCaptureOnStopAndReportsDiagnostics() throws {
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("engine-capture-\(UUID().uuidString).wav")
+        defer {
+            try? FileManager.default.removeItem(at: captureURL)
+        }
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureConfiguration = RuntimeCMixerCaptureConfiguration(
+            url: captureURL,
+            pathName: captureURL.lastPathComponent,
+            seconds: 1,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let audioEngine = RuntimeCMixerAudioEngine(
+            sampleRate: 100,
+            channelCount: 1,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            captureConfiguration: captureConfiguration,
+            traceWriter: traceWriter
+        )
+
+        _ = audioEngine.renderForTesting(frameCount: 2)
+        audioEngine.stopAll()
+
+        let captureEvent = try XCTUnwrap(traceWriter.events.first { $0.runtimeAction == "capture_written" })
+        XCTAssertEqual(captureEvent.runtimeCaptureEnabled, true)
+        XCTAssertEqual(captureEvent.runtimeCapturePathName, captureURL.lastPathComponent)
+        XCTAssertEqual(captureEvent.runtimeCaptureSampleRate, 100)
+        XCTAssertEqual(captureEvent.runtimeCaptureChannelCount, 1)
+        XCTAssertEqual(captureEvent.runtimeCapturedFrameCount, 2)
+        XCTAssertEqual(captureEvent.runtimeCaptureDurationSeconds, 0.02)
+        XCTAssertEqual(captureEvent.runtimeCaptureTruncated, false)
+        XCTAssertEqual(captureEvent.runtimeCaptureOutputPeak, 0)
+        XCTAssertEqual(captureEvent.runtimeCaptureClippingSampleCount, 0)
+        XCTAssertEqual(captureEvent.runtimeCaptureWriteSucceeded, true)
+        XCTAssertNil(captureEvent.runtimeCaptureWriteError)
+
+        let wav = try parsePCM16WAV(Data(contentsOf: captureURL))
+        XCTAssertEqual(wav.sampleRate, 100)
+        XCTAssertEqual(wav.channelCount, 1)
+        XCTAssertEqual(wav.samples, [0, 0])
+    }
+
+    @MainActor
+    func testRuntimeCMixerAudioEngineTracesCaptureTruncation() throws {
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("engine-truncated-capture-\(UUID().uuidString).wav")
+        defer {
+            try? FileManager.default.removeItem(at: captureURL)
+        }
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureConfiguration = RuntimeCMixerCaptureConfiguration(
+            url: captureURL,
+            pathName: captureURL.lastPathComponent,
+            seconds: 0.02,
+            secondsPolicy: "env_runtime_capture_seconds",
+            configurationWarning: nil
+        )
+        let audioEngine = RuntimeCMixerAudioEngine(
+            sampleRate: 100,
+            channelCount: 1,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            captureConfiguration: captureConfiguration,
+            traceWriter: traceWriter
+        )
+
+        _ = audioEngine.renderForTesting(frameCount: 3)
+        audioEngine.stopAll()
+
+        let captureEvent = try XCTUnwrap(traceWriter.events.first { $0.runtimeAction == "capture_truncated" })
+        XCTAssertEqual(captureEvent.runtimeCaptureFrameLimit, 2)
+        XCTAssertEqual(captureEvent.runtimeCapturedFrameCount, 2)
+        XCTAssertEqual(captureEvent.runtimeCaptureTruncated, true)
+        XCTAssertEqual(captureEvent.runtimeCaptureWriteSucceeded, true)
+
+        let wav = try parsePCM16WAV(Data(contentsOf: captureURL))
+        XCTAssertEqual(wav.samples, [0, 0])
+    }
+
     func testRuntimeCMixerRenderCoreDiagnosticsInitializeCleanly() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2),
@@ -9578,6 +9887,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.runtimeUpdateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
         XCTAssertEqual(snapshot.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
         XCTAssertNil(snapshot.runtimeUpdateEpsilonConfigurationWarning)
+        XCTAssertEqual(snapshot.capture, .disabled)
         XCTAssertEqual(snapshot.appliedPlannedEventCount, 0)
         XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
         XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)

@@ -296,6 +296,9 @@ Runtime snapshot rows may include:
 
 - `runtimeRenderedFrameCount`: cumulative C mixer frames rendered by the
   runtime backend
+- `cMixerRenderedFrames`: the C mixer sample-time frame cursor used for
+  diagnostics at the trace point
+- `cMixerPlaybackSeconds`: `cMixerRenderedFrames / sampleRate`
 - `callbackIndex`, `callbackRequestedFrameCount`, `callbackStartFrame`, and
   `callbackEndFrame`: the most recent AVAudio source-node callback range known
   to the runtime C mixer diagnostics
@@ -327,6 +330,26 @@ Offline-adapter event rows may include:
   `row_transition`
 - `eventApplicationTiming`: `exact_frame`, `callback_start`, `late`,
   `tick_boundary`, `row_boundary`, or `unknown`
+
+When a precomputed adapter plan is available, runtime trace rows also resolve
+the C mixer sample-time cursor back to the planned order/pattern/row/tick
+timeline:
+
+- `cMixerSampleTimeFrame`
+- `cMixerSampleTimePositionStatus`
+- `cMixerSampleTimeOrderIndex`, `cMixerSampleTimePatternIndex`,
+  `cMixerSampleTimeRowIndex`, and `cMixerSampleTimeTickInRow`
+- `playbackEngineOrderIndex`, `playbackEnginePatternIndex`,
+  `playbackEngineRowIndex`, and `playbackEngineTickInRow`
+- `playbackEngineToCMixerFrameDelta`
+- `playbackEngineToCMixerPositionMismatch`
+- `rowTransitionDeltaCategory`
+
+These fields compare the `PlaybackEngine` timer/order-row-tick clock with the
+C mixer sample-time clock at the same trace point. They are diagnostics and a
+small future bridge only. They do not change tracker viewport rendering, visual
+follow behavior, audio event timing, offline rendering, or the default AVAudio
+backend.
 
 Runtime snapshots also include cumulative `appliedPlannedEventCount`,
 `exactFrameAppliedEventCount`, `callbackBoundaryAppliedEventCount`,
@@ -370,6 +393,10 @@ The summary focuses on runtime-only artifact evidence:
 - largest planned-vs-applied event timing deltas, exact-frame/callback-boundary
   application counts, late planned-event counts, same-frame event bursts,
   order/row transition bursts, and top suspicious order/row/tick positions
+- max, average, and median row-transition frame deltas
+- largest PlaybackEngine-vs-C-mixer sample-time position mismatches, first
+  suspicious mismatch, monotonic sample-time cursor status, and order/row
+  ranges where mismatch is largest
 - runtime evidence for categories that the richer offline adapter can emit:
   gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
   `1xx`/`2xx`/`3xx` updates

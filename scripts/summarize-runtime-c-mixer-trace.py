@@ -112,6 +112,30 @@ def numeric_range(events: list[dict[str, Any]], *fields: str) -> dict[str, int |
     }
 
 
+def first_number(events: list[dict[str, Any]], field: str) -> float | None:
+    for event in events:
+        value = number(event.get(field))
+        if value is not None:
+            return value
+    return None
+
+
+def first_string(events: list[dict[str, Any]], field: str) -> str | None:
+    for event in events:
+        value = event.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def first_bool(events: list[dict[str, Any]], field: str) -> bool | None:
+    for event in events:
+        value = event.get(field)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
 def average(values: list[int]) -> float | None:
     if not values:
         return None
@@ -1454,6 +1478,25 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     output_peak_warning_threshold = max_numeric(events, "outputPeakWarningThreshold") or 0.95
     output_peak_warning_sample_count = int(max_numeric(events, "outputPeakWarningSampleCount") or 0)
     overrange_sample_count = int(max_numeric(events, "overrangeSampleCount") or 0)
+    runtime_policy_warning_counts = Counter(
+        str(event.get("runtimeGainConfigurationWarning"))
+        for event in events
+        if event.get("runtimeGainConfigurationWarning") is not None
+    )
+    runtime_output_gain = first_number(events, "runtimeOutputGain")
+    runtime_default_headroom_db = first_number(events, "runtimeDefaultHeadroomDB")
+    runtime_fixed_headroom_db = first_number(events, "runtimeFixedHeadroomDB")
+    runtime_policy = {
+        "output_gain": rounded(runtime_output_gain) if runtime_output_gain is not None else None,
+        "headroom_policy": first_string(events, "runtimeHeadroomPolicy"),
+        "gain_policy_label": first_string(events, "runtimeGainPolicyLabel"),
+        "gain_policy_source": first_string(events, "runtimeGainPolicySource"),
+        "gain_policy_is_environment_override": first_bool(events, "runtimeGainPolicyIsEnvironmentOverride"),
+        "default_headroom_db": rounded(runtime_default_headroom_db) if runtime_default_headroom_db is not None else None,
+        "fixed_headroom_db": rounded(runtime_fixed_headroom_db) if runtime_fixed_headroom_db is not None else None,
+        "auto_headroom_enabled": any(event.get("runtimeAutoHeadroomEnabled") is True for event in events),
+        "configuration_warning_counts": dict(sorted(runtime_policy_warning_counts.items())),
+    }
     last_output_discontinuity_events = [
         event for event in events
         if event.get("lastOutputDiscontinuityRuntimeFrame") is not None
@@ -1697,6 +1740,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
                 "sample_jump": rounded(number(last_output_discontinuity_events[-1].get("lastOutputDiscontinuitySampleJump")) or 0.0) if last_output_discontinuity_events else None,
             },
         },
+        "runtime_policy": runtime_policy,
         "voices": {
             "active_voice_range": numeric_range(events, "activeVoiceCount", "activeVoiceCountBefore", "activeVoiceCountAfter"),
             "loaded_voice_range": numeric_range(events, "loadedVoiceCount", "loadedVoiceCountBefore", "loadedVoiceCountAfter"),
@@ -1846,6 +1890,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
 
 def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
+    runtime_policy = summary["runtime_policy"]
     stops = summary["stops"]
     updates = summary["updates"]
     voices = summary["voices"]
@@ -1863,6 +1908,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
         f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",
         f"- Likely transient correlation: {health['likely_correlation_category']}",
+        f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",

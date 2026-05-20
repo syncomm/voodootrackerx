@@ -246,6 +246,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeOutputGain: Float?
     let runtimeHeadroomPolicy: String?
     let runtimeGainPolicyLabel: String?
+    let runtimeDefaultHeadroomDB: Double?
+    let runtimeGainPolicySource: String?
+    let runtimeGainPolicyIsEnvironmentOverride: Bool?
     let runtimeAutoHeadroomEnabled: Bool?
     let runtimeFixedHeadroomDB: Double?
     let runtimeGainConfigurationWarning: String?
@@ -430,6 +433,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeOutputGain: Float? = nil,
         runtimeHeadroomPolicy: String? = nil,
         runtimeGainPolicyLabel: String? = nil,
+        runtimeDefaultHeadroomDB: Double? = nil,
+        runtimeGainPolicySource: String? = nil,
+        runtimeGainPolicyIsEnvironmentOverride: Bool? = nil,
         runtimeAutoHeadroomEnabled: Bool? = nil,
         runtimeFixedHeadroomDB: Double? = nil,
         runtimeGainConfigurationWarning: String? = nil,
@@ -624,6 +630,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeOutputGain = runtimeOutputGain
         self.runtimeHeadroomPolicy = runtimeHeadroomPolicy
         self.runtimeGainPolicyLabel = runtimeGainPolicyLabel
+        self.runtimeDefaultHeadroomDB = runtimeDefaultHeadroomDB
+        self.runtimeGainPolicySource = runtimeGainPolicySource
+        self.runtimeGainPolicyIsEnvironmentOverride = runtimeGainPolicyIsEnvironmentOverride
         self.runtimeAutoHeadroomEnabled = runtimeAutoHeadroomEnabled
         self.runtimeFixedHeadroomDB = runtimeFixedHeadroomDB
         self.runtimeGainConfigurationWarning = runtimeGainConfigurationWarning
@@ -819,6 +828,9 @@ enum PlaybackAudioOutputFactory {
                 runtimeOutputGain: outputPolicy?.outputGain,
                 runtimeHeadroomPolicy: outputPolicy?.headroomPolicy,
                 runtimeGainPolicyLabel: outputPolicy?.headroomPolicy,
+                runtimeDefaultHeadroomDB: outputPolicy.map { _ in RuntimeCMixerOutputPolicy.defaultHeadroomDB },
+                runtimeGainPolicySource: outputPolicy?.gainPolicySource,
+                runtimeGainPolicyIsEnvironmentOverride: outputPolicy?.gainPolicyIsEnvironmentOverride,
                 runtimeAutoHeadroomEnabled: outputPolicy?.autoHeadroomEnabled,
                 runtimeFixedHeadroomDB: outputPolicy?.fixedHeadroomDB,
                 runtimeGainConfigurationWarning: outputPolicy?.configurationWarning,
@@ -891,6 +903,9 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let clippingDetected: Bool
     let runtimeOutputGain: Float
     let runtimeHeadroomPolicy: String
+    let runtimeDefaultHeadroomDB: Double
+    let runtimeGainPolicySource: String
+    let runtimeGainPolicyIsEnvironmentOverride: Bool
     let runtimeAutoHeadroomEnabled: Bool
     let runtimeFixedHeadroomDB: Double?
     let runtimeGainConfigurationWarning: String?
@@ -913,17 +928,20 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
 struct RuntimeCMixerOutputPolicy: Equatable {
     static let gainEnvironmentKey = "VTX_C_MIXER_RUNTIME_GAIN"
     static let headroomDBEnvironmentKey = "VTX_C_MIXER_RUNTIME_HEADROOM_DB"
-    static let defaultHeadroomDB = -10.0
+    static let defaultHeadroomDB = -12.0
     static let clippingRecommendation = "reduce VTX_C_MIXER_RUNTIME_GAIN or set a more negative VTX_C_MIXER_RUNTIME_HEADROOM_DB"
 
     static let defaultPolicy = RuntimeCMixerOutputPolicy(
         outputGain: Float(pow(10.0, defaultHeadroomDB / 20.0)),
         headroomPolicy: "default_runtime_headroom_db",
+        gainPolicySource: "default",
         fixedHeadroomDB: defaultHeadroomDB
     )
 
     let outputGain: Float
     let headroomPolicy: String
+    let gainPolicySource: String
+    let gainPolicyIsEnvironmentOverride: Bool
     let autoHeadroomEnabled: Bool
     let fixedHeadroomDB: Double?
     let configurationWarning: String?
@@ -931,12 +949,16 @@ struct RuntimeCMixerOutputPolicy: Equatable {
     init(
         outputGain: Float,
         headroomPolicy: String,
+        gainPolicySource: String,
+        gainPolicyIsEnvironmentOverride: Bool = false,
         autoHeadroomEnabled: Bool = false,
         fixedHeadroomDB: Double? = nil,
         configurationWarning: String? = nil
     ) {
         self.outputGain = outputGain.isFinite && outputGain > 0 ? outputGain : Self.defaultPolicy.outputGain
         self.headroomPolicy = headroomPolicy
+        self.gainPolicySource = gainPolicySource
+        self.gainPolicyIsEnvironmentOverride = gainPolicyIsEnvironmentOverride
         self.autoHeadroomEnabled = autoHeadroomEnabled
         self.fixedHeadroomDB = fixedHeadroomDB
         self.configurationWarning = configurationWarning
@@ -959,7 +981,9 @@ struct RuntimeCMixerOutputPolicy: Equatable {
             }
             return RuntimeCMixerOutputPolicy(
                 outputGain: Float(parsedGain),
-                headroomPolicy: "env_runtime_gain"
+                headroomPolicy: "env_runtime_gain",
+                gainPolicySource: "environment_override",
+                gainPolicyIsEnvironmentOverride: true
             )
         }
 
@@ -978,6 +1002,8 @@ struct RuntimeCMixerOutputPolicy: Equatable {
             return RuntimeCMixerOutputPolicy(
                 outputGain: Float(gain),
                 headroomPolicy: "env_runtime_headroom_db",
+                gainPolicySource: "environment_override",
+                gainPolicyIsEnvironmentOverride: true,
                 fixedHeadroomDB: parsedHeadroomDB
             )
         }
@@ -997,6 +1023,8 @@ struct RuntimeCMixerOutputPolicy: Equatable {
         RuntimeCMixerOutputPolicy(
             outputGain: outputGain,
             headroomPolicy: "\(headroomPolicy)_fallback",
+            gainPolicySource: "default_fallback",
+            gainPolicyIsEnvironmentOverride: false,
             autoHeadroomEnabled: autoHeadroomEnabled,
             fixedHeadroomDB: fixedHeadroomDB,
             configurationWarning: warning
@@ -3151,6 +3179,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             clippingDetected: clippingSampleCount > 0,
             runtimeOutputGain: outputPolicy.outputGain,
             runtimeHeadroomPolicy: outputPolicy.headroomPolicy,
+            runtimeDefaultHeadroomDB: RuntimeCMixerOutputPolicy.defaultHeadroomDB,
+            runtimeGainPolicySource: outputPolicy.gainPolicySource,
+            runtimeGainPolicyIsEnvironmentOverride: outputPolicy.gainPolicyIsEnvironmentOverride,
             runtimeAutoHeadroomEnabled: outputPolicy.autoHeadroomEnabled,
             runtimeFixedHeadroomDB: outputPolicy.fixedHeadroomDB,
             runtimeGainConfigurationWarning: outputPolicy.configurationWarning,
@@ -4903,6 +4934,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeOutputGain: snapshot.runtimeOutputGain,
             runtimeHeadroomPolicy: snapshot.runtimeHeadroomPolicy,
             runtimeGainPolicyLabel: snapshot.runtimeHeadroomPolicy,
+            runtimeDefaultHeadroomDB: snapshot.runtimeDefaultHeadroomDB,
+            runtimeGainPolicySource: snapshot.runtimeGainPolicySource,
+            runtimeGainPolicyIsEnvironmentOverride: snapshot.runtimeGainPolicyIsEnvironmentOverride,
             runtimeAutoHeadroomEnabled: snapshot.runtimeAutoHeadroomEnabled,
             runtimeFixedHeadroomDB: snapshot.runtimeFixedHeadroomDB,
             runtimeGainConfigurationWarning: snapshot.runtimeGainConfigurationWarning,

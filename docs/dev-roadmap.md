@@ -145,7 +145,7 @@ zero-fill/underrun evidence where detected, output peak/RMS and
 clipping/overrange summaries, row-transition snapshots, backend lifecycle breadcrumbs,
 and explicit runtime headroom policy reporting. The experimental runtime C
 mixer now applies a conservative runtime-only output gain/headroom policy at the
-AVAudio source-node handoff, defaults to `-10 dB`, reports post-gain clipping
+AVAudio source-node handoff, defaults to `-12 dB`, reports post-gain clipping
 diagnostics and recommendations, and accepts local-only gain/headroom
 environment overrides only when `VTX_AUDIO_BACKEND=c_mixer` is selected.
 Offline export `--auto-headroom` remains separate, and AVAudio remains the
@@ -194,8 +194,16 @@ voice counts, replacement ramp cleanup counters, epsilon-suppression correlation
 and a local-only update-epsilon override for diagnostics. These additions remain
 diagnostic-only; the runtime C mixer is still experimental and opt-in, AVAudio
 remains default, and broad stabilization remains separate.
-Stop/spacebar behavior, broader runtime stabilization, and any tracker viewport
-polish remain separate future work.
+Runtime C mixer peak-safe headroom stabilization now makes the fixed runtime
+default slightly more conservative at `-12 dB`, reports whether the active gain
+policy came from the default or an environment override, and keeps peak/clipping,
+lower-threshold adjacent-sample jump, and same-frame burst diagnostics visible
+without altering event timing or C mixer DSP. Exact offline-style runtime
+auto-headroom remains separate future work requiring a pre-playback preflight or
+dry-render peak-analysis pass from the selected start position.
+Stop/spacebar behavior, event-burst ordering/mitigation, live output capture,
+broader runtime stabilization, and any tracker viewport polish remain separate
+future work.
 
 Immediate audio accuracy sequence:
 
@@ -265,7 +273,8 @@ Immediate audio accuracy sequence:
 64. Runtime C Mixer Playback Follow Position Drift Investigation — done
 65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — done
 66. Runtime C Mixer Transient / Event-Burst Diagnostics — done
-67. Reference comparison stabilization against MikMod/OpenMPT
+67. Runtime C Mixer Peak-Safe Headroom / Burst Transient Stabilization — done
+68. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

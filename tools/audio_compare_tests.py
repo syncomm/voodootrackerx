@@ -2809,6 +2809,27 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         "c_mixer_stop_channel_ramped",
                         runtimeApplicationFrame=512,
                         runtimeEventCategory="replacement_stop_ramp",
+                        sameFrameBurstID=512,
+                        sameFrameBurstEventOrdinal=2,
+                        sameFrameBurstCategories=["gain_pan_update", "note_trigger", "replacement_stop_ramp"],
+                        sameFrameBurstAffectedChannels=[0, 3],
+                        sameFrameBurstNoteTriggerCount=1,
+                        sameFrameBurstReplacementRampCount=1,
+                        sameFrameBurstGainPanUpdateCount=1,
+                        sameFrameBurstStepUpdateCount=0,
+                        sameFrameBurstNoteCutCount=0,
+                        sameFrameBurstKeyOffCount=0,
+                        sameFrameBurstGlobalVolumeUpdateCount=1,
+                        sameFrameBurstActiveVoiceCountBefore=2,
+                        sameFrameBurstActiveVoiceCountAfter=3,
+                        sameFrameBurstLoadedVoiceCountBefore=2,
+                        sameFrameBurstLoadedVoiceCountAfter=3,
+                        sameFrameBurstVoicesEnteringRampDown=1,
+                        sameFrameBurstVoicesCompletingRampDown=0,
+                        sameFrameBurstNewVoicesStarted=1,
+                        sameFrameBurstSustainedVoicesCarried=1,
+                        sameFrameBurstAtOrderStart=True,
+                        sameFrameBurstAtRowTransition=True,
                         activeVoiceCountBefore=2,
                         activeVoiceCountAfter=3,
                         loadedVoiceCountBefore=2,
@@ -2843,10 +2864,94 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(burst["event_categories"]["replacement_stop_ramp"], 1)
             self.assertEqual(burst["event_categories"]["note_trigger"], 1)
             self.assertEqual(burst["event_categories"]["global_volume_update"], 1)
+            self.assertEqual(burst["explicit_event_categories"], ["gain_pan_update", "note_trigger", "replacement_stop_ramp"])
+            self.assertEqual(burst["same_frame_burst_id"], 512)
+            self.assertEqual(burst["same_frame_burst_event_ordinals"], [2])
+            self.assertEqual(burst["affected_channels"], [0, 3])
+            self.assertEqual(burst["note_trigger_count"], 1)
+            self.assertEqual(burst["replacement_ramp_count"], 1)
+            self.assertEqual(burst["gain_pan_update_count"], 1)
+            self.assertEqual(burst["global_volume_update_count"], 1)
             self.assertEqual(burst["active_voice_count_before"], 2)
             self.assertEqual(burst["active_voice_count_after"], 3)
+            self.assertEqual(burst["loaded_voice_count_before"], 2)
+            self.assertEqual(burst["loaded_voice_count_after"], 3)
+            self.assertEqual(burst["voices_entering_ramp_down"], 1)
+            self.assertEqual(burst["voices_completing_ramp_down"], 0)
+            self.assertEqual(burst["new_voices_started"], 1)
+            self.assertEqual(burst["sustained_voices_carried"], 1)
+            self.assertTrue(burst["at_order_start"])
+            self.assertTrue(burst["at_row_transition"])
             self.assertEqual(burst["nearest_top_jump"]["sample_jump"], 0.45)
             self.assertEqual(summary["health"]["likely_correlation_category"], "replacement ramp burst")
+
+    def test_runtime_trace_summary_reports_sustained_order_start_update_association(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_update_gain_pan_applied",
+                        orderIndex=4,
+                        patternIndex=9,
+                        rowIndex=0,
+                        tickInRow=0,
+                        channelIndex=2,
+                        runtimeApplicationFrame=4096,
+                        eventAppliedFrame=4096,
+                        runtimeEventSource="offline_adapter_plan",
+                        runtimeEventCategory="gain_pan_update",
+                        adapterEventCategory="gain_pan_update",
+                        updateDisposition="update_applied",
+                        sameFrameBurstID=4096,
+                        sameFrameBurstEventOrdinal=1,
+                        sameFrameBurstSize=2,
+                        sameFrameBurstAtOrderStart=True,
+                        adapterActiveEventIndex=12,
+                        adapterCurrentEventIndexBefore=12,
+                        adapterCurrentEventIndexAfter=12,
+                        adapterChannelAssociationRetained=True,
+                        adapterSustainedVoiceUpdate=True,
+                    ),
+                    self.event(
+                        "c_mixer_add_voice",
+                        orderIndex=4,
+                        patternIndex=9,
+                        rowIndex=0,
+                        tickInRow=0,
+                        channelIndex=3,
+                        runtimeApplicationFrame=4096,
+                        eventAppliedFrame=4096,
+                        runtimeEventSource="offline_adapter_plan",
+                        runtimeEventCategory="note_trigger",
+                        sameFrameBurstID=4096,
+                        sameFrameBurstEventOrdinal=2,
+                        sameFrameBurstSize=2,
+                        sameFrameBurstAtOrderStart=True,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            sustained = summary["sustained_voice_transitions"]
+
+            self.assertEqual(sustained["update_event_count"], 1)
+            self.assertEqual(sustained["order_start_update_event_count"], 1)
+            self.assertEqual(sustained["sustained_update_event_count"], 1)
+            self.assertEqual(sustained["association_retained_count"], 1)
+            self.assertEqual(sustained["association_lost_count"], 0)
+            self.assertEqual(sustained["missed_or_stored_update_count"], 0)
+            self.assertEqual(sustained["update_without_note_applied_count"], 1)
+            self.assertEqual(sustained["active_event_index_observed_count"], 1)
+            self.assertEqual(sustained["current_association_before_observed_count"], 1)
+            self.assertEqual(sustained["current_association_after_observed_count"], 1)
+            self.assertEqual(sustained["top_order_start_updates"][0]["channel_index"], 2)
+            self.assertEqual(sustained["top_order_start_updates"][0]["adapter_active_event_index"], 12)
+            self.assertTrue(sustained["top_order_start_updates"][0]["adapter_channel_association_retained"])
+            self.assertNotIn(
+                "sustained carried voice association was lost during runtime updates",
+                summary["suspicious_findings"],
+            )
 
     def test_runtime_trace_summary_reports_top_peaks_and_clipping_locations(self):
         with tempfile.TemporaryDirectory() as tmpdir:

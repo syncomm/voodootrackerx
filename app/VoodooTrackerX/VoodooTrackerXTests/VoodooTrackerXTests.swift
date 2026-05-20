@@ -8379,6 +8379,32 @@ final class VoodooTrackerXTests: XCTestCase {
             inCallbackOffset: 4,
             plannedVsAppliedDelta: 4,
             sameFrameBurstSize: 3,
+            sameFrameBurstID: 260,
+            sameFrameBurstEventOrdinal: 2,
+            sameFrameBurstCategories: ["gain_pan_update", "note_trigger", "replacement_stop_ramp"],
+            sameFrameBurstAffectedChannels: [0, 3],
+            sameFrameBurstNoteTriggerCount: 2,
+            sameFrameBurstReplacementRampCount: 1,
+            sameFrameBurstGainPanUpdateCount: 1,
+            sameFrameBurstStepUpdateCount: 0,
+            sameFrameBurstNoteCutCount: 0,
+            sameFrameBurstKeyOffCount: 0,
+            sameFrameBurstGlobalVolumeUpdateCount: 1,
+            sameFrameBurstActiveVoiceCountBefore: 2,
+            sameFrameBurstActiveVoiceCountAfter: 3,
+            sameFrameBurstLoadedVoiceCountBefore: 2,
+            sameFrameBurstLoadedVoiceCountAfter: 3,
+            sameFrameBurstVoicesEnteringRampDown: 1,
+            sameFrameBurstVoicesCompletingRampDown: 0,
+            sameFrameBurstNewVoicesStarted: 2,
+            sameFrameBurstSustainedVoicesCarried: 1,
+            sameFrameBurstAtOrderStart: true,
+            sameFrameBurstAtRowTransition: true,
+            adapterActiveEventIndex: 42,
+            adapterCurrentEventIndexBefore: 42,
+            adapterCurrentEventIndexAfter: 42,
+            adapterChannelAssociationRetained: true,
+            adapterSustainedVoiceUpdate: true,
             maxPlannedVsAppliedDelta: 4,
             appliedPlannedEventCount: 3,
             exactFrameAppliedEventCount: 2,
@@ -8527,6 +8553,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["inCallbackOffset"] as? Int, 4)
         XCTAssertEqual(object["plannedVsAppliedDelta"] as? Int, 4)
         XCTAssertEqual(object["sameFrameBurstSize"] as? Int, 3)
+        XCTAssertEqual(object["sameFrameBurstID"] as? Int, 260)
+        XCTAssertEqual(object["sameFrameBurstEventOrdinal"] as? Int, 2)
+        XCTAssertEqual(object["sameFrameBurstCategories"] as? [String], ["gain_pan_update", "note_trigger", "replacement_stop_ramp"])
+        XCTAssertEqual(object["sameFrameBurstAffectedChannels"] as? [Int], [0, 3])
+        XCTAssertEqual(object["sameFrameBurstNoteTriggerCount"] as? Int, 2)
+        XCTAssertEqual(object["sameFrameBurstReplacementRampCount"] as? Int, 1)
+        XCTAssertEqual(object["sameFrameBurstGainPanUpdateCount"] as? Int, 1)
+        XCTAssertEqual(object["sameFrameBurstStepUpdateCount"] as? Int, 0)
+        XCTAssertEqual(object["sameFrameBurstNoteCutCount"] as? Int, 0)
+        XCTAssertEqual(object["sameFrameBurstKeyOffCount"] as? Int, 0)
+        XCTAssertEqual(object["sameFrameBurstGlobalVolumeUpdateCount"] as? Int, 1)
+        XCTAssertEqual(object["sameFrameBurstActiveVoiceCountBefore"] as? Int, 2)
+        XCTAssertEqual(object["sameFrameBurstActiveVoiceCountAfter"] as? Int, 3)
+        XCTAssertEqual(object["sameFrameBurstLoadedVoiceCountBefore"] as? Int, 2)
+        XCTAssertEqual(object["sameFrameBurstLoadedVoiceCountAfter"] as? Int, 3)
+        XCTAssertEqual(object["sameFrameBurstVoicesEnteringRampDown"] as? Int, 1)
+        XCTAssertEqual(object["sameFrameBurstVoicesCompletingRampDown"] as? Int, 0)
+        XCTAssertEqual(object["sameFrameBurstNewVoicesStarted"] as? Int, 2)
+        XCTAssertEqual(object["sameFrameBurstSustainedVoicesCarried"] as? Int, 1)
+        XCTAssertEqual(object["sameFrameBurstAtOrderStart"] as? Bool, true)
+        XCTAssertEqual(object["sameFrameBurstAtRowTransition"] as? Bool, true)
+        XCTAssertEqual(object["adapterActiveEventIndex"] as? Int, 42)
+        XCTAssertEqual(object["adapterCurrentEventIndexBefore"] as? Int, 42)
+        XCTAssertEqual(object["adapterCurrentEventIndexAfter"] as? Int, 42)
+        XCTAssertEqual(object["adapterChannelAssociationRetained"] as? Bool, true)
+        XCTAssertEqual(object["adapterSustainedVoiceUpdate"] as? Bool, true)
         XCTAssertEqual(object["maxPlannedVsAppliedDelta"] as? Int, 4)
         XCTAssertEqual(object["appliedPlannedEventCount"] as? Int, 3)
         XCTAssertEqual(object["exactFrameAppliedEventCount"] as? Int, 2)
@@ -9110,6 +9162,30 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(plan.categories.contains("portamento_update"))
     }
 
+    func testRuntimeCMixerAdapterEventPlanOrdersSameFrameUpdatesBeforeTriggers() {
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+                3: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0x20, effectType: 0, effectParam: 0),
+                        PlaybackCell(note: 53, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let sameFrameEvents = plan.events.filter { $0.scheduledFrame == 10 }
+
+        XCTAssertEqual(sameFrameEvents.map(\.primaryCategory), ["gain_pan_update", "note_trigger"])
+        XCTAssertEqual(sameFrameEvents.map(\.channelIndex), [0, 1])
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -9492,6 +9568,71 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(addVoices.map(\.eventAppliedFrame), [0, 0])
         XCTAssertEqual(addVoices.map(\.sameFrameBurstSize), [2, 2])
         XCTAssertEqual(addVoices.map(\.plannedVsAppliedDelta), [0, 0])
+    }
+
+    @MainActor
+    func testRuntimeCMixerOrderBoundarySustainedVoiceUpdatePrecedesSameFrameNewNote() {
+        let harness = makeRuntimeCMixerPlaybackHarness(channelCount: 2)
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 256), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ],
+                3: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0x20, effectType: 0, effectParam: 0),
+                        PlaybackCell(note: 53, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        let sameFrameEvents = harness.traceWriter.events.filter {
+            $0.eventAppliedFrame == 10 &&
+                ["c_mixer_update_gain_pan_applied", "c_mixer_add_voice"].contains($0.runtimeAction)
+        }
+        XCTAssertEqual(sameFrameEvents.map(\.runtimeAction), [
+            "c_mixer_update_gain_pan_applied",
+            "c_mixer_add_voice"
+        ])
+
+        let gainUpdate = sameFrameEvents.first
+        XCTAssertEqual(gainUpdate?.sameFrameBurstID, 10)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstEventOrdinal, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstSize, 2)
+        XCTAssertTrue(gainUpdate?.sameFrameBurstCategories?.contains("gain_pan_update") == true)
+        XCTAssertTrue(gainUpdate?.sameFrameBurstCategories?.contains("note_trigger") == true)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstAffectedChannels, [0, 1])
+        XCTAssertEqual(gainUpdate?.sameFrameBurstGainPanUpdateCount, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstNoteTriggerCount, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstReplacementRampCount, 0)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstActiveVoiceCountBefore, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstActiveVoiceCountAfter, 2)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstNewVoicesStarted, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstSustainedVoicesCarried, 1)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstAtOrderStart, true)
+        XCTAssertEqual(gainUpdate?.sameFrameBurstAtRowTransition, true)
+        XCTAssertEqual(gainUpdate?.adapterActiveEventIndex, 0)
+        XCTAssertEqual(gainUpdate?.adapterCurrentEventIndexBefore, 0)
+        XCTAssertEqual(gainUpdate?.adapterCurrentEventIndexAfter, 0)
+        XCTAssertEqual(gainUpdate?.adapterChannelAssociationRetained, true)
+        XCTAssertEqual(gainUpdate?.adapterSustainedVoiceUpdate, true)
+
+        let noteTrigger = sameFrameEvents.dropFirst().first
+        XCTAssertEqual(noteTrigger?.sameFrameBurstEventOrdinal, 2)
+        XCTAssertEqual(noteTrigger?.sameFrameBurstID, 10)
+        XCTAssertEqual(noteTrigger?.adapterSustainedVoiceUpdate, false)
+        XCTAssertEqual(noteTrigger?.plannedVsAppliedDelta, 0)
     }
 
     @MainActor

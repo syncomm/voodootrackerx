@@ -207,9 +207,19 @@ offline-vs-live comparison: when `VTX_AUDIO_BACKEND=c_mixer` and
 the post-runtime-gain AVAudio source-node output into a bounded in-memory buffer
 and writes a local WAV outside the audio callback on stop/reset. Capture
 summaries report basename-only paths, captured frames, truncation, gain policy,
-peak/RMS, and clipping counters. Actual pop mitigation remains separate future
-work. Stop/spacebar behavior, event-burst ordering/mitigation, broader runtime
-stabilization, and any tracker viewport polish remain separate future work.
+peak/RMS, and clipping counters. Broader pop mitigation remains separate future
+work.
+Runtime C mixer event-burst and sustained-voice transition stabilization now
+aligns same-frame runtime adapter event ordering with the offline C mixer frame
+boundary: gain/pan and sample-step updates apply before note cuts and note
+triggers, while same-channel replacement ramps remain internal to the note
+trigger path. Runtime traces now report deterministic same-frame burst IDs,
+event ordinals, affected channels, category counters, active/loaded voice
+counts before and after, ramp-down starts/completions, new voices, sustained
+carried voices, order-start/row-transition flags, and carried-channel
+association fields for update-without-note cells. The runtime C mixer remains
+experimental and opt-in; AVAudio remains the default backend, and broader
+runtime stabilization remains separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -281,7 +291,8 @@ Immediate audio accuracy sequence:
 66. Runtime C Mixer Transient / Event-Burst Diagnostics — done
 67. Runtime C Mixer Peak-Safe Headroom / Burst Transient Stabilization — done
 68. Runtime C Mixer Live Output Capture / Offline WAV Comparison — done
-69. Reference comparison stabilization against MikMod/OpenMPT
+69. Runtime C Mixer Event-Burst / Voice Transition Stabilization — done
+70. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -344,7 +355,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, same-frame burst summaries, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
+- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, deterministic same-frame burst/order diagnostics, sustained carried-voice association diagnostics, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior

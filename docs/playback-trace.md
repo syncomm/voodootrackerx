@@ -258,6 +258,41 @@ Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local
 modules.
 
+## Runtime C Mixer Trace Summaries
+
+Use the local summary helper when a trace is too large to inspect directly:
+
+```bash
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-c-runtime-trace.jsonl \
+  --json /tmp/vtx-c-runtime-summary.json \
+  --markdown /tmp/vtx-c-runtime-summary.md
+```
+
+The helper reads runtime JSONL traces and emits deterministic JSON and Markdown
+summaries. It is local/offline tooling only and is tested with synthetic traces,
+not private modules.
+
+The summary focuses on runtime-only artifact evidence:
+
+- peak, clipping, underrun, zero-fill, and failed-render counters
+- `c_mixer_add_voice`, `c_mixer_stop_channel`,
+  `c_mixer_stop_channel_ramped`, and `c_mixer_clear_all` counts
+- whether observed replacement stops were ramped or immediate hard stops
+- applied gain/pan and step updates, suppressed no-change updates, stored
+  channel-state updates, and remaining deferred update categories
+- active/loaded voice ranges and largest same-row/tick event bursts
+- runtime evidence for categories that the richer offline adapter can emit:
+  gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
+  `1xx`/`2xx`/`3xx` updates
+
+The helper also records the current architectural interpretation: live runtime
+C mixer traces are still driven by `PlaybackEngine` timer/control events, not
+by the bounded offline adapter event stream. When offline C-backed WAV renders
+sound cleaner than opt-in runtime C mixer playback, use this summary to decide
+whether the next scoped PR should bridge the offline adapter event stream into
+runtime instead of adding small runtime-only patches.
+
 ## Manual Verification
 
 - Launch the Debug app with `VTX_PLAYBACK_TRACE_PATH` set.

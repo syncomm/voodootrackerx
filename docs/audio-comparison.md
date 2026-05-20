@@ -257,6 +257,33 @@ notes derived from private/local modules must remain under `/tmp` or another
 ignored local path. Do not commit, upload, copy into fixtures, or require any
 private/local module or derived artifact from automated tests.
 
+Summarize a runtime C mixer JSONL trace with:
+
+```bash
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-c-runtime-trace.jsonl \
+  --json /tmp/vtx-c-runtime-summary.json \
+  --markdown /tmp/vtx-c-runtime-summary.md
+```
+
+The summary is diagnostic-only. It reports peak/clipping/underrun/zero-fill
+and failed-render counters, add-voice counts, ramped replacement stops,
+immediate hard channel stops, normal-playback clear-all evidence, active and
+loaded voice ranges, applied gain/pan and step updates, suppressed no-change
+updates, stored channel-state updates, remaining deferred update categories,
+and same-row/tick event bursts. It also calls out whether observed same-channel
+note replacements used `c_mixer_stop_channel_ramped` or fell back to immediate
+`c_mixer_stop_channel` hard stops.
+
+The summary includes a runtime-vs-offline-adapter category checklist for
+gain/pan state updates, step/pitch updates, `Hxy` global-volume updates,
+`ECx`/`EDx`/`E9x`, and `1xx`/`2xx`/`3xx` portamento updates. Treat missing
+runtime categories as evidence that the experimental backend is still driven by
+simpler `PlaybackEngine` timer/control events rather than the richer bounded
+offline adapter event stream. If local listening finds hard cuts or stumbles
+while offline C-backed WAV renders are cleaner, prefer an offline-adapter event
+stream bridge investigation over small speculative runtime patches.
+
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that

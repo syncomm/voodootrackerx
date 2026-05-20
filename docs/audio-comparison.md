@@ -273,6 +273,17 @@ timing problems. They do not change tracker viewport behavior, visual follow,
 Stop behavior, keyboard shortcuts, audio event timing, offline renders, or the
 default AVAudio backend.
 
+Use the summary helper to distinguish exact planned event application from
+position/reporting drift. It reports PlaybackEngine-vs-C-mixer frame and
+millisecond deltas from row-transition breadcrumbs, the first divergence above
+the summary threshold, whether the evidence looks like accumulating drift or a
+mostly constant offset, and selected order-transition samples. Transport
+stop/reset cursor jumps and exact in-callback event timestamps that appear
+after callback-end breadcrumbs are reported separately from in-playback drift.
+These diagnostics are intended to choose a later bridge such as sample-time
+tracker follow or clock synchronization; they do not make the experimental
+C mixer the default backend and do not modify tracker viewport behavior.
+
 Offline candidate WAV export gain/headroom remains separate from runtime
 playback. The offline helper can use `--gain`, `--headroom-db`, or
 `--auto-headroom` at the WAV export boundary. The experimental runtime C mixer
@@ -303,9 +314,14 @@ updates, stored channel-state updates, remaining deferred update categories,
 same-row/tick event bursts, largest planned-vs-applied frame deltas,
 exact-frame and callback-boundary application counts, late planned events,
 same-frame event bursts, max/average/median row-transition deltas,
-PlaybackEngine-vs-C-mixer sample-time position mismatches, order/row ranges
-where mismatch is largest, order/row transition bursts, and top suspicious
-order/row/tick positions. It also calls out whether observed same-channel note
+PlaybackEngine-vs-C-mixer position frame/millisecond delta statistics,
+constant-offset versus accumulating-drift classification,
+PlaybackEngine-vs-C-mixer sample-time position mismatches, transport/reset
+cursor jumps, in-callback timestamp ordering cases, unexpected backward cursor
+movement, order/row ranges where mismatch is largest, selected order-transition
+position samples,
+order/row transition bursts, and top suspicious order/row/tick positions. It
+also calls out whether observed same-channel note
 replacements used
 `c_mixer_stop_channel_ramped` or fell back to immediate `c_mixer_stop_channel`
 hard stops.

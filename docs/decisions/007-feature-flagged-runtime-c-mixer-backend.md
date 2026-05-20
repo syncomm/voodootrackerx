@@ -124,10 +124,13 @@ leaves AVAudio as the default backend.
 A follow-up diagnostics bridge keeps the same boundaries while making the
 runtime C mixer sample-time cursor observable as an order/pattern/row/tick
 position. Runtime traces can now compare the C mixer frame-derived position
-with the `PlaybackEngine` timer position and summarize row-transition deltas
-without wiring that position into tracker viewport rendering. This is a
-runtime maturation step only; it does not make the C mixer stable, default, or
-user-facing.
+with the `PlaybackEngine` timer position and summarize row-transition deltas,
+PlaybackEngine-vs-C-mixer frame/millisecond deltas, first divergence, and
+constant-offset versus accumulating-drift evidence without wiring that position
+into tracker viewport rendering. Transport stop/reset cursor jumps and
+in-callback event timestamp ordering are reported separately from in-playback
+drift. This is a runtime maturation step only; it does not make the C mixer
+stable, default, or user-facing.
 
 ## Feature Flag Proposal
 

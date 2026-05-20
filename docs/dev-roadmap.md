@@ -180,9 +180,11 @@ sizes, exact-frame/callback-boundary/late counts, and max planned-vs-applied
 deltas. Runtime sample-time position diagnostics now resolve the C mixer frame
 cursor back to the planned adapter order/pattern/row/tick timeline and compare
 that with the `PlaybackEngine` timer position, including row-transition delta
-categories and largest mismatch summaries. Tracker-follow UI integration,
-Stop/spacebar behavior, and broader runtime stabilization remain separate
-future work.
+categories, PlaybackEngine-vs-C-mixer frame/millisecond delta summaries,
+constant-offset versus accumulating-drift classification, first-divergence
+reporting, selected order-transition samples, and largest mismatch summaries.
+Tracker-follow UI integration, Stop/spacebar behavior, and broader runtime
+stabilization remain separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -249,8 +251,9 @@ Immediate audio accuracy sequence:
 61. Runtime C Mixer Offline Adapter Event Stream Bridge — done
 62. Runtime C Mixer Sample-Time Event Alignment Diagnostics — done
 63. Runtime C Mixer Sample-Time Event Scheduling Bridge — done
-64. Runtime C Mixer Playback Follow / Sample-Time Position Bridge — done
-65. Reference comparison stabilization against MikMod/OpenMPT
+64. Runtime C Mixer Playback Follow Position Drift Investigation — done
+65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — future
+66. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

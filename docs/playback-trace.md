@@ -148,6 +148,46 @@ when the trace-only threshold is crossed, and the runtime output gain/headroom
 policy. The current runtime C path applies no equivalent of the offline
 `--auto-headroom` export policy.
 
+When the experimental backend is selected, Debug builds can also capture the
+actual post-gain AVAudio source-node output buffer to a local WAV:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-capture-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-runtime-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is ignored unless
+`VTX_AUDIO_BACKEND=c_mixer` selects the experimental runtime backend.
+`VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` sets the bounded in-memory capture limit;
+the default and maximum local-debug cap is 240 seconds. The capture path may be
+absolute locally, but trace rows and summaries report only the output basename.
+Generated WAVs, traces, and comparison reports should stay under `/tmp` or
+another untracked local path.
+
+The audio callback does not write the WAV. It copies the already-gained
+interleaved Float32 source-node output into a bounded in-memory buffer and stops
+capturing when the cap is reached. WAV writing happens later, outside the
+callback, when playback stops or the backend resets. If the buffer fills, trace
+rows use `runtimeAction == "capture_truncated"`; otherwise a successful write
+uses `runtimeAction == "capture_written"`. Failed writes use
+`runtimeAction == "capture_write_failed"`.
+
+Capture-related trace fields include `runtimeCaptureEnabled`,
+`runtimeCapturePathName`, `runtimeCaptureSampleRate`,
+`runtimeCaptureChannelCount`, `runtimeCaptureSeconds`,
+`runtimeCaptureFrameLimit`, `runtimeCapturedFrameCount`,
+`runtimeCaptureDurationSeconds`, `runtimeCaptureTruncated`,
+`runtimeCaptureOutputPeak`, `runtimeCaptureOutputRMS`,
+`runtimeCaptureOverrangeSampleCount`, `runtimeCaptureClippingSampleCount`,
+`runtimeCaptureWriteSucceeded`, `runtimeCaptureWriteError`, and
+`runtimeCaptureConfigurationWarning`. Use these fields with the runtime
+gain/headroom fields when comparing `/tmp` runtime captures against offline
+`vtx_render_bounded_xm` WAVs.
+
 Transient diagnostics are also included in later snapshot rows. The trace keeps
 the existing high adjacent-sample jump threshold and adds cumulative counts for
 lower thresholds such as `0.25`, `0.35`, `0.50`, and `0.75`, the max adjacent
@@ -214,9 +254,9 @@ AppKit, parse module data, or allocate large diagnostic structures. Lock
 contention that prevents the render callback from entering the mixer may still
 produce silence before all counters can be updated, so treat the counters as
 diagnostic evidence rather than a complete real-time profiler.
-Direct runtime WAV/ring-buffer capture is intentionally not added here; it needs
-a separate real-time-safe capture path before it can be used for offline-vs-live
-sample comparison.
+Runtime live output capture follows the same rule: the callback only performs a
+bounded copy into preallocated storage, and disk writes are deferred outside the
+real-time path.
 
 Row transition breadcrumbs use `runtimeAction == "row_transition"` and include
 the current order, pattern, row, tick, active/loaded voice counts, render

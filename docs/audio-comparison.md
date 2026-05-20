@@ -130,6 +130,70 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
+Enable a local-only runtime C mixer live output capture when the actual
+post-gain AVAudio source-node buffer needs to be compared with the clean
+offline C mixer render:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-capture-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-runtime-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_DEBUG_STOP_AFTER_SECONDS=240 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Capture is ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental
+backend and `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is set. The captured WAV is a
+diagnostic PCM16 file written from an in-memory Float32 capture buffer outside
+the audio callback when playback stops or the backend resets. The callback
+copies only the already-gained source-node output frames into a bounded buffer;
+it does not perform file I/O, call AppKit, or write the WAV. The default capture
+limit is 240 seconds. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap,
+and larger values are clamped to the same local-debug safety limit. If the cap
+is reached, capture stops and the runtime trace reports truncation.
+
+To compare the runtime capture against an offline C mixer render, first render a
+clean local candidate WAV under `/tmp`:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-offline-c-mixer.wav \
+  --diagnostics-json /tmp/vtx-offline-c-mixer-diagnostics.json \
+  --until-song-end \
+  --tail-seconds 3 \
+  --window-rows 64 \
+  --auto-headroom \
+  --allow-long-render
+```
+
+Then analyze the captured WAV and compare aligned ranges:
+
+```bash
+python3 scripts/analyze-audio-discontinuities.py \
+  --wav /tmp/vtx-c-runtime-capture.wav \
+  --json /tmp/vtx-c-runtime-capture-discontinuities.json \
+  --markdown /tmp/vtx-c-runtime-capture-discontinuities.md
+
+python3 scripts/audio-compare.py \
+  --reference /tmp/vtx-offline-c-mixer.wav \
+  --candidate /tmp/vtx-c-runtime-capture.wav \
+  --seconds 240 \
+  --json /tmp/vtx-runtime-vs-offline-audio-compare.json \
+  --markdown /tmp/vtx-runtime-vs-offline-audio-compare.md
+```
+
+Use `scripts/summarize-runtime-c-mixer-trace.py` on the JSONL trace to recap
+capture enablement, basename-only output path, sample rate, channel count,
+captured frames/duration, truncation, runtime gain/headroom policy, output
+peak/RMS, and overrange/clipping counters. Keep all WAVs, PCM-derived reports,
+JSONL traces, logs, and listening notes outside git. Public docs and tests must
+continue to use placeholder module paths only.
+
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.
 The default policy is `default_runtime_headroom_db`, currently `-12 dB`, which

@@ -83,7 +83,7 @@ final class PlaybackEngine: PlaybackTransport {
             PlaybackDebugStartTraceContext(request: $0.request, position: $0.position, actualTickInRow: $0.actualTickInRow)
         }
         if let currentPosition {
-            enter(position: currentPosition)
+            enter(position: currentPosition, previousPosition: nil)
             applyDebugStartTickIfNeeded(resolvedDebugStart?.actualTickInRow, at: currentPosition)
         }
         restartTimer()
@@ -111,7 +111,7 @@ final class PlaybackEngine: PlaybackTransport {
             : nil
 
         if shouldPlay {
-            enter(position: resolvedStart.position)
+            enter(position: resolvedStart.position, previousPosition: nil)
             applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
             restartTimer()
             apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
@@ -252,7 +252,7 @@ final class PlaybackEngine: PlaybackTransport {
         switch nextStep(after: position, in: song) {
         case let .advanced(nextPosition):
             currentPosition = nextPosition
-            enter(position: nextPosition)
+            enter(position: nextPosition, previousPosition: position)
         case let .ended(restartPosition):
             if let restartPosition {
                 currentPosition = restartPosition
@@ -263,10 +263,10 @@ final class PlaybackEngine: PlaybackTransport {
         }
     }
 
-    private func enter(position: PlaybackPosition) {
+    private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?) {
         positionDidChange?(position)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
-        recordRuntimeRowTransition(at: position)
+        recordRuntimeRowTransition(from: previousPosition, to: position, phase: "before_events")
         let usesAdapterPlan = usesRuntimeAdapterEventPlan
         prepareRowPlaybackState(at: position, emitRuntimeControlUpdates: !usesAdapterPlan)
         if usesAdapterPlan {
@@ -275,6 +275,7 @@ final class PlaybackEngine: PlaybackTransport {
             triggerAudio(at: position)
             applyImmediateTimingEffects()
         }
+        recordRuntimeRowTransition(from: previousPosition, to: position, phase: "after_events")
     }
 
     private func applyDebugStartTickIfNeeded(_ requestedTickInRow: Int?, at position: PlaybackPosition) {
@@ -743,17 +744,23 @@ final class PlaybackEngine: PlaybackTransport {
         ))
     }
 
-    private func recordRuntimeRowTransition(at position: PlaybackPosition) {
+    private func recordRuntimeRowTransition(from previousPosition: PlaybackPosition?, to position: PlaybackPosition, phase: String) {
         guard let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput else {
             return
         }
         diagnosticOutput.recordTransition(
+            previousContext: runtimeTraceContext(
+                at: previousPosition,
+                tickInRow: tickState.tickInRow,
+                channelIndex: nil
+            ),
             context: runtimeTraceContext(
                 at: position,
                 tickInRow: tickState.tickInRow,
                 channelIndex: nil
             ),
-            reason: "playback_engine_row_enter"
+            phase: phase,
+            reason: phase == "after_events" ? "playback_engine_row_enter_after_events" : "playback_engine_row_enter"
         )
     }
 

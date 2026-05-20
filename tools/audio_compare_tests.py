@@ -2042,6 +2042,127 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(summary["event_stream"]["runtime_driver"], "PlaybackEngine timer/control events")
             self.assertFalse(summary["event_stream"]["offline_adapter_event_stream_observed"])
 
+    def test_synthetic_trace_reports_event_timing_deltas(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_add_voice",
+                        runtimeEventSource="offline_adapter_plan",
+                        runtimeEventCategory="note_trigger",
+                        plannedEventID=1,
+                        plannedEventFrame=1000,
+                        plannedRuntimeFrame=256,
+                        runtimeApplicationFrame=512,
+                        eventFrameDelta=256,
+                        eventApplicationTiming="callback_start",
+                        callbackIndex=4,
+                        callbackStartFrame=256,
+                        callbackEndFrame=512,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertEqual(alignment["max_abs_event_frame_delta"], 256)
+            self.assertEqual(alignment["callback_boundary_event_count"], 1)
+            self.assertEqual(alignment["largest_event_timing_deltas"][0]["event_frame_delta"], 256)
+            self.assertEqual(alignment["largest_event_timing_deltas"][0]["event_application_timing"], "callback_start")
+            self.assertTrue(summary["event_stream"]["offline_adapter_event_stream_observed"])
+            self.assertIn("planned-vs-runtime event frame deltas observed", summary["suspicious_findings"])
+            self.assertIn("events applied at callback boundaries instead of planned frames", summary["suspicious_findings"])
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Sample-Time Event Scheduling Bridge")
+
+    def test_synthetic_trace_reports_same_frame_event_bursts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            events = [
+                self.event(
+                    "c_mixer_add_voice",
+                    rowIndex=index,
+                    runtimeEventCategory="note_trigger",
+                    runtimeApplicationFrame=4096,
+                )
+                for index in range(3)
+            ]
+            events.extend([
+                self.event(
+                    "c_mixer_update_gain_pan_applied",
+                    rowIndex=1,
+                    runtimeEventCategory="gain_pan_update",
+                    runtimeApplicationFrame=4096,
+                ),
+                self.event(
+                    "c_mixer_update_step_applied",
+                    rowIndex=1,
+                    runtimeEventCategory="step_pitch_update",
+                    runtimeApplicationFrame=4096,
+                ),
+            ])
+            trace_path = self.write_trace(tmpdir, events)
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            burst = summary["sample_time_alignment"]["same_frame_event_bursts"][0]
+
+            self.assertEqual(burst["runtime_application_frame"], 4096)
+            self.assertEqual(burst["event_count"], 5)
+            self.assertEqual(burst["actions"]["c_mixer_add_voice"], 3)
+            self.assertEqual(burst["categories"]["note_trigger"], 3)
+
+    def test_synthetic_trace_reports_order_row_transition_event_bursts_deterministically(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        orderIndex=7,
+                        patternIndex=9,
+                        rowIndex=0,
+                        tickInRow=0,
+                        runtimeEventCategory="row_transition",
+                        plannedRuntimeFrame=8192,
+                        runtimeApplicationFrame=8192,
+                        eventFrameDelta=0,
+                    ),
+                    self.event("c_mixer_stop_channel_ramped", orderIndex=7, patternIndex=9, rowIndex=0, tickInRow=0),
+                    self.event("c_mixer_add_voice", orderIndex=7, patternIndex=9, rowIndex=0, tickInRow=0),
+                    self.event("c_mixer_update_gain_pan_applied", orderIndex=7, patternIndex=9, rowIndex=0, tickInRow=0),
+                    self.event(
+                        "row_transition_after_events",
+                        orderIndex=7,
+                        patternIndex=9,
+                        rowIndex=0,
+                        tickInRow=0,
+                        transitionRuntimeFrame=8192,
+                        plannedRuntimeFrame=8192,
+                        eventFrameDelta=0,
+                        activeVoiceCountBefore=2,
+                        activeVoiceCountAfter=3,
+                        loadedVoiceCountBefore=2,
+                        loadedVoiceCountAfter=3,
+                        transitionReplacementRampCount=1,
+                        transitionUpdateCount=1,
+                    ),
+                ],
+            )
+
+            summary_a = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            summary_b = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            burst = summary_a["sample_time_alignment"]["order_row_transition_event_bursts"][0]
+
+            self.assertEqual(summary_a, summary_b)
+            self.assertEqual(burst["order_index"], 7)
+            self.assertEqual(burst["row_index"], 0)
+            self.assertEqual(burst["event_count"], 3)
+            self.assertEqual(burst["replacement_ramp_count"], 1)
+            self.assertEqual(burst["update_count"], 1)
+            self.assertEqual(burst["active_voice_count_before"], 2)
+            self.assertEqual(burst["active_voice_count_after"], 3)
+            self.assertIn("transition_burst", summary_a["sample_time_alignment"]["top_suspicious_positions"][0]["reasons"])
+
     def test_synthetic_trace_json_and_markdown_outputs_are_deterministic(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)

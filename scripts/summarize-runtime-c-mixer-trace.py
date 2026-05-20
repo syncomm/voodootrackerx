@@ -139,6 +139,19 @@ def context_key(event: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
     )
 
 
+def context_dict_from_key(key: tuple[Any, Any, Any, Any]) -> dict[str, Any]:
+    return {
+        "order_index": key[0],
+        "pattern_index": key[1],
+        "row_index": key[2],
+        "tick_in_row": key[3],
+    }
+
+
+def event_context_dict(event: dict[str, Any]) -> dict[str, Any]:
+    return context_dict_from_key(context_key(event))
+
+
 def top_event_bursts(events: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
     grouped: dict[tuple[Any, Any, Any, Any], Counter[str]] = defaultdict(Counter)
     interesting_prefixes = ("c_mixer_",)
@@ -164,6 +177,205 @@ def top_event_bursts(events: list[dict[str, Any]], limit: int = 5) -> list[dict[
         })
     bursts.sort(key=lambda item: (-item["event_count"], item["order_index"] or -1, item["row_index"] or -1, item["tick_in_row"] or -1))
     return bursts[:limit]
+
+
+def event_timing_delta_rows(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    rows = []
+    for event in events:
+        delta_value = integer(event.get("eventFrameDelta"))
+        if delta_value is None:
+            continue
+        row = event_context_dict(event)
+        row.update({
+            "runtime_action": event.get("runtimeAction"),
+            "runtime_event_category": event.get("runtimeEventCategory"),
+            "adapter_event_category": event.get("adapterEventCategory"),
+            "planned_event_id": integer(event.get("plannedEventID")),
+            "planned_event_frame": integer(event.get("plannedEventFrame")),
+            "planned_runtime_frame": integer(event.get("plannedRuntimeFrame")),
+            "runtime_application_frame": integer(event.get("runtimeApplicationFrame")),
+            "event_frame_delta": delta_value,
+            "event_application_timing": event.get("eventApplicationTiming"),
+            "callback_index": integer(event.get("callbackIndex")),
+            "callback_start_frame": integer(event.get("callbackStartFrame")),
+            "callback_end_frame": integer(event.get("callbackEndFrame")),
+        })
+        rows.append(row)
+    rows.sort(
+        key=lambda item: (
+            -abs(item["event_frame_delta"]),
+            item["order_index"] or -1,
+            item["row_index"] or -1,
+            item["tick_in_row"] or -1,
+            item["planned_event_id"] or -1,
+        )
+    )
+    return rows[:limit]
+
+
+def callback_boundary_events(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    rows = [
+        event for event in events
+        if event.get("eventApplicationTiming") == "callback_start"
+        and integer(event.get("eventFrameDelta")) not in (None, 0)
+    ]
+    return event_timing_delta_rows(rows, limit=limit)
+
+
+def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    grouped: dict[int, dict[str, Any]] = {}
+    for event in events:
+        runtime_frame = integer(event.get("runtimeApplicationFrame"))
+        action = event.get("runtimeAction")
+        if runtime_frame is None or not isinstance(action, str):
+            continue
+        if not (action.startswith("c_mixer_") or action.startswith("row_transition")):
+            continue
+        entry = grouped.setdefault(runtime_frame, {
+            "runtime_application_frame": runtime_frame,
+            "event_count": 0,
+            "actions": Counter(),
+            "categories": Counter(),
+            "contexts": Counter(),
+        })
+        entry["event_count"] += 1
+        entry["actions"][action] += 1
+        category = event.get("runtimeEventCategory") or event.get("adapterEventCategory") or "unknown"
+        entry["categories"][str(category)] += 1
+        entry["contexts"][context_key(event)] += 1
+
+    bursts = []
+    for entry in grouped.values():
+        contexts = [
+            {
+                **context_dict_from_key(key),
+                "event_count": count,
+            }
+            for key, count in entry["contexts"].most_common(3)
+        ]
+        bursts.append({
+            "runtime_application_frame": entry["runtime_application_frame"],
+            "event_count": entry["event_count"],
+            "actions": dict(sorted(entry["actions"].items())),
+            "categories": dict(sorted(entry["categories"].items())),
+            "top_contexts": contexts,
+        })
+    bursts.sort(key=lambda item: (-item["event_count"], item["runtime_application_frame"]))
+    return bursts[:limit]
+
+
+def top_transition_bursts(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    counts_by_context: dict[tuple[Any, Any, Any, Any], Counter[str]] = defaultdict(Counter)
+    for event in events:
+        action = event.get("runtimeAction")
+        if not isinstance(action, str):
+            continue
+        if action.startswith("row_transition"):
+            continue
+        if not (action.startswith("c_mixer_") or action in {"note_trigger", "channel_stop", "key_off"}):
+            continue
+        counts_by_context[context_key(event)][action] += 1
+
+    bursts = []
+    for event in events:
+        if event.get("runtimeAction") != "row_transition_after_events":
+            continue
+        key = context_key(event)
+        actions = counts_by_context.get(key, Counter())
+        event_count = sum(actions.values())
+        burst = event_context_dict(event)
+        burst.update({
+            "event_count": event_count,
+            "actions": dict(sorted(actions.items())),
+            "transition_runtime_frame": integer(event.get("transitionRuntimeFrame")),
+            "planned_runtime_frame": integer(event.get("plannedRuntimeFrame")),
+            "event_frame_delta": integer(event.get("eventFrameDelta")),
+            "active_voice_count_before": integer(event.get("activeVoiceCountBefore")),
+            "active_voice_count_after": integer(event.get("activeVoiceCountAfter")),
+            "loaded_voice_count_before": integer(event.get("loadedVoiceCountBefore")),
+            "loaded_voice_count_after": integer(event.get("loadedVoiceCountAfter")),
+            "replacement_ramp_count": integer(event.get("transitionReplacementRampCount")),
+            "update_count": integer(event.get("transitionUpdateCount")),
+        })
+        bursts.append(burst)
+    bursts.sort(
+        key=lambda item: (
+            -item["event_count"],
+            -(item["replacement_ramp_count"] or 0),
+            -(item["update_count"] or 0),
+            item["order_index"] or -1,
+            item["row_index"] or -1,
+        )
+    )
+    return bursts[:limit]
+
+
+def top_suspicious_positions(
+    timing_deltas: list[dict[str, Any]],
+    same_frame_bursts: list[dict[str, Any]],
+    transition_bursts: list[dict[str, Any]],
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    by_context: dict[tuple[Any, Any, Any, Any], dict[str, Any]] = {}
+
+    def entry_for(context: dict[str, Any]) -> dict[str, Any]:
+        key = (
+            context.get("order_index"),
+            context.get("pattern_index"),
+            context.get("row_index"),
+            context.get("tick_in_row"),
+        )
+        return by_context.setdefault(key, {
+            **context_dict_from_key(key),
+            "max_abs_event_frame_delta": 0,
+            "same_frame_event_count": 0,
+            "transition_event_count": 0,
+            "replacement_ramp_count": 0,
+            "update_count": 0,
+            "reasons": set(),
+        })
+
+    for row in timing_deltas:
+        entry = entry_for(row)
+        delta_abs = abs(row["event_frame_delta"])
+        entry["max_abs_event_frame_delta"] = max(entry["max_abs_event_frame_delta"], delta_abs)
+        if delta_abs > 0:
+            entry["reasons"].add("event_frame_delta")
+        if row.get("event_application_timing") == "callback_start":
+            entry["reasons"].add("callback_boundary")
+
+    for burst in same_frame_bursts:
+        for context in burst.get("top_contexts", []):
+            entry = entry_for(context)
+            entry["same_frame_event_count"] = max(entry["same_frame_event_count"], burst["event_count"])
+            if burst["event_count"] > 1:
+                entry["reasons"].add("same_frame_burst")
+
+    for burst in transition_bursts:
+        entry = entry_for(burst)
+        entry["transition_event_count"] = max(entry["transition_event_count"], burst["event_count"])
+        entry["replacement_ramp_count"] = max(entry["replacement_ramp_count"], burst["replacement_ramp_count"] or 0)
+        entry["update_count"] = max(entry["update_count"], burst["update_count"] or 0)
+        if burst["event_count"] > 0:
+            entry["reasons"].add("transition_burst")
+
+    rows = []
+    for entry in by_context.values():
+        score = (
+            entry["max_abs_event_frame_delta"] * 10
+            + entry["same_frame_event_count"]
+            + entry["transition_event_count"]
+            + entry["replacement_ramp_count"]
+            + entry["update_count"]
+        )
+        if score <= 0:
+            continue
+        row = dict(entry)
+        row["score"] = score
+        row["reasons"] = sorted(row["reasons"])
+        rows.append(row)
+    rows.sort(key=lambda item: (-item["score"], item["order_index"] or -1, item["row_index"] or -1, item["tick_in_row"] or -1))
+    return rows[:limit]
 
 
 def summarize_update_parity(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -263,7 +475,14 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     zero_fill_count = int(max_numeric(events, "zeroFillCount") or 0)
     failed_render_count = int(max_numeric(events, "failedRenderCount") or 0)
     bursts = top_event_bursts(events)
+    timing_deltas = event_timing_delta_rows(events)
+    callback_events = callback_boundary_events(events)
+    same_frame_bursts = top_same_frame_event_bursts(events)
+    transition_bursts = top_transition_bursts(events)
+    suspicious_positions = top_suspicious_positions(timing_deltas, same_frame_bursts, transition_bursts)
     parity_categories = summarize_update_parity(events)
+    max_abs_event_frame_delta = max((abs(row["event_frame_delta"]) for row in timing_deltas), default=0)
+    observed_adapter_plan = any(event.get("runtimeEventSource") == "offline_adapter_plan" for event in events)
 
     suspicious_findings: list[str] = []
     if clipping_count > 0:
@@ -280,11 +499,25 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("runtime update deferrals remain")
     if bursts and bursts[0]["event_count"] >= 24:
         suspicious_findings.append("large same-row/tick runtime event burst observed")
+    if max_abs_event_frame_delta > 0:
+        suspicious_findings.append("planned-vs-runtime event frame deltas observed")
+    if callback_events:
+        suspicious_findings.append("events applied at callback boundaries instead of planned frames")
+    if same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24:
+        suspicious_findings.append("large same-frame runtime event burst observed")
+    if transition_bursts and transition_bursts[0]["event_count"] >= 24:
+        suspicious_findings.append("large order/row transition runtime event burst observed")
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
+    large_same_frame_burst = bool(same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24)
+    has_sample_time_delta = max_abs_event_frame_delta > 0 or bool(callback_events)
 
     if hard_replacement_stops:
         recommended_next_pr = "Runtime C Mixer Hard Stop / Replacement Follow-Up"
+    elif has_sample_time_delta:
+        recommended_next_pr = "Runtime C Mixer Sample-Time Event Scheduling Bridge"
+    elif large_same_frame_burst:
+        recommended_next_pr = "Runtime C Mixer Same-Frame Event Burst Stabilization"
     elif deferred_updates or action_counts["c_mixer_stop_channel"] > 0 or large_event_burst:
         recommended_next_pr = "Runtime C Mixer Offline Adapter Event Stream Bridge"
     elif underrun_count > 0 or zero_fill_count > 0 or failed_render_count > 0:
@@ -348,13 +581,28 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         },
         "runtime_vs_offline_adapter_categories": parity_categories,
         "event_stream": {
-            "runtime_driver": "PlaybackEngine timer/control events",
-            "offline_adapter_event_stream_observed": False,
+            "runtime_driver": (
+                "offline adapter plan consumed by PlaybackEngine tick clock"
+                if observed_adapter_plan
+                else "PlaybackEngine timer/control events"
+            ),
+            "offline_adapter_event_stream_observed": observed_adapter_plan,
             "assessment": (
-                "runtime trace is driven by PlaybackEngine actions, not the richer bounded offline adapter event stream"
+                "runtime trace consumed planned offline-adapter events; inspect sample-time alignment fields for callback-boundary drift"
+                if observed_adapter_plan
+                else "runtime trace is driven by PlaybackEngine actions, not the richer bounded offline adapter event stream"
             ),
         },
         "event_bursts": bursts,
+        "sample_time_alignment": {
+            "max_abs_event_frame_delta": max_abs_event_frame_delta,
+            "largest_event_timing_deltas": timing_deltas,
+            "callback_boundary_event_count": len(callback_events),
+            "callback_boundary_events": callback_events,
+            "same_frame_event_bursts": same_frame_bursts,
+            "order_row_transition_event_bursts": transition_bursts,
+            "top_suspicious_positions": suspicious_positions,
+        },
         "suspicious_findings": suspicious_findings,
         "recommended_next_pr": recommended_next_pr,
     }
@@ -365,6 +613,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
     stops = summary["stops"]
     updates = summary["updates"]
     voices = summary["voices"]
+    alignment = summary["sample_time_alignment"]
     lines = [
         "# Runtime C Mixer Trace Summary",
         "",
@@ -383,6 +632,8 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Applied step updates: {updates['applied_step_update_events']}",
         f"- Suppressed no-change updates: {updates['suppressed_no_change_update_events']}",
         f"- Stored channel-state updates: {updates['stored_channel_state_update_events']}",
+        f"- Max planned-vs-runtime frame delta: {alignment['max_abs_event_frame_delta']}",
+        f"- Callback-boundary timing events: {alignment['callback_boundary_event_count']}",
         "",
         "## Stop Paths",
         "",
@@ -417,6 +668,49 @@ def build_markdown(summary: dict[str, Any]) -> str:
             lines.append(f"- {context}: {burst['event_count']} events {burst['actions']}")
     else:
         lines.append("- None")
+
+    lines.extend(["", "## Sample-Time Alignment", ""])
+    if alignment["largest_event_timing_deltas"]:
+        lines.append("- Largest planned-vs-runtime frame deltas:")
+        for row in alignment["largest_event_timing_deltas"][:5]:
+            context = f"order={row['order_index']} pattern={row['pattern_index']} row={row['row_index']} tick={row['tick_in_row']}"
+            lines.append(
+                f"- {context} action={row['runtime_action']} category={row['runtime_event_category']} "
+                f"planned_runtime_frame={row['planned_runtime_frame']} runtime_application_frame={row['runtime_application_frame']} "
+                f"delta={row['event_frame_delta']} timing={row['event_application_timing']}"
+            )
+    else:
+        lines.append("- Largest planned-vs-runtime frame deltas: none")
+    if alignment["same_frame_event_bursts"]:
+        lines.append("- Same-frame event bursts:")
+        for burst in alignment["same_frame_event_bursts"][:5]:
+            lines.append(
+                f"- frame={burst['runtime_application_frame']}: {burst['event_count']} events "
+                f"actions={burst['actions']} categories={burst['categories']}"
+            )
+    else:
+        lines.append("- Same-frame event bursts: none")
+    if alignment["order_row_transition_event_bursts"]:
+        lines.append("- Order/row transition event bursts:")
+        for burst in alignment["order_row_transition_event_bursts"][:5]:
+            context = f"order={burst['order_index']} pattern={burst['pattern_index']} row={burst['row_index']} tick={burst['tick_in_row']}"
+            lines.append(
+                f"- {context}: {burst['event_count']} events replacement_ramps={burst['replacement_ramp_count']} "
+                f"updates={burst['update_count']} voices={burst['active_voice_count_before']}->{burst['active_voice_count_after']}"
+            )
+    else:
+        lines.append("- Order/row transition event bursts: none")
+    if alignment["top_suspicious_positions"]:
+        lines.append("- Top suspicious positions:")
+        for row in alignment["top_suspicious_positions"][:5]:
+            context = f"order={row['order_index']} pattern={row['pattern_index']} row={row['row_index']} tick={row['tick_in_row']}"
+            lines.append(
+                f"- {context}: score={row['score']} reasons={row['reasons']} "
+                f"max_delta={row['max_abs_event_frame_delta']} same_frame_events={row['same_frame_event_count']} "
+                f"transition_events={row['transition_event_count']}"
+            )
+    else:
+        lines.append("- Top suspicious positions: none")
 
     lines.extend(["", "## Suspicious Findings", ""])
     if summary["suspicious_findings"]:

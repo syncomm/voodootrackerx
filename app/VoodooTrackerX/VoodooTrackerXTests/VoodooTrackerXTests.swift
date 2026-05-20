@@ -8336,6 +8336,19 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeRowOrderMapping: "order:1 pattern:3 row:16 tick:2",
             adapterEventCategory: "note_trigger",
             adapterEventCategoriesConsumed: ["gain_pan_update", "note_trigger"],
+            runtimeEventCategory: "note_trigger",
+            plannedEventID: 7,
+            plannedSourceOrderIndex: 1,
+            plannedSourcePatternIndex: 3,
+            plannedSourceRowIndex: 16,
+            plannedSourceTickInRow: 2,
+            plannedSourceChannelIndex: 0,
+            plannedEventFrame: 1024,
+            plannedRuntimeFrame: 256,
+            plannedRuntimeFrameOffset: -768,
+            runtimeApplicationFrame: 260,
+            eventFrameDelta: 4,
+            eventApplicationTiming: "callback_start",
             fallbackToSimpleRuntimeEventCount: 0,
             runtimeEventFallbackReason: nil,
             experimentalCMixerEnabled: true,
@@ -8368,8 +8381,13 @@ final class VoodooTrackerXTests: XCTestCase {
             replacementRampFrames: CSoftwareMixer.replacementStopRampFrameCount,
             replacementVoicesOverlap: true,
             currentFrame: 256,
+            runtimeRenderedFrameCount: 512,
             scheduledVoiceCount: 0,
             eventQueueBacklogCount: 0,
+            callbackIndex: 3,
+            callbackRequestedFrameCount: 256,
+            callbackStartFrame: 256,
+            callbackEndFrame: 512,
             renderCallbackCount: 3,
             renderCallCount: 2,
             successfulRenderCount: 2,
@@ -8407,6 +8425,16 @@ final class VoodooTrackerXTests: XCTestCase {
             stopChannelCount: 1,
             replacementRampCount: 2,
             clearAllCount: 1,
+            previousOrderIndex: 1,
+            previousPatternIndex: 3,
+            previousRowIndex: 15,
+            nextOrderIndex: 1,
+            nextPatternIndex: 3,
+            nextRowIndex: 16,
+            transitionPhase: "after_events",
+            transitionRuntimeFrame: 260,
+            transitionReplacementRampCount: 1,
+            transitionUpdateCount: 2,
             cMixerCallSucceeded: true,
             reason: "test"
         )
@@ -8428,6 +8456,19 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeRowOrderMapping"] as? String, "order:1 pattern:3 row:16 tick:2")
         XCTAssertEqual(object["adapterEventCategory"] as? String, "note_trigger")
         XCTAssertEqual(object["adapterEventCategoriesConsumed"] as? [String], ["gain_pan_update", "note_trigger"])
+        XCTAssertEqual(object["runtimeEventCategory"] as? String, "note_trigger")
+        XCTAssertEqual(object["plannedEventID"] as? Int, 7)
+        XCTAssertEqual(object["plannedSourceOrderIndex"] as? Int, 1)
+        XCTAssertEqual(object["plannedSourcePatternIndex"] as? Int, 3)
+        XCTAssertEqual(object["plannedSourceRowIndex"] as? Int, 16)
+        XCTAssertEqual(object["plannedSourceTickInRow"] as? Int, 2)
+        XCTAssertEqual(object["plannedSourceChannelIndex"] as? Int, 0)
+        XCTAssertEqual(object["plannedEventFrame"] as? Int, 1024)
+        XCTAssertEqual(object["plannedRuntimeFrame"] as? Int, 256)
+        XCTAssertEqual(object["plannedRuntimeFrameOffset"] as? Int, -768)
+        XCTAssertEqual(object["runtimeApplicationFrame"] as? Int, 260)
+        XCTAssertEqual(object["eventFrameDelta"] as? Int, 4)
+        XCTAssertEqual(object["eventApplicationTiming"] as? String, "callback_start")
         XCTAssertEqual(object["fallbackToSimpleRuntimeEventCount"] as? Int, 0)
         XCTAssertEqual(object["experimentalCMixerEnabled"] as? Bool, true)
         XCTAssertEqual(object["sampleRate"] as? Double, 44_100)
@@ -8453,8 +8494,13 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["replacementRampFrames"] as? Int, CSoftwareMixer.replacementStopRampFrameCount)
         XCTAssertEqual(object["replacementVoicesOverlap"] as? Bool, true)
         XCTAssertEqual(object["currentFrame"] as? Int, 256)
+        XCTAssertEqual(object["runtimeRenderedFrameCount"] as? Int, 512)
         XCTAssertEqual(object["scheduledVoiceCount"] as? Int, 0)
         XCTAssertEqual(object["eventQueueBacklogCount"] as? Int, 0)
+        XCTAssertEqual(object["callbackIndex"] as? Int, 3)
+        XCTAssertEqual(object["callbackRequestedFrameCount"] as? Int, 256)
+        XCTAssertEqual(object["callbackStartFrame"] as? Int, 256)
+        XCTAssertEqual(object["callbackEndFrame"] as? Int, 512)
         XCTAssertEqual(object["renderCallbackCount"] as? Int, 3)
         XCTAssertEqual(object["successfulRenderCount"] as? Int, 2)
         XCTAssertEqual(object["failedRenderCount"] as? Int, 1)
@@ -8479,6 +8525,16 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["stopChannelCount"] as? Int, 1)
         XCTAssertEqual(object["replacementRampCount"] as? Int, 2)
         XCTAssertEqual(object["clearAllCount"] as? Int, 1)
+        XCTAssertEqual(object["previousOrderIndex"] as? Int, 1)
+        XCTAssertEqual(object["previousPatternIndex"] as? Int, 3)
+        XCTAssertEqual(object["previousRowIndex"] as? Int, 15)
+        XCTAssertEqual(object["nextOrderIndex"] as? Int, 1)
+        XCTAssertEqual(object["nextPatternIndex"] as? Int, 3)
+        XCTAssertEqual(object["nextRowIndex"] as? Int, 16)
+        XCTAssertEqual(object["transitionPhase"] as? String, "after_events")
+        XCTAssertEqual(object["transitionRuntimeFrame"] as? Int, 260)
+        XCTAssertEqual(object["transitionReplacementRampCount"] as? Int, 1)
+        XCTAssertEqual(object["transitionUpdateCount"] as? Int, 2)
         XCTAssertEqual(object["cMixerCallSucceeded"] as? Bool, true)
     }
 
@@ -8786,6 +8842,13 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(addVoice?.adapterEventCategory, "note_trigger")
         XCTAssertEqual(addVoice?.plannedEventCount, 1)
         XCTAssertEqual(addVoice?.consumedPlannedEventCount, 1)
+        XCTAssertEqual(addVoice?.runtimeEventCategory, "note_trigger")
+        XCTAssertEqual(addVoice?.plannedEventFrame, 0)
+        XCTAssertEqual(addVoice?.plannedRuntimeFrame, 0)
+        XCTAssertEqual(addVoice?.plannedRuntimeFrameOffset, 0)
+        XCTAssertEqual(addVoice?.runtimeApplicationFrame, 0)
+        XCTAssertEqual(addVoice?.eventFrameDelta, 0)
+        XCTAssertEqual(addVoice?.eventApplicationTiming, "exact_frame")
         XCTAssertNil(traceWriter.events.first { $0.runtimeAction == "note_trigger" })
     }
 
@@ -8827,7 +8890,10 @@ final class VoodooTrackerXTests: XCTestCase {
         let gainUpdate = traceWriter.events.first { $0.runtimeAction == "c_mixer_update_gain_pan_applied" }
         XCTAssertEqual(gainUpdate?.runtimeEventSource, "offline_adapter_plan")
         XCTAssertEqual(gainUpdate?.adapterEventCategory, "gain_pan_update")
+        XCTAssertEqual(gainUpdate?.runtimeEventCategory, "gain_pan_update")
         XCTAssertEqual(gainUpdate?.updateDisposition, "update_applied")
+        XCTAssertNotNil(gainUpdate?.plannedEventFrame)
+        XCTAssertNotNil(gainUpdate?.runtimeApplicationFrame)
         XCTAssertTrue(gainUpdate?.adapterEventCategoriesConsumed?.contains("volume_column_update") == true)
     }
 
@@ -8929,6 +8995,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(snapshot.requestedFrameCount)
         XCTAssertEqual(snapshot.cumulativeRequestedFrameCount, 0)
         XCTAssertEqual(snapshot.renderedFrameCount, 0)
+        XCTAssertNil(snapshot.callbackIndex)
+        XCTAssertNil(snapshot.callbackRequestedFrameCount)
+        XCTAssertNil(snapshot.callbackStartFrame)
+        XCTAssertNil(snapshot.callbackEndFrame)
         XCTAssertNil(snapshot.minRequestedFrameCount)
         XCTAssertNil(snapshot.maxRequestedFrameCount)
         XCTAssertEqual(snapshot.zeroFillCount, 0)
@@ -8981,6 +9051,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.requestedFrameCount, 2)
         XCTAssertEqual(snapshot.cumulativeRequestedFrameCount, 2)
         XCTAssertEqual(snapshot.renderedFrameCount, 2)
+        XCTAssertEqual(snapshot.callbackIndex, 1)
+        XCTAssertEqual(snapshot.callbackRequestedFrameCount, 2)
+        XCTAssertEqual(snapshot.callbackStartFrame, 0)
+        XCTAssertEqual(snapshot.callbackEndFrame, 2)
         XCTAssertEqual(snapshot.minRequestedFrameCount, 2)
         XCTAssertEqual(snapshot.maxRequestedFrameCount, 2)
         XCTAssertEqual(snapshot.lastRequestedFrameCount, 2)
@@ -9838,9 +9912,29 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(transitions[0].eventQueueBacklogCount, 0)
         XCTAssertEqual(transitions[0].runtimeHeadroomPolicy, "default_runtime_headroom_db")
         XCTAssertEqual(transitions[0].runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
+        XCTAssertEqual(transitions[0].transitionPhase, "before_events")
+        XCTAssertEqual(transitions[0].nextOrderIndex, 0)
+        XCTAssertEqual(transitions[0].nextPatternIndex, 2)
+        XCTAssertEqual(transitions[0].nextRowIndex, 0)
+        XCTAssertEqual(transitions[0].transitionRuntimeFrame, 0)
+        XCTAssertEqual(transitions[0].runtimeEventCategory, "row_transition")
         XCTAssertEqual(transitions[1].rowIndex, 1)
+        XCTAssertEqual(transitions[1].previousOrderIndex, 0)
+        XCTAssertEqual(transitions[1].previousPatternIndex, 2)
+        XCTAssertEqual(transitions[1].previousRowIndex, 0)
         XCTAssertNotNil(transitions[1].activeVoiceCount)
         XCTAssertNotNil(transitions[1].loadedVoiceCount)
+
+        let transitionSummaries = traceWriter.events.filter { $0.runtimeAction == "row_transition_after_events" }
+        XCTAssertEqual(transitionSummaries.count, 2)
+        XCTAssertEqual(transitionSummaries[0].transitionPhase, "after_events")
+        XCTAssertEqual(transitionSummaries[0].activeVoiceCountBefore, 0)
+        XCTAssertEqual(transitionSummaries[0].activeVoiceCountAfter, 1)
+        XCTAssertEqual(transitionSummaries[0].transitionReplacementRampCount, 0)
+        XCTAssertEqual(transitionSummaries[0].transitionUpdateCount, 0)
+        XCTAssertEqual(transitionSummaries[1].previousRowIndex, 0)
+        XCTAssertEqual(transitionSummaries[1].nextRowIndex, 1)
+        XCTAssertNotNil(transitionSummaries[1].transitionRuntimeFrame)
     }
 
     @MainActor

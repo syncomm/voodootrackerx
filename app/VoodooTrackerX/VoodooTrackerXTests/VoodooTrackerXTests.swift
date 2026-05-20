@@ -8833,6 +8833,87 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(plan.categories.contains("portamento_update"))
     }
 
+    func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowCounts: [2: 2, 3: 1],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100).plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+
+        let first = try XCTUnwrap(resolver.position(atFrame: 0))
+        let second = try XCTUnwrap(resolver.position(atFrame: 10))
+        let third = try XCTUnwrap(resolver.position(atFrame: 20))
+
+        XCTAssertEqual(first.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(first.tickInRow, 0)
+        XCTAssertEqual(second.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(second.tickInRow, 0)
+        XCTAssertEqual(third.source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0))
+        XCTAssertEqual(third.tickInRow, 0)
+    }
+
+    func testSampleTimePositionResolverMapsFramesInsideRowToTick() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 1],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 25)
+        )
+        let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100).plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+
+        let firstTick = try XCTUnwrap(resolver.position(atFrame: 9))
+        let secondTick = try XCTUnwrap(resolver.position(atFrame: 15))
+
+        XCTAssertEqual(firstTick.source.rowIndex, 0)
+        XCTAssertEqual(firstTick.tickInRow, 0)
+        XCTAssertEqual(secondTick.source.rowIndex, 0)
+        XCTAssertEqual(secondTick.tickInRow, 1)
+        XCTAssertEqual(secondTick.frameOffsetInRow, 15)
+    }
+
+    func testSampleTimePositionResolverUsesFxxTimingChanges() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x0F, effectParam: 0x02),
+                    makePlaybackRow(index: 1),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100).plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+
+        let changedSpeedTick = try XCTUnwrap(resolver.position(atFrame: 20))
+        let followingRow = try XCTUnwrap(resolver.position(atFrame: 30))
+
+        XCTAssertEqual(changedSpeedTick.source.rowIndex, 1)
+        XCTAssertEqual(changedSpeedTick.tickInRow, 1)
+        XCTAssertEqual(changedSpeedTick.effectiveSpeed, 2)
+        XCTAssertEqual(followingRow.source.rowIndex, 2)
+        XCTAssertEqual(followingRow.tickInRow, 0)
+    }
+
+    func testSampleTimePositionResolverHandlesEndOfRangeSafely() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 1],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100).plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+
+        let position = try XCTUnwrap(resolver.position(atFrame: 10_000))
+
+        XCTAssertEqual(position.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(position.tickInRow, 0)
+        XCTAssertEqual(position.status, "at_or_after_end")
+    }
+
     @MainActor
     private func makeRuntimeCMixerPlaybackHarness(
         sampleRate: Double = 100,
@@ -8892,6 +8973,19 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(addVoice?.plannedRuntimeFrame, 0)
         XCTAssertEqual(addVoice?.plannedRuntimeFrameOffset, 0)
         XCTAssertEqual(addVoice?.runtimeApplicationFrame, 0)
+        XCTAssertEqual(addVoice?.cMixerRenderedFrames, 0)
+        XCTAssertEqual(addVoice?.cMixerPlaybackSeconds, 0)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeFrame, 0)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeOrderIndex, 0)
+        XCTAssertEqual(addVoice?.cMixerSampleTimePatternIndex, 2)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeRowIndex, 0)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeTickInRow, 0)
+        XCTAssertEqual(addVoice?.playbackEngineOrderIndex, 0)
+        XCTAssertEqual(addVoice?.playbackEnginePatternIndex, 2)
+        XCTAssertEqual(addVoice?.playbackEngineRowIndex, 0)
+        XCTAssertEqual(addVoice?.playbackEngineTickInRow, 0)
+        XCTAssertEqual(addVoice?.playbackEngineToCMixerFrameDelta, 0)
+        XCTAssertEqual(addVoice?.playbackEngineToCMixerPositionMismatch, false)
         XCTAssertEqual(addVoice?.eventFrameDelta, 0)
         XCTAssertEqual(addVoice?.eventApplicationTiming, "exact_frame")
         XCTAssertNil(traceWriter.events.first { $0.runtimeAction == "note_trigger" })
@@ -8926,6 +9020,13 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(addVoice?.runtimeApplicationFrame, 10)
         XCTAssertEqual(addVoice?.eventAppliedFrame, 10)
         XCTAssertEqual(addVoice?.inCallbackOffset, 10)
+        XCTAssertEqual(addVoice?.cMixerRenderedFrames, 10)
+        XCTAssertEqual(addVoice?.cMixerPlaybackSeconds ?? -1, 0.1, accuracy: 0.000_001)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeFrame, 10)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeRowIndex, 1)
+        XCTAssertEqual(addVoice?.cMixerSampleTimeTickInRow, 0)
+        XCTAssertEqual(addVoice?.playbackEngineToCMixerFrameDelta, 0)
+        XCTAssertEqual(addVoice?.playbackEngineToCMixerPositionMismatch, false)
         XCTAssertEqual(addVoice?.plannedVsAppliedDelta, 0)
         XCTAssertEqual(addVoice?.eventApplicationTiming, "exact_frame")
         XCTAssertEqual(addVoice?.callbackStartFrame, 0)
@@ -10240,12 +10341,29 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(transitions[0].nextRowIndex, 0)
         XCTAssertEqual(transitions[0].transitionRuntimeFrame, 0)
         XCTAssertEqual(transitions[0].runtimeEventCategory, "row_transition")
+        XCTAssertEqual(transitions[0].cMixerRenderedFrames, 0)
+        XCTAssertEqual(transitions[0].cMixerSampleTimeFrame, 0)
+        XCTAssertEqual(transitions[0].cMixerSampleTimeOrderIndex, 0)
+        XCTAssertEqual(transitions[0].cMixerSampleTimePatternIndex, 2)
+        XCTAssertEqual(transitions[0].cMixerSampleTimeRowIndex, 0)
+        XCTAssertEqual(transitions[0].cMixerSampleTimeTickInRow, 0)
+        XCTAssertEqual(transitions[0].playbackEngineOrderIndex, 0)
+        XCTAssertEqual(transitions[0].playbackEnginePatternIndex, 2)
+        XCTAssertEqual(transitions[0].playbackEngineRowIndex, 0)
+        XCTAssertEqual(transitions[0].playbackEngineTickInRow, 0)
+        XCTAssertEqual(transitions[0].playbackEngineToCMixerFrameDelta, 0)
+        XCTAssertEqual(transitions[0].playbackEngineToCMixerPositionMismatch, false)
+        XCTAssertEqual(transitions[0].rowTransitionDeltaCategory, "exact")
         XCTAssertEqual(transitions[1].rowIndex, 1)
         XCTAssertEqual(transitions[1].previousOrderIndex, 0)
         XCTAssertEqual(transitions[1].previousPatternIndex, 2)
         XCTAssertEqual(transitions[1].previousRowIndex, 0)
         XCTAssertNotNil(transitions[1].activeVoiceCount)
         XCTAssertNotNil(transitions[1].loadedVoiceCount)
+        XCTAssertEqual(transitions[1].playbackEngineRowIndex, 1)
+        XCTAssertEqual(transitions[1].cMixerSampleTimeRowIndex, 0)
+        XCTAssertEqual(transitions[1].playbackEngineToCMixerPositionMismatch, true)
+        XCTAssertEqual(transitions[1].rowTransitionDeltaCategory, "different_row_or_order")
 
         let transitionSummaries = traceWriter.events.filter { $0.runtimeAction == "row_transition_after_events" }
         XCTAssertEqual(transitionSummaries.count, 2)

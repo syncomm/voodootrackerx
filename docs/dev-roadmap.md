@@ -177,8 +177,12 @@ sample-time event application now queues planned adapter events by intended
 runtime frame, splits AVAudio source-node callbacks at in-buffer event offsets,
 and traces callback ranges, planned/applied frames, offsets, same-frame burst
 sizes, exact-frame/callback-boundary/late counts, and max planned-vs-applied
-deltas. Tracker-follow alignment and broader runtime stabilization remain
-separate future work.
+deltas. Runtime sample-time position diagnostics now resolve the C mixer frame
+cursor back to the planned adapter order/pattern/row/tick timeline and compare
+that with the `PlaybackEngine` timer position, including row-transition delta
+categories and largest mismatch summaries. Tracker-follow UI integration,
+Stop/spacebar behavior, and broader runtime stabilization remain separate
+future work.
 
 Immediate audio accuracy sequence:
 
@@ -245,7 +249,8 @@ Immediate audio accuracy sequence:
 61. Runtime C Mixer Offline Adapter Event Stream Bridge — done
 62. Runtime C Mixer Sample-Time Event Alignment Diagnostics — done
 63. Runtime C Mixer Sample-Time Event Scheduling Bridge — done
-64. Reference comparison stabilization against MikMod/OpenMPT
+64. Runtime C Mixer Playback Follow / Sample-Time Position Bridge — done
+65. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -309,6 +314,9 @@ Features:
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
 - local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, same-frame burst summaries, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
+- local-only runtime C mixer sample-time position diagnostics that compare the C
+  mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
+  changing tracker viewport behavior
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

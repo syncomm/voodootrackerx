@@ -260,6 +260,19 @@ deltas, and update deltas. These fields are for diagnosing remaining
 runtime-only clicks or stumbles; they do not make the C mixer the default,
 alter offline rendering, or implement new XM effects.
 
+The same local-only runtime trace can now resolve the C mixer sample-time frame
+cursor back to the planned adapter order/pattern/row/tick timeline and compare
+that with the `PlaybackEngine` order/pattern/row/tick context recorded at the
+same trace point. Fields such as `cMixerRenderedFrames`,
+`cMixerPlaybackSeconds`, `cMixerSampleTimeFrame`,
+`cMixerSampleTimeOrderIndex`, `cMixerSampleTimeRowIndex`,
+`cMixerSampleTimeTickInRow`, `playbackEngineToCMixerFrameDelta`, and
+`playbackEngineToCMixerPositionMismatch` are diagnostics only. They are meant
+to separate sample-time position/reporting drift from real runtime playback
+timing problems. They do not change tracker viewport behavior, visual follow,
+Stop behavior, keyboard shortcuts, audio event timing, offline renders, or the
+default AVAudio backend.
+
 Offline candidate WAV export gain/headroom remains separate from runtime
 playback. The offline helper can use `--gain`, `--headroom-db`, or
 `--auto-headroom` at the WAV export boundary. The experimental runtime C mixer
@@ -289,7 +302,9 @@ loaded voice ranges, applied gain/pan and step updates, suppressed no-change
 updates, stored channel-state updates, remaining deferred update categories,
 same-row/tick event bursts, largest planned-vs-applied frame deltas,
 exact-frame and callback-boundary application counts, late planned events,
-same-frame event bursts, order/row transition bursts, and top suspicious
+same-frame event bursts, max/average/median row-transition deltas,
+PlaybackEngine-vs-C-mixer sample-time position mismatches, order/row ranges
+where mismatch is largest, order/row transition bursts, and top suspicious
 order/row/tick positions. It also calls out whether observed same-channel note
 replacements used
 `c_mixer_stop_channel_ramped` or fell back to immediate `c_mixer_stop_channel`

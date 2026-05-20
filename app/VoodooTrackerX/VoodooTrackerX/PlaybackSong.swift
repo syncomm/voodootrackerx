@@ -569,6 +569,35 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }?.rowStartFrame
     }
 
+    func plannedFrame(matching context: AudioRuntimeTraceContext?) -> Int? {
+        guard let context,
+              let orderIndex = context.orderIndex,
+              let rowIndex = context.rowIndex,
+              let diagnostics = plan?.diagnostics else {
+            return nil
+        }
+        guard let timing = diagnostics.rowTiming.first(where: { timing in
+            timing.source.orderIndex == orderIndex &&
+                timing.source.rowIndex == rowIndex &&
+                (context.patternIndex == nil || timing.source.patternIndex == context.patternIndex)
+        }) else {
+            return nil
+        }
+        let tickInRow = min(max(0, context.tickInRow ?? 0), max(0, timing.effectiveSpeed - 1))
+        let framesPerTick = sampleRate * 2.5 / Double(max(1, timing.effectiveBPM))
+        let exactFrame = Double(timing.rowStartFrame) + (Double(tickInRow) * framesPerTick)
+        guard exactFrame.isFinite else {
+            return nil
+        }
+        if exactFrame <= 0 {
+            return 0
+        }
+        if exactFrame >= Double(Int.max) {
+            return Int.max
+        }
+        return Int(exactFrame.rounded(.down))
+    }
+
     private static func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
         switch action {
         case .noteTrigger:
@@ -596,6 +625,110 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return nil
         }
         return after
+    }
+}
+
+struct PlaybackSongSampleTimePosition: Equatable {
+    let frame: Int
+    let source: PlaybackPosition
+    let syntheticRow: Int
+    let tickInRow: Int
+    let rowStartFrame: Int
+    let rowEndFrame: Int
+    let rowDurationFrames: Int
+    let frameOffsetInRow: Int
+    let effectiveSpeed: Int
+    let effectiveBPM: Int
+    let status: String
+}
+
+struct PlaybackSongSampleTimePositionResolver: Equatable {
+    private let sampleRate: Double
+    private let rowTimings: [PlaybackSongSyntheticRowTimingDiagnostic]
+
+    init(plan: PlaybackSongSyntheticPlan) {
+        sampleRate = plan.timingConfig.sampleRate
+        rowTimings = plan.diagnostics.rowTiming.sorted { lhs, rhs in
+            if lhs.syntheticRow != rhs.syntheticRow {
+                return lhs.syntheticRow < rhs.syntheticRow
+            }
+            return lhs.rowStartFrame < rhs.rowStartFrame
+        }
+    }
+
+    init(rowTimings: [PlaybackSongSyntheticRowTimingDiagnostic], sampleRate: Double) {
+        self.sampleRate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : MixerRenderConfig.defaultSampleRate
+        self.rowTimings = rowTimings.sorted { lhs, rhs in
+            if lhs.syntheticRow != rhs.syntheticRow {
+                return lhs.syntheticRow < rhs.syntheticRow
+            }
+            return lhs.rowStartFrame < rhs.rowStartFrame
+        }
+    }
+
+    func position(atFrame frame: Int) -> PlaybackSongSampleTimePosition? {
+        guard !rowTimings.isEmpty else {
+            return nil
+        }
+        let safeFrame = max(0, frame)
+        guard let first = rowTimings.first,
+              let last = rowTimings.last else {
+            return nil
+        }
+        if safeFrame < first.rowStartFrame {
+            return position(in: first, frame: safeFrame, status: "before_start")
+        }
+        let finalEndFrame = max(last.rowStartFrame + last.rowDurationFrames, last.rowStartFrame)
+        if safeFrame >= finalEndFrame {
+            return position(in: last, frame: safeFrame, status: "at_or_after_end")
+        }
+
+        var lowerBound = 0
+        var upperBound = rowTimings.count - 1
+        while lowerBound <= upperBound {
+            let mid = (lowerBound + upperBound) / 2
+            let timing = rowTimings[mid]
+            let rowStart = timing.rowStartFrame
+            let rowEnd = max(timing.rowStartFrame + timing.rowDurationFrames, rowStart + 1)
+            if safeFrame < rowStart {
+                upperBound = mid - 1
+            } else if safeFrame >= rowEnd {
+                lowerBound = mid + 1
+            } else {
+                return position(in: timing, frame: safeFrame, status: "in_range")
+            }
+        }
+
+        let fallbackIndex = min(max(0, upperBound), rowTimings.count - 1)
+        return position(in: rowTimings[fallbackIndex], frame: safeFrame, status: "in_range")
+    }
+
+    private func position(
+        in timing: PlaybackSongSyntheticRowTimingDiagnostic,
+        frame: Int,
+        status: String
+    ) -> PlaybackSongSampleTimePosition {
+        let framesPerTick = sampleRate * 2.5 / Double(max(1, timing.effectiveBPM))
+        let frameOffset = max(0, frame - timing.rowStartFrame)
+        let tick: Int
+        if framesPerTick.isFinite, framesPerTick > 0 {
+            tick = min(max(0, Int((Double(frameOffset) / framesPerTick).rounded(.down))), max(0, timing.effectiveSpeed - 1))
+        } else {
+            tick = 0
+        }
+        return PlaybackSongSampleTimePosition(
+            frame: frame,
+            source: timing.source,
+            syntheticRow: timing.syntheticRow,
+            tickInRow: tick,
+            rowStartFrame: timing.rowStartFrame,
+            rowEndFrame: timing.rowStartFrame + timing.rowDurationFrames,
+            rowDurationFrames: timing.rowDurationFrames,
+            frameOffsetInRow: frameOffset,
+            effectiveSpeed: timing.effectiveSpeed,
+            effectiveBPM: timing.effectiveBPM,
+            status: status
+        )
     }
 }
 

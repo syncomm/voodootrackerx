@@ -121,6 +121,14 @@ planned-event queue, splits callback renders at in-buffer event offsets, traces
 planned/applied frame fields and late/callback-boundary counters, and still
 leaves AVAudio as the default backend.
 
+A follow-up diagnostics bridge keeps the same boundaries while making the
+runtime C mixer sample-time cursor observable as an order/pattern/row/tick
+position. Runtime traces can now compare the C mixer frame-derived position
+with the `PlaybackEngine` timer position and summarize row-transition deltas
+without wiring that position into tracker viewport rendering. This is a
+runtime maturation step only; it does not make the C mixer stable, default, or
+user-facing.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

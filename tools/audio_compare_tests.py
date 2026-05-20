@@ -2153,6 +2153,8 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(alignment["max_abs_event_frame_delta"], 0)
             self.assertEqual(alignment["max_planned_vs_applied_delta"], 0)
             self.assertEqual(alignment["max_row_transition_frame_delta"], 256)
+            self.assertEqual(alignment["average_row_transition_frame_delta"], 256)
+            self.assertEqual(alignment["median_row_transition_frame_delta"], 256)
             self.assertEqual(alignment["callback_boundary_event_count"], 0)
             self.assertEqual(alignment["callback_boundary_applied_event_count"], 0)
             self.assertEqual(alignment["row_transition_timing_deltas"][0]["event_frame_delta"], 256)
@@ -2161,6 +2163,74 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertNotEqual(
                 summary["recommended_next_pr"],
                 "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation",
+            )
+
+    def test_synthetic_trace_reports_largest_playback_engine_vs_c_mixer_mismatch_deterministically(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        orderIndex=1,
+                        patternIndex=2,
+                        rowIndex=4,
+                        tickInRow=0,
+                        playbackEngineOrderIndex=1,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=4,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=1,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=3,
+                        cMixerSampleTimeTickInRow=5,
+                        cMixerSampleTimeFrame=1200,
+                        cMixerRenderedFrames=200,
+                        playbackEngineToCMixerFrameDelta=-100,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        rowTransitionDeltaCategory="different_row_or_order",
+                    ),
+                    self.event(
+                        "row_transition",
+                        orderIndex=1,
+                        patternIndex=2,
+                        rowIndex=5,
+                        tickInRow=0,
+                        playbackEngineOrderIndex=1,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=5,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=1,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=4,
+                        cMixerSampleTimeTickInRow=3,
+                        cMixerSampleTimeFrame=1300,
+                        cMixerRenderedFrames=250,
+                        playbackEngineToCMixerFrameDelta=-50,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        rowTransitionDeltaCategory="different_row_or_order",
+                    ),
+                ],
+            )
+
+            summary_a = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            summary_b = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary_a["sample_time_alignment"]
+            largest = alignment["largest_playback_engine_vs_c_mixer_mismatch"]
+            first = alignment["first_suspicious_position_mismatch"]
+
+            self.assertEqual(summary_a, summary_b)
+            self.assertTrue(alignment["c_mixer_sample_time_frame_observed"])
+            self.assertTrue(alignment["c_mixer_sample_time_monotonic"])
+            self.assertEqual(largest["playback_engine_row_index"], 4)
+            self.assertEqual(largest["c_mixer_row_index"], 3)
+            self.assertEqual(largest["abs_frame_delta"], 100)
+            self.assertEqual(first["trace_index"], 0)
+            self.assertEqual(alignment["row_transition_delta_categories"]["different_row_or_order"], 2)
+            self.assertEqual(alignment["largest_mismatch_order_row_ranges"][0]["max_abs_frame_delta"], 100)
+            self.assertIn(
+                "PlaybackEngine position and C mixer sample-time position mismatch observed",
+                summary_a["suspicious_findings"],
             )
 
     def test_synthetic_trace_reports_same_frame_event_bursts(self):

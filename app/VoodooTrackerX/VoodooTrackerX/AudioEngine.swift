@@ -101,6 +101,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
     let sampleRate: Double?
+    let cMixerRenderedFrames: UInt64?
+    let cMixerPlaybackSeconds: Double?
+    let cMixerSampleTimeFrame: Int?
+    let cMixerSampleTimePositionStatus: String?
+    let cMixerSampleTimeOrderIndex: Int?
+    let cMixerSampleTimePatternIndex: Int?
+    let cMixerSampleTimeRowIndex: Int?
+    let cMixerSampleTimeTickInRow: Int?
+    let playbackEngineOrderIndex: Int?
+    let playbackEnginePatternIndex: Int?
+    let playbackEngineRowIndex: Int?
+    let playbackEngineTickInRow: Int?
+    let playbackEngineToCMixerFrameDelta: Int?
+    let playbackEngineToCMixerPositionMismatch: Bool?
+    let rowTransitionDeltaCategory: String?
     let channelCount: Int?
     let orderIndex: Int?
     let patternIndex: Int?
@@ -249,6 +264,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
         sampleRate: Double? = nil,
+        cMixerRenderedFrames: UInt64? = nil,
+        cMixerPlaybackSeconds: Double? = nil,
+        cMixerSampleTimeFrame: Int? = nil,
+        cMixerSampleTimePositionStatus: String? = nil,
+        cMixerSampleTimeOrderIndex: Int? = nil,
+        cMixerSampleTimePatternIndex: Int? = nil,
+        cMixerSampleTimeRowIndex: Int? = nil,
+        cMixerSampleTimeTickInRow: Int? = nil,
+        playbackEngineOrderIndex: Int? = nil,
+        playbackEnginePatternIndex: Int? = nil,
+        playbackEngineRowIndex: Int? = nil,
+        playbackEngineTickInRow: Int? = nil,
+        playbackEngineToCMixerFrameDelta: Int? = nil,
+        playbackEngineToCMixerPositionMismatch: Bool? = nil,
+        rowTransitionDeltaCategory: String? = nil,
         channelCount: Int? = nil,
         context: AudioRuntimeTraceContext? = nil,
         targetScope: String = "none",
@@ -385,6 +415,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
         self.sampleRate = sampleRate
+        self.cMixerRenderedFrames = cMixerRenderedFrames
+        self.cMixerPlaybackSeconds = cMixerPlaybackSeconds
+        self.cMixerSampleTimeFrame = cMixerSampleTimeFrame
+        self.cMixerSampleTimePositionStatus = cMixerSampleTimePositionStatus
+        self.cMixerSampleTimeOrderIndex = cMixerSampleTimeOrderIndex
+        self.cMixerSampleTimePatternIndex = cMixerSampleTimePatternIndex
+        self.cMixerSampleTimeRowIndex = cMixerSampleTimeRowIndex
+        self.cMixerSampleTimeTickInRow = cMixerSampleTimeTickInRow
+        self.playbackEngineOrderIndex = playbackEngineOrderIndex ?? context?.orderIndex
+        self.playbackEnginePatternIndex = playbackEnginePatternIndex ?? context?.patternIndex
+        self.playbackEngineRowIndex = playbackEngineRowIndex ?? context?.rowIndex
+        self.playbackEngineTickInRow = playbackEngineTickInRow ?? context?.tickInRow
+        self.playbackEngineToCMixerFrameDelta = playbackEngineToCMixerFrameDelta
+        self.playbackEngineToCMixerPositionMismatch = playbackEngineToCMixerPositionMismatch
+        self.rowTransitionDeltaCategory = rowTransitionDeltaCategory
         self.channelCount = channelCount
         orderIndex = context?.orderIndex
         patternIndex = context?.patternIndex
@@ -3176,6 +3221,24 @@ private struct RuntimeCMixerTransitionTraceFields: Equatable {
     let updateCount: UInt64?
 }
 
+private struct RuntimeCMixerSampleTimePositionTraceFields: Equatable {
+    let cMixerRenderedFrames: UInt64
+    let cMixerPlaybackSeconds: Double?
+    let cMixerSampleTimeFrame: Int?
+    let cMixerSampleTimePositionStatus: String?
+    let cMixerSampleTimeOrderIndex: Int?
+    let cMixerSampleTimePatternIndex: Int?
+    let cMixerSampleTimeRowIndex: Int?
+    let cMixerSampleTimeTickInRow: Int?
+    let playbackEngineOrderIndex: Int?
+    let playbackEnginePatternIndex: Int?
+    let playbackEngineRowIndex: Int?
+    let playbackEngineTickInRow: Int?
+    let playbackEngineToCMixerFrameDelta: Int?
+    let playbackEngineToCMixerPositionMismatch: Bool?
+    let rowTransitionDeltaCategory: String?
+}
+
 private struct RuntimeCMixerPendingTransition: Equatable {
     let previousContext: AudioRuntimeTraceContext?
     let nextContext: AudioRuntimeTraceContext?
@@ -3200,6 +3263,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var consumedAdapterEventIDs = Set<Int>()
     private var consumedAdapterEventCategories = Set<String>()
     private var plannedRuntimeFrameOffset: Int?
+    private var sampleTimePositionResolver: PlaybackSongSampleTimePositionResolver?
     private var adapterEventScheduleConfigured = false
     private var pendingTransition: RuntimeCMixerPendingTransition?
 
@@ -3256,6 +3320,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan) {
         adapterEventPlan = plan
+        sampleTimePositionResolver = plan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
         resetRuntimeAdapterEventConsumption()
         recordRuntimeEvent(
             action: "adapter_plan_configured",
@@ -3275,6 +3340,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         eventCounters.skippedUnmatchedPlannedEventCount = 0
         eventCounters.fallbackToSimpleRuntimeEventCount = 0
         plannedRuntimeFrameOffset = nil
+        sampleTimePositionResolver = adapterEventPlan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
         adapterEventScheduleConfigured = false
         pendingTransition = nil
         renderCore.clearAdapterEventSchedule()
@@ -3367,6 +3433,111 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackStartFrame: nil,
             callbackEndFrame: nil
         )
+    }
+
+    private func sampleTimePositionTraceFields(
+        context: AudioRuntimeTraceContext?,
+        snapshot: RuntimeCMixerRenderSnapshot,
+        isRowTransition: Bool
+    ) -> RuntimeCMixerSampleTimePositionTraceFields {
+        let playbackSeconds = snapshot.sampleRate > 0
+            ? Double(snapshot.currentFrame) / snapshot.sampleRate
+            : nil
+        let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot)
+        let cMixerSampleTimeFrame = offset.flatMap { plannedFrame(runtimeFrame: snapshot.currentFrame, runtimeFrameOffset: $0) }
+        let cMixerPosition = cMixerSampleTimeFrame.flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+        let playbackEnginePlannedFrame = adapterEventPlan.plannedFrame(matching: context)
+        let playbackEngineRuntimeFrame = playbackEnginePlannedFrame.flatMap { plannedFrame in
+            offset.flatMap { safeAdding(plannedFrame, $0) }
+        }
+        let frameDelta = playbackEngineRuntimeFrame.flatMap { plannedFrame in
+            delta(runtimeFrame: snapshot.currentFrame, plannedFrame: plannedFrame)
+        }
+        let mismatch = positionMismatch(context: context, cMixerPosition: cMixerPosition)
+        return RuntimeCMixerSampleTimePositionTraceFields(
+            cMixerRenderedFrames: snapshot.currentFrame,
+            cMixerPlaybackSeconds: playbackSeconds,
+            cMixerSampleTimeFrame: cMixerSampleTimeFrame,
+            cMixerSampleTimePositionStatus: cMixerPosition?.status,
+            cMixerSampleTimeOrderIndex: cMixerPosition?.source.orderIndex,
+            cMixerSampleTimePatternIndex: cMixerPosition?.source.patternIndex,
+            cMixerSampleTimeRowIndex: cMixerPosition?.source.rowIndex,
+            cMixerSampleTimeTickInRow: cMixerPosition?.tickInRow,
+            playbackEngineOrderIndex: context?.orderIndex,
+            playbackEnginePatternIndex: context?.patternIndex,
+            playbackEngineRowIndex: context?.rowIndex,
+            playbackEngineTickInRow: context?.tickInRow,
+            playbackEngineToCMixerFrameDelta: frameDelta,
+            playbackEngineToCMixerPositionMismatch: mismatch,
+            rowTransitionDeltaCategory: isRowTransition
+                ? rowTransitionDeltaCategory(delta: frameDelta, context: context, cMixerPosition: cMixerPosition, sampleRate: snapshot.sampleRate)
+                : nil
+        )
+    }
+
+    private func plannedFrame(runtimeFrame: UInt64, runtimeFrameOffset: Int) -> Int? {
+        guard let frame = intFrame(runtimeFrame) else {
+            return nil
+        }
+        let (value, overflow) = frame.subtractingReportingOverflow(runtimeFrameOffset)
+        return overflow ? nil : value
+    }
+
+    private func positionMismatch(
+        context: AudioRuntimeTraceContext?,
+        cMixerPosition: PlaybackSongSampleTimePosition?
+    ) -> Bool? {
+        guard let context,
+              let cMixerPosition,
+              let orderIndex = context.orderIndex,
+              let patternIndex = context.patternIndex,
+              let rowIndex = context.rowIndex else {
+            return nil
+        }
+        let tickInRow = context.tickInRow ?? 0
+        return cMixerPosition.source.orderIndex != orderIndex ||
+            cMixerPosition.source.patternIndex != patternIndex ||
+            cMixerPosition.source.rowIndex != rowIndex ||
+            cMixerPosition.tickInRow != tickInRow
+    }
+
+    private func rowTransitionDeltaCategory(
+        delta: Int?,
+        context: AudioRuntimeTraceContext?,
+        cMixerPosition: PlaybackSongSampleTimePosition?,
+        sampleRate: Double
+    ) -> String? {
+        guard let delta else {
+            return nil
+        }
+        let magnitude = abs(delta)
+        if magnitude == 0 {
+            return "exact"
+        }
+        if magnitude <= 1 {
+            return "within_one_frame"
+        }
+        let tickFrames: Int?
+        if let cMixerPosition {
+            tickFrames = max(1, cMixerPosition.rowDurationFrames / max(1, cMixerPosition.effectiveSpeed))
+        } else {
+            let bpm = context?.bpm ?? PlaybackTiming.xmDefault.bpm
+            tickFrames = sampleRate.isFinite && sampleRate > 0
+                ? Int((sampleRate * 2.5 / Double(max(1, bpm))).rounded(.up))
+                : nil
+        }
+        if let tickFrames,
+           magnitude < max(1, tickFrames) {
+            return "within_tick"
+        }
+        if let context,
+           let cMixerPosition,
+           cMixerPosition.source.orderIndex == context.orderIndex,
+           cMixerPosition.source.patternIndex == context.patternIndex,
+           cMixerPosition.source.rowIndex == context.rowIndex {
+            return "same_row_different_tick"
+        }
+        return "different_row_or_order"
     }
 
     private func resolvedPlannedRuntimeFrameOffset(
@@ -3994,6 +4165,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard traceWriter.isEnabled else {
             return
         }
+        let sampleTimePosition = sampleTimePositionTraceFields(
+            context: context,
+            snapshot: snapshot,
+            isRowTransition: action.hasPrefix("row_transition") || eventTiming?.runtimeEventCategory == "row_transition"
+        )
         traceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
@@ -4031,6 +4207,21 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
             sampleRate: snapshot.sampleRate,
+            cMixerRenderedFrames: sampleTimePosition.cMixerRenderedFrames,
+            cMixerPlaybackSeconds: sampleTimePosition.cMixerPlaybackSeconds,
+            cMixerSampleTimeFrame: sampleTimePosition.cMixerSampleTimeFrame,
+            cMixerSampleTimePositionStatus: sampleTimePosition.cMixerSampleTimePositionStatus,
+            cMixerSampleTimeOrderIndex: sampleTimePosition.cMixerSampleTimeOrderIndex,
+            cMixerSampleTimePatternIndex: sampleTimePosition.cMixerSampleTimePatternIndex,
+            cMixerSampleTimeRowIndex: sampleTimePosition.cMixerSampleTimeRowIndex,
+            cMixerSampleTimeTickInRow: sampleTimePosition.cMixerSampleTimeTickInRow,
+            playbackEngineOrderIndex: sampleTimePosition.playbackEngineOrderIndex,
+            playbackEnginePatternIndex: sampleTimePosition.playbackEnginePatternIndex,
+            playbackEngineRowIndex: sampleTimePosition.playbackEngineRowIndex,
+            playbackEngineTickInRow: sampleTimePosition.playbackEngineTickInRow,
+            playbackEngineToCMixerFrameDelta: sampleTimePosition.playbackEngineToCMixerFrameDelta,
+            playbackEngineToCMixerPositionMismatch: sampleTimePosition.playbackEngineToCMixerPositionMismatch,
+            rowTransitionDeltaCategory: sampleTimePosition.rowTransitionDeltaCategory,
             channelCount: snapshot.channelCount,
             context: context,
             targetScope: targetScope,

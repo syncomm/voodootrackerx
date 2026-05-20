@@ -189,16 +189,36 @@ now emit `c_mixer_stop_channel` rather than `c_mixer_clear_all`. True transport
 stop/reset actions still emit `c_mixer_clear_all` and target all channels.
 Supported runtime updates emit `c_mixer_update_gain_pan_applied`,
 `c_mixer_update_step_applied`, or
-`c_mixer_update_gain_pan_step_applied` when the handoff can target the current
-channel voice. Missing target voice/sample-step state is reported as
-`c_mixer_update_gain_pan_step_deferred_missing_data`; invalid or unsupported
-update values, including no-change refreshes, are reported as
-`c_mixer_update_gain_pan_step_deferred_unsupported`. Update rows include the
-source order/pattern/row/tick/channel context when available, target voice
-index when available, gain/pan/sample-step before/after values when available,
-and active/loaded voice snapshots. Gain/pan updates keep the runtime C mixer's
-fixed micro-ramp and the runtime headroom policy still applies only at the
-AVAudio source-node handoff.
+`c_mixer_update_gain_pan_step_applied` when the handoff can target and change
+the current channel voice. No-change refreshes are suppressed as
+`c_mixer_update_suppressed_no_change` rather than treated as unsupported.
+Gain/pan updates with no active voice may be retained as
+`c_mixer_update_stored_channel_state` so a later note can use the latest channel
+gain/pan state without inventing playback. Step/pitch updates without an active
+sample/note target remain deferred as `c_mixer_update_deferred_no_active_voice`
+or, when target data is incomplete, `c_mixer_update_deferred_missing_data`.
+Updates after a channel stop are reported separately as
+`c_mixer_update_deferred_stale_after_stop`, and invalid values remain
+`c_mixer_update_deferred_unsupported`.
+
+Runtime update rows include `updateDisposition`, `updateType`, source
+order/pattern/row/tick/channel context when available, target voice index when
+available, gain/pan/sample-step before/after values when available, and
+active/loaded voice snapshots. The common dispositions are `update_applied`,
+`update_suppressed_no_change`, `update_stored_channel_state`,
+`update_deferred_no_active_voice`, `update_deferred_stale_after_stop`,
+`update_deferred_missing_data`, and `update_deferred_unsupported`. Runtime C
+mixer updates are filtered with a `1e-5` epsilon for gain, pan, and sample-step
+deltas before C mixer events are scheduled. Per-field deltas at or below the
+epsilon are reported with statuses such as `suppressed_epsilon`, combined
+updates apply only fields above the threshold, and all-fields-below-epsilon
+refreshes remain `update_suppressed_no_change` so gain/pan ramps are not
+restarted by tiny discrepancies. Trace rows may include `updateEpsilon`,
+`gainRequested`, `panRequested`, `sampleStepRequested`, `gainDelta`, `panDelta`,
+`sampleStepDelta`, `gainUpdateStatus`, `panUpdateStatus`, and
+`sampleStepUpdateStatus`. Gain/pan updates keep the runtime C mixer's fixed
+micro-ramp and the runtime headroom policy still applies only at the AVAudio
+source-node handoff.
 
 The same trace now carries runtime output diagnostics for the experimental C
 mixer path: backend sample rate and channel count, render callback count,
@@ -211,7 +231,9 @@ configured runtime headroom dB when applicable, runtime gain policy labels,
 active/loaded voice snapshots, row-transition breadcrumbs, backend lifecycle
 breadcrumbs, and cumulative event counters for note triggers, C mixer
 add-voice calls, gain/pan update attempts, sample-step update attempts,
-channel-scoped stops, and clear-all calls. Runtime traces report
+epsilon-suppressed gain/pan/sample-step fields, no-change suppressions,
+updates applied after epsilon filtering, channel-scoped stops, and clear-all
+calls. Runtime traces report
 `eventQueueBacklogCount` as `0` when no separate runtime event queue exists.
 This is intended to show whether a harsh transition lines up with a clear-all,
 many channel stops, a burst of new note triggers or control updates, a

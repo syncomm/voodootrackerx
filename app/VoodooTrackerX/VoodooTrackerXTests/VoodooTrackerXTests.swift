@@ -639,6 +639,14 @@ private func renderRuntimePCM(_ core: RuntimeCMixerRenderCore, frames: Int) -> [
     return output
 }
 
+private func defaultRuntimePan(forChannel channel: Int) -> Float {
+    PlaybackEffectHandler.audioPanning(forXMValue: PlaybackChannelState.defaultPanning(forChannel: channel))
+}
+
+private func pitchOffsetSemitones(forPlaybackStep playbackStep: Double) -> Double {
+    12 * log2(playbackStep)
+}
+
 private func swiftOneShotBlock(
     sample: MixerSampleBuffer,
     frames: Int,
@@ -8443,17 +8451,36 @@ final class VoodooTrackerXTests: XCTestCase {
             panAfter: 1,
             sampleStepBefore: 1,
             sampleStepAfter: 2,
+            updateDisposition: "update_applied",
+            updateType: "combined",
+            updateEpsilon: RuntimeCMixerRenderCore.updateEpsilon,
+            gainRequested: 0.5,
+            panRequested: 1,
+            sampleStepRequested: 2,
+            gainDelta: 0.5,
+            panDelta: 1,
+            sampleStepDelta: 1,
+            gainUpdateStatus: "applied",
+            panUpdateStatus: "applied",
+            sampleStepUpdateStatus: "applied",
+            updateSuppressedEpsilonGainCount: 1,
+            updateSuppressedEpsilonPanCount: 2,
+            updateSuppressedEpsilonStepCount: 3,
+            updateSuppressedNoChangeCount: 4,
+            updateAppliedAfterEpsilonFilterCount: 5,
             cMixerCallSucceeded: true,
-            reason: "runtime_c_mixer_update_gain_pan_step_applied"
+            reason: "runtime_c_mixer_update_applied_combined"
         )
         let deferred = RuntimeCMixerTraceEvent(
-            runtimeAction: "c_mixer_update_gain_pan_step_deferred_missing_data",
+            runtimeAction: "c_mixer_update_deferred_missing_data",
             runtimeAudioBackend: "c_mixer",
             experimentalCMixerEnabled: true,
             context: AudioRuntimeTraceContext(orderIndex: 1, patternIndex: 2, rowIndex: 3, tickInRow: 4, channelIndex: 6),
             targetScope: "channel",
+            updateDisposition: "update_deferred_missing_data",
+            updateType: "step",
             cMixerCallSucceeded: nil,
-            reason: "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice"
+            reason: "runtime_c_mixer_update_deferred_missing_data_missing_sample_step_target"
         )
 
         let appliedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: applied)) as? [String: Any])
@@ -8468,10 +8495,29 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(appliedObject["panAfter"] as? Double, 1)
         XCTAssertEqual(appliedObject["sampleStepBefore"] as? Double, 1)
         XCTAssertEqual(appliedObject["sampleStepAfter"] as? Double, 2)
+        XCTAssertEqual(appliedObject["updateDisposition"] as? String, "update_applied")
+        XCTAssertEqual(appliedObject["updateType"] as? String, "combined")
+        XCTAssertEqual(appliedObject["updateEpsilon"] as? Double, RuntimeCMixerRenderCore.updateEpsilon)
+        XCTAssertEqual(appliedObject["gainRequested"] as? Double, 0.5)
+        XCTAssertEqual(appliedObject["panRequested"] as? Double, 1)
+        XCTAssertEqual(appliedObject["sampleStepRequested"] as? Double, 2)
+        XCTAssertEqual(appliedObject["gainDelta"] as? Double, 0.5)
+        XCTAssertEqual(appliedObject["panDelta"] as? Double, 1)
+        XCTAssertEqual(appliedObject["sampleStepDelta"] as? Double, 1)
+        XCTAssertEqual(appliedObject["gainUpdateStatus"] as? String, "applied")
+        XCTAssertEqual(appliedObject["panUpdateStatus"] as? String, "applied")
+        XCTAssertEqual(appliedObject["sampleStepUpdateStatus"] as? String, "applied")
+        XCTAssertEqual(appliedObject["updateSuppressedEpsilonGainCount"] as? Int, 1)
+        XCTAssertEqual(appliedObject["updateSuppressedEpsilonPanCount"] as? Int, 2)
+        XCTAssertEqual(appliedObject["updateSuppressedEpsilonStepCount"] as? Int, 3)
+        XCTAssertEqual(appliedObject["updateSuppressedNoChangeCount"] as? Int, 4)
+        XCTAssertEqual(appliedObject["updateAppliedAfterEpsilonFilterCount"] as? Int, 5)
         XCTAssertEqual(appliedObject["cMixerCallSucceeded"] as? Bool, true)
-        XCTAssertEqual(deferredObject["runtimeAction"] as? String, "c_mixer_update_gain_pan_step_deferred_missing_data")
+        XCTAssertEqual(deferredObject["runtimeAction"] as? String, "c_mixer_update_deferred_missing_data")
         XCTAssertEqual(deferredObject["channelIndex"] as? Int, 6)
-        XCTAssertEqual(deferredObject["reason"] as? String, "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice")
+        XCTAssertEqual(deferredObject["updateDisposition"] as? String, "update_deferred_missing_data")
+        XCTAssertEqual(deferredObject["updateType"] as? String, "step")
+        XCTAssertEqual(deferredObject["reason"] as? String, "runtime_c_mixer_update_deferred_missing_data_missing_sample_step_target")
         XCTAssertNil(deferredObject["targetVoiceIndex"])
     }
 
@@ -8946,6 +8992,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let output = renderRuntimePCM(core, frames: 40)
 
         XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_applied")
+        XCTAssertEqual(update.disposition, "update_applied")
+        XCTAssertEqual(update.updateType, "gain")
         XCTAssertEqual(update.channel, 1)
         XCTAssertEqual(update.targetVoiceIndex, 1)
         XCTAssertEqual(update.gainBefore ?? -1, 1, accuracy: 0.000_001)
@@ -8973,6 +9021,8 @@ final class VoodooTrackerXTests: XCTestCase {
         let output = renderRuntimePCM(core, frames: 4)
 
         XCTAssertEqual(update.traceAction, "c_mixer_update_step_applied")
+        XCTAssertEqual(update.disposition, "update_applied")
+        XCTAssertEqual(update.updateType, "step")
         XCTAssertEqual(update.channel, 1)
         XCTAssertEqual(update.targetVoiceIndex, 1)
         XCTAssertEqual(update.sampleStepBefore ?? -1, 1, accuracy: 0.000_001)
@@ -9009,7 +9059,9 @@ final class VoodooTrackerXTests: XCTestCase {
         )
 
         XCTAssertEqual(firstUpdate.traceAction, "c_mixer_update_gain_pan_step_applied")
-        XCTAssertEqual(firstUpdate.reason, "runtime_c_mixer_update_gain_pan_step_applied")
+        XCTAssertEqual(firstUpdate.disposition, "update_applied")
+        XCTAssertEqual(firstUpdate.updateType, "combined")
+        XCTAssertEqual(firstUpdate.reason, "runtime_c_mixer_update_applied_combined")
         XCTAssertEqual(firstUpdate.gainBefore ?? -1, 1, accuracy: 0.000_001)
         XCTAssertEqual(firstUpdate.gainAfter ?? -1, 0.5, accuracy: 0.000_001)
         XCTAssertEqual(firstUpdate.panBefore ?? -1, 0, accuracy: 0.000_001)
@@ -9020,18 +9072,401 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(renderRuntimePCM(first, frames: 40), renderRuntimePCM(second, frames: 40))
     }
 
-    func testRuntimeCMixerMissingUpdateDataStaysDeferredWithReason() {
+    func testRuntimeCMixerGainDeltaBelowEpsilonIsSuppressedAndDoesNotRestartRamp() {
+        func makeCore() -> RuntimeCMixerRenderCore {
+            let core = RuntimeCMixerRenderCore(
+                config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+                maximumRenderFrames: 80,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+                ])
+            )
+            let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 96), baseSampleRate: 44_100)
+            XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+            XCTAssertEqual(
+                core.updateWithDiagnostics(
+                    channel: 0,
+                    controls: AudioChannelControls(volumeScale: 0, pitchOffsetSemitones: 0, panning: 0)
+                ).traceAction,
+                "c_mixer_update_gain_pan_applied"
+            )
+            return core
+        }
+        let baseline = makeCore()
+        let candidate = makeCore()
+
+        _ = renderRuntimePCM(baseline, frames: 16)
+        _ = renderRuntimePCM(candidate, frames: 16)
+        let suppressed = candidate.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: Float(RuntimeCMixerRenderCore.updateEpsilon / 2),
+                pitchOffsetSemitones: 0,
+                panning: 0
+            )
+        )
+
+        XCTAssertEqual(suppressed.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(suppressed.gainUpdateStatus, "suppressed_epsilon")
+        XCTAssertTrue(suppressed.epsilonSuppressedGain)
+        XCTAssertFalse(suppressed.gainPanAttempted)
+        XCTAssertEqual(suppressed.reason, "runtime_c_mixer_update_suppressed_no_change_epsilon_filtered")
+        XCTAssertEqual(renderRuntimePCM(candidate, frames: 24), renderRuntimePCM(baseline, frames: 24))
+    }
+
+    func testRuntimeCMixerPanDeltaBelowEpsilonIsSuppressedAndDoesNotRestartRamp() {
+        func makeCore() -> RuntimeCMixerRenderCore {
+            let core = RuntimeCMixerRenderCore(
+                config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+                maximumRenderFrames: 80,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+                ])
+            )
+            let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 96), baseSampleRate: 44_100)
+            XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0, panning: 0)))
+            XCTAssertEqual(
+                core.updateWithDiagnostics(
+                    channel: 0,
+                    controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: 0, panning: 1)
+                ).traceAction,
+                "c_mixer_update_gain_pan_applied"
+            )
+            return core
+        }
+        let baseline = makeCore()
+        let candidate = makeCore()
+
+        _ = renderRuntimePCM(baseline, frames: 16)
+        _ = renderRuntimePCM(candidate, frames: 16)
+        let suppressed = candidate.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1,
+                pitchOffsetSemitones: 0,
+                panning: 1 - Float(RuntimeCMixerRenderCore.updateEpsilon / 2)
+            )
+        )
+
+        XCTAssertEqual(suppressed.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(suppressed.panUpdateStatus, "suppressed_epsilon")
+        XCTAssertTrue(suppressed.epsilonSuppressedPan)
+        XCTAssertFalse(suppressed.gainPanAttempted)
+        XCTAssertEqual(suppressed.reason, "runtime_c_mixer_update_suppressed_no_change_epsilon_filtered")
+        XCTAssertEqual(renderRuntimePCM(candidate, frames: 24), renderRuntimePCM(baseline, frames: 24))
+    }
+
+    func testRuntimeCMixerStepDeltaBelowEpsilonIsSuppressedAndDoesNotScheduleStepUpdate() {
+        let baseline = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 80,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let candidate = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 80,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: (0..<128).map { Float($0) }, baseSampleRate: 44_100)
+        XCTAssertTrue(baseline.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertTrue(candidate.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+
+        let requestedStep = 1 + RuntimeCMixerRenderCore.updateEpsilon / 2
+        let suppressed = candidate.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1,
+                pitchOffsetSemitones: pitchOffsetSemitones(forPlaybackStep: requestedStep),
+                panning: 0
+            )
+        )
+
+        XCTAssertEqual(suppressed.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(suppressed.sampleStepUpdateStatus, "suppressed_epsilon")
+        XCTAssertTrue(suppressed.epsilonSuppressedStep)
+        XCTAssertFalse(suppressed.stepAttempted)
+        XCTAssertEqual(suppressed.sampleStepRequested ?? 0, requestedStep, accuracy: 0.000_000_001)
+        XCTAssertEqual(renderRuntimePCM(candidate, frames: 64), renderRuntimePCM(baseline, frames: 64))
+    }
+
+    func testRuntimeCMixerDeltaAboveEpsilonAppliesNormally() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1 - Float(RuntimeCMixerRenderCore.updateEpsilon * 2),
+                pitchOffsetSemitones: 0,
+                panning: 0
+            )
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_applied")
+        XCTAssertEqual(update.disposition, "update_applied")
+        XCTAssertEqual(update.updateType, "gain")
+        XCTAssertEqual(update.gainUpdateStatus, "applied")
+        XCTAssertFalse(update.epsilonSuppressedGain)
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_applied_gain_pan")
+    }
+
+    func testRuntimeCMixerCombinedUpdateAppliesOnlyFieldsAboveEpsilon() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+        let requestedStep = 1 + RuntimeCMixerRenderCore.updateEpsilon / 2
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0, panning: 0)))
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1 - Float(RuntimeCMixerRenderCore.updateEpsilon / 2),
+                pitchOffsetSemitones: pitchOffsetSemitones(forPlaybackStep: requestedStep),
+                panning: 0.5
+            )
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_applied")
+        XCTAssertEqual(update.disposition, "update_applied")
+        XCTAssertEqual(update.updateType, "pan")
+        XCTAssertEqual(update.gainUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(update.panUpdateStatus, "applied")
+        XCTAssertEqual(update.sampleStepUpdateStatus, "suppressed_epsilon")
+        XCTAssertTrue(update.epsilonSuppressedGain)
+        XCTAssertFalse(update.epsilonSuppressedPan)
+        XCTAssertTrue(update.epsilonSuppressedStep)
+        XCTAssertTrue(update.gainPanApplied)
+        XCTAssertFalse(update.stepApplied)
+        XCTAssertEqual(update.gainAfter ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(update.panAfter ?? -1, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(update.sampleStepAfter ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_applied_after_epsilon_filter")
+    }
+
+    func testRuntimeCMixerAllFieldsBelowEpsilonClassifiesSuppressedNoChange() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+        let requestedStep = 1 + RuntimeCMixerRenderCore.updateEpsilon / 2
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0, panning: 0)))
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1 - Float(RuntimeCMixerRenderCore.updateEpsilon / 2),
+                pitchOffsetSemitones: pitchOffsetSemitones(forPlaybackStep: requestedStep),
+                panning: Float(RuntimeCMixerRenderCore.updateEpsilon / 2)
+            )
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(update.disposition, "update_suppressed_no_change")
+        XCTAssertEqual(update.updateType, "none")
+        XCTAssertEqual(update.gainUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(update.panUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(update.sampleStepUpdateStatus, "suppressed_epsilon")
+        XCTAssertTrue(update.epsilonSuppressedGain)
+        XCTAssertTrue(update.epsilonSuppressedPan)
+        XCTAssertTrue(update.epsilonSuppressedStep)
+        XCTAssertFalse(update.gainPanAttempted)
+        XCTAssertFalse(update.stepAttempted)
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_suppressed_no_change_epsilon_filtered")
+    }
+
+    @MainActor
+    func testRuntimeCMixerTraceCountersRecordEpsilonSuppression() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = RuntimeCMixerAudioEngine(
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            traceWriter: traceWriter
+        )
+
+        engine.update(
+            channel: 0,
+            controls: AudioChannelControls(
+                volumeScale: 1 - Float(RuntimeCMixerRenderCore.updateEpsilon / 2),
+                pitchOffsetSemitones: RuntimeCMixerRenderCore.updateEpsilon / 2,
+                panning: defaultRuntimePan(forChannel: 0) + Float(RuntimeCMixerRenderCore.updateEpsilon / 2)
+            )
+        )
+
+        let event = traceWriter.events.last
+        XCTAssertEqual(event?.runtimeAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(event?.updateSuppressedEpsilonGainCount, 1)
+        XCTAssertEqual(event?.updateSuppressedEpsilonPanCount, 1)
+        XCTAssertEqual(event?.updateSuppressedEpsilonStepCount, 1)
+        XCTAssertEqual(event?.updateSuppressedNoChangeCount, 1)
+        XCTAssertEqual(event?.updateAppliedAfterEpsilonFilterCount, 0)
+        XCTAssertEqual(event?.updateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
+        XCTAssertEqual(event?.gainUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(event?.panUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(event?.sampleStepUpdateStatus, "suppressed_epsilon")
+    }
+
+    func testRuntimeCMixerNoChangeGainPanUpdateIsSuppressed() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertEqual(
+            core.updateWithDiagnostics(
+                channel: 0,
+                controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 0, panning: 0)
+            ).traceAction,
+            "c_mixer_update_gain_pan_applied"
+        )
+        let suppressed = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 0, panning: 0)
+        )
+
+        XCTAssertEqual(suppressed.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(suppressed.disposition, "update_suppressed_no_change")
+        XCTAssertEqual(suppressed.updateType, "none")
+        XCTAssertEqual(suppressed.reason, "runtime_c_mixer_update_suppressed_no_change")
+        XCTAssertNil(suppressed.succeeded)
+    }
+
+    func testRuntimeCMixerNoChangeStepUpdateIsSuppressed() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertEqual(
+            core.updateWithDiagnostics(
+                channel: 0,
+                controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: 12, panning: 0)
+            ).traceAction,
+            "c_mixer_update_step_applied"
+        )
+        let suppressed = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: 12, panning: 0)
+        )
+
+        XCTAssertEqual(suppressed.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(suppressed.disposition, "update_suppressed_no_change")
+        XCTAssertEqual(suppressed.updateType, "none")
+        XCTAssertEqual(suppressed.reason, "runtime_c_mixer_update_suppressed_no_change")
+        XCTAssertNil(suppressed.succeeded)
+    }
+
+    func testRuntimeCMixerGainPanUpdateWithoutActiveVoiceStoresStateForNextNote() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 44_100)
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.25, pitchOffsetSemitones: 12, panning: 0),
+            context: AudioRuntimeTraceContext(rowIndex: 0, tickInRow: 0, channelIndex: 0, noteValue: 49)
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_stored_channel_state")
+        XCTAssertEqual(update.disposition, "update_stored_channel_state")
+        XCTAssertEqual(update.updateType, "combined")
+        XCTAssertTrue(update.stepAttempted)
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_stored_channel_state_update_before_note_step_deferred_no_active_voice")
+        XCTAssertNil(update.targetVoiceIndex)
+        XCTAssertNil(update.succeeded)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0, panning: defaultRuntimePan(forChannel: 0))))
+        XCTAssertEqual(renderRuntimePCM(core, frames: 2), [0.25, 0.25])
+    }
+
+    func testRuntimeCMixerStepUpdateWithoutActiveVoiceStaysDeferred() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
             maximumRenderFrames: 16
         )
 
-        let update = core.updateWithDiagnostics(channel: 3, controls: AudioChannelControls())
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: 12, panning: defaultRuntimePan(forChannel: 0))
+        )
 
-        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_missing_data")
-        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice")
+        XCTAssertEqual(update.traceAction, "c_mixer_update_deferred_no_active_voice")
+        XCTAssertEqual(update.disposition, "update_deferred_no_active_voice")
+        XCTAssertEqual(update.updateType, "step")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_deferred_no_active_voice_missing_runtime_channel_state")
         XCTAssertNil(update.targetVoiceIndex)
         XCTAssertNil(update.succeeded)
+    }
+
+    func testRuntimeCMixerUpdateAfterChannelStopIsClassifiedSeparately() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertEqual(core.stopChannelWithDiagnostics(0, reason: "test_stop").stoppedVoiceCount, 1)
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 0, panning: 0)
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_deferred_stale_after_stop")
+        XCTAssertEqual(update.disposition, "update_deferred_stale_after_stop")
+        XCTAssertEqual(update.updateType, "gain")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_deferred_stale_after_stop")
+        XCTAssertNil(update.targetVoiceIndex)
+        XCTAssertNil(update.succeeded)
+    }
+
+    func testRuntimeCMixerMissingUpdateDataStaysDeferredWithReason() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: .nan)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        let update = core.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: 0.5, pitchOffsetSemitones: 0, panning: 0)
+        )
+
+        XCTAssertEqual(update.traceAction, "c_mixer_update_deferred_missing_data")
+        XCTAssertEqual(update.disposition, "update_deferred_missing_data")
+        XCTAssertEqual(update.updateType, "step")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_deferred_missing_data_missing_sample_step_target")
+        XCTAssertEqual(update.targetVoiceIndex, 0)
+        XCTAssertEqual(update.succeeded, false)
     }
 
     func testRuntimeCMixerUnsupportedUpdateStaysDeferredWithReason() {
@@ -9047,8 +9482,10 @@ final class VoodooTrackerXTests: XCTestCase {
             controls: AudioChannelControls(volumeScale: 1, pitchOffsetSemitones: .nan, panning: 0)
         )
 
-        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_unsupported")
-        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_invalid_update_values")
+        XCTAssertEqual(update.traceAction, "c_mixer_update_deferred_unsupported")
+        XCTAssertEqual(update.disposition, "update_deferred_unsupported")
+        XCTAssertEqual(update.updateType, "none")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_deferred_unsupported_invalid_update_values")
         XCTAssertEqual(update.targetVoiceIndex, 0)
         XCTAssertEqual(update.succeeded, false)
     }
@@ -9063,8 +9500,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
         let update = core.updateWithDiagnostics(channel: 0, controls: AudioChannelControls())
 
-        XCTAssertEqual(update.traceAction, "c_mixer_update_gain_pan_step_deferred_unsupported")
-        XCTAssertEqual(update.reason, "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_no_change")
+        XCTAssertEqual(update.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(update.disposition, "update_suppressed_no_change")
+        XCTAssertEqual(update.updateType, "none")
+        XCTAssertEqual(update.reason, "runtime_c_mixer_update_suppressed_no_change")
         XCTAssertEqual(update.targetVoiceIndex, 0)
         XCTAssertNil(update.succeeded)
     }

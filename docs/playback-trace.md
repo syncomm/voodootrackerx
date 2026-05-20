@@ -254,6 +254,34 @@ global clear-all calls. These counters correspond to the runtime diagnostics cat
 event queue, so `eventQueueBacklogCount` is reported as `0` when a runtime C
 mixer snapshot is available.
 
+### Runtime Adapter Event Bridge Diagnostics
+
+When `VTX_AUDIO_BACKEND=c_mixer` selects the experimental runtime C mixer, the
+runtime now attempts to precompute a `PlaybackSong` adapter event plan from the
+same offline-adapter semantics used by bounded C mixer renders. The default
+runtime backend remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; these
+fields are only for the opt-in C mixer path.
+
+Runtime C mixer trace rows may include:
+
+- `runtimeEventSource`: `offline_adapter_plan`, `playback_engine_simple`, or
+  `hybrid`
+- `adapterPlanGenerated`: whether a runtime adapter plan was available
+- `plannedEventCount`, `consumedPlannedEventCount`,
+  `skippedUnmatchedPlannedEventCount`
+- `runtimeRowOrderMapping`: the order/pattern/row/tick key used to match
+  planned events
+- `adapterEventCategory` and `adapterEventCategoriesConsumed`
+- `fallbackToSimpleRuntimeEventCount` and `runtimeEventFallbackReason`
+
+Adapter-sourced rows cover only event categories already supported by the
+offline adapter, such as note triggers, gain/pan updates, sample-step updates,
+`Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
+retriggers, `1xx`/`2xx`/`3xx` portamento updates, sample offsets, and
+volume-column set volume/panning. Unsupported XM effects remain unsupported.
+If the plan is unavailable, the runtime trace reports the fallback and the C
+mixer continues through the simpler runtime event bridge.
+
 Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local
 modules.
@@ -287,11 +315,13 @@ The summary focuses on runtime-only artifact evidence:
   `1xx`/`2xx`/`3xx` updates
 
 The helper also records the current architectural interpretation: live runtime
-C mixer traces are still driven by `PlaybackEngine` timer/control events, not
-by the bounded offline adapter event stream. When offline C-backed WAV renders
-sound cleaner than opt-in runtime C mixer playback, use this summary to decide
-whether the next scoped PR should bridge the offline adapter event stream into
-runtime instead of adding small runtime-only patches.
+C mixer traces should now show whether events came from the precomputed
+`offline_adapter_plan`, from the simpler `playback_engine_simple` fallback, or
+from a hybrid path. When offline C-backed WAV renders sound cleaner than
+opt-in runtime C mixer playback, inspect `plannedEventCount`,
+`consumedPlannedEventCount`, `skippedUnmatchedPlannedEventCount`,
+`adapterEventCategoriesConsumed`, and `runtimeEventFallbackReason` before
+choosing the next runtime stabilization or sample-time alignment PR.
 
 ## Manual Verification
 

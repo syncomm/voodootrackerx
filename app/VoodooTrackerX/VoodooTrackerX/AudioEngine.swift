@@ -67,6 +67,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeAudioBackend: String
     let backendFlagValue: String?
     let fallbackReason: String?
+    let runtimeEventSource: String?
+    let adapterPlanGenerated: Bool?
+    let plannedEventCount: Int?
+    let consumedPlannedEventCount: Int?
+    let skippedUnmatchedPlannedEventCount: Int?
+    let runtimeRowOrderMapping: String?
+    let adapterEventCategory: String?
+    let adapterEventCategoriesConsumed: [String]?
+    let fallbackToSimpleRuntimeEventCount: UInt64?
+    let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
     let sampleRate: Double?
     let channelCount: Int?
@@ -168,6 +178,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeAudioBackend: String,
         backendFlagValue: String? = nil,
         fallbackReason: String? = nil,
+        runtimeEventSource: String? = nil,
+        adapterPlanGenerated: Bool? = nil,
+        plannedEventCount: Int? = nil,
+        consumedPlannedEventCount: Int? = nil,
+        skippedUnmatchedPlannedEventCount: Int? = nil,
+        runtimeRowOrderMapping: String? = nil,
+        adapterEventCategory: String? = nil,
+        adapterEventCategoriesConsumed: [String]? = nil,
+        fallbackToSimpleRuntimeEventCount: UInt64? = nil,
+        runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
         sampleRate: Double? = nil,
         channelCount: Int? = nil,
@@ -257,6 +277,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeAudioBackend = runtimeAudioBackend
         self.backendFlagValue = backendFlagValue
         self.fallbackReason = fallbackReason
+        self.runtimeEventSource = runtimeEventSource
+        self.adapterPlanGenerated = adapterPlanGenerated
+        self.plannedEventCount = plannedEventCount
+        self.consumedPlannedEventCount = consumedPlannedEventCount
+        self.skippedUnmatchedPlannedEventCount = skippedUnmatchedPlannedEventCount
+        self.runtimeRowOrderMapping = runtimeRowOrderMapping
+        self.adapterEventCategory = adapterEventCategory
+        self.adapterEventCategoriesConsumed = adapterEventCategoriesConsumed
+        self.fallbackToSimpleRuntimeEventCount = fallbackToSimpleRuntimeEventCount
+        self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
         self.sampleRate = sampleRate
         self.channelCount = channelCount
@@ -840,10 +870,27 @@ struct RuntimeCMixerStopResult: Equatable {
     let reason: String
 }
 
+struct RuntimeCMixerPlannedCutResult: Equatable {
+    let channel: Int
+    let targetVoiceIndex: Int?
+    let snapshotBefore: RuntimeCMixerRenderSnapshot
+    let snapshotAfter: RuntimeCMixerRenderSnapshot
+    let succeeded: Bool?
+    let reason: String
+}
+
 private struct RuntimeCMixerChannelVoiceState: Equatable {
     let voiceIndex: Int
     let sample: PlaybackSample
     let note: UInt8
+    var gain: Float
+    var pan: Float
+    var sampleStep: Double
+}
+
+private struct RuntimeCMixerAdapterVoiceState: Equatable {
+    let voiceIndex: Int
+    let channel: Int
     var gain: Float
     var pan: Float
     var sampleStep: Double
@@ -884,6 +931,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
+    private var adapterVoiceStateByEventIndex = [Int: RuntimeCMixerAdapterVoiceState]()
+    private var adapterEventIndexByChannel = [Int: Int]()
     private var controlStateByChannel = [Int: RuntimeCMixerChannelControlState]()
     private var stoppedFrameByChannel = [Int: UInt64]()
     private var renderCallCount: UInt64 = 0
@@ -1005,6 +1054,111 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
         controlStateByChannel[request.channel] = effectiveControlState
         stoppedFrameByChannel.removeValue(forKey: request.channel)
+        let snapshotAfter = snapshotLocked()
+        let channelStopBeforeAdd: RuntimeCMixerChannelStopResult?
+        if replacementRampBeforeAdd.rampedVoiceCount > 0 {
+            channelStopBeforeAdd = RuntimeCMixerChannelStopResult(
+                channel: replacementRampBeforeAdd.channel,
+                stoppedVoiceCount: replacementRampBeforeAdd.stoppedVoiceCount,
+                rampedVoiceCount: replacementRampBeforeAdd.rampedVoiceCount,
+                replacementRampFrames: replacementRampBeforeAdd.replacementRampFrames,
+                replacementVoicesOverlap: true,
+                snapshotBefore: replacementRampBeforeAdd.snapshotBefore,
+                snapshotAfter: snapshotAfter,
+                reason: replacementRampBeforeAdd.reason
+            )
+        } else {
+            channelStopBeforeAdd = nil
+        }
+        return RuntimeCMixerTriggerResult(
+            succeeded: true,
+            reason: nil,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotAfter,
+            channelStopBeforeAdd: channelStopBeforeAdd
+        )
+    }
+
+    @discardableResult
+    func triggerAdapterEventWithDiagnostics(
+        _ event: SyntheticTrackerEvent,
+        eventIndex: Int,
+        mapping: PlaybackSongSyntheticEventMapping
+    ) -> RuntimeCMixerTriggerResult {
+        let invalidReason: String?
+        guard event.sample.frameCount > 0,
+              mapping.note > 0,
+              mapping.note <= 96,
+              mapping.channelIndex >= 0,
+              mapping.channelIndex <= Int(UInt32.max),
+              event.initialSourceFrame < event.sample.frameCount else {
+            if event.sample.frameCount <= 0 {
+                invalidReason = "sample_not_playable"
+            } else if mapping.note == 0 || mapping.note > 96 {
+                invalidReason = "invalid_note"
+            } else if mapping.channelIndex < 0 || mapping.channelIndex > Int(UInt32.max) {
+                invalidReason = "invalid_channel"
+            } else {
+                invalidReason = "sample_start_offset_out_of_range"
+            }
+            let snapshot = snapshot()
+            return RuntimeCMixerTriggerResult(
+                succeeded: false,
+                reason: invalidReason,
+                snapshotBefore: snapshot,
+                snapshotAfter: snapshot,
+                channelStopBeforeAdd: nil
+            )
+        }
+
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        guard mixer.currentFrame <= UInt64(Int.max) else {
+            let snapshot = snapshotLocked()
+            return RuntimeCMixerTriggerResult(
+                succeeded: false,
+                reason: "current_frame_out_of_range",
+                snapshotBefore: snapshot,
+                snapshotAfter: snapshot,
+                channelStopBeforeAdd: nil
+            )
+        }
+
+        let snapshotBefore = snapshotLocked()
+        let replacementRampBeforeAdd = rampDownReplacementChannelLocked(
+            mapping.channelIndex,
+            reason: "note_replacement_stop_channel"
+        )
+        let runtimeKeyOffFrame = runtimeKeyOffFrame(
+            plannedKeyOffFrame: event.keyOffFrame,
+            plannedStartFrame: event.scheduledStartFrame ?? 0,
+            runtimeStartFrame: Int(mixer.currentFrame)
+        )
+        let voiceIndex = mixer.addVoice(
+            sample: event.sample,
+            gain: event.gain,
+            pan: event.pan,
+            playbackStep: event.playbackStep,
+            loop: event.loop,
+            initialSourceFrame: event.initialSourceFrame,
+            volumeEnvelope: event.volumeEnvelope,
+            panEnvelope: event.panEnvelope,
+            keyOffFrame: runtimeKeyOffFrame,
+            fadeoutFrameDecrement: event.fadeoutFrameDecrement
+        )
+        mixer.setChannelTag(mapping.channelIndex, forVoiceAt: voiceIndex)
+        adapterVoiceStateByEventIndex[eventIndex] = RuntimeCMixerAdapterVoiceState(
+            voiceIndex: voiceIndex,
+            channel: mapping.channelIndex,
+            gain: event.gain,
+            pan: event.pan,
+            sampleStep: event.playbackStep
+        )
+        adapterEventIndexByChannel[mapping.channelIndex] = eventIndex
+        stoppedFrameByChannel.removeValue(forKey: mapping.channelIndex)
         let snapshotAfter = snapshotLocked()
         let channelStopBeforeAdd: RuntimeCMixerChannelStopResult?
         if replacementRampBeforeAdd.rampedVoiceCount > 0 {
@@ -1512,6 +1666,365 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
     }
 
+    @discardableResult
+    func applyAdapterGainPanUpdateWithDiagnostics(
+        channel: Int,
+        activeEventIndex: Int,
+        gain: Float?,
+        pan: Float?
+    ) -> RuntimeCMixerUpdateResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        let snapshotBefore = snapshotLocked()
+        guard var voiceState = adapterVoiceStateByEventIndex[activeEventIndex] else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: gain != nil || pan != nil,
+                stepAttempted: false,
+                gainBefore: nil,
+                gainAfter: gain,
+                panBefore: nil,
+                panAfter: pan,
+                sampleStepBefore: nil,
+                sampleStepAfter: nil,
+                disposition: "update_deferred_no_active_voice",
+                updateType: "none",
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_unmatched_active_voice"
+            )
+        }
+        guard mixer.currentFrame <= UInt64(Int.max) else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: gain != nil || pan != nil,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: gain,
+                panBefore: voiceState.pan,
+                panAfter: pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: voiceState.sampleStep,
+                disposition: "update_deferred_missing_data",
+                updateType: "none",
+                succeeded: false,
+                reason: "runtime_c_mixer_adapter_plan_frame_out_of_range"
+            )
+        }
+        let gainDecision = gain.map { updateDecision(previous: Double(voiceState.gain), requested: Double($0)) }
+        let panDecision = pan.map { updateDecision(previous: Double(voiceState.pan), requested: Double($0)) }
+        let nextGain = gainDecision?.shouldApply == true ? gain : nil
+        let nextPan = panDecision?.shouldApply == true ? pan : nil
+        let gainChanged = nextGain != nil
+        let panChanged = nextPan != nil
+        let updateType = self.updateType(gainChanged: gainChanged, panChanged: panChanged, stepChanged: false)
+        guard gainChanged || panChanged else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: voiceState.gain,
+                panBefore: voiceState.pan,
+                panAfter: voiceState.pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: voiceState.sampleStep,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: gain,
+                panRequested: pan,
+                gainDelta: gainDecision?.delta,
+                panDelta: panDecision?.delta,
+                gainUpdateStatus: gainDecision?.status,
+                panUpdateStatus: panDecision?.status,
+                epsilonSuppressedGain: gainDecision?.suppressedByEpsilon ?? false,
+                epsilonSuppressedPan: panDecision?.suppressedByEpsilon ?? false,
+                disposition: "update_suppressed_no_change",
+                updateType: updateType,
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_update_suppressed_no_change"
+            )
+        }
+        let updateResult = mixer.scheduleVoiceGainPanUpdate(
+            voiceIndex: voiceState.voiceIndex,
+            scheduledFrame: Int(mixer.currentFrame),
+            gain: nextGain,
+            pan: nextPan
+        )
+        guard updateResult.wasAccepted else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotLocked(),
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: true,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: gain,
+                panBefore: voiceState.pan,
+                panAfter: pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: voiceState.sampleStep,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: gain,
+                panRequested: pan,
+                gainDelta: gainDecision?.delta,
+                panDelta: panDecision?.delta,
+                gainUpdateStatus: gainDecision?.status,
+                panUpdateStatus: panDecision?.status,
+                disposition: "update_deferred_unsupported",
+                updateType: updateType,
+                succeeded: false,
+                reason: updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_adapter_plan_update_rejected"
+            )
+        }
+        let gainBefore = voiceState.gain
+        let panBefore = voiceState.pan
+        voiceState.gain = nextGain ?? voiceState.gain
+        voiceState.pan = nextPan ?? voiceState.pan
+        adapterVoiceStateByEventIndex[activeEventIndex] = voiceState
+        return RuntimeCMixerUpdateResult(
+            channel: channel,
+            targetVoiceIndex: voiceState.voiceIndex,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            gainPanApplied: true,
+            stepApplied: false,
+            gainPanAttempted: true,
+            stepAttempted: false,
+            gainBefore: gainBefore,
+            gainAfter: voiceState.gain,
+            panBefore: panBefore,
+            panAfter: voiceState.pan,
+            sampleStepBefore: voiceState.sampleStep,
+            sampleStepAfter: voiceState.sampleStep,
+            updateEpsilon: Self.updateEpsilon,
+            gainRequested: gain,
+            panRequested: pan,
+            gainDelta: gainDecision?.delta,
+            panDelta: panDecision?.delta,
+            gainUpdateStatus: gainDecision?.status,
+            panUpdateStatus: panDecision?.status,
+            epsilonSuppressedGain: gainDecision?.suppressedByEpsilon ?? false,
+            epsilonSuppressedPan: panDecision?.suppressedByEpsilon ?? false,
+            appliedAfterEpsilonFilter: gainDecision?.suppressedByEpsilon == true || panDecision?.suppressedByEpsilon == true,
+            disposition: "update_applied",
+            updateType: updateType,
+            succeeded: true,
+            reason: "runtime_c_mixer_adapter_plan_gain_pan_update_applied"
+        )
+    }
+
+    @discardableResult
+    func applyAdapterStepUpdateWithDiagnostics(
+        channel: Int,
+        activeEventIndex: Int,
+        playbackStep: Double
+    ) -> RuntimeCMixerUpdateResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        let snapshotBefore = snapshotLocked()
+        guard var voiceState = adapterVoiceStateByEventIndex[activeEventIndex] else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: true,
+                gainBefore: nil,
+                gainAfter: nil,
+                panBefore: nil,
+                panAfter: nil,
+                sampleStepBefore: nil,
+                sampleStepAfter: playbackStep,
+                disposition: "update_deferred_no_active_voice",
+                updateType: "step",
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_unmatched_active_voice"
+            )
+        }
+        guard playbackStep.isFinite,
+              playbackStep > 0,
+              mixer.currentFrame <= UInt64(Int.max) else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: true,
+                gainBefore: voiceState.gain,
+                gainAfter: voiceState.gain,
+                panBefore: voiceState.pan,
+                panAfter: voiceState.pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: playbackStep,
+                disposition: "update_deferred_missing_data",
+                updateType: "step",
+                succeeded: false,
+                reason: "runtime_c_mixer_adapter_plan_invalid_step_update"
+            )
+        }
+        let stepDecision = updateDecision(previous: voiceState.sampleStep, requested: playbackStep)
+        guard stepDecision.shouldApply else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: voiceState.gain,
+                panBefore: voiceState.pan,
+                panAfter: voiceState.pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: voiceState.sampleStep,
+                updateEpsilon: Self.updateEpsilon,
+                sampleStepRequested: playbackStep,
+                sampleStepDelta: stepDecision.delta,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_suppressed_no_change",
+                updateType: "none",
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_update_suppressed_no_change"
+            )
+        }
+        let updateResult = mixer.scheduleVoicePlaybackStepUpdate(
+            voiceIndex: voiceState.voiceIndex,
+            scheduledFrame: Int(mixer.currentFrame),
+            playbackStep: playbackStep
+        )
+        guard updateResult.wasAccepted else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotLocked(),
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: true,
+                gainBefore: voiceState.gain,
+                gainAfter: voiceState.gain,
+                panBefore: voiceState.pan,
+                panAfter: voiceState.pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: playbackStep,
+                updateEpsilon: Self.updateEpsilon,
+                sampleStepRequested: playbackStep,
+                sampleStepDelta: stepDecision.delta,
+                sampleStepUpdateStatus: stepDecision.status,
+                disposition: "update_deferred_unsupported",
+                updateType: "step",
+                succeeded: false,
+                reason: updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_adapter_plan_update_rejected"
+            )
+        }
+        let stepBefore = voiceState.sampleStep
+        voiceState.sampleStep = playbackStep
+        adapterVoiceStateByEventIndex[activeEventIndex] = voiceState
+        return RuntimeCMixerUpdateResult(
+            channel: channel,
+            targetVoiceIndex: voiceState.voiceIndex,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            gainPanApplied: false,
+            stepApplied: true,
+            gainPanAttempted: false,
+            stepAttempted: true,
+            gainBefore: voiceState.gain,
+            gainAfter: voiceState.gain,
+            panBefore: voiceState.pan,
+            panAfter: voiceState.pan,
+            sampleStepBefore: stepBefore,
+            sampleStepAfter: voiceState.sampleStep,
+            updateEpsilon: Self.updateEpsilon,
+            sampleStepRequested: playbackStep,
+            sampleStepDelta: stepDecision.delta,
+            sampleStepUpdateStatus: stepDecision.status,
+            epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+            disposition: "update_applied",
+            updateType: "step",
+            succeeded: true,
+            reason: "runtime_c_mixer_adapter_plan_step_update_applied"
+        )
+    }
+
+    @discardableResult
+    func applyAdapterNoteCutWithDiagnostics(
+        channel: Int,
+        activeEventIndex: Int?
+    ) -> RuntimeCMixerPlannedCutResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        let snapshotBefore = snapshotLocked()
+        guard let activeEventIndex,
+              let voiceState = adapterVoiceStateByEventIndex[activeEventIndex],
+              mixer.currentFrame <= UInt64(Int.max) else {
+            return RuntimeCMixerPlannedCutResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_note_cut_unmatched_active_voice"
+            )
+        }
+        let updateResult = mixer.scheduleVoiceGainPanImmediateUpdate(
+            voiceIndex: voiceState.voiceIndex,
+            scheduledFrame: Int(mixer.currentFrame),
+            gain: 0,
+            pan: nil
+        )
+        adapterVoiceStateByEventIndex.removeValue(forKey: activeEventIndex)
+        if adapterEventIndexByChannel[channel] == activeEventIndex {
+            adapterEventIndexByChannel.removeValue(forKey: channel)
+        }
+        return RuntimeCMixerPlannedCutResult(
+            channel: channel,
+            targetVoiceIndex: voiceState.voiceIndex,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            succeeded: updateResult.wasAccepted,
+            reason: updateResult.wasAccepted
+                ? "runtime_c_mixer_adapter_plan_note_cut_applied"
+                : updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_adapter_plan_note_cut_rejected"
+        )
+    }
+
     private func noActiveVoiceClassification(
         context: AudioRuntimeTraceContext?,
         hasStoredControlState: Bool,
@@ -1690,6 +2203,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         mixer.clearVoices()
         mixer.reset()
         voiceStateByChannel.removeAll()
+        adapterVoiceStateByEventIndex.removeAll()
+        adapterEventIndexByChannel.removeAll()
         controlStateByChannel.removeAll()
         stoppedFrameByChannel.removeAll()
     }
@@ -1721,6 +2236,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 rampFrames: CSoftwareMixer.replacementStopRampFrameCount
             )
             voiceStateByChannel.removeValue(forKey: channel)
+            clearAdapterVoiceState(channel: channel)
         } else {
             rampedVoiceCount = 0
         }
@@ -1742,6 +2258,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         if channel >= 0 && channel <= Int(UInt32.max) {
             stoppedVoiceCount = mixer.stopVoices(channel: channel)
             voiceStateByChannel.removeValue(forKey: channel)
+            clearAdapterVoiceState(channel: channel)
             stoppedFrameByChannel[channel] = mixer.currentFrame
         } else {
             stoppedVoiceCount = 0
@@ -1941,6 +2458,28 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return step.isFinite && step > 0 ? step : nil
     }
 
+    private func clearAdapterVoiceState(channel: Int) {
+        guard let eventIndex = adapterEventIndexByChannel.removeValue(forKey: channel) else {
+            return
+        }
+        adapterVoiceStateByEventIndex.removeValue(forKey: eventIndex)
+    }
+
+    private func runtimeKeyOffFrame(
+        plannedKeyOffFrame: Int?,
+        plannedStartFrame: Int,
+        runtimeStartFrame: Int
+    ) -> Int? {
+        guard let plannedKeyOffFrame else {
+            return nil
+        }
+        let relativeFrame = max(0, plannedKeyOffFrame - max(0, plannedStartFrame))
+        guard runtimeStartFrame <= Int.max - relativeFrame else {
+            return nil
+        }
+        return runtimeStartFrame + relativeFrame
+    }
+
     private func mixerLoop(for sample: PlaybackSample) -> MixerSampleLoop {
         let loop = sample.loopRegion
         guard loop.isEnabled else {
@@ -2033,6 +2572,15 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func recordTransition(context: AudioRuntimeTraceContext?, reason: String)
 }
 
+@MainActor
+protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
+    var hasRuntimeAdapterEventPlan: Bool { get }
+
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan)
+    func resetRuntimeAdapterEventConsumption()
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?)
+}
+
 private struct RuntimeCMixerEventCounters: Equatable {
     var cMixerAddVoiceCount: UInt64 = 0
     var gainPanUpdateCount: UInt64 = 0
@@ -2045,10 +2593,13 @@ private struct RuntimeCMixerEventCounters: Equatable {
     var stopChannelCount: UInt64 = 0
     var replacementRampCount: UInt64 = 0
     var clearAllCount: UInt64 = 0
+    var consumedPlannedEventCount: UInt64 = 0
+    var skippedUnmatchedPlannedEventCount: UInt64 = 0
+    var fallbackToSimpleRuntimeEventCount: UInt64 = 0
 }
 
 @MainActor
-final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeAudioDiagnosticOutput {
+final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
@@ -2059,6 +2610,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var isPrepared = false
     private var isFallbackActive = false
     private var eventCounters = RuntimeCMixerEventCounters()
+    private var adapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
+    private var consumedAdapterEventIDs = Set<Int>()
+    private var consumedAdapterEventCategories = Set<String>()
 
     init(
         sampleRate: Double = MixerRenderConfig.defaultSampleRate,
@@ -2097,6 +2651,167 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         format.sampleRate
     }
 
+    var hasRuntimeAdapterEventPlan: Bool {
+        adapterEventPlan.generated
+    }
+
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan) {
+        adapterEventPlan = plan
+        resetRuntimeAdapterEventConsumption()
+        recordRuntimeEvent(
+            action: "adapter_plan_configured",
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: plan.generated,
+            runtimeEventSource: plan.generated ? RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue : RuntimeCMixerAdapterEventSource.playbackEngineSimple.rawValue,
+            reason: plan.generated ? "runtime_c_mixer_adapter_plan_generated" : "runtime_c_mixer_adapter_plan_unavailable"
+        )
+    }
+
+    func resetRuntimeAdapterEventConsumption() {
+        consumedAdapterEventIDs.removeAll()
+        consumedAdapterEventCategories.removeAll()
+        eventCounters.consumedPlannedEventCount = 0
+        eventCounters.skippedUnmatchedPlannedEventCount = 0
+        eventCounters.fallbackToSimpleRuntimeEventCount = 0
+    }
+
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?) {
+        guard adapterEventPlan.generated else {
+            eventCounters.fallbackToSimpleRuntimeEventCount &+= 1
+            recordRuntimeEvent(
+                action: "adapter_plan_unavailable",
+                context: context,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: nil,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.playbackEngineSimple.rawValue,
+                runtimeEventFallbackReason: "adapter_plan_unavailable",
+                reason: "runtime_c_mixer_adapter_plan_unavailable"
+            )
+            return
+        }
+
+        let matchingEvents = adapterEventPlan.events(matching: context)
+        for event in matchingEvents where !consumedAdapterEventIDs.contains(event.id) {
+            consumedAdapterEventIDs.insert(event.id)
+            eventCounters.consumedPlannedEventCount &+= 1
+            consumedAdapterEventCategories.formUnion(event.categories)
+            consumeRuntimeAdapterEvent(event, context: context)
+        }
+    }
+
+    private func consumeRuntimeAdapterEvent(_ event: RuntimeCMixerAdapterEvent, context: AudioRuntimeTraceContext?) {
+        let eventContext = contextWithFallbackChannel(context, channel: event.channelIndex)
+        switch event.action {
+        case let .noteTrigger(eventIndex, syntheticEvent, mapping):
+            prepareIfNeeded()
+            let result = renderCore.triggerAdapterEventWithDiagnostics(
+                syntheticEvent,
+                eventIndex: eventIndex,
+                mapping: mapping
+            )
+            if let channelStop = result.channelStopBeforeAdd {
+                eventCounters.replacementRampCount &+= 1
+                recordRuntimeEvent(
+                    action: "c_mixer_stop_channel_ramped",
+                    context: eventContext,
+                    targetScope: "channel",
+                    snapshotBefore: channelStop.snapshotBefore,
+                    snapshot: channelStop.snapshotAfter,
+                    succeeded: true,
+                    stoppedVoiceCount: nil,
+                    rampedVoiceCount: channelStop.rampedVoiceCount,
+                    replacementRampFrames: channelStop.replacementRampFrames,
+                    replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
+                    runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                    adapterEventCategory: "replacement",
+                    reason: channelStop.reason
+                )
+            }
+            eventCounters.cMixerAddVoiceCount &+= 1
+            recordRuntimeEvent(
+                action: "c_mixer_add_voice",
+                context: eventContext,
+                targetScope: "channel",
+                snapshotBefore: result.snapshotBefore,
+                snapshot: result.snapshotAfter,
+                succeeded: result.succeeded,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                adapterEventCategory: event.primaryCategory,
+                reason: result.reason ?? "runtime_c_mixer_adapter_plan_note_trigger"
+            )
+            guard result.succeeded else {
+                eventCounters.skippedUnmatchedPlannedEventCount &+= 1
+                return
+            }
+            if !startEngineIfNeeded() {
+                isFallbackActive = true
+            }
+
+        case let .gainPanUpdate(activeEventIndex, gain, pan):
+            let result = renderCore.applyAdapterGainPanUpdateWithDiagnostics(
+                channel: event.channelIndex,
+                activeEventIndex: activeEventIndex,
+                gain: gain,
+                pan: pan
+            )
+            if result.gainPanAttempted {
+                eventCounters.gainPanUpdateCount &+= 1
+            }
+            recordRuntimeUpdateEvent(
+                result,
+                context: eventContext,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                adapterEventCategory: event.primaryCategory
+            )
+            if result.targetVoiceIndex == nil {
+                eventCounters.skippedUnmatchedPlannedEventCount &+= 1
+            }
+
+        case let .stepUpdate(activeEventIndex, playbackStep):
+            let result = renderCore.applyAdapterStepUpdateWithDiagnostics(
+                channel: event.channelIndex,
+                activeEventIndex: activeEventIndex,
+                playbackStep: playbackStep
+            )
+            if result.stepAttempted {
+                eventCounters.stepUpdateCount &+= 1
+            }
+            recordRuntimeUpdateEvent(
+                result,
+                context: eventContext,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                adapterEventCategory: event.primaryCategory
+            )
+            if result.targetVoiceIndex == nil {
+                eventCounters.skippedUnmatchedPlannedEventCount &+= 1
+            }
+
+        case let .noteCut(activeEventIndex):
+            let result = renderCore.applyAdapterNoteCutWithDiagnostics(
+                channel: event.channelIndex,
+                activeEventIndex: activeEventIndex
+            )
+            recordRuntimeEvent(
+                action: "c_mixer_adapter_note_cut",
+                context: eventContext,
+                targetScope: "channel",
+                snapshotBefore: result.snapshotBefore,
+                snapshot: result.snapshotAfter,
+                succeeded: result.succeeded,
+                targetVoiceIndex: result.targetVoiceIndex,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                adapterEventCategory: event.primaryCategory,
+                reason: result.reason
+            )
+            if result.targetVoiceIndex == nil {
+                eventCounters.skippedUnmatchedPlannedEventCount &+= 1
+            }
+        }
+    }
+
     func trigger(_ request: AudioVoiceRequest) {
         trigger(request, context: nil)
     }
@@ -2115,6 +2830,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return
         }
         prepareIfNeeded()
+        let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
         let result = renderCore.triggerWithDiagnostics(request)
         if let channelStop = result.channelStopBeforeAdd {
             eventCounters.replacementRampCount &+= 1
@@ -2129,6 +2845,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 rampedVoiceCount: channelStop.rampedVoiceCount,
                 replacementRampFrames: channelStop.replacementRampFrames,
                 replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
+                runtimeEventSource: simpleRuntimeEventSource().rawValue,
+                adapterEventCategory: nil,
+                runtimeEventFallbackReason: fallbackReason,
                 reason: channelStop.reason
             )
         }
@@ -2140,6 +2859,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             snapshotBefore: result.snapshotBefore,
             snapshot: result.snapshotAfter,
             succeeded: result.succeeded,
+            runtimeEventSource: simpleRuntimeEventSource().rawValue,
+            adapterEventCategory: nil,
+            runtimeEventFallbackReason: fallbackReason,
             reason: result.reason
         )
         guard result.succeeded else {
@@ -2160,6 +2882,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if isFallbackActive {
             fallbackAudioEngine.update(channel: channel, controls: controls)
         } else {
+            let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
             let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls, context: context)
             if result.gainPanAttempted {
                 eventCounters.gainPanUpdateCount &+= 1
@@ -2182,35 +2905,54 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             if result.appliedAfterEpsilonFilter {
                 eventCounters.updateAppliedAfterEpsilonFilterCount &+= 1
             }
-            recordRuntimeEvent(
-                action: result.traceAction,
+            recordRuntimeUpdateEvent(
+                result,
                 context: contextWithFallbackChannel(context, channel: channel),
-                targetScope: "channel",
-                snapshotBefore: result.snapshotBefore,
-                snapshot: result.snapshotAfter,
-                succeeded: result.succeeded,
-                targetVoiceIndex: result.targetVoiceIndex,
-                gainBefore: result.gainBefore,
-                gainAfter: result.gainAfter,
-                panBefore: result.panBefore,
-                panAfter: result.panAfter,
-                sampleStepBefore: result.sampleStepBefore,
-                sampleStepAfter: result.sampleStepAfter,
-                updateDisposition: result.disposition,
-                updateType: result.updateType,
-                updateEpsilon: result.updateEpsilon,
-                gainRequested: result.gainRequested,
-                panRequested: result.panRequested,
-                sampleStepRequested: result.sampleStepRequested,
-                gainDelta: result.gainDelta,
-                panDelta: result.panDelta,
-                sampleStepDelta: result.sampleStepDelta,
-                gainUpdateStatus: result.gainUpdateStatus,
-                panUpdateStatus: result.panUpdateStatus,
-                sampleStepUpdateStatus: result.sampleStepUpdateStatus,
-                reason: result.reason
+                runtimeEventSource: simpleRuntimeEventSource().rawValue,
+                adapterEventCategory: nil,
+                runtimeEventFallbackReason: fallbackReason
             )
         }
+    }
+
+    private func recordRuntimeUpdateEvent(
+        _ result: RuntimeCMixerUpdateResult,
+        context: AudioRuntimeTraceContext?,
+        runtimeEventSource: String?,
+        adapterEventCategory: String?,
+        runtimeEventFallbackReason: String? = nil
+    ) {
+        recordRuntimeEvent(
+            action: result.traceAction,
+            context: context,
+            targetScope: "channel",
+            snapshotBefore: result.snapshotBefore,
+            snapshot: result.snapshotAfter,
+            succeeded: result.succeeded,
+            targetVoiceIndex: result.targetVoiceIndex,
+            gainBefore: result.gainBefore,
+            gainAfter: result.gainAfter,
+            panBefore: result.panBefore,
+            panAfter: result.panAfter,
+            sampleStepBefore: result.sampleStepBefore,
+            sampleStepAfter: result.sampleStepAfter,
+            updateDisposition: result.disposition,
+            updateType: result.updateType,
+            updateEpsilon: result.updateEpsilon,
+            gainRequested: result.gainRequested,
+            panRequested: result.panRequested,
+            sampleStepRequested: result.sampleStepRequested,
+            gainDelta: result.gainDelta,
+            panDelta: result.panDelta,
+            sampleStepDelta: result.sampleStepDelta,
+            gainUpdateStatus: result.gainUpdateStatus,
+            panUpdateStatus: result.panUpdateStatus,
+            sampleStepUpdateStatus: result.sampleStepUpdateStatus,
+            runtimeEventSource: runtimeEventSource,
+            adapterEventCategory: adapterEventCategory,
+            runtimeEventFallbackReason: runtimeEventFallbackReason,
+            reason: result.reason
+        )
     }
 
     func stop(channel: Int) {
@@ -2344,6 +3086,19 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
     }
 
+    private func simpleRuntimeEventSource() -> RuntimeCMixerAdapterEventSource {
+        adapterEventPlan.generated ? .hybrid : .playbackEngineSimple
+    }
+
+    @discardableResult
+    private func recordSimpleRuntimeFallbackIfNeeded() -> String? {
+        guard !adapterEventPlan.generated else {
+            return nil
+        }
+        eventCounters.fallbackToSimpleRuntimeEventCount &+= 1
+        return "adapter_plan_unavailable"
+    }
+
     private func recordRuntimeEvent(
         action: String,
         context: AudioRuntimeTraceContext?,
@@ -2375,6 +3130,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         gainUpdateStatus: String? = nil,
         panUpdateStatus: String? = nil,
         sampleStepUpdateStatus: String? = nil,
+        runtimeEventSource: String? = nil,
+        adapterEventCategory: String? = nil,
+        runtimeEventFallbackReason: String? = nil,
         reason: String?
     ) {
         guard traceWriter.isEnabled else {
@@ -2383,6 +3141,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         traceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+            runtimeEventSource: runtimeEventSource,
+            adapterPlanGenerated: adapterEventPlan.generated,
+            plannedEventCount: adapterEventPlan.plannedEventCount,
+            consumedPlannedEventCount: Int(min(eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
+            runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
+            adapterEventCategory: adapterEventCategory,
+            adapterEventCategoriesConsumed: consumedAdapterEventCategories.sorted(),
+            fallbackToSimpleRuntimeEventCount: eventCounters.fallbackToSimpleRuntimeEventCount,
+            runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
             sampleRate: snapshot.sampleRate,
             channelCount: snapshot.channelCount,
@@ -2472,10 +3240,38 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         _ context: AudioRuntimeTraceContext?,
         channel: Int
     ) -> AudioRuntimeTraceContext? {
-        guard context?.channelIndex == nil else {
+        guard let context else {
+            return AudioRuntimeTraceContext(channelIndex: channel)
+        }
+        guard context.channelIndex == nil else {
             return context
         }
-        return AudioRuntimeTraceContext(channelIndex: channel)
+        return AudioRuntimeTraceContext(
+            orderIndex: context.orderIndex,
+            patternIndex: context.patternIndex,
+            rowIndex: context.rowIndex,
+            tickInRow: context.tickInRow,
+            channelIndex: channel,
+            noteValue: context.noteValue,
+            instrumentIndex: context.instrumentIndex,
+            effectType: context.effectType,
+            effectParam: context.effectParam,
+            volumeColumn: context.volumeColumn,
+            speed: context.speed,
+            bpm: context.bpm,
+            tickIndex: context.tickIndex
+        )
+    }
+
+    private func runtimeRowOrderMapping(for context: AudioRuntimeTraceContext?) -> String? {
+        guard let context,
+              let orderIndex = context.orderIndex,
+              let rowIndex = context.rowIndex else {
+            return nil
+        }
+        let patternIndex = context.patternIndex.map(String.init) ?? "unknown"
+        let tickInRow = context.tickInRow ?? 0
+        return "order:\(orderIndex) pattern:\(patternIndex) row:\(rowIndex) tick:\(tickInRow)"
     }
 }
 

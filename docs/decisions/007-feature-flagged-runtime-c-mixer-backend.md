@@ -105,6 +105,15 @@ intended time. Immediate channel stops, true transport/global stops, offline
 render semantics, parser behavior, tracker viewport behavior, and XM effect
 coverage remain unchanged.
 
+An adapter event-stream follow-up matures the same opt-in runtime backend by
+precomputing a `PlaybackSong` adapter event plan from the bounded/offline
+adapter path and consuming supported events from that plan at the existing
+runtime order/row/tick clock. Runtime traces report the event source, plan
+counts, consumed categories, row/order mapping, and fallback reasons. This does
+not make the C mixer default, add a UI toggle, claim runtime parity, implement
+new XM effects, change C mixer DSP semantics, or solve sample-time
+tracker-follow alignment.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

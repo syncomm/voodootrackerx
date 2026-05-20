@@ -166,11 +166,15 @@ Runtime C mixer stabilization diagnostics now add a local trace summary helper
 for post-ramping A/B passes. It reports output health counters, stop/replacement
 paths, immediate hard stops, clear-all evidence, active/loaded voice ranges,
 applied/suppressed/stored/deferred update categories, and event bursts from
-runtime JSONL traces. Recent local listening still found hard cuts/stumbles in
-the opt-in runtime C mixer while default AVAudio playback and offline C-backed
-WAV renders were cleaner, which points the next investigation toward runtime
-event/state scheduling parity and the richer offline adapter event stream
-rather than C mixer core DSP, runtime headroom, parser changes, or tracker UI.
+runtime JSONL traces. The experimental runtime C mixer now precomputes a
+runtime adapter event plan from the bounded/offline `PlaybackSong` adapter and
+feeds supported plan events to the opt-in C mixer backend when available. Trace
+rows report the event source, plan generation, planned/consumed/skipped counts,
+adapter event categories, row/order mapping, and fallback-to-simple-runtime
+counts. This remains opt-in behind `VTX_AUDIO_BACKEND=c_mixer`; AVAudio remains
+the default backend, unsupported XM effects remain unsupported, and sample-time
+tracker-follow alignment plus broader runtime stabilization remain separate
+future work.
 
 Immediate audio accuracy sequence:
 
@@ -234,7 +238,8 @@ Immediate audio accuracy sequence:
 58. Runtime C Mixer Remaining Update Deferral Fix — done
 59. Runtime C Mixer Hard Stop / Replacement Micro-Ramping — done
 60. Runtime C Mixer Stabilization / A-B Listening Diagnostics Pass — done
-61. Reference comparison stabilization against MikMod/OpenMPT
+61. Runtime C Mixer Offline Adapter Event Stream Bridge — done
+62. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

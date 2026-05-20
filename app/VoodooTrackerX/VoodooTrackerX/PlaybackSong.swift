@@ -339,6 +339,252 @@ struct PlaybackSongSyntheticPlan: Equatable {
     let diagnostics: PlaybackSongSyntheticDiagnostics
 }
 
+enum RuntimeCMixerAdapterEventSource: String, Equatable {
+    case playbackEngineSimple = "playback_engine_simple"
+    case offlineAdapterPlan = "offline_adapter_plan"
+    case hybrid = "hybrid"
+}
+
+enum RuntimeCMixerAdapterEventAction: Equatable {
+    case noteTrigger(eventIndex: Int, event: SyntheticTrackerEvent, mapping: PlaybackSongSyntheticEventMapping)
+    case gainPanUpdate(activeEventIndex: Int, gain: Float?, pan: Float?)
+    case stepUpdate(activeEventIndex: Int, playbackStep: Double)
+    case noteCut(activeEventIndex: Int?)
+}
+
+struct RuntimeCMixerAdapterEvent: Equatable {
+    let id: Int
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticTick: Int
+    let scheduledFrame: Int
+    let action: RuntimeCMixerAdapterEventAction
+    let categories: [String]
+
+    var primaryCategory: String {
+        categories.first ?? "unknown"
+    }
+}
+
+struct RuntimeCMixerAdapterEventPlan: Equatable {
+    let generated: Bool
+    let sampleRate: Double
+    let plannedEventCount: Int
+    let events: [RuntimeCMixerAdapterEvent]
+    let categories: [String]
+    let plan: PlaybackSongSyntheticPlan?
+
+    static func unavailable(sampleRate: Double = MixerRenderConfig.defaultSampleRate) -> RuntimeCMixerAdapterEventPlan {
+        RuntimeCMixerAdapterEventPlan(
+            generated: false,
+            sampleRate: sampleRate,
+            plannedEventCount: 0,
+            events: [],
+            categories: [],
+            plan: nil
+        )
+    }
+
+    static func make(song: PlaybackSong?, sampleRate: Double) -> RuntimeCMixerAdapterEventPlan {
+        guard let song else {
+            return unavailable(sampleRate: sampleRate)
+        }
+        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+            song,
+            startOrderIndex: 0,
+            orderCount: song.orders.count,
+            sampleRate: sampleRate
+        )
+        let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
+        let eventMappingsByIndex = Dictionary(
+            uniqueKeysWithValues: adaptedPlan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
+        )
+        var events = [RuntimeCMixerAdapterEvent]()
+        var nextID = 0
+
+        for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
+            guard let mapping = eventMappingsByIndex[eventIndex] else {
+                continue
+            }
+            var categories = ["note_trigger"]
+            if mapping.sampleOffset.applied {
+                categories.append("sample_offset")
+            }
+            if mapping.syntheticTick > 0 {
+                categories.append("note_delay")
+            }
+            if mapping.effectType == 0x0E,
+               ((mapping.effectParam >> 4) & 0x0F) == 0x09 {
+                categories.append("retrigger")
+            }
+            if syntheticEvent.keyOffFrame != nil {
+                categories.append("key_off")
+            }
+            events.append(RuntimeCMixerAdapterEvent(
+                id: nextID,
+                source: mapping.source,
+                channelIndex: mapping.channelIndex,
+                syntheticTick: mapping.syntheticTick,
+                scheduledFrame: scheduler.frame(for: syntheticEvent),
+                action: .noteTrigger(eventIndex: eventIndex, event: syntheticEvent, mapping: mapping),
+                categories: categories
+            ))
+            nextID += 1
+        }
+
+        for update in adaptedPlan.diagnostics.voiceStateUpdates where update.applied && update.activeVoiceUpdated {
+            guard let activeEventIndex = update.activeEventIndex else {
+                continue
+            }
+            let gain = changedGain(from: update)
+            let pan = changedPan(from: update)
+            guard gain != nil || pan != nil else {
+                continue
+            }
+            var categories = ["gain_pan_update"]
+            switch update.command {
+            case .hxyGlobalVolumeSlide:
+                categories.append("hxy_global_volume_update")
+            case .volumeColumn:
+                categories.append("volume_column_update")
+            default:
+                break
+            }
+            events.append(RuntimeCMixerAdapterEvent(
+                id: nextID,
+                source: update.source,
+                channelIndex: update.targetChannelIndex ?? update.channelIndex,
+                syntheticTick: update.syntheticTick,
+                scheduledFrame: update.scheduledFrame,
+                action: .gainPanUpdate(activeEventIndex: activeEventIndex, gain: gain, pan: pan),
+                categories: categories
+            ))
+            nextID += 1
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.tonePortamentoEffects where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: ["step_update", "portamento_update"]
+                ))
+                nextID += 1
+            }
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.portamentoSlideEffects where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: ["step_update", "portamento_update"]
+                ))
+                nextID += 1
+            }
+        }
+
+        for cut in adaptedPlan.diagnostics.noteCutEffects where cut.applied {
+            events.append(RuntimeCMixerAdapterEvent(
+                id: nextID,
+                source: cut.source,
+                channelIndex: cut.channelIndex,
+                syntheticTick: cut.syntheticTick,
+                scheduledFrame: cut.scheduledFrame ?? 0,
+                action: .noteCut(activeEventIndex: cut.activeEventIndex),
+                categories: ["note_cut"]
+            ))
+            nextID += 1
+        }
+
+        let sortedEvents = events.sorted { lhs, rhs in
+            if lhs.source.orderIndex != rhs.source.orderIndex {
+                return lhs.source.orderIndex < rhs.source.orderIndex
+            }
+            if lhs.source.rowIndex != rhs.source.rowIndex {
+                return lhs.source.rowIndex < rhs.source.rowIndex
+            }
+            if lhs.syntheticTick != rhs.syntheticTick {
+                return lhs.syntheticTick < rhs.syntheticTick
+            }
+            if priority(lhs.action) != priority(rhs.action) {
+                return priority(lhs.action) < priority(rhs.action)
+            }
+            if lhs.scheduledFrame != rhs.scheduledFrame {
+                return lhs.scheduledFrame < rhs.scheduledFrame
+            }
+            return lhs.id < rhs.id
+        }
+        let categories = Array(Set(sortedEvents.flatMap(\.categories))).sorted()
+        return RuntimeCMixerAdapterEventPlan(
+            generated: true,
+            sampleRate: sampleRate,
+            plannedEventCount: sortedEvents.count,
+            events: sortedEvents,
+            categories: categories,
+            plan: adaptedPlan
+        )
+    }
+
+    func events(matching context: AudioRuntimeTraceContext?) -> [RuntimeCMixerAdapterEvent] {
+        guard let context,
+              let orderIndex = context.orderIndex,
+              let rowIndex = context.rowIndex else {
+            return []
+        }
+        let tick = context.tickInRow ?? 0
+        return events.filter { event in
+            event.source.orderIndex == orderIndex &&
+                event.source.rowIndex == rowIndex &&
+                event.syntheticTick == tick &&
+                (context.patternIndex == nil || context.patternIndex == event.source.patternIndex)
+        }
+    }
+
+    private static func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
+        switch action {
+        case .noteTrigger:
+            return 0
+        case .gainPanUpdate, .stepUpdate:
+            return 1
+        case .noteCut:
+            return 2
+        }
+    }
+
+    private static func changedGain(from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Float? {
+        guard let before = update.gainBefore,
+              let after = update.gainAfter,
+              before != after else {
+            return nil
+        }
+        return after
+    }
+
+    private static func changedPan(from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Float? {
+        guard let before = update.panBefore,
+              let after = update.panAfter,
+              before != after else {
+            return nil
+        }
+        return after
+    }
+}
+
 struct PlaybackSongSyntheticDiagnostics: Equatable {
     let requestedStartOrderIndex: Int
     let requestedOrderCount: Int

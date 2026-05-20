@@ -277,12 +277,15 @@ note replacements used `c_mixer_stop_channel_ramped` or fell back to immediate
 
 The summary includes a runtime-vs-offline-adapter category checklist for
 gain/pan state updates, step/pitch updates, `Hxy` global-volume updates,
-`ECx`/`EDx`/`E9x`, and `1xx`/`2xx`/`3xx` portamento updates. Treat missing
-runtime categories as evidence that the experimental backend is still driven by
-simpler `PlaybackEngine` timer/control events rather than the richer bounded
-offline adapter event stream. If local listening finds hard cuts or stumbles
-while offline C-backed WAV renders are cleaner, prefer an offline-adapter event
-stream bridge investigation over small speculative runtime patches.
+`ECx`/`EDx`/`E9x`, and `1xx`/`2xx`/`3xx` portamento updates. Runtime C mixer
+trace rows now also report whether events came from the precomputed
+`offline_adapter_plan`, the simpler `playback_engine_simple` fallback, or a
+`hybrid` path. Inspect `adapterPlanGenerated`, `plannedEventCount`,
+`consumedPlannedEventCount`, `skippedUnmatchedPlannedEventCount`,
+`adapterEventCategoriesConsumed`, and `runtimeEventFallbackReason` before
+choosing the next runtime stabilization step. Remaining gaps after a healthy
+adapter plan should be treated separately from C mixer DSP, runtime headroom,
+parser changes, tracker UI, and sample-time tracker-follow work.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics

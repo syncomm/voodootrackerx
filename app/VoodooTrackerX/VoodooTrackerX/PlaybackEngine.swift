@@ -52,6 +52,7 @@ final class PlaybackEngine: PlaybackTransport {
         traceTickIndex = 0
         runtimeNoteTriggerEventCount = 0
         activeDebugStartTraceContext = nil
+        configureRuntimeAdapterEventPlan(for: song)
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -194,6 +195,32 @@ final class PlaybackEngine: PlaybackTransport {
             timing = song?.initialTiming ?? .xmDefault
         }
         activeDebugStartTraceContext = nil
+        (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.resetRuntimeAdapterEventConsumption()
+    }
+
+    private var usesRuntimeAdapterEventPlan: Bool {
+        (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.hasRuntimeAdapterEventPlan == true
+    }
+
+    private func configureRuntimeAdapterEventPlan(for song: PlaybackSong?) {
+        guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
+            return
+        }
+        adapterConsumer.configureRuntimeAdapterEventPlan(RuntimeCMixerAdapterEventPlan.make(
+            song: song,
+            sampleRate: audioEngine.audioBufferSampleRate
+        ))
+    }
+
+    private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int) {
+        guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
+            return
+        }
+        adapterConsumer.consumeRuntimeAdapterEvents(context: runtimeTraceContext(
+            at: position,
+            tickInRow: tickInRow,
+            channelIndex: nil
+        ))
     }
 
     private func restartTimer() {
@@ -240,9 +267,14 @@ final class PlaybackEngine: PlaybackTransport {
         positionDidChange?(position)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
         recordRuntimeRowTransition(at: position)
-        prepareRowPlaybackState(at: position)
-        triggerAudio(at: position)
-        applyImmediateTimingEffects()
+        let usesAdapterPlan = usesRuntimeAdapterEventPlan
+        prepareRowPlaybackState(at: position, emitRuntimeControlUpdates: !usesAdapterPlan)
+        if usesAdapterPlan {
+            consumeRuntimeAdapterEvents(at: position, tickInRow: 0)
+        } else {
+            triggerAudio(at: position)
+            applyImmediateTimingEffects()
+        }
     }
 
     private func applyDebugStartTickIfNeeded(_ requestedTickInRow: Int?, at position: PlaybackPosition) {
@@ -282,7 +314,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
     }
 
-    private func prepareRowPlaybackState(at position: PlaybackPosition) {
+    private func prepareRowPlaybackState(at position: PlaybackPosition, emitRuntimeControlUpdates: Bool = true) {
         guard let song,
               let row = song.row(at: position) else {
             return
@@ -316,7 +348,9 @@ final class PlaybackEngine: PlaybackTransport {
 
             channelStates[channelIndex] = channelState
         }
-        updateActiveChannelControls()
+        if emitRuntimeControlUpdates {
+            updateActiveChannelControls()
+        }
     }
 
     private func isVolumeColumnTonePortamento(_ command: PlaybackVolumeColumnCommand) -> Bool {
@@ -348,6 +382,10 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func applyTickEffects(tickInRow: Int, position: PlaybackPosition) {
+        if usesRuntimeAdapterEventPlan {
+            consumeRuntimeAdapterEvents(at: position, tickInRow: tickInRow)
+            return
+        }
         let oldGlobalVolume = globalState.volume
         globalState.advanceContinuousEffects()
         for channelIndex in channelStates.keys.sorted() {

@@ -14,6 +14,9 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.p
 SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
 CORRELATION_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "correlate-audio-comparison.py"
 DISCONTINUITY_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "analyze-audio-discontinuities.py"
+RUNTIME_TRACE_SUMMARY_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "summarize-runtime-c-mixer-trace.py"
+)
 
 
 def load_audio_compare_module():
@@ -34,8 +37,18 @@ def load_audio_discontinuities_module():
     return module
 
 
+def load_runtime_trace_summary_module():
+    spec = importlib.util.spec_from_file_location("runtime_trace_summary", RUNTIME_TRACE_SUMMARY_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
+runtime_trace_summary = load_runtime_trace_summary_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -1876,6 +1889,246 @@ class AudioCorrelationTests(unittest.TestCase):
         self.assertTrue(output_path.is_relative_to(tmpdir_path))
         self.assertIn("Correlation report:", result.stdout)
         return output_path
+
+
+class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
+    def test_synthetic_trace_with_no_underruns_or_clipping_is_healthy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("backend_selected", runtimeAudioBackend="c_mixer"),
+                    self.event("row_transition", rowIndex=0, outputPeak=0.25),
+                    self.event("note_trigger", rowIndex=0, noteTriggerEventCount=1),
+                    self.event("c_mixer_add_voice", rowIndex=0, cMixerAddVoiceCount=1, activeVoiceCount=1, loadedVoiceCount=1),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["health"]["clipping_sample_count"], 0)
+            self.assertEqual(summary["health"]["underrun_count"], 0)
+            self.assertEqual(summary["health"]["zero_fill_count"], 0)
+            self.assertEqual(summary["stops"]["add_voice_events"], 1)
+            self.assertEqual(summary["stops"]["immediate_hard_stop_events"], 0)
+            self.assertEqual(summary["voices"]["active_voice_range"], {"min": 0, "max": 1})
+            self.assertEqual(summary["suspicious_findings"], [])
+
+    def test_synthetic_trace_with_clipping_and_underrun_reports_health_counters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        outputPeak=1.25,
+                        clippingSampleCount=3,
+                        clippingDetected=True,
+                        underrunCount=2,
+                        zeroFillCount=1,
+                        failedRenderCount=1,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["health"]["peak"], 1.25)
+            self.assertEqual(summary["health"]["clipping_sample_count"], 3)
+            self.assertTrue(summary["health"]["clipping_detected"])
+            self.assertEqual(summary["health"]["underrun_count"], 2)
+            self.assertEqual(summary["health"]["zero_fill_count"], 1)
+            self.assertEqual(summary["health"]["failed_render_count"], 1)
+            self.assertIn("runtime clipping/overrange remains after runtime gain", summary["suspicious_findings"])
+            self.assertIn("runtime render underrun, zero-fill, or failure counters are nonzero", summary["suspicious_findings"])
+
+    def test_synthetic_trace_with_ramped_replacement_stops_reports_coverage(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("c_mixer_add_voice", rowIndex=0, activeVoiceCount=1, loadedVoiceCount=1),
+                    self.event(
+                        "c_mixer_stop_channel_ramped",
+                        rowIndex=1,
+                        rampedVoiceCount=2,
+                        replacementRampFrames=32,
+                        replacementVoicesOverlap=True,
+                        reason="note_replacement_stop_channel",
+                    ),
+                    self.event("c_mixer_add_voice", rowIndex=1, activeVoiceCount=3, loadedVoiceCount=3),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["stops"]["ramped_replacement_stop_events"], 1)
+            self.assertEqual(summary["stops"]["ramped_replacement_voice_count"], 2)
+            self.assertEqual(summary["stops"]["immediate_hard_replacement_stop_events"], 0)
+            self.assertEqual(summary["stops"]["ramped_replacement_covers_all_observed_replacement_stops"], "yes")
+
+    def test_synthetic_trace_with_hard_replacement_stop_reports_follow_up(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_stop_channel",
+                        rowIndex=8,
+                        stoppedVoiceCount=1,
+                        reason="note_replacement_stop_channel",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["stops"]["immediate_hard_stop_events"], 1)
+            self.assertEqual(summary["stops"]["immediate_hard_replacement_stop_events"], 1)
+            self.assertEqual(summary["stops"]["ramped_replacement_covers_all_observed_replacement_stops"], "no")
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Hard Stop / Replacement Follow-Up")
+            self.assertIn(
+                "at least one note replacement used c_mixer_stop_channel instead of c_mixer_stop_channel_ramped",
+                summary["suspicious_findings"],
+            )
+
+    def test_synthetic_trace_with_applied_and_deferred_updates_reports_categories(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("c_mixer_update_gain_pan_applied", updateDisposition="update_applied", updateType="gain"),
+                    self.event("c_mixer_update_step_applied", effectType="03", updateDisposition="update_applied", updateType="step"),
+                    self.event("c_mixer_update_stored_channel_state", updateDisposition="update_stored_channel_state", updateType="pan"),
+                    self.event("c_mixer_update_suppressed_no_change", updateDisposition="update_suppressed_no_change", updateType="none"),
+                    self.event(
+                        "c_mixer_update_deferred_no_active_voice",
+                        effectType="01",
+                        updateDisposition="update_deferred_no_active_voice",
+                        updateType="step",
+                        reason="runtime_c_mixer_update_deferred_no_active_voice_missing_runtime_channel_state",
+                    ),
+                    self.event("c_mixer_update_gain_pan_applied", effectType="11", updateDisposition="update_applied", updateType="gain"),
+                    self.event("channel_stop", effectType="0E", effectParam="C2", reason="note_cut"),
+                    self.event("c_mixer_stop_channel", effectType="0E", effectParam="C2", reason="channel_stop"),
+                    self.event("note_trigger", effectType="0E", effectParam="D2", reason="delayed_note_triggered"),
+                    self.event("c_mixer_add_voice", effectType="0E", effectParam="D2"),
+                    self.event("note_trigger", effectType="0E", effectParam="93", reason="retrigger_interval"),
+                    self.event("c_mixer_add_voice", effectType="0E", effectParam="93"),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            categories = {
+                item["category"]: item["runtime_event_count"]
+                for item in summary["runtime_vs_offline_adapter_categories"]
+            }
+
+            self.assertEqual(summary["updates"]["applied_gain_pan_update_events"], 2)
+            self.assertEqual(summary["updates"]["applied_step_update_events"], 1)
+            self.assertEqual(summary["updates"]["suppressed_no_change_update_events"], 1)
+            self.assertEqual(summary["updates"]["stored_channel_state_update_events"], 1)
+            self.assertEqual(categories["gain_pan_state_updates"], 3)
+            self.assertEqual(categories["step_pitch_updates"], 2)
+            self.assertEqual(categories["hxy_global_volume_updates"], 1)
+            self.assertEqual(categories["ecx_note_cut"], 2)
+            self.assertEqual(categories["edx_note_delay"], 2)
+            self.assertEqual(categories["e9x_retrigger"], 2)
+            self.assertEqual(categories["portamento_1xx_2xx_3xx_updates"], 2)
+            self.assertIn(
+                "update_deferred_no_active_voice:step:runtime_c_mixer_update_deferred_no_active_voice_missing_runtime_channel_state",
+                summary["updates"]["remaining_deferred_update_categories"],
+            )
+            self.assertEqual(summary["event_stream"]["runtime_driver"], "PlaybackEngine timer/control events")
+            self.assertFalse(summary["event_stream"]["offline_adapter_event_stream_observed"])
+
+    def test_synthetic_trace_json_and_markdown_outputs_are_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("row_transition", orderIndex=0, patternIndex=2, rowIndex=0, tickInRow=0),
+                    self.event("c_mixer_add_voice", orderIndex=0, patternIndex=2, rowIndex=0, tickInRow=0),
+                ],
+            )
+            json_a = tmpdir_path / "summary-a.json"
+            json_b = tmpdir_path / "summary-b.json"
+            markdown_a = tmpdir_path / "summary-a.md"
+            markdown_b = tmpdir_path / "summary-b.md"
+
+            for json_path, markdown_path in ((json_a, markdown_a), (json_b, markdown_b)):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(RUNTIME_TRACE_SUMMARY_SCRIPT_PATH),
+                        str(trace_path),
+                        "--json",
+                        str(json_path),
+                        "--markdown",
+                        str(markdown_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            self.assertEqual(json_a.read_text(encoding="utf-8"), json_b.read_text(encoding="utf-8"))
+            self.assertEqual(markdown_a.read_text(encoding="utf-8"), markdown_b.read_text(encoding="utf-8"))
+            self.assertIn("Runtime C Mixer Trace Summary", markdown_a.read_text(encoding="utf-8"))
+
+    def test_malformed_runtime_trace_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = Path(tmpdir) / "bad-runtime-trace.jsonl"
+            trace_path.write_text("{not json\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(RUNTIME_TRACE_SUMMARY_SCRIPT_PATH), str(trace_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("malformed runtime C mixer trace", result.stderr)
+            self.assertIn("line 1", result.stderr)
+
+    def test_runtime_trace_summary_tests_clean_up_temp_files(self):
+        temp_directory = tempfile.TemporaryDirectory()
+        tmpdir_path = Path(temp_directory.name)
+        trace_path = self.write_trace(tmpdir_path, [self.event("row_transition")])
+
+        self.assertTrue(trace_path.exists())
+        temp_directory.cleanup()
+        self.assertFalse(tmpdir_path.exists())
+
+    def event(self, action, **overrides):
+        event = {
+            "schemaVersion": 1,
+            "runtimeAction": action,
+            "runtimeAudioBackend": "c_mixer",
+            "experimentalCMixerEnabled": True,
+            "orderIndex": overrides.pop("orderIndex", 0),
+            "patternIndex": overrides.pop("patternIndex", 2),
+            "rowIndex": overrides.pop("rowIndex", 0),
+            "tickInRow": overrides.pop("tickInRow", 0),
+            "channelIndex": overrides.pop("channelIndex", 0),
+            "activeVoiceCount": overrides.pop("activeVoiceCount", 0),
+            "loadedVoiceCount": overrides.pop("loadedVoiceCount", 0),
+            "outputPeak": overrides.pop("outputPeak", 0),
+            "clippingSampleCount": overrides.pop("clippingSampleCount", 0),
+            "underrunCount": overrides.pop("underrunCount", 0),
+            "zeroFillCount": overrides.pop("zeroFillCount", 0),
+            "failedRenderCount": overrides.pop("failedRenderCount", 0),
+        }
+        event.update(overrides)
+        return event
+
+    def write_trace(self, tmpdir, events):
+        path = Path(tmpdir) / "runtime-trace.jsonl"
+        path.write_text("".join(json.dumps(event, sort_keys=True) + "\n" for event in events), encoding="utf-8")
+        return path
 
 
 if __name__ == "__main__":

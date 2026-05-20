@@ -162,6 +162,15 @@ filters gain, pan, and sample-step update deltas at a strict `1e-5` epsilon so
 tiny floating-point discrepancies do not restart C mixer ramps or step updates.
 This keeps the runtime C mixer experimental and opt-in while reducing trace
 noise around the remaining update deferrals.
+Runtime C mixer stabilization diagnostics now add a local trace summary helper
+for post-ramping A/B passes. It reports output health counters, stop/replacement
+paths, immediate hard stops, clear-all evidence, active/loaded voice ranges,
+applied/suppressed/stored/deferred update categories, and event bursts from
+runtime JSONL traces. Recent local listening still found hard cuts/stumbles in
+the opt-in runtime C mixer while default AVAudio playback and offline C-backed
+WAV renders were cleaner, which points the next investigation toward runtime
+event/state scheduling parity and the richer offline adapter event stream
+rather than C mixer core DSP, runtime headroom, parser changes, or tracker UI.
 
 Immediate audio accuracy sequence:
 
@@ -224,7 +233,8 @@ Immediate audio accuracy sequence:
 57. Runtime C Mixer Event Scheduling / Offline Adapter Parity Bridge — done
 58. Runtime C Mixer Remaining Update Deferral Fix — done
 59. Runtime C Mixer Hard Stop / Replacement Micro-Ramping — done
-60. Reference comparison stabilization against MikMod/OpenMPT
+60. Runtime C Mixer Stabilization / A-B Listening Diagnostics Pass — done
+61. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

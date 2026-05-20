@@ -282,6 +282,49 @@ volume-column set volume/panning. Unsupported XM effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.
 
+### Runtime Sample-Time Alignment Diagnostics
+
+The experimental runtime C mixer trace also carries sample-time diagnostics for
+checking whether live-only clicks or stumbles line up with event timing rather
+than missing events, clipping, underruns, or C mixer DSP. These fields are
+diagnostic-only; they do not make the C mixer the default backend, change the
+default AVAudio backend, add a UI toggle, or change offline render semantics.
+
+Runtime snapshot rows may include:
+
+- `runtimeRenderedFrameCount`: cumulative C mixer frames rendered by the
+  runtime backend
+- `callbackIndex`, `callbackRequestedFrameCount`, `callbackStartFrame`, and
+  `callbackEndFrame`: the most recent AVAudio source-node callback range known
+  to the runtime C mixer diagnostics
+- `currentFrame`: the current C mixer frame cursor when the trace row was
+  recorded
+
+Offline-adapter event rows may include:
+
+- `plannedSourceOrderIndex`, `plannedSourcePatternIndex`,
+  `plannedSourceRowIndex`, `plannedSourceTickInRow`, and
+  `plannedSourceChannelIndex`
+- `plannedEventFrame`: the absolute frame from the offline adapter plan
+- `plannedRuntimeFrame`: the planned frame after applying the runtime start
+  offset, when the offset is computable
+- `runtimeApplicationFrame`: the runtime C mixer frame when the event was
+  applied
+- `eventFrameDelta`: `runtimeApplicationFrame - plannedRuntimeFrame`, when
+  both are computable
+- `runtimeEventCategory`: normalized categories such as `note_trigger`,
+  `replacement_stop_ramp`, `gain_pan_update`, `step_pitch_update`,
+  `ecx_edx_e9x`, `hxy_global_volume`, `key_off_fadeout`, and
+  `row_transition`
+- `eventApplicationTiming`: `exact_frame`, `callback_start`, `tick_boundary`,
+  `row_boundary`, or `unknown`
+
+Row transitions are traced with a before-event `row_transition` breadcrumb and
+an after-event `row_transition_after_events` breadcrumb. These rows may include
+previous and next order/pattern/row fields, `transitionRuntimeFrame`,
+active/loaded voice counts before and after the row-entry work, and per-row
+`transitionReplacementRampCount` / `transitionUpdateCount` deltas.
+
 Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local
 modules.
@@ -310,6 +353,9 @@ The summary focuses on runtime-only artifact evidence:
 - applied gain/pan and step updates, suppressed no-change updates, stored
   channel-state updates, and remaining deferred update categories
 - active/loaded voice ranges and largest same-row/tick event bursts
+- largest planned-vs-runtime event timing deltas, callback-boundary event
+  applications, same-frame event bursts, order/row transition bursts, and top
+  suspicious order/row/tick positions
 - runtime evidence for categories that the richer offline adapter can emit:
   gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
   `1xx`/`2xx`/`3xx` updates

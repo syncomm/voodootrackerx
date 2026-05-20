@@ -555,6 +555,20 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
     }
 
+    func plannedRowStartFrame(matching context: AudioRuntimeTraceContext?) -> Int? {
+        guard let context,
+              let orderIndex = context.orderIndex,
+              let rowIndex = context.rowIndex,
+              let diagnostics = plan?.diagnostics else {
+            return nil
+        }
+        return diagnostics.rowTiming.first { timing in
+            timing.source.orderIndex == orderIndex &&
+                timing.source.rowIndex == rowIndex &&
+                (context.patternIndex == nil || timing.source.patternIndex == context.patternIndex)
+        }?.rowStartFrame
+    }
+
     private static func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
         switch action {
         case .noteTrigger:

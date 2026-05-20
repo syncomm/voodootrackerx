@@ -172,9 +172,14 @@ feeds supported plan events to the opt-in C mixer backend when available. Trace
 rows report the event source, plan generation, planned/consumed/skipped counts,
 adapter event categories, row/order mapping, and fallback-to-simple-runtime
 counts. This remains opt-in behind `VTX_AUDIO_BACKEND=c_mixer`; AVAudio remains
-the default backend, unsupported XM effects remain unsupported, and sample-time
-tracker-follow alignment plus broader runtime stabilization remain separate
-future work.
+the default backend and unsupported XM effects remain unsupported. Runtime
+sample-time event-alignment diagnostics now add callback frame ranges,
+cumulative runtime rendered-frame counters, planned offline-adapter event
+frames, runtime application frames, frame deltas, normalized event categories,
+before/after row-transition breadcrumbs, same-frame burst summaries, and
+top suspicious order/row/tick reporting. This diagnostics pass keeps the actual
+sample-time scheduling bridge, tracker-follow alignment, and broader runtime
+stabilization as separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -239,7 +244,8 @@ Immediate audio accuracy sequence:
 59. Runtime C Mixer Hard Stop / Replacement Micro-Ramping — done
 60. Runtime C Mixer Stabilization / A-B Listening Diagnostics Pass — done
 61. Runtime C Mixer Offline Adapter Event Stream Bridge — done
-62. Reference comparison stabilization against MikMod/OpenMPT
+62. Runtime C Mixer Sample-Time Event Alignment Diagnostics — done
+63. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -302,7 +308,7 @@ Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
+- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned-vs-runtime event frame deltas, same-frame burst summaries, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs

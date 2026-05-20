@@ -158,10 +158,17 @@ is available.
 
 The experimental runtime C mixer is still selected only with
 `VTX_AUDIO_BACKEND=c_mixer`. When selected, it applies a conservative default
-runtime output policy, currently `default_runtime_headroom_db` with `-10 dB`
+runtime output policy, currently `default_runtime_headroom_db` with `-12 dB`
 headroom. This gain is applied only in the runtime C mixer handoff to the
 AVAudio source-node buffer; it does not affect the default AVAudio backend and
 does not change `vtx_render_bounded_xm`.
+
+Trace rows report `runtimeOutputGain`, `runtimeHeadroomPolicy`,
+`runtimeGainPolicyLabel`, `runtimeDefaultHeadroomDB`,
+`runtimeGainPolicySource`, and `runtimeGainPolicyIsEnvironmentOverride` so local
+smoke runs can distinguish the fixed default policy from an explicit
+environment override. `runtimeAutoHeadroomEnabled` remains `false` for this live
+runtime path.
 
 For local C-mixer-only diagnostics, use exactly one of:
 
@@ -187,6 +194,12 @@ both are set, or an invalid value is supplied, the runtime C mixer falls back to
 the default conservative policy and writes `runtimeGainConfigurationWarning` in
 the runtime C trace. These gain/headroom variables are ignored unless the
 experimental C mixer backend is selected.
+
+Exact offline-style `--auto-headroom` for live runtime playback is intentionally
+not implemented here. Matching the offline export policy for runtime playback
+would require a future pre-playback preflight or dry-render peak-analysis pass,
+or equivalent lookahead, rather than dynamic limiting. A future scoped PR could
+use that approach under a title such as Runtime C Mixer Preflight Auto-Headroom.
 
 For epsilon hypothesis testing only, Debug builds accept
 `VTX_C_MIXER_RUNTIME_UPDATE_EPSILON`. The default remains `1e-5`; setting `0`
@@ -462,6 +475,8 @@ The summary focuses on runtime-only artifact evidence:
 
 - peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and
   adjacent-sample output discontinuity counters
+- runtime gain/headroom policy, including default `-12 dB` headroom,
+  default-vs-environment source, fixed headroom dB, and configuration warnings
 - lower-threshold discontinuity counts, top adjacent same-channel jumps, top
   peaks, and likely transient correlation (`event burst`,
   `replacement ramp burst`, `peak/clip`, `voice cleanup`, or `unknown`)

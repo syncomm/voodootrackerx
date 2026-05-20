@@ -132,9 +132,10 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.
-The default policy is `default_runtime_headroom_db`, currently `-10 dB`, which
+The default policy is `default_runtime_headroom_db`, currently `-12 dB`, which
 keeps the live experiment away from heavy unity-gain clipping seen in local
-diagnostic traces. This does not affect the default AVAudio backend.
+diagnostic traces. This does not affect the default AVAudio backend or
+`vtx_render_bounded_xm` offline renders.
 
 For local C-mixer-only smoke runs, override the runtime policy with exactly one
 of these variables:
@@ -157,8 +158,17 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 `VTX_C_MIXER_RUNTIME_HEADROOM_DB` accepts finite `0` or negative dB values and
 converts them to linear gain. If both variables are set, or either value is
 invalid, the runtime C mixer falls back to the default conservative policy and
-reports `runtimeGainConfigurationWarning` in the trace. These variables are
-ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental backend.
+reports `runtimeGainConfigurationWarning` in the trace. Runtime trace rows also
+report the active gain policy label, fixed headroom dB, default `-12 dB`
+headroom, and whether the gain came from an environment override. These
+variables are ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the
+experimental backend.
+
+The live runtime path keeps a simple fixed headroom policy. It does not
+implement offline-style auto-headroom. Matching the `vtx_render_bounded_xm`
+`--auto-headroom` policy for runtime playback would require a future
+pre-playback preflight or dry-render peak-analysis pass from the selected start
+position, or equivalent lookahead, without adding dynamic limiting.
 
 For local epsilon/delta guard diagnostics, Debug builds also accept
 `VTX_C_MIXER_RUNTIME_UPDATE_EPSILON` when the experimental backend is selected.
@@ -570,6 +580,12 @@ Auto-headroom is local/offline candidate-export policy only. It does not change
 runtime playback, does not switch the app to the C mixer, does not change C
 mixer DSP semantics, and does not affect default output behavior when
 `--auto-headroom` is omitted.
+
+The experimental runtime C mixer has its own fixed runtime headroom policy
+(`-12 dB` by default) and explicit environment overrides. That runtime policy is
+separate from offline export `--auto-headroom`; exact runtime auto-headroom
+would be a future preflight/dry-render analysis feature, not part of this simple
+fixed-headroom smoke path.
 
 ```bash
 swift run vtx_render_bounded_xm \

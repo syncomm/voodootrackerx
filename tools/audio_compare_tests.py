@@ -1914,6 +1914,49 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(summary["voices"]["active_voice_range"], {"min": 0, "max": 1})
             self.assertEqual(summary["suspicious_findings"], [])
 
+    def test_synthetic_trace_reports_runtime_gain_policy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeOutputGain=0.251188643,
+                        runtimeHeadroomPolicy="default_runtime_headroom_db",
+                        runtimeGainPolicyLabel="default_runtime_headroom_db",
+                        runtimeDefaultHeadroomDB=-12,
+                        runtimeGainPolicySource="default",
+                        runtimeGainPolicyIsEnvironmentOverride=False,
+                        runtimeAutoHeadroomEnabled=False,
+                        runtimeFixedHeadroomDB=-12,
+                    ),
+                    self.event(
+                        "row_transition",
+                        runtimeOutputGain=0.5,
+                        runtimeHeadroomPolicy="env_runtime_gain",
+                        runtimeGainPolicyLabel="env_runtime_gain",
+                        runtimeDefaultHeadroomDB=-12,
+                        runtimeGainPolicySource="environment_override",
+                        runtimeGainPolicyIsEnvironmentOverride=True,
+                        runtimeGainConfigurationWarning="conflicting_runtime_gain_policy",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["runtime_policy"]["output_gain"], 0.251188643)
+            self.assertEqual(summary["runtime_policy"]["headroom_policy"], "default_runtime_headroom_db")
+            self.assertEqual(summary["runtime_policy"]["gain_policy_label"], "default_runtime_headroom_db")
+            self.assertEqual(summary["runtime_policy"]["gain_policy_source"], "default")
+            self.assertFalse(summary["runtime_policy"]["gain_policy_is_environment_override"])
+            self.assertEqual(summary["runtime_policy"]["default_headroom_db"], -12)
+            self.assertEqual(summary["runtime_policy"]["fixed_headroom_db"], -12)
+            self.assertEqual(
+                summary["runtime_policy"]["configuration_warning_counts"],
+                {"conflicting_runtime_gain_policy": 1},
+            )
+
     def test_synthetic_trace_with_clipping_and_underrun_reports_health_counters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(

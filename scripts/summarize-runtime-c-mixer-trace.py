@@ -126,6 +126,31 @@ def is_update_action(event: dict[str, Any]) -> bool:
     return isinstance(action, str) and action.startswith(UPDATE_ACTION_PREFIX)
 
 
+def is_row_transition_event(event: dict[str, Any]) -> bool:
+    action = event.get("runtimeAction")
+    return (
+        isinstance(action, str)
+        and action.startswith("row_transition")
+    ) or event.get("runtimeEventCategory") == "row_transition"
+
+
+def is_planned_adapter_event_application(event: dict[str, Any]) -> bool:
+    if is_row_transition_event(event):
+        return False
+    if integer(event.get("plannedEventID")) is not None:
+        return True
+    if event.get("adapterEventCategory") is not None and integer(event.get("eventAppliedFrame")) is not None:
+        return True
+    return (
+        event.get("runtimeEventSource") == "offline_adapter_plan"
+        and integer(event.get("eventAppliedFrame")) is not None
+        and (
+            integer(event.get("plannedRuntimeFrame")) is not None
+            or integer(event.get("plannedEventFrame")) is not None
+        )
+    )
+
+
 def count_if(events: list[dict[str, Any]], predicate: Any) -> int:
     return sum(1 for event in events if predicate(event))
 
@@ -182,7 +207,9 @@ def top_event_bursts(events: list[dict[str, Any]], limit: int = 5) -> list[dict[
 def event_timing_delta_rows(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
     rows = []
     for event in events:
-        delta_value = integer(event.get("eventFrameDelta"))
+        delta_value = integer(event.get("plannedVsAppliedDelta"))
+        if delta_value is None:
+            delta_value = integer(event.get("eventFrameDelta"))
         if delta_value is None:
             continue
         row = event_context_dict(event)
@@ -194,8 +221,12 @@ def event_timing_delta_rows(events: list[dict[str, Any]], limit: int = 10) -> li
             "planned_event_frame": integer(event.get("plannedEventFrame")),
             "planned_runtime_frame": integer(event.get("plannedRuntimeFrame")),
             "runtime_application_frame": integer(event.get("runtimeApplicationFrame")),
+            "event_applied_frame": integer(event.get("eventAppliedFrame")),
+            "in_callback_offset": integer(event.get("inCallbackOffset")),
             "event_frame_delta": delta_value,
+            "planned_vs_applied_delta": delta_value,
             "event_application_timing": event.get("eventApplicationTiming"),
+            "same_frame_burst_size": integer(event.get("sameFrameBurstSize")),
             "callback_index": integer(event.get("callbackIndex")),
             "callback_start_frame": integer(event.get("callbackStartFrame")),
             "callback_end_frame": integer(event.get("callbackEndFrame")),
@@ -217,7 +248,11 @@ def callback_boundary_events(events: list[dict[str, Any]], limit: int = 10) -> l
     rows = [
         event for event in events
         if event.get("eventApplicationTiming") == "callback_start"
-        and integer(event.get("eventFrameDelta")) not in (None, 0)
+        and (
+            integer(event.get("plannedVsAppliedDelta"))
+            if integer(event.get("plannedVsAppliedDelta")) is not None
+            else integer(event.get("eventFrameDelta"))
+        ) not in (None, 0)
     ]
     return event_timing_delta_rows(rows, limit=limit)
 
@@ -225,7 +260,9 @@ def callback_boundary_events(events: list[dict[str, Any]], limit: int = 10) -> l
 def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
     grouped: dict[int, dict[str, Any]] = {}
     for event in events:
-        runtime_frame = integer(event.get("runtimeApplicationFrame"))
+        runtime_frame = integer(event.get("eventAppliedFrame"))
+        if runtime_frame is None:
+            runtime_frame = integer(event.get("runtimeApplicationFrame"))
         action = event.get("runtimeAction")
         if runtime_frame is None or not isinstance(action, str):
             continue
@@ -475,14 +512,62 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     zero_fill_count = int(max_numeric(events, "zeroFillCount") or 0)
     failed_render_count = int(max_numeric(events, "failedRenderCount") or 0)
     bursts = top_event_bursts(events)
-    timing_deltas = event_timing_delta_rows(events)
-    callback_events = callback_boundary_events(events)
+    planned_adapter_event_applications = [
+        event for event in events if is_planned_adapter_event_application(event)
+    ]
+    row_transition_events = [event for event in events if is_row_transition_event(event)]
+    timing_deltas = event_timing_delta_rows(planned_adapter_event_applications)
+    row_transition_timing_deltas = event_timing_delta_rows(row_transition_events)
+    callback_events = callback_boundary_events(planned_adapter_event_applications)
     same_frame_bursts = top_same_frame_event_bursts(events)
     transition_bursts = top_transition_bursts(events)
     suspicious_positions = top_suspicious_positions(timing_deltas, same_frame_bursts, transition_bursts)
     parity_categories = summarize_update_parity(events)
     max_abs_event_frame_delta = max((abs(row["event_frame_delta"]) for row in timing_deltas), default=0)
+    max_row_transition_frame_delta = max(
+        (abs(row["event_frame_delta"]) for row in row_transition_timing_deltas),
+        default=0,
+    )
+    max_planned_vs_applied_delta = int(
+        max_numeric(events, "maxPlannedVsAppliedDelta")
+        or max_abs_event_frame_delta
+    )
+    applied_planned_event_counter = int(max_numeric(events, "appliedPlannedEventCount") or 0)
+    exact_frame_applied_event_counter = int(max_numeric(events, "exactFrameAppliedEventCount") or 0)
+    callback_boundary_applied_event_counter = int(max_numeric(events, "callbackBoundaryAppliedEventCount") or 0)
+    late_planned_event_counter = int(max_numeric(events, "latePlannedEventCount") or 0)
+    applied_planned_event_count = (
+        applied_planned_event_counter
+        if applied_planned_event_counter > 0
+        else len(planned_adapter_event_applications)
+    )
+    exact_frame_applied_event_count = (
+        exact_frame_applied_event_counter
+        if exact_frame_applied_event_counter > 0
+        else count_if(
+            planned_adapter_event_applications,
+            lambda event: event.get("eventApplicationTiming") == "exact_frame",
+        )
+    )
+    callback_boundary_applied_event_count = max(
+        callback_boundary_applied_event_counter,
+        len(callback_events),
+    )
+    late_planned_event_count = (
+        late_planned_event_counter
+        if late_planned_event_counter > 0
+        else count_if(
+            planned_adapter_event_applications,
+            lambda event: event.get("eventApplicationTiming") == "late",
+        )
+    )
     observed_adapter_plan = any(event.get("runtimeEventSource") == "offline_adapter_plan" for event in events)
+    observed_sample_time_queue = any(
+        event.get("inCallbackOffset") is not None
+        or event.get("sameFrameBurstSize") is not None
+        or event.get("appliedPlannedEventCount") is not None
+        for event in events
+    )
 
     suspicious_findings: list[str] = []
     if clipping_count > 0:
@@ -499,10 +584,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("runtime update deferrals remain")
     if bursts and bursts[0]["event_count"] >= 24:
         suspicious_findings.append("large same-row/tick runtime event burst observed")
-    if max_abs_event_frame_delta > 0:
-        suspicious_findings.append("planned-vs-runtime event frame deltas observed")
-    if callback_events:
+    if max_planned_vs_applied_delta > 0:
+        suspicious_findings.append("planned-vs-applied event frame deltas observed")
+    if callback_boundary_applied_event_count > 0:
         suspicious_findings.append("events applied at callback boundaries instead of planned frames")
+    if late_planned_event_count > 0:
+        suspicious_findings.append("late planned events observed")
     if same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24:
         suspicious_findings.append("large same-frame runtime event burst observed")
     if transition_bursts and transition_bursts[0]["event_count"] >= 24:
@@ -510,12 +597,16 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
     large_same_frame_burst = bool(same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24)
-    has_sample_time_delta = max_abs_event_frame_delta > 0 or bool(callback_events)
+    has_sample_time_delta = (
+        max_planned_vs_applied_delta > 0
+        or callback_boundary_applied_event_count > 0
+        or late_planned_event_count > 0
+    )
 
     if hard_replacement_stops:
         recommended_next_pr = "Runtime C Mixer Hard Stop / Replacement Follow-Up"
     elif has_sample_time_delta:
-        recommended_next_pr = "Runtime C Mixer Sample-Time Event Scheduling Bridge"
+        recommended_next_pr = "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation"
     elif large_same_frame_burst:
         recommended_next_pr = "Runtime C Mixer Same-Frame Event Burst Stabilization"
     elif deferred_updates or action_counts["c_mixer_stop_channel"] > 0 or large_event_burst:
@@ -582,13 +673,18 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "runtime_vs_offline_adapter_categories": parity_categories,
         "event_stream": {
             "runtime_driver": (
-                "offline adapter plan consumed by PlaybackEngine tick clock"
+                "offline adapter plan applied by runtime sample-time render queue"
+                if observed_adapter_plan and observed_sample_time_queue
+                else "offline adapter plan consumed by PlaybackEngine tick clock"
                 if observed_adapter_plan
                 else "PlaybackEngine timer/control events"
             ),
             "offline_adapter_event_stream_observed": observed_adapter_plan,
+            "sample_time_render_queue_observed": observed_sample_time_queue,
             "assessment": (
-                "runtime trace consumed planned offline-adapter events; inspect sample-time alignment fields for callback-boundary drift"
+                "runtime trace applied planned offline-adapter events with callback-range and in-callback offset diagnostics"
+                if observed_adapter_plan and observed_sample_time_queue
+                else "runtime trace consumed planned offline-adapter events; inspect sample-time alignment fields for callback-boundary drift"
                 if observed_adapter_plan
                 else "runtime trace is driven by PlaybackEngine actions, not the richer bounded offline adapter event stream"
             ),
@@ -596,7 +692,15 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "event_bursts": bursts,
         "sample_time_alignment": {
             "max_abs_event_frame_delta": max_abs_event_frame_delta,
+            "max_planned_vs_applied_delta": max_planned_vs_applied_delta,
+            "max_row_transition_frame_delta": max_row_transition_frame_delta,
+            "applied_planned_event_count": applied_planned_event_count,
+            "exact_frame_applied_event_count": exact_frame_applied_event_count,
+            "callback_boundary_applied_event_count": callback_boundary_applied_event_count,
+            "delayed_to_callback_boundary_count": callback_boundary_applied_event_count,
+            "late_planned_event_count": late_planned_event_count,
             "largest_event_timing_deltas": timing_deltas,
+            "row_transition_timing_deltas": row_transition_timing_deltas,
             "callback_boundary_event_count": len(callback_events),
             "callback_boundary_events": callback_events,
             "same_frame_event_bursts": same_frame_bursts,
@@ -632,8 +736,12 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Applied step updates: {updates['applied_step_update_events']}",
         f"- Suppressed no-change updates: {updates['suppressed_no_change_update_events']}",
         f"- Stored channel-state updates: {updates['stored_channel_state_update_events']}",
-        f"- Max planned-vs-runtime frame delta: {alignment['max_abs_event_frame_delta']}",
-        f"- Callback-boundary timing events: {alignment['callback_boundary_event_count']}",
+        f"- Max planned event frame delta: {alignment['max_abs_event_frame_delta']}",
+        f"- Max planned-vs-applied frame delta: {alignment['max_planned_vs_applied_delta']}",
+        f"- Max row-transition frame delta: {alignment['max_row_transition_frame_delta']}",
+        f"- Planned events applied at exact frames: {alignment['exact_frame_applied_event_count']}",
+        f"- Planned events delayed to callback boundaries: {alignment['callback_boundary_applied_event_count']}",
+        f"- Late planned events: {alignment['late_planned_event_count']}",
         "",
         "## Stop Paths",
         "",
@@ -659,6 +767,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
     lines.extend(["", "## Event Stream", ""])
     lines.append(f"- Runtime driver: {summary['event_stream']['runtime_driver']}")
     lines.append(f"- Offline adapter event stream observed: {summary['event_stream']['offline_adapter_event_stream_observed']}")
+    lines.append(f"- Sample-time render queue observed: {summary['event_stream']['sample_time_render_queue_observed']}")
     lines.append(f"- Assessment: {summary['event_stream']['assessment']}")
 
     lines.extend(["", "## Event Bursts", ""])
@@ -671,16 +780,28 @@ def build_markdown(summary: dict[str, Any]) -> str:
 
     lines.extend(["", "## Sample-Time Alignment", ""])
     if alignment["largest_event_timing_deltas"]:
-        lines.append("- Largest planned-vs-runtime frame deltas:")
+        lines.append("- Largest planned event frame deltas:")
         for row in alignment["largest_event_timing_deltas"][:5]:
             context = f"order={row['order_index']} pattern={row['pattern_index']} row={row['row_index']} tick={row['tick_in_row']}"
             lines.append(
                 f"- {context} action={row['runtime_action']} category={row['runtime_event_category']} "
-                f"planned_runtime_frame={row['planned_runtime_frame']} runtime_application_frame={row['runtime_application_frame']} "
-                f"delta={row['event_frame_delta']} timing={row['event_application_timing']}"
+                f"planned_runtime_frame={row['planned_runtime_frame']} event_applied_frame={row['event_applied_frame']} "
+                f"in_callback_offset={row['in_callback_offset']} delta={row['planned_vs_applied_delta']} "
+                f"timing={row['event_application_timing']} burst={row['same_frame_burst_size']}"
             )
     else:
-        lines.append("- Largest planned-vs-runtime frame deltas: none")
+        lines.append("- Largest planned event frame deltas: none")
+    if alignment["row_transition_timing_deltas"]:
+        lines.append("- Row-transition frame deltas:")
+        for row in alignment["row_transition_timing_deltas"][:5]:
+            context = f"order={row['order_index']} pattern={row['pattern_index']} row={row['row_index']} tick={row['tick_in_row']}"
+            lines.append(
+                f"- {context} action={row['runtime_action']} "
+                f"planned_runtime_frame={row['planned_runtime_frame']} "
+                f"runtime_application_frame={row['runtime_application_frame']} delta={row['event_frame_delta']}"
+            )
+    else:
+        lines.append("- Row-transition frame deltas: none")
     if alignment["same_frame_event_bursts"]:
         lines.append("- Same-frame event bursts:")
         for burst in alignment["same_frame_event_bursts"][:5]:

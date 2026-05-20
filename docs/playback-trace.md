@@ -250,9 +250,9 @@ gain/pan update attempts, sample-step update attempts,
 global clear-all calls. These counters correspond to the runtime diagnostics categories
 `update_suppressed_epsilon_gain`, `update_suppressed_epsilon_pan`,
 `update_suppressed_epsilon_step`, `update_suppressed_no_change`, and
-`update_applied_after_epsilon_filter`. The current runtime path has no separate
-event queue, so `eventQueueBacklogCount` is reported as `0` when a runtime C
-mixer snapshot is available.
+`update_applied_after_epsilon_filter`. Runtime C mixer snapshots also report
+`eventQueueBacklogCount`; when the offline-adapter plan is active this is the
+count of planned events still waiting for their render callback frame.
 
 ### Runtime Adapter Event Bridge Diagnostics
 
@@ -284,11 +284,13 @@ mixer continues through the simpler runtime event bridge.
 
 ### Runtime Sample-Time Alignment Diagnostics
 
-The experimental runtime C mixer trace also carries sample-time diagnostics for
-checking whether live-only clicks or stumbles line up with event timing rather
-than missing events, clipping, underruns, or C mixer DSP. These fields are
-diagnostic-only; they do not make the C mixer the default backend, change the
-default AVAudio backend, add a UI toggle, or change offline render semantics.
+The experimental runtime C mixer now queues planned offline-adapter events by
+their intended runtime frame and applies them inside the AVAudio source-node
+render callback. When an event falls within a callback range, the runtime C
+mixer renders up to the event offset, applies the event, then continues the
+callback render. These fields are diagnostic-only outside the opt-in backend;
+they do not make the C mixer the default backend, change the default AVAudio
+backend, add a UI toggle, or change offline render semantics.
 
 Runtime snapshot rows may include:
 
@@ -310,14 +312,26 @@ Offline-adapter event rows may include:
   offset, when the offset is computable
 - `runtimeApplicationFrame`: the runtime C mixer frame when the event was
   applied
+- `eventAppliedFrame`: the exact runtime C mixer frame at which the render
+  queue applied the event
+- `inCallbackOffset`: the event offset inside the callback range
 - `eventFrameDelta`: `runtimeApplicationFrame - plannedRuntimeFrame`, when
   both are computable
+- `plannedVsAppliedDelta`: `eventAppliedFrame - plannedRuntimeFrame`, when
+  both are computable
+- `sameFrameBurstSize`: number of planned events applied at the same runtime
+  frame
 - `runtimeEventCategory`: normalized categories such as `note_trigger`,
   `replacement_stop_ramp`, `gain_pan_update`, `step_pitch_update`,
   `ecx_edx_e9x`, `hxy_global_volume`, `key_off_fadeout`, and
   `row_transition`
-- `eventApplicationTiming`: `exact_frame`, `callback_start`, `tick_boundary`,
-  `row_boundary`, or `unknown`
+- `eventApplicationTiming`: `exact_frame`, `callback_start`, `late`,
+  `tick_boundary`, `row_boundary`, or `unknown`
+
+Runtime snapshots also include cumulative `appliedPlannedEventCount`,
+`exactFrameAppliedEventCount`, `callbackBoundaryAppliedEventCount`,
+`latePlannedEventCount`, and `maxPlannedVsAppliedDelta`. Late events are traced
+and applied at the start of the current callback rather than silently dropped.
 
 Row transitions are traced with a before-event `row_transition` breadcrumb and
 an after-event `row_transition_after_events` breadcrumb. These rows may include
@@ -353,9 +367,9 @@ The summary focuses on runtime-only artifact evidence:
 - applied gain/pan and step updates, suppressed no-change updates, stored
   channel-state updates, and remaining deferred update categories
 - active/loaded voice ranges and largest same-row/tick event bursts
-- largest planned-vs-runtime event timing deltas, callback-boundary event
-  applications, same-frame event bursts, order/row transition bursts, and top
-  suspicious order/row/tick positions
+- largest planned-vs-applied event timing deltas, exact-frame/callback-boundary
+  application counts, late planned-event counts, same-frame event bursts,
+  order/row transition bursts, and top suspicious order/row/tick positions
 - runtime evidence for categories that the richer offline adapter can emit:
   gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
   `1xx`/`2xx`/`3xx` updates

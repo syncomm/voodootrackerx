@@ -160,6 +160,14 @@ invalid, the runtime C mixer falls back to the default conservative policy and
 reports `runtimeGainConfigurationWarning` in the trace. These variables are
 ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental backend.
 
+For local epsilon/delta guard diagnostics, Debug builds also accept
+`VTX_C_MIXER_RUNTIME_UPDATE_EPSILON` when the experimental backend is selected.
+The default remains `1e-5`; use `0` only for local/synthetic comparison runs to
+see whether tiny gain/pan/sample-step changes move from `suppressed_epsilon` to
+applied trace rows. Trace rows report the active `runtimeUpdateEpsilon` and
+policy. This is diagnostic-only and does not affect the default AVAudio backend
+or offline WAV export.
+
 When comparing a specific start point, use the existing debug launch controls:
 
 ```bash
@@ -243,7 +251,15 @@ runtime plan is active.
 This is intended to show whether a harsh transition lines up with a clear-all,
 many channel stops, a burst of new note triggers or control updates, a
 voice-count collapse/spike, zero-fill/underrun evidence, remaining clipping
-after runtime gain, or a backend reset.
+after runtime gain, a backend reset, or epsilon-suppressed updates near the same
+runtime frame.
+
+The runtime C mixer trace now keeps lower-threshold transient evidence as well:
+cumulative adjacent same-channel jump counts for `0.25`, `0.35`, `0.50`, and
+the existing high threshold, bounded top adjacent jumps, top output peaks above
+`0.95`, and peak/clip locations above `1.0`. Replacement ramp cleanup snapshots
+include ramp start/completion counts, voices still ramping out, and any abrupt
+removal of a voice while its ramp was active.
 
 Runtime C mixer traces also include sample-time event-application breadcrumbs
 for the opt-in backend. Planned offline-adapter events are queued by intended
@@ -321,8 +337,10 @@ The summary is diagnostic-only. It reports peak/clipping/underrun/zero-fill
 and failed-render counters, add-voice counts, ramped replacement stops,
 immediate hard channel stops, normal-playback clear-all evidence, active and
 loaded voice ranges, applied gain/pan and step updates, suppressed no-change
-updates, stored channel-state updates, remaining deferred update categories,
-same-row/tick event bursts, largest planned-vs-applied frame deltas,
+updates, epsilon-suppressed field counts and motion assessment, stored
+channel-state updates, remaining deferred update categories, lower-threshold
+discontinuity counts, top jumps, top peaks, same-row/tick event bursts, largest
+planned-vs-applied frame deltas,
 exact-frame and callback-boundary application counts, late planned events,
 same-frame event bursts, max/average/median row-transition deltas,
 PlaybackEngine-vs-C-mixer position frame/millisecond delta statistics,

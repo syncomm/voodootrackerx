@@ -134,6 +134,22 @@ final class CSoftwareMixer {
         Int(vtx_c_mixer_active_voice_count(&state))
     }
 
+    var rampingOutVoiceCount: Int {
+        Int(vtx_c_mixer_ramping_out_voice_count(&state))
+    }
+
+    var rampDownStartCount: UInt64 {
+        vtx_c_mixer_ramp_down_start_count(&state)
+    }
+
+    var rampDownCompletionCount: UInt64 {
+        vtx_c_mixer_ramp_down_completion_count(&state)
+    }
+
+    var abruptRampDownStopCount: UInt64 {
+        vtx_c_mixer_abrupt_ramp_down_stop_count(&state)
+    }
+
     var currentFrame: UInt64 {
         vtx_c_mixer_current_frame(&state)
     }

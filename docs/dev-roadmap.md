@@ -188,6 +188,12 @@ the published playback-follow position when the planned adapter timeline is
 available, while the default AVAudio backend continues to publish the existing
 timer-based position. Runtime traces distinguish the `PlaybackEngine` timer
 position, the C mixer sample-time position, and the published follow position.
+Runtime transient/burst diagnostics now add lower adjacent-sample thresholds,
+bounded top jumps and peaks, same-frame burst summaries with event categories and
+voice counts, replacement ramp cleanup counters, epsilon-suppression correlation,
+and a local-only update-epsilon override for diagnostics. These additions remain
+diagnostic-only; the runtime C mixer is still experimental and opt-in, AVAudio
+remains default, and broad stabilization remains separate.
 Stop/spacebar behavior, broader runtime stabilization, and any tracker viewport
 polish remain separate future work.
 
@@ -258,7 +264,8 @@ Immediate audio accuracy sequence:
 63. Runtime C Mixer Sample-Time Event Scheduling Bridge — done
 64. Runtime C Mixer Playback Follow Position Drift Investigation — done
 65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — done
-66. Reference comparison stabilization against MikMod/OpenMPT
+66. Runtime C Mixer Transient / Event-Burst Diagnostics — done
+67. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

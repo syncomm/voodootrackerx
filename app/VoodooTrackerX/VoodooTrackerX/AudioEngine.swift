@@ -66,6 +66,27 @@ protocol PlaybackFollowPositionProviding: AnyObject {
     func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition?
 }
 
+struct RuntimeCMixerDiscontinuityThresholdCount: Encodable, Equatable {
+    let threshold: Float
+    let count: UInt64
+}
+
+struct RuntimeCMixerTopOutputSampleJump: Encodable, Equatable {
+    let sampleJump: Float
+    let runtimeFrame: UInt64
+    let callbackIndex: UInt64
+    let frameOffset: Int
+    let channelIndex: Int
+}
+
+struct RuntimeCMixerTopOutputPeak: Encodable, Equatable {
+    let peak: Float
+    let runtimeFrame: UInt64
+    let callbackIndex: UInt64
+    let frameOffset: Int
+    let channelIndex: Int
+}
+
 struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let schemaVersion: Int
     let runtimeAction: String
@@ -208,12 +229,17 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let lastOutputRMS: Float?
     let outputDiscontinuityThreshold: Float?
     let outputDiscontinuityCount: UInt64?
+    let outputDiscontinuityThresholdCounts: [RuntimeCMixerDiscontinuityThresholdCount]?
     let maxOutputAdjacentSampleJump: Float?
+    let topOutputAdjacentSampleJumps: [RuntimeCMixerTopOutputSampleJump]?
     let lastOutputDiscontinuitySampleJump: Float?
     let lastOutputDiscontinuityCallbackIndex: UInt64?
     let lastOutputDiscontinuityRuntimeFrame: UInt64?
     let lastOutputDiscontinuityFrameOffset: Int?
     let lastOutputDiscontinuityChannelIndex: Int?
+    let outputPeakWarningThreshold: Float?
+    let outputPeakWarningSampleCount: UInt64?
+    let topOutputPeaks: [RuntimeCMixerTopOutputPeak]?
     let overrangeSampleCount: UInt64?
     let clippingSampleCount: UInt64?
     let clippingDetected: Bool?
@@ -224,6 +250,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeFixedHeadroomDB: Double?
     let runtimeGainConfigurationWarning: String?
     let runtimeClippingRecommendation: String?
+    let runtimeUpdateEpsilon: Double?
+    let runtimeUpdateEpsilonPolicy: String?
+    let runtimeUpdateEpsilonConfigurationWarning: String?
     let noteTriggerEventCount: UInt64?
     let cMixerAddVoiceCount: UInt64?
     let gainPanUpdateCount: UInt64?
@@ -236,6 +265,10 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let stopChannelCount: UInt64?
     let replacementRampCount: UInt64?
     let clearAllCount: UInt64?
+    let rampingOutVoiceCount: Int?
+    let rampDownStartCount: UInt64?
+    let rampDownCompletionCount: UInt64?
+    let abruptRampDownStopCount: UInt64?
     let previousOrderIndex: Int?
     let previousPatternIndex: Int?
     let previousRowIndex: Int?
@@ -380,12 +413,17 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         lastOutputRMS: Float? = nil,
         outputDiscontinuityThreshold: Float? = nil,
         outputDiscontinuityCount: UInt64? = nil,
+        outputDiscontinuityThresholdCounts: [RuntimeCMixerDiscontinuityThresholdCount]? = nil,
         maxOutputAdjacentSampleJump: Float? = nil,
+        topOutputAdjacentSampleJumps: [RuntimeCMixerTopOutputSampleJump]? = nil,
         lastOutputDiscontinuitySampleJump: Float? = nil,
         lastOutputDiscontinuityCallbackIndex: UInt64? = nil,
         lastOutputDiscontinuityRuntimeFrame: UInt64? = nil,
         lastOutputDiscontinuityFrameOffset: Int? = nil,
         lastOutputDiscontinuityChannelIndex: Int? = nil,
+        outputPeakWarningThreshold: Float? = nil,
+        outputPeakWarningSampleCount: UInt64? = nil,
+        topOutputPeaks: [RuntimeCMixerTopOutputPeak]? = nil,
         overrangeSampleCount: UInt64? = nil,
         clippingSampleCount: UInt64? = nil,
         clippingDetected: Bool? = nil,
@@ -396,6 +434,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeFixedHeadroomDB: Double? = nil,
         runtimeGainConfigurationWarning: String? = nil,
         runtimeClippingRecommendation: String? = nil,
+        runtimeUpdateEpsilon: Double? = nil,
+        runtimeUpdateEpsilonPolicy: String? = nil,
+        runtimeUpdateEpsilonConfigurationWarning: String? = nil,
         noteTriggerEventCount: UInt64? = nil,
         cMixerAddVoiceCount: UInt64? = nil,
         gainPanUpdateCount: UInt64? = nil,
@@ -408,6 +449,10 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         stopChannelCount: UInt64? = nil,
         replacementRampCount: UInt64? = nil,
         clearAllCount: UInt64? = nil,
+        rampingOutVoiceCount: Int? = nil,
+        rampDownStartCount: UInt64? = nil,
+        rampDownCompletionCount: UInt64? = nil,
+        abruptRampDownStopCount: UInt64? = nil,
         previousOrderIndex: Int? = nil,
         previousPatternIndex: Int? = nil,
         previousRowIndex: Int? = nil,
@@ -562,12 +607,17 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.lastOutputRMS = lastOutputRMS
         self.outputDiscontinuityThreshold = outputDiscontinuityThreshold
         self.outputDiscontinuityCount = outputDiscontinuityCount
+        self.outputDiscontinuityThresholdCounts = outputDiscontinuityThresholdCounts
         self.maxOutputAdjacentSampleJump = maxOutputAdjacentSampleJump
+        self.topOutputAdjacentSampleJumps = topOutputAdjacentSampleJumps
         self.lastOutputDiscontinuitySampleJump = lastOutputDiscontinuitySampleJump
         self.lastOutputDiscontinuityCallbackIndex = lastOutputDiscontinuityCallbackIndex
         self.lastOutputDiscontinuityRuntimeFrame = lastOutputDiscontinuityRuntimeFrame
         self.lastOutputDiscontinuityFrameOffset = lastOutputDiscontinuityFrameOffset
         self.lastOutputDiscontinuityChannelIndex = lastOutputDiscontinuityChannelIndex
+        self.outputPeakWarningThreshold = outputPeakWarningThreshold
+        self.outputPeakWarningSampleCount = outputPeakWarningSampleCount
+        self.topOutputPeaks = topOutputPeaks
         self.overrangeSampleCount = overrangeSampleCount
         self.clippingSampleCount = clippingSampleCount
         self.clippingDetected = clippingDetected
@@ -578,6 +628,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeFixedHeadroomDB = runtimeFixedHeadroomDB
         self.runtimeGainConfigurationWarning = runtimeGainConfigurationWarning
         self.runtimeClippingRecommendation = runtimeClippingRecommendation
+        self.runtimeUpdateEpsilon = runtimeUpdateEpsilon
+        self.runtimeUpdateEpsilonPolicy = runtimeUpdateEpsilonPolicy
+        self.runtimeUpdateEpsilonConfigurationWarning = runtimeUpdateEpsilonConfigurationWarning
         self.noteTriggerEventCount = noteTriggerEventCount
         self.cMixerAddVoiceCount = cMixerAddVoiceCount
         self.gainPanUpdateCount = gainPanUpdateCount
@@ -590,6 +643,10 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.stopChannelCount = stopChannelCount
         self.replacementRampCount = replacementRampCount
         self.clearAllCount = clearAllCount
+        self.rampingOutVoiceCount = rampingOutVoiceCount
+        self.rampDownStartCount = rampDownStartCount
+        self.rampDownCompletionCount = rampDownCompletionCount
+        self.abruptRampDownStopCount = abruptRampDownStopCount
         self.previousOrderIndex = previousOrderIndex
         self.previousPatternIndex = previousPatternIndex
         self.previousRowIndex = previousRowIndex
@@ -726,6 +783,9 @@ enum PlaybackAudioOutputFactory {
         let outputPolicy = selection.backend == .cMixer
             ? RuntimeCMixerOutputPolicy.resolve(environment: environment)
             : nil
+        let updatePolicy = selection.backend == .cMixer
+            ? RuntimeCMixerUpdatePolicy.resolve(environment: environment)
+            : nil
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
@@ -735,6 +795,11 @@ enum PlaybackAudioOutputFactory {
         if let warning = outputPolicy?.configurationWarning {
             logger.warning(
                 "Runtime C mixer output policy warning=\(warning, privacy: .public) gain=\(outputPolicy?.outputGain ?? 1, privacy: .public)"
+            )
+        }
+        if let warning = updatePolicy?.configurationWarning {
+            logger.warning(
+                "Runtime C mixer update policy warning=\(warning, privacy: .public) epsilon=\(updatePolicy?.updateEpsilon ?? RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon, privacy: .public)"
             )
         }
         logger.info(
@@ -757,6 +822,9 @@ enum PlaybackAudioOutputFactory {
                 runtimeAutoHeadroomEnabled: outputPolicy?.autoHeadroomEnabled,
                 runtimeFixedHeadroomDB: outputPolicy?.fixedHeadroomDB,
                 runtimeGainConfigurationWarning: outputPolicy?.configurationWarning,
+                runtimeUpdateEpsilon: updatePolicy?.updateEpsilon,
+                runtimeUpdateEpsilonPolicy: updatePolicy?.updateEpsilonPolicy,
+                runtimeUpdateEpsilonConfigurationWarning: updatePolicy?.configurationWarning,
                 cMixerCallSucceeded: nil,
                 reason: selection.fallbackReason
             ))
@@ -767,6 +835,7 @@ enum PlaybackAudioOutputFactory {
         case .cMixer:
             return RuntimeCMixerAudioEngine(
                 outputPolicy: outputPolicy ?? .defaultPolicy,
+                updatePolicy: updatePolicy ?? .defaultPolicy,
                 traceWriter: runtimeCMixerTraceWriter
             )
         }
@@ -806,12 +875,17 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let lastOutputRMS: Float
     let outputDiscontinuityThreshold: Float
     let outputDiscontinuityCount: UInt64
+    let outputDiscontinuityThresholdCounts: [RuntimeCMixerDiscontinuityThresholdCount]
     let maxOutputAdjacentSampleJump: Float
+    let topOutputAdjacentSampleJumps: [RuntimeCMixerTopOutputSampleJump]
     let lastOutputDiscontinuitySampleJump: Float?
     let lastOutputDiscontinuityCallbackIndex: UInt64?
     let lastOutputDiscontinuityRuntimeFrame: UInt64?
     let lastOutputDiscontinuityFrameOffset: Int?
     let lastOutputDiscontinuityChannelIndex: Int?
+    let outputPeakWarningThreshold: Float
+    let outputPeakWarningSampleCount: UInt64
+    let topOutputPeaks: [RuntimeCMixerTopOutputPeak]
     let overrangeSampleCount: UInt64
     let clippingSampleCount: UInt64
     let clippingDetected: Bool
@@ -821,12 +895,19 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let runtimeFixedHeadroomDB: Double?
     let runtimeGainConfigurationWarning: String?
     let runtimeClippingRecommendation: String?
+    let runtimeUpdateEpsilon: Double
+    let runtimeUpdateEpsilonPolicy: String
+    let runtimeUpdateEpsilonConfigurationWarning: String?
     let currentFrame: UInt64
     let appliedPlannedEventCount: UInt64
     let exactFrameAppliedEventCount: UInt64
     let callbackBoundaryAppliedEventCount: UInt64
     let latePlannedEventCount: UInt64
     let maxPlannedVsAppliedDelta: Int
+    let rampingOutVoiceCount: Int
+    let rampDownStartCount: UInt64
+    let rampDownCompletionCount: UInt64
+    let abruptRampDownStopCount: UInt64
 }
 
 struct RuntimeCMixerOutputPolicy: Equatable {
@@ -923,17 +1004,97 @@ struct RuntimeCMixerOutputPolicy: Equatable {
     }
 }
 
+struct RuntimeCMixerUpdatePolicy: Equatable {
+    static let epsilonEnvironmentKey = "VTX_C_MIXER_RUNTIME_UPDATE_EPSILON"
+    static let defaultUpdateEpsilon = 0.00001
+
+    static let defaultPolicy = RuntimeCMixerUpdatePolicy(
+        updateEpsilon: defaultUpdateEpsilon,
+        updateEpsilonPolicy: "default_runtime_update_epsilon"
+    )
+
+    let updateEpsilon: Double
+    let updateEpsilonPolicy: String
+    let configurationWarning: String?
+
+    init(
+        updateEpsilon: Double,
+        updateEpsilonPolicy: String,
+        configurationWarning: String? = nil
+    ) {
+        self.updateEpsilon = updateEpsilon.isFinite && updateEpsilon >= 0
+            ? updateEpsilon
+            : Self.defaultUpdateEpsilon
+        self.updateEpsilonPolicy = updateEpsilonPolicy
+        self.configurationWarning = configurationWarning
+    }
+
+    static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeCMixerUpdatePolicy {
+        guard let rawEpsilon = trimmedEnvironmentValue(environment[epsilonEnvironmentKey]) else {
+            return defaultPolicy
+        }
+        guard let parsedEpsilon = Double(rawEpsilon),
+              parsedEpsilon.isFinite,
+              parsedEpsilon >= 0,
+              parsedEpsilon <= 0.01 else {
+            return defaultPolicy.withWarning("invalid_runtime_update_epsilon")
+        }
+        return RuntimeCMixerUpdatePolicy(
+            updateEpsilon: parsedEpsilon,
+            updateEpsilonPolicy: "env_runtime_update_epsilon"
+        )
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func withWarning(_ warning: String) -> RuntimeCMixerUpdatePolicy {
+        RuntimeCMixerUpdatePolicy(
+            updateEpsilon: updateEpsilon,
+            updateEpsilonPolicy: "\(updateEpsilonPolicy)_fallback",
+            configurationWarning: warning
+        )
+    }
+}
+
 private struct RuntimeCMixerOutputMetrics: Equatable {
+    struct SampleJump: Equatable {
+        let sampleJump: Float
+        let frameOffset: Int
+        let channelIndex: Int
+    }
+
+    struct Peak: Equatable {
+        let peak: Float
+        let frameOffset: Int
+        let channelIndex: Int
+    }
+
     let sampleCount: Int
     let peak: Float
     let squareSum: Double
-    let discontinuityCount: Int
+    let discontinuityCount025: Int
+    let discontinuityCount035: Int
+    let discontinuityCount050: Int
+    let discontinuityCount075: Int
     let maxAdjacentSampleJump: Float
+    let topAdjacentSampleJumps: [SampleJump]
     let maxDiscontinuityFrameOffset: Int?
     let maxDiscontinuityChannelIndex: Int?
     let maxDiscontinuitySampleJump: Float?
+    let peakWarningSampleCount: Int
+    let topPeaks: [Peak]
     let overrangeSampleCount: Int
     let clippingSampleCount: Int
+
+    var discontinuityCount: Int {
+        discontinuityCount075
+    }
 
     var rms: Float {
         guard sampleCount > 0 else {
@@ -950,11 +1111,17 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
         sampleCount: 0,
         peak: 0,
         squareSum: 0,
-        discontinuityCount: 0,
+        discontinuityCount025: 0,
+        discontinuityCount035: 0,
+        discontinuityCount050: 0,
+        discontinuityCount075: 0,
         maxAdjacentSampleJump: 0,
+        topAdjacentSampleJumps: [],
         maxDiscontinuityFrameOffset: nil,
         maxDiscontinuityChannelIndex: nil,
         maxDiscontinuitySampleJump: nil,
+        peakWarningSampleCount: 0,
+        topPeaks: [],
         overrangeSampleCount: 0,
         clippingSampleCount: 0
     )
@@ -1207,8 +1374,10 @@ fileprivate struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatab
 }
 
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
-    static let updateEpsilon = 0.00001
+    static let updateEpsilon = RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon
     static let outputDiscontinuityThreshold = Float(0.75)
+    static let outputPeakWarningThreshold = Float(0.95)
+    static let transientDiagnosticTopCount = 8
 
     private let lock = NSLock()
     private let mixer: CSoftwareMixer
@@ -1243,13 +1412,19 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var outputPeak = Float(0)
     private var lastOutputPeak = Float(0)
     private var lastOutputRMS = Float(0)
+    private var outputDiscontinuityCount025: UInt64 = 0
+    private var outputDiscontinuityCount035: UInt64 = 0
+    private var outputDiscontinuityCount050: UInt64 = 0
     private var outputDiscontinuityCount: UInt64 = 0
     private var maxOutputAdjacentSampleJump = Float(0)
+    private var topOutputAdjacentSampleJumps = [RuntimeCMixerTopOutputSampleJump]()
     private var lastOutputDiscontinuitySampleJump: Float?
     private var lastOutputDiscontinuityCallbackIndex: UInt64?
     private var lastOutputDiscontinuityRuntimeFrame: UInt64?
     private var lastOutputDiscontinuityFrameOffset: Int?
     private var lastOutputDiscontinuityChannelIndex: Int?
+    private var outputPeakWarningSampleCount: UInt64 = 0
+    private var topOutputPeaks = [RuntimeCMixerTopOutputPeak]()
     private var overrangeSampleCount: UInt64 = 0
     private var clippingSampleCount: UInt64 = 0
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
@@ -1263,17 +1438,22 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     let config: MixerRenderConfig
     let outputPolicy: RuntimeCMixerOutputPolicy
+    let updatePolicy: RuntimeCMixerUpdatePolicy
 
     init(
         config: MixerRenderConfig = MixerRenderConfig(),
         maximumRenderFrames: Int = 16_384,
-        outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy
+        outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
+        updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
+        self.updatePolicy = updatePolicy
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         mixer = CSoftwareMixer(config: config)
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
+        topOutputAdjacentSampleJumps.reserveCapacity(Self.transientDiagnosticTopCount)
+        topOutputPeaks.reserveCapacity(Self.transientDiagnosticTopCount)
     }
 
     @discardableResult
@@ -1749,7 +1929,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: voiceState.pan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: voiceState.sampleStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: nextGain,
                 panRequested: nextPan,
                 sampleStepRequested: nextSampleStep,
@@ -1809,7 +1989,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: nextPan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: nextSampleStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: nextGain,
                 panRequested: nextPan,
                 sampleStepRequested: nextSampleStep,
@@ -1857,7 +2037,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             panAfter: voiceState.pan,
             sampleStepBefore: sampleStepBefore,
             sampleStepAfter: voiceState.sampleStep,
-            updateEpsilon: Self.updateEpsilon,
+            updateEpsilon: updatePolicy.updateEpsilon,
             gainRequested: nextGain,
             panRequested: nextPan,
             sampleStepRequested: nextSampleStep,
@@ -1870,7 +2050,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
             epsilonSuppressedPan: panDecision.suppressedByEpsilon,
             epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
-            appliedAfterEpsilonFilter: true,
+            appliedAfterEpsilonFilter: epsilonSuppressed,
             disposition: "update_applied",
             updateType: updateType,
             succeeded: true,
@@ -1909,7 +2089,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: nextControlState.panning,
                 sampleStepBefore: nil,
                 sampleStepAfter: nil,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: nextControlState.volumeScale,
                 panRequested: nextControlState.panning,
                 sampleStepRequested: nextControlState.pitchOffsetSemitones,
@@ -1955,7 +2135,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: panChanged ? nextControlState.panning : currentControlState.panning,
                 sampleStepBefore: nil,
                 sampleStepAfter: nil,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: nextControlState.volumeScale,
                 panRequested: nextControlState.panning,
                 sampleStepRequested: nextControlState.pitchOffsetSemitones,
@@ -1993,7 +2173,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: currentControlState.panning,
                 sampleStepBefore: nil,
                 sampleStepAfter: nil,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: nextControlState.volumeScale,
                 panRequested: nextControlState.panning,
                 sampleStepRequested: nextControlState.pitchOffsetSemitones,
@@ -2035,7 +2215,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             panAfter: nextControlState.panning,
             sampleStepBefore: nil,
             sampleStepAfter: nil,
-            updateEpsilon: Self.updateEpsilon,
+            updateEpsilon: updatePolicy.updateEpsilon,
             gainRequested: nextControlState.volumeScale,
             panRequested: nextControlState.panning,
             sampleStepRequested: nextControlState.pitchOffsetSemitones,
@@ -2149,7 +2329,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: voiceState.pan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: voiceState.sampleStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: gain,
                 panRequested: pan,
                 gainDelta: gainDecision?.delta,
@@ -2186,7 +2366,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: pan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: voiceState.sampleStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 gainRequested: gain,
                 panRequested: pan,
                 gainDelta: gainDecision?.delta,
@@ -2219,7 +2399,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             panAfter: voiceState.pan,
             sampleStepBefore: voiceState.sampleStep,
             sampleStepAfter: voiceState.sampleStep,
-            updateEpsilon: Self.updateEpsilon,
+            updateEpsilon: updatePolicy.updateEpsilon,
             gainRequested: gain,
             panRequested: pan,
             gainDelta: gainDecision?.delta,
@@ -2323,7 +2503,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: voiceState.pan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: voiceState.sampleStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 sampleStepRequested: playbackStep,
                 sampleStepDelta: stepDecision.delta,
                 sampleStepUpdateStatus: stepDecision.status,
@@ -2355,7 +2535,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 panAfter: voiceState.pan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: playbackStep,
-                updateEpsilon: Self.updateEpsilon,
+                updateEpsilon: updatePolicy.updateEpsilon,
                 sampleStepRequested: playbackStep,
                 sampleStepDelta: stepDecision.delta,
                 sampleStepUpdateStatus: stepDecision.status,
@@ -2383,7 +2563,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             panAfter: voiceState.pan,
             sampleStepBefore: stepBefore,
             sampleStepAfter: voiceState.sampleStep,
-            updateEpsilon: Self.updateEpsilon,
+            updateEpsilon: updatePolicy.updateEpsilon,
             sampleStepRequested: playbackStep,
             sampleStepDelta: stepDecision.delta,
             sampleStepUpdateStatus: stepDecision.status,
@@ -2467,12 +2647,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func updateDecision(previous: Double, requested: Double) -> RuntimeCMixerFieldUpdateDecision {
         let delta = abs(requested - previous)
-        let suppressedByEpsilon = delta > 0 && delta <= Self.updateEpsilon
+        let suppressedByEpsilon = delta > 0 && delta <= updatePolicy.updateEpsilon
         return RuntimeCMixerFieldUpdateDecision(
             previous: previous,
             requested: requested,
             delta: delta,
-            shouldApply: delta > Self.updateEpsilon,
+            shouldApply: delta > updatePolicy.updateEpsilon,
             suppressedByEpsilon: suppressedByEpsilon
         )
     }
@@ -2955,12 +3135,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             lastOutputRMS: lastOutputRMS,
             outputDiscontinuityThreshold: Self.outputDiscontinuityThreshold,
             outputDiscontinuityCount: outputDiscontinuityCount,
+            outputDiscontinuityThresholdCounts: outputDiscontinuityThresholdCountsLocked(),
             maxOutputAdjacentSampleJump: maxOutputAdjacentSampleJump,
+            topOutputAdjacentSampleJumps: topOutputAdjacentSampleJumps,
             lastOutputDiscontinuitySampleJump: lastOutputDiscontinuitySampleJump,
             lastOutputDiscontinuityCallbackIndex: lastOutputDiscontinuityCallbackIndex,
             lastOutputDiscontinuityRuntimeFrame: lastOutputDiscontinuityRuntimeFrame,
             lastOutputDiscontinuityFrameOffset: lastOutputDiscontinuityFrameOffset,
             lastOutputDiscontinuityChannelIndex: lastOutputDiscontinuityChannelIndex,
+            outputPeakWarningThreshold: Self.outputPeakWarningThreshold,
+            outputPeakWarningSampleCount: outputPeakWarningSampleCount,
+            topOutputPeaks: topOutputPeaks,
             overrangeSampleCount: overrangeSampleCount,
             clippingSampleCount: clippingSampleCount,
             clippingDetected: clippingSampleCount > 0,
@@ -2970,13 +3155,29 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             runtimeFixedHeadroomDB: outputPolicy.fixedHeadroomDB,
             runtimeGainConfigurationWarning: outputPolicy.configurationWarning,
             runtimeClippingRecommendation: clippingSampleCount > 0 ? RuntimeCMixerOutputPolicy.clippingRecommendation : nil,
+            runtimeUpdateEpsilon: updatePolicy.updateEpsilon,
+            runtimeUpdateEpsilonPolicy: updatePolicy.updateEpsilonPolicy,
+            runtimeUpdateEpsilonConfigurationWarning: updatePolicy.configurationWarning,
             currentFrame: mixer.currentFrame,
             appliedPlannedEventCount: appliedPlannedEventCount,
             exactFrameAppliedEventCount: exactFrameAppliedEventCount,
             callbackBoundaryAppliedEventCount: callbackBoundaryAppliedEventCount,
             latePlannedEventCount: latePlannedEventCount,
-            maxPlannedVsAppliedDelta: maxPlannedVsAppliedDelta
+            maxPlannedVsAppliedDelta: maxPlannedVsAppliedDelta,
+            rampingOutVoiceCount: mixer.rampingOutVoiceCount,
+            rampDownStartCount: mixer.rampDownStartCount,
+            rampDownCompletionCount: mixer.rampDownCompletionCount,
+            abruptRampDownStopCount: mixer.abruptRampDownStopCount
         )
+    }
+
+    private func outputDiscontinuityThresholdCountsLocked() -> [RuntimeCMixerDiscontinuityThresholdCount] {
+        [
+            RuntimeCMixerDiscontinuityThresholdCount(threshold: 0.25, count: outputDiscontinuityCount025),
+            RuntimeCMixerDiscontinuityThresholdCount(threshold: 0.35, count: outputDiscontinuityCount035),
+            RuntimeCMixerDiscontinuityThresholdCount(threshold: 0.50, count: outputDiscontinuityCount050),
+            RuntimeCMixerDiscontinuityThresholdCount(threshold: Self.outputDiscontinuityThreshold, count: outputDiscontinuityCount)
+        ]
     }
 
     private func recordRenderCompletionLocked(
@@ -3019,8 +3220,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             cumulativeOutputSampleCount &+= UInt64(max(0, outputMetrics.sampleCount))
             cumulativeOutputSquareSum += outputMetrics.squareSum
             outputPeak = max(outputPeak, outputMetrics.peak)
+            outputDiscontinuityCount025 &+= UInt64(max(0, outputMetrics.discontinuityCount025))
+            outputDiscontinuityCount035 &+= UInt64(max(0, outputMetrics.discontinuityCount035))
+            outputDiscontinuityCount050 &+= UInt64(max(0, outputMetrics.discontinuityCount050))
             outputDiscontinuityCount &+= UInt64(max(0, outputMetrics.discontinuityCount))
             maxOutputAdjacentSampleJump = max(maxOutputAdjacentSampleJump, outputMetrics.maxAdjacentSampleJump)
+            recordTopOutputAdjacentSampleJumpsLocked(
+                outputMetrics.topAdjacentSampleJumps,
+                callbackStartFrame: callbackStartFrame,
+                callbackIndex: callbackIndex
+            )
             if let discontinuityFrameOffset = outputMetrics.maxDiscontinuityFrameOffset,
                let discontinuitySampleJump = outputMetrics.maxDiscontinuitySampleJump {
                 lastOutputDiscontinuitySampleJump = discontinuitySampleJump
@@ -3030,6 +3239,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(discontinuityFrameOffset))
                 lastOutputDiscontinuityRuntimeFrame = runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue
             }
+            outputPeakWarningSampleCount &+= UInt64(max(0, outputMetrics.peakWarningSampleCount))
+            recordTopOutputPeaksLocked(
+                outputMetrics.topPeaks,
+                callbackStartFrame: callbackStartFrame,
+                callbackIndex: callbackIndex
+            )
             overrangeSampleCount &+= UInt64(max(0, outputMetrics.overrangeSampleCount))
             clippingSampleCount &+= UInt64(max(0, outputMetrics.clippingSampleCount))
         } else {
@@ -3038,6 +3253,74 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 zeroFillCount &+= 1
                 underrunCount &+= 1
             }
+        }
+    }
+
+    private func recordTopOutputAdjacentSampleJumpsLocked(
+        _ jumps: [RuntimeCMixerOutputMetrics.SampleJump],
+        callbackStartFrame: UInt64,
+        callbackIndex: UInt64
+    ) {
+        for jump in jumps {
+            let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, jump.frameOffset)))
+            let row = RuntimeCMixerTopOutputSampleJump(
+                sampleJump: jump.sampleJump,
+                runtimeFrame: runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue,
+                callbackIndex: callbackIndex,
+                frameOffset: jump.frameOffset,
+                channelIndex: jump.channelIndex
+            )
+            insertTopOutputAdjacentSampleJumpLocked(row)
+        }
+    }
+
+    private func recordTopOutputPeaksLocked(
+        _ peaks: [RuntimeCMixerOutputMetrics.Peak],
+        callbackStartFrame: UInt64,
+        callbackIndex: UInt64
+    ) {
+        for peak in peaks {
+            let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, peak.frameOffset)))
+            let row = RuntimeCMixerTopOutputPeak(
+                peak: peak.peak,
+                runtimeFrame: runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue,
+                callbackIndex: callbackIndex,
+                frameOffset: peak.frameOffset,
+                channelIndex: peak.channelIndex
+            )
+            insertTopOutputPeakLocked(row)
+        }
+    }
+
+    private func insertTopOutputAdjacentSampleJumpLocked(_ row: RuntimeCMixerTopOutputSampleJump) {
+        topOutputAdjacentSampleJumps.append(row)
+        topOutputAdjacentSampleJumps.sort {
+            if $0.sampleJump != $1.sampleJump {
+                return $0.sampleJump > $1.sampleJump
+            }
+            if $0.runtimeFrame != $1.runtimeFrame {
+                return $0.runtimeFrame < $1.runtimeFrame
+            }
+            return $0.channelIndex < $1.channelIndex
+        }
+        if topOutputAdjacentSampleJumps.count > Self.transientDiagnosticTopCount {
+            topOutputAdjacentSampleJumps.removeLast(topOutputAdjacentSampleJumps.count - Self.transientDiagnosticTopCount)
+        }
+    }
+
+    private func insertTopOutputPeakLocked(_ row: RuntimeCMixerTopOutputPeak) {
+        topOutputPeaks.append(row)
+        topOutputPeaks.sort {
+            if $0.peak != $1.peak {
+                return $0.peak > $1.peak
+            }
+            if $0.runtimeFrame != $1.runtimeFrame {
+                return $0.runtimeFrame < $1.runtimeFrame
+            }
+            return $0.channelIndex < $1.channelIndex
+        }
+        if topOutputPeaks.count > Self.transientDiagnosticTopCount {
+            topOutputPeaks.removeLast(topOutputPeaks.count - Self.transientDiagnosticTopCount)
         }
     }
 
@@ -3053,18 +3336,39 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let safeChannelCount = max(1, channelCount)
         var peak = Float(0)
         var squareSum = Double(0)
-        var discontinuityCount = 0
+        var discontinuityCount025 = 0
+        var discontinuityCount035 = 0
+        var discontinuityCount050 = 0
+        var discontinuityCount075 = 0
         var maxAdjacentSampleJump = Float(0)
+        var topAdjacentSampleJumps = [RuntimeCMixerOutputMetrics.SampleJump]()
+        topAdjacentSampleJumps.reserveCapacity(Self.transientDiagnosticTopCount)
         var maxDiscontinuitySampleJump: Float?
         var maxDiscontinuityFrameOffset: Int?
         var maxDiscontinuityChannelIndex: Int?
+        var peakWarningCount = 0
+        var topPeaks = [RuntimeCMixerOutputMetrics.Peak]()
+        topPeaks.reserveCapacity(Self.transientDiagnosticTopCount)
         var overrangeCount = 0
         var clippingCount = 0
         for index in 0..<boundedSampleCount {
             let sample = outputInterleavedPCM[index].isFinite ? outputInterleavedPCM[index] : 0
             let absolute = abs(sample)
+            let frameOffset = index / safeChannelCount
+            let channelIndex = index % safeChannelCount
             peak = max(peak, absolute)
             squareSum += Double(sample) * Double(sample)
+            if absolute > Self.outputPeakWarningThreshold {
+                peakWarningCount += 1
+            }
+            insertPeak(
+                RuntimeCMixerOutputMetrics.Peak(
+                    peak: absolute,
+                    frameOffset: frameOffset,
+                    channelIndex: channelIndex
+                ),
+                into: &topPeaks
+            )
             if absolute > 1 {
                 overrangeCount += 1
             }
@@ -3077,28 +3381,89 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                     : 0
                 let sampleJump = abs(sample - previous)
                 maxAdjacentSampleJump = max(maxAdjacentSampleJump, sampleJump)
+                if sampleJump > 0.25 {
+                    discontinuityCount025 += 1
+                }
+                if sampleJump > 0.35 {
+                    discontinuityCount035 += 1
+                }
+                if sampleJump > 0.50 {
+                    discontinuityCount050 += 1
+                }
                 if sampleJump > Self.outputDiscontinuityThreshold {
-                    discontinuityCount += 1
+                    discontinuityCount075 += 1
                     if maxDiscontinuitySampleJump.map({ sampleJump > $0 }) ?? true {
                         maxDiscontinuitySampleJump = sampleJump
-                        maxDiscontinuityFrameOffset = index / safeChannelCount
-                        maxDiscontinuityChannelIndex = index % safeChannelCount
+                        maxDiscontinuityFrameOffset = frameOffset
+                        maxDiscontinuityChannelIndex = channelIndex
                     }
                 }
+                insertSampleJump(
+                    RuntimeCMixerOutputMetrics.SampleJump(
+                        sampleJump: sampleJump,
+                        frameOffset: frameOffset,
+                        channelIndex: channelIndex
+                    ),
+                    into: &topAdjacentSampleJumps
+                )
             }
         }
         return RuntimeCMixerOutputMetrics(
             sampleCount: boundedSampleCount,
             peak: peak,
             squareSum: squareSum,
-            discontinuityCount: discontinuityCount,
+            discontinuityCount025: discontinuityCount025,
+            discontinuityCount035: discontinuityCount035,
+            discontinuityCount050: discontinuityCount050,
+            discontinuityCount075: discontinuityCount075,
             maxAdjacentSampleJump: maxAdjacentSampleJump,
+            topAdjacentSampleJumps: topAdjacentSampleJumps,
             maxDiscontinuityFrameOffset: maxDiscontinuityFrameOffset,
             maxDiscontinuityChannelIndex: maxDiscontinuityChannelIndex,
             maxDiscontinuitySampleJump: maxDiscontinuitySampleJump,
+            peakWarningSampleCount: peakWarningCount,
+            topPeaks: topPeaks,
             overrangeSampleCount: overrangeCount,
             clippingSampleCount: clippingCount
         )
+    }
+
+    private func insertSampleJump(
+        _ row: RuntimeCMixerOutputMetrics.SampleJump,
+        into rows: inout [RuntimeCMixerOutputMetrics.SampleJump]
+    ) {
+        rows.append(row)
+        rows.sort {
+            if $0.sampleJump != $1.sampleJump {
+                return $0.sampleJump > $1.sampleJump
+            }
+            if $0.frameOffset != $1.frameOffset {
+                return $0.frameOffset < $1.frameOffset
+            }
+            return $0.channelIndex < $1.channelIndex
+        }
+        if rows.count > Self.transientDiagnosticTopCount {
+            rows.removeLast(rows.count - Self.transientDiagnosticTopCount)
+        }
+    }
+
+    private func insertPeak(
+        _ row: RuntimeCMixerOutputMetrics.Peak,
+        into rows: inout [RuntimeCMixerOutputMetrics.Peak]
+    ) {
+        rows.append(row)
+        rows.sort {
+            if $0.peak != $1.peak {
+                return $0.peak > $1.peak
+            }
+            if $0.frameOffset != $1.frameOffset {
+                return $0.frameOffset < $1.frameOffset
+            }
+            return $0.channelIndex < $1.channelIndex
+        }
+        if rows.count > Self.transientDiagnosticTopCount {
+            rows.removeLast(rows.count - Self.transientDiagnosticTopCount)
+        }
     }
 
     private func applyOutputGain(
@@ -3414,10 +3779,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         sampleRate: Double = MixerRenderConfig.defaultSampleRate,
         channelCount: Int = MixerRenderConfig.defaultChannelCount,
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
+        updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
-        renderCore = RuntimeCMixerRenderCore(config: config, outputPolicy: outputPolicy)
+        renderCore = RuntimeCMixerRenderCore(config: config, outputPolicy: outputPolicy, updatePolicy: updatePolicy)
         self.traceWriter = traceWriter
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -3869,9 +4235,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             }
 
         case let .gainPanUpdate(result):
-            if result.gainPanAttempted {
-                eventCounters.gainPanUpdateCount &+= 1
-            }
+            recordRuntimeUpdateCounters(result)
             recordRuntimeUpdateEvent(
                 result,
                 context: eventContext,
@@ -3884,9 +4248,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             }
 
         case let .stepUpdate(result):
-            if result.stepAttempted {
-                eventCounters.stepUpdateCount &+= 1
-            }
+            recordRuntimeUpdateCounters(result)
             recordRuntimeUpdateEvent(
                 result,
                 context: eventContext,
@@ -4021,27 +4383,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         } else {
             let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
             let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls, context: context)
-            if result.gainPanAttempted {
-                eventCounters.gainPanUpdateCount &+= 1
-            }
-            if result.stepAttempted {
-                eventCounters.stepUpdateCount &+= 1
-            }
-            if result.epsilonSuppressedGain {
-                eventCounters.updateSuppressedEpsilonGainCount &+= 1
-            }
-            if result.epsilonSuppressedPan {
-                eventCounters.updateSuppressedEpsilonPanCount &+= 1
-            }
-            if result.epsilonSuppressedStep {
-                eventCounters.updateSuppressedEpsilonStepCount &+= 1
-            }
-            if result.disposition == "update_suppressed_no_change" {
-                eventCounters.updateSuppressedNoChangeCount &+= 1
-            }
-            if result.appliedAfterEpsilonFilter {
-                eventCounters.updateAppliedAfterEpsilonFilterCount &+= 1
-            }
+            recordRuntimeUpdateCounters(result)
             recordRuntimeUpdateEvent(
                 result,
                 context: contextWithFallbackChannel(context, channel: channel),
@@ -4049,6 +4391,30 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 adapterEventCategory: nil,
                 runtimeEventFallbackReason: fallbackReason
             )
+        }
+    }
+
+    private func recordRuntimeUpdateCounters(_ result: RuntimeCMixerUpdateResult) {
+        if result.gainPanAttempted {
+            eventCounters.gainPanUpdateCount &+= 1
+        }
+        if result.stepAttempted {
+            eventCounters.stepUpdateCount &+= 1
+        }
+        if result.epsilonSuppressedGain {
+            eventCounters.updateSuppressedEpsilonGainCount &+= 1
+        }
+        if result.epsilonSuppressedPan {
+            eventCounters.updateSuppressedEpsilonPanCount &+= 1
+        }
+        if result.epsilonSuppressedStep {
+            eventCounters.updateSuppressedEpsilonStepCount &+= 1
+        }
+        if result.disposition == "update_suppressed_no_change" {
+            eventCounters.updateSuppressedNoChangeCount &+= 1
+        }
+        if result.appliedAfterEpsilonFilter {
+            eventCounters.updateAppliedAfterEpsilonFilterCount &+= 1
         }
     }
 
@@ -4520,12 +4886,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             lastOutputRMS: snapshot.lastOutputRMS,
             outputDiscontinuityThreshold: snapshot.outputDiscontinuityThreshold,
             outputDiscontinuityCount: snapshot.outputDiscontinuityCount,
+            outputDiscontinuityThresholdCounts: snapshot.outputDiscontinuityThresholdCounts,
             maxOutputAdjacentSampleJump: snapshot.maxOutputAdjacentSampleJump,
+            topOutputAdjacentSampleJumps: snapshot.topOutputAdjacentSampleJumps,
             lastOutputDiscontinuitySampleJump: snapshot.lastOutputDiscontinuitySampleJump,
             lastOutputDiscontinuityCallbackIndex: snapshot.lastOutputDiscontinuityCallbackIndex,
             lastOutputDiscontinuityRuntimeFrame: snapshot.lastOutputDiscontinuityRuntimeFrame,
             lastOutputDiscontinuityFrameOffset: snapshot.lastOutputDiscontinuityFrameOffset,
             lastOutputDiscontinuityChannelIndex: snapshot.lastOutputDiscontinuityChannelIndex,
+            outputPeakWarningThreshold: snapshot.outputPeakWarningThreshold,
+            outputPeakWarningSampleCount: snapshot.outputPeakWarningSampleCount,
+            topOutputPeaks: snapshot.topOutputPeaks,
             overrangeSampleCount: snapshot.overrangeSampleCount,
             clippingSampleCount: snapshot.clippingSampleCount,
             clippingDetected: snapshot.clippingDetected,
@@ -4536,6 +4907,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeFixedHeadroomDB: snapshot.runtimeFixedHeadroomDB,
             runtimeGainConfigurationWarning: snapshot.runtimeGainConfigurationWarning,
             runtimeClippingRecommendation: snapshot.runtimeClippingRecommendation,
+            runtimeUpdateEpsilon: snapshot.runtimeUpdateEpsilon,
+            runtimeUpdateEpsilonPolicy: snapshot.runtimeUpdateEpsilonPolicy,
+            runtimeUpdateEpsilonConfigurationWarning: snapshot.runtimeUpdateEpsilonConfigurationWarning,
             cMixerAddVoiceCount: eventCounters.cMixerAddVoiceCount,
             gainPanUpdateCount: eventCounters.gainPanUpdateCount,
             stepUpdateCount: eventCounters.stepUpdateCount,
@@ -4547,6 +4921,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stopChannelCount: eventCounters.stopChannelCount,
             replacementRampCount: eventCounters.replacementRampCount,
             clearAllCount: eventCounters.clearAllCount,
+            rampingOutVoiceCount: snapshot.rampingOutVoiceCount,
+            rampDownStartCount: snapshot.rampDownStartCount,
+            rampDownCompletionCount: snapshot.rampDownCompletionCount,
+            abruptRampDownStopCount: snapshot.abruptRampDownStopCount,
             previousOrderIndex: transition?.previousContext?.orderIndex,
             previousPatternIndex: transition?.previousContext?.patternIndex,
             previousRowIndex: transition?.previousContext?.rowIndex,

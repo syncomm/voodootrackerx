@@ -148,6 +148,14 @@ when the trace-only threshold is crossed, and the runtime output gain/headroom
 policy. The current runtime C path applies no equivalent of the offline
 `--auto-headroom` export policy.
 
+Transient diagnostics are also included in later snapshot rows. The trace keeps
+the existing high adjacent-sample jump threshold and adds cumulative counts for
+lower thresholds such as `0.25`, `0.35`, `0.50`, and `0.75`, the max adjacent
+same-channel sample jump, bounded top jumps, top output peaks above the warning
+threshold, and whether peaks exceed `1.0`. The summary helper maps those frames
+back to nearby order/pattern/row/tick context when the runtime adapter timeline
+is available.
+
 The experimental runtime C mixer is still selected only with
 `VTX_AUDIO_BACKEND=c_mixer`. When selected, it applies a conservative default
 runtime output policy, currently `default_runtime_headroom_db` with `-10 dB`
@@ -180,12 +188,22 @@ the default conservative policy and writes `runtimeGainConfigurationWarning` in
 the runtime C trace. These gain/headroom variables are ignored unless the
 experimental C mixer backend is selected.
 
+For epsilon hypothesis testing only, Debug builds accept
+`VTX_C_MIXER_RUNTIME_UPDATE_EPSILON`. The default remains `1e-5`; setting `0`
+or another finite value between `0` and `0.01` changes only the experimental
+runtime C mixer update guard and records `runtimeUpdateEpsilon`,
+`runtimeUpdateEpsilonPolicy`, and any configuration warning in the trace. This
+is not a mitigation and should be used only for local diagnostics.
+
 Render callback diagnostics are collected in memory and surfaced on later
 main-side trace events. The audio callback does not write trace files, call
 AppKit, parse module data, or allocate large diagnostic structures. Lock
 contention that prevents the render callback from entering the mixer may still
 produce silence before all counters can be updated, so treat the counters as
 diagnostic evidence rather than a complete real-time profiler.
+Direct runtime WAV/ring-buffer capture is intentionally not added here; it needs
+a separate real-time-safe capture path before it can be used for offline-vs-live
+sample comparison.
 
 Row transition breadcrumbs use `runtimeAction == "row_transition"` and include
 the current order, pattern, row, tick, active/loaded voice counts, render
@@ -232,6 +250,9 @@ updates. Rows may include `updateEpsilon`, `gainRequested`, `panRequested`,
 `sampleStepRequested`, `gainDelta`, `panDelta`, `sampleStepDelta`,
 `gainUpdateStatus`, `panUpdateStatus`, and `sampleStepUpdateStatus` with
 statuses such as `applied`, `suppressed_epsilon`, or `unchanged`.
+When the local epsilon override is supplied, `updateEpsilon` records the active
+threshold for each update row so default and tightened/disabled runs can be
+compared without changing the default backend or offline rendering.
 
 Reasons further distinguish harmless no-active refreshes, stale updates after a
 channel stop, update-before-note cases, missing runtime channel state, unknown
@@ -256,6 +277,11 @@ global clear-all calls. These counters correspond to the runtime diagnostics cat
 `update_applied_after_epsilon_filter`. Runtime C mixer snapshots also report
 `eventQueueBacklogCount`; when the offline-adapter plan is active this is the
 count of planned events still waiting for their render callback frame.
+
+Replacement-ramp cleanup diagnostics are cumulative in the same snapshots:
+`rampingOutVoiceCount`, `rampDownStartCount`, `rampDownCompletionCount`, and
+`abruptRampDownStopCount` distinguish voices still fading out, completed ramp
+cleanup, and any unexpected removal while a ramp was active.
 
 ### Runtime Adapter Event Bridge Diagnostics
 
@@ -436,11 +462,18 @@ The summary focuses on runtime-only artifact evidence:
 
 - peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and
   adjacent-sample output discontinuity counters
+- lower-threshold discontinuity counts, top adjacent same-channel jumps, top
+  peaks, and likely transient correlation (`event burst`,
+  `replacement ramp burst`, `peak/clip`, `voice cleanup`, or `unknown`)
 - `c_mixer_add_voice`, `c_mixer_stop_channel`,
   `c_mixer_stop_channel_ramped`, and `c_mixer_clear_all` counts
 - whether observed replacement stops were ramped or immediate hard stops
 - applied gain/pan and step updates, suppressed no-change updates, stored
   channel-state updates, and remaining deferred update categories
+- epsilon-suppressed gain/pan/sample-step field counts, top epsilon-suppressed
+  updates, whether suppressed fields were fully no-op refreshes or partial
+  updates after filtering, and whether suppressed updates were near top transient
+  frames
 - active/loaded voice ranges and largest same-row/tick event bursts
 - largest planned-vs-applied event timing deltas, exact-frame/callback-boundary
   application counts, late planned-event counts, same-frame event bursts,

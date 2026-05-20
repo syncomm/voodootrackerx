@@ -91,6 +91,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let loadedVoiceCountBefore: Int?
     let loadedVoiceCountAfter: Int?
     let stoppedVoiceCount: Int?
+    let rampedVoiceCount: Int?
+    let replacementRampFrames: Int?
+    let replacementVoicesOverlap: Bool?
     let targetVoiceIndex: Int?
     let gainBefore: Float?
     let gainAfter: Float?
@@ -154,6 +157,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let updateSuppressedNoChangeCount: UInt64?
     let updateAppliedAfterEpsilonFilterCount: UInt64?
     let stopChannelCount: UInt64?
+    let replacementRampCount: UInt64?
     let clearAllCount: UInt64?
     let cMixerCallSucceeded: Bool?
     let reason: String?
@@ -177,6 +181,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         loadedVoiceCountBefore: Int? = nil,
         loadedVoiceCountAfter: Int? = nil,
         stoppedVoiceCount: Int? = nil,
+        rampedVoiceCount: Int? = nil,
+        replacementRampFrames: Int? = nil,
+        replacementVoicesOverlap: Bool? = nil,
         targetVoiceIndex: Int? = nil,
         gainBefore: Float? = nil,
         gainAfter: Float? = nil,
@@ -240,6 +247,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         updateSuppressedNoChangeCount: UInt64? = nil,
         updateAppliedAfterEpsilonFilterCount: UInt64? = nil,
         stopChannelCount: UInt64? = nil,
+        replacementRampCount: UInt64? = nil,
         clearAllCount: UInt64? = nil,
         cMixerCallSucceeded: Bool? = nil,
         reason: String? = nil
@@ -273,6 +281,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.loadedVoiceCountBefore = loadedVoiceCountBefore
         self.loadedVoiceCountAfter = loadedVoiceCountAfter
         self.stoppedVoiceCount = stoppedVoiceCount
+        self.rampedVoiceCount = rampedVoiceCount
+        self.replacementRampFrames = replacementRampFrames
+        self.replacementVoicesOverlap = replacementVoicesOverlap
         self.targetVoiceIndex = targetVoiceIndex
         self.gainBefore = gainBefore
         self.gainAfter = gainAfter
@@ -336,6 +347,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.updateSuppressedNoChangeCount = updateSuppressedNoChangeCount
         self.updateAppliedAfterEpsilonFilterCount = updateAppliedAfterEpsilonFilterCount
         self.stopChannelCount = stopChannelCount
+        self.replacementRampCount = replacementRampCount
         self.clearAllCount = clearAllCount
         self.cMixerCallSucceeded = cMixerCallSucceeded
         self.reason = reason
@@ -812,6 +824,9 @@ struct RuntimeCMixerUpdateResult: Equatable {
 struct RuntimeCMixerChannelStopResult: Equatable {
     let channel: Int
     let stoppedVoiceCount: Int
+    let rampedVoiceCount: Int
+    let replacementRampFrames: Int?
+    let replacementVoicesOverlap: Bool
     let snapshotBefore: RuntimeCMixerRenderSnapshot
     let snapshotAfter: RuntimeCMixerRenderSnapshot
     let reason: String
@@ -948,7 +963,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         let snapshotBefore = snapshotLocked()
-        let channelStopBeforeAdd = stopChannelLocked(
+        let replacementRampBeforeAdd = rampDownReplacementChannelLocked(
             request.channel,
             reason: "note_replacement_stop_channel"
         )
@@ -990,12 +1005,28 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
         controlStateByChannel[request.channel] = effectiveControlState
         stoppedFrameByChannel.removeValue(forKey: request.channel)
+        let snapshotAfter = snapshotLocked()
+        let channelStopBeforeAdd: RuntimeCMixerChannelStopResult?
+        if replacementRampBeforeAdd.rampedVoiceCount > 0 {
+            channelStopBeforeAdd = RuntimeCMixerChannelStopResult(
+                channel: replacementRampBeforeAdd.channel,
+                stoppedVoiceCount: replacementRampBeforeAdd.stoppedVoiceCount,
+                rampedVoiceCount: replacementRampBeforeAdd.rampedVoiceCount,
+                replacementRampFrames: replacementRampBeforeAdd.replacementRampFrames,
+                replacementVoicesOverlap: true,
+                snapshotBefore: replacementRampBeforeAdd.snapshotBefore,
+                snapshotAfter: snapshotAfter,
+                reason: replacementRampBeforeAdd.reason
+            )
+        } else {
+            channelStopBeforeAdd = nil
+        }
         return RuntimeCMixerTriggerResult(
             succeeded: true,
             reason: nil,
             snapshotBefore: snapshotBefore,
-            snapshotAfter: snapshotLocked(),
-            channelStopBeforeAdd: channelStopBeforeAdd.stoppedVoiceCount > 0 ? channelStopBeforeAdd : nil
+            snapshotAfter: snapshotAfter,
+            channelStopBeforeAdd: channelStopBeforeAdd
         )
     }
 
@@ -1681,6 +1712,30 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
     }
 
+    private func rampDownReplacementChannelLocked(_ channel: Int, reason: String) -> RuntimeCMixerChannelStopResult {
+        let snapshotBefore = snapshotLocked()
+        let rampedVoiceCount: Int
+        if channel >= 0 && channel <= Int(UInt32.max) {
+            rampedVoiceCount = mixer.rampDownVoices(
+                channel: channel,
+                rampFrames: CSoftwareMixer.replacementStopRampFrameCount
+            )
+            voiceStateByChannel.removeValue(forKey: channel)
+        } else {
+            rampedVoiceCount = 0
+        }
+        return RuntimeCMixerChannelStopResult(
+            channel: channel,
+            stoppedVoiceCount: 0,
+            rampedVoiceCount: rampedVoiceCount,
+            replacementRampFrames: CSoftwareMixer.replacementStopRampFrameCount,
+            replacementVoicesOverlap: false,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            reason: reason
+        )
+    }
+
     private func stopChannelLocked(_ channel: Int, reason: String) -> RuntimeCMixerChannelStopResult {
         let snapshotBefore = snapshotLocked()
         let stoppedVoiceCount: Int
@@ -1694,6 +1749,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return RuntimeCMixerChannelStopResult(
             channel: channel,
             stoppedVoiceCount: stoppedVoiceCount,
+            rampedVoiceCount: 0,
+            replacementRampFrames: nil,
+            replacementVoicesOverlap: false,
             snapshotBefore: snapshotBefore,
             snapshotAfter: snapshotLocked(),
             reason: reason
@@ -1985,6 +2043,7 @@ private struct RuntimeCMixerEventCounters: Equatable {
     var updateSuppressedNoChangeCount: UInt64 = 0
     var updateAppliedAfterEpsilonFilterCount: UInt64 = 0
     var stopChannelCount: UInt64 = 0
+    var replacementRampCount: UInt64 = 0
     var clearAllCount: UInt64 = 0
 }
 
@@ -2058,15 +2117,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         prepareIfNeeded()
         let result = renderCore.triggerWithDiagnostics(request)
         if let channelStop = result.channelStopBeforeAdd {
-            eventCounters.stopChannelCount &+= 1
+            eventCounters.replacementRampCount &+= 1
             recordRuntimeEvent(
-                action: "c_mixer_stop_channel",
+                action: "c_mixer_stop_channel_ramped",
                 context: contextWithFallbackChannel(context, channel: channelStop.channel),
                 targetScope: "channel",
                 snapshotBefore: channelStop.snapshotBefore,
                 snapshot: channelStop.snapshotAfter,
                 succeeded: true,
-                stoppedVoiceCount: channelStop.stoppedVoiceCount,
+                stoppedVoiceCount: nil,
+                rampedVoiceCount: channelStop.rampedVoiceCount,
+                replacementRampFrames: channelStop.replacementRampFrames,
+                replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
                 reason: channelStop.reason
             )
         }
@@ -2291,6 +2353,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         snapshot: RuntimeCMixerRenderSnapshot,
         succeeded: Bool?,
         stoppedVoiceCount: Int? = nil,
+        rampedVoiceCount: Int? = nil,
+        replacementRampFrames: Int? = nil,
+        replacementVoicesOverlap: Bool? = nil,
         targetVoiceIndex: Int? = nil,
         gainBefore: Float? = nil,
         gainAfter: Float? = nil,
@@ -2331,6 +2396,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             loadedVoiceCountBefore: snapshotBefore?.loadedVoiceCount,
             loadedVoiceCountAfter: snapshot.loadedVoiceCount,
             stoppedVoiceCount: stoppedVoiceCount,
+            rampedVoiceCount: rampedVoiceCount,
+            replacementRampFrames: replacementRampFrames,
+            replacementVoicesOverlap: replacementVoicesOverlap,
             targetVoiceIndex: targetVoiceIndex,
             gainBefore: gainBefore,
             gainAfter: gainAfter,
@@ -2393,6 +2461,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             updateSuppressedNoChangeCount: eventCounters.updateSuppressedNoChangeCount,
             updateAppliedAfterEpsilonFilterCount: eventCounters.updateAppliedAfterEpsilonFilterCount,
             stopChannelCount: eventCounters.stopChannelCount,
+            replacementRampCount: eventCounters.replacementRampCount,
             clearAllCount: eventCounters.clearAllCount,
             cMixerCallSucceeded: succeeded,
             reason: reason

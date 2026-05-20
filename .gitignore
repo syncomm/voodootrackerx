@@ -66,3 +66,6 @@ vtx-local-reference-comparison*/
 *-voodootrackerx.wav
 *-playback-trace.jsonl
 *-runtime-trace.jsonl
+vtx-playback-*.jsonl
+vtx-c-runtime-*.jsonl
+vtx-runtime-*.jsonl

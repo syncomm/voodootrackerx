@@ -97,6 +97,14 @@ state for a later note trigger, and no-active, stale-after-stop, missing-data,
 and unsupported update cases remain separately visible in the runtime trace.
 This does not broaden runtime effect support or change the default backend.
 
+A replacement micro-ramp follow-up keeps the same experimental boundary while
+reducing runtime-only discontinuities from same-channel note replacement. When
+the runtime C mixer replaces a tagged channel voice with a new note, the old
+voice now fades out over a fixed 32-frame ramp and the new voice starts at the
+intended time. Immediate channel stops, true transport/global stops, offline
+render semantics, parser behavior, tracker viewport behavior, and XM effect
+coverage remain unchanged.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

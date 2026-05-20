@@ -191,11 +191,18 @@ counters, and output-level snapshot. Backend lifecycle breadcrumbs such as
 `backend_start_failed`, and `backend_reset` help identify whether a harsh
 transition coincides with a runtime backend rebuild or fallback.
 
-Channel-scoped stop and replacement diagnostics use `c_mixer_stop_channel`.
-Those events include the channel context when available, `stoppedVoiceCount`,
+Immediate channel-scoped stop diagnostics use `c_mixer_stop_channel`. Those
+events include the channel context when available, `stoppedVoiceCount`,
 `activeVoiceCountBefore`, `activeVoiceCountAfter`, `loadedVoiceCountBefore`,
-and `loadedVoiceCountAfter` when available. True transport-wide stop/reset
-actions use `c_mixer_clear_all` and `targetScope == "all_channels"`.
+and `loadedVoiceCountAfter` when available. Runtime same-channel note
+replacement in the experimental C mixer uses `c_mixer_stop_channel_ramped`
+instead of a hard stop: the replaced tagged voice is faded out over
+`replacementRampFrames` frames, currently `32`, while the new replacement voice
+starts at the intended time. Ramped replacement rows include `rampedVoiceCount`,
+`replacementRampFrames`, `replacementVoicesOverlap`, active/loaded voice
+snapshots when available, and the cumulative `replacementRampCount`. True
+transport-wide stop/reset actions use `c_mixer_clear_all` and
+`targetScope == "all_channels"`.
 Supported runtime C mixer control updates now classify the remaining update
 handoff cases instead of treating no-op refreshes and missing targets as one
 deferred bucket. Applied update rows remain
@@ -239,8 +246,8 @@ Trace events also carry cumulative event counters for C mixer add-voice calls,
 gain/pan update attempts, sample-step update attempts,
 `updateSuppressedEpsilonGainCount`, `updateSuppressedEpsilonPanCount`,
 `updateSuppressedEpsilonStepCount`, `updateSuppressedNoChangeCount`,
-`updateAppliedAfterEpsilonFilterCount`, channel stops, and global clear-all
-calls. These counters correspond to the runtime diagnostics categories
+`updateAppliedAfterEpsilonFilterCount`, channel stops, replacement ramps, and
+global clear-all calls. These counters correspond to the runtime diagnostics categories
 `update_suppressed_epsilon_gain`, `update_suppressed_epsilon_pan`,
 `update_suppressed_epsilon_step`, `update_suppressed_no_change`, and
 `update_applied_after_epsilon_filter`. The current runtime path has no separate

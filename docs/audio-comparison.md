@@ -177,16 +177,20 @@ VTX_DEBUG_STOP_AFTER_SECONDS=45 \
 The runtime C mixer trace records backend selection, PlaybackEngine
 order/pattern/row/tick/channel context, note trigger and key-off events, C mixer
 add-voice calls, applied and deferred runtime gain/pan/sample-step update calls,
-channel-scoped voice stops, true global clear/stop calls, C call
-success/failure when available, voices stopped counts when available,
-active/loaded voice counts before and after stop or update actions when
-available, and approximate C mixer render cursor/frame counters.
+channel-scoped voice stops, replacement stop ramps, true global clear/stop
+calls, C call success/failure when available, voices stopped or ramped counts
+when available, active/loaded voice counts before and after stop, ramp, or
+update actions when available, and approximate C mixer render cursor/frame
+counters.
 This makes it possible to check whether note events continue after an audible
 drop, whether the C backend continues receiving events, and whether an
-unexpected all-voice clear/stop coincides with the dropout. Channel stop and
-same-channel note replacement in the experimental runtime C mixer path should
-now emit `c_mixer_stop_channel` rather than `c_mixer_clear_all`. True transport
-stop/reset actions still emit `c_mixer_clear_all` and target all channels.
+unexpected all-voice clear/stop coincides with the dropout. Immediate channel
+stops in the experimental runtime C mixer path emit `c_mixer_stop_channel`.
+Same-channel note replacement now emits `c_mixer_stop_channel_ramped`, reports
+`rampedVoiceCount`, `replacementRampFrames` (`32`), and
+`replacementVoicesOverlap`, and lets the new replacement voice start while the
+old voice fades out briefly. True transport stop/reset actions still emit
+`c_mixer_clear_all` and target all channels.
 Supported runtime updates emit `c_mixer_update_gain_pan_applied`,
 `c_mixer_update_step_applied`, or
 `c_mixer_update_gain_pan_step_applied` when the handoff can target and change

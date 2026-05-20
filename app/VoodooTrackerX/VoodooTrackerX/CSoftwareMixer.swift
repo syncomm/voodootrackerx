@@ -121,6 +121,7 @@ final class CSoftwareMixer {
     static let maximumActiveVoiceCount = Int(VTX_C_MIXER_MAX_ACTIVE_VOICES)
     static let maximumVoiceStateEventCount = Int(VTX_C_MIXER_MAX_VOICE_STATE_EVENTS)
     static let gainPanUpdateRampFrameCount = Int(vtx_c_mixer_gain_pan_update_ramp_frame_count())
+    static let replacementStopRampFrameCount = Int(vtx_c_mixer_replacement_stop_ramp_frame_count())
 
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig
@@ -386,6 +387,22 @@ final class CSoftwareMixer {
         )
         Self.requireOK(status)
         return Int(stoppedCount)
+    }
+
+    /// Fades C-backed voices tagged with one caller-owned channel identifier down to silence.
+    @discardableResult
+    func rampDownVoices(channel: Int, rampFrames: Int = CSoftwareMixer.replacementStopRampFrameCount) -> Int {
+        precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
+        precondition(rampFrames > 0 && rampFrames <= Int(UInt32.max), "C mixer replacement ramp length is out of range")
+        var rampedCount = UInt32(0)
+        let status = vtx_c_mixer_ramp_down_voices_for_channel_tag(
+            &state,
+            UInt32(channel),
+            UInt32(rampFrames),
+            &rampedCount
+        )
+        Self.requireOK(status)
+        return Int(rampedCount)
     }
 
     /// Schedules a generic gain and/or pan update for an existing offline voice.

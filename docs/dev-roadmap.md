@@ -134,8 +134,11 @@ mixer A/B listening diagnostics now add a local-only JSONL trace for backend
 selection, PlaybackEngine order/row/tick context, note/key/stop events, C mixer
 add/clear/stop calls, render-frame counters, and channel-scoped stop/replacement
 evidence. The experimental runtime C mixer now tags runtime voices by caller-owned
-channel id so same-channel replacement and channel stop use `c_mixer_stop_channel`
-instead of clearing all C mixer voices. True transport stop/reset still clears the
+channel id so immediate channel stops use `c_mixer_stop_channel` instead of
+clearing all C mixer voices. Same-channel runtime note replacement now uses a
+deterministic 32-frame replacement stop ramp, emits
+`c_mixer_stop_channel_ramped`, and lets the new replacement voice start while
+the old tagged voice fades out briefly. True transport stop/reset still clears the
 runtime C mixer globally. Runtime C mixer output diagnostics now extend that
 local-only trace with render callback counters, requested/rendered frame counts,
 zero-fill/underrun evidence where detected, output peak/RMS and
@@ -220,7 +223,8 @@ Immediate audio accuracy sequence:
 56. Runtime C mixer headroom / gain policy — done
 57. Runtime C Mixer Event Scheduling / Offline Adapter Parity Bridge — done
 58. Runtime C Mixer Remaining Update Deferral Fix — done
-59. Reference comparison stabilization against MikMod/OpenMPT
+59. Runtime C Mixer Hard Stop / Replacement Micro-Ramping — done
+60. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

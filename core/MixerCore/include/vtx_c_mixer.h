@@ -25,6 +25,7 @@ extern "C" {
 // At 44.1 kHz this is roughly 0.73 ms, short enough to avoid changing tracker
 // timing while reducing single-frame gain/pan discontinuities.
 #define VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES 32u
+#define VTX_C_MIXER_REPLACEMENT_STOP_RAMP_FRAMES VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES
 
 // Synthetic offline envelopes use copied fixed-size point storage. XM instruments are
 // not wired into this C-backed path yet.
@@ -99,6 +100,7 @@ typedef struct {
     float gain_ramp_target;
     uint32_t gain_ramp_total_frames;
     uint32_t gain_ramp_position_frame;
+    int deactivate_after_gain_ramp;
     int pan_ramp_active;
     float pan_ramp_start;
     float pan_ramp_target;
@@ -144,6 +146,7 @@ typedef struct {
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
 uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void);
+uint32_t vtx_c_mixer_replacement_stop_ramp_frame_count(void);
 uint32_t vtx_c_mixer_loaded_voice_count(const VTXCMixerState *state);
 uint32_t vtx_c_mixer_active_voice_count(const VTXCMixerState *state);
 uint64_t vtx_c_mixer_current_frame(const VTXCMixerState *state);
@@ -168,6 +171,16 @@ VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(
     VTXCMixerState *state,
     uint32_t channel_tag,
     uint32_t *out_stopped_count
+);
+
+// Fades active loaded voices with a matching channel tag down to silence over a
+// deterministic frame count. Untagged voices are never matched. The C mixer
+// treats channel tags as opaque caller-owned identifiers.
+VTXCMixerStatus vtx_c_mixer_ramp_down_voices_for_channel_tag(
+    VTXCMixerState *state,
+    uint32_t channel_tag,
+    uint32_t ramp_frame_count,
+    uint32_t *out_ramped_count
 );
 
 // Copies a caller-owned mono Float32 sample buffer into C-owned one-shot voice storage.

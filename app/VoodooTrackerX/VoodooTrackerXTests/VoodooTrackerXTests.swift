@@ -1203,6 +1203,26 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM[33], 0.5, accuracy: 0.000_001)
     }
 
+    func testCSoftwareMixerChannelRampDownUsesFixedReplacementRamp() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let replacedVoice = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)))
+        let otherVoice = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(0.25), count: 40)))
+        mixer.setChannelTag(0, forVoiceAt: replacedVoice)
+        mixer.setChannelTag(1, forVoiceAt: otherVoice)
+
+        let rampedCount = mixer.rampDownVoices(channel: 0)
+        let block = mixer.render(frames: 34)
+
+        XCTAssertEqual(CSoftwareMixer.replacementStopRampFrameCount, 32)
+        XCTAssertEqual(CSoftwareMixer.replacementStopRampFrameCount, CSoftwareMixer.gainPanUpdateRampFrameCount)
+        XCTAssertEqual(rampedCount, 1)
+        XCTAssertEqual(block.interleavedPCM[0], 1.21875, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[30], 0.28125, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[31], 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[33], 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(mixer.activeVoiceCount, 1)
+    }
+
     func testCSoftwareMixerPanUpdateMicroRampsInsteadOfStepping() {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
         let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)), pan: 0)
@@ -8334,6 +8354,9 @@ final class VoodooTrackerXTests: XCTestCase {
             loadedVoiceCountBefore: 2,
             loadedVoiceCountAfter: 1,
             stoppedVoiceCount: 1,
+            rampedVoiceCount: 2,
+            replacementRampFrames: CSoftwareMixer.replacementStopRampFrameCount,
+            replacementVoicesOverlap: true,
             currentFrame: 256,
             scheduledVoiceCount: 0,
             eventQueueBacklogCount: 0,
@@ -8372,6 +8395,7 @@ final class VoodooTrackerXTests: XCTestCase {
             gainPanUpdateCount: 3,
             stepUpdateCount: 3,
             stopChannelCount: 1,
+            replacementRampCount: 2,
             clearAllCount: 1,
             cMixerCallSucceeded: true,
             reason: "test"
@@ -8406,6 +8430,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["loadedVoiceCountBefore"] as? Int, 2)
         XCTAssertEqual(object["loadedVoiceCountAfter"] as? Int, 1)
         XCTAssertEqual(object["stoppedVoiceCount"] as? Int, 1)
+        XCTAssertEqual(object["rampedVoiceCount"] as? Int, 2)
+        XCTAssertEqual(object["replacementRampFrames"] as? Int, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(object["replacementVoicesOverlap"] as? Bool, true)
         XCTAssertEqual(object["currentFrame"] as? Int, 256)
         XCTAssertEqual(object["scheduledVoiceCount"] as? Int, 0)
         XCTAssertEqual(object["eventQueueBacklogCount"] as? Int, 0)
@@ -8431,6 +8458,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["gainPanUpdateCount"] as? Int, 3)
         XCTAssertEqual(object["stepUpdateCount"] as? Int, 3)
         XCTAssertEqual(object["stopChannelCount"] as? Int, 1)
+        XCTAssertEqual(object["replacementRampCount"] as? Int, 2)
         XCTAssertEqual(object["clearAllCount"] as? Int, 1)
         XCTAssertEqual(object["cMixerCallSucceeded"] as? Bool, true)
     }
@@ -8948,28 +8976,60 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(output, Array(repeating: 0.25 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 3))
     }
 
-    func testRuntimeCMixerRenderCoreReplacesPriorVoiceOnSameChannel() {
+    func testRuntimeCMixerRenderCoreRampsPriorVoiceOnSameChannelReplacement() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
-            maximumRenderFrames: 16
+            maximumRenderFrames: 64,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
         )
-        let firstSample = makePlaybackSample(instrumentIndex: 1, pcm: [1, 1], baseSampleRate: 44_100)
-        let otherChannelSample = makePlaybackSample(instrumentIndex: 2, pcm: [0.25, 0.25], baseSampleRate: 44_100)
-        let replacementSample = makePlaybackSample(instrumentIndex: 3, pcm: [0.5, 0.5], baseSampleRate: 44_100)
+        let firstSample = makePlaybackSample(instrumentIndex: 1, pcm: Array(repeating: 1, count: 64), baseSampleRate: 44_100)
+        let otherChannelSample = makePlaybackSample(instrumentIndex: 2, pcm: Array(repeating: 0.25, count: 64), baseSampleRate: 44_100)
+        let replacementSample = makePlaybackSample(instrumentIndex: 3, pcm: Array(repeating: 0.5, count: 64), baseSampleRate: 44_100)
 
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: firstSample, note: 49, channel: 0)))
         XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: otherChannelSample, note: 49, channel: 1)))
         let replacement = core.triggerWithDiagnostics(AudioVoiceRequest(sample: replacementSample, note: 49, channel: 0))
 
         XCTAssertTrue(replacement.succeeded)
-        XCTAssertEqual(replacement.channelStopBeforeAdd?.stoppedVoiceCount, 1)
-        XCTAssertEqual(replacement.snapshotAfter.activeVoiceCount, 2)
+        XCTAssertEqual(replacement.channelStopBeforeAdd?.stoppedVoiceCount, 0)
+        XCTAssertEqual(replacement.channelStopBeforeAdd?.rampedVoiceCount, 1)
+        XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementRampFrames, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementVoicesOverlap, true)
+        XCTAssertEqual(replacement.snapshotAfter.activeVoiceCount, 3)
 
-        var output = Array(repeating: Float(0), count: 2)
+        var output = Array(repeating: Float(0), count: 34)
         output.withUnsafeMutableBufferPointer { buffer in
-            XCTAssertTrue(core.render(into: buffer, frameCount: 2))
+            XCTAssertTrue(core.render(into: buffer, frameCount: 34))
         }
-        XCTAssertEqual(output, Array(repeating: 0.75 * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain, count: 2))
+        XCTAssertEqual(output[0], 1.71875, accuracy: 0.000_001)
+        XCTAssertEqual(output[30], 0.78125, accuracy: 0.000_001)
+        XCTAssertEqual(output[31], 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(output[33], 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(core.snapshot().activeVoiceCount, 2)
+    }
+
+    func testRuntimeCMixerGlobalStopClearsReplacementRampImmediately() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let firstSample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 44_100)
+        let replacementSample = makePlaybackSample(instrumentIndex: 2, pcm: Array(repeating: 0.5, count: 64), baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: firstSample, note: 49, channel: 0)))
+        XCTAssertTrue(core.triggerWithDiagnostics(AudioVoiceRequest(sample: replacementSample, note: 49, channel: 0)).succeeded)
+        let stop = core.stopAllWithDiagnostics(reason: "transport_stop_all")
+
+        XCTAssertEqual(stop.targetedAllVoices, true)
+        XCTAssertEqual(stop.snapshotBefore.activeVoiceCount, 2)
+        XCTAssertEqual(stop.snapshotAfter.activeVoiceCount, 0)
+        XCTAssertEqual(stop.snapshotAfter.loadedVoiceCount, 0)
+        XCTAssertEqual(renderRuntimePCM(core, frames: 4), [0, 0, 0, 0])
     }
 
     func testRuntimeCMixerGainPanUpdateTargetsOnlyRequestedChannel() {
@@ -9512,7 +9572,15 @@ final class VoodooTrackerXTests: XCTestCase {
     func testRuntimeCMixerTraceDistinguishesChannelStopFromAllVoiceClear() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
-        let sample = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 4_096),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
@@ -9562,7 +9630,7 @@ final class VoodooTrackerXTests: XCTestCase {
     func testRuntimeCMixerTraceRecordsChannelScopedReplacement() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
-        let sample = makePlaybackSample(pcm: [0.25, 0.25], baseSampleRate: 44_100)
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 4_096), baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
@@ -9579,14 +9647,20 @@ final class VoodooTrackerXTests: XCTestCase {
         engine.advanceOneTick()
 
         let replacementStop = traceWriter.events.first {
-            $0.runtimeAction == "c_mixer_stop_channel" && $0.reason == "note_replacement_stop_channel"
+            $0.runtimeAction == "c_mixer_stop_channel_ramped" && $0.reason == "note_replacement_stop_channel"
         }
         XCTAssertEqual(replacementStop?.targetScope, "channel")
         XCTAssertEqual(replacementStop?.targetedAllVoices, false)
         XCTAssertEqual(replacementStop?.rowIndex, 1)
         XCTAssertEqual(replacementStop?.channelIndex, 0)
-        XCTAssertNotNil(replacementStop?.stoppedVoiceCount)
-        XCTAssertEqual(replacementStop?.stopChannelCount, 1)
+        XCTAssertNil(replacementStop?.stoppedVoiceCount)
+        XCTAssertEqual(replacementStop?.rampedVoiceCount, 1)
+        XCTAssertEqual(replacementStop?.replacementRampFrames, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(replacementStop?.replacementVoicesOverlap, true)
+        XCTAssertEqual(replacementStop?.stopChannelCount, 0)
+        XCTAssertEqual(replacementStop?.replacementRampCount, 1)
+        XCTAssertEqual(replacementStop?.activeVoiceCountBefore, 1)
+        XCTAssertEqual(replacementStop?.activeVoiceCountAfter, 2)
         XCTAssertNil(traceWriter.events.first {
             $0.runtimeAction == "c_mixer_clear_all" &&
                 $0.reason == "per_channel_stop_currently_clears_all_runtime_c_voices"

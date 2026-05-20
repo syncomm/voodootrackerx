@@ -61,6 +61,11 @@ protocol PlaybackAudioBackendProviding: AnyObject {
     var runtimeAudioBackend: RuntimeAudioBackend { get }
 }
 
+@MainActor
+protocol PlaybackFollowPositionProviding: AnyObject {
+    func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition?
+}
+
 struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let schemaVersion: Int
     let runtimeAction: String
@@ -116,6 +121,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let playbackEngineToCMixerFrameDelta: Int?
     let playbackEngineToCMixerPositionMismatch: Bool?
     let rowTransitionDeltaCategory: String?
+    let publishedPlaybackFollowPositionSource: String?
+    let publishedPlaybackFollowOrderIndex: Int?
+    let publishedPlaybackFollowPatternIndex: Int?
+    let publishedPlaybackFollowRowIndex: Int?
+    let publishedPlaybackFollowTickInRow: Int?
+    let publishedPlaybackFollowSampleTimeFrame: Int?
+    let publishedPlaybackFollowPositionStatus: String?
+    let publishedPlaybackFollowSyntheticRow: Int?
+    let publishedPlaybackFollowToCMixerFrameDelta: Int?
+    let publishedPlaybackFollowToCMixerRowDelta: Int?
+    let playbackEngineToPublishedPlaybackFollowFrameDelta: Int?
+    let playbackEngineToPublishedPlaybackFollowRowDelta: Int?
     let channelCount: Int?
     let orderIndex: Int?
     let patternIndex: Int?
@@ -189,6 +206,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let outputRMS: Float?
     let lastOutputPeak: Float?
     let lastOutputRMS: Float?
+    let outputDiscontinuityThreshold: Float?
+    let outputDiscontinuityCount: UInt64?
+    let maxOutputAdjacentSampleJump: Float?
+    let lastOutputDiscontinuitySampleJump: Float?
+    let lastOutputDiscontinuityCallbackIndex: UInt64?
+    let lastOutputDiscontinuityRuntimeFrame: UInt64?
+    let lastOutputDiscontinuityFrameOffset: Int?
+    let lastOutputDiscontinuityChannelIndex: Int?
     let overrangeSampleCount: UInt64?
     let clippingSampleCount: UInt64?
     let clippingDetected: Bool?
@@ -279,6 +304,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         playbackEngineToCMixerFrameDelta: Int? = nil,
         playbackEngineToCMixerPositionMismatch: Bool? = nil,
         rowTransitionDeltaCategory: String? = nil,
+        publishedPlaybackFollowPositionSource: String? = nil,
+        publishedPlaybackFollowOrderIndex: Int? = nil,
+        publishedPlaybackFollowPatternIndex: Int? = nil,
+        publishedPlaybackFollowRowIndex: Int? = nil,
+        publishedPlaybackFollowTickInRow: Int? = nil,
+        publishedPlaybackFollowSampleTimeFrame: Int? = nil,
+        publishedPlaybackFollowPositionStatus: String? = nil,
+        publishedPlaybackFollowSyntheticRow: Int? = nil,
+        publishedPlaybackFollowToCMixerFrameDelta: Int? = nil,
+        publishedPlaybackFollowToCMixerRowDelta: Int? = nil,
+        playbackEngineToPublishedPlaybackFollowFrameDelta: Int? = nil,
+        playbackEngineToPublishedPlaybackFollowRowDelta: Int? = nil,
         channelCount: Int? = nil,
         context: AudioRuntimeTraceContext? = nil,
         targetScope: String = "none",
@@ -341,6 +378,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         outputRMS: Float? = nil,
         lastOutputPeak: Float? = nil,
         lastOutputRMS: Float? = nil,
+        outputDiscontinuityThreshold: Float? = nil,
+        outputDiscontinuityCount: UInt64? = nil,
+        maxOutputAdjacentSampleJump: Float? = nil,
+        lastOutputDiscontinuitySampleJump: Float? = nil,
+        lastOutputDiscontinuityCallbackIndex: UInt64? = nil,
+        lastOutputDiscontinuityRuntimeFrame: UInt64? = nil,
+        lastOutputDiscontinuityFrameOffset: Int? = nil,
+        lastOutputDiscontinuityChannelIndex: Int? = nil,
         overrangeSampleCount: UInt64? = nil,
         clippingSampleCount: UInt64? = nil,
         clippingDetected: Bool? = nil,
@@ -430,6 +475,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.playbackEngineToCMixerFrameDelta = playbackEngineToCMixerFrameDelta
         self.playbackEngineToCMixerPositionMismatch = playbackEngineToCMixerPositionMismatch
         self.rowTransitionDeltaCategory = rowTransitionDeltaCategory
+        self.publishedPlaybackFollowPositionSource = publishedPlaybackFollowPositionSource
+        self.publishedPlaybackFollowOrderIndex = publishedPlaybackFollowOrderIndex
+        self.publishedPlaybackFollowPatternIndex = publishedPlaybackFollowPatternIndex
+        self.publishedPlaybackFollowRowIndex = publishedPlaybackFollowRowIndex
+        self.publishedPlaybackFollowTickInRow = publishedPlaybackFollowTickInRow
+        self.publishedPlaybackFollowSampleTimeFrame = publishedPlaybackFollowSampleTimeFrame
+        self.publishedPlaybackFollowPositionStatus = publishedPlaybackFollowPositionStatus
+        self.publishedPlaybackFollowSyntheticRow = publishedPlaybackFollowSyntheticRow
+        self.publishedPlaybackFollowToCMixerFrameDelta = publishedPlaybackFollowToCMixerFrameDelta
+        self.publishedPlaybackFollowToCMixerRowDelta = publishedPlaybackFollowToCMixerRowDelta
+        self.playbackEngineToPublishedPlaybackFollowFrameDelta = playbackEngineToPublishedPlaybackFollowFrameDelta
+        self.playbackEngineToPublishedPlaybackFollowRowDelta = playbackEngineToPublishedPlaybackFollowRowDelta
         self.channelCount = channelCount
         orderIndex = context?.orderIndex
         patternIndex = context?.patternIndex
@@ -503,6 +560,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.outputRMS = outputRMS
         self.lastOutputPeak = lastOutputPeak
         self.lastOutputRMS = lastOutputRMS
+        self.outputDiscontinuityThreshold = outputDiscontinuityThreshold
+        self.outputDiscontinuityCount = outputDiscontinuityCount
+        self.maxOutputAdjacentSampleJump = maxOutputAdjacentSampleJump
+        self.lastOutputDiscontinuitySampleJump = lastOutputDiscontinuitySampleJump
+        self.lastOutputDiscontinuityCallbackIndex = lastOutputDiscontinuityCallbackIndex
+        self.lastOutputDiscontinuityRuntimeFrame = lastOutputDiscontinuityRuntimeFrame
+        self.lastOutputDiscontinuityFrameOffset = lastOutputDiscontinuityFrameOffset
+        self.lastOutputDiscontinuityChannelIndex = lastOutputDiscontinuityChannelIndex
         self.overrangeSampleCount = overrangeSampleCount
         self.clippingSampleCount = clippingSampleCount
         self.clippingDetected = clippingDetected
@@ -739,6 +804,14 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let outputRMS: Float
     let lastOutputPeak: Float
     let lastOutputRMS: Float
+    let outputDiscontinuityThreshold: Float
+    let outputDiscontinuityCount: UInt64
+    let maxOutputAdjacentSampleJump: Float
+    let lastOutputDiscontinuitySampleJump: Float?
+    let lastOutputDiscontinuityCallbackIndex: UInt64?
+    let lastOutputDiscontinuityRuntimeFrame: UInt64?
+    let lastOutputDiscontinuityFrameOffset: Int?
+    let lastOutputDiscontinuityChannelIndex: Int?
     let overrangeSampleCount: UInt64
     let clippingSampleCount: UInt64
     let clippingDetected: Bool
@@ -854,6 +927,11 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
     let sampleCount: Int
     let peak: Float
     let squareSum: Double
+    let discontinuityCount: Int
+    let maxAdjacentSampleJump: Float
+    let maxDiscontinuityFrameOffset: Int?
+    let maxDiscontinuityChannelIndex: Int?
+    let maxDiscontinuitySampleJump: Float?
     let overrangeSampleCount: Int
     let clippingSampleCount: Int
 
@@ -872,6 +950,11 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
         sampleCount: 0,
         peak: 0,
         squareSum: 0,
+        discontinuityCount: 0,
+        maxAdjacentSampleJump: 0,
+        maxDiscontinuityFrameOffset: nil,
+        maxDiscontinuityChannelIndex: nil,
+        maxDiscontinuitySampleJump: nil,
         overrangeSampleCount: 0,
         clippingSampleCount: 0
     )
@@ -1125,6 +1208,7 @@ fileprivate struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatab
 
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let updateEpsilon = 0.00001
+    static let outputDiscontinuityThreshold = Float(0.75)
 
     private let lock = NSLock()
     private let mixer: CSoftwareMixer
@@ -1159,6 +1243,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var outputPeak = Float(0)
     private var lastOutputPeak = Float(0)
     private var lastOutputRMS = Float(0)
+    private var outputDiscontinuityCount: UInt64 = 0
+    private var maxOutputAdjacentSampleJump = Float(0)
+    private var lastOutputDiscontinuitySampleJump: Float?
+    private var lastOutputDiscontinuityCallbackIndex: UInt64?
+    private var lastOutputDiscontinuityRuntimeFrame: UInt64?
+    private var lastOutputDiscontinuityFrameOffset: Int?
+    private var lastOutputDiscontinuityChannelIndex: Int?
     private var overrangeSampleCount: UInt64 = 0
     private var clippingSampleCount: UInt64 = 0
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
@@ -2542,7 +2633,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             zeroFilled: false,
             activeVoiceCountBefore: activeVoiceCountBefore,
             loadedVoiceCountBefore: loadedVoiceCountBefore,
-            outputMetrics: outputMetrics(outputInterleavedPCM, sampleCount: sampleCount)
+            outputMetrics: outputMetrics(
+                outputInterleavedPCM,
+                sampleCount: sampleCount,
+                channelCount: mixer.config.channelCount
+            )
         )
         return true
     }
@@ -2858,6 +2953,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             outputRMS: rms,
             lastOutputPeak: lastOutputPeak,
             lastOutputRMS: lastOutputRMS,
+            outputDiscontinuityThreshold: Self.outputDiscontinuityThreshold,
+            outputDiscontinuityCount: outputDiscontinuityCount,
+            maxOutputAdjacentSampleJump: maxOutputAdjacentSampleJump,
+            lastOutputDiscontinuitySampleJump: lastOutputDiscontinuitySampleJump,
+            lastOutputDiscontinuityCallbackIndex: lastOutputDiscontinuityCallbackIndex,
+            lastOutputDiscontinuityRuntimeFrame: lastOutputDiscontinuityRuntimeFrame,
+            lastOutputDiscontinuityFrameOffset: lastOutputDiscontinuityFrameOffset,
+            lastOutputDiscontinuityChannelIndex: lastOutputDiscontinuityChannelIndex,
             overrangeSampleCount: overrangeSampleCount,
             clippingSampleCount: clippingSampleCount,
             clippingDetected: clippingSampleCount > 0,
@@ -2916,6 +3019,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             cumulativeOutputSampleCount &+= UInt64(max(0, outputMetrics.sampleCount))
             cumulativeOutputSquareSum += outputMetrics.squareSum
             outputPeak = max(outputPeak, outputMetrics.peak)
+            outputDiscontinuityCount &+= UInt64(max(0, outputMetrics.discontinuityCount))
+            maxOutputAdjacentSampleJump = max(maxOutputAdjacentSampleJump, outputMetrics.maxAdjacentSampleJump)
+            if let discontinuityFrameOffset = outputMetrics.maxDiscontinuityFrameOffset,
+               let discontinuitySampleJump = outputMetrics.maxDiscontinuitySampleJump {
+                lastOutputDiscontinuitySampleJump = discontinuitySampleJump
+                lastOutputDiscontinuityCallbackIndex = callbackIndex
+                lastOutputDiscontinuityFrameOffset = discontinuityFrameOffset
+                lastOutputDiscontinuityChannelIndex = outputMetrics.maxDiscontinuityChannelIndex
+                let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(discontinuityFrameOffset))
+                lastOutputDiscontinuityRuntimeFrame = runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue
+            }
             overrangeSampleCount &+= UInt64(max(0, outputMetrics.overrangeSampleCount))
             clippingSampleCount &+= UInt64(max(0, outputMetrics.clippingSampleCount))
         } else {
@@ -2929,14 +3043,21 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func outputMetrics(
         _ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
-        sampleCount: Int
+        sampleCount: Int,
+        channelCount: Int
     ) -> RuntimeCMixerOutputMetrics {
         let boundedSampleCount = min(max(0, sampleCount), outputInterleavedPCM.count)
         guard boundedSampleCount > 0 else {
             return .silence
         }
+        let safeChannelCount = max(1, channelCount)
         var peak = Float(0)
         var squareSum = Double(0)
+        var discontinuityCount = 0
+        var maxAdjacentSampleJump = Float(0)
+        var maxDiscontinuitySampleJump: Float?
+        var maxDiscontinuityFrameOffset: Int?
+        var maxDiscontinuityChannelIndex: Int?
         var overrangeCount = 0
         var clippingCount = 0
         for index in 0..<boundedSampleCount {
@@ -2950,11 +3071,31 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             if absolute >= 1 {
                 clippingCount += 1
             }
+            if index >= safeChannelCount {
+                let previous = outputInterleavedPCM[index - safeChannelCount].isFinite
+                    ? outputInterleavedPCM[index - safeChannelCount]
+                    : 0
+                let sampleJump = abs(sample - previous)
+                maxAdjacentSampleJump = max(maxAdjacentSampleJump, sampleJump)
+                if sampleJump > Self.outputDiscontinuityThreshold {
+                    discontinuityCount += 1
+                    if maxDiscontinuitySampleJump.map({ sampleJump > $0 }) ?? true {
+                        maxDiscontinuitySampleJump = sampleJump
+                        maxDiscontinuityFrameOffset = index / safeChannelCount
+                        maxDiscontinuityChannelIndex = index % safeChannelCount
+                    }
+                }
+            }
         }
         return RuntimeCMixerOutputMetrics(
             sampleCount: boundedSampleCount,
             peak: peak,
             squareSum: squareSum,
+            discontinuityCount: discontinuityCount,
+            maxAdjacentSampleJump: maxAdjacentSampleJump,
+            maxDiscontinuityFrameOffset: maxDiscontinuityFrameOffset,
+            maxDiscontinuityChannelIndex: maxDiscontinuityChannelIndex,
+            maxDiscontinuitySampleJump: maxDiscontinuitySampleJump,
             overrangeSampleCount: overrangeCount,
             clippingSampleCount: clippingCount
         )
@@ -3160,6 +3301,7 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func stop(channel: Int, context: AudioRuntimeTraceContext?)
     func stopAll(context: AudioRuntimeTraceContext?, reason: String)
     func recordTransition(previousContext: AudioRuntimeTraceContext?, context: AudioRuntimeTraceContext?, phase: String, reason: String)
+    func recordPublishedPlaybackFollowPosition(timerContext: AudioRuntimeTraceContext?, publishedPosition: PlaybackFollowPosition)
 }
 
 @MainActor
@@ -3230,6 +3372,7 @@ private struct RuntimeCMixerSampleTimePositionTraceFields: Equatable {
     let cMixerSampleTimePatternIndex: Int?
     let cMixerSampleTimeRowIndex: Int?
     let cMixerSampleTimeTickInRow: Int?
+    let cMixerSampleTimeSyntheticRow: Int?
     let playbackEngineOrderIndex: Int?
     let playbackEnginePatternIndex: Int?
     let playbackEngineRowIndex: Int?
@@ -3248,7 +3391,7 @@ private struct RuntimeCMixerPendingTransition: Equatable {
 }
 
 @MainActor
-final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
+final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
@@ -3316,6 +3459,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     var hasRuntimeAdapterEventPlan: Bool {
         adapterEventPlan.generated
+    }
+
+    func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
+        guard adapterEventPlan.generated,
+              let cMixerPosition = resolvedSampleTimePosition(
+                context: traceContext(position: timerPosition, tickInRow: timerTickInRow),
+                snapshot: renderCore.snapshot()
+              ) else {
+            return nil
+        }
+        return PlaybackFollowPosition(
+            position: cMixerPosition.source,
+            tickInRow: cMixerPosition.tickInRow,
+            source: .cMixerSampleTime,
+            sampleTimeFrame: cMixerPosition.frame,
+            sampleTimeStatus: cMixerPosition.status,
+            syntheticRow: cMixerPosition.syntheticRow
+        )
     }
 
     func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan) {
@@ -3463,6 +3624,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             cMixerSampleTimePatternIndex: cMixerPosition?.source.patternIndex,
             cMixerSampleTimeRowIndex: cMixerPosition?.source.rowIndex,
             cMixerSampleTimeTickInRow: cMixerPosition?.tickInRow,
+            cMixerSampleTimeSyntheticRow: cMixerPosition?.syntheticRow,
             playbackEngineOrderIndex: context?.orderIndex,
             playbackEnginePatternIndex: context?.patternIndex,
             playbackEngineRowIndex: context?.rowIndex,
@@ -3475,12 +3637,39 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
     }
 
+    private func resolvedSampleTimePosition(
+        context: AudioRuntimeTraceContext?,
+        snapshot: RuntimeCMixerRenderSnapshot
+    ) -> PlaybackSongSampleTimePosition? {
+        let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot)
+        let frame = offset.flatMap { plannedFrame(runtimeFrame: snapshot.currentFrame, runtimeFrameOffset: $0) }
+        return frame.flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+    }
+
     private func plannedFrame(runtimeFrame: UInt64, runtimeFrameOffset: Int) -> Int? {
         guard let frame = intFrame(runtimeFrame) else {
             return nil
         }
         let (value, overflow) = frame.subtractingReportingOverflow(runtimeFrameOffset)
         return overflow ? nil : value
+    }
+
+    private func plannedFrame(for publishedPosition: PlaybackFollowPosition) -> Int? {
+        if let sampleTimeFrame = publishedPosition.sampleTimeFrame {
+            return sampleTimeFrame
+        }
+        return adapterEventPlan.plannedFrame(matching: traceContext(
+            position: publishedPosition.position,
+            tickInRow: publishedPosition.tickInRow
+        ))
+    }
+
+    private func plannedPosition(for publishedPosition: PlaybackFollowPosition) -> PlaybackSongSampleTimePosition? {
+        plannedFrame(for: publishedPosition).flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+    }
+
+    private func plannedPosition(for context: AudioRuntimeTraceContext) -> PlaybackSongSampleTimePosition? {
+        adapterEventPlan.plannedFrame(matching: context).flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
     }
 
     private func positionMismatch(
@@ -4036,6 +4225,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
     }
 
+    func recordPublishedPlaybackFollowPosition(
+        timerContext: AudioRuntimeTraceContext?,
+        publishedPosition: PlaybackFollowPosition
+    ) {
+        drainAppliedRuntimeAdapterEvents()
+        recordRuntimeEvent(
+            action: "playback_follow_position_published",
+            context: timerContext,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: nil,
+            publishedPlaybackFollowPosition: publishedPosition,
+            reason: "playback_follow_position_published"
+        )
+    }
+
     func reset() {
         drainAppliedRuntimeAdapterEvents()
         stopAll()
@@ -4160,6 +4365,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         eventTiming: RuntimeCMixerEventTimingTraceFields? = nil,
         transition: RuntimeCMixerTransitionTraceFields? = nil,
         runtimeEventFallbackReason: String? = nil,
+        publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
         reason: String?
     ) {
         guard traceWriter.isEnabled else {
@@ -4170,6 +4376,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             snapshot: snapshot,
             isRowTransition: action.hasPrefix("row_transition") || eventTiming?.runtimeEventCategory == "row_transition"
         )
+        let publishedPlannedFrame = publishedPlaybackFollowPosition.flatMap { plannedFrame(for: $0) }
+        let publishedPlannedPosition = publishedPlaybackFollowPosition.flatMap { plannedPosition(for: $0) }
+        let playbackEnginePlannedPosition = context.flatMap { plannedPosition(for: $0) }
+        let playbackEnginePlannedFrame = context.flatMap { adapterEventPlan.plannedFrame(matching: $0) }
+        let publishedToCMixerFrameDelta = publishedPlannedFrame.flatMap { publishedFrame in
+            sampleTimePosition.cMixerSampleTimeFrame.map { $0 - publishedFrame }
+        }
+        let publishedToCMixerRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
+            sampleTimePosition.cMixerSampleTimeSyntheticRow.map { $0 - publishedPosition.syntheticRow }
+        }
+        let playbackEngineToPublishedFrameDelta = publishedPlannedFrame.flatMap { publishedFrame in
+            playbackEnginePlannedFrame.map { publishedFrame - $0 }
+        }
+        let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
+            playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
+        }
         traceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
@@ -4222,6 +4444,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             playbackEngineToCMixerFrameDelta: sampleTimePosition.playbackEngineToCMixerFrameDelta,
             playbackEngineToCMixerPositionMismatch: sampleTimePosition.playbackEngineToCMixerPositionMismatch,
             rowTransitionDeltaCategory: sampleTimePosition.rowTransitionDeltaCategory,
+            publishedPlaybackFollowPositionSource: publishedPlaybackFollowPosition?.source.rawValue,
+            publishedPlaybackFollowOrderIndex: publishedPlaybackFollowPosition?.position.orderIndex,
+            publishedPlaybackFollowPatternIndex: publishedPlaybackFollowPosition?.position.patternIndex,
+            publishedPlaybackFollowRowIndex: publishedPlaybackFollowPosition?.position.rowIndex,
+            publishedPlaybackFollowTickInRow: publishedPlaybackFollowPosition?.tickInRow,
+            publishedPlaybackFollowSampleTimeFrame: publishedPlannedFrame,
+            publishedPlaybackFollowPositionStatus: publishedPlaybackFollowPosition?.sampleTimeStatus ?? publishedPlannedPosition?.status,
+            publishedPlaybackFollowSyntheticRow: publishedPlannedPosition?.syntheticRow ?? publishedPlaybackFollowPosition?.syntheticRow,
+            publishedPlaybackFollowToCMixerFrameDelta: publishedToCMixerFrameDelta,
+            publishedPlaybackFollowToCMixerRowDelta: publishedToCMixerRowDelta,
+            playbackEngineToPublishedPlaybackFollowFrameDelta: playbackEngineToPublishedFrameDelta,
+            playbackEngineToPublishedPlaybackFollowRowDelta: playbackEngineToPublishedRowDelta,
             channelCount: snapshot.channelCount,
             context: context,
             targetScope: targetScope,
@@ -4284,6 +4518,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             outputRMS: snapshot.outputRMS,
             lastOutputPeak: snapshot.lastOutputPeak,
             lastOutputRMS: snapshot.lastOutputRMS,
+            outputDiscontinuityThreshold: snapshot.outputDiscontinuityThreshold,
+            outputDiscontinuityCount: snapshot.outputDiscontinuityCount,
+            maxOutputAdjacentSampleJump: snapshot.maxOutputAdjacentSampleJump,
+            lastOutputDiscontinuitySampleJump: snapshot.lastOutputDiscontinuitySampleJump,
+            lastOutputDiscontinuityCallbackIndex: snapshot.lastOutputDiscontinuityCallbackIndex,
+            lastOutputDiscontinuityRuntimeFrame: snapshot.lastOutputDiscontinuityRuntimeFrame,
+            lastOutputDiscontinuityFrameOffset: snapshot.lastOutputDiscontinuityFrameOffset,
+            lastOutputDiscontinuityChannelIndex: snapshot.lastOutputDiscontinuityChannelIndex,
             overrangeSampleCount: snapshot.overrangeSampleCount,
             clippingSampleCount: snapshot.clippingSampleCount,
             clippingDetected: snapshot.clippingDetected,
@@ -4344,6 +4586,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             speed: context.speed,
             bpm: context.bpm,
             tickIndex: context.tickIndex
+        )
+    }
+
+    private func traceContext(position: PlaybackPosition, tickInRow: Int) -> AudioRuntimeTraceContext {
+        AudioRuntimeTraceContext(
+            orderIndex: position.orderIndex,
+            patternIndex: position.patternIndex,
+            rowIndex: position.rowIndex,
+            tickInRow: tickInRow
         )
     }
 

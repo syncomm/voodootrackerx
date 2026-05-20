@@ -132,6 +132,15 @@ in-callback event timestamp ordering are reported separately from in-playback
 drift. This is a runtime maturation step only; it does not make the C mixer
 stable, default, or user-facing.
 
+A later sample-time follow bridge uses that same resolver as the published
+playback-follow source for the experimental runtime C mixer when the planned
+adapter timeline is available. The default AVAudio backend continues to publish
+the existing `PlaybackEngine` timer position. Runtime traces now distinguish
+timer position, C mixer sample-time position, and published follow position.
+This remains a maturation step for the opt-in backend; it does not make the C
+mixer default, add a user-facing toggle, change tracker viewport math, change C
+mixer DSP semantics, or claim runtime readiness.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

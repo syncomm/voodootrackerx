@@ -8940,6 +8940,83 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineDefaultAVAudioPublishesTimerFollowPosition() {
+        let engine = PlaybackEngine(audioEngine: TestPlaybackAudioOutput())
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.play(from: nil)
+        engine.advanceOneTick()
+
+        XCTAssertEqual(positions, [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+        ])
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(engine.currentPublishedFollowPosition?.position, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(engine.currentPublishedFollowPosition?.source, .avAudioTimer)
+    }
+
+    @MainActor
+    func testRuntimeCMixerPlaybackFollowPublishesSampleTimePosition() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 3],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+        var positions = [PlaybackPosition]()
+        harness.engine.positionDidChange = { positions.append($0) }
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 25)
+        harness.engine.advanceOneTick()
+
+        XCTAssertEqual(harness.engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(positions.last, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.source, .cMixerSampleTime)
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.position, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.sampleTimeFrame, 25)
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.syntheticRow, 2)
+    }
+
+    @MainActor
+    func testRuntimeCMixerTraceIncludesPublishedFollowPositionSource() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 3],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 25)
+        harness.engine.advanceOneTick()
+
+        let publishedEvents = harness.traceWriter.events.filter {
+            $0.runtimeAction == "playback_follow_position_published"
+        }
+        let latest = publishedEvents.last
+        XCTAssertEqual(latest?.publishedPlaybackFollowPositionSource, "c_mixer_sample_time")
+        XCTAssertEqual(latest?.publishedPlaybackFollowOrderIndex, 0)
+        XCTAssertEqual(latest?.publishedPlaybackFollowPatternIndex, 2)
+        XCTAssertEqual(latest?.publishedPlaybackFollowRowIndex, 2)
+        XCTAssertEqual(latest?.publishedPlaybackFollowTickInRow, 0)
+        XCTAssertEqual(latest?.publishedPlaybackFollowSampleTimeFrame, 25)
+        XCTAssertEqual(latest?.publishedPlaybackFollowSyntheticRow, 2)
+        XCTAssertEqual(latest?.publishedPlaybackFollowToCMixerFrameDelta, 0)
+        XCTAssertEqual(latest?.publishedPlaybackFollowToCMixerRowDelta, 0)
+        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowFrameDelta, 15)
+        XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowRowDelta, 1)
+        XCTAssertEqual(latest?.playbackEngineToCMixerFrameDelta, 15)
+    }
+
+    @MainActor
     func testRuntimeCMixerConsumesPlannedNoteEventsInsteadOfSimpleRuntimeNotes() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let audioEngine = RuntimeCMixerAudioEngine(
@@ -9383,6 +9460,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.unexpectedSilentOutputCount, 0)
         XCTAssertEqual(snapshot.outputPeak, 0)
         XCTAssertEqual(snapshot.outputRMS, 0)
+        XCTAssertEqual(snapshot.outputDiscontinuityThreshold, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
+        XCTAssertEqual(snapshot.outputDiscontinuityCount, 0)
+        XCTAssertEqual(snapshot.maxOutputAdjacentSampleJump, 0)
+        XCTAssertNil(snapshot.lastOutputDiscontinuitySampleJump)
+        XCTAssertNil(snapshot.lastOutputDiscontinuityCallbackIndex)
+        XCTAssertNil(snapshot.lastOutputDiscontinuityRuntimeFrame)
+        XCTAssertNil(snapshot.lastOutputDiscontinuityFrameOffset)
+        XCTAssertNil(snapshot.lastOutputDiscontinuityChannelIndex)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
         XCTAssertEqual(snapshot.clippingDetected, false)
@@ -9447,6 +9532,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.lastOutputPeak, gain, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.outputPeak, gain, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)) * gain, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.outputDiscontinuityCount, 0)
+        XCTAssertLessThan(snapshot.maxOutputAdjacentSampleJump, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
+        XCTAssertNil(snapshot.lastOutputDiscontinuitySampleJump)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
         XCTAssertFalse(snapshot.clippingDetected)
@@ -9456,6 +9544,33 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
         XCTAssertEqual(snapshot.latePlannedEventCount, 0)
         XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 0)
+    }
+
+    func testRuntimeCMixerRenderCoreReportsOutputDiscontinuityDiagnostics() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: [0, 1, -1, 1], baseSampleRate: 44_100)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        var output = Array(repeating: Float(0), count: 4)
+        output.withUnsafeMutableBufferPointer { buffer in
+            XCTAssertTrue(core.render(into: buffer, frameCount: 4))
+        }
+
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.outputDiscontinuityThreshold, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
+        XCTAssertEqual(snapshot.outputDiscontinuityCount, 3)
+        XCTAssertEqual(snapshot.maxOutputAdjacentSampleJump, 2, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuitySampleJump, 2)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityCallbackIndex, 1)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityRuntimeFrame, 2)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityFrameOffset, 2)
+        XCTAssertEqual(snapshot.lastOutputDiscontinuityChannelIndex, 0)
     }
 
     func testRuntimeCMixerLatePlannedEventsAreClassifiedAndAppliedAtCallbackStart() {

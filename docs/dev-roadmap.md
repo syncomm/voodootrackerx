@@ -183,8 +183,13 @@ that with the `PlaybackEngine` timer position, including row-transition delta
 categories, PlaybackEngine-vs-C-mixer frame/millisecond delta summaries,
 constant-offset versus accumulating-drift classification, first-divergence
 reporting, selected order-transition samples, and largest mismatch summaries.
-Tracker-follow UI integration, Stop/spacebar behavior, and broader runtime
-stabilization remain separate future work.
+The experimental C mixer backend now uses that sample-time-derived position as
+the published playback-follow position when the planned adapter timeline is
+available, while the default AVAudio backend continues to publish the existing
+timer-based position. Runtime traces distinguish the `PlaybackEngine` timer
+position, the C mixer sample-time position, and the published follow position.
+Stop/spacebar behavior, broader runtime stabilization, and any tracker viewport
+polish remain separate future work.
 
 Immediate audio accuracy sequence:
 
@@ -252,7 +257,7 @@ Immediate audio accuracy sequence:
 62. Runtime C Mixer Sample-Time Event Alignment Diagnostics — done
 63. Runtime C Mixer Sample-Time Event Scheduling Bridge — done
 64. Runtime C Mixer Playback Follow Position Drift Investigation — done
-65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — future
+65. Runtime C Mixer Tracker Follow Uses Sample-Time Position — done
 66. Reference comparison stabilization against MikMod/OpenMPT
 
 ---

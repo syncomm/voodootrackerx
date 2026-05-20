@@ -2314,6 +2314,100 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(first["frame_delta"], 100)
             self.assertEqual(alignment["order_transition_position_samples"][0]["frame_delta"], 0)
 
+    def test_synthetic_trace_distinguishes_published_follow_from_timer_position(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=1,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=2,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=25,
+                        playbackEngineToCMixerFrameDelta=15,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        rowTransitionDeltaCategory="different_row_or_order",
+                    ),
+                    self.event(
+                        "playback_follow_position_published",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=1,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=2,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=25,
+                        playbackEngineToCMixerFrameDelta=15,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        publishedPlaybackFollowPositionSource="c_mixer_sample_time",
+                        publishedPlaybackFollowOrderIndex=0,
+                        publishedPlaybackFollowPatternIndex=2,
+                        publishedPlaybackFollowRowIndex=2,
+                        publishedPlaybackFollowTickInRow=0,
+                        publishedPlaybackFollowSampleTimeFrame=25,
+                        publishedPlaybackFollowSyntheticRow=2,
+                        publishedPlaybackFollowToCMixerFrameDelta=0,
+                        publishedPlaybackFollowToCMixerRowDelta=0,
+                        playbackEngineToPublishedPlaybackFollowFrameDelta=15,
+                        playbackEngineToPublishedPlaybackFollowRowDelta=1,
+                    ),
+                    self.event(
+                        "playback_follow_position_published",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=2,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=3,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=35,
+                        playbackEngineToCMixerFrameDelta=15,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        publishedPlaybackFollowPositionSource="c_mixer_sample_time",
+                        publishedPlaybackFollowOrderIndex=0,
+                        publishedPlaybackFollowPatternIndex=2,
+                        publishedPlaybackFollowRowIndex=3,
+                        publishedPlaybackFollowTickInRow=0,
+                        publishedPlaybackFollowSampleTimeFrame=35,
+                        publishedPlaybackFollowSyntheticRow=3,
+                        publishedPlaybackFollowToCMixerFrameDelta=0,
+                        publishedPlaybackFollowToCMixerRowDelta=0,
+                        playbackEngineToPublishedPlaybackFollowFrameDelta=15,
+                        playbackEngineToPublishedPlaybackFollowRowDelta=1,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertEqual(alignment["max_playback_engine_vs_c_mixer_abs_frame_delta"], 15)
+            self.assertEqual(alignment["published_playback_follow_position_source_counts"]["c_mixer_sample_time"], 2)
+            self.assertEqual(alignment["published_playback_follow_position_delta_count"], 2)
+            self.assertEqual(alignment["max_published_playback_follow_vs_c_mixer_abs_frame_delta"], 0)
+            self.assertEqual(alignment["average_published_playback_follow_vs_c_mixer_abs_frame_delta"], 0)
+            self.assertIsNone(alignment["first_published_playback_follow_divergence_above_threshold"])
+            self.assertEqual(
+                alignment["largest_published_playback_follow_vs_c_mixer_position_deltas"][0]["published_position_source"],
+                "c_mixer_sample_time",
+            )
+            self.assertNotIn(
+                "Published playback-follow position and C mixer sample-time position mismatch observed",
+                summary["suspicious_findings"],
+            )
+
     def test_synthetic_trace_classifies_accumulating_playback_engine_vs_c_mixer_drift(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(

@@ -15,6 +15,8 @@ from typing import Any
 
 FLOAT_DIGITS = 9
 POSITION_DIVERGENCE_FRAME_THRESHOLD = 1
+PUBLISHED_FOLLOW_POSITION_FRAME_TOLERANCE = 512
+PUBLISHED_FOLLOW_POSITION_ROW_TOLERANCE = 1
 UPDATE_ACTION_PREFIX = "c_mixer_update_"
 GAIN_PAN_UPDATE_ACTIONS = {
     "c_mixer_update_gain_pan_applied",
@@ -258,6 +260,15 @@ def c_mixer_position(event: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
     )
 
 
+def published_follow_position(event: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
+    return (
+        event.get("publishedPlaybackFollowOrderIndex"),
+        event.get("publishedPlaybackFollowPatternIndex"),
+        event.get("publishedPlaybackFollowRowIndex"),
+        event.get("publishedPlaybackFollowTickInRow"),
+    )
+
+
 def positions_are_known(event: dict[str, Any]) -> bool:
     playback = playback_engine_position(event)
     c_mixer = c_mixer_position(event)
@@ -285,6 +296,102 @@ def playback_clock_relation(frame_delta: int | None) -> str:
     if frame_delta < -POSITION_DIVERGENCE_FRAME_THRESHOLD:
         return "c_mixer_behind_playback_engine"
     return "aligned"
+
+
+def published_follow_c_mixer_position_delta_row(
+    index: int,
+    event: dict[str, Any],
+) -> dict[str, Any] | None:
+    frame_delta = integer(event.get("publishedPlaybackFollowToCMixerFrameDelta"))
+    if frame_delta is None:
+        c_mixer_frame = integer(event.get("cMixerSampleTimeFrame"))
+        published_frame = integer(event.get("publishedPlaybackFollowSampleTimeFrame"))
+        if c_mixer_frame is not None and published_frame is not None:
+            frame_delta = c_mixer_frame - published_frame
+    if frame_delta is None:
+        return None
+    playback = playback_engine_position(event)
+    published = published_follow_position(event)
+    c_mixer = c_mixer_position(event)
+    rate = sample_rate(event)
+    return {
+        "trace_index": index,
+        "runtime_action": event.get("runtimeAction"),
+        "published_position_source": event.get("publishedPlaybackFollowPositionSource"),
+        "playback_engine_order_index": playback[0],
+        "playback_engine_pattern_index": playback[1],
+        "playback_engine_row_index": playback[2],
+        "playback_engine_tick_in_row": playback[3],
+        "published_order_index": published[0],
+        "published_pattern_index": published[1],
+        "published_row_index": published[2],
+        "published_tick_in_row": published[3],
+        "published_sample_time_frame": integer(event.get("publishedPlaybackFollowSampleTimeFrame")),
+        "published_position_status": event.get("publishedPlaybackFollowPositionStatus"),
+        "published_synthetic_row": integer(event.get("publishedPlaybackFollowSyntheticRow")),
+        "c_mixer_order_index": c_mixer[0],
+        "c_mixer_pattern_index": c_mixer[1],
+        "c_mixer_row_index": c_mixer[2],
+        "c_mixer_tick_in_row": c_mixer[3],
+        "c_mixer_sample_time_frame": c_mixer_sample_time_frame(event),
+        "c_mixer_position_status": event.get("cMixerSampleTimePositionStatus"),
+        "sample_rate": rate,
+        "frame_delta": frame_delta,
+        "abs_frame_delta": abs(frame_delta),
+        "row_delta": integer(event.get("publishedPlaybackFollowToCMixerRowDelta")),
+        "playback_engine_to_published_frame_delta": integer(event.get("playbackEngineToPublishedPlaybackFollowFrameDelta")),
+        "playback_engine_to_published_row_delta": integer(event.get("playbackEngineToPublishedPlaybackFollowRowDelta")),
+        "time_delta_ms": time_delta_ms(frame_delta, rate),
+        "published_clock_relation": playback_clock_relation(frame_delta),
+    }
+
+
+def published_follow_c_mixer_position_delta_rows(
+    events: list[dict[str, Any]],
+    limit: int | None = 10,
+) -> list[dict[str, Any]]:
+    rows = []
+    for index, event in enumerate(events):
+        if is_transport_reset_event(event):
+            continue
+        row = published_follow_c_mixer_position_delta_row(index, event)
+        if row is not None:
+            rows.append(row)
+    if limit is None:
+        return rows
+    return rows[:limit]
+
+
+def largest_published_follow_c_mixer_position_delta_rows(
+    events: list[dict[str, Any]],
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    rows = published_follow_c_mixer_position_delta_rows(events, limit=None)
+    rows.sort(key=lambda item: (-item["abs_frame_delta"], item["trace_index"]))
+    return rows[:limit]
+
+
+def first_published_follow_divergence_above_threshold(
+    events: list[dict[str, Any]],
+    threshold: int = PUBLISHED_FOLLOW_POSITION_FRAME_TOLERANCE,
+) -> dict[str, Any] | None:
+    rows = published_follow_c_mixer_position_delta_rows(events, limit=None)
+    for row in rows:
+        if published_follow_divergent(row, threshold=threshold):
+            return row
+    return None
+
+
+def published_follow_divergent(
+    row: dict[str, Any],
+    threshold: int = PUBLISHED_FOLLOW_POSITION_FRAME_TOLERANCE,
+) -> bool:
+    row_delta = row.get("row_delta")
+    row_mismatch = (
+        isinstance(row_delta, int)
+        and abs(row_delta) > PUBLISHED_FOLLOW_POSITION_ROW_TOLERANCE
+    )
+    return row["abs_frame_delta"] > threshold or row_mismatch
 
 
 def playback_engine_c_mixer_position_delta_row(
@@ -958,6 +1065,16 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     underrun_count = int(max_numeric(events, "underrunCount") or 0)
     zero_fill_count = int(max_numeric(events, "zeroFillCount") or 0)
     failed_render_count = int(max_numeric(events, "failedRenderCount") or 0)
+    unexpected_silent_output_count = int(max_numeric(events, "unexpectedSilentOutputCount") or 0)
+    silent_output_callback_count = int(max_numeric(events, "silentOutputCallbackCount") or 0)
+    render_callback_count = int(max_numeric(events, "renderCallbackCount") or 0)
+    output_discontinuity_count = int(max_numeric(events, "outputDiscontinuityCount") or 0)
+    max_output_adjacent_sample_jump = max_numeric(events, "maxOutputAdjacentSampleJump") or 0.0
+    output_discontinuity_threshold = max_numeric(events, "outputDiscontinuityThreshold")
+    last_output_discontinuity_events = [
+        event for event in events
+        if event.get("lastOutputDiscontinuityRuntimeFrame") is not None
+    ]
     bursts = top_event_bursts(events)
     planned_adapter_event_applications = [
         event for event in events if is_planned_adapter_event_application(event)
@@ -973,6 +1090,9 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     suspicious_positions = top_suspicious_positions(timing_deltas, same_frame_bursts, transition_bursts)
     position_delta_rows = playback_engine_c_mixer_position_delta_rows(events, include_zero=True, limit=None)
     largest_position_delta_rows = largest_playback_engine_c_mixer_position_delta_rows(events)
+    published_position_delta_rows = published_follow_c_mixer_position_delta_rows(events, limit=None)
+    largest_published_position_delta_rows = largest_published_follow_c_mixer_position_delta_rows(events)
+    first_published_position_divergence = first_published_follow_divergence_above_threshold(events)
     position_mismatches = sample_time_position_mismatches(events)
     first_position_mismatch = first_suspicious_position_mismatch(events)
     first_position_divergence = first_position_divergence_above_threshold(events)
@@ -981,6 +1101,11 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     position_delta_values = [
         row["abs_frame_delta"]
         for row in position_delta_rows
+        if isinstance(row.get("abs_frame_delta"), int)
+    ]
+    published_position_delta_values = [
+        row["abs_frame_delta"]
+        for row in published_position_delta_rows
         if isinstance(row.get("abs_frame_delta"), int)
     ]
     row_transition_delta_values = [
@@ -992,6 +1117,11 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         str(event.get("rowTransitionDeltaCategory"))
         for event in row_transition_events
         if event.get("rowTransitionDeltaCategory") is not None
+    )
+    published_follow_source_counts = Counter(
+        str(event.get("publishedPlaybackFollowPositionSource"))
+        for event in events
+        if event.get("publishedPlaybackFollowPositionSource") is not None
     )
     parity_categories = summarize_update_parity(events)
     max_abs_event_frame_delta = max((abs(row["event_frame_delta"]) for row in all_timing_deltas), default=0)
@@ -1045,6 +1175,10 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("runtime clipping/overrange remains after runtime gain")
     if underrun_count > 0 or zero_fill_count > 0 or failed_render_count > 0:
         suspicious_findings.append("runtime render underrun, zero-fill, or failure counters are nonzero")
+    if unexpected_silent_output_count > 0:
+        suspicious_findings.append("unexpected silent output callbacks observed while voices were active or loaded")
+    if output_discontinuity_count > 0:
+        suspicious_findings.append("runtime output adjacent-sample discontinuity threshold crossings observed")
     if hard_replacement_stops:
         suspicious_findings.append("at least one note replacement used c_mixer_stop_channel instead of c_mixer_stop_channel_ramped")
     if action_counts["c_mixer_stop_channel"] > 0:
@@ -1071,6 +1205,8 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("PlaybackEngine position and C mixer sample-time position mismatch observed")
     if position_diverges_over_time(events):
         suspicious_findings.append("PlaybackEngine position and C mixer sample-time position diverge over time")
+    if any(published_follow_divergent(row) for row in published_position_delta_rows):
+        suspicious_findings.append("Published playback-follow position and C mixer sample-time position mismatch observed")
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
     large_same_frame_burst = bool(same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24)
@@ -1079,14 +1215,23 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         or callback_boundary_applied_event_count > 0
         or late_planned_event_count > 0
     )
+    published_follow_has_material_drift = any(
+        published_follow_divergent(row)
+        for row in published_position_delta_rows
+    )
+    published_follow_aligned = bool(published_position_delta_rows) and not published_follow_has_material_drift
 
     if hard_replacement_stops:
         recommended_next_pr = "Runtime C Mixer Hard Stop / Replacement Follow-Up"
     elif has_sample_time_delta:
         recommended_next_pr = "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation"
-    elif position_diverges_over_time(events):
+    elif output_discontinuity_count > 0:
+        recommended_next_pr = "Runtime C Mixer Output Discontinuity Diagnostics / Fix"
+    elif published_follow_has_material_drift:
+        recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
+    elif position_diverges_over_time(events) and not published_follow_aligned:
         recommended_next_pr = "Runtime C Mixer Playback Follow Position Drift Investigation"
-    elif position_mismatches:
+    elif position_mismatches and not published_follow_aligned:
         recommended_next_pr = "Runtime C Mixer Tracker-Follow Sample-Time Integration"
     elif large_same_frame_burst:
         recommended_next_pr = "Runtime C Mixer Same-Frame Event Burst Stabilization"
@@ -1111,7 +1256,21 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "clipping_detected": clipping_count > 0 or any(event.get("clippingDetected") is True for event in events),
             "underrun_count": underrun_count,
             "zero_fill_count": zero_fill_count,
+            "unexpected_silent_output_count": unexpected_silent_output_count,
             "failed_render_count": failed_render_count,
+            "render_callback_count": render_callback_count,
+            "callback_requested_frame_count_range": numeric_range(events, "callbackRequestedFrameCount", "requestedFrameCount"),
+            "silent_output_callback_count": silent_output_callback_count,
+            "output_discontinuity_threshold": rounded(output_discontinuity_threshold) if output_discontinuity_threshold is not None else None,
+            "output_discontinuity_count": output_discontinuity_count,
+            "max_output_adjacent_sample_jump": rounded(max_output_adjacent_sample_jump),
+            "last_output_discontinuity": {
+                "runtime_frame": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityRuntimeFrame")) if last_output_discontinuity_events else None,
+                "callback_index": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityCallbackIndex")) if last_output_discontinuity_events else None,
+                "frame_offset": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityFrameOffset")) if last_output_discontinuity_events else None,
+                "channel_index": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityChannelIndex")) if last_output_discontinuity_events else None,
+                "sample_jump": rounded(number(last_output_discontinuity_events[-1].get("lastOutputDiscontinuitySampleJump")) or 0.0) if last_output_discontinuity_events else None,
+            },
         },
         "voices": {
             "active_voice_range": numeric_range(events, "activeVoiceCount", "activeVoiceCountBefore", "activeVoiceCountAfter"),
@@ -1211,6 +1370,13 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "largest_playback_engine_vs_c_mixer_mismatches": position_mismatches,
             "first_suspicious_position_mismatch": first_position_mismatch,
             "first_position_divergence_above_threshold": first_position_divergence,
+            "published_playback_follow_position_source_counts": dict(sorted(published_follow_source_counts.items())),
+            "published_playback_follow_position_delta_count": len(published_position_delta_values),
+            "max_published_playback_follow_vs_c_mixer_abs_frame_delta": max(published_position_delta_values, default=0),
+            "average_published_playback_follow_vs_c_mixer_abs_frame_delta": average(published_position_delta_values),
+            "median_published_playback_follow_vs_c_mixer_abs_frame_delta": median(published_position_delta_values),
+            "largest_published_playback_follow_vs_c_mixer_position_deltas": largest_published_position_delta_rows,
+            "first_published_playback_follow_divergence_above_threshold": first_published_position_divergence,
             "largest_mismatch_order_row_ranges": largest_mismatch_order_row_ranges(position_mismatches),
             "order_transition_position_samples": order_transition_position_samples(events),
             "largest_event_timing_deltas": timing_deltas,
@@ -1238,7 +1404,9 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Events: {summary['event_count']}",
         f"- Peak: {health['peak']}",
         f"- Clipping samples: {health['clipping_sample_count']}",
-        f"- Underruns / zero-fill / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['failed_render_count']}",
+        f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
+        f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
+        f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Immediate hard replacement stops: {stops['immediate_hard_replacement_stop_events']}",
@@ -1261,6 +1429,10 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- PlaybackEngine-vs-C mixer drift classification: {alignment['playback_engine_vs_c_mixer_position_drift_classification']}",
         f"- PlaybackEngine-vs-C mixer mostly constant offset: {alignment['playback_engine_vs_c_mixer_position_mostly_constant_offset']}",
         f"- PlaybackEngine-vs-C mixer accumulating drift: {alignment['playback_engine_vs_c_mixer_position_accumulates']}",
+        f"- Published follow position sources: {alignment['published_playback_follow_position_source_counts']}",
+        f"- Max published-follow-vs-C mixer position frame delta: {alignment['max_published_playback_follow_vs_c_mixer_abs_frame_delta']}",
+        f"- Average published-follow-vs-C mixer position frame delta: {alignment['average_published_playback_follow_vs_c_mixer_abs_frame_delta']}",
+        f"- Median published-follow-vs-C mixer position frame delta: {alignment['median_published_playback_follow_vs_c_mixer_abs_frame_delta']}",
         f"- C mixer sample-time position monotonic: {alignment['c_mixer_sample_time_monotonic']}",
         f"- C mixer sample-time transport/reset jumps: {alignment['c_mixer_sample_time_reset_count']}",
         f"- C mixer in-callback sample-time ordering backfills: {alignment['c_mixer_sample_time_in_callback_ordering_count']}",
@@ -1365,6 +1537,25 @@ def build_markdown(summary: dict[str, Any]) -> str:
             )
     else:
         lines.append("- PlaybackEngine vs C mixer sample-time mismatches: none")
+    if alignment["largest_published_playback_follow_vs_c_mixer_position_deltas"]:
+        lines.append("- Published follow vs C mixer sample-time deltas:")
+        for row in alignment["largest_published_playback_follow_vs_c_mixer_position_deltas"][:5]:
+            published = (
+                f"published=source={row['published_position_source']} order={row['published_order_index']} "
+                f"pattern={row['published_pattern_index']} row={row['published_row_index']} "
+                f"tick={row['published_tick_in_row']}"
+            )
+            c_mixer = (
+                f"c_mixer=order={row['c_mixer_order_index']} pattern={row['c_mixer_pattern_index']} "
+                f"row={row['c_mixer_row_index']} tick={row['c_mixer_tick_in_row']}"
+            )
+            lines.append(
+                f"- {published} {c_mixer} published_frame={row['published_sample_time_frame']} "
+                f"c_mixer_frame={row['c_mixer_sample_time_frame']} delta={row['frame_delta']} "
+                f"row_delta={row['row_delta']} delta_ms={row['time_delta_ms']}"
+            )
+    else:
+        lines.append("- Published follow vs C mixer sample-time deltas: none")
     if alignment["order_transition_position_samples"]:
         lines.append("- Order transition position samples:")
         for row in alignment["order_transition_position_samples"][:8]:

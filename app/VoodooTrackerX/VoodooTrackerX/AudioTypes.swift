@@ -62,6 +62,31 @@ struct AudioRuntimeTraceContext: Equatable {
     }
 }
 
+enum PlaybackFollowPositionSource: String, Equatable {
+    case avAudioTimer = "av_audio_timer"
+    case cMixerSampleTime = "c_mixer_sample_time"
+}
+
+struct PlaybackFollowPosition: Equatable {
+    let position: PlaybackPosition
+    let tickInRow: Int
+    let source: PlaybackFollowPositionSource
+    let sampleTimeFrame: Int?
+    let sampleTimeStatus: String?
+    let syntheticRow: Int?
+
+    static func timer(position: PlaybackPosition, tickInRow: Int) -> PlaybackFollowPosition {
+        PlaybackFollowPosition(
+            position: position,
+            tickInRow: tickInRow,
+            source: .avAudioTimer,
+            sampleTimeFrame: nil,
+            sampleTimeStatus: nil,
+            syntheticRow: nil
+        )
+    }
+}
+
 enum PlaybackVolumeCalculator {
     static func clamped(_ value: Float) -> Float {
         min(1, max(0, value))

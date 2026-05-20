@@ -11,6 +11,7 @@ final class PlaybackEngine: PlaybackTransport {
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
     private(set) var currentPosition: PlaybackPosition?
+    private(set) var currentPublishedFollowPosition: PlaybackFollowPosition?
     private(set) var timing = PlaybackTiming.xmDefault
     private var tickState = PlaybackTickState()
     private var timer: Timer?
@@ -43,6 +44,7 @@ final class PlaybackEngine: PlaybackTransport {
         self.song = song
         timing = song?.initialTiming ?? .xmDefault
         currentPosition = song?.startPosition
+        currentPublishedFollowPosition = song?.startPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         pendingPositionCommand = nil
         channelStates.removeAll()
         globalState = PlaybackGlobalState()
@@ -116,7 +118,7 @@ final class PlaybackEngine: PlaybackTransport {
             restartTimer()
             apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
         } else {
-            positionDidChange?(resolvedStart.position)
+            publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
             apply(action: .stop, nextState: .stopped)
         }
         return resolvedStart.position
@@ -151,6 +153,7 @@ final class PlaybackEngine: PlaybackTransport {
         activeDebugStartTraceContext = nil
         traceWriter.flush()
         runtimeCMixerTraceWriter.flush()
+        currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         apply(action: .stop, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
@@ -256,7 +259,7 @@ final class PlaybackEngine: PlaybackTransport {
         case let .ended(restartPosition):
             if let restartPosition {
                 currentPosition = restartPosition
-                positionDidChange?(restartPosition)
+                publishPlaybackFollowPosition(timerPosition: restartPosition, tickInRow: 0, allowBackendOverride: false)
             }
             logger.debug("Playback reached end of song; stopping cleanly")
             stop()
@@ -264,7 +267,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?) {
-        positionDidChange?(position)
+        publishPlaybackFollowPosition(timerPosition: position, tickInRow: tickState.tickInRow, allowBackendOverride: true)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
         recordRuntimeRowTransition(from: previousPosition, to: position, phase: "before_events")
         let usesAdapterPlan = usesRuntimeAdapterEventPlan
@@ -762,6 +765,28 @@ final class PlaybackEngine: PlaybackTransport {
             phase: phase,
             reason: phase == "after_events" ? "playback_engine_row_enter_after_events" : "playback_engine_row_enter"
         )
+    }
+
+    private func publishPlaybackFollowPosition(
+        timerPosition: PlaybackPosition,
+        tickInRow: Int,
+        allowBackendOverride: Bool
+    ) {
+        let published = allowBackendOverride
+            ? (audioEngine as? PlaybackFollowPositionProviding)?.playbackFollowPosition(
+                timerPosition: timerPosition,
+                timerTickInRow: tickInRow
+            )
+            : nil
+        let followPosition = published ?? PlaybackFollowPosition.timer(position: timerPosition, tickInRow: tickInRow)
+        currentPublishedFollowPosition = followPosition
+        if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
+            diagnosticOutput.recordPublishedPlaybackFollowPosition(
+                timerContext: runtimeTraceContext(at: timerPosition, tickInRow: tickInRow, channelIndex: nil),
+                publishedPosition: followPosition
+            )
+        }
+        positionDidChange?(followPosition.position)
     }
 
     private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {

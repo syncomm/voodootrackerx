@@ -267,11 +267,21 @@ same trace point. Fields such as `cMixerRenderedFrames`,
 `cMixerPlaybackSeconds`, `cMixerSampleTimeFrame`,
 `cMixerSampleTimeOrderIndex`, `cMixerSampleTimeRowIndex`,
 `cMixerSampleTimeTickInRow`, `playbackEngineToCMixerFrameDelta`, and
-`playbackEngineToCMixerPositionMismatch` are diagnostics only. They are meant
-to separate sample-time position/reporting drift from real runtime playback
-timing problems. They do not change tracker viewport behavior, visual follow,
-Stop behavior, keyboard shortcuts, audio event timing, offline renders, or the
-default AVAudio backend.
+`playbackEngineToCMixerPositionMismatch` separate sample-time
+position/reporting drift from real runtime playback timing problems. The
+comparison fields do not change tracker viewport behavior, Stop behavior,
+keyboard shortcuts, audio event timing, offline renders, or the default AVAudio
+backend.
+
+The experimental runtime C mixer now publishes tracker-follow position from the
+C mixer sample-time resolver when its planned adapter timeline is available.
+The trace records this as `publishedPlaybackFollowPositionSource` with
+`c_mixer_sample_time`, alongside the still-traced `PlaybackEngine` timer
+position. The default AVAudio backend remains `AVAudioPlayerNode` /
+`AVAudioUnitVarispeed` and continues to publish the existing timer-based
+position. The C mixer runtime remains opt-in only with
+`VTX_AUDIO_BACKEND=c_mixer`; there is no user-facing toggle and no default
+backend switch.
 
 Use the summary helper to distinguish exact planned event application from
 position/reporting drift. It reports PlaybackEngine-vs-C-mixer frame and
@@ -280,9 +290,10 @@ the summary threshold, whether the evidence looks like accumulating drift or a
 mostly constant offset, and selected order-transition samples. Transport
 stop/reset cursor jumps and exact in-callback event timestamps that appear
 after callback-end breadcrumbs are reported separately from in-playback drift.
-These diagnostics are intended to choose a later bridge such as sample-time
-tracker follow or clock synchronization; they do not make the experimental
-C mixer the default backend and do not modify tracker viewport behavior.
+It also reports published-follow-vs-C-mixer deltas so local traces can show
+whether the position sent to tracker follow is aligned even when the main-run-loop
+timer position has drifted. These diagnostics do not make the experimental C
+mixer the default backend and do not modify tracker viewport behavior.
 
 Offline candidate WAV export gain/headroom remains separate from runtime
 playback. The offline helper can use `--gain`, `--headroom-db`, or

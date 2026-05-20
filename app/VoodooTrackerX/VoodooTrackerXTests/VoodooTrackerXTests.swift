@@ -8349,6 +8349,15 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeApplicationFrame: 260,
             eventFrameDelta: 4,
             eventApplicationTiming: "callback_start",
+            eventAppliedFrame: 260,
+            inCallbackOffset: 4,
+            plannedVsAppliedDelta: 4,
+            sameFrameBurstSize: 3,
+            maxPlannedVsAppliedDelta: 4,
+            appliedPlannedEventCount: 3,
+            exactFrameAppliedEventCount: 2,
+            callbackBoundaryAppliedEventCount: 1,
+            latePlannedEventCount: 0,
             fallbackToSimpleRuntimeEventCount: 0,
             runtimeEventFallbackReason: nil,
             experimentalCMixerEnabled: true,
@@ -8469,6 +8478,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeApplicationFrame"] as? Int, 260)
         XCTAssertEqual(object["eventFrameDelta"] as? Int, 4)
         XCTAssertEqual(object["eventApplicationTiming"] as? String, "callback_start")
+        XCTAssertEqual(object["eventAppliedFrame"] as? Int, 260)
+        XCTAssertEqual(object["inCallbackOffset"] as? Int, 4)
+        XCTAssertEqual(object["plannedVsAppliedDelta"] as? Int, 4)
+        XCTAssertEqual(object["sameFrameBurstSize"] as? Int, 3)
+        XCTAssertEqual(object["maxPlannedVsAppliedDelta"] as? Int, 4)
+        XCTAssertEqual(object["appliedPlannedEventCount"] as? Int, 3)
+        XCTAssertEqual(object["exactFrameAppliedEventCount"] as? Int, 2)
+        XCTAssertEqual(object["callbackBoundaryAppliedEventCount"] as? Int, 1)
+        XCTAssertEqual(object["latePlannedEventCount"] as? Int, 0)
         XCTAssertEqual(object["fallbackToSimpleRuntimeEventCount"] as? Int, 0)
         XCTAssertEqual(object["experimentalCMixerEnabled"] as? Bool, true)
         XCTAssertEqual(object["sampleRate"] as? Double, 44_100)
@@ -8816,15 +8834,41 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    private func makeRuntimeCMixerPlaybackHarness(
+        sampleRate: Double = 100,
+        channelCount: Int = 1
+    ) -> (
+        engine: PlaybackEngine,
+        audioEngine: RuntimeCMixerAudioEngine,
+        traceWriter: TestRuntimeCMixerTraceWriter
+    ) {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let audioEngine = RuntimeCMixerAudioEngine(
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            traceWriter: traceWriter
+        )
+        return (
+            PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter),
+            audioEngine,
+            traceWriter
+        )
+    }
+
+    @MainActor
     func testRuntimeCMixerConsumesPlannedNoteEventsInsteadOfSimpleRuntimeNotes() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
+        let audioEngine = RuntimeCMixerAudioEngine(
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            traceWriter: traceWriter
+        )
         let engine = PlaybackEngine(
-            audioEngine: RuntimeCMixerAudioEngine(
-                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
-                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
-                ]),
-                traceWriter: traceWriter
-            ),
+            audioEngine: audioEngine,
             runtimeCMixerTraceWriter: traceWriter
         )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 512), baseSampleRate: 44_100)
@@ -8835,6 +8879,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
 
         engine.play(from: nil)
+        _ = audioEngine.renderForTesting(frameCount: 16)
 
         let addVoice = traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" }
         XCTAssertEqual(addVoice?.runtimeEventSource, "offline_adapter_plan")
@@ -8853,15 +8898,158 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeCMixerScheduledNoteInsideCallbackAppliesAtExactOffset() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        let output = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        XCTAssertTrue(output[0..<10].allSatisfy { abs($0) < 0.000_001 })
+        XCTAssertGreaterThan(abs(output[10]), 0.000_001)
+        let addVoice = harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(addVoice?.runtimeEventSource, "offline_adapter_plan")
+        XCTAssertEqual(addVoice?.adapterEventCategory, "note_trigger")
+        XCTAssertEqual(addVoice?.plannedEventFrame, 10)
+        XCTAssertEqual(addVoice?.plannedRuntimeFrame, 10)
+        XCTAssertEqual(addVoice?.runtimeApplicationFrame, 10)
+        XCTAssertEqual(addVoice?.eventAppliedFrame, 10)
+        XCTAssertEqual(addVoice?.inCallbackOffset, 10)
+        XCTAssertEqual(addVoice?.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(addVoice?.eventApplicationTiming, "exact_frame")
+        XCTAssertEqual(addVoice?.callbackStartFrame, 0)
+        XCTAssertEqual(addVoice?.callbackEndFrame, 12)
+        XCTAssertEqual(addVoice?.exactFrameAppliedEventCount, 1)
+        XCTAssertEqual(addVoice?.callbackBoundaryAppliedEventCount, 0)
+        XCTAssertEqual(addVoice?.latePlannedEventCount, 0)
+        XCTAssertEqual(addVoice?.maxPlannedVsAppliedDelta, 0)
+    }
+
+    @MainActor
+    func testRuntimeCMixerEventsAfterCallbackRemainQueuedUntilTheirFrame() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        let firstCallback = harness.audioEngine.renderForTesting(frameCount: 10)
+
+        XCTAssertTrue(firstCallback.allSatisfy { abs($0) < 0.000_001 })
+        XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" })
+        XCTAssertEqual(
+            harness.traceWriter.events.first { $0.runtimeAction == "adapter_event_schedule_configured" }?.eventQueueBacklogCount,
+            1
+        )
+
+        _ = harness.audioEngine.renderForTesting(frameCount: 1)
+
+        let addVoice = harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(addVoice?.plannedRuntimeFrame, 10)
+        XCTAssertEqual(addVoice?.eventAppliedFrame, 10)
+        XCTAssertEqual(addVoice?.inCallbackOffset, 0)
+        XCTAssertEqual(addVoice?.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(addVoice?.eventApplicationTiming, "exact_frame")
+        XCTAssertEqual(addVoice?.callbackStartFrame, 10)
+        XCTAssertEqual(addVoice?.callbackEndFrame, 11)
+    }
+
+    @MainActor
+    func testRuntimeCMixerStopAllowsPlannedScheduleToBeConfiguredAgain() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+        harness.engine.stop()
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        let configuredEvents = harness.traceWriter.events.filter {
+            $0.runtimeAction == "adapter_event_schedule_configured"
+        }
+        let addVoiceEvents = harness.traceWriter.events.filter {
+            $0.runtimeAction == "c_mixer_add_voice"
+        }
+
+        XCTAssertEqual(configuredEvents.count, 2)
+        XCTAssertEqual(addVoiceEvents.count, 2)
+        XCTAssertEqual(addVoiceEvents.map(\.plannedRuntimeFrame), [10, 10])
+        XCTAssertEqual(addVoiceEvents.map(\.eventAppliedFrame), [10, 10])
+        XCTAssertEqual(addVoiceEvents.map(\.plannedVsAppliedDelta), [0, 0])
+    }
+
+    @MainActor
+    func testRuntimeCMixerSameFrameBurstAppliesInDeterministicOrder() {
+        let harness = makeRuntimeCMixerPlaybackHarness(channelCount: 2)
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                        PlaybackCell(note: 53, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 1)
+
+        let addVoices = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(addVoices.map(\.channelIndex), [0, 1])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 0])
+        XCTAssertEqual(addVoices.map(\.eventAppliedFrame), [0, 0])
+        XCTAssertEqual(addVoices.map(\.sameFrameBurstSize), [2, 2])
+        XCTAssertEqual(addVoices.map(\.plannedVsAppliedDelta), [0, 0])
+    }
+
+    @MainActor
     func testRuntimeCMixerConsumesPlannedGainPanAndStepUpdates() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
+        let audioEngine = RuntimeCMixerAudioEngine(
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            traceWriter: traceWriter
+        )
         let engine = PlaybackEngine(
-            audioEngine: RuntimeCMixerAudioEngine(
-                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
-                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
-                ]),
-                traceWriter: traceWriter
-            ),
+            audioEngine: audioEngine,
             runtimeCMixerTraceWriter: traceWriter
         )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 512), baseSampleRate: 44_100)
@@ -8878,9 +9066,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
 
         engine.play(from: nil)
-        engine.advanceOneTick()
-        engine.advanceOneTick()
-        engine.advanceOneTick()
+        _ = audioEngine.renderForTesting(frameCount: 4_096)
 
         let stepUpdate = traceWriter.events.first { $0.runtimeAction == "c_mixer_update_step_applied" }
         XCTAssertEqual(stepUpdate?.runtimeEventSource, "offline_adapter_plan")
@@ -8895,6 +9081,95 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNotNil(gainUpdate?.plannedEventFrame)
         XCTAssertNotNil(gainUpdate?.runtimeApplicationFrame)
         XCTAssertTrue(gainUpdate?.adapterEventCategoriesConsumed?.contains("volume_column_update") == true)
+    }
+
+    @MainActor
+    func testRuntimeCMixerGainPanUpdateAppliesAtExactOffset() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0x20)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        let gainUpdate = harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_update_gain_pan_applied" }
+        XCTAssertEqual(gainUpdate?.runtimeEventSource, "offline_adapter_plan")
+        XCTAssertEqual(gainUpdate?.adapterEventCategory, "gain_pan_update")
+        XCTAssertEqual(gainUpdate?.runtimeEventCategory, "gain_pan_update")
+        XCTAssertEqual(gainUpdate?.plannedRuntimeFrame, 10)
+        XCTAssertEqual(gainUpdate?.eventAppliedFrame, 10)
+        XCTAssertEqual(gainUpdate?.inCallbackOffset, 10)
+        XCTAssertEqual(gainUpdate?.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(gainUpdate?.eventApplicationTiming, "exact_frame")
+    }
+
+    @MainActor
+    func testRuntimeCMixerStepUpdateAppliesAtExactOffset() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x01, effectParam: 0x02)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        let stepUpdate = harness.traceWriter.events.first { $0.runtimeAction == "c_mixer_update_step_applied" }
+        XCTAssertEqual(stepUpdate?.runtimeEventSource, "offline_adapter_plan")
+        XCTAssertEqual(stepUpdate?.adapterEventCategory, "step_update")
+        XCTAssertEqual(stepUpdate?.runtimeEventCategory, "step_pitch_update")
+        XCTAssertEqual(stepUpdate?.plannedRuntimeFrame, 10)
+        XCTAssertEqual(stepUpdate?.eventAppliedFrame, 10)
+        XCTAssertEqual(stepUpdate?.inCallbackOffset, 10)
+        XCTAssertEqual(stepUpdate?.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(stepUpdate?.eventApplicationTiming, "exact_frame")
+    }
+
+    @MainActor
+    func testRuntimeCMixerReplacementRampAppliesAtExactOffset() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 12)
+
+        let replacementStop = harness.traceWriter.events.first {
+            $0.runtimeAction == "c_mixer_stop_channel_ramped" && $0.reason == "note_replacement_stop_channel"
+        }
+        XCTAssertEqual(replacementStop?.runtimeEventSource, "offline_adapter_plan")
+        XCTAssertEqual(replacementStop?.adapterEventCategory, "replacement")
+        XCTAssertEqual(replacementStop?.runtimeEventCategory, "replacement_stop_ramp")
+        XCTAssertEqual(replacementStop?.plannedRuntimeFrame, 10)
+        XCTAssertEqual(replacementStop?.eventAppliedFrame, 10)
+        XCTAssertEqual(replacementStop?.inCallbackOffset, 10)
+        XCTAssertEqual(replacementStop?.plannedVsAppliedDelta, 0)
+        XCTAssertEqual(replacementStop?.eventApplicationTiming, "exact_frame")
     }
 
     @MainActor
@@ -9015,6 +9290,11 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.runtimeAutoHeadroomEnabled, false)
         XCTAssertEqual(snapshot.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
         XCTAssertNil(snapshot.runtimeClippingRecommendation)
+        XCTAssertEqual(snapshot.appliedPlannedEventCount, 0)
+        XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.latePlannedEventCount, 0)
+        XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 0)
     }
 
     func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {
@@ -9070,6 +9350,46 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
         XCTAssertFalse(snapshot.clippingDetected)
         XCTAssertEqual(snapshot.currentFrame, 2)
+        XCTAssertEqual(snapshot.appliedPlannedEventCount, 0)
+        XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.latePlannedEventCount, 0)
+        XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 0)
+    }
+
+    func testRuntimeCMixerLatePlannedEventsAreClassifiedAndAppliedAtCallbackStart() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 64), baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+
+        XCTAssertEqual(renderRuntimePCM(core, frames: 5), Array(repeating: 0, count: 5))
+        core.configureAdapterEventScheduleForTesting(plan.events, runtimeFrameOffset: 0)
+        XCTAssertEqual(core.snapshot().eventQueueBacklogCount, 1)
+        let output = renderRuntimePCM(core, frames: 2)
+        let snapshot = core.snapshot()
+
+        XCTAssertGreaterThan(abs(output[0]), 0.000_001)
+        XCTAssertEqual(snapshot.currentFrame, 7)
+        XCTAssertEqual(snapshot.appliedPlannedEventCount, 1)
+        XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
+        XCTAssertEqual(snapshot.latePlannedEventCount, 1)
+        XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 5)
+        XCTAssertEqual(snapshot.eventQueueBacklogCount, 0)
     }
 
     func testRuntimeCMixerRenderCoreAppliesExplicitOutputGain() {
@@ -9790,7 +10110,8 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     func testRuntimeCMixerTraceDistinguishesAdapterNoteCutFromAllVoiceClear() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
-        let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
+        let audioEngine = RuntimeCMixerAudioEngine(traceWriter: traceWriter)
+        let engine = PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter)
         let sample = PlaybackSample(
             instrumentIndex: 1,
             sampleIndex: 0,
@@ -9810,7 +10131,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
 
         engine.play(from: nil)
-        engine.advanceOneTick()
+        _ = audioEngine.renderForTesting(frameCount: 1_024)
 
         let noteCut = traceWriter.events.first { $0.runtimeAction == "c_mixer_adapter_note_cut" }
         XCTAssertEqual(noteCut?.targetScope, "channel")
@@ -9841,7 +10162,8 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     func testRuntimeCMixerTraceRecordsChannelScopedReplacement() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
-        let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
+        let audioEngine = RuntimeCMixerAudioEngine(traceWriter: traceWriter)
+        let engine = PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter)
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 4_096), baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
@@ -9856,7 +10178,7 @@ final class VoodooTrackerXTests: XCTestCase {
         ))
 
         engine.play(from: nil)
-        engine.advanceOneTick()
+        _ = audioEngine.renderForTesting(frameCount: 1_024)
 
         let replacementStop = traceWriter.events.first {
             $0.runtimeAction == "c_mixer_stop_channel_ramped" && $0.reason == "note_replacement_stop_channel"
@@ -9929,7 +10251,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(transitionSummaries.count, 2)
         XCTAssertEqual(transitionSummaries[0].transitionPhase, "after_events")
         XCTAssertEqual(transitionSummaries[0].activeVoiceCountBefore, 0)
-        XCTAssertEqual(transitionSummaries[0].activeVoiceCountAfter, 1)
+        XCTAssertEqual(transitionSummaries[0].activeVoiceCountAfter, 0)
+        XCTAssertEqual(transitionSummaries[0].eventQueueBacklogCount, 2)
         XCTAssertEqual(transitionSummaries[0].transitionReplacementRampCount, 0)
         XCTAssertEqual(transitionSummaries[0].transitionUpdateCount, 0)
         XCTAssertEqual(transitionSummaries[1].previousRowIndex, 0)

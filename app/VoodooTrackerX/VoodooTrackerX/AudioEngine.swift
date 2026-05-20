@@ -88,6 +88,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeApplicationFrame: UInt64?
     let eventFrameDelta: Int?
     let eventApplicationTiming: String?
+    let eventAppliedFrame: UInt64?
+    let inCallbackOffset: Int?
+    let plannedVsAppliedDelta: Int?
+    let sameFrameBurstSize: Int?
+    let maxPlannedVsAppliedDelta: Int?
+    let appliedPlannedEventCount: UInt64?
+    let exactFrameAppliedEventCount: UInt64?
+    let callbackBoundaryAppliedEventCount: UInt64?
+    let latePlannedEventCount: UInt64?
     let fallbackToSimpleRuntimeEventCount: UInt64?
     let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
@@ -227,6 +236,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeApplicationFrame: UInt64? = nil,
         eventFrameDelta: Int? = nil,
         eventApplicationTiming: String? = nil,
+        eventAppliedFrame: UInt64? = nil,
+        inCallbackOffset: Int? = nil,
+        plannedVsAppliedDelta: Int? = nil,
+        sameFrameBurstSize: Int? = nil,
+        maxPlannedVsAppliedDelta: Int? = nil,
+        appliedPlannedEventCount: UInt64? = nil,
+        exactFrameAppliedEventCount: UInt64? = nil,
+        callbackBoundaryAppliedEventCount: UInt64? = nil,
+        latePlannedEventCount: UInt64? = nil,
         fallbackToSimpleRuntimeEventCount: UInt64? = nil,
         runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
@@ -354,6 +372,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeApplicationFrame = runtimeApplicationFrame
         self.eventFrameDelta = eventFrameDelta
         self.eventApplicationTiming = eventApplicationTiming
+        self.eventAppliedFrame = eventAppliedFrame ?? runtimeApplicationFrame
+        self.inCallbackOffset = inCallbackOffset
+        self.plannedVsAppliedDelta = plannedVsAppliedDelta ?? eventFrameDelta
+        self.sameFrameBurstSize = sameFrameBurstSize
+        self.maxPlannedVsAppliedDelta = maxPlannedVsAppliedDelta
+        self.appliedPlannedEventCount = appliedPlannedEventCount
+        self.exactFrameAppliedEventCount = exactFrameAppliedEventCount
+        self.callbackBoundaryAppliedEventCount = callbackBoundaryAppliedEventCount
+        self.latePlannedEventCount = latePlannedEventCount
         self.fallbackToSimpleRuntimeEventCount = fallbackToSimpleRuntimeEventCount
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
@@ -677,6 +704,11 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let runtimeGainConfigurationWarning: String?
     let runtimeClippingRecommendation: String?
     let currentFrame: UInt64
+    let appliedPlannedEventCount: UInt64
+    let exactFrameAppliedEventCount: UInt64
+    let callbackBoundaryAppliedEventCount: UInt64
+    let latePlannedEventCount: UInt64
+    let maxPlannedVsAppliedDelta: Int
 }
 
 struct RuntimeCMixerOutputPolicy: Equatable {
@@ -1011,6 +1043,41 @@ private struct RuntimeCMixerFieldUpdateDecision: Equatable {
     }
 }
 
+fileprivate struct RuntimeCMixerQueuedAdapterEvent: Equatable {
+    let event: RuntimeCMixerAdapterEvent
+    let plannedRuntimeFrame: Int
+    let runtimeFrame: UInt64
+}
+
+fileprivate enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
+    case noteTrigger(RuntimeCMixerTriggerResult)
+    case gainPanUpdate(RuntimeCMixerUpdateResult)
+    case stepUpdate(RuntimeCMixerUpdateResult)
+    case noteCut(RuntimeCMixerPlannedCutResult)
+}
+
+fileprivate struct RuntimeCMixerAppliedAdapterEventDiagnostic: Equatable {
+    let event: RuntimeCMixerAdapterEvent
+    let context: AudioRuntimeTraceContext?
+    let plannedRuntimeFrame: Int
+    let appliedFrame: UInt64
+    let callbackIndex: UInt64
+    let callbackRequestedFrameCount: Int
+    let callbackStartFrame: UInt64
+    let callbackEndFrame: UInt64
+    let inCallbackOffset: Int
+    let eventFrameDelta: Int
+    let eventApplicationTiming: String
+    let sameFrameBurstSize: Int
+    let result: RuntimeCMixerAppliedAdapterEventResult
+}
+
+fileprivate struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatable {
+    let queuedEventCount: Int
+    let skippedNegativeRuntimeFrameCount: Int
+    let skippedOverflowCount: Int
+}
+
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let updateEpsilon = 0.00001
 
@@ -1049,6 +1116,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var lastOutputRMS = Float(0)
     private var overrangeSampleCount: UInt64 = 0
     private var clippingSampleCount: UInt64 = 0
+    private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
+    private var nextAdapterEventScheduleIndex = 0
+    private var appliedAdapterEventDiagnostics = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+    private var appliedPlannedEventCount: UInt64 = 0
+    private var exactFrameAppliedEventCount: UInt64 = 0
+    private var callbackBoundaryAppliedEventCount: UInt64 = 0
+    private var latePlannedEventCount: UInt64 = 0
+    private var maxPlannedVsAppliedDelta = 0
 
     let config: MixerRenderConfig
     let outputPolicy: RuntimeCMixerOutputPolicy
@@ -1063,6 +1138,85 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         mixer = CSoftwareMixer(config: config)
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
+    }
+
+    @discardableResult
+    fileprivate func configureAdapterEventSchedule(
+        _ events: [RuntimeCMixerAdapterEvent],
+        runtimeFrameOffset: Int
+    ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+
+        var queuedEvents = [RuntimeCMixerQueuedAdapterEvent]()
+        queuedEvents.reserveCapacity(events.count)
+        var skippedNegativeRuntimeFrameCount = 0
+        var skippedOverflowCount = 0
+        for event in events {
+            let (plannedRuntimeFrame, overflow) = event.scheduledFrame.addingReportingOverflow(runtimeFrameOffset)
+            guard !overflow else {
+                skippedOverflowCount += 1
+                continue
+            }
+            guard plannedRuntimeFrame >= 0 else {
+                skippedNegativeRuntimeFrameCount += 1
+                continue
+            }
+            queuedEvents.append(RuntimeCMixerQueuedAdapterEvent(
+                event: event,
+                plannedRuntimeFrame: plannedRuntimeFrame,
+                runtimeFrame: UInt64(plannedRuntimeFrame)
+            ))
+        }
+
+        adapterEventSchedule = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
+        nextAdapterEventScheduleIndex = 0
+        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        appliedAdapterEventDiagnostics.reserveCapacity(adapterEventSchedule.count)
+        appliedPlannedEventCount = 0
+        exactFrameAppliedEventCount = 0
+        callbackBoundaryAppliedEventCount = 0
+        latePlannedEventCount = 0
+        maxPlannedVsAppliedDelta = 0
+        return RuntimeCMixerAdapterEventScheduleConfigurationResult(
+            queuedEventCount: adapterEventSchedule.count,
+            skippedNegativeRuntimeFrameCount: skippedNegativeRuntimeFrameCount,
+            skippedOverflowCount: skippedOverflowCount
+        )
+    }
+
+    fileprivate func clearAdapterEventSchedule() {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        adapterEventSchedule.removeAll(keepingCapacity: true)
+        nextAdapterEventScheduleIndex = 0
+        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        appliedPlannedEventCount = 0
+        exactFrameAppliedEventCount = 0
+        callbackBoundaryAppliedEventCount = 0
+        latePlannedEventCount = 0
+        maxPlannedVsAppliedDelta = 0
+    }
+
+    func configureAdapterEventScheduleForTesting(
+        _ events: [RuntimeCMixerAdapterEvent],
+        runtimeFrameOffset: Int
+    ) {
+        _ = configureAdapterEventSchedule(events, runtimeFrameOffset: runtimeFrameOffset)
+    }
+
+    fileprivate func drainAppliedAdapterEventDiagnostics() -> [RuntimeCMixerAppliedAdapterEventDiagnostic] {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        let diagnostics = appliedAdapterEventDiagnostics
+        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        return diagnostics
     }
 
     @discardableResult
@@ -1177,6 +1331,18 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         eventIndex: Int,
         mapping: PlaybackSongSyntheticEventMapping
     ) -> RuntimeCMixerTriggerResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return triggerAdapterEventWithDiagnosticsLocked(event, eventIndex: eventIndex, mapping: mapping)
+    }
+
+    private func triggerAdapterEventWithDiagnosticsLocked(
+        _ event: SyntheticTrackerEvent,
+        eventIndex: Int,
+        mapping: PlaybackSongSyntheticEventMapping
+    ) -> RuntimeCMixerTriggerResult {
         let invalidReason: String?
         guard event.sample.frameCount > 0,
               mapping.note > 0,
@@ -1193,7 +1359,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             } else {
                 invalidReason = "sample_start_offset_out_of_range"
             }
-            let snapshot = snapshot()
+            let snapshot = snapshotLocked()
             return RuntimeCMixerTriggerResult(
                 succeeded: false,
                 reason: invalidReason,
@@ -1201,11 +1367,6 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 snapshotAfter: snapshot,
                 channelStopBeforeAdd: nil
             )
-        }
-
-        lock.lock()
-        defer {
-            lock.unlock()
         }
 
         guard mixer.currentFrame <= UInt64(Int.max) else {
@@ -1769,6 +1930,20 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         defer {
             lock.unlock()
         }
+        return applyAdapterGainPanUpdateWithDiagnosticsLocked(
+            channel: channel,
+            activeEventIndex: activeEventIndex,
+            gain: gain,
+            pan: pan
+        )
+    }
+
+    private func applyAdapterGainPanUpdateWithDiagnosticsLocked(
+        channel: Int,
+        activeEventIndex: Int,
+        gain: Float?,
+        pan: Float?
+    ) -> RuntimeCMixerUpdateResult {
 
         let snapshotBefore = snapshotLocked()
         guard var voiceState = adapterVoiceStateByEventIndex[activeEventIndex] else {
@@ -1935,6 +2110,18 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         defer {
             lock.unlock()
         }
+        return applyAdapterStepUpdateWithDiagnosticsLocked(
+            channel: channel,
+            activeEventIndex: activeEventIndex,
+            playbackStep: playbackStep
+        )
+    }
+
+    private func applyAdapterStepUpdateWithDiagnosticsLocked(
+        channel: Int,
+        activeEventIndex: Int,
+        playbackStep: Double
+    ) -> RuntimeCMixerUpdateResult {
 
         let snapshotBefore = snapshotLocked()
         guard var voiceState = adapterVoiceStateByEventIndex[activeEventIndex] else {
@@ -2081,6 +2268,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         defer {
             lock.unlock()
         }
+        return applyAdapterNoteCutWithDiagnosticsLocked(channel: channel, activeEventIndex: activeEventIndex)
+    }
+
+    private func applyAdapterNoteCutWithDiagnosticsLocked(
+        channel: Int,
+        activeEventIndex: Int?
+    ) -> RuntimeCMixerPlannedCutResult {
 
         let snapshotBefore = snapshotLocked()
         guard let activeEventIndex,
@@ -2157,6 +2351,35 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return gainPanChanged
             ? "runtime_c_mixer_update_applied_gain_pan"
             : "runtime_c_mixer_update_applied_step"
+    }
+
+    private static func adapterEventScheduleSort(
+        lhs: RuntimeCMixerQueuedAdapterEvent,
+        rhs: RuntimeCMixerQueuedAdapterEvent
+    ) -> Bool {
+        if lhs.runtimeFrame != rhs.runtimeFrame {
+            return lhs.runtimeFrame < rhs.runtimeFrame
+        }
+        let leftPriority = adapterEventPriority(lhs.event)
+        let rightPriority = adapterEventPriority(rhs.event)
+        if leftPriority != rightPriority {
+            return leftPriority < rightPriority
+        }
+        return lhs.event.id < rhs.event.id
+    }
+
+    private static func adapterEventPriority(_ event: RuntimeCMixerAdapterEvent) -> Int {
+        // Keep the existing offline-adapter bridge ordering: a note trigger owns
+        // same-channel replacement internally by ramping the old tagged voice
+        // before adding the new one, then state updates can target that trigger.
+        switch event.action {
+        case .noteTrigger:
+            return 0
+        case .gainPanUpdate, .stepUpdate:
+            return 1
+        case .noteCut:
+            return 2
+        }
     }
 
     private func updateType(gainChanged: Bool, panChanged: Bool, stepChanged: Bool) -> String {
@@ -2253,7 +2476,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
             return false
         }
-        _ = mixer.render(into: outputInterleavedPCM, frames: safeFrameCount)
+        let callbackEndFrame = callbackStartFrame.addingReportingOverflow(UInt64(safeFrameCount)).overflow
+            ? UInt64.max
+            : callbackStartFrame + UInt64(safeFrameCount)
+        renderCallbackWithScheduledAdapterEventsLocked(
+            into: outputInterleavedPCM,
+            frameCount: safeFrameCount,
+            callbackStartFrame: callbackStartFrame,
+            callbackEndFrame: callbackEndFrame,
+            callbackIndex: renderCallbackCount &+ 1
+        )
         let sampleCount = safeFrameCount * mixer.config.channelCount
         applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
         recordRenderCompletionLocked(
@@ -2268,6 +2500,160 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             outputMetrics: outputMetrics(outputInterleavedPCM, sampleCount: sampleCount)
         )
         return true
+    }
+
+    private func renderCallbackWithScheduledAdapterEventsLocked(
+        into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        frameCount: Int,
+        callbackStartFrame: UInt64,
+        callbackEndFrame: UInt64,
+        callbackIndex: UInt64
+    ) {
+        var renderedFrames = 0
+        while nextAdapterEventScheduleIndex < adapterEventSchedule.count {
+            let nextEvent = adapterEventSchedule[nextAdapterEventScheduleIndex]
+            guard nextEvent.runtimeFrame < callbackEndFrame else {
+                break
+            }
+
+            let eventOffset = nextEvent.runtimeFrame <= callbackStartFrame
+                ? 0
+                : Int(nextEvent.runtimeFrame - callbackStartFrame)
+            let framesBeforeEvent = max(0, eventOffset - renderedFrames)
+            renderSubrangeLocked(
+                into: outputInterleavedPCM,
+                startFrameOffset: renderedFrames,
+                frameCount: framesBeforeEvent
+            )
+            renderedFrames += framesBeforeEvent
+
+            let burstFrame = nextEvent.runtimeFrame
+            let burstStartIndex = nextAdapterEventScheduleIndex
+            var burstEndIndex = burstStartIndex
+            while burstEndIndex < adapterEventSchedule.count,
+                  adapterEventSchedule[burstEndIndex].runtimeFrame == burstFrame {
+                burstEndIndex += 1
+            }
+            let sameFrameBurstSize = burstEndIndex - burstStartIndex
+            for eventIndex in burstStartIndex..<burstEndIndex {
+                applyQueuedAdapterEventLocked(
+                    adapterEventSchedule[eventIndex],
+                    callbackIndex: callbackIndex,
+                    callbackRequestedFrameCount: frameCount,
+                    callbackStartFrame: callbackStartFrame,
+                    callbackEndFrame: callbackEndFrame,
+                    sameFrameBurstSize: sameFrameBurstSize
+                )
+            }
+            nextAdapterEventScheduleIndex = burstEndIndex
+        }
+
+        renderSubrangeLocked(
+            into: outputInterleavedPCM,
+            startFrameOffset: renderedFrames,
+            frameCount: max(0, frameCount - renderedFrames)
+        )
+    }
+
+    private func renderSubrangeLocked(
+        into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        startFrameOffset: Int,
+        frameCount: Int
+    ) {
+        let safeFrameCount = max(0, frameCount)
+        guard safeFrameCount > 0 else {
+            return
+        }
+        let channelCount = mixer.config.channelCount
+        let sampleOffset = max(0, startFrameOffset) * channelCount
+        let sampleCount = safeFrameCount * channelCount
+        guard let baseAddress = outputInterleavedPCM.baseAddress,
+              sampleOffset >= 0,
+              sampleOffset + sampleCount <= outputInterleavedPCM.count else {
+            return
+        }
+        _ = mixer.render(
+            into: UnsafeMutableBufferPointer(
+                start: baseAddress.advanced(by: sampleOffset),
+                count: sampleCount
+            ),
+            frames: safeFrameCount
+        )
+    }
+
+    private func applyQueuedAdapterEventLocked(
+        _ queuedEvent: RuntimeCMixerQueuedAdapterEvent,
+        callbackIndex: UInt64,
+        callbackRequestedFrameCount: Int,
+        callbackStartFrame: UInt64,
+        callbackEndFrame: UInt64,
+        sameFrameBurstSize: Int
+    ) {
+        let appliedFrame = mixer.currentFrame
+        let appliedFrameInt = appliedFrame <= UInt64(Int.max) ? Int(appliedFrame) : Int.max
+        let eventFrameDelta = appliedFrameInt - queuedEvent.plannedRuntimeFrame
+        let inCallbackOffset = appliedFrame >= callbackStartFrame
+            ? Int(min(UInt64(Int.max), appliedFrame - callbackStartFrame))
+            : 0
+        let timing: String
+        if queuedEvent.runtimeFrame < callbackStartFrame {
+            timing = "late"
+            latePlannedEventCount &+= 1
+        } else if eventFrameDelta == 0 {
+            timing = "exact_frame"
+            exactFrameAppliedEventCount &+= 1
+        } else if appliedFrame == callbackStartFrame {
+            timing = "callback_start"
+            callbackBoundaryAppliedEventCount &+= 1
+        } else {
+            timing = "unknown"
+        }
+        appliedPlannedEventCount &+= 1
+        maxPlannedVsAppliedDelta = max(maxPlannedVsAppliedDelta, abs(eventFrameDelta))
+
+        let result: RuntimeCMixerAppliedAdapterEventResult
+        switch queuedEvent.event.action {
+        case let .noteTrigger(eventIndex, syntheticEvent, mapping):
+            result = .noteTrigger(triggerAdapterEventWithDiagnosticsLocked(
+                syntheticEvent,
+                eventIndex: eventIndex,
+                mapping: mapping
+            ))
+        case let .gainPanUpdate(activeEventIndex, gain, pan):
+            result = .gainPanUpdate(applyAdapterGainPanUpdateWithDiagnosticsLocked(
+                channel: queuedEvent.event.channelIndex,
+                activeEventIndex: activeEventIndex,
+                gain: gain,
+                pan: pan
+            ))
+        case let .stepUpdate(activeEventIndex, playbackStep):
+            result = .stepUpdate(applyAdapterStepUpdateWithDiagnosticsLocked(
+                channel: queuedEvent.event.channelIndex,
+                activeEventIndex: activeEventIndex,
+                playbackStep: playbackStep
+            ))
+        case let .noteCut(activeEventIndex):
+            result = .noteCut(applyAdapterNoteCutWithDiagnosticsLocked(
+                channel: queuedEvent.event.channelIndex,
+                activeEventIndex: activeEventIndex
+            ))
+        }
+
+        appliedAdapterEventDiagnostics.append(RuntimeCMixerAppliedAdapterEventDiagnostic(
+            event: queuedEvent.event,
+            context: runtimeTraceContext(for: queuedEvent.event),
+            plannedRuntimeFrame: queuedEvent.plannedRuntimeFrame,
+            appliedFrame: appliedFrame,
+            callbackIndex: callbackIndex,
+            callbackRequestedFrameCount: callbackRequestedFrameCount,
+            callbackStartFrame: callbackStartFrame,
+            callbackEndFrame: callbackEndFrame,
+            inCallbackOffset: inCallbackOffset,
+            eventFrameDelta: eventFrameDelta,
+            eventApplicationTiming: timing,
+            sameFrameBurstSize: sameFrameBurstSize,
+            result: result
+        ))
     }
 
     func render(frameCount: AVAudioFrameCount, ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
@@ -2306,6 +2692,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         adapterEventIndexByChannel.removeAll()
         controlStateByChannel.removeAll()
         stoppedFrameByChannel.removeAll()
+        adapterEventSchedule.removeAll(keepingCapacity: true)
+        nextAdapterEventScheduleIndex = 0
+        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        appliedPlannedEventCount = 0
+        exactFrameAppliedEventCount = 0
+        callbackBoundaryAppliedEventCount = 0
+        latePlannedEventCount = 0
+        maxPlannedVsAppliedDelta = 0
     }
 
     private func recordZeroFillCallback(frameCount: Int) {
@@ -2394,7 +2788,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             activeVoiceCount: mixer.activeVoiceCount,
             loadedVoiceCount: mixer.loadedVoiceCount,
             scheduledVoiceCount: 0,
-            eventQueueBacklogCount: 0,
+            eventQueueBacklogCount: max(0, adapterEventSchedule.count - nextAdapterEventScheduleIndex),
             renderCallbackCount: renderCallbackCount,
             renderCallCount: renderCallCount,
             successfulRenderCount: successfulRenderCount,
@@ -2428,7 +2822,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             runtimeFixedHeadroomDB: outputPolicy.fixedHeadroomDB,
             runtimeGainConfigurationWarning: outputPolicy.configurationWarning,
             runtimeClippingRecommendation: clippingSampleCount > 0 ? RuntimeCMixerOutputPolicy.clippingRecommendation : nil,
-            currentFrame: mixer.currentFrame
+            currentFrame: mixer.currentFrame,
+            appliedPlannedEventCount: appliedPlannedEventCount,
+            exactFrameAppliedEventCount: exactFrameAppliedEventCount,
+            callbackBoundaryAppliedEventCount: callbackBoundaryAppliedEventCount,
+            latePlannedEventCount: latePlannedEventCount,
+            maxPlannedVsAppliedDelta: maxPlannedVsAppliedDelta
         )
     }
 
@@ -2592,6 +2991,40 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return runtimeStartFrame + relativeFrame
     }
 
+    private func runtimeTraceContext(for event: RuntimeCMixerAdapterEvent) -> AudioRuntimeTraceContext {
+        let noteValue: UInt8?
+        let instrumentIndex: Int?
+        let effectType: UInt8?
+        let effectParam: UInt8?
+        let volumeColumn: UInt8?
+        switch event.action {
+        case let .noteTrigger(_, _, mapping):
+            noteValue = mapping.note
+            instrumentIndex = mapping.instrumentIndex
+            effectType = mapping.effectType
+            effectParam = mapping.effectParam
+            volumeColumn = mapping.volumeColumn.rawValue
+        case .gainPanUpdate, .stepUpdate, .noteCut:
+            noteValue = nil
+            instrumentIndex = nil
+            effectType = nil
+            effectParam = nil
+            volumeColumn = nil
+        }
+        return AudioRuntimeTraceContext(
+            orderIndex: event.source.orderIndex,
+            patternIndex: event.source.patternIndex,
+            rowIndex: event.source.rowIndex,
+            tickInRow: event.syntheticTick,
+            channelIndex: event.channelIndex,
+            noteValue: noteValue,
+            instrumentIndex: instrumentIndex,
+            effectType: effectType,
+            effectParam: effectParam,
+            volumeColumn: volumeColumn
+        )
+    }
+
     private func mixerLoop(for sample: PlaybackSample) -> MixerSampleLoop {
         let loop = sample.loopRegion
         guard loop.isEnabled else {
@@ -2724,6 +3157,14 @@ private struct RuntimeCMixerEventTimingTraceFields: Equatable {
     let runtimeApplicationFrame: UInt64?
     let eventFrameDelta: Int?
     let eventApplicationTiming: String?
+    let eventAppliedFrame: UInt64?
+    let inCallbackOffset: Int?
+    let plannedVsAppliedDelta: Int?
+    let sameFrameBurstSize: Int?
+    let callbackIndex: UInt64?
+    let callbackRequestedFrameCount: Int?
+    let callbackStartFrame: UInt64?
+    let callbackEndFrame: UInt64?
 }
 
 private struct RuntimeCMixerTransitionTraceFields: Equatable {
@@ -2759,6 +3200,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var consumedAdapterEventIDs = Set<Int>()
     private var consumedAdapterEventCategories = Set<String>()
     private var plannedRuntimeFrameOffset: Int?
+    private var adapterEventScheduleConfigured = false
     private var pendingTransition: RuntimeCMixerPendingTransition?
 
     init(
@@ -2798,6 +3240,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         format.sampleRate
     }
 
+    func renderForTesting(frameCount: Int) -> [Float] {
+        let safeFrameCount = max(0, frameCount)
+        var output = Array(repeating: Float(0), count: safeFrameCount * renderCore.config.channelCount)
+        output.withUnsafeMutableBufferPointer { buffer in
+            _ = renderCore.render(into: buffer, frameCount: safeFrameCount)
+        }
+        drainAppliedRuntimeAdapterEvents()
+        return output
+    }
+
     var hasRuntimeAdapterEventPlan: Bool {
         adapterEventPlan.generated
     }
@@ -2823,10 +3275,13 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         eventCounters.skippedUnmatchedPlannedEventCount = 0
         eventCounters.fallbackToSimpleRuntimeEventCount = 0
         plannedRuntimeFrameOffset = nil
+        adapterEventScheduleConfigured = false
         pendingTransition = nil
+        renderCore.clearAdapterEventSchedule()
     }
 
     func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?) {
+        drainAppliedRuntimeAdapterEvents()
         guard adapterEventPlan.generated else {
             eventCounters.fallbackToSimpleRuntimeEventCount &+= 1
             recordRuntimeEvent(
@@ -2842,47 +3297,34 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return
         }
 
-        let matchingEvents = adapterEventPlan.events(matching: context)
-        for event in matchingEvents where !consumedAdapterEventIDs.contains(event.id) {
-            consumedAdapterEventIDs.insert(event.id)
-            eventCounters.consumedPlannedEventCount &+= 1
-            consumedAdapterEventCategories.formUnion(event.categories)
-            consumeRuntimeAdapterEvent(event, context: context)
-        }
+        configureAdapterEventScheduleIfNeeded(context: context)
     }
 
-    private func eventTimingTraceFields(
-        for event: RuntimeCMixerAdapterEvent,
-        context: AudioRuntimeTraceContext?,
-        snapshot: RuntimeCMixerRenderSnapshot,
-        runtimeEventCategory: String? = nil
-    ) -> RuntimeCMixerEventTimingTraceFields {
-        let applicationFrame = snapshot.currentFrame
-        let offset = resolvedPlannedRuntimeFrameOffset(
-            context: context,
-            snapshot: snapshot
+    private func configureAdapterEventScheduleIfNeeded(context: AudioRuntimeTraceContext?) {
+        guard !adapterEventScheduleConfigured else {
+            return
+        }
+        let snapshot = renderCore.snapshot()
+        guard let offset = resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot) else {
+            return
+        }
+        let result = renderCore.configureAdapterEventSchedule(
+            adapterEventPlan.events,
+            runtimeFrameOffset: offset
         )
-        let plannedRuntimeFrame = offset.flatMap { safeAdding(event.scheduledFrame, $0) }
-        let frameDelta = plannedRuntimeFrame.flatMap { delta(runtimeFrame: applicationFrame, plannedFrame: $0) }
-        return RuntimeCMixerEventTimingTraceFields(
-            runtimeEventCategory: runtimeEventCategory ?? diagnosticCategory(for: event),
-            plannedEventID: event.id,
-            plannedSourceOrderIndex: event.source.orderIndex,
-            plannedSourcePatternIndex: event.source.patternIndex,
-            plannedSourceRowIndex: event.source.rowIndex,
-            plannedSourceTickInRow: event.syntheticTick,
-            plannedSourceChannelIndex: event.channelIndex,
-            plannedEventFrame: event.scheduledFrame,
-            plannedRuntimeFrame: plannedRuntimeFrame,
-            plannedRuntimeFrameOffset: offset,
-            runtimeApplicationFrame: applicationFrame,
-            eventFrameDelta: frameDelta,
-            eventApplicationTiming: eventApplicationTiming(
-                plannedRuntimeFrame: plannedRuntimeFrame,
-                runtimeApplicationFrame: applicationFrame,
-                context: context,
-                snapshot: snapshot
-            )
+        adapterEventScheduleConfigured = true
+        prepareIfNeeded()
+        if !startEngineIfNeeded() {
+            isFallbackActive = true
+        }
+        recordRuntimeEvent(
+            action: "adapter_event_schedule_configured",
+            context: context,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: true,
+            runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+            reason: "runtime_c_mixer_adapter_event_schedule_configured queued=\(result.queuedEventCount) skipped_before_runtime_start=\(result.skippedNegativeRuntimeFrameCount) skipped_overflow=\(result.skippedOverflowCount)"
         )
     }
 
@@ -2915,7 +3357,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 runtimeApplicationFrame: snapshot.currentFrame,
                 context: context,
                 snapshot: snapshot
-            )
+            ),
+            eventAppliedFrame: snapshot.currentFrame,
+            inCallbackOffset: nil,
+            plannedVsAppliedDelta: frameDelta,
+            sameFrameBurstSize: nil,
+            callbackIndex: nil,
+            callbackRequestedFrameCount: nil,
+            callbackStartFrame: nil,
+            callbackEndFrame: nil
         )
     }
 
@@ -3002,21 +3452,26 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return Int(frame)
     }
 
-    private func consumeRuntimeAdapterEvent(_ event: RuntimeCMixerAdapterEvent, context: AudioRuntimeTraceContext?) {
-        let eventContext = contextWithFallbackChannel(context, channel: event.channelIndex)
-        switch event.action {
-        case let .noteTrigger(eventIndex, syntheticEvent, mapping):
-            prepareIfNeeded()
-            let result = renderCore.triggerAdapterEventWithDiagnostics(
-                syntheticEvent,
-                eventIndex: eventIndex,
-                mapping: mapping
-            )
-            let timing = eventTimingTraceFields(
-                for: event,
-                context: eventContext,
-                snapshot: result.snapshotBefore
-            )
+    private func drainAppliedRuntimeAdapterEvents() {
+        let diagnostics = renderCore.drainAppliedAdapterEventDiagnostics()
+        guard !diagnostics.isEmpty else {
+            return
+        }
+        for diagnostic in diagnostics {
+            if !consumedAdapterEventIDs.contains(diagnostic.event.id) {
+                consumedAdapterEventIDs.insert(diagnostic.event.id)
+                eventCounters.consumedPlannedEventCount &+= 1
+                consumedAdapterEventCategories.formUnion(diagnostic.event.categories)
+            }
+            recordAppliedRuntimeAdapterEvent(diagnostic)
+        }
+    }
+
+    private func recordAppliedRuntimeAdapterEvent(_ diagnostic: RuntimeCMixerAppliedAdapterEventDiagnostic) {
+        let eventContext = contextWithFallbackChannel(diagnostic.context, channel: diagnostic.event.channelIndex)
+        switch diagnostic.result {
+        case let .noteTrigger(result):
+            let timing = eventTimingTraceFields(for: diagnostic)
             if let channelStop = result.channelStopBeforeAdd {
                 eventCounters.replacementRampCount &+= 1
                 recordRuntimeEvent(
@@ -3032,12 +3487,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                     replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
                     runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
                     adapterEventCategory: "replacement",
-                    eventTiming: eventTimingTraceFields(
-                        for: event,
-                        context: eventContext,
-                        snapshot: channelStop.snapshotBefore,
-                        runtimeEventCategory: "replacement_stop_ramp"
-                    ),
+                    eventTiming: eventTimingTraceFields(for: diagnostic, runtimeEventCategory: "replacement_stop_ramp"),
                     reason: channelStop.reason
                 )
             }
@@ -3050,30 +3500,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 snapshot: result.snapshotAfter,
                 succeeded: result.succeeded,
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
-                adapterEventCategory: event.primaryCategory,
+                adapterEventCategory: diagnostic.event.primaryCategory,
                 eventTiming: timing,
                 reason: result.reason ?? "runtime_c_mixer_adapter_plan_note_trigger"
             )
-            guard result.succeeded else {
+            if !result.succeeded {
                 eventCounters.skippedUnmatchedPlannedEventCount &+= 1
-                return
-            }
-            if !startEngineIfNeeded() {
-                isFallbackActive = true
             }
 
-        case let .gainPanUpdate(activeEventIndex, gain, pan):
-            let result = renderCore.applyAdapterGainPanUpdateWithDiagnostics(
-                channel: event.channelIndex,
-                activeEventIndex: activeEventIndex,
-                gain: gain,
-                pan: pan
-            )
-            let timing = eventTimingTraceFields(
-                for: event,
-                context: eventContext,
-                snapshot: result.snapshotBefore
-            )
+        case let .gainPanUpdate(result):
             if result.gainPanAttempted {
                 eventCounters.gainPanUpdateCount &+= 1
             }
@@ -3081,24 +3516,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 result,
                 context: eventContext,
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
-                adapterEventCategory: event.primaryCategory,
-                eventTiming: timing
+                adapterEventCategory: diagnostic.event.primaryCategory,
+                eventTiming: eventTimingTraceFields(for: diagnostic)
             )
             if result.targetVoiceIndex == nil {
                 eventCounters.skippedUnmatchedPlannedEventCount &+= 1
             }
 
-        case let .stepUpdate(activeEventIndex, playbackStep):
-            let result = renderCore.applyAdapterStepUpdateWithDiagnostics(
-                channel: event.channelIndex,
-                activeEventIndex: activeEventIndex,
-                playbackStep: playbackStep
-            )
-            let timing = eventTimingTraceFields(
-                for: event,
-                context: eventContext,
-                snapshot: result.snapshotBefore
-            )
+        case let .stepUpdate(result):
             if result.stepAttempted {
                 eventCounters.stepUpdateCount &+= 1
             }
@@ -3106,23 +3531,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 result,
                 context: eventContext,
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
-                adapterEventCategory: event.primaryCategory,
-                eventTiming: timing
+                adapterEventCategory: diagnostic.event.primaryCategory,
+                eventTiming: eventTimingTraceFields(for: diagnostic)
             )
             if result.targetVoiceIndex == nil {
                 eventCounters.skippedUnmatchedPlannedEventCount &+= 1
             }
 
-        case let .noteCut(activeEventIndex):
-            let result = renderCore.applyAdapterNoteCutWithDiagnostics(
-                channel: event.channelIndex,
-                activeEventIndex: activeEventIndex
-            )
-            let timing = eventTimingTraceFields(
-                for: event,
-                context: eventContext,
-                snapshot: result.snapshotBefore
-            )
+        case let .noteCut(result):
             recordRuntimeEvent(
                 action: "c_mixer_adapter_note_cut",
                 context: eventContext,
@@ -3132,8 +3548,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 succeeded: result.succeeded,
                 targetVoiceIndex: result.targetVoiceIndex,
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
-                adapterEventCategory: event.primaryCategory,
-                eventTiming: timing,
+                adapterEventCategory: diagnostic.event.primaryCategory,
+                eventTiming: eventTimingTraceFields(for: diagnostic),
                 reason: result.reason
             )
             if result.targetVoiceIndex == nil {
@@ -3142,11 +3558,41 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
     }
 
+    private func eventTimingTraceFields(
+        for diagnostic: RuntimeCMixerAppliedAdapterEventDiagnostic,
+        runtimeEventCategory: String? = nil
+    ) -> RuntimeCMixerEventTimingTraceFields {
+        RuntimeCMixerEventTimingTraceFields(
+            runtimeEventCategory: runtimeEventCategory ?? diagnosticCategory(for: diagnostic.event),
+            plannedEventID: diagnostic.event.id,
+            plannedSourceOrderIndex: diagnostic.event.source.orderIndex,
+            plannedSourcePatternIndex: diagnostic.event.source.patternIndex,
+            plannedSourceRowIndex: diagnostic.event.source.rowIndex,
+            plannedSourceTickInRow: diagnostic.event.syntheticTick,
+            plannedSourceChannelIndex: diagnostic.event.channelIndex,
+            plannedEventFrame: diagnostic.event.scheduledFrame,
+            plannedRuntimeFrame: diagnostic.plannedRuntimeFrame,
+            plannedRuntimeFrameOffset: diagnostic.plannedRuntimeFrame - diagnostic.event.scheduledFrame,
+            runtimeApplicationFrame: diagnostic.appliedFrame,
+            eventFrameDelta: diagnostic.eventFrameDelta,
+            eventApplicationTiming: diagnostic.eventApplicationTiming,
+            eventAppliedFrame: diagnostic.appliedFrame,
+            inCallbackOffset: diagnostic.inCallbackOffset,
+            plannedVsAppliedDelta: diagnostic.eventFrameDelta,
+            sameFrameBurstSize: diagnostic.sameFrameBurstSize,
+            callbackIndex: diagnostic.callbackIndex,
+            callbackRequestedFrameCount: diagnostic.callbackRequestedFrameCount,
+            callbackStartFrame: diagnostic.callbackStartFrame,
+            callbackEndFrame: diagnostic.callbackEndFrame
+        )
+    }
+
     func trigger(_ request: AudioVoiceRequest) {
         trigger(request, context: nil)
     }
 
     func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?) {
+        drainAppliedRuntimeAdapterEvents()
         if isFallbackActive {
             recordRuntimeEvent(
                 action: "unsupported_runtime_action",
@@ -3209,6 +3655,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?) {
+        drainAppliedRuntimeAdapterEvents()
         if isFallbackActive {
             fallbackAudioEngine.update(channel: channel, controls: controls)
         } else {
@@ -3292,6 +3739,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func stop(channel: Int, context: AudioRuntimeTraceContext?) {
+        drainAppliedRuntimeAdapterEvents()
         let result = renderCore.stopChannelWithDiagnostics(channel, reason: "channel_stop")
         eventCounters.stopChannelCount &+= 1
         recordRuntimeEvent(
@@ -3314,6 +3762,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
+        drainAppliedRuntimeAdapterEvents()
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
         eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
@@ -3331,6 +3780,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if isFallbackActive {
             fallbackAudioEngine.stopAll()
         }
+        resetRuntimeAdapterEventConsumption()
     }
 
     func recordTransition(
@@ -3339,6 +3789,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         phase: String,
         reason: String
     ) {
+        drainAppliedRuntimeAdapterEvents()
         let snapshot = renderCore.snapshot()
         let eventTiming = transitionTimingTraceFields(context: context, snapshot: snapshot)
         let transition: RuntimeCMixerTransitionTraceFields
@@ -3415,6 +3866,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func reset() {
+        drainAppliedRuntimeAdapterEvents()
         stopAll()
         engine.stop()
         fallbackAudioEngine.reset()
@@ -3566,6 +4018,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeApplicationFrame: eventTiming?.runtimeApplicationFrame,
             eventFrameDelta: eventTiming?.eventFrameDelta,
             eventApplicationTiming: eventTiming?.eventApplicationTiming,
+            eventAppliedFrame: eventTiming?.eventAppliedFrame,
+            inCallbackOffset: eventTiming?.inCallbackOffset,
+            plannedVsAppliedDelta: eventTiming?.plannedVsAppliedDelta,
+            sameFrameBurstSize: eventTiming?.sameFrameBurstSize,
+            maxPlannedVsAppliedDelta: snapshot.maxPlannedVsAppliedDelta,
+            appliedPlannedEventCount: snapshot.appliedPlannedEventCount,
+            exactFrameAppliedEventCount: snapshot.exactFrameAppliedEventCount,
+            callbackBoundaryAppliedEventCount: snapshot.callbackBoundaryAppliedEventCount,
+            latePlannedEventCount: snapshot.latePlannedEventCount,
             fallbackToSimpleRuntimeEventCount: eventCounters.fallbackToSimpleRuntimeEventCount,
             runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
@@ -3607,10 +4068,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeRenderedFrameCount: snapshot.renderedFrameCount,
             scheduledVoiceCount: snapshot.scheduledVoiceCount,
             eventQueueBacklogCount: snapshot.eventQueueBacklogCount,
-            callbackIndex: snapshot.callbackIndex,
-            callbackRequestedFrameCount: snapshot.callbackRequestedFrameCount,
-            callbackStartFrame: snapshot.callbackStartFrame,
-            callbackEndFrame: snapshot.callbackEndFrame,
+            callbackIndex: eventTiming?.callbackIndex ?? snapshot.callbackIndex,
+            callbackRequestedFrameCount: eventTiming?.callbackRequestedFrameCount ?? snapshot.callbackRequestedFrameCount,
+            callbackStartFrame: eventTiming?.callbackStartFrame ?? snapshot.callbackStartFrame,
+            callbackEndFrame: eventTiming?.callbackEndFrame ?? snapshot.callbackEndFrame,
             renderCallbackCount: snapshot.renderCallbackCount,
             renderCallCount: snapshot.renderCallCount,
             successfulRenderCount: snapshot.successfulRenderCount,

@@ -237,25 +237,28 @@ breadcrumbs, and cumulative event counters for note triggers, C mixer
 add-voice calls, gain/pan update attempts, sample-step update attempts,
 epsilon-suppressed gain/pan/sample-step fields, no-change suppressions,
 updates applied after epsilon filtering, channel-scoped stops, and clear-all
-calls. Runtime traces report
-`eventQueueBacklogCount` as `0` when no separate runtime event queue exists.
+calls. Runtime traces report `eventQueueBacklogCount` as the number of planned
+adapter events still queued for their render callback frame when the opt-in
+runtime plan is active.
 This is intended to show whether a harsh transition lines up with a clear-all,
 many channel stops, a burst of new note triggers or control updates, a
 voice-count collapse/spike, zero-fill/underrun evidence, remaining clipping
 after runtime gain, or a backend reset.
 
-Runtime C mixer traces also include sample-time event-alignment breadcrumbs for
-the opt-in backend. Trace rows may report the most recent source-node callback
-index and frame range, cumulative runtime rendered frames, the offline-adapter
-planned source order/pattern/row/tick/channel, the planned absolute frame, the
-planned frame adjusted to the runtime start offset when computable, the runtime
-application frame, the frame delta, and whether the event was applied at an
-exact frame, callback start, tick boundary, or row boundary. Row-entry
-diagnostics include before/after transition breadcrumbs with previous/next
-order-row context, active/loaded voice counts, replacement ramp deltas, and
-update deltas. These fields are for diagnosing remaining runtime-only clicks or
-stumbles; they do not change scheduling, make the C mixer the default, alter
-offline rendering, or implement new XM effects.
+Runtime C mixer traces also include sample-time event-application breadcrumbs
+for the opt-in backend. Planned offline-adapter events are queued by intended
+runtime frame and applied inside the AVAudio source-node callback by splitting
+the render at the in-buffer event offset. Trace rows may report the source-node
+callback index and frame range, cumulative runtime rendered frames, the
+offline-adapter planned source order/pattern/row/tick/channel, the planned
+absolute frame, the planned frame adjusted to the runtime start offset, the
+event applied frame, the in-callback offset, the planned-vs-applied delta, the
+same-frame burst size, and exact-frame/callback-boundary/late counters.
+Row-entry diagnostics include before/after transition breadcrumbs with
+previous/next order-row context, active/loaded voice counts, replacement ramp
+deltas, and update deltas. These fields are for diagnosing remaining
+runtime-only clicks or stumbles; they do not make the C mixer the default,
+alter offline rendering, or implement new XM effects.
 
 Offline candidate WAV export gain/headroom remains separate from runtime
 playback. The offline helper can use `--gain`, `--headroom-db`, or
@@ -284,10 +287,11 @@ and failed-render counters, add-voice counts, ramped replacement stops,
 immediate hard channel stops, normal-playback clear-all evidence, active and
 loaded voice ranges, applied gain/pan and step updates, suppressed no-change
 updates, stored channel-state updates, remaining deferred update categories,
-same-row/tick event bursts, largest planned-vs-runtime frame deltas,
-callback-boundary event applications, same-frame event bursts, order/row
-transition bursts, and top suspicious order/row/tick positions. It also calls
-out whether observed same-channel note replacements used
+same-row/tick event bursts, largest planned-vs-applied frame deltas,
+exact-frame and callback-boundary application counts, late planned events,
+same-frame event bursts, order/row transition bursts, and top suspicious
+order/row/tick positions. It also calls out whether observed same-channel note
+replacements used
 `c_mixer_stop_channel_ramped` or fell back to immediate `c_mixer_stop_channel`
 hard stops.
 
@@ -301,7 +305,7 @@ trace rows now also report whether events came from the precomputed
 `adapterEventCategoriesConsumed`, and `runtimeEventFallbackReason` before
 choosing the next runtime stabilization step. Remaining gaps after a healthy
 adapter plan should be treated separately from C mixer DSP, runtime headroom,
-parser changes, tracker UI, and the later sample-time scheduling bridge.
+parser changes, tracker UI, and tracker-follow/sample-time position work.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics

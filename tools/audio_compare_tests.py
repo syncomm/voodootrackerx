@@ -2068,13 +2068,100 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             alignment = summary["sample_time_alignment"]
 
             self.assertEqual(alignment["max_abs_event_frame_delta"], 256)
+            self.assertEqual(alignment["max_planned_vs_applied_delta"], 256)
             self.assertEqual(alignment["callback_boundary_event_count"], 1)
+            self.assertEqual(alignment["callback_boundary_applied_event_count"], 1)
             self.assertEqual(alignment["largest_event_timing_deltas"][0]["event_frame_delta"], 256)
+            self.assertEqual(alignment["largest_event_timing_deltas"][0]["planned_vs_applied_delta"], 256)
             self.assertEqual(alignment["largest_event_timing_deltas"][0]["event_application_timing"], "callback_start")
             self.assertTrue(summary["event_stream"]["offline_adapter_event_stream_observed"])
-            self.assertIn("planned-vs-runtime event frame deltas observed", summary["suspicious_findings"])
+            self.assertIn("planned-vs-applied event frame deltas observed", summary["suspicious_findings"])
             self.assertIn("events applied at callback boundaries instead of planned frames", summary["suspicious_findings"])
-            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Sample-Time Event Scheduling Bridge")
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation")
+
+    def test_synthetic_trace_reports_exact_sample_time_application_counts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_add_voice",
+                        runtimeEventSource="offline_adapter_plan",
+                        runtimeEventCategory="note_trigger",
+                        plannedEventID=1,
+                        plannedEventFrame=100,
+                        plannedRuntimeFrame=132,
+                        runtimeApplicationFrame=132,
+                        eventAppliedFrame=132,
+                        eventFrameDelta=0,
+                        plannedVsAppliedDelta=0,
+                        eventApplicationTiming="exact_frame",
+                        inCallbackOffset=4,
+                        sameFrameBurstSize=1,
+                        callbackIndex=2,
+                        callbackStartFrame=128,
+                        callbackEndFrame=256,
+                        appliedPlannedEventCount=1,
+                        exactFrameAppliedEventCount=1,
+                        callbackBoundaryAppliedEventCount=0,
+                        latePlannedEventCount=0,
+                        maxPlannedVsAppliedDelta=0,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+            largest = alignment["largest_event_timing_deltas"][0]
+
+            self.assertEqual(alignment["max_planned_vs_applied_delta"], 0)
+            self.assertEqual(alignment["applied_planned_event_count"], 1)
+            self.assertEqual(alignment["exact_frame_applied_event_count"], 1)
+            self.assertEqual(alignment["callback_boundary_applied_event_count"], 0)
+            self.assertEqual(alignment["late_planned_event_count"], 0)
+            self.assertEqual(largest["event_applied_frame"], 132)
+            self.assertEqual(largest["in_callback_offset"], 4)
+            self.assertEqual(largest["same_frame_burst_size"], 1)
+            self.assertTrue(summary["event_stream"]["sample_time_render_queue_observed"])
+            self.assertEqual(
+                summary["event_stream"]["runtime_driver"],
+                "offline adapter plan applied by runtime sample-time render queue",
+            )
+
+    def test_synthetic_trace_keeps_row_transition_delta_separate_from_planned_event_application(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        runtimeEventCategory="row_transition",
+                        plannedRuntimeFrame=1000,
+                        runtimeApplicationFrame=1256,
+                        eventFrameDelta=256,
+                        eventApplicationTiming="callback_start",
+                        callbackIndex=4,
+                        callbackStartFrame=1024,
+                        callbackEndFrame=1536,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertEqual(alignment["max_abs_event_frame_delta"], 0)
+            self.assertEqual(alignment["max_planned_vs_applied_delta"], 0)
+            self.assertEqual(alignment["max_row_transition_frame_delta"], 256)
+            self.assertEqual(alignment["callback_boundary_event_count"], 0)
+            self.assertEqual(alignment["callback_boundary_applied_event_count"], 0)
+            self.assertEqual(alignment["row_transition_timing_deltas"][0]["event_frame_delta"], 256)
+            self.assertNotIn("planned-vs-applied event frame deltas observed", summary["suspicious_findings"])
+            self.assertNotIn("events applied at callback boundaries instead of planned frames", summary["suspicious_findings"])
+            self.assertNotEqual(
+                summary["recommended_next_pr"],
+                "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation",
+            )
 
     def test_synthetic_trace_reports_same_frame_event_bursts(self):
         with tempfile.TemporaryDirectory() as tmpdir:

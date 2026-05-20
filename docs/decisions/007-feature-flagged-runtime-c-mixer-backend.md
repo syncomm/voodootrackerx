@@ -114,6 +114,13 @@ not make the C mixer default, add a UI toggle, claim runtime parity, implement
 new XM effects, change C mixer DSP semantics, or solve sample-time
 tracker-follow alignment.
 
+A later runtime maturation step keeps the same opt-in backend but applies
+already-planned adapter events at their intended runtime sample frames inside
+the AVAudio source-node callback. The runtime C mixer now maintains a sorted
+planned-event queue, splits callback renders at in-buffer event offsets, traces
+planned/applied frame fields and late/callback-boundary counters, and still
+leaves AVAudio as the default backend.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

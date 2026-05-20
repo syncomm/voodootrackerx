@@ -2042,6 +2042,77 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(summary["event_stream"]["runtime_driver"], "PlaybackEngine timer/control events")
             self.assertFalse(summary["event_stream"]["offline_adapter_event_stream_observed"])
 
+    def test_synthetic_trace_reports_epsilon_suppression_profile_and_near_transients(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        rowIndex=4,
+                        cMixerSampleTimeFrame=100,
+                        topOutputAdjacentSampleJumps=[
+                            {"sampleJump": 0.42, "runtimeFrame": 104, "callbackIndex": 1, "frameOffset": 4, "channelIndex": 0}
+                        ],
+                    ),
+                    self.event(
+                        "c_mixer_update_suppressed_no_change",
+                        rowIndex=4,
+                        runtimeApplicationFrame=105,
+                        updateDisposition="update_suppressed_no_change",
+                        updateType="none",
+                        updateEpsilon=0.00001,
+                        runtimeUpdateEpsilon=0.00001,
+                        runtimeUpdateEpsilonPolicy="default_runtime_update_epsilon",
+                        gainBefore=1.0,
+                        gainRequested=0.999995,
+                        gainDelta=0.000005,
+                        gainUpdateStatus="suppressed_epsilon",
+                        panBefore=0.0,
+                        panRequested=0.000004,
+                        panDelta=0.000004,
+                        panUpdateStatus="suppressed_epsilon",
+                        updateSuppressedEpsilonGainCount=1,
+                        updateSuppressedEpsilonPanCount=1,
+                        updateSuppressedNoChangeCount=1,
+                    ),
+                    self.event(
+                        "c_mixer_update_gain_pan_applied",
+                        rowIndex=5,
+                        runtimeApplicationFrame=220,
+                        updateDisposition="update_applied",
+                        updateType="pan",
+                        updateEpsilon=0.00001,
+                        gainBefore=1.0,
+                        gainRequested=0.999996,
+                        gainDelta=0.000004,
+                        gainUpdateStatus="suppressed_epsilon",
+                        panBefore=0.0,
+                        panRequested=0.5,
+                        panDelta=0.5,
+                        panUpdateStatus="applied",
+                        updateAppliedAfterEpsilonFilterCount=1,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            updates = summary["updates"]
+            epsilon = updates["epsilon_suppression"]
+
+            self.assertEqual(updates["suppressed_epsilon_gain_update_events"], 2)
+            self.assertEqual(updates["suppressed_epsilon_pan_update_events"], 1)
+            self.assertEqual(updates["applied_after_epsilon_filter_update_events"], 1)
+            self.assertEqual(epsilon["suppressed_update_event_count"], 2)
+            self.assertEqual(epsilon["fully_suppressed_no_change_event_count"], 1)
+            self.assertEqual(epsilon["partial_update_after_epsilon_filter_event_count"], 1)
+            self.assertEqual(epsilon["suppressed_update_near_top_transient_count"], 1)
+            self.assertEqual(epsilon["motion_assessment"], "suppressed_fields_held_while_other_fields_applied")
+            self.assertEqual(epsilon["top_epsilon_suppressed_updates"][0]["row_index"], 4)
+            self.assertEqual(epsilon["top_epsilon_suppressed_updates"][0]["nearest_top_jump"]["sample_jump"], 0.42)
+            self.assertIn("epsilon-suppressed runtime updates observed near top transient frames", summary["suspicious_findings"])
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Update Epsilon Correlation Follow-Up")
+
     def test_synthetic_trace_reports_event_timing_deltas(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(
@@ -2565,6 +2636,183 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(burst["event_count"], 5)
             self.assertEqual(burst["actions"]["c_mixer_add_voice"], 3)
             self.assertEqual(burst["categories"]["note_trigger"], 3)
+            self.assertEqual(burst["event_categories"]["step_update"], 1)
+
+    def test_runtime_trace_summary_counts_lower_threshold_discontinuities(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        outputDiscontinuityThreshold=0.75,
+                        outputDiscontinuityCount=1,
+                        outputDiscontinuityThresholdCounts=[
+                            {"threshold": 0.25, "count": 4},
+                            {"threshold": 0.35, "count": 3},
+                            {"threshold": 0.50, "count": 2},
+                            {"threshold": 0.75, "count": 1},
+                        ],
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["health"]["output_discontinuity_threshold_counts"], [
+                {"threshold": 0.25, "count": 4},
+                {"threshold": 0.35, "count": 3},
+                {"threshold": 0.5, "count": 2},
+                {"threshold": 0.75, "count": 1},
+            ])
+            self.assertIn("runtime output adjacent-sample lower-threshold jumps observed", summary["suspicious_findings"])
+
+    def test_runtime_trace_summary_reports_top_adjacent_jumps_deterministically(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("row_transition", rowIndex=4, cMixerSampleTimeFrame=100),
+                    self.event(
+                        "row_transition",
+                        rowIndex=5,
+                        cMixerSampleTimeFrame=200,
+                        topOutputAdjacentSampleJumps=[
+                            {"sampleJump": 0.4, "runtimeFrame": 199, "callbackIndex": 3, "frameOffset": 7, "channelIndex": 1},
+                            {"sampleJump": 0.6, "runtimeFrame": 201, "callbackIndex": 3, "frameOffset": 9, "channelIndex": 0},
+                        ],
+                    ),
+                    self.event(
+                        "row_transition",
+                        rowIndex=6,
+                        cMixerSampleTimeFrame=300,
+                        topOutputAdjacentSampleJumps=[
+                            {"sampleJump": 0.6, "runtimeFrame": 201, "callbackIndex": 3, "frameOffset": 9, "channelIndex": 0},
+                            {"sampleJump": 0.5, "runtimeFrame": 301, "callbackIndex": 4, "frameOffset": 1, "channelIndex": 0},
+                        ],
+                    ),
+                ],
+            )
+
+            summary_a = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            summary_b = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            jumps = summary_a["health"]["top_output_adjacent_sample_jumps"]
+
+            self.assertEqual(summary_a, summary_b)
+            self.assertEqual([row["sample_jump"] for row in jumps], [0.6, 0.5, 0.4])
+            self.assertEqual(jumps[0]["runtime_frame"], 201)
+            self.assertEqual(jumps[0]["row_index"], 5)
+            self.assertEqual(jumps[0]["context_frame_delta"], 1)
+
+    def test_runtime_trace_summary_reports_top_same_frame_bursts_with_categories_and_voice_counts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_stop_channel_ramped",
+                        runtimeApplicationFrame=512,
+                        runtimeEventCategory="replacement_stop_ramp",
+                        activeVoiceCountBefore=2,
+                        activeVoiceCountAfter=3,
+                        loadedVoiceCountBefore=2,
+                        loadedVoiceCountAfter=3,
+                    ),
+                    self.event(
+                        "c_mixer_add_voice",
+                        runtimeApplicationFrame=512,
+                        runtimeEventCategory="note_trigger",
+                        activeVoiceCountBefore=2,
+                        activeVoiceCountAfter=3,
+                    ),
+                    self.event(
+                        "c_mixer_update_gain_pan_applied",
+                        runtimeApplicationFrame=512,
+                        runtimeEventCategory="hxy_global_volume",
+                    ),
+                    self.event(
+                        "row_transition",
+                        cMixerSampleTimeFrame=512,
+                        topOutputAdjacentSampleJumps=[
+                            {"sampleJump": 0.45, "runtimeFrame": 513, "callbackIndex": 8, "frameOffset": 1, "channelIndex": 0}
+                        ],
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            burst = summary["sample_time_alignment"]["largest_same_frame_event_burst"]
+
+            self.assertEqual(burst["event_count"], 3)
+            self.assertEqual(burst["event_categories"]["replacement_stop_ramp"], 1)
+            self.assertEqual(burst["event_categories"]["note_trigger"], 1)
+            self.assertEqual(burst["event_categories"]["global_volume_update"], 1)
+            self.assertEqual(burst["active_voice_count_before"], 2)
+            self.assertEqual(burst["active_voice_count_after"], 3)
+            self.assertEqual(burst["nearest_top_jump"]["sample_jump"], 0.45)
+            self.assertEqual(summary["health"]["likely_correlation_category"], "replacement ramp burst")
+
+    def test_runtime_trace_summary_reports_top_peaks_and_clipping_locations(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event("row_transition", rowIndex=9, cMixerSampleTimeFrame=4096),
+                    self.event(
+                        "row_transition",
+                        outputPeak=1.01,
+                        clippingSampleCount=1,
+                        overrangeSampleCount=1,
+                        outputPeakWarningThreshold=0.95,
+                        outputPeakWarningSampleCount=2,
+                        topOutputPeaks=[
+                            {"peak": 1.01, "runtimeFrame": 4097, "callbackIndex": 10, "frameOffset": 1, "channelIndex": 0},
+                            {"peak": 0.96, "runtimeFrame": 4100, "callbackIndex": 10, "frameOffset": 4, "channelIndex": 1},
+                        ],
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            peaks = summary["health"]["top_output_peaks"]
+
+            self.assertEqual(summary["health"]["output_peak_warning_sample_count"], 2)
+            self.assertEqual(peaks[0]["peak"], 1.01)
+            self.assertTrue(peaks[0]["above_1_0"])
+            self.assertTrue(peaks[1]["above_0_95"])
+            self.assertEqual(peaks[0]["row_index"], 9)
+            self.assertEqual(summary["health"]["likely_correlation_category"], "peak/clip")
+
+    def test_runtime_trace_summary_reports_voice_cleanup_ramp_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "c_mixer_stop_channel_ramped",
+                        rampedVoiceCount=1,
+                        replacementVoicesOverlap=True,
+                        rampingOutVoiceCount=1,
+                        rampDownStartCount=1,
+                    ),
+                    self.event(
+                        "row_transition",
+                        rampingOutVoiceCount=0,
+                        rampDownStartCount=1,
+                        rampDownCompletionCount=1,
+                        abruptRampDownStopCount=0,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            stops = summary["stops"]
+
+            self.assertEqual(stops["ramped_replacement_stop_events"], 1)
+            self.assertEqual(stops["ramped_replacement_overlap_events"], 1)
+            self.assertEqual(stops["ramp_down_start_count"], 1)
+            self.assertEqual(stops["ramp_down_completion_count"], 1)
+            self.assertEqual(stops["abrupt_ramp_down_stop_count"], 0)
 
     def test_synthetic_trace_reports_order_row_transition_event_bursts_deterministically(self):
         with tempfile.TemporaryDirectory() as tmpdir:

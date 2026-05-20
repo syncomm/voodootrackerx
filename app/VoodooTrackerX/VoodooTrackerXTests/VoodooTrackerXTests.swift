@@ -8754,6 +8754,34 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(policy.configurationWarning, "conflicting_runtime_gain_policy")
     }
 
+    func testRuntimeCMixerUpdatePolicyDefaultsToExistingEpsilon() {
+        let policy = RuntimeCMixerUpdatePolicy.resolve(environment: [:])
+
+        XCTAssertEqual(policy.updateEpsilonPolicy, "default_runtime_update_epsilon")
+        XCTAssertEqual(policy.updateEpsilon, RuntimeCMixerRenderCore.updateEpsilon, accuracy: 0.000_000_001)
+        XCTAssertNil(policy.configurationWarning)
+    }
+
+    func testRuntimeCMixerUpdatePolicyParsesLocalDiagnosticOverride() {
+        let policy = RuntimeCMixerUpdatePolicy.resolve(environment: [
+            RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: "0"
+        ])
+
+        XCTAssertEqual(policy.updateEpsilonPolicy, "env_runtime_update_epsilon")
+        XCTAssertEqual(policy.updateEpsilon, 0)
+        XCTAssertNil(policy.configurationWarning)
+    }
+
+    func testRuntimeCMixerUpdatePolicyFallsBackForInvalidOverride() {
+        let policy = RuntimeCMixerUpdatePolicy.resolve(environment: [
+            RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: "-1"
+        ])
+
+        XCTAssertEqual(policy.updateEpsilonPolicy, "default_runtime_update_epsilon_fallback")
+        XCTAssertEqual(policy.updateEpsilon, RuntimeCMixerRenderCore.updateEpsilon, accuracy: 0.000_000_001)
+        XCTAssertEqual(policy.configurationWarning, "invalid_runtime_update_epsilon")
+    }
+
     @MainActor
     func testPlaybackAudioOutputFactoryDefaultsToAVAudioBackend() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
@@ -8801,6 +8829,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
         XCTAssertEqual(traceWriter.events.first?.runtimeAutoHeadroomEnabled, false)
         XCTAssertEqual(traceWriter.events.first?.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
+        XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
+        XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
     }
 
     func testRuntimeCMixerAdapterEventPlanBuildsFromPlaybackSongFixture() {
@@ -9462,12 +9492,17 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.outputRMS, 0)
         XCTAssertEqual(snapshot.outputDiscontinuityThreshold, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
         XCTAssertEqual(snapshot.outputDiscontinuityCount, 0)
+        XCTAssertEqual(snapshot.outputDiscontinuityThresholdCounts.map(\.count), [0, 0, 0, 0])
         XCTAssertEqual(snapshot.maxOutputAdjacentSampleJump, 0)
+        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps, [])
         XCTAssertNil(snapshot.lastOutputDiscontinuitySampleJump)
         XCTAssertNil(snapshot.lastOutputDiscontinuityCallbackIndex)
         XCTAssertNil(snapshot.lastOutputDiscontinuityRuntimeFrame)
         XCTAssertNil(snapshot.lastOutputDiscontinuityFrameOffset)
         XCTAssertNil(snapshot.lastOutputDiscontinuityChannelIndex)
+        XCTAssertEqual(snapshot.outputPeakWarningThreshold, RuntimeCMixerRenderCore.outputPeakWarningThreshold)
+        XCTAssertEqual(snapshot.outputPeakWarningSampleCount, 0)
+        XCTAssertEqual(snapshot.topOutputPeaks, [])
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
         XCTAssertEqual(snapshot.clippingDetected, false)
@@ -9476,11 +9511,18 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.runtimeAutoHeadroomEnabled, false)
         XCTAssertEqual(snapshot.runtimeFixedHeadroomDB, RuntimeCMixerOutputPolicy.defaultHeadroomDB)
         XCTAssertNil(snapshot.runtimeClippingRecommendation)
+        XCTAssertEqual(snapshot.runtimeUpdateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
+        XCTAssertEqual(snapshot.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
+        XCTAssertNil(snapshot.runtimeUpdateEpsilonConfigurationWarning)
         XCTAssertEqual(snapshot.appliedPlannedEventCount, 0)
         XCTAssertEqual(snapshot.exactFrameAppliedEventCount, 0)
         XCTAssertEqual(snapshot.callbackBoundaryAppliedEventCount, 0)
         XCTAssertEqual(snapshot.latePlannedEventCount, 0)
         XCTAssertEqual(snapshot.maxPlannedVsAppliedDelta, 0)
+        XCTAssertEqual(snapshot.rampingOutVoiceCount, 0)
+        XCTAssertEqual(snapshot.rampDownStartCount, 0)
+        XCTAssertEqual(snapshot.rampDownCompletionCount, 0)
+        XCTAssertEqual(snapshot.abruptRampDownStopCount, 0)
     }
 
     func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {
@@ -9534,6 +9576,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.outputRMS, Float(sqrt(2.5 / 4.0)) * gain, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.outputDiscontinuityCount, 0)
         XCTAssertLessThan(snapshot.maxOutputAdjacentSampleJump, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
+        XCTAssertEqual(snapshot.topOutputPeaks.first?.runtimeFrame, 0)
+        XCTAssertEqual(snapshot.topOutputPeaks.first?.peak ?? 0, gain, accuracy: 0.000_001)
         XCTAssertNil(snapshot.lastOutputDiscontinuitySampleJump)
         XCTAssertEqual(snapshot.overrangeSampleCount, 0)
         XCTAssertEqual(snapshot.clippingSampleCount, 0)
@@ -9565,7 +9609,11 @@ final class VoodooTrackerXTests: XCTestCase {
         let snapshot = core.snapshot()
         XCTAssertEqual(snapshot.outputDiscontinuityThreshold, RuntimeCMixerRenderCore.outputDiscontinuityThreshold)
         XCTAssertEqual(snapshot.outputDiscontinuityCount, 3)
+        XCTAssertEqual(snapshot.outputDiscontinuityThresholdCounts.map(\.threshold), [0.25, 0.35, 0.50, RuntimeCMixerRenderCore.outputDiscontinuityThreshold])
+        XCTAssertEqual(snapshot.outputDiscontinuityThresholdCounts.map(\.count), [3, 3, 3, 3])
         XCTAssertEqual(snapshot.maxOutputAdjacentSampleJump, 2, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.sampleJump), [2, 2, 1])
+        XCTAssertEqual(snapshot.topOutputAdjacentSampleJumps.map(\.runtimeFrame), [2, 3, 1])
         XCTAssertEqual(snapshot.lastOutputDiscontinuitySampleJump, 2)
         XCTAssertEqual(snapshot.lastOutputDiscontinuityCallbackIndex, 1)
         XCTAssertEqual(snapshot.lastOutputDiscontinuityRuntimeFrame, 2)
@@ -9664,6 +9712,9 @@ final class VoodooTrackerXTests: XCTestCase {
         let reducedSnapshot = reducedCore.snapshot()
         XCTAssertTrue(unitySnapshot.clippingDetected)
         XCTAssertEqual(unitySnapshot.clippingSampleCount, 2)
+        XCTAssertEqual(unitySnapshot.outputPeakWarningSampleCount, 2)
+        XCTAssertEqual(unitySnapshot.topOutputPeaks.first?.peak, 2)
+        XCTAssertEqual(unitySnapshot.topOutputPeaks.first?.runtimeFrame, 0)
         XCTAssertEqual(unitySnapshot.runtimeClippingRecommendation, RuntimeCMixerOutputPolicy.clippingRecommendation)
         XCTAssertFalse(reducedSnapshot.clippingDetected)
         XCTAssertEqual(reducedSnapshot.clippingSampleCount, 0)
@@ -9753,6 +9804,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementRampFrames, CSoftwareMixer.replacementStopRampFrameCount)
         XCTAssertEqual(replacement.channelStopBeforeAdd?.replacementVoicesOverlap, true)
         XCTAssertEqual(replacement.snapshotAfter.activeVoiceCount, 3)
+        XCTAssertEqual(replacement.snapshotAfter.rampingOutVoiceCount, 1)
+        XCTAssertEqual(replacement.snapshotAfter.rampDownStartCount, 1)
 
         var output = Array(repeating: Float(0), count: 34)
         output.withUnsafeMutableBufferPointer { buffer in
@@ -9763,6 +9816,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(output[31], 0.75, accuracy: 0.000_001)
         XCTAssertEqual(output[33], 0.75, accuracy: 0.000_001)
         XCTAssertEqual(core.snapshot().activeVoiceCount, 2)
+        XCTAssertEqual(core.snapshot().rampingOutVoiceCount, 0)
+        XCTAssertEqual(core.snapshot().rampDownCompletionCount, 1)
+        XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
     }
 
     func testRuntimeCMixerGlobalStopClearsReplacementRampImmediately() {
@@ -9927,6 +9983,46 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertFalse(suppressed.gainPanAttempted)
         XCTAssertEqual(suppressed.reason, "runtime_c_mixer_update_suppressed_no_change_epsilon_filtered")
         XCTAssertEqual(renderRuntimePCM(candidate, frames: 24), renderRuntimePCM(baseline, frames: 24))
+    }
+
+    func testRuntimeCMixerZeroUpdateEpsilonDiagnosticAppliesTinyMotion() {
+        let defaultCore = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let zeroEpsilonCore = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            updatePolicy: RuntimeCMixerUpdatePolicy.resolve(environment: [
+                RuntimeCMixerUpdatePolicy.epsilonEnvironmentKey: "0"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: Array(repeating: 1, count: 16), baseSampleRate: 44_100)
+        let tinyGain = 1 - Float(RuntimeCMixerRenderCore.updateEpsilon / 2)
+
+        XCTAssertTrue(defaultCore.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertTrue(zeroEpsilonCore.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        let defaultUpdate = defaultCore.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: tinyGain, pitchOffsetSemitones: 0, panning: 0)
+        )
+        let zeroEpsilonUpdate = zeroEpsilonCore.updateWithDiagnostics(
+            channel: 0,
+            controls: AudioChannelControls(volumeScale: tinyGain, pitchOffsetSemitones: 0, panning: 0)
+        )
+
+        XCTAssertEqual(defaultUpdate.traceAction, "c_mixer_update_suppressed_no_change")
+        XCTAssertEqual(defaultUpdate.gainUpdateStatus, "suppressed_epsilon")
+        XCTAssertEqual(zeroEpsilonUpdate.traceAction, "c_mixer_update_gain_pan_applied")
+        XCTAssertEqual(zeroEpsilonUpdate.gainUpdateStatus, "applied")
+        XCTAssertEqual(zeroEpsilonUpdate.updateEpsilon, 0)
+        XCTAssertEqual(zeroEpsilonCore.snapshot().runtimeUpdateEpsilonPolicy, "env_runtime_update_epsilon")
     }
 
     func testRuntimeCMixerPanDeltaBelowEpsilonIsSuppressedAndDoesNotRestartRamp() {

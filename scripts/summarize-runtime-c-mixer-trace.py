@@ -17,6 +17,7 @@ FLOAT_DIGITS = 9
 POSITION_DIVERGENCE_FRAME_THRESHOLD = 1
 PUBLISHED_FOLLOW_POSITION_FRAME_TOLERANCE = 512
 PUBLISHED_FOLLOW_POSITION_ROW_TOLERANCE = 1
+TRANSIENT_CORRELATION_FRAME_WINDOW = 64
 UPDATE_ACTION_PREFIX = "c_mixer_update_"
 GAIN_PAN_UPDATE_ACTIONS = {
     "c_mixer_update_gain_pan_applied",
@@ -26,6 +27,11 @@ STEP_UPDATE_ACTIONS = {
     "c_mixer_update_step_applied",
     "c_mixer_update_gain_pan_step_applied",
 }
+EPSILON_UPDATE_FIELDS = (
+    ("gain", "gainUpdateStatus", "gainDelta", "gainBefore", "gainRequested"),
+    ("pan", "panUpdateStatus", "panDelta", "panBefore", "panRequested"),
+    ("step", "sampleStepUpdateStatus", "sampleStepDelta", "sampleStepBefore", "sampleStepRequested"),
+)
 TRANSPORT_CLEAR_REASONS = {
     "transport_stop",
     "transport_pause",
@@ -240,6 +246,343 @@ def sample_rate(event: dict[str, Any]) -> float | None:
     if value is None or value <= 0:
         return None
     return value
+
+
+def context_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "order_index": event.get("orderIndex", event.get("plannedSourceOrderIndex")),
+        "pattern_index": event.get("patternIndex", event.get("plannedSourcePatternIndex")),
+        "row_index": event.get("rowIndex", event.get("plannedSourceRowIndex")),
+        "tick_in_row": event.get("tickInRow", event.get("plannedSourceTickInRow")),
+    }
+
+
+def event_frame_for_correlation(event: dict[str, Any]) -> int | None:
+    for field in (
+        "eventAppliedFrame",
+        "runtimeApplicationFrame",
+        "lastOutputDiscontinuityRuntimeFrame",
+        "cMixerSampleTimeFrame",
+        "currentFrame",
+        "cMixerRenderedFrames",
+        "runtimeRenderedFrameCount",
+    ):
+        value = integer(event.get(field))
+        if value is not None:
+            return value
+    return None
+
+
+def nearest_context_for_frame(events: list[dict[str, Any]], runtime_frame: int | None) -> dict[str, Any] | None:
+    if runtime_frame is None:
+        return None
+    best: tuple[int, int, dict[str, Any]] | None = None
+    for index, event in enumerate(events):
+        frame = event_frame_for_correlation(event)
+        if frame is None:
+            continue
+        context = context_from_event(event)
+        if all(value is None for value in context.values()):
+            continue
+        delta = abs(frame - runtime_frame)
+        candidate = (delta, index, context)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    if best is None:
+        return None
+    context = dict(best[2])
+    context["context_frame_delta"] = best[0]
+    return context
+
+
+def discontinuity_threshold_counts(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[float, int] = {}
+    for event in events:
+        raw_counts = event.get("outputDiscontinuityThresholdCounts")
+        if not isinstance(raw_counts, list):
+            continue
+        for item in raw_counts:
+            if not isinstance(item, dict):
+                continue
+            threshold = number(item.get("threshold"))
+            count = integer(item.get("count"))
+            if threshold is None or count is None:
+                continue
+            key = rounded(threshold)
+            counts[key] = max(counts.get(key, 0), count)
+    if not counts:
+        threshold = max_numeric(events, "outputDiscontinuityThreshold")
+        count = int(max_numeric(events, "outputDiscontinuityCount") or 0)
+        if threshold is not None:
+            counts[rounded(threshold)] = count
+    return [
+        {"threshold": threshold, "count": counts[threshold]}
+        for threshold in sorted(counts)
+    ]
+
+
+def top_output_sample_jumps(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    rows_by_key: dict[tuple[int, int, float], dict[str, Any]] = {}
+    for event in events:
+        raw_rows = event.get("topOutputAdjacentSampleJumps")
+        if not isinstance(raw_rows, list):
+            continue
+        for item in raw_rows:
+            if not isinstance(item, dict):
+                continue
+            sample_jump = number(item.get("sampleJump"))
+            runtime_frame = integer(item.get("runtimeFrame"))
+            channel_index = integer(item.get("channelIndex"))
+            if sample_jump is None or runtime_frame is None or channel_index is None:
+                continue
+            key = (runtime_frame, channel_index, rounded(sample_jump))
+            rows_by_key.setdefault(key, {
+                "sample_jump": rounded(sample_jump),
+                "runtime_frame": runtime_frame,
+                "callback_index": integer(item.get("callbackIndex")),
+                "frame_offset": integer(item.get("frameOffset")),
+                "channel_index": channel_index,
+            })
+    rows = list(rows_by_key.values())
+    rows.sort(key=lambda item: (-item["sample_jump"], item["runtime_frame"], item["channel_index"]))
+    rows = rows[:limit]
+    for row in rows:
+        context = nearest_context_for_frame(events, row["runtime_frame"])
+        if context is not None:
+            row.update(context)
+    return rows
+
+
+def top_output_peaks(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    rows_by_key: dict[tuple[int, int, float], dict[str, Any]] = {}
+    for event in events:
+        raw_rows = event.get("topOutputPeaks")
+        if not isinstance(raw_rows, list):
+            continue
+        for item in raw_rows:
+            if not isinstance(item, dict):
+                continue
+            peak = number(item.get("peak"))
+            runtime_frame = integer(item.get("runtimeFrame"))
+            channel_index = integer(item.get("channelIndex"))
+            if peak is None or runtime_frame is None or channel_index is None:
+                continue
+            key = (runtime_frame, channel_index, rounded(peak))
+            rows_by_key.setdefault(key, {
+                "peak": rounded(peak),
+                "runtime_frame": runtime_frame,
+                "callback_index": integer(item.get("callbackIndex")),
+                "frame_offset": integer(item.get("frameOffset")),
+                "channel_index": channel_index,
+                "above_0_95": peak > 0.95,
+                "above_1_0": peak > 1.0,
+            })
+    rows = list(rows_by_key.values())
+    rows.sort(key=lambda item: (-item["peak"], item["runtime_frame"], item["channel_index"]))
+    rows = rows[:limit]
+    for row in rows:
+        context = nearest_context_for_frame(events, row["runtime_frame"])
+        if context is not None:
+            row.update(context)
+    return rows
+
+
+def nearest_transient(
+    runtime_frame: int | None,
+    rows: list[dict[str, Any]],
+    value_field: str,
+    window: int = TRANSIENT_CORRELATION_FRAME_WINDOW,
+) -> dict[str, Any] | None:
+    if runtime_frame is None:
+        return None
+    candidates = []
+    for row in rows:
+        frame = row.get("runtime_frame")
+        if not isinstance(frame, int):
+            continue
+        delta = abs(frame - runtime_frame)
+        if delta <= window:
+            candidates.append((delta, -float(row.get(value_field) or 0), frame, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[:3])
+    result = dict(candidates[0][3])
+    result["burst_frame_delta"] = candidates[0][0]
+    return result
+
+
+def attach_nearby_transients_to_bursts(
+    bursts: list[dict[str, Any]],
+    jumps: list[dict[str, Any]],
+    peaks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = []
+    for burst in bursts:
+        row = dict(burst)
+        frame = integer(row.get("runtime_application_frame"))
+        row["nearest_top_jump"] = nearest_transient(frame, jumps, "sample_jump")
+        row["nearest_top_peak"] = nearest_transient(frame, peaks, "peak")
+        rows.append(row)
+    return rows
+
+
+def epsilon_suppressed_fields(event: dict[str, Any]) -> list[str]:
+    return [
+        name
+        for name, status_field, *_ in EPSILON_UPDATE_FIELDS
+        if event.get(status_field) == "suppressed_epsilon"
+    ]
+
+
+def epsilon_applied_fields(event: dict[str, Any]) -> list[str]:
+    return [
+        name
+        for name, status_field, *_ in EPSILON_UPDATE_FIELDS
+        if event.get(status_field) == "applied"
+    ]
+
+
+def epsilon_suppressed_update_rows(
+    events: list[dict[str, Any]],
+    jumps: list[dict[str, Any]],
+    peaks: list[dict[str, Any]],
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    rows = []
+    for index, event in enumerate(events):
+        suppressed_fields = epsilon_suppressed_fields(event)
+        if not suppressed_fields:
+            continue
+        frame = event_frame_for_correlation(event)
+        field_deltas = {}
+        signed_deltas = {}
+        max_abs_delta = 0.0
+        for name, _, delta_field, before_field, requested_field in EPSILON_UPDATE_FIELDS:
+            delta = number(event.get(delta_field))
+            if delta is not None:
+                field_deltas[name] = rounded(delta)
+                if name in suppressed_fields:
+                    max_abs_delta = max(max_abs_delta, abs(delta))
+            before = number(event.get(before_field))
+            requested = number(event.get(requested_field))
+            if before is not None and requested is not None:
+                signed_deltas[name] = rounded(requested - before)
+        row = context_from_event(event)
+        row.update({
+            "trace_index": index,
+            "runtime_action": event.get("runtimeAction"),
+            "runtime_frame": frame,
+            "update_disposition": event.get("updateDisposition"),
+            "update_type": event.get("updateType"),
+            "update_epsilon": number(event.get("updateEpsilon")),
+            "suppressed_fields": suppressed_fields,
+            "applied_fields": epsilon_applied_fields(event),
+            "field_deltas": field_deltas,
+            "signed_deltas": signed_deltas,
+            "max_abs_delta": rounded(max_abs_delta),
+            "nearest_top_jump": nearest_transient(frame, jumps, "sample_jump"),
+            "nearest_top_peak": nearest_transient(frame, peaks, "peak"),
+        })
+        rows.append(row)
+    rows.sort(key=lambda item: (-item["max_abs_delta"], item["trace_index"]))
+    return rows[:limit]
+
+
+def epsilon_suppression_profile(
+    events: list[dict[str, Any]],
+    jumps: list[dict[str, Any]],
+    peaks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rows = epsilon_suppressed_update_rows(events, jumps, peaks, limit=len(events))
+    field_counts: Counter[str] = Counter()
+    field_total_abs_delta: Counter[str] = Counter()
+    field_signed_delta: Counter[str] = Counter()
+    fully_suppressed_count = 0
+    partial_update_count = 0
+    near_transient_count = 0
+    for row in rows:
+        for field in row["suppressed_fields"]:
+            field_counts[field] += 1
+            field_total_abs_delta[field] += abs(float(row["field_deltas"].get(field) or 0))
+            field_signed_delta[field] += float(row["signed_deltas"].get(field) or 0)
+        if row["update_disposition"] == "update_suppressed_no_change" and not row["applied_fields"]:
+            fully_suppressed_count += 1
+        if row["applied_fields"]:
+            partial_update_count += 1
+        if row["nearest_top_jump"] is not None or row["nearest_top_peak"] is not None:
+            near_transient_count += 1
+
+    if not rows:
+        assessment = "not_observed"
+    elif partial_update_count > 0:
+        assessment = "suppressed_fields_held_while_other_fields_applied"
+    else:
+        assessment = "fully_suppressed_no_runtime_state_motion"
+
+    return {
+        "epsilon_values_observed": sorted({
+            rounded(value)
+            for event in events
+            for value in [number(event.get("updateEpsilon")), number(event.get("runtimeUpdateEpsilon"))]
+            if value is not None
+        }),
+        "runtime_update_epsilon_policy_counts": dict(sorted(Counter(
+            str(event.get("runtimeUpdateEpsilonPolicy"))
+            for event in events
+            if event.get("runtimeUpdateEpsilonPolicy") is not None
+        ).items())),
+        "runtime_update_epsilon_configuration_warnings": dict(sorted(Counter(
+            str(event.get("runtimeUpdateEpsilonConfigurationWarning"))
+            for event in events
+            if event.get("runtimeUpdateEpsilonConfigurationWarning") is not None
+        ).items())),
+        "suppressed_update_event_count": len(rows),
+        "suppressed_field_counts": dict(sorted(field_counts.items())),
+        "suppressed_field_total_abs_delta": {
+            field: rounded(total)
+            for field, total in sorted(field_total_abs_delta.items())
+        },
+        "suppressed_field_signed_delta_sum": {
+            field: rounded(total)
+            for field, total in sorted(field_signed_delta.items())
+        },
+        "fully_suppressed_no_change_event_count": fully_suppressed_count,
+        "partial_update_after_epsilon_filter_event_count": partial_update_count,
+        "suppressed_update_near_top_transient_count": near_transient_count,
+        "motion_assessment": assessment,
+        "top_epsilon_suppressed_updates": rows[:10],
+    }
+
+
+def likely_correlation_category(
+    clipping_count: int,
+    overrange_count: int,
+    top_peaks: list[dict[str, Any]],
+    top_jumps: list[dict[str, Any]],
+    same_frame_bursts: list[dict[str, Any]],
+    ramped_replacements: list[dict[str, Any]],
+    ramping_out_voice_count: int,
+    ramp_down_completion_count: int,
+    abrupt_ramp_down_stop_count: int,
+) -> str:
+    if clipping_count > 0 or overrange_count > 0 or any(row.get("above_1_0") for row in top_peaks):
+        return "peak/clip"
+    for burst in same_frame_bursts:
+        frame = integer(burst.get("runtime_application_frame"))
+        if frame is None:
+            continue
+        near_jump = nearest_transient(frame, top_jumps, "sample_jump")
+        if near_jump is None:
+            continue
+        categories = set(str(key) for key in burst.get("categories", {}).keys())
+        if "replacement_stop_ramp" in categories:
+            return "replacement ramp burst"
+        return "event burst"
+    if abrupt_ramp_down_stop_count > 0 or ramping_out_voice_count > 0 or ramp_down_completion_count > 0:
+        return "voice cleanup"
+    if ramped_replacements:
+        return "replacement ramp burst"
+    return "unknown"
 
 
 def playback_engine_position(event: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
@@ -642,13 +985,30 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
             "event_count": 0,
             "actions": Counter(),
             "categories": Counter(),
+            "event_categories": Counter(),
             "contexts": Counter(),
+            "active_before": [],
+            "active_after": [],
+            "loaded_before": [],
+            "loaded_after": [],
         })
         entry["event_count"] += 1
         entry["actions"][action] += 1
         category = event.get("runtimeEventCategory") or event.get("adapterEventCategory") or "unknown"
         entry["categories"][str(category)] += 1
+        entry["event_categories"][normalized_burst_category(str(category))] += 1
         entry["contexts"][context_key(event)] += 1
+        for field, target in (
+            ("activeVoiceCountBefore", "active_before"),
+            ("activeVoiceCountAfter", "active_after"),
+            ("activeVoiceCount", "active_after"),
+            ("loadedVoiceCountBefore", "loaded_before"),
+            ("loadedVoiceCountAfter", "loaded_after"),
+            ("loadedVoiceCount", "loaded_after"),
+        ):
+            value = integer(event.get(field))
+            if value is not None:
+                entry[target].append(value)
 
     bursts = []
     for entry in grouped.values():
@@ -664,10 +1024,26 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
             "event_count": entry["event_count"],
             "actions": dict(sorted(entry["actions"].items())),
             "categories": dict(sorted(entry["categories"].items())),
+            "event_categories": dict(sorted(entry["event_categories"].items())),
+            "active_voice_count_before": min(entry["active_before"]) if entry["active_before"] else None,
+            "active_voice_count_after": max(entry["active_after"]) if entry["active_after"] else None,
+            "loaded_voice_count_before": min(entry["loaded_before"]) if entry["loaded_before"] else None,
+            "loaded_voice_count_after": max(entry["loaded_after"]) if entry["loaded_after"] else None,
             "top_contexts": contexts,
         })
     bursts.sort(key=lambda item: (-item["event_count"], item["runtime_application_frame"]))
     return bursts[:limit]
+
+
+def normalized_burst_category(category: str) -> str:
+    aliases = {
+        "step_pitch_update": "step_update",
+        "hxy_global_volume": "global_volume_update",
+        "hxy_global_volume_update": "global_volume_update",
+        "key_off": "key_off_fadeout",
+        "replacement": "replacement_stop_ramp",
+    }
+    return aliases.get(category, category)
 
 
 def top_transition_bursts(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
@@ -1071,6 +1447,13 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     output_discontinuity_count = int(max_numeric(events, "outputDiscontinuityCount") or 0)
     max_output_adjacent_sample_jump = max_numeric(events, "maxOutputAdjacentSampleJump") or 0.0
     output_discontinuity_threshold = max_numeric(events, "outputDiscontinuityThreshold")
+    lower_threshold_counts = discontinuity_threshold_counts(events)
+    top_transient_jumps = top_output_sample_jumps(events)
+    top_transient_peaks = top_output_peaks(events)
+    epsilon_profile = epsilon_suppression_profile(events, top_transient_jumps, top_transient_peaks)
+    output_peak_warning_threshold = max_numeric(events, "outputPeakWarningThreshold") or 0.95
+    output_peak_warning_sample_count = int(max_numeric(events, "outputPeakWarningSampleCount") or 0)
+    overrange_sample_count = int(max_numeric(events, "overrangeSampleCount") or 0)
     last_output_discontinuity_events = [
         event for event in events
         if event.get("lastOutputDiscontinuityRuntimeFrame") is not None
@@ -1085,7 +1468,11 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     all_row_transition_timing_deltas = event_timing_delta_rows(row_transition_events, limit=None)
     row_transition_timing_deltas = all_row_transition_timing_deltas[:10]
     callback_events = callback_boundary_events(planned_adapter_event_applications)
-    same_frame_bursts = top_same_frame_event_bursts(events)
+    same_frame_bursts = attach_nearby_transients_to_bursts(
+        top_same_frame_event_bursts(events),
+        top_transient_jumps,
+        top_transient_peaks,
+    )
     transition_bursts = top_transition_bursts(events)
     suspicious_positions = top_suspicious_positions(timing_deltas, same_frame_bursts, transition_bursts)
     position_delta_rows = playback_engine_c_mixer_position_delta_rows(events, include_zero=True, limit=None)
@@ -1169,6 +1556,25 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         or event.get("appliedPlannedEventCount") is not None
         for event in events
     )
+    ramping_out_voice_count = int(max_numeric(events, "rampingOutVoiceCount") or 0)
+    ramp_down_start_count = int(max_numeric(events, "rampDownStartCount") or 0)
+    ramp_down_completion_count = int(max_numeric(events, "rampDownCompletionCount") or 0)
+    abrupt_ramp_down_stop_count = int(max_numeric(events, "abruptRampDownStopCount") or 0)
+    replacement_overlap_count = count_if(
+        ramped_replacements,
+        lambda event: event.get("replacementVoicesOverlap") is True,
+    )
+    likely_transient_correlation = likely_correlation_category(
+        clipping_count=clipping_count,
+        overrange_count=overrange_sample_count,
+        top_peaks=top_transient_peaks,
+        top_jumps=top_transient_jumps,
+        same_frame_bursts=same_frame_bursts,
+        ramped_replacements=ramped_replacements,
+        ramping_out_voice_count=ramping_out_voice_count,
+        ramp_down_completion_count=ramp_down_completion_count,
+        abrupt_ramp_down_stop_count=abrupt_ramp_down_stop_count,
+    )
 
     suspicious_findings: list[str] = []
     if clipping_count > 0:
@@ -1179,6 +1585,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("unexpected silent output callbacks observed while voices were active or loaded")
     if output_discontinuity_count > 0:
         suspicious_findings.append("runtime output adjacent-sample discontinuity threshold crossings observed")
+    if any(row["count"] > 0 and row["threshold"] < (output_discontinuity_threshold or 0.75) for row in lower_threshold_counts):
+        suspicious_findings.append("runtime output adjacent-sample lower-threshold jumps observed")
+    if output_peak_warning_sample_count > 0:
+        suspicious_findings.append("runtime output peaks above warning threshold observed")
+    if epsilon_profile["suppressed_update_near_top_transient_count"] > 0:
+        suspicious_findings.append("epsilon-suppressed runtime updates observed near top transient frames")
     if hard_replacement_stops:
         suspicious_findings.append("at least one note replacement used c_mixer_stop_channel instead of c_mixer_stop_channel_ramped")
     if action_counts["c_mixer_stop_channel"] > 0:
@@ -1235,6 +1647,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         recommended_next_pr = "Runtime C Mixer Tracker-Follow Sample-Time Integration"
     elif large_same_frame_burst:
         recommended_next_pr = "Runtime C Mixer Same-Frame Event Burst Stabilization"
+    elif likely_transient_correlation == "peak/clip" or output_peak_warning_sample_count > 0:
+        recommended_next_pr = "Runtime C Mixer Transient Peak / Headroom Investigation"
+    elif epsilon_profile["suppressed_update_near_top_transient_count"] > 0:
+        recommended_next_pr = "Runtime C Mixer Update Epsilon Correlation Follow-Up"
+    elif any(row["count"] > 0 and row["threshold"] < (output_discontinuity_threshold or 0.75) for row in lower_threshold_counts):
+        recommended_next_pr = "Runtime C Mixer Low-Threshold Transient Diagnostics Follow-Up"
     elif deferred_updates or action_counts["c_mixer_stop_channel"] > 0 or large_event_burst:
         recommended_next_pr = "Runtime C Mixer Offline Adapter Event Stream Bridge"
     elif underrun_count > 0 or zero_fill_count > 0 or failed_render_count > 0:
@@ -1254,6 +1672,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "peak": rounded(output_peak),
             "clipping_sample_count": clipping_count,
             "clipping_detected": clipping_count > 0 or any(event.get("clippingDetected") is True for event in events),
+            "overrange_sample_count": overrange_sample_count,
             "underrun_count": underrun_count,
             "zero_fill_count": zero_fill_count,
             "unexpected_silent_output_count": unexpected_silent_output_count,
@@ -1263,7 +1682,13 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "silent_output_callback_count": silent_output_callback_count,
             "output_discontinuity_threshold": rounded(output_discontinuity_threshold) if output_discontinuity_threshold is not None else None,
             "output_discontinuity_count": output_discontinuity_count,
+            "output_discontinuity_threshold_counts": lower_threshold_counts,
             "max_output_adjacent_sample_jump": rounded(max_output_adjacent_sample_jump),
+            "top_output_adjacent_sample_jumps": top_transient_jumps,
+            "output_peak_warning_threshold": rounded(output_peak_warning_threshold),
+            "output_peak_warning_sample_count": output_peak_warning_sample_count,
+            "top_output_peaks": top_transient_peaks,
+            "likely_correlation_category": likely_transient_correlation,
             "last_output_discontinuity": {
                 "runtime_frame": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityRuntimeFrame")) if last_output_discontinuity_events else None,
                 "callback_index": integer(last_output_discontinuity_events[-1].get("lastOutputDiscontinuityCallbackIndex")) if last_output_discontinuity_events else None,
@@ -1280,12 +1705,17 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "add_voice_events": action_counts["c_mixer_add_voice"],
             "ramped_replacement_stop_events": len(ramped_replacements),
             "ramped_replacement_voice_count": sum(integer(event.get("rampedVoiceCount")) or 0 for event in ramped_replacements),
+            "ramped_replacement_overlap_events": replacement_overlap_count,
             "immediate_hard_replacement_stop_events": len(hard_replacement_stops),
             "immediate_hard_stop_events": action_counts["c_mixer_stop_channel"],
             "immediate_hard_stop_reasons": dict(sorted(hard_stop_reasons.items())),
             "clear_all_events": action_counts["c_mixer_clear_all"],
             "clear_all_normal_playback_events": len(clear_all_normal),
             "ramped_replacement_covers_all_observed_replacement_stops": ramped_coverage,
+            "ramping_out_voice_count": ramping_out_voice_count,
+            "ramp_down_start_count": ramp_down_start_count,
+            "ramp_down_completion_count": ramp_down_completion_count,
+            "abrupt_ramp_down_stop_count": abrupt_ramp_down_stop_count,
         },
         "updates": {
             "applied_gain_pan_update_events": count_if(
@@ -1305,10 +1735,31 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
                 ),
             ),
             "suppressed_no_change_update_events": action_counts["c_mixer_update_suppressed_no_change"],
+            "suppressed_epsilon_gain_update_events": max(
+                int(max_numeric(events, "updateSuppressedEpsilonGainCount") or 0),
+                count_if(events, lambda event: event.get("gainUpdateStatus") == "suppressed_epsilon"),
+            ),
+            "suppressed_epsilon_pan_update_events": max(
+                int(max_numeric(events, "updateSuppressedEpsilonPanCount") or 0),
+                count_if(events, lambda event: event.get("panUpdateStatus") == "suppressed_epsilon"),
+            ),
+            "suppressed_epsilon_step_update_events": max(
+                int(max_numeric(events, "updateSuppressedEpsilonStepCount") or 0),
+                count_if(events, lambda event: event.get("sampleStepUpdateStatus") == "suppressed_epsilon"),
+            ),
+            "applied_after_epsilon_filter_update_events": max(
+                int(max_numeric(events, "updateAppliedAfterEpsilonFilterCount") or 0),
+                count_if(
+                    events,
+                    lambda event: event.get("updateDisposition") == "update_applied"
+                    and bool(epsilon_suppressed_fields(event)),
+                ),
+            ),
             "stored_channel_state_update_events": action_counts["c_mixer_update_stored_channel_state"],
             "update_dispositions": dict(sorted(update_disposition_counts.items())),
             "update_types": dict(sorted(update_type_counts.items())),
             "remaining_deferred_update_categories": dict(sorted(deferred_categories.items())),
+            "epsilon_suppression": epsilon_profile,
         },
         "runtime_vs_offline_adapter_categories": parity_categories,
         "event_stream": {
@@ -1383,6 +1834,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "row_transition_timing_deltas": row_transition_timing_deltas,
             "callback_boundary_event_count": len(callback_events),
             "callback_boundary_events": callback_events,
+            "largest_same_frame_event_burst": same_frame_bursts[0] if same_frame_bursts else None,
             "same_frame_event_bursts": same_frame_bursts,
             "order_row_transition_event_bursts": transition_bursts,
             "top_suspicious_positions": suspicious_positions,
@@ -1404,11 +1856,17 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Events: {summary['event_count']}",
         f"- Peak: {health['peak']}",
         f"- Clipping samples: {health['clipping_sample_count']}",
+        f"- Overrange samples: {health['overrange_sample_count']}",
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
         f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
         f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
+        f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
+        f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",
+        f"- Likely transient correlation: {health['likely_correlation_category']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
+        f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",
+        f"- Ramping-out voices / ramp starts / completions / abrupt ramp stops: {stops['ramping_out_voice_count']} / {stops['ramp_down_start_count']} / {stops['ramp_down_completion_count']} / {stops['abrupt_ramp_down_stop_count']}",
         f"- Immediate hard replacement stops: {stops['immediate_hard_replacement_stop_events']}",
         f"- Immediate hard channel stops: {stops['immediate_hard_stop_events']}",
         f"- Clear-all events outside transport/reset: {stops['clear_all_normal_playback_events']}",
@@ -1417,6 +1875,8 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Applied gain/pan updates: {updates['applied_gain_pan_update_events']}",
         f"- Applied step updates: {updates['applied_step_update_events']}",
         f"- Suppressed no-change updates: {updates['suppressed_no_change_update_events']}",
+        f"- Epsilon-suppressed gain/pan/step updates: {updates['suppressed_epsilon_gain_update_events']} / {updates['suppressed_epsilon_pan_update_events']} / {updates['suppressed_epsilon_step_update_events']}",
+        f"- Applied updates after epsilon filtering: {updates['applied_after_epsilon_filter_update_events']}",
         f"- Stored channel-state updates: {updates['stored_channel_state_update_events']}",
         f"- Max planned event frame delta: {alignment['max_abs_event_frame_delta']}",
         f"- Max planned-vs-applied frame delta: {alignment['max_planned_vs_applied_delta']}",
@@ -1456,6 +1916,27 @@ def build_markdown(summary: dict[str, Any]) -> str:
         observed = "yes" if category["observed_in_runtime_trace"] else "no"
         lines.append(f"- {category['category']}: {category['runtime_event_count']} observed={observed}")
 
+    epsilon = updates["epsilon_suppression"]
+    lines.extend(["", "## Update Epsilon", ""])
+    lines.append(f"- Observed epsilon values: {epsilon['epsilon_values_observed']}")
+    lines.append(f"- Epsilon policy counts: {epsilon['runtime_update_epsilon_policy_counts']}")
+    lines.append(f"- Suppressed update events: {epsilon['suppressed_update_event_count']}")
+    lines.append(f"- Suppressed field counts: {epsilon['suppressed_field_counts']}")
+    lines.append(f"- Suppressed field total absolute deltas: {epsilon['suppressed_field_total_abs_delta']}")
+    lines.append(f"- Suppressed updates near top transients: {epsilon['suppressed_update_near_top_transient_count']}")
+    lines.append(f"- Motion assessment: {epsilon['motion_assessment']}")
+    if epsilon["top_epsilon_suppressed_updates"]:
+        lines.append("- Top epsilon-suppressed updates:")
+        for row in epsilon["top_epsilon_suppressed_updates"][:5]:
+            context = f"order={row.get('order_index')} pattern={row.get('pattern_index')} row={row.get('row_index')} tick={row.get('tick_in_row')}"
+            lines.append(
+                f"- frame={row['runtime_frame']} action={row['runtime_action']} fields={row['suppressed_fields']} "
+                f"applied={row['applied_fields']} max_delta={row['max_abs_delta']} {context} "
+                f"near_jump={row['nearest_top_jump']} near_peak={row['nearest_top_peak']}"
+            )
+    else:
+        lines.append("- Top epsilon-suppressed updates: none")
+
     lines.extend(["", "## Deferred Updates", ""])
     if updates["remaining_deferred_update_categories"]:
         for category, count in updates["remaining_deferred_update_categories"].items():
@@ -1468,6 +1949,29 @@ def build_markdown(summary: dict[str, Any]) -> str:
     lines.append(f"- Offline adapter event stream observed: {summary['event_stream']['offline_adapter_event_stream_observed']}")
     lines.append(f"- Sample-time render queue observed: {summary['event_stream']['sample_time_render_queue_observed']}")
     lines.append(f"- Assessment: {summary['event_stream']['assessment']}")
+
+    lines.extend(["", "## Runtime Transients", ""])
+    if health["top_output_adjacent_sample_jumps"]:
+        lines.append("- Top adjacent same-channel jumps:")
+        for row in health["top_output_adjacent_sample_jumps"][:5]:
+            context = f"order={row.get('order_index')} pattern={row.get('pattern_index')} row={row.get('row_index')} tick={row.get('tick_in_row')}"
+            lines.append(
+                f"- frame={row['runtime_frame']} channel={row['channel_index']} jump={row['sample_jump']} "
+                f"{context} context_delta={row.get('context_frame_delta')}"
+            )
+    else:
+        lines.append("- Top adjacent same-channel jumps: none")
+    if health["top_output_peaks"]:
+        lines.append("- Top output peaks:")
+        for row in health["top_output_peaks"][:5]:
+            context = f"order={row.get('order_index')} pattern={row.get('pattern_index')} row={row.get('row_index')} tick={row.get('tick_in_row')}"
+            lines.append(
+                f"- frame={row['runtime_frame']} channel={row['channel_index']} peak={row['peak']} "
+                f"above_0_95={row['above_0_95']} above_1_0={row['above_1_0']} "
+                f"{context} context_delta={row.get('context_frame_delta')}"
+            )
+    else:
+        lines.append("- Top output peaks: none")
 
     lines.extend(["", "## Event Bursts", ""])
     if summary["event_bursts"]:
@@ -1578,7 +2082,9 @@ def build_markdown(summary: dict[str, Any]) -> str:
         for burst in alignment["same_frame_event_bursts"][:5]:
             lines.append(
                 f"- frame={burst['runtime_application_frame']}: {burst['event_count']} events "
-                f"actions={burst['actions']} categories={burst['categories']}"
+                f"actions={burst['actions']} categories={burst['event_categories']} "
+                f"voices={burst['active_voice_count_before']}->{burst['active_voice_count_after']} "
+                f"near_jump={burst['nearest_top_jump']} near_peak={burst['nearest_top_peak']}"
             )
     else:
         lines.append("- Same-frame event bursts: none")

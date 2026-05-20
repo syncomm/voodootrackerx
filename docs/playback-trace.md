@@ -142,8 +142,11 @@ requested/rendered frames, min/max/last callback frame counts, successful and
 failed render counts, zero-fill and underrun counters where detected, output
 peak/RMS summaries after runtime gain, overrange/clipping counts after runtime
 gain, `clippingDetected`, `runtimeClippingRecommendation` when clipping remains,
-and the runtime output gain/headroom policy. The current runtime C path applies
-no equivalent of the offline `--auto-headroom` export policy.
+adjacent-sample output discontinuity counters, the largest same-channel
+adjacent-frame jump observed after runtime gain, the last discontinuity frame
+when the trace-only threshold is crossed, and the runtime output gain/headroom
+policy. The current runtime C path applies no equivalent of the offline
+`--auto-headroom` export policy.
 
 The experimental runtime C mixer is still selected only with
 `VTX_AUDIO_BACKEND=c_mixer`. When selected, it applies a conservative default
@@ -344,25 +347,39 @@ timeline:
 - `playbackEngineToCMixerFrameDelta`
 - `playbackEngineToCMixerPositionMismatch`
 - `rowTransitionDeltaCategory`
+- `publishedPlaybackFollowPositionSource`: `av_audio_timer` or
+  `c_mixer_sample_time`
+- `publishedPlaybackFollowOrderIndex`,
+  `publishedPlaybackFollowPatternIndex`,
+  `publishedPlaybackFollowRowIndex`, and
+  `publishedPlaybackFollowTickInRow`
+- `publishedPlaybackFollowSampleTimeFrame`,
+  `publishedPlaybackFollowToCMixerFrameDelta`, and
+  `publishedPlaybackFollowToCMixerRowDelta`
+- `playbackEngineToPublishedPlaybackFollowFrameDelta` and
+  `playbackEngineToPublishedPlaybackFollowRowDelta`
 
 These fields compare the `PlaybackEngine` timer/order-row-tick clock with the
-C mixer sample-time clock at the same trace point. They are diagnostics and a
-small future bridge only. They do not change tracker viewport rendering, visual
-follow behavior, audio event timing, offline rendering, or the default AVAudio
-backend.
+C mixer sample-time clock at the same trace point. For the experimental runtime
+C mixer backend only, the published playback-follow position now uses the
+sample-time-derived C mixer position when the planned adapter timeline is
+available. The default AVAudio backend remains timer-based. This does not
+change tracker viewport math, static highlight-row behavior, audio event
+timing, offline rendering, or the default AVAudio backend.
 
 The expected interpretation is:
 
-- `PlaybackEngine` order/row/tick is advanced by the app-side playback timer
-  and is what current UI/follow code observes.
+- `PlaybackEngine` order/row/tick is advanced by the app-side playback timer.
+  The default AVAudio backend publishes this timer position to UI/follow code.
 - That timer is a `Foundation.Timer(timeInterval: timing.tickDuration,
   repeats: true)` scheduled on `RunLoop.main` in `.common` mode. It is a
   main-run-loop wall-clock timer, not an audio-device sample clock.
 - Each timer fire calls `advanceOneTick()`, advances `PlaybackTickState`,
   applies tick effects until the row boundary, then advances `currentPosition`
-  and publishes row changes through `positionDidChange`. `AppDelegate` handles
-  that callback with `applyPlaybackPosition(_:)`, updating the selected order,
-  pattern, and cursor row before re-rendering the current tracker pattern.
+  and publishes row changes through `positionDidChange`. With
+  `VTX_AUDIO_BACKEND=c_mixer`, that published value is selected from the C
+  mixer sample-time resolver when possible while the timer position remains
+  separately traced as `playbackEngine...`.
 - C mixer sample-time position is resolved from the experimental runtime
   C mixer's rendered frame cursor, the backend sample rate, and the planned
   adapter row/tick timeline.
@@ -375,6 +392,10 @@ The expected interpretation is:
   the same planned adapter frame when the trace row was recorded. Positive
   deltas indicate the C mixer render cursor is ahead of the `PlaybackEngine`
   timer position; negative deltas indicate it is behind.
+- A nonzero `publishedPlaybackFollowToCMixerFrameDelta` means the position
+  published to tracker follow differs from the C mixer sample-time position.
+  In the experimental C mixer backend this should normally be much closer to
+  zero than `playbackEngineToCMixerFrameDelta`.
 
 Runtime snapshots also include cumulative `appliedPlannedEventCount`,
 `exactFrameAppliedEventCount`, `callbackBoundaryAppliedEventCount`,
@@ -413,7 +434,8 @@ not private modules.
 
 The summary focuses on runtime-only artifact evidence:
 
-- peak, clipping, underrun, zero-fill, and failed-render counters
+- peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and
+  adjacent-sample output discontinuity counters
 - `c_mixer_add_voice`, `c_mixer_stop_channel`,
   `c_mixer_stop_channel_ramped`, and `c_mixer_clear_all` counts
 - whether observed replacement stops were ramped or immediate hard stops
@@ -427,6 +449,8 @@ The summary focuses on runtime-only artifact evidence:
 - max, average, and median PlaybackEngine-vs-C-mixer position frame deltas
   from row-transition breadcrumbs, plus millisecond deltas where a sample rate
   is present
+- published playback-follow position source counts and max, average, and
+  median published-follow-vs-C-mixer frame deltas
 - the first PlaybackEngine-vs-C-mixer position divergence above the summary
   threshold
 - whether the position drift looks like an accumulating drift, a mostly

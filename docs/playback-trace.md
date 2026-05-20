@@ -406,12 +406,36 @@ Offline-adapter event rows may include:
   both are computable
 - `sameFrameBurstSize`: number of planned events applied at the same runtime
   frame
+- `sameFrameBurstID` and `sameFrameBurstEventOrdinal`: deterministic burst key
+  and application order within that frame
+- `sameFrameBurstCategories`, `sameFrameBurstAffectedChannels`, and per-burst
+  category counters for note triggers, replacement ramps, gain/pan updates,
+  sample-step updates, note cuts, key-off/fadeout, and global-volume updates
+- `sameFrameBurstActiveVoiceCountBefore`,
+  `sameFrameBurstActiveVoiceCountAfter`,
+  `sameFrameBurstLoadedVoiceCountBefore`, and
+  `sameFrameBurstLoadedVoiceCountAfter`
+- `sameFrameBurstVoicesEnteringRampDown`,
+  `sameFrameBurstVoicesCompletingRampDown`,
+  `sameFrameBurstNewVoicesStarted`, and
+  `sameFrameBurstSustainedVoicesCarried`
+- `sameFrameBurstAtOrderStart` and `sameFrameBurstAtRowTransition`
+- `adapterActiveEventIndex`, `adapterCurrentEventIndexBefore`,
+  `adapterCurrentEventIndexAfter`, `adapterChannelAssociationRetained`, and
+  `adapterSustainedVoiceUpdate`, which help identify no-note update cells that
+  target a carried channel voice at order boundaries
 - `runtimeEventCategory`: normalized categories such as `note_trigger`,
   `replacement_stop_ramp`, `gain_pan_update`, `step_pitch_update`,
   `ecx_edx_e9x`, `hxy_global_volume`, `key_off_fadeout`, and
   `row_transition`
 - `eventApplicationTiming`: `exact_frame`, `callback_start`, `late`,
   `tick_boundary`, `row_boundary`, or `unknown`
+
+Within the opt-in runtime C mixer render queue, same-frame planned events are
+applied in a deterministic order that matches the offline C mixer frame
+boundary: gain/pan and sample-step voice-state updates first, note cuts next,
+and note triggers last. Same-channel replacement ramps remain part of the note
+trigger path and are traced with the burst diagnostics above.
 
 When a precomputed adapter plan is available, runtime trace rows also resolve
 the C mixer sample-time cursor back to the planned order/pattern/row/tick
@@ -533,6 +557,12 @@ The summary focuses on runtime-only artifact evidence:
 - largest planned-vs-applied event timing deltas, exact-frame/callback-boundary
   application counts, late planned-event counts, same-frame event bursts,
   order/row transition bursts, and top suspicious order/row/tick positions
+- same-frame burst IDs, event ordinals, affected channels, event categories,
+  active/loaded voice counts before and after, ramp-down starts/completions,
+  new voices, sustained carried voices, and order-start/row-transition flags
+- sustained-voice transition counts for order-start update cells, retained or
+  lost channel associations, update-without-note applications, and missed or
+  stored update events
 - max, average, and median row-transition frame deltas
 - max, average, and median PlaybackEngine-vs-C-mixer position frame deltas
   from row-transition breadcrumbs, plus millisecond deltas where a sample rate

@@ -423,8 +423,14 @@ PlaybackEngine-vs-C-mixer sample-time position mismatches, transport/reset
 cursor jumps, in-callback timestamp ordering cases, unexpected backward cursor
 movement, order/row ranges where mismatch is largest, selected order-transition
 position samples,
-order/row transition bursts, and top suspicious order/row/tick positions. It
-also calls out whether observed same-channel note
+order/row transition bursts, and top suspicious order/row/tick positions.
+Same-frame burst summaries include burst IDs, event ordinals, affected
+channels, event categories, active/loaded voice counts before and after,
+ramp-down starts/completions, new voices, sustained carried voices, and
+order-start/row-transition flags. Sustained-voice transition summaries report
+order-start update cells, retained or lost channel associations,
+update-without-note applications, and missed or stored update events. It also
+calls out whether observed same-channel note
 replacements used
 `c_mixer_stop_channel_ramped` or fell back to immediate `c_mixer_stop_channel`
 hard stops.
@@ -440,6 +446,10 @@ trace rows now also report whether events came from the precomputed
 choosing the next runtime stabilization step. Remaining gaps after a healthy
 adapter plan should be treated separately from C mixer DSP, runtime headroom,
 parser changes, tracker UI, and tracker-follow/sample-time position work.
+For the opt-in runtime C mixer render queue, same-frame planned events use the
+same frame-boundary ordering as the offline C mixer path: gain/pan and
+sample-step voice-state updates, then note cuts, then note triggers. This does
+not make the C mixer the default backend and does not add new XM effects.
 
 The helper can also export the bounded adapter diagnostics that already exist in
 memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics

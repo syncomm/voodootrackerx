@@ -599,6 +599,8 @@ def likely_correlation_category(
         if near_jump is None:
             continue
         categories = set(str(key) for key in burst.get("categories", {}).keys())
+        categories.update(str(key) for key in burst.get("event_categories", {}).keys())
+        categories.update(str(category) for category in burst.get("explicit_event_categories", []))
         if "replacement_stop_ramp" in categories:
             return "replacement ramp burst"
         return "event burst"
@@ -1015,12 +1017,66 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
             "active_after": [],
             "loaded_before": [],
             "loaded_after": [],
+            "burst_ids": set(),
+            "event_ordinals": set(),
+            "explicit_categories": set(),
+            "affected_channels": set(),
+            "note_trigger_counts": [],
+            "replacement_ramp_counts": [],
+            "gain_pan_update_counts": [],
+            "step_update_counts": [],
+            "note_cut_counts": [],
+            "key_off_counts": [],
+            "global_volume_update_counts": [],
+            "voices_entering_ramp_down": [],
+            "voices_completing_ramp_down": [],
+            "new_voices_started": [],
+            "sustained_voices_carried": [],
+            "at_order_start": False,
+            "at_row_transition": False,
         })
         entry["event_count"] += 1
         entry["actions"][action] += 1
         category = event.get("runtimeEventCategory") or event.get("adapterEventCategory") or "unknown"
         entry["categories"][str(category)] += 1
         entry["event_categories"][normalized_burst_category(str(category))] += 1
+        explicit_categories = event.get("sameFrameBurstCategories")
+        if isinstance(explicit_categories, list):
+            for explicit_category in explicit_categories:
+                entry["explicit_categories"].add(normalized_burst_category(str(explicit_category)))
+        explicit_channels = event.get("sameFrameBurstAffectedChannels")
+        if isinstance(explicit_channels, list):
+            for channel in explicit_channels:
+                channel_index = integer(channel)
+                if channel_index is not None:
+                    entry["affected_channels"].add(channel_index)
+        for field, target in (
+            ("sameFrameBurstID", "burst_ids"),
+            ("sameFrameBurstEventOrdinal", "event_ordinals"),
+        ):
+            value = integer(event.get(field))
+            if value is not None:
+                entry[target].add(value)
+        for field, target in (
+            ("sameFrameBurstNoteTriggerCount", "note_trigger_counts"),
+            ("sameFrameBurstReplacementRampCount", "replacement_ramp_counts"),
+            ("sameFrameBurstGainPanUpdateCount", "gain_pan_update_counts"),
+            ("sameFrameBurstStepUpdateCount", "step_update_counts"),
+            ("sameFrameBurstNoteCutCount", "note_cut_counts"),
+            ("sameFrameBurstKeyOffCount", "key_off_counts"),
+            ("sameFrameBurstGlobalVolumeUpdateCount", "global_volume_update_counts"),
+            ("sameFrameBurstVoicesEnteringRampDown", "voices_entering_ramp_down"),
+            ("sameFrameBurstVoicesCompletingRampDown", "voices_completing_ramp_down"),
+            ("sameFrameBurstNewVoicesStarted", "new_voices_started"),
+            ("sameFrameBurstSustainedVoicesCarried", "sustained_voices_carried"),
+        ):
+            value = integer(event.get(field))
+            if value is not None:
+                entry[target].append(value)
+        if event.get("sameFrameBurstAtOrderStart") is True:
+            entry["at_order_start"] = True
+        if event.get("sameFrameBurstAtRowTransition") is True:
+            entry["at_row_transition"] = True
         entry["contexts"][context_key(event)] += 1
         for field, target in (
             ("activeVoiceCountBefore", "active_before"),
@@ -1029,6 +1085,10 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
             ("loadedVoiceCountBefore", "loaded_before"),
             ("loadedVoiceCountAfter", "loaded_after"),
             ("loadedVoiceCount", "loaded_after"),
+            ("sameFrameBurstActiveVoiceCountBefore", "active_before"),
+            ("sameFrameBurstActiveVoiceCountAfter", "active_after"),
+            ("sameFrameBurstLoadedVoiceCountBefore", "loaded_before"),
+            ("sameFrameBurstLoadedVoiceCountAfter", "loaded_after"),
         ):
             value = integer(event.get(field))
             if value is not None:
@@ -1049,10 +1109,27 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
             "actions": dict(sorted(entry["actions"].items())),
             "categories": dict(sorted(entry["categories"].items())),
             "event_categories": dict(sorted(entry["event_categories"].items())),
+            "explicit_event_categories": sorted(entry["explicit_categories"]),
+            "same_frame_burst_id": min(entry["burst_ids"]) if entry["burst_ids"] else None,
+            "same_frame_burst_event_ordinals": sorted(entry["event_ordinals"]),
+            "affected_channels": sorted(entry["affected_channels"]),
+            "note_trigger_count": max(entry["note_trigger_counts"], default=entry["event_categories"].get("note_trigger", 0)),
+            "replacement_ramp_count": max(entry["replacement_ramp_counts"], default=entry["event_categories"].get("replacement_stop_ramp", 0)),
+            "gain_pan_update_count": max(entry["gain_pan_update_counts"], default=entry["event_categories"].get("gain_pan_update", 0)),
+            "step_update_count": max(entry["step_update_counts"], default=entry["event_categories"].get("step_update", 0)),
+            "note_cut_count": max(entry["note_cut_counts"], default=entry["event_categories"].get("ecx_edx_e9x", 0)),
+            "key_off_count": max(entry["key_off_counts"], default=entry["event_categories"].get("key_off_fadeout", 0)),
+            "global_volume_update_count": max(entry["global_volume_update_counts"], default=entry["event_categories"].get("global_volume_update", 0)),
             "active_voice_count_before": min(entry["active_before"]) if entry["active_before"] else None,
             "active_voice_count_after": max(entry["active_after"]) if entry["active_after"] else None,
             "loaded_voice_count_before": min(entry["loaded_before"]) if entry["loaded_before"] else None,
             "loaded_voice_count_after": max(entry["loaded_after"]) if entry["loaded_after"] else None,
+            "voices_entering_ramp_down": max(entry["voices_entering_ramp_down"], default=0),
+            "voices_completing_ramp_down": max(entry["voices_completing_ramp_down"], default=0),
+            "new_voices_started": max(entry["new_voices_started"], default=0),
+            "sustained_voices_carried": max(entry["sustained_voices_carried"], default=0),
+            "at_order_start": entry["at_order_start"],
+            "at_row_transition": entry["at_row_transition"],
             "top_contexts": contexts,
         })
     bursts.sort(key=lambda item: (-item["event_count"], item["runtime_application_frame"]))
@@ -1068,6 +1145,105 @@ def normalized_burst_category(category: str) -> str:
         "replacement": "replacement_stop_ramp",
     }
     return aliases.get(category, category)
+
+
+def sustained_voice_transition_summary(events: list[dict[str, Any]], limit: int = 10) -> dict[str, Any]:
+    non_update_actions = {
+        "c_mixer_add_voice",
+        "note_trigger",
+        "c_mixer_stop_channel",
+        "c_mixer_stop_channel_ramped",
+        "channel_stop",
+    }
+    update_events = [
+        event for event in events
+        if (
+            is_update_action(event)
+            or event.get("adapterSustainedVoiceUpdate") is True
+            or event.get("adapterEventCategory") in {"gain_pan_update", "step_update", "key_off_fadeout", "ecx_edx_e9x"}
+        )
+        and event.get("runtimeAction") not in non_update_actions
+    ]
+    order_start_updates = [
+        event for event in update_events
+        if event.get("sameFrameBurstAtOrderStart") is True
+        or (
+            integer(event.get("rowIndex")) == 0
+            and integer(event.get("tickInRow")) == 0
+        )
+    ]
+    sustained_updates = [
+        event for event in update_events
+        if event.get("adapterSustainedVoiceUpdate") is True
+    ]
+    retained_updates = [
+        event for event in sustained_updates
+        if event.get("adapterChannelAssociationRetained") is True
+    ]
+    lost_updates = [
+        event for event in sustained_updates
+        if event.get("adapterChannelAssociationRetained") is False
+    ]
+    missed_updates = [
+        event for event in update_events
+        if event.get("updateDisposition") in {
+            "update_deferred_no_active_voice",
+            "update_deferred_stale_after_stop",
+            "update_stored_channel_state",
+        }
+        or (
+            event.get("adapterActiveEventIndex") is not None
+            and event.get("adapterCurrentEventIndexBefore") is None
+        )
+    ]
+
+    order_start_channel_rows = []
+    for event in order_start_updates[:limit]:
+        row = event_context_dict(event)
+        row.update({
+            "runtime_action": event.get("runtimeAction"),
+            "adapter_event_category": event.get("adapterEventCategory"),
+            "runtime_event_category": event.get("runtimeEventCategory"),
+            "channel_index": integer(event.get("channelIndex")),
+            "event_applied_frame": integer(event.get("eventAppliedFrame")),
+            "same_frame_burst_id": integer(event.get("sameFrameBurstID")),
+            "same_frame_burst_event_ordinal": integer(event.get("sameFrameBurstEventOrdinal")),
+            "same_frame_burst_size": integer(event.get("sameFrameBurstSize")),
+            "adapter_active_event_index": integer(event.get("adapterActiveEventIndex")),
+            "adapter_current_event_index_before": integer(event.get("adapterCurrentEventIndexBefore")),
+            "adapter_current_event_index_after": integer(event.get("adapterCurrentEventIndexAfter")),
+            "adapter_channel_association_retained": event.get("adapterChannelAssociationRetained"),
+            "adapter_sustained_voice_update": event.get("adapterSustainedVoiceUpdate"),
+            "update_disposition": event.get("updateDisposition"),
+        })
+        order_start_channel_rows.append(row)
+
+    return {
+        "update_event_count": len(update_events),
+        "order_start_update_event_count": len(order_start_updates),
+        "sustained_update_event_count": len(sustained_updates),
+        "association_retained_count": len(retained_updates),
+        "association_lost_count": len(lost_updates),
+        "missed_or_stored_update_count": len(missed_updates),
+        "update_without_note_applied_count": count_if(
+            update_events,
+            lambda event: event.get("updateDisposition") == "update_applied"
+            and event.get("adapterActiveEventIndex") is not None,
+        ),
+        "active_event_index_observed_count": count_if(
+            update_events,
+            lambda event: event.get("adapterActiveEventIndex") is not None,
+        ),
+        "current_association_before_observed_count": count_if(
+            update_events,
+            lambda event: event.get("adapterCurrentEventIndexBefore") is not None,
+        ),
+        "current_association_after_observed_count": count_if(
+            update_events,
+            lambda event: event.get("adapterCurrentEventIndexAfter") is not None,
+        ),
+        "top_order_start_updates": order_start_channel_rows,
+    }
 
 
 def top_transition_bursts(events: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
@@ -1576,6 +1752,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         if event.get("publishedPlaybackFollowPositionSource") is not None
     )
     parity_categories = summarize_update_parity(events)
+    sustained_transitions = sustained_voice_transition_summary(events)
     max_abs_event_frame_delta = max((abs(row["event_frame_delta"]) for row in all_timing_deltas), default=0)
     max_row_transition_frame_delta = max(
         (abs(row["event_frame_delta"]) for row in all_row_transition_timing_deltas),
@@ -1664,6 +1841,10 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("c_mixer_clear_all appeared outside known transport/reset reasons")
     if deferred_updates:
         suspicious_findings.append("runtime update deferrals remain")
+    if sustained_transitions["association_lost_count"] > 0:
+        suspicious_findings.append("sustained carried voice association was lost during runtime updates")
+    if sustained_transitions["missed_or_stored_update_count"] > 0:
+        suspicious_findings.append("update-without-note events were missed or stored during sustained voice transitions")
     if bursts and bursts[0]["event_count"] >= 24:
         suspicious_findings.append("large same-row/tick runtime event burst observed")
     if max_planned_vs_applied_delta > 0:
@@ -1829,6 +2010,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "epsilon_suppression": epsilon_profile,
         },
         "runtime_vs_offline_adapter_categories": parity_categories,
+        "sustained_voice_transitions": sustained_transitions,
         "event_stream": {
             "runtime_driver": (
                 "offline adapter plan applied by runtime sample-time render queue"
@@ -1919,6 +2101,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
     updates = summary["updates"]
     voices = summary["voices"]
     alignment = summary["sample_time_alignment"]
+    sustained = summary["sustained_voice_transitions"]
     lines = [
         "# Runtime C Mixer Trace Summary",
         "",
@@ -2014,6 +2197,29 @@ def build_markdown(summary: dict[str, Any]) -> str:
             lines.append(f"- `{category}`: {count}")
     else:
         lines.append("- None")
+
+    lines.extend(["", "## Sustained Voice Transitions", ""])
+    lines.append(f"- Order-start update events: {sustained['order_start_update_event_count']}")
+    lines.append(f"- Sustained update events: {sustained['sustained_update_event_count']}")
+    lines.append(
+        f"- Association retained / lost: {sustained['association_retained_count']} / "
+        f"{sustained['association_lost_count']}"
+    )
+    lines.append(f"- Update-without-note applied events: {sustained['update_without_note_applied_count']}")
+    lines.append(f"- Missed or stored update events: {sustained['missed_or_stored_update_count']}")
+    if sustained["top_order_start_updates"]:
+        lines.append("- Top order-start updates:")
+        for row in sustained["top_order_start_updates"][:5]:
+            context = f"order={row['order_index']} pattern={row['pattern_index']} row={row['row_index']} tick={row['tick_in_row']}"
+            lines.append(
+                f"- {context} channel={row['channel_index']} action={row['runtime_action']} "
+                f"ordinal={row['same_frame_burst_event_ordinal']} burst={row['same_frame_burst_size']} "
+                f"active_event={row['adapter_active_event_index']} "
+                f"association={row['adapter_current_event_index_before']}->{row['adapter_current_event_index_after']} "
+                f"retained={row['adapter_channel_association_retained']} disposition={row['update_disposition']}"
+            )
+    else:
+        lines.append("- Top order-start updates: none")
 
     lines.extend(["", "## Event Stream", ""])
     lines.append(f"- Runtime driver: {summary['event_stream']['runtime_driver']}")
@@ -2153,8 +2359,13 @@ def build_markdown(summary: dict[str, Any]) -> str:
         for burst in alignment["same_frame_event_bursts"][:5]:
             lines.append(
                 f"- frame={burst['runtime_application_frame']}: {burst['event_count']} events "
-                f"actions={burst['actions']} categories={burst['event_categories']} "
+                f"burst_id={burst['same_frame_burst_id']} ordinals={burst['same_frame_burst_event_ordinals']} "
+                f"channels={burst['affected_channels']} actions={burst['actions']} "
+                f"categories={burst['event_categories']} explicit={burst['explicit_event_categories']} "
                 f"voices={burst['active_voice_count_before']}->{burst['active_voice_count_after']} "
+                f"ramps={burst['voices_entering_ramp_down']}/{burst['voices_completing_ramp_down']} "
+                f"new={burst['new_voices_started']} carried={burst['sustained_voices_carried']} "
+                f"order_start={burst['at_order_start']} row_transition={burst['at_row_transition']} "
                 f"near_jump={burst['nearest_top_jump']} near_peak={burst['nearest_top_peak']}"
             )
     else:

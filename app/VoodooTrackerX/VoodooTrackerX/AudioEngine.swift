@@ -118,6 +118,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let inCallbackOffset: Int?
     let plannedVsAppliedDelta: Int?
     let sameFrameBurstSize: Int?
+    let sameFrameBurstID: Int?
+    let sameFrameBurstEventOrdinal: Int?
+    let sameFrameBurstCategories: [String]?
+    let sameFrameBurstAffectedChannels: [Int]?
+    let sameFrameBurstNoteTriggerCount: Int?
+    let sameFrameBurstReplacementRampCount: Int?
+    let sameFrameBurstGainPanUpdateCount: Int?
+    let sameFrameBurstStepUpdateCount: Int?
+    let sameFrameBurstNoteCutCount: Int?
+    let sameFrameBurstKeyOffCount: Int?
+    let sameFrameBurstGlobalVolumeUpdateCount: Int?
+    let sameFrameBurstActiveVoiceCountBefore: Int?
+    let sameFrameBurstActiveVoiceCountAfter: Int?
+    let sameFrameBurstLoadedVoiceCountBefore: Int?
+    let sameFrameBurstLoadedVoiceCountAfter: Int?
+    let sameFrameBurstVoicesEnteringRampDown: Int?
+    let sameFrameBurstVoicesCompletingRampDown: Int?
+    let sameFrameBurstNewVoicesStarted: Int?
+    let sameFrameBurstSustainedVoicesCarried: Int?
+    let sameFrameBurstAtOrderStart: Bool?
+    let sameFrameBurstAtRowTransition: Bool?
+    let adapterActiveEventIndex: Int?
+    let adapterCurrentEventIndexBefore: Int?
+    let adapterCurrentEventIndexAfter: Int?
+    let adapterChannelAssociationRetained: Bool?
+    let adapterSustainedVoiceUpdate: Bool?
     let maxPlannedVsAppliedDelta: Int?
     let appliedPlannedEventCount: UInt64?
     let exactFrameAppliedEventCount: UInt64?
@@ -332,6 +358,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         inCallbackOffset: Int? = nil,
         plannedVsAppliedDelta: Int? = nil,
         sameFrameBurstSize: Int? = nil,
+        sameFrameBurstID: Int? = nil,
+        sameFrameBurstEventOrdinal: Int? = nil,
+        sameFrameBurstCategories: [String]? = nil,
+        sameFrameBurstAffectedChannels: [Int]? = nil,
+        sameFrameBurstNoteTriggerCount: Int? = nil,
+        sameFrameBurstReplacementRampCount: Int? = nil,
+        sameFrameBurstGainPanUpdateCount: Int? = nil,
+        sameFrameBurstStepUpdateCount: Int? = nil,
+        sameFrameBurstNoteCutCount: Int? = nil,
+        sameFrameBurstKeyOffCount: Int? = nil,
+        sameFrameBurstGlobalVolumeUpdateCount: Int? = nil,
+        sameFrameBurstActiveVoiceCountBefore: Int? = nil,
+        sameFrameBurstActiveVoiceCountAfter: Int? = nil,
+        sameFrameBurstLoadedVoiceCountBefore: Int? = nil,
+        sameFrameBurstLoadedVoiceCountAfter: Int? = nil,
+        sameFrameBurstVoicesEnteringRampDown: Int? = nil,
+        sameFrameBurstVoicesCompletingRampDown: Int? = nil,
+        sameFrameBurstNewVoicesStarted: Int? = nil,
+        sameFrameBurstSustainedVoicesCarried: Int? = nil,
+        sameFrameBurstAtOrderStart: Bool? = nil,
+        sameFrameBurstAtRowTransition: Bool? = nil,
+        adapterActiveEventIndex: Int? = nil,
+        adapterCurrentEventIndexBefore: Int? = nil,
+        adapterCurrentEventIndexAfter: Int? = nil,
+        adapterChannelAssociationRetained: Bool? = nil,
+        adapterSustainedVoiceUpdate: Bool? = nil,
         maxPlannedVsAppliedDelta: Int? = nil,
         appliedPlannedEventCount: UInt64? = nil,
         exactFrameAppliedEventCount: UInt64? = nil,
@@ -534,6 +586,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.inCallbackOffset = inCallbackOffset
         self.plannedVsAppliedDelta = plannedVsAppliedDelta ?? eventFrameDelta
         self.sameFrameBurstSize = sameFrameBurstSize
+        self.sameFrameBurstID = sameFrameBurstID
+        self.sameFrameBurstEventOrdinal = sameFrameBurstEventOrdinal
+        self.sameFrameBurstCategories = sameFrameBurstCategories
+        self.sameFrameBurstAffectedChannels = sameFrameBurstAffectedChannels
+        self.sameFrameBurstNoteTriggerCount = sameFrameBurstNoteTriggerCount
+        self.sameFrameBurstReplacementRampCount = sameFrameBurstReplacementRampCount
+        self.sameFrameBurstGainPanUpdateCount = sameFrameBurstGainPanUpdateCount
+        self.sameFrameBurstStepUpdateCount = sameFrameBurstStepUpdateCount
+        self.sameFrameBurstNoteCutCount = sameFrameBurstNoteCutCount
+        self.sameFrameBurstKeyOffCount = sameFrameBurstKeyOffCount
+        self.sameFrameBurstGlobalVolumeUpdateCount = sameFrameBurstGlobalVolumeUpdateCount
+        self.sameFrameBurstActiveVoiceCountBefore = sameFrameBurstActiveVoiceCountBefore
+        self.sameFrameBurstActiveVoiceCountAfter = sameFrameBurstActiveVoiceCountAfter
+        self.sameFrameBurstLoadedVoiceCountBefore = sameFrameBurstLoadedVoiceCountBefore
+        self.sameFrameBurstLoadedVoiceCountAfter = sameFrameBurstLoadedVoiceCountAfter
+        self.sameFrameBurstVoicesEnteringRampDown = sameFrameBurstVoicesEnteringRampDown
+        self.sameFrameBurstVoicesCompletingRampDown = sameFrameBurstVoicesCompletingRampDown
+        self.sameFrameBurstNewVoicesStarted = sameFrameBurstNewVoicesStarted
+        self.sameFrameBurstSustainedVoicesCarried = sameFrameBurstSustainedVoicesCarried
+        self.sameFrameBurstAtOrderStart = sameFrameBurstAtOrderStart
+        self.sameFrameBurstAtRowTransition = sameFrameBurstAtRowTransition
+        self.adapterActiveEventIndex = adapterActiveEventIndex
+        self.adapterCurrentEventIndexBefore = adapterCurrentEventIndexBefore
+        self.adapterCurrentEventIndexAfter = adapterCurrentEventIndexAfter
+        self.adapterChannelAssociationRetained = adapterChannelAssociationRetained
+        self.adapterSustainedVoiceUpdate = adapterSustainedVoiceUpdate
         self.maxPlannedVsAppliedDelta = maxPlannedVsAppliedDelta
         self.appliedPlannedEventCount = appliedPlannedEventCount
         self.exactFrameAppliedEventCount = exactFrameAppliedEventCount
@@ -1690,6 +1768,30 @@ fileprivate enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
     case noteCut(RuntimeCMixerPlannedCutResult)
 }
 
+fileprivate struct RuntimeCMixerSameFrameBurstDiagnostic: Equatable {
+    let id: Int
+    let eventOrdinal: Int
+    let categories: [String]
+    let affectedChannels: [Int]
+    let noteTriggerCount: Int
+    let replacementRampCount: Int
+    let gainPanUpdateCount: Int
+    let stepUpdateCount: Int
+    let noteCutCount: Int
+    let keyOffCount: Int
+    let globalVolumeUpdateCount: Int
+    let activeVoiceCountBefore: Int
+    let activeVoiceCountAfter: Int
+    let loadedVoiceCountBefore: Int
+    let loadedVoiceCountAfter: Int
+    let voicesEnteringRampDown: Int
+    let voicesCompletingRampDown: Int
+    let newVoicesStarted: Int
+    let sustainedVoicesCarried: Int
+    let atOrderStart: Bool
+    let atRowTransition: Bool
+}
+
 fileprivate struct RuntimeCMixerAppliedAdapterEventDiagnostic: Equatable {
     let event: RuntimeCMixerAdapterEvent
     let context: AudioRuntimeTraceContext?
@@ -1703,6 +1805,12 @@ fileprivate struct RuntimeCMixerAppliedAdapterEventDiagnostic: Equatable {
     let eventFrameDelta: Int
     let eventApplicationTiming: String
     let sameFrameBurstSize: Int
+    let sameFrameBurst: RuntimeCMixerSameFrameBurstDiagnostic?
+    let adapterActiveEventIndex: Int?
+    let adapterCurrentEventIndexBefore: Int?
+    let adapterCurrentEventIndexAfter: Int?
+    let adapterChannelAssociationRetained: Bool
+    let adapterSustainedVoiceUpdate: Bool
     let result: RuntimeCMixerAppliedAdapterEventResult
 }
 
@@ -3052,15 +3160,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private static func adapterEventPriority(_ event: RuntimeCMixerAdapterEvent) -> Int {
-        // Keep the existing offline-adapter bridge ordering: a note trigger owns
-        // same-channel replacement internally by ramping the old tagged voice
-        // before adding the new one, then state updates can target that trigger.
+        // Match the offline C mixer frame boundary: frame-stamped voice-state
+        // events are applied before voices render at that frame, then note
+        // starts become audible on the same sample.
         switch event.action {
-        case .noteTrigger:
-            return 0
         case .gainPanUpdate, .stepUpdate:
-            return 1
+            return 0
         case .noteCut:
+            return 1
+        case .noteTrigger:
             return 2
         }
     }
@@ -3232,16 +3340,35 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 burstEndIndex += 1
             }
             let sameFrameBurstSize = burstEndIndex - burstStartIndex
+            let burstSnapshotBefore = snapshotLocked()
+            let burstAssociationBefore = adapterEventIndexByChannel
+            let rampDownStartCountBefore = mixer.rampDownStartCount
+            let rampDownCompletionCountBefore = mixer.rampDownCompletionCount
+            var burstDiagnostics = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+            burstDiagnostics.reserveCapacity(sameFrameBurstSize)
             for eventIndex in burstStartIndex..<burstEndIndex {
-                applyQueuedAdapterEventLocked(
+                burstDiagnostics.append(applyQueuedAdapterEventLocked(
                     adapterEventSchedule[eventIndex],
                     callbackIndex: callbackIndex,
                     callbackRequestedFrameCount: frameCount,
                     callbackStartFrame: callbackStartFrame,
                     callbackEndFrame: callbackEndFrame,
                     sameFrameBurstSize: sameFrameBurstSize
-                )
+                ))
             }
+            let burstSnapshotAfter = snapshotLocked()
+            let burstAssociationAfter = adapterEventIndexByChannel
+            appendBurstDiagnosticsLocked(
+                burstDiagnostics,
+                burstID: burstFrame <= UInt64(Int.max) ? Int(burstFrame) : Int.max,
+                burstEvents: Array(adapterEventSchedule[burstStartIndex..<burstEndIndex].map(\.event)),
+                snapshotBefore: burstSnapshotBefore,
+                snapshotAfter: burstSnapshotAfter,
+                associationBefore: burstAssociationBefore,
+                associationAfter: burstAssociationAfter,
+                rampDownStartCountBefore: rampDownStartCountBefore,
+                rampDownCompletionCountBefore: rampDownCompletionCountBefore
+            )
             nextAdapterEventScheduleIndex = burstEndIndex
         }
 
@@ -3278,6 +3405,156 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         )
     }
 
+    private func appendBurstDiagnosticsLocked(
+        _ diagnostics: [RuntimeCMixerAppliedAdapterEventDiagnostic],
+        burstID: Int,
+        burstEvents: [RuntimeCMixerAdapterEvent],
+        snapshotBefore: RuntimeCMixerRenderSnapshot,
+        snapshotAfter: RuntimeCMixerRenderSnapshot,
+        associationBefore: [Int: Int],
+        associationAfter: [Int: Int],
+        rampDownStartCountBefore: UInt64,
+        rampDownCompletionCountBefore: UInt64
+    ) {
+        guard !diagnostics.isEmpty else {
+            return
+        }
+        let replacementRampCount = diagnostics.filter { diagnostic in
+            if case let .noteTrigger(result) = diagnostic.result {
+                return result.channelStopBeforeAdd?.rampedVoiceCount ?? 0 > 0
+            }
+            return false
+        }.count
+        let rampDownStartDelta = Self.uint64Delta(snapshotAfter.rampDownStartCount, rampDownStartCountBefore)
+        let voicesEnteringRampDownFromResults = diagnostics.reduce(0) { total, diagnostic in
+            if case let .noteTrigger(result) = diagnostic.result {
+                return total + (result.channelStopBeforeAdd?.rampedVoiceCount ?? 0)
+            }
+            return total
+        }
+        let voicesEnteringRampDown = max(voicesEnteringRampDownFromResults, rampDownStartDelta)
+        let newVoicesStarted = diagnostics.filter { diagnostic in
+            if case let .noteTrigger(result) = diagnostic.result {
+                return result.succeeded
+            }
+            return false
+        }.count
+        let sustainedVoicesCarried = associationBefore.filter { channel, eventIndex in
+            associationAfter[channel] == eventIndex
+        }.count
+        let burst = RuntimeCMixerSameFrameBurstDiagnostic(
+            id: burstID,
+            eventOrdinal: 0,
+            categories: sameFrameBurstCategories(from: burstEvents, replacementRampCount: replacementRampCount),
+            affectedChannels: Array(Set(burstEvents.map(\.channelIndex))).sorted(),
+            noteTriggerCount: burstEvents.filter { event in
+                if case .noteTrigger = event.action { return true }
+                return false
+            }.count,
+            replacementRampCount: replacementRampCount,
+            gainPanUpdateCount: burstEvents.filter { event in
+                if case .gainPanUpdate = event.action { return true }
+                return false
+            }.count,
+            stepUpdateCount: burstEvents.filter { event in
+                if case .stepUpdate = event.action { return true }
+                return false
+            }.count,
+            noteCutCount: burstEvents.filter { event in
+                if case .noteCut = event.action { return true }
+                return false
+            }.count,
+            keyOffCount: burstEvents.filter { $0.categories.contains("key_off") }.count,
+            globalVolumeUpdateCount: burstEvents.filter { $0.categories.contains("hxy_global_volume_update") }.count,
+            activeVoiceCountBefore: snapshotBefore.activeVoiceCount,
+            activeVoiceCountAfter: snapshotAfter.activeVoiceCount,
+            loadedVoiceCountBefore: snapshotBefore.loadedVoiceCount,
+            loadedVoiceCountAfter: snapshotAfter.loadedVoiceCount,
+            voicesEnteringRampDown: voicesEnteringRampDown,
+            voicesCompletingRampDown: Self.uint64Delta(snapshotAfter.rampDownCompletionCount, rampDownCompletionCountBefore),
+            newVoicesStarted: newVoicesStarted,
+            sustainedVoicesCarried: sustainedVoicesCarried,
+            atOrderStart: burstEvents.contains { $0.source.rowIndex == 0 && $0.syntheticTick == 0 },
+            atRowTransition: burstEvents.contains { $0.syntheticTick == 0 }
+        )
+        let voicesCompletingRampDown = Self.uint64Delta(snapshotAfter.rampDownCompletionCount, rampDownCompletionCountBefore)
+        for (index, diagnostic) in diagnostics.enumerated() {
+            appliedAdapterEventDiagnostics.append(RuntimeCMixerAppliedAdapterEventDiagnostic(
+                event: diagnostic.event,
+                context: diagnostic.context,
+                plannedRuntimeFrame: diagnostic.plannedRuntimeFrame,
+                appliedFrame: diagnostic.appliedFrame,
+                callbackIndex: diagnostic.callbackIndex,
+                callbackRequestedFrameCount: diagnostic.callbackRequestedFrameCount,
+                callbackStartFrame: diagnostic.callbackStartFrame,
+                callbackEndFrame: diagnostic.callbackEndFrame,
+                inCallbackOffset: diagnostic.inCallbackOffset,
+                eventFrameDelta: diagnostic.eventFrameDelta,
+                eventApplicationTiming: diagnostic.eventApplicationTiming,
+                sameFrameBurstSize: diagnostic.sameFrameBurstSize,
+                sameFrameBurst: RuntimeCMixerSameFrameBurstDiagnostic(
+                    id: burst.id,
+                    eventOrdinal: index + 1,
+                    categories: burst.categories,
+                    affectedChannels: burst.affectedChannels,
+                    noteTriggerCount: burst.noteTriggerCount,
+                    replacementRampCount: burst.replacementRampCount,
+                    gainPanUpdateCount: burst.gainPanUpdateCount,
+                    stepUpdateCount: burst.stepUpdateCount,
+                    noteCutCount: burst.noteCutCount,
+                    keyOffCount: burst.keyOffCount,
+                    globalVolumeUpdateCount: burst.globalVolumeUpdateCount,
+                    activeVoiceCountBefore: burst.activeVoiceCountBefore,
+                    activeVoiceCountAfter: burst.activeVoiceCountAfter,
+                    loadedVoiceCountBefore: burst.loadedVoiceCountBefore,
+                    loadedVoiceCountAfter: burst.loadedVoiceCountAfter,
+                    voicesEnteringRampDown: burst.voicesEnteringRampDown,
+                    voicesCompletingRampDown: voicesCompletingRampDown,
+                    newVoicesStarted: burst.newVoicesStarted,
+                    sustainedVoicesCarried: burst.sustainedVoicesCarried,
+                    atOrderStart: burst.atOrderStart,
+                    atRowTransition: burst.atRowTransition
+                ),
+                adapterActiveEventIndex: diagnostic.adapterActiveEventIndex,
+                adapterCurrentEventIndexBefore: diagnostic.adapterCurrentEventIndexBefore,
+                adapterCurrentEventIndexAfter: diagnostic.adapterCurrentEventIndexAfter,
+                adapterChannelAssociationRetained: diagnostic.adapterChannelAssociationRetained,
+                adapterSustainedVoiceUpdate: diagnostic.adapterSustainedVoiceUpdate,
+                result: diagnostic.result
+            ))
+        }
+    }
+
+    private func sameFrameBurstCategories(
+        from events: [RuntimeCMixerAdapterEvent],
+        replacementRampCount: Int
+    ) -> [String] {
+        var categories = Set(events.flatMap(\.categories).map(Self.normalizedBurstCategory))
+        if replacementRampCount > 0 {
+            categories.insert("replacement_stop_ramp")
+        }
+        return categories.sorted()
+    }
+
+    private static func normalizedBurstCategory(_ category: String) -> String {
+        switch category {
+        case "step_pitch_update":
+            return "step_update"
+        case "hxy_global_volume", "hxy_global_volume_update":
+            return "global_volume_update"
+        case "key_off":
+            return "key_off_fadeout"
+        case "replacement":
+            return "replacement_stop_ramp"
+        default:
+            return category
+        }
+    }
+
+    private static func uint64Delta(_ current: UInt64, _ previous: UInt64) -> Int {
+        Int(min(current &- previous, UInt64(Int.max)))
+    }
+
     private func applyQueuedAdapterEventLocked(
         _ queuedEvent: RuntimeCMixerQueuedAdapterEvent,
         callbackIndex: UInt64,
@@ -3285,7 +3562,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackStartFrame: UInt64,
         callbackEndFrame: UInt64,
         sameFrameBurstSize: Int
-    ) {
+    ) -> RuntimeCMixerAppliedAdapterEventDiagnostic {
         let appliedFrame = mixer.currentFrame
         let appliedFrameInt = appliedFrame <= UInt64(Int.max) ? Int(appliedFrame) : Int.max
         let eventFrameDelta = appliedFrameInt - queuedEvent.plannedRuntimeFrame
@@ -3308,6 +3585,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         appliedPlannedEventCount &+= 1
         maxPlannedVsAppliedDelta = max(maxPlannedVsAppliedDelta, abs(eventFrameDelta))
 
+        let adapterCurrentEventIndexBefore = adapterEventIndexByChannel[queuedEvent.event.channelIndex]
+        let adapterActiveEventIndex = queuedEvent.event.activeEventIndex
         let result: RuntimeCMixerAppliedAdapterEventResult
         switch queuedEvent.event.action {
         case let .noteTrigger(eventIndex, syntheticEvent, mapping):
@@ -3335,8 +3614,19 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 activeEventIndex: activeEventIndex
             ))
         }
+        let adapterCurrentEventIndexAfter = adapterEventIndexByChannel[queuedEvent.event.channelIndex]
+        let associationRetained = adapterCurrentEventIndexBefore != nil &&
+            adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
+        let sustainedVoiceUpdate: Bool
+        switch queuedEvent.event.action {
+        case .gainPanUpdate, .stepUpdate, .noteCut:
+            sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
+                adapterActiveEventIndex == adapterCurrentEventIndexBefore
+        case .noteTrigger:
+            sustainedVoiceUpdate = false
+        }
 
-        appliedAdapterEventDiagnostics.append(RuntimeCMixerAppliedAdapterEventDiagnostic(
+        return RuntimeCMixerAppliedAdapterEventDiagnostic(
             event: queuedEvent.event,
             context: runtimeTraceContext(for: queuedEvent.event),
             plannedRuntimeFrame: queuedEvent.plannedRuntimeFrame,
@@ -3349,8 +3639,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             eventFrameDelta: eventFrameDelta,
             eventApplicationTiming: timing,
             sameFrameBurstSize: sameFrameBurstSize,
+            sameFrameBurst: nil,
+            adapterActiveEventIndex: adapterActiveEventIndex,
+            adapterCurrentEventIndexBefore: adapterCurrentEventIndexBefore,
+            adapterCurrentEventIndexAfter: adapterCurrentEventIndexAfter,
+            adapterChannelAssociationRetained: associationRetained,
+            adapterSustainedVoiceUpdate: sustainedVoiceUpdate,
             result: result
-        ))
+        )
     }
 
     func render(frameCount: AVAudioFrameCount, ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
@@ -4094,6 +4390,12 @@ private struct RuntimeCMixerEventTimingTraceFields: Equatable {
     let inCallbackOffset: Int?
     let plannedVsAppliedDelta: Int?
     let sameFrameBurstSize: Int?
+    let sameFrameBurst: RuntimeCMixerSameFrameBurstDiagnostic?
+    let adapterActiveEventIndex: Int?
+    let adapterCurrentEventIndexBefore: Int?
+    let adapterCurrentEventIndexAfter: Int?
+    let adapterChannelAssociationRetained: Bool?
+    let adapterSustainedVoiceUpdate: Bool?
     let callbackIndex: UInt64?
     let callbackRequestedFrameCount: Int?
     let callbackStartFrame: UInt64?
@@ -4342,6 +4644,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             inCallbackOffset: nil,
             plannedVsAppliedDelta: frameDelta,
             sameFrameBurstSize: nil,
+            sameFrameBurst: nil,
+            adapterActiveEventIndex: nil,
+            adapterCurrentEventIndexBefore: nil,
+            adapterCurrentEventIndexAfter: nil,
+            adapterChannelAssociationRetained: nil,
+            adapterSustainedVoiceUpdate: nil,
             callbackIndex: nil,
             callbackRequestedFrameCount: nil,
             callbackStartFrame: nil,
@@ -4689,6 +4997,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             inCallbackOffset: diagnostic.inCallbackOffset,
             plannedVsAppliedDelta: diagnostic.eventFrameDelta,
             sameFrameBurstSize: diagnostic.sameFrameBurstSize,
+            sameFrameBurst: diagnostic.sameFrameBurst,
+            adapterActiveEventIndex: diagnostic.adapterActiveEventIndex,
+            adapterCurrentEventIndexBefore: diagnostic.adapterCurrentEventIndexBefore,
+            adapterCurrentEventIndexAfter: diagnostic.adapterCurrentEventIndexAfter,
+            adapterChannelAssociationRetained: diagnostic.adapterChannelAssociationRetained,
+            adapterSustainedVoiceUpdate: diagnostic.adapterSustainedVoiceUpdate,
             callbackIndex: diagnostic.callbackIndex,
             callbackRequestedFrameCount: diagnostic.callbackRequestedFrameCount,
             callbackStartFrame: diagnostic.callbackStartFrame,
@@ -5214,6 +5528,32 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             inCallbackOffset: eventTiming?.inCallbackOffset,
             plannedVsAppliedDelta: eventTiming?.plannedVsAppliedDelta,
             sameFrameBurstSize: eventTiming?.sameFrameBurstSize,
+            sameFrameBurstID: eventTiming?.sameFrameBurst?.id,
+            sameFrameBurstEventOrdinal: eventTiming?.sameFrameBurst?.eventOrdinal,
+            sameFrameBurstCategories: eventTiming?.sameFrameBurst?.categories,
+            sameFrameBurstAffectedChannels: eventTiming?.sameFrameBurst?.affectedChannels,
+            sameFrameBurstNoteTriggerCount: eventTiming?.sameFrameBurst?.noteTriggerCount,
+            sameFrameBurstReplacementRampCount: eventTiming?.sameFrameBurst?.replacementRampCount,
+            sameFrameBurstGainPanUpdateCount: eventTiming?.sameFrameBurst?.gainPanUpdateCount,
+            sameFrameBurstStepUpdateCount: eventTiming?.sameFrameBurst?.stepUpdateCount,
+            sameFrameBurstNoteCutCount: eventTiming?.sameFrameBurst?.noteCutCount,
+            sameFrameBurstKeyOffCount: eventTiming?.sameFrameBurst?.keyOffCount,
+            sameFrameBurstGlobalVolumeUpdateCount: eventTiming?.sameFrameBurst?.globalVolumeUpdateCount,
+            sameFrameBurstActiveVoiceCountBefore: eventTiming?.sameFrameBurst?.activeVoiceCountBefore,
+            sameFrameBurstActiveVoiceCountAfter: eventTiming?.sameFrameBurst?.activeVoiceCountAfter,
+            sameFrameBurstLoadedVoiceCountBefore: eventTiming?.sameFrameBurst?.loadedVoiceCountBefore,
+            sameFrameBurstLoadedVoiceCountAfter: eventTiming?.sameFrameBurst?.loadedVoiceCountAfter,
+            sameFrameBurstVoicesEnteringRampDown: eventTiming?.sameFrameBurst?.voicesEnteringRampDown,
+            sameFrameBurstVoicesCompletingRampDown: eventTiming?.sameFrameBurst?.voicesCompletingRampDown,
+            sameFrameBurstNewVoicesStarted: eventTiming?.sameFrameBurst?.newVoicesStarted,
+            sameFrameBurstSustainedVoicesCarried: eventTiming?.sameFrameBurst?.sustainedVoicesCarried,
+            sameFrameBurstAtOrderStart: eventTiming?.sameFrameBurst?.atOrderStart,
+            sameFrameBurstAtRowTransition: eventTiming?.sameFrameBurst?.atRowTransition,
+            adapterActiveEventIndex: eventTiming?.adapterActiveEventIndex,
+            adapterCurrentEventIndexBefore: eventTiming?.adapterCurrentEventIndexBefore,
+            adapterCurrentEventIndexAfter: eventTiming?.adapterCurrentEventIndexAfter,
+            adapterChannelAssociationRetained: eventTiming?.adapterChannelAssociationRetained,
+            adapterSustainedVoiceUpdate: eventTiming?.adapterSustainedVoiceUpdate,
             maxPlannedVsAppliedDelta: snapshot.maxPlannedVsAppliedDelta,
             appliedPlannedEventCount: snapshot.appliedPlannedEventCount,
             exactFrameAppliedEventCount: snapshot.exactFrameAppliedEventCount,

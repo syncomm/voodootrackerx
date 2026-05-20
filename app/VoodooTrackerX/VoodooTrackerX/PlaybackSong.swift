@@ -364,6 +364,18 @@ struct RuntimeCMixerAdapterEvent: Equatable {
     var primaryCategory: String {
         categories.first ?? "unknown"
     }
+
+    var activeEventIndex: Int? {
+        switch action {
+        case let .noteTrigger(eventIndex, _, _):
+            return eventIndex
+        case let .gainPanUpdate(activeEventIndex, _, _),
+             let .stepUpdate(activeEventIndex, _):
+            return activeEventIndex
+        case let .noteCut(activeEventIndex):
+            return activeEventIndex
+        }
+    }
 }
 
 struct RuntimeCMixerAdapterEventPlan: Equatable {
@@ -600,11 +612,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
 
     private static func priority(_ action: RuntimeCMixerAdapterEventAction) -> Int {
         switch action {
-        case .noteTrigger:
-            return 0
         case .gainPanUpdate, .stepUpdate:
-            return 1
+            return 0
         case .noteCut:
+            return 1
+        case .noteTrigger:
             return 2
         }
     }

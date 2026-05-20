@@ -351,6 +351,31 @@ small future bridge only. They do not change tracker viewport rendering, visual
 follow behavior, audio event timing, offline rendering, or the default AVAudio
 backend.
 
+The expected interpretation is:
+
+- `PlaybackEngine` order/row/tick is advanced by the app-side playback timer
+  and is what current UI/follow code observes.
+- That timer is a `Foundation.Timer(timeInterval: timing.tickDuration,
+  repeats: true)` scheduled on `RunLoop.main` in `.common` mode. It is a
+  main-run-loop wall-clock timer, not an audio-device sample clock.
+- Each timer fire calls `advanceOneTick()`, advances `PlaybackTickState`,
+  applies tick effects until the row boundary, then advances `currentPosition`
+  and publishes row changes through `positionDidChange`. `AppDelegate` handles
+  that callback with `applyPlaybackPosition(_:)`, updating the selected order,
+  pattern, and cursor row before re-rendering the current tracker pattern.
+- C mixer sample-time position is resolved from the experimental runtime
+  C mixer's rendered frame cursor, the backend sample rate, and the planned
+  adapter row/tick timeline.
+- For the runtime C mixer, the rendered-frame cursor comes from the
+  `AVAudioSourceNode` render callback via the narrow Swift `CSoftwareMixer`
+  wrapper. Planned adapter events are queued by runtime frame, applied at
+  exact in-callback sample offsets when possible, and the same adapter timeline
+  resolves a sample-time frame back to order/pattern/row/tick.
+- A nonzero `playbackEngineToCMixerFrameDelta` means those clocks are not at
+  the same planned adapter frame when the trace row was recorded. Positive
+  deltas indicate the C mixer render cursor is ahead of the `PlaybackEngine`
+  timer position; negative deltas indicate it is behind.
+
 Runtime snapshots also include cumulative `appliedPlannedEventCount`,
 `exactFrameAppliedEventCount`, `callbackBoundaryAppliedEventCount`,
 `latePlannedEventCount`, and `maxPlannedVsAppliedDelta`. Late events are traced
@@ -361,6 +386,11 @@ an after-event `row_transition_after_events` breadcrumb. These rows may include
 previous and next order/pattern/row fields, `transitionRuntimeFrame`,
 active/loaded voice counts before and after the row-entry work, and per-row
 `transitionReplacementRampCount` / `transitionUpdateCount` deltas.
+Summary diagnostics keep transport stop/reset cursor jumps separate from
+in-playback drift. Exact in-callback planned-event timestamps may appear after
+a callback-end breadcrumb in JSONL order; the summary reports that ordering
+case separately instead of treating it as the C mixer render cursor moving
+backward during playback.
 
 Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local
@@ -394,9 +424,19 @@ The summary focuses on runtime-only artifact evidence:
   application counts, late planned-event counts, same-frame event bursts,
   order/row transition bursts, and top suspicious order/row/tick positions
 - max, average, and median row-transition frame deltas
+- max, average, and median PlaybackEngine-vs-C-mixer position frame deltas
+  from row-transition breadcrumbs, plus millisecond deltas where a sample rate
+  is present
+- the first PlaybackEngine-vs-C-mixer position divergence above the summary
+  threshold
+- whether the position drift looks like an accumulating drift, a mostly
+  constant offset, or mixed evidence
 - largest PlaybackEngine-vs-C-mixer sample-time position mismatches, first
-  suspicious mismatch, monotonic sample-time cursor status, and order/row
-  ranges where mismatch is largest
+  suspicious mismatch, monotonic sample-time cursor status, transport/reset
+  cursor jumps, in-callback timestamp ordering cases, unexpected backward
+  cursor movement, and order/row ranges where mismatch is largest
+- selected order-transition samples showing both the PlaybackEngine position
+  and the C mixer sample-time-derived position
 - runtime evidence for categories that the richer offline adapter can emit:
   gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
   `1xx`/`2xx`/`3xx` updates

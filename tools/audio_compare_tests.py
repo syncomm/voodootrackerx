@@ -2233,6 +2233,210 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                 summary_a["suspicious_findings"],
             )
 
+    def test_synthetic_trace_reports_playback_engine_vs_c_mixer_position_delta_statistics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=0,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=0,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=0,
+                        playbackEngineToCMixerFrameDelta=0,
+                        playbackEngineToCMixerPositionMismatch=False,
+                        rowTransitionDeltaCategory="exact",
+                    ),
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        orderIndex=0,
+                        patternIndex=2,
+                        rowIndex=1,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=1,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=0,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=100,
+                        playbackEngineToCMixerFrameDelta=100,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        rowTransitionDeltaCategory="different_row_or_order",
+                    ),
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        orderIndex=0,
+                        patternIndex=2,
+                        rowIndex=2,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=2,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=1,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=104,
+                        playbackEngineToCMixerFrameDelta=104,
+                        playbackEngineToCMixerPositionMismatch=True,
+                        rowTransitionDeltaCategory="different_row_or_order",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+            largest = alignment["largest_playback_engine_vs_c_mixer_position_deltas"][0]
+            first = alignment["first_position_divergence_above_threshold"]
+
+            self.assertEqual(alignment["playback_engine_vs_c_mixer_position_delta_count"], 3)
+            self.assertEqual(alignment["max_playback_engine_vs_c_mixer_abs_frame_delta"], 104)
+            self.assertEqual(alignment["average_playback_engine_vs_c_mixer_abs_frame_delta"], 68)
+            self.assertEqual(alignment["median_playback_engine_vs_c_mixer_abs_frame_delta"], 100)
+            self.assertEqual(alignment["playback_engine_vs_c_mixer_position_drift_classification"], "mostly_constant_offset")
+            self.assertTrue(alignment["playback_engine_vs_c_mixer_position_mostly_constant_offset"])
+            self.assertFalse(alignment["playback_engine_vs_c_mixer_position_accumulates"])
+            self.assertEqual(largest["frame_delta"], 104)
+            self.assertEqual(largest["time_delta_ms"], 1040)
+            self.assertEqual(largest["playback_clock_relation"], "c_mixer_ahead_of_playback_engine")
+            self.assertEqual(first["trace_index"], 1)
+            self.assertEqual(first["frame_delta"], 100)
+            self.assertEqual(alignment["order_transition_position_samples"][0]["frame_delta"], 0)
+
+    def test_synthetic_trace_classifies_accumulating_playback_engine_vs_c_mixer_drift(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        rowIndex=index,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=index,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=max(0, index - 1),
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=delta,
+                        playbackEngineToCMixerFrameDelta=delta,
+                        playbackEngineToCMixerPositionMismatch=index > 0,
+                        rowTransitionDeltaCategory="different_row_or_order" if index > 0 else "exact",
+                    )
+                    for index, delta in enumerate([0, 10, 22, 40])
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertEqual(alignment["playback_engine_vs_c_mixer_position_drift_classification"], "accumulating")
+            self.assertFalse(alignment["playback_engine_vs_c_mixer_position_mostly_constant_offset"])
+            self.assertTrue(alignment["playback_engine_vs_c_mixer_position_accumulates"])
+            self.assertTrue(alignment["playback_engine_c_mixer_position_diverges_over_time"])
+            self.assertIn(
+                "PlaybackEngine position and C mixer sample-time position diverge over time",
+                summary["suspicious_findings"],
+            )
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Playback Follow Position Drift Investigation")
+
+    def test_synthetic_trace_excludes_transport_resets_from_position_delta_statistics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=1,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=2,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=110,
+                        cMixerRenderedFrames=110,
+                        playbackEngineToCMixerFrameDelta=10,
+                        playbackEngineToCMixerPositionMismatch=True,
+                    ),
+                    self.event(
+                        "c_mixer_clear_all",
+                        reason="transport_stop",
+                        sampleRate=100,
+                        playbackEngineOrderIndex=0,
+                        playbackEnginePatternIndex=2,
+                        playbackEngineRowIndex=12,
+                        playbackEngineTickInRow=0,
+                        cMixerSampleTimeOrderIndex=0,
+                        cMixerSampleTimePatternIndex=2,
+                        cMixerSampleTimeRowIndex=0,
+                        cMixerSampleTimeTickInRow=0,
+                        cMixerSampleTimeFrame=0,
+                        cMixerRenderedFrames=0,
+                        playbackEngineToCMixerFrameDelta=-1200,
+                        playbackEngineToCMixerPositionMismatch=True,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertEqual(alignment["playback_engine_vs_c_mixer_position_delta_count"], 1)
+            self.assertEqual(alignment["max_playback_engine_vs_c_mixer_abs_frame_delta"], 10)
+            self.assertEqual(alignment["largest_playback_engine_vs_c_mixer_mismatch"]["abs_frame_delta"], 10)
+            self.assertEqual(alignment["c_mixer_sample_time_reset_count"], 1)
+            self.assertEqual(alignment["c_mixer_sample_time_unexpected_backward_count"], 0)
+            self.assertTrue(alignment["c_mixer_sample_time_monotonic"])
+            self.assertNotIn("C mixer sample-time frame counter moved backward", summary["suspicious_findings"])
+
+    def test_synthetic_trace_treats_in_callback_event_application_order_as_monotonic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "row_transition_after_events",
+                        cMixerSampleTimeFrame=200,
+                        cMixerRenderedFrames=200,
+                    ),
+                    self.event(
+                        "c_mixer_add_voice",
+                        cMixerSampleTimeFrame=150,
+                        cMixerRenderedFrames=150,
+                        runtimeApplicationFrame=150,
+                        eventAppliedFrame=150,
+                        callbackStartFrame=100,
+                        callbackEndFrame=200,
+                        inCallbackOffset=50,
+                        eventApplicationTiming="exact_frame",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            alignment = summary["sample_time_alignment"]
+
+            self.assertTrue(alignment["c_mixer_sample_time_monotonic"])
+            self.assertEqual(alignment["c_mixer_sample_time_in_callback_ordering_count"], 1)
+            self.assertEqual(alignment["c_mixer_sample_time_unexpected_backward_count"], 0)
+            self.assertNotIn("C mixer sample-time frame counter moved backward", summary["suspicious_findings"])
+
     def test_synthetic_trace_reports_same_frame_event_bursts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             events = [

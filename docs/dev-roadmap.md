@@ -150,7 +150,15 @@ default runtime backend. The experimental runtime C mixer now bridges supported
 runtime gain/pan/sample-step control updates to the same generic C mixer
 voice-state update primitives used by the bounded offline path, including the
 fixed gain/pan micro-ramp and channel-scoped target voice diagnostics. Missing
-target data and unsupported update values remain explicit deferred diagnostics.
+target, no-change, stale-after-stop, missing-data, and unsupported update cases
+are now classified separately. No-change runtime refreshes are suppressed,
+gain/pan updates without an active voice can be retained as channel state for a
+later note trigger, and step/pitch updates without an active sample/note target
+remain explicit no-active or missing-data deferrals. The runtime bridge also
+filters gain, pan, and sample-step update deltas at a strict `1e-5` epsilon so
+tiny floating-point discrepancies do not restart C mixer ramps or step updates.
+This keeps the runtime C mixer experimental and opt-in while reducing trace
+noise around the remaining update deferrals.
 
 Immediate audio accuracy sequence:
 
@@ -211,7 +219,8 @@ Immediate audio accuracy sequence:
 55. Runtime C mixer output diagnostics / offline parity investigation — done
 56. Runtime C mixer headroom / gain policy — done
 57. Runtime C Mixer Event Scheduling / Offline Adapter Parity Bridge — done
-58. Reference comparison stabilization against MikMod/OpenMPT
+58. Runtime C Mixer Remaining Update Deferral Fix — done
+59. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

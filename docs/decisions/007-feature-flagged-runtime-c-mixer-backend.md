@@ -90,6 +90,13 @@ missing target state and unsupported update values remain deferred diagnostics.
 This matures the experimental backend without making it default, adding a UI
 toggle, changing tracker follow behavior, or expanding XM effect coverage.
 
+A later update-deferral cleanup keeps the same boundaries while reducing trace
+noise from harmless runtime refreshes. No-change and epsilon-level updates are
+suppressed, gain/pan updates without an active target may be retained as channel
+state for a later note trigger, and no-active, stale-after-stop, missing-data,
+and unsupported update cases remain separately visible in the runtime trace.
+This does not broaden runtime effect support or change the default backend.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

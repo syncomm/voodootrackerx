@@ -98,6 +98,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let panAfter: Float?
     let sampleStepBefore: Double?
     let sampleStepAfter: Double?
+    let updateDisposition: String?
+    let updateType: String?
+    let updateEpsilon: Double?
+    let gainRequested: Float?
+    let panRequested: Float?
+    let sampleStepRequested: Double?
+    let gainDelta: Double?
+    let panDelta: Double?
+    let sampleStepDelta: Double?
+    let gainUpdateStatus: String?
+    let panUpdateStatus: String?
+    let sampleStepUpdateStatus: String?
     let currentFrame: UInt64?
     let scheduledVoiceCount: Int?
     let eventQueueBacklogCount: Int?
@@ -136,6 +148,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let cMixerAddVoiceCount: UInt64?
     let gainPanUpdateCount: UInt64?
     let stepUpdateCount: UInt64?
+    let updateSuppressedEpsilonGainCount: UInt64?
+    let updateSuppressedEpsilonPanCount: UInt64?
+    let updateSuppressedEpsilonStepCount: UInt64?
+    let updateSuppressedNoChangeCount: UInt64?
+    let updateAppliedAfterEpsilonFilterCount: UInt64?
     let stopChannelCount: UInt64?
     let clearAllCount: UInt64?
     let cMixerCallSucceeded: Bool?
@@ -167,6 +184,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         panAfter: Float? = nil,
         sampleStepBefore: Double? = nil,
         sampleStepAfter: Double? = nil,
+        updateDisposition: String? = nil,
+        updateType: String? = nil,
+        updateEpsilon: Double? = nil,
+        gainRequested: Float? = nil,
+        panRequested: Float? = nil,
+        sampleStepRequested: Double? = nil,
+        gainDelta: Double? = nil,
+        panDelta: Double? = nil,
+        sampleStepDelta: Double? = nil,
+        gainUpdateStatus: String? = nil,
+        panUpdateStatus: String? = nil,
+        sampleStepUpdateStatus: String? = nil,
         currentFrame: UInt64? = nil,
         scheduledVoiceCount: Int? = nil,
         eventQueueBacklogCount: Int? = nil,
@@ -205,6 +234,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         cMixerAddVoiceCount: UInt64? = nil,
         gainPanUpdateCount: UInt64? = nil,
         stepUpdateCount: UInt64? = nil,
+        updateSuppressedEpsilonGainCount: UInt64? = nil,
+        updateSuppressedEpsilonPanCount: UInt64? = nil,
+        updateSuppressedEpsilonStepCount: UInt64? = nil,
+        updateSuppressedNoChangeCount: UInt64? = nil,
+        updateAppliedAfterEpsilonFilterCount: UInt64? = nil,
         stopChannelCount: UInt64? = nil,
         clearAllCount: UInt64? = nil,
         cMixerCallSucceeded: Bool? = nil,
@@ -246,6 +280,18 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.panAfter = panAfter
         self.sampleStepBefore = sampleStepBefore
         self.sampleStepAfter = sampleStepAfter
+        self.updateDisposition = updateDisposition
+        self.updateType = updateType
+        self.updateEpsilon = updateEpsilon
+        self.gainRequested = gainRequested
+        self.panRequested = panRequested
+        self.sampleStepRequested = sampleStepRequested
+        self.gainDelta = gainDelta
+        self.panDelta = panDelta
+        self.sampleStepDelta = sampleStepDelta
+        self.gainUpdateStatus = gainUpdateStatus
+        self.panUpdateStatus = panUpdateStatus
+        self.sampleStepUpdateStatus = sampleStepUpdateStatus
         self.currentFrame = currentFrame
         self.scheduledVoiceCount = scheduledVoiceCount
         self.eventQueueBacklogCount = eventQueueBacklogCount
@@ -284,6 +330,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.cMixerAddVoiceCount = cMixerAddVoiceCount
         self.gainPanUpdateCount = gainPanUpdateCount
         self.stepUpdateCount = stepUpdateCount
+        self.updateSuppressedEpsilonGainCount = updateSuppressedEpsilonGainCount
+        self.updateSuppressedEpsilonPanCount = updateSuppressedEpsilonPanCount
+        self.updateSuppressedEpsilonStepCount = updateSuppressedEpsilonStepCount
+        self.updateSuppressedNoChangeCount = updateSuppressedNoChangeCount
+        self.updateAppliedAfterEpsilonFilterCount = updateAppliedAfterEpsilonFilterCount
         self.stopChannelCount = stopChannelCount
         self.clearAllCount = clearAllCount
         self.cMixerCallSucceeded = cMixerCallSucceeded
@@ -634,27 +685,126 @@ struct RuntimeCMixerUpdateResult: Equatable {
     let snapshotAfter: RuntimeCMixerRenderSnapshot
     let gainPanApplied: Bool
     let stepApplied: Bool
+    let gainPanAttempted: Bool
+    let stepAttempted: Bool
     let gainBefore: Float?
     let gainAfter: Float?
     let panBefore: Float?
     let panAfter: Float?
     let sampleStepBefore: Double?
     let sampleStepAfter: Double?
+    let updateEpsilon: Double?
+    let gainRequested: Float?
+    let panRequested: Float?
+    let sampleStepRequested: Double?
+    let gainDelta: Double?
+    let panDelta: Double?
+    let sampleStepDelta: Double?
+    let gainUpdateStatus: String?
+    let panUpdateStatus: String?
+    let sampleStepUpdateStatus: String?
+    let epsilonSuppressedGain: Bool
+    let epsilonSuppressedPan: Bool
+    let epsilonSuppressedStep: Bool
+    let appliedAfterEpsilonFilter: Bool
+    let disposition: String
+    let updateType: String
     let succeeded: Bool?
     let reason: String
 
+    init(
+        channel: Int,
+        targetVoiceIndex: Int?,
+        snapshotBefore: RuntimeCMixerRenderSnapshot,
+        snapshotAfter: RuntimeCMixerRenderSnapshot,
+        gainPanApplied: Bool,
+        stepApplied: Bool,
+        gainPanAttempted: Bool,
+        stepAttempted: Bool,
+        gainBefore: Float?,
+        gainAfter: Float?,
+        panBefore: Float?,
+        panAfter: Float?,
+        sampleStepBefore: Double?,
+        sampleStepAfter: Double?,
+        updateEpsilon: Double? = nil,
+        gainRequested: Float? = nil,
+        panRequested: Float? = nil,
+        sampleStepRequested: Double? = nil,
+        gainDelta: Double? = nil,
+        panDelta: Double? = nil,
+        sampleStepDelta: Double? = nil,
+        gainUpdateStatus: String? = nil,
+        panUpdateStatus: String? = nil,
+        sampleStepUpdateStatus: String? = nil,
+        epsilonSuppressedGain: Bool = false,
+        epsilonSuppressedPan: Bool = false,
+        epsilonSuppressedStep: Bool = false,
+        appliedAfterEpsilonFilter: Bool = false,
+        disposition: String,
+        updateType: String,
+        succeeded: Bool?,
+        reason: String
+    ) {
+        self.channel = channel
+        self.targetVoiceIndex = targetVoiceIndex
+        self.snapshotBefore = snapshotBefore
+        self.snapshotAfter = snapshotAfter
+        self.gainPanApplied = gainPanApplied
+        self.stepApplied = stepApplied
+        self.gainPanAttempted = gainPanAttempted
+        self.stepAttempted = stepAttempted
+        self.gainBefore = gainBefore
+        self.gainAfter = gainAfter
+        self.panBefore = panBefore
+        self.panAfter = panAfter
+        self.sampleStepBefore = sampleStepBefore
+        self.sampleStepAfter = sampleStepAfter
+        self.updateEpsilon = updateEpsilon
+        self.gainRequested = gainRequested
+        self.panRequested = panRequested
+        self.sampleStepRequested = sampleStepRequested
+        self.gainDelta = gainDelta
+        self.panDelta = panDelta
+        self.sampleStepDelta = sampleStepDelta
+        self.gainUpdateStatus = gainUpdateStatus
+        self.panUpdateStatus = panUpdateStatus
+        self.sampleStepUpdateStatus = sampleStepUpdateStatus
+        self.epsilonSuppressedGain = epsilonSuppressedGain
+        self.epsilonSuppressedPan = epsilonSuppressedPan
+        self.epsilonSuppressedStep = epsilonSuppressedStep
+        self.appliedAfterEpsilonFilter = appliedAfterEpsilonFilter
+        self.disposition = disposition
+        self.updateType = updateType
+        self.succeeded = succeeded
+        self.reason = reason
+    }
+
     var traceAction: String {
-        switch (gainPanApplied, stepApplied) {
-        case (true, true):
-            return "c_mixer_update_gain_pan_step_applied"
-        case (true, false):
-            return "c_mixer_update_gain_pan_applied"
-        case (false, true):
-            return "c_mixer_update_step_applied"
-        case (false, false):
-            return reason.contains("missing")
-                ? "c_mixer_update_gain_pan_step_deferred_missing_data"
-                : "c_mixer_update_gain_pan_step_deferred_unsupported"
+        switch disposition {
+        case "update_applied":
+            switch (gainPanApplied, stepApplied) {
+            case (true, true):
+                return "c_mixer_update_gain_pan_step_applied"
+            case (true, false):
+                return "c_mixer_update_gain_pan_applied"
+            case (false, true):
+                return "c_mixer_update_step_applied"
+            case (false, false):
+                return "c_mixer_update_applied"
+            }
+        case "update_suppressed_no_change":
+            return "c_mixer_update_suppressed_no_change"
+        case "update_stored_channel_state":
+            return "c_mixer_update_stored_channel_state"
+        case "update_deferred_no_active_voice":
+            return "c_mixer_update_deferred_no_active_voice"
+        case "update_deferred_stale_after_stop":
+            return "c_mixer_update_deferred_stale_after_stop"
+        case "update_deferred_missing_data":
+            return "c_mixer_update_deferred_missing_data"
+        default:
+            return "c_mixer_update_deferred_unsupported"
         }
     }
 }
@@ -684,12 +834,43 @@ private struct RuntimeCMixerChannelVoiceState: Equatable {
     var sampleStep: Double
 }
 
+private struct RuntimeCMixerChannelControlState: Equatable {
+    var volumeScale: Float
+    var panning: Float
+    var pitchOffsetSemitones: Double
+
+    init(volumeScale: Float, panning: Float, pitchOffsetSemitones: Double) {
+        self.volumeScale = PlaybackVolumeCalculator.clamped(volumeScale)
+        self.panning = panning.isFinite ? min(1, max(-1, panning)) : 0
+        self.pitchOffsetSemitones = pitchOffsetSemitones.isFinite ? pitchOffsetSemitones : 0
+    }
+}
+
+private struct RuntimeCMixerFieldUpdateDecision: Equatable {
+    let previous: Double
+    let requested: Double
+    let delta: Double
+    let shouldApply: Bool
+    let suppressedByEpsilon: Bool
+
+    var status: String {
+        if shouldApply {
+            return "applied"
+        }
+        return suppressedByEpsilon ? "suppressed_epsilon" : "unchanged"
+    }
+}
+
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
+    static let updateEpsilon = 0.00001
+
     private let lock = NSLock()
     private let mixer: CSoftwareMixer
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
+    private var controlStateByChannel = [Int: RuntimeCMixerChannelControlState]()
+    private var stoppedFrameByChannel = [Int: UInt64]()
     private var renderCallCount: UInt64 = 0
     private var renderCallbackCount: UInt64 = 0
     private var successfulRenderCount: UInt64 = 0
@@ -771,12 +952,23 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             request.channel,
             reason: "note_replacement_stop_channel"
         )
-        let initialGain = runtimeGain(sample: request.sample, volumeScale: request.volumeScale)
-        let initialPan = sanitizedPan(request.panning)
+        let requestControlState = RuntimeCMixerChannelControlState(
+            volumeScale: request.volumeScale,
+            panning: request.panning,
+            pitchOffsetSemitones: request.pitchOffsetSemitones
+        )
+        let storedControlState = controlStateByChannel[request.channel]
+        let effectiveControlState = RuntimeCMixerChannelControlState(
+            volumeScale: storedControlState?.volumeScale ?? requestControlState.volumeScale,
+            panning: storedControlState?.panning ?? requestControlState.panning,
+            pitchOffsetSemitones: requestControlState.pitchOffsetSemitones
+        )
+        let initialGain = runtimeGain(sample: request.sample, volumeScale: effectiveControlState.volumeScale)
+        let initialPan = sanitizedPan(effectiveControlState.panning)
         let initialSampleStep = playbackStep(
             note: request.note,
             sample: request.sample,
-            pitchOffsetSemitones: request.pitchOffsetSemitones
+            pitchOffsetSemitones: effectiveControlState.pitchOffsetSemitones
         ) ?? 1
 
         let voiceIndex = mixer.addVoice(
@@ -796,6 +988,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             pan: initialPan,
             sampleStep: initialSampleStep
         )
+        controlStateByChannel[request.channel] = effectiveControlState
+        stoppedFrameByChannel.removeValue(forKey: request.channel)
         return RuntimeCMixerTriggerResult(
             succeeded: true,
             reason: nil,
@@ -810,7 +1004,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     @discardableResult
-    func updateWithDiagnostics(channel: Int, controls: AudioChannelControls) -> RuntimeCMixerUpdateResult {
+    func updateWithDiagnostics(
+        channel: Int,
+        controls: AudioChannelControls,
+        context: AudioRuntimeTraceContext? = nil
+    ) -> RuntimeCMixerUpdateResult {
         lock.lock()
         defer {
             lock.unlock()
@@ -825,43 +1023,59 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 snapshotAfter: snapshotBefore,
                 gainPanApplied: false,
                 stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
                 gainBefore: nil,
                 gainAfter: nil,
                 panBefore: nil,
                 panAfter: nil,
                 sampleStepBefore: nil,
                 sampleStepAfter: nil,
+                disposition: "update_deferred_unsupported",
+                updateType: "none",
                 succeeded: false,
-                reason: "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_invalid_channel"
-            )
-        }
-        guard var voiceState = voiceStateByChannel[channel] else {
-            return RuntimeCMixerUpdateResult(
-                channel: channel,
-                targetVoiceIndex: nil,
-                snapshotBefore: snapshotBefore,
-                snapshotAfter: snapshotBefore,
-                gainPanApplied: false,
-                stepApplied: false,
-                gainBefore: nil,
-                gainAfter: nil,
-                panBefore: nil,
-                panAfter: nil,
-                sampleStepBefore: nil,
-                sampleStepAfter: nil,
-                succeeded: nil,
-                reason: "runtime_c_mixer_update_gain_pan_step_deferred_missing_data_no_channel_voice"
+                reason: "runtime_c_mixer_update_deferred_unsupported_invalid_channel"
             )
         }
         guard controls.volumeScale.isFinite,
               controls.panning.isFinite,
-              controls.pitchOffsetSemitones.isFinite,
-              let nextSampleStep = playbackStep(
-                note: voiceState.note,
-                sample: voiceState.sample,
-                pitchOffsetSemitones: controls.pitchOffsetSemitones
-              ),
-              mixer.currentFrame <= UInt64(Int.max) else {
+              controls.pitchOffsetSemitones.isFinite else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceStateByChannel[channel]?.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: voiceStateByChannel[channel]?.gain,
+                gainAfter: nil,
+                panBefore: voiceStateByChannel[channel]?.pan,
+                panAfter: nil,
+                sampleStepBefore: voiceStateByChannel[channel]?.sampleStep,
+                sampleStepAfter: nil,
+                disposition: "update_deferred_unsupported",
+                updateType: "none",
+                succeeded: false,
+                reason: "runtime_c_mixer_update_deferred_unsupported_invalid_update_values"
+            )
+        }
+        let nextControlState = RuntimeCMixerChannelControlState(
+            volumeScale: controls.volumeScale,
+            panning: controls.panning,
+            pitchOffsetSemitones: controls.pitchOffsetSemitones
+        )
+        guard var voiceState = voiceStateByChannel[channel] else {
+            return updateWithoutActiveVoiceLocked(
+                channel: channel,
+                nextControlState: nextControlState,
+                snapshotBefore: snapshotBefore,
+                context: context
+            )
+        }
+        guard voiceState.sample.baseSampleRate.isFinite,
+              voiceState.sample.baseSampleRate > 0 else {
             return RuntimeCMixerUpdateResult(
                 channel: channel,
                 targetVoiceIndex: voiceState.voiceIndex,
@@ -869,25 +1083,25 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 snapshotAfter: snapshotBefore,
                 gainPanApplied: false,
                 stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: true,
                 gainBefore: voiceState.gain,
                 gainAfter: nil,
                 panBefore: voiceState.pan,
                 panAfter: nil,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: nil,
+                disposition: "update_deferred_missing_data",
+                updateType: "step",
                 succeeded: false,
-                reason: "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_invalid_update_values"
+                reason: "runtime_c_mixer_update_deferred_missing_data_missing_sample_step_target"
             )
         }
-
-        let nextGain = runtimeGain(sample: voiceState.sample, volumeScale: controls.volumeScale)
-        let nextPan = sanitizedPan(controls.panning)
-        let scheduledFrame = Int(mixer.currentFrame)
-        let gainChanged = nextGain != voiceState.gain
-        let panChanged = nextPan != voiceState.pan
-        let gainPanChanged = gainChanged || panChanged
-        let stepChanged = nextSampleStep != voiceState.sampleStep
-        guard gainPanChanged || stepChanged else {
+        guard let nextSampleStep = playbackStep(
+            note: voiceState.note,
+            sample: voiceState.sample,
+            pitchOffsetSemitones: nextControlState.pitchOffsetSemitones
+        ) else {
             return RuntimeCMixerUpdateResult(
                 channel: channel,
                 targetVoiceIndex: voiceState.voiceIndex,
@@ -895,14 +1109,91 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 snapshotAfter: snapshotBefore,
                 gainPanApplied: false,
                 stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: true,
                 gainBefore: voiceState.gain,
-                gainAfter: nextGain,
+                gainAfter: nil,
                 panBefore: voiceState.pan,
-                panAfter: nextPan,
+                panAfter: nil,
                 sampleStepBefore: voiceState.sampleStep,
-                sampleStepAfter: nextSampleStep,
+                sampleStepAfter: nil,
+                disposition: "update_deferred_missing_data",
+                updateType: "step",
+                succeeded: false,
+                reason: "runtime_c_mixer_update_deferred_missing_data_missing_sample_step_target"
+            )
+        }
+        guard mixer.currentFrame <= UInt64(Int.max) else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: nil,
+                panBefore: voiceState.pan,
+                panAfter: nil,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: nil,
+                disposition: "update_deferred_missing_data",
+                updateType: "none",
+                succeeded: false,
+                reason: "runtime_c_mixer_update_deferred_missing_data_frame_out_of_range"
+            )
+        }
+
+        let nextGain = runtimeGain(sample: voiceState.sample, volumeScale: nextControlState.volumeScale)
+        let nextPan = sanitizedPan(nextControlState.panning)
+        let scheduledFrame = Int(mixer.currentFrame)
+        let currentControlState = controlStateByChannel[channel] ?? defaultControlState(for: channel)
+        let gainDecision = updateDecision(previous: Double(voiceState.gain), requested: Double(nextGain))
+        let panDecision = updateDecision(previous: Double(voiceState.pan), requested: Double(nextPan))
+        let stepDecision = updateDecision(previous: voiceState.sampleStep, requested: nextSampleStep)
+        let gainChanged = gainDecision.shouldApply
+        let panChanged = panDecision.shouldApply
+        let gainPanChanged = gainChanged || panChanged
+        let stepChanged = stepDecision.shouldApply
+        let updateType = self.updateType(gainChanged: gainChanged, panChanged: panChanged, stepChanged: stepChanged)
+        guard gainPanChanged || stepChanged else {
+            let epsilonSuppressed = gainDecision.suppressedByEpsilon || panDecision.suppressedByEpsilon || stepDecision.suppressedByEpsilon
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: voiceState.gain,
+                gainAfter: voiceState.gain,
+                panBefore: voiceState.pan,
+                panAfter: voiceState.pan,
+                sampleStepBefore: voiceState.sampleStep,
+                sampleStepAfter: voiceState.sampleStep,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: nextGain,
+                panRequested: nextPan,
+                sampleStepRequested: nextSampleStep,
+                gainDelta: gainDecision.delta,
+                panDelta: panDecision.delta,
+                sampleStepDelta: stepDecision.delta,
+                gainUpdateStatus: gainDecision.status,
+                panUpdateStatus: panDecision.status,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+                epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_suppressed_no_change",
+                updateType: updateType,
                 succeeded: nil,
-                reason: "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_no_change"
+                reason: epsilonSuppressed
+                    ? "runtime_c_mixer_update_suppressed_no_change_epsilon_filtered"
+                    : "runtime_c_mixer_update_suppressed_no_change"
             )
         }
         let updateResult: CSoftwareMixerVoiceStateUpdateResult
@@ -936,24 +1227,47 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 snapshotAfter: snapshotLocked(),
                 gainPanApplied: false,
                 stepApplied: false,
+                gainPanAttempted: gainPanChanged,
+                stepAttempted: stepChanged,
                 gainBefore: voiceState.gain,
                 gainAfter: nextGain,
                 panBefore: voiceState.pan,
                 panAfter: nextPan,
                 sampleStepBefore: voiceState.sampleStep,
                 sampleStepAfter: nextSampleStep,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: nextGain,
+                panRequested: nextPan,
+                sampleStepRequested: nextSampleStep,
+                gainDelta: gainDecision.delta,
+                panDelta: panDecision.delta,
+                sampleStepDelta: stepDecision.delta,
+                gainUpdateStatus: gainDecision.status,
+                panUpdateStatus: panDecision.status,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+                epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_deferred_unsupported",
+                updateType: updateType,
                 succeeded: false,
-                reason: updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_update_gain_pan_step_deferred_unsupported_c_mixer_rejected"
+                reason: updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_update_deferred_unsupported_c_mixer_rejected"
             )
         }
 
         let gainBefore = voiceState.gain
         let panBefore = voiceState.pan
         let sampleStepBefore = voiceState.sampleStep
-        voiceState.gain = nextGain
-        voiceState.pan = nextPan
-        voiceState.sampleStep = nextSampleStep
+        voiceState.gain = gainChanged ? nextGain : voiceState.gain
+        voiceState.pan = panChanged ? nextPan : voiceState.pan
+        voiceState.sampleStep = stepChanged ? nextSampleStep : voiceState.sampleStep
         voiceStateByChannel[channel] = voiceState
+        controlStateByChannel[channel] = RuntimeCMixerChannelControlState(
+            volumeScale: gainChanged ? nextControlState.volumeScale : currentControlState.volumeScale,
+            panning: panChanged ? nextControlState.panning : currentControlState.panning,
+            pitchOffsetSemitones: stepChanged ? nextControlState.pitchOffsetSemitones : currentControlState.pitchOffsetSemitones
+        )
+        let epsilonSuppressed = gainDecision.suppressedByEpsilon || panDecision.suppressedByEpsilon || stepDecision.suppressedByEpsilon
         return RuntimeCMixerUpdateResult(
             channel: channel,
             targetVoiceIndex: voiceState.voiceIndex,
@@ -961,19 +1275,269 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             snapshotAfter: snapshotLocked(),
             gainPanApplied: gainPanChanged,
             stepApplied: stepChanged,
+            gainPanAttempted: gainPanChanged,
+            stepAttempted: stepChanged,
             gainBefore: gainBefore,
-            gainAfter: nextGain,
+            gainAfter: voiceState.gain,
             panBefore: panBefore,
-            panAfter: nextPan,
+            panAfter: voiceState.pan,
             sampleStepBefore: sampleStepBefore,
-            sampleStepAfter: nextSampleStep,
+            sampleStepAfter: voiceState.sampleStep,
+            updateEpsilon: Self.updateEpsilon,
+            gainRequested: nextGain,
+            panRequested: nextPan,
+            sampleStepRequested: nextSampleStep,
+            gainDelta: gainDecision.delta,
+            panDelta: panDecision.delta,
+            sampleStepDelta: stepDecision.delta,
+            gainUpdateStatus: gainDecision.status,
+            panUpdateStatus: panDecision.status,
+            sampleStepUpdateStatus: stepDecision.status,
+            epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+            epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+            epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+            appliedAfterEpsilonFilter: true,
+            disposition: "update_applied",
+            updateType: updateType,
             succeeded: true,
-            reason: gainPanChanged && stepChanged
-                ? "runtime_c_mixer_update_gain_pan_step_applied"
-                : gainPanChanged
-                    ? "runtime_c_mixer_update_gain_pan_applied"
-                    : "runtime_c_mixer_update_step_applied"
+            reason: appliedUpdateReason(gainPanChanged: gainPanChanged, stepChanged: stepChanged, epsilonSuppressed: epsilonSuppressed)
         )
+    }
+
+    private func updateWithoutActiveVoiceLocked(
+        channel: Int,
+        nextControlState: RuntimeCMixerChannelControlState,
+        snapshotBefore: RuntimeCMixerRenderSnapshot,
+        context: AudioRuntimeTraceContext?
+    ) -> RuntimeCMixerUpdateResult {
+        let currentControlState = controlStateByChannel[channel] ?? defaultControlState(for: channel)
+        let gainDecision = updateDecision(previous: Double(currentControlState.volumeScale), requested: Double(nextControlState.volumeScale))
+        let panDecision = updateDecision(previous: Double(currentControlState.panning), requested: Double(nextControlState.panning))
+        let stepDecision = updateDecision(previous: currentControlState.pitchOffsetSemitones, requested: nextControlState.pitchOffsetSemitones)
+        let gainChanged = gainDecision.shouldApply
+        let panChanged = panDecision.shouldApply
+        let stepChanged = stepDecision.shouldApply
+        let updateType = self.updateType(gainChanged: gainChanged, panChanged: panChanged, stepChanged: stepChanged)
+
+        guard stoppedFrameByChannel[channel] == nil else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: gainChanged || panChanged,
+                stepAttempted: stepChanged,
+                gainBefore: currentControlState.volumeScale,
+                gainAfter: nextControlState.volumeScale,
+                panBefore: currentControlState.panning,
+                panAfter: nextControlState.panning,
+                sampleStepBefore: nil,
+                sampleStepAfter: nil,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: nextControlState.volumeScale,
+                panRequested: nextControlState.panning,
+                sampleStepRequested: nextControlState.pitchOffsetSemitones,
+                gainDelta: gainDecision.delta,
+                panDelta: panDecision.delta,
+                sampleStepDelta: stepDecision.delta,
+                gainUpdateStatus: gainDecision.status,
+                panUpdateStatus: panDecision.status,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+                epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_deferred_stale_after_stop",
+                updateType: updateType,
+                succeeded: nil,
+                reason: "runtime_c_mixer_update_deferred_stale_after_stop"
+            )
+        }
+
+        if gainChanged || panChanged {
+            let classification = noActiveVoiceClassification(
+                context: context,
+                hasStoredControlState: controlStateByChannel[channel] != nil,
+                hasStepChange: stepChanged
+            )
+            controlStateByChannel[channel] = RuntimeCMixerChannelControlState(
+                volumeScale: gainChanged ? nextControlState.volumeScale : currentControlState.volumeScale,
+                panning: panChanged ? nextControlState.panning : currentControlState.panning,
+                pitchOffsetSemitones: currentControlState.pitchOffsetSemitones
+            )
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: true,
+                stepAttempted: stepChanged,
+                gainBefore: currentControlState.volumeScale,
+                gainAfter: gainChanged ? nextControlState.volumeScale : currentControlState.volumeScale,
+                panBefore: currentControlState.panning,
+                panAfter: panChanged ? nextControlState.panning : currentControlState.panning,
+                sampleStepBefore: nil,
+                sampleStepAfter: nil,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: nextControlState.volumeScale,
+                panRequested: nextControlState.panning,
+                sampleStepRequested: nextControlState.pitchOffsetSemitones,
+                gainDelta: gainDecision.delta,
+                panDelta: panDecision.delta,
+                sampleStepDelta: stepDecision.delta,
+                gainUpdateStatus: gainDecision.status,
+                panUpdateStatus: panDecision.status,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+                epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_stored_channel_state",
+                updateType: updateType,
+                succeeded: nil,
+                reason: stepChanged
+                    ? "runtime_c_mixer_update_stored_channel_state_\(classification)_step_deferred_no_active_voice"
+                    : "runtime_c_mixer_update_stored_channel_state_\(classification)"
+            )
+        }
+
+        guard stepChanged else {
+            return RuntimeCMixerUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                gainPanApplied: false,
+                stepApplied: false,
+                gainPanAttempted: false,
+                stepAttempted: false,
+                gainBefore: currentControlState.volumeScale,
+                gainAfter: currentControlState.volumeScale,
+                panBefore: currentControlState.panning,
+                panAfter: currentControlState.panning,
+                sampleStepBefore: nil,
+                sampleStepAfter: nil,
+                updateEpsilon: Self.updateEpsilon,
+                gainRequested: nextControlState.volumeScale,
+                panRequested: nextControlState.panning,
+                sampleStepRequested: nextControlState.pitchOffsetSemitones,
+                gainDelta: gainDecision.delta,
+                panDelta: panDecision.delta,
+                sampleStepDelta: stepDecision.delta,
+                gainUpdateStatus: gainDecision.status,
+                panUpdateStatus: panDecision.status,
+                sampleStepUpdateStatus: stepDecision.status,
+                epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+                epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+                epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+                disposition: "update_suppressed_no_change",
+                updateType: "none",
+                succeeded: nil,
+                reason: gainDecision.suppressedByEpsilon || panDecision.suppressedByEpsilon || stepDecision.suppressedByEpsilon
+                    ? "runtime_c_mixer_update_suppressed_no_change_harmless_no_active_voice_epsilon_filtered"
+                    : "runtime_c_mixer_update_suppressed_no_change_harmless_no_active_voice"
+            )
+        }
+
+        let classification = noActiveVoiceClassification(
+            context: context,
+            hasStoredControlState: controlStateByChannel[channel] != nil,
+            hasStepChange: true
+        )
+        return RuntimeCMixerUpdateResult(
+            channel: channel,
+            targetVoiceIndex: nil,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotBefore,
+            gainPanApplied: false,
+            stepApplied: false,
+            gainPanAttempted: false,
+            stepAttempted: true,
+            gainBefore: currentControlState.volumeScale,
+            gainAfter: nextControlState.volumeScale,
+            panBefore: currentControlState.panning,
+            panAfter: nextControlState.panning,
+            sampleStepBefore: nil,
+            sampleStepAfter: nil,
+            updateEpsilon: Self.updateEpsilon,
+            gainRequested: nextControlState.volumeScale,
+            panRequested: nextControlState.panning,
+            sampleStepRequested: nextControlState.pitchOffsetSemitones,
+            gainDelta: gainDecision.delta,
+            panDelta: panDecision.delta,
+            sampleStepDelta: stepDecision.delta,
+            gainUpdateStatus: gainDecision.status,
+            panUpdateStatus: panDecision.status,
+            sampleStepUpdateStatus: stepDecision.status,
+            epsilonSuppressedGain: gainDecision.suppressedByEpsilon,
+            epsilonSuppressedPan: panDecision.suppressedByEpsilon,
+            epsilonSuppressedStep: stepDecision.suppressedByEpsilon,
+            disposition: "update_deferred_no_active_voice",
+            updateType: "step",
+            succeeded: nil,
+            reason: "runtime_c_mixer_update_deferred_no_active_voice_\(classification)"
+        )
+    }
+
+    private func noActiveVoiceClassification(
+        context: AudioRuntimeTraceContext?,
+        hasStoredControlState: Bool,
+        hasStepChange: Bool
+    ) -> String {
+        if let noteValue = context?.noteValue,
+           (1...96).contains(noteValue) {
+            return "update_before_note"
+        }
+        if hasStepChange, !hasStoredControlState {
+            return "missing_runtime_channel_state"
+        }
+        if context == nil, !hasStoredControlState {
+            return "unknown"
+        }
+        return "harmless_no_active_voice"
+    }
+
+    private func updateDecision(previous: Double, requested: Double) -> RuntimeCMixerFieldUpdateDecision {
+        let delta = abs(requested - previous)
+        let suppressedByEpsilon = delta > 0 && delta <= Self.updateEpsilon
+        return RuntimeCMixerFieldUpdateDecision(
+            previous: previous,
+            requested: requested,
+            delta: delta,
+            shouldApply: delta > Self.updateEpsilon,
+            suppressedByEpsilon: suppressedByEpsilon
+        )
+    }
+
+    private func appliedUpdateReason(gainPanChanged: Bool, stepChanged: Bool, epsilonSuppressed: Bool) -> String {
+        if epsilonSuppressed {
+            return "runtime_c_mixer_update_applied_after_epsilon_filter"
+        }
+        if gainPanChanged && stepChanged {
+            return "runtime_c_mixer_update_applied_combined"
+        }
+        return gainPanChanged
+            ? "runtime_c_mixer_update_applied_gain_pan"
+            : "runtime_c_mixer_update_applied_step"
+    }
+
+    private func updateType(gainChanged: Bool, panChanged: Bool, stepChanged: Bool) -> String {
+        let changedCount = [gainChanged, panChanged, stepChanged].filter { $0 }.count
+        if changedCount == 0 {
+            return "none"
+        }
+        if changedCount > 1 {
+            return "combined"
+        }
+        if gainChanged {
+            return "gain"
+        }
+        if panChanged {
+            return "pan"
+        }
+        return "step"
     }
 
     func stop(channel: Int) {
@@ -1095,6 +1659,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         mixer.clearVoices()
         mixer.reset()
         voiceStateByChannel.removeAll()
+        controlStateByChannel.removeAll()
+        stoppedFrameByChannel.removeAll()
     }
 
     private func recordZeroFillCallback(frameCount: Int) {
@@ -1121,6 +1687,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         if channel >= 0 && channel <= Int(UInt32.max) {
             stoppedVoiceCount = mixer.stopVoices(channel: channel)
             voiceStateByChannel.removeValue(forKey: channel)
+            stoppedFrameByChannel[channel] = mixer.currentFrame
         } else {
             stoppedVoiceCount = 0
         }
@@ -1287,6 +1854,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return min(1, max(-1, pan))
     }
 
+    private func defaultControlState(for channel: Int) -> RuntimeCMixerChannelControlState {
+        RuntimeCMixerChannelControlState(
+            volumeScale: 1,
+            panning: PlaybackEffectHandler.audioPanning(
+                forXMValue: PlaybackChannelState.defaultPanning(forChannel: channel)
+            ),
+            pitchOffsetSemitones: 0
+        )
+    }
+
     private func playbackStep(
         note: UInt8,
         sample: PlaybackSample,
@@ -1402,6 +1979,11 @@ private struct RuntimeCMixerEventCounters: Equatable {
     var cMixerAddVoiceCount: UInt64 = 0
     var gainPanUpdateCount: UInt64 = 0
     var stepUpdateCount: UInt64 = 0
+    var updateSuppressedEpsilonGainCount: UInt64 = 0
+    var updateSuppressedEpsilonPanCount: UInt64 = 0
+    var updateSuppressedEpsilonStepCount: UInt64 = 0
+    var updateSuppressedNoChangeCount: UInt64 = 0
+    var updateAppliedAfterEpsilonFilterCount: UInt64 = 0
     var stopChannelCount: UInt64 = 0
     var clearAllCount: UInt64 = 0
 }
@@ -1516,9 +2098,28 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if isFallbackActive {
             fallbackAudioEngine.update(channel: channel, controls: controls)
         } else {
-            let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls)
-            eventCounters.gainPanUpdateCount &+= 1
-            eventCounters.stepUpdateCount &+= 1
+            let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls, context: context)
+            if result.gainPanAttempted {
+                eventCounters.gainPanUpdateCount &+= 1
+            }
+            if result.stepAttempted {
+                eventCounters.stepUpdateCount &+= 1
+            }
+            if result.epsilonSuppressedGain {
+                eventCounters.updateSuppressedEpsilonGainCount &+= 1
+            }
+            if result.epsilonSuppressedPan {
+                eventCounters.updateSuppressedEpsilonPanCount &+= 1
+            }
+            if result.epsilonSuppressedStep {
+                eventCounters.updateSuppressedEpsilonStepCount &+= 1
+            }
+            if result.disposition == "update_suppressed_no_change" {
+                eventCounters.updateSuppressedNoChangeCount &+= 1
+            }
+            if result.appliedAfterEpsilonFilter {
+                eventCounters.updateAppliedAfterEpsilonFilterCount &+= 1
+            }
             recordRuntimeEvent(
                 action: result.traceAction,
                 context: contextWithFallbackChannel(context, channel: channel),
@@ -1533,6 +2134,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 panAfter: result.panAfter,
                 sampleStepBefore: result.sampleStepBefore,
                 sampleStepAfter: result.sampleStepAfter,
+                updateDisposition: result.disposition,
+                updateType: result.updateType,
+                updateEpsilon: result.updateEpsilon,
+                gainRequested: result.gainRequested,
+                panRequested: result.panRequested,
+                sampleStepRequested: result.sampleStepRequested,
+                gainDelta: result.gainDelta,
+                panDelta: result.panDelta,
+                sampleStepDelta: result.sampleStepDelta,
+                gainUpdateStatus: result.gainUpdateStatus,
+                panUpdateStatus: result.panUpdateStatus,
+                sampleStepUpdateStatus: result.sampleStepUpdateStatus,
                 reason: result.reason
             )
         }
@@ -1685,6 +2298,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         panAfter: Float? = nil,
         sampleStepBefore: Double? = nil,
         sampleStepAfter: Double? = nil,
+        updateDisposition: String? = nil,
+        updateType: String? = nil,
+        updateEpsilon: Double? = nil,
+        gainRequested: Float? = nil,
+        panRequested: Float? = nil,
+        sampleStepRequested: Double? = nil,
+        gainDelta: Double? = nil,
+        panDelta: Double? = nil,
+        sampleStepDelta: Double? = nil,
+        gainUpdateStatus: String? = nil,
+        panUpdateStatus: String? = nil,
+        sampleStepUpdateStatus: String? = nil,
         reason: String?
     ) {
         guard traceWriter.isEnabled else {
@@ -1713,6 +2338,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             panAfter: panAfter,
             sampleStepBefore: sampleStepBefore,
             sampleStepAfter: sampleStepAfter,
+            updateDisposition: updateDisposition,
+            updateType: updateType,
+            updateEpsilon: updateEpsilon,
+            gainRequested: gainRequested,
+            panRequested: panRequested,
+            sampleStepRequested: sampleStepRequested,
+            gainDelta: gainDelta,
+            panDelta: panDelta,
+            sampleStepDelta: sampleStepDelta,
+            gainUpdateStatus: gainUpdateStatus,
+            panUpdateStatus: panUpdateStatus,
+            sampleStepUpdateStatus: sampleStepUpdateStatus,
             currentFrame: snapshot.currentFrame,
             scheduledVoiceCount: snapshot.scheduledVoiceCount,
             eventQueueBacklogCount: snapshot.eventQueueBacklogCount,
@@ -1750,6 +2387,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             cMixerAddVoiceCount: eventCounters.cMixerAddVoiceCount,
             gainPanUpdateCount: eventCounters.gainPanUpdateCount,
             stepUpdateCount: eventCounters.stepUpdateCount,
+            updateSuppressedEpsilonGainCount: eventCounters.updateSuppressedEpsilonGainCount,
+            updateSuppressedEpsilonPanCount: eventCounters.updateSuppressedEpsilonPanCount,
+            updateSuppressedEpsilonStepCount: eventCounters.updateSuppressedEpsilonStepCount,
+            updateSuppressedNoChangeCount: eventCounters.updateSuppressedNoChangeCount,
+            updateAppliedAfterEpsilonFilterCount: eventCounters.updateAppliedAfterEpsilonFilterCount,
             stopChannelCount: eventCounters.stopChannelCount,
             clearAllCount: eventCounters.clearAllCount,
             cMixerCallSucceeded: succeeded,

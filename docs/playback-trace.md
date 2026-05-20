@@ -196,27 +196,56 @@ Those events include the channel context when available, `stoppedVoiceCount`,
 `activeVoiceCountBefore`, `activeVoiceCountAfter`, `loadedVoiceCountBefore`,
 and `loadedVoiceCountAfter` when available. True transport-wide stop/reset
 actions use `c_mixer_clear_all` and `targetScope == "all_channels"`.
-Supported runtime C mixer control updates now use applied/deferred diagnostic
-actions instead of one generic no-op event. Applied update rows are
+Supported runtime C mixer control updates now classify the remaining update
+handoff cases instead of treating no-op refreshes and missing targets as one
+deferred bucket. Applied update rows remain
 `c_mixer_update_gain_pan_applied`, `c_mixer_update_step_applied`, or
-`c_mixer_update_gain_pan_step_applied`. Deferred rows use
-`c_mixer_update_gain_pan_step_deferred_missing_data` when the runtime handoff
-does not have a current channel voice/sample-step target, or
-`c_mixer_update_gain_pan_step_deferred_unsupported` when the supplied update
-values are invalid or cannot be represented by the supported C mixer update
-primitive, including no-change refreshes that do not need a C mixer call.
-Update rows include the target channel via `channelIndex`,
-`targetVoiceIndex` when available, active/loaded voice counts before and after
-when available, and `gainBefore`/`gainAfter`, `panBefore`/`panAfter`, and
-`sampleStepBefore`/`sampleStepAfter` when available. Gain/pan updates keep the
-C mixer's fixed micro-ramp; sample-step updates apply at the scheduled runtime
-mixer frame.
+`c_mixer_update_gain_pan_step_applied`. Non-applied rows use
+`c_mixer_update_suppressed_no_change`,
+`c_mixer_update_stored_channel_state`,
+`c_mixer_update_deferred_no_active_voice`,
+`c_mixer_update_deferred_stale_after_stop`,
+`c_mixer_update_deferred_missing_data`, or
+`c_mixer_update_deferred_unsupported`.
+
+Update trace rows include `updateDisposition` values such as `update_applied`,
+`update_suppressed_no_change`, `update_stored_channel_state`,
+`update_deferred_no_active_voice`, `update_deferred_stale_after_stop`,
+`update_deferred_missing_data`, and `update_deferred_unsupported`, plus
+`updateType` values such as `gain`, `pan`, `step`, `combined`, or `none`.
+Runtime C mixer updates use a strict `1e-5` epsilon for gain, pan, and
+sample-step deltas before scheduling C mixer update events. Per-field deltas at
+or below that threshold are suppressed, combined updates apply only fields that
+exceed it, and all-fields-below-epsilon updates are reported as
+`update_suppressed_no_change` without restarting gain/pan ramps or sample-step
+updates. Rows may include `updateEpsilon`, `gainRequested`, `panRequested`,
+`sampleStepRequested`, `gainDelta`, `panDelta`, `sampleStepDelta`,
+`gainUpdateStatus`, `panUpdateStatus`, and `sampleStepUpdateStatus` with
+statuses such as `applied`, `suppressed_epsilon`, or `unchanged`.
+
+Reasons further distinguish harmless no-active refreshes, stale updates after a
+channel stop, update-before-note cases, missing runtime channel state, unknown
+no-active cases, missing sample-step target data, and unsupported values.
+Gain/pan changes without an active target voice may be retained as channel state
+for a later note trigger; step/pitch changes without an active sample/note
+target remain deferred. Update rows include the target channel via
+`channelIndex`, `targetVoiceIndex` when available, active/loaded voice counts
+before and after when available, and `gainBefore`/`gainAfter`,
+`panBefore`/`panAfter`, and `sampleStepBefore`/`sampleStepAfter` when
+available. Gain/pan updates keep the C mixer's fixed micro-ramp; sample-step
+updates apply at the scheduled runtime mixer frame.
 
 Trace events also carry cumulative event counters for C mixer add-voice calls,
-gain/pan update attempts, sample-step update attempts, channel stops, and global
-clear-all calls. The current runtime path has no separate event queue, so
-`eventQueueBacklogCount` is reported as `0` when a runtime C mixer snapshot is
-available.
+gain/pan update attempts, sample-step update attempts,
+`updateSuppressedEpsilonGainCount`, `updateSuppressedEpsilonPanCount`,
+`updateSuppressedEpsilonStepCount`, `updateSuppressedNoChangeCount`,
+`updateAppliedAfterEpsilonFilterCount`, channel stops, and global clear-all
+calls. These counters correspond to the runtime diagnostics categories
+`update_suppressed_epsilon_gain`, `update_suppressed_epsilon_pan`,
+`update_suppressed_epsilon_step`, `update_suppressed_no_change`, and
+`update_applied_after_epsilon_filter`. The current runtime path has no separate
+event queue, so `eventQueueBacklogCount` is reported as `0` when a runtime C
+mixer snapshot is available.
 
 Runtime C mixer traces are diagnostic artifacts. Keep them under `/tmp` or
 another ignored local path, and do not commit traces derived from private/local

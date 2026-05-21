@@ -255,6 +255,15 @@ diagnostic allocation-risk reporting, and a local-only follow-publication
 disable flag for UI/callback isolation. This remains diagnostics-only; output
 tap capture and any AVAudio graph or hardware-route fix are separate follow-up
 work.
+Runtime C mixer render callback diagnostics now use fixed-capacity diagnostic
+buffers and counters for callback-side event summaries, over-budget/output
+health counters, try-lock failures, and diagnostic drops. Trace summaries report
+`callbackRealtimeSafeDiagnostics`, `callbackDiagnosticDropCount`,
+`callbackRingBufferCapacity`, and `callbackLockFailureCount`, while
+allocation-prone output-copy hashing is an explicit local opt-in. This keeps
+AVAudio as the default backend, keeps the C mixer opt-in only, leaves offline
+rendering and C mixer DSP unchanged, and keeps output-device/hardware
+stabilization as separate work.
 Runtime/offline mismatch window correlation diagnostics are available after
 live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
@@ -346,7 +355,8 @@ Immediate audio accuracy sequence:
 71. Transport stop-position preservation / Spacebar playback shortcut — done
 72. Runtime C Mixer AVAudioSourceNode Format / Device Sample-Rate Alignment — done
 73. Runtime C Mixer AVAudio Callback Realtime Safety / I/O Buffer Diagnostics — done
-73. Reference comparison stabilization against MikMod/OpenMPT
+74. Runtime C Mixer Render Callback Diagnostics Decoupling — done
+75. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

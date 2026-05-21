@@ -1767,8 +1767,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "callback_thread_id": last_exact_integer(events, "callbackThreadID"),
         "main_thread_dependency_detected": any(event.get("callbackMainThreadDependencyDetected") is True for event in events),
         "allocation_warning": any(event.get("callbackAllocationWarning") is True for event in events),
+        "realtime_safe_diagnostics": last_bool(events, "callbackRealtimeSafeDiagnostics"),
+        "diagnostic_drop_count": int(max_numeric(events, "callbackDiagnosticDropCount") or 0),
+        "ring_buffer_capacity": integer(last_number(events, "callbackRingBufferCapacity")),
         "lock_wait_count": int(max_numeric(events, "callbackLockWaitCount") or 0),
         "lock_wait_duration_ms": rounded_optional(max_numeric(events, "callbackLockWaitDurationMS")),
+        "lock_failure_count": int(max_numeric(events, "callbackLockFailureCount") or 0),
         "event_queue_producer_thread_id": last_exact_integer(events, "eventQueueProducerThreadID"),
         "event_queue_producer_thread_is_main": last_bool(events, "eventQueueProducerThreadIsMain"),
         "event_queue_consumer_thread_id": last_exact_integer(events, "eventQueueConsumerThreadID"),
@@ -1939,8 +1943,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("AVAudioSourceNode callback ran on or depended on the main thread")
     if callback_isolation["lock_wait_count"] > 0:
         suspicious_findings.append("AVAudioSourceNode callback lock waits observed")
+    if callback_isolation["lock_failure_count"] > 0:
+        suspicious_findings.append("AVAudioSourceNode callback try-lock failures observed")
     if callback_isolation["allocation_warning"]:
         suspicious_findings.append("AVAudioSourceNode callback still contains diagnostic allocation risk")
+    if callback_isolation["diagnostic_drop_count"] > 0:
+        suspicious_findings.append("runtime C mixer callback diagnostic ring dropped events")
     if (
         output_copy_failure_count > 0
         or output_copy_last_succeeded is False
@@ -2334,7 +2342,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
         f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
         f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
-        f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
+        f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} realtime_safe={callback_isolation['realtime_safe_diagnostics']} diagnostic_drops={callback_isolation['diagnostic_drop_count']} ring_capacity={callback_isolation['ring_buffer_capacity']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} lock_failures={callback_isolation['lock_failure_count']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
         f"- Output buffer copy: attempts={output_buffer_copy['attempt_count']} failures={output_buffer_copy['failure_count']} last_succeeded={output_buffer_copy['last_succeeded']} layout={output_buffer_copy['layout']} frames={output_buffer_copy['copied_frame_count']}/{output_buffer_copy['requested_frame_count']} channels={output_buffer_copy['output_channel_count']} filled={output_buffer_copy['filled_requested_frames']} scratch_capture_hash_match={output_buffer_copy['scratch_capture_hash_matches']} scratch_output_hash_match={output_buffer_copy['scratch_output_hash_matches']}",
         f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",

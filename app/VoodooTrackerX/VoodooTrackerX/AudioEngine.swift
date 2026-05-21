@@ -3,6 +3,7 @@ import CoreAudio
 import Darwin
 import Foundation
 import os
+import Synchronization
 
 @MainActor
 protocol PlaybackAudioOutput: AnyObject {
@@ -192,6 +193,7 @@ enum RuntimeCMixerDiagnosticEnvironment {
     static let disableCaptureEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE"
     static let minimalCallbackEnvironmentKey = "VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK"
     static let disableFollowPublicationEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION"
+    static let outputBufferVerificationEnvironmentKey = "VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY"
 
     static func flagEnabled(_ key: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -208,7 +210,7 @@ struct RuntimeCMixerCallbackDiagnosticsConfiguration: Equatable {
 
     static let defaultConfiguration = RuntimeCMixerCallbackDiagnosticsConfiguration(
         minimalCallbackMode: false,
-        outputBufferVerificationEnabled: true
+        outputBufferVerificationEnabled: false
     )
 
     static func resolve(
@@ -218,9 +220,13 @@ struct RuntimeCMixerCallbackDiagnosticsConfiguration: Equatable {
             RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey,
             environment: environment
         )
+        let outputBufferVerificationEnabled = RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+            RuntimeCMixerDiagnosticEnvironment.outputBufferVerificationEnvironmentKey,
+            environment: environment
+        )
         return RuntimeCMixerCallbackDiagnosticsConfiguration(
             minimalCallbackMode: minimal,
-            outputBufferVerificationEnabled: !minimal
+            outputBufferVerificationEnabled: !minimal && outputBufferVerificationEnabled
         )
     }
 }
@@ -679,8 +685,12 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let callbackThreadID: UInt64?
     let callbackMainThreadDependencyDetected: Bool?
     let callbackAllocationWarning: Bool?
+    let callbackRealtimeSafeDiagnostics: Bool?
+    let callbackDiagnosticDropCount: UInt64?
+    let callbackRingBufferCapacity: Int?
     let callbackLockWaitCount: UInt64?
     let callbackLockWaitDurationMS: Double?
+    let callbackLockFailureCount: UInt64?
     let eventQueueProducerThreadID: UInt64?
     let eventQueueProducerThreadIsMain: Bool?
     let eventQueueConsumerThreadID: UInt64?
@@ -1004,8 +1014,12 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         callbackThreadID: UInt64? = nil,
         callbackMainThreadDependencyDetected: Bool? = nil,
         callbackAllocationWarning: Bool? = nil,
+        callbackRealtimeSafeDiagnostics: Bool? = nil,
+        callbackDiagnosticDropCount: UInt64? = nil,
+        callbackRingBufferCapacity: Int? = nil,
         callbackLockWaitCount: UInt64? = nil,
         callbackLockWaitDurationMS: Double? = nil,
+        callbackLockFailureCount: UInt64? = nil,
         eventQueueProducerThreadID: UInt64? = nil,
         eventQueueProducerThreadIsMain: Bool? = nil,
         eventQueueConsumerThreadID: UInt64? = nil,
@@ -1354,8 +1368,12 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.callbackThreadID = callbackThreadID
         self.callbackMainThreadDependencyDetected = callbackMainThreadDependencyDetected
         self.callbackAllocationWarning = callbackAllocationWarning
+        self.callbackRealtimeSafeDiagnostics = callbackRealtimeSafeDiagnostics
+        self.callbackDiagnosticDropCount = callbackDiagnosticDropCount
+        self.callbackRingBufferCapacity = callbackRingBufferCapacity
         self.callbackLockWaitCount = callbackLockWaitCount
         self.callbackLockWaitDurationMS = callbackLockWaitDurationMS
+        self.callbackLockFailureCount = callbackLockFailureCount
         self.eventQueueProducerThreadID = eventQueueProducerThreadID
         self.eventQueueProducerThreadIsMain = eventQueueProducerThreadIsMain
         self.eventQueueConsumerThreadID = eventQueueConsumerThreadID
@@ -2018,8 +2036,12 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let callbackThreadID: UInt64?
     let callbackMainThreadDependencyDetected: Bool
     let callbackAllocationWarning: Bool
+    let callbackRealtimeSafeDiagnostics: Bool
+    let callbackDiagnosticDropCount: UInt64
+    let callbackRingBufferCapacity: Int
     let callbackLockWaitCount: UInt64
     let callbackLockWaitDurationMS: Double
+    let callbackLockFailureCount: UInt64
     let eventQueueProducerThreadID: UInt64?
     let eventQueueProducerThreadIsMain: Bool?
     let eventQueueConsumerThreadID: UInt64?
@@ -2264,18 +2286,6 @@ struct RuntimeCMixerUpdatePolicy: Equatable {
 }
 
 private struct RuntimeCMixerOutputMetrics: Equatable {
-    struct SampleJump: Equatable {
-        let sampleJump: Float
-        let frameOffset: Int
-        let channelIndex: Int
-    }
-
-    struct Peak: Equatable {
-        let peak: Float
-        let frameOffset: Int
-        let channelIndex: Int
-    }
-
     let sampleCount: Int
     let peak: Float
     let squareSum: Double
@@ -2284,12 +2294,10 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
     let discontinuityCount050: Int
     let discontinuityCount075: Int
     let maxAdjacentSampleJump: Float
-    let topAdjacentSampleJumps: [SampleJump]
     let maxDiscontinuityFrameOffset: Int?
     let maxDiscontinuityChannelIndex: Int?
     let maxDiscontinuitySampleJump: Float?
     let peakWarningSampleCount: Int
-    let topPeaks: [Peak]
     let overrangeSampleCount: Int
     let clippingSampleCount: Int
 
@@ -2317,12 +2325,10 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
         discontinuityCount050: 0,
         discontinuityCount075: 0,
         maxAdjacentSampleJump: 0,
-        topAdjacentSampleJumps: [],
         maxDiscontinuityFrameOffset: nil,
         maxDiscontinuityChannelIndex: nil,
         maxDiscontinuitySampleJump: nil,
         peakWarningSampleCount: 0,
-        topPeaks: [],
         overrangeSampleCount: 0,
         clippingSampleCount: 0
     )
@@ -2596,11 +2602,100 @@ fileprivate enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
     case noteCut(RuntimeCMixerPlannedCutResult)
 }
 
+fileprivate struct RuntimeCMixerAffectedChannelSet: Equatable {
+    static let capacity = 8
+
+    private(set) var count = 0
+    private var channel0 = 0
+    private var channel1 = 0
+    private var channel2 = 0
+    private var channel3 = 0
+    private var channel4 = 0
+    private var channel5 = 0
+    private var channel6 = 0
+    private var channel7 = 0
+
+    mutating func insert(_ channel: Int) {
+        guard !contains(channel),
+              count < Self.capacity else {
+            return
+        }
+        setValue(channel, at: count)
+        count += 1
+        var index = count - 1
+        while index > 0,
+              value(at: index) < value(at: index - 1) {
+            swapAt(index, index - 1)
+            index -= 1
+        }
+    }
+
+    func values() -> [Int] {
+        guard count > 0 else {
+            return []
+        }
+        var result = [Int]()
+        result.reserveCapacity(count)
+        for index in 0..<count {
+            result.append(value(at: index))
+        }
+        return result
+    }
+
+    private func contains(_ channel: Int) -> Bool {
+        for index in 0..<count where value(at: index) == channel {
+            return true
+        }
+        return false
+    }
+
+    private func value(at index: Int) -> Int {
+        switch index {
+        case 0: channel0
+        case 1: channel1
+        case 2: channel2
+        case 3: channel3
+        case 4: channel4
+        case 5: channel5
+        case 6: channel6
+        default: channel7
+        }
+    }
+
+    private mutating func setValue(_ value: Int, at index: Int) {
+        switch index {
+        case 0: channel0 = value
+        case 1: channel1 = value
+        case 2: channel2 = value
+        case 3: channel3 = value
+        case 4: channel4 = value
+        case 5: channel5 = value
+        case 6: channel6 = value
+        default: channel7 = value
+        }
+    }
+
+    private mutating func swapAt(_ lhs: Int, _ rhs: Int) {
+        let leftValue = value(at: lhs)
+        setValue(value(at: rhs), at: lhs)
+        setValue(leftValue, at: rhs)
+    }
+}
+
 fileprivate struct RuntimeCMixerSameFrameBurstDiagnostic: Equatable {
+    private static let gainPanUpdateCategoryBit: UInt32 = 1 << 0
+    private static let globalVolumeUpdateCategoryBit: UInt32 = 1 << 1
+    private static let keyOffFadeoutCategoryBit: UInt32 = 1 << 2
+    private static let noteCutCategoryBit: UInt32 = 1 << 3
+    private static let noteTriggerCategoryBit: UInt32 = 1 << 4
+    private static let replacementStopRampCategoryBit: UInt32 = 1 << 5
+    private static let stepUpdateCategoryBit: UInt32 = 1 << 6
+    private static let otherCategoryBit: UInt32 = 1 << 7
+
     let id: Int
     let eventOrdinal: Int
-    let categories: [String]
-    let affectedChannels: [Int]
+    let categoryMask: UInt32
+    let affectedChannelSet: RuntimeCMixerAffectedChannelSet
     let noteTriggerCount: Int
     let replacementRampCount: Int
     let gainPanUpdateCount: Int
@@ -2618,6 +2713,50 @@ fileprivate struct RuntimeCMixerSameFrameBurstDiagnostic: Equatable {
     let sustainedVoicesCarried: Int
     let atOrderStart: Bool
     let atRowTransition: Bool
+
+    var categories: [String] {
+        var result = [String]()
+        appendCategory("gain_pan_update", bit: Self.gainPanUpdateCategoryBit, into: &result)
+        appendCategory("global_volume_update", bit: Self.globalVolumeUpdateCategoryBit, into: &result)
+        appendCategory("key_off_fadeout", bit: Self.keyOffFadeoutCategoryBit, into: &result)
+        appendCategory("note_cut", bit: Self.noteCutCategoryBit, into: &result)
+        appendCategory("note_trigger", bit: Self.noteTriggerCategoryBit, into: &result)
+        appendCategory("replacement_stop_ramp", bit: Self.replacementStopRampCategoryBit, into: &result)
+        appendCategory("step_update", bit: Self.stepUpdateCategoryBit, into: &result)
+        appendCategory("other", bit: Self.otherCategoryBit, into: &result)
+        return result
+    }
+
+    var affectedChannels: [Int] {
+        affectedChannelSet.values()
+    }
+
+    static func categoryMask(for rawCategory: String) -> UInt32 {
+        switch rawCategory {
+        case "gain_pan_update":
+            return gainPanUpdateCategoryBit
+        case "hxy_global_volume", "hxy_global_volume_update", "global_volume_update":
+            return globalVolumeUpdateCategoryBit
+        case "key_off", "key_off_fadeout":
+            return keyOffFadeoutCategoryBit
+        case "note_cut":
+            return noteCutCategoryBit
+        case "note_trigger":
+            return noteTriggerCategoryBit
+        case "replacement", "replacement_stop_ramp":
+            return replacementStopRampCategoryBit
+        case "step_pitch_update", "step_update":
+            return stepUpdateCategoryBit
+        default:
+            return otherCategoryBit
+        }
+    }
+
+    private func appendCategory(_ category: String, bit: UInt32, into result: inout [String]) {
+        if categoryMask & bit != 0 {
+            result.append(category)
+        }
+    }
 }
 
 fileprivate struct RuntimeCMixerAppliedAdapterEventDiagnostic: Equatable {
@@ -2640,6 +2779,84 @@ fileprivate struct RuntimeCMixerAppliedAdapterEventDiagnostic: Equatable {
     let adapterChannelAssociationRetained: Bool
     let adapterSustainedVoiceUpdate: Bool
     let result: RuntimeCMixerAppliedAdapterEventResult
+}
+
+struct RuntimeCMixerFixedRingBuffer<Element> {
+    private var storage: [Element?]
+    private var readIndex = 0
+    private var storedCount = 0
+    private(set) var droppedCount: UInt64 = 0
+
+    init(capacity: Int) {
+        storage = Array(repeating: nil, count: max(0, capacity))
+    }
+
+    var capacity: Int {
+        storage.count
+    }
+
+    var count: Int {
+        storedCount
+    }
+
+    var isEmpty: Bool {
+        storedCount == 0
+    }
+
+    mutating func record(_ element: Element) {
+        guard !storage.isEmpty else {
+            droppedCount &+= 1
+            return
+        }
+        guard storedCount < storage.count else {
+            droppedCount &+= 1
+            return
+        }
+        let writeIndex = (readIndex + storedCount) % storage.count
+        storage[writeIndex] = element
+        storedCount += 1
+    }
+
+    mutating func recordDrop() {
+        droppedCount &+= 1
+    }
+
+    mutating func drain() -> [Element] {
+        guard storedCount > 0 else {
+            return []
+        }
+        var drained = [Element]()
+        drained.reserveCapacity(storedCount)
+        for offset in 0..<storedCount {
+            let index = (readIndex + offset) % storage.count
+            if let element = storage[index] {
+                drained.append(element)
+            }
+            storage[index] = nil
+        }
+        readIndex = 0
+        storedCount = 0
+        return drained
+    }
+
+    mutating func removeAll(resetDroppedCount: Bool = true) {
+        guard !storage.isEmpty else {
+            storedCount = 0
+            readIndex = 0
+            if resetDroppedCount {
+                droppedCount = 0
+            }
+            return
+        }
+        for index in storage.indices {
+            storage[index] = nil
+        }
+        readIndex = 0
+        storedCount = 0
+        if resetDroppedCount {
+            droppedCount = 0
+        }
+    }
 }
 
 fileprivate struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatable {
@@ -2666,8 +2883,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let outputPeakWarningThreshold = Float(0.95)
     static let transientDiagnosticTopCount = 8
     static let callbackDurationWarningThresholdSeconds = 0.002
+    static let callbackDiagnosticRingCapacity = 4_096
+    static let callbackBurstScratchCapacity = 128
 
     private let lock = NSLock()
+    private let callbackLockFailureCounter = Atomic(UInt64(0))
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
@@ -2740,7 +2960,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var clippingSampleCount: UInt64 = 0
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
     private var nextAdapterEventScheduleIndex = 0
-    private var appliedAdapterEventDiagnostics = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
+    private var appliedAdapterEventDiagnostics = RuntimeCMixerFixedRingBuffer<RuntimeCMixerAppliedAdapterEventDiagnostic>(
+        capacity: RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity
+    )
+    private var burstDiagnosticScratch: [RuntimeCMixerAppliedAdapterEventDiagnostic?]
     private var appliedPlannedEventCount: UInt64 = 0
     private var exactFrameAppliedEventCount: UInt64 = 0
     private var callbackBoundaryAppliedEventCount: UInt64 = 0
@@ -2772,6 +2995,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             captureBuffer = nil
         }
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
+        burstDiagnosticScratch = Array(repeating: nil, count: Self.callbackBurstScratchCapacity)
         topOutputAdjacentSampleJumps.reserveCapacity(Self.transientDiagnosticTopCount)
         topOutputPeaks.reserveCapacity(Self.transientDiagnosticTopCount)
     }
@@ -2811,8 +3035,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         eventQueueProducerThreadDiagnostics = RuntimeCMixerThreadDiagnostics.current()
         eventQueueConsumerThreadDiagnostics = nil
-        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
-        appliedAdapterEventDiagnostics.reserveCapacity(adapterEventSchedule.count)
+        appliedAdapterEventDiagnostics.removeAll()
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
         callbackBoundaryAppliedEventCount = 0
@@ -2834,7 +3057,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
-        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        appliedAdapterEventDiagnostics.removeAll()
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
         callbackBoundaryAppliedEventCount = 0
@@ -2854,9 +3077,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         defer {
             lock.unlock()
         }
-        let diagnostics = appliedAdapterEventDiagnostics
-        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
-        return diagnostics
+        return appliedAdapterEventDiagnostics.drain()
     }
 
     func captureBlockSnapshotForWriting() -> RuntimeCMixerCaptureBlockSnapshot? {
@@ -4128,6 +4349,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     ) -> Bool {
         let safeFrameCount = max(0, frameCount)
         guard lock.try() else {
+            callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             clear(outputInterleavedPCM)
             return false
         }
@@ -4184,6 +4406,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let sampleCount = safeFrameCount * mixer.config.channelCount
         applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
         captureOutputLocked(outputInterleavedPCM, frameCount: safeFrameCount)
+        let callbackIndex = renderCallbackCount &+ 1
         recordRenderCompletionLocked(
             requestedFrameCount: safeFrameCount,
             renderedFrameCount: safeFrameCount,
@@ -4196,7 +4419,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             outputMetrics: outputMetrics(
                 outputInterleavedPCM,
                 sampleCount: sampleCount,
-                channelCount: mixer.config.channelCount
+                channelCount: mixer.config.channelCount,
+                callbackStartFrame: callbackStartFrame,
+                callbackIndex: callbackIndex
             ),
             callbackThread: callbackThread
         )
@@ -4213,6 +4438,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func lastCaptureSummaryForOutputCopy() -> RuntimeCMixerSampleSummary? {
         guard lock.try() else {
+            callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             return nil
         }
         defer {
@@ -4243,6 +4469,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         requestedFrameCount: Int
     ) {
         guard lock.try() else {
+            callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             return
         }
         defer {
@@ -4294,6 +4521,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func recordOutputBufferCopyDiagnostics(_ diagnostics: RuntimeCMixerOutputBufferCopyDiagnostics) {
         guard lock.try() else {
+            callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             return
         }
         defer {
@@ -4357,37 +4585,42 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             }
             let sameFrameBurstSize = burstEndIndex - burstStartIndex
             let burstSnapshotBefore = snapshotLocked()
-            let burstAssociationBefore = adapterEventIndexByChannel
             let rampDownStartCountBefore = mixer.rampDownStartCount
             let rampDownCompletionCountBefore = mixer.rampDownCompletionCount
-            var burstDiagnostics = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
-            burstDiagnostics.reserveCapacity(sameFrameBurstSize)
+            var burstDiagnosticCount = 0
             if let callbackThread {
                 eventQueueConsumerThreadDiagnostics = callbackThread
             }
             for eventIndex in burstStartIndex..<burstEndIndex {
-                burstDiagnostics.append(applyQueuedAdapterEventLocked(
+                let diagnostic = applyQueuedAdapterEventLocked(
                     adapterEventSchedule[eventIndex],
                     callbackIndex: callbackIndex,
                     callbackRequestedFrameCount: frameCount,
                     callbackStartFrame: callbackStartFrame,
                     callbackEndFrame: callbackEndFrame,
                     sameFrameBurstSize: sameFrameBurstSize
-                ))
+                )
+                if burstDiagnosticCount < burstDiagnosticScratch.count {
+                    burstDiagnosticScratch[burstDiagnosticCount] = diagnostic
+                    burstDiagnosticCount += 1
+                } else {
+                    appliedAdapterEventDiagnostics.recordDrop()
+                }
             }
             let burstSnapshotAfter = snapshotLocked()
-            let burstAssociationAfter = adapterEventIndexByChannel
             appendBurstDiagnosticsLocked(
-                burstDiagnostics,
+                burstDiagnosticCount: burstDiagnosticCount,
                 burstID: burstFrame <= UInt64(Int.max) ? Int(burstFrame) : Int.max,
-                burstEvents: Array(adapterEventSchedule[burstStartIndex..<burstEndIndex].map(\.event)),
+                burstStartIndex: burstStartIndex,
+                burstEndIndex: burstEndIndex,
                 snapshotBefore: burstSnapshotBefore,
                 snapshotAfter: burstSnapshotAfter,
-                associationBefore: burstAssociationBefore,
-                associationAfter: burstAssociationAfter,
                 rampDownStartCountBefore: rampDownStartCountBefore,
                 rampDownCompletionCountBefore: rampDownCompletionCountBefore
             )
+            for index in 0..<burstDiagnosticCount {
+                burstDiagnosticScratch[index] = nil
+            }
             nextAdapterEventScheduleIndex = burstEndIndex
         }
 
@@ -4425,66 +4658,59 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private func appendBurstDiagnosticsLocked(
-        _ diagnostics: [RuntimeCMixerAppliedAdapterEventDiagnostic],
+        burstDiagnosticCount: Int,
         burstID: Int,
-        burstEvents: [RuntimeCMixerAdapterEvent],
+        burstStartIndex: Int,
+        burstEndIndex: Int,
         snapshotBefore: RuntimeCMixerRenderSnapshot,
         snapshotAfter: RuntimeCMixerRenderSnapshot,
-        associationBefore: [Int: Int],
-        associationAfter: [Int: Int],
         rampDownStartCountBefore: UInt64,
         rampDownCompletionCountBefore: UInt64
     ) {
-        guard !diagnostics.isEmpty else {
+        guard burstDiagnosticCount > 0 else {
             return
         }
-        let replacementRampCount = diagnostics.filter { diagnostic in
-            if case let .noteTrigger(result) = diagnostic.result {
-                return result.channelStopBeforeAdd?.rampedVoiceCount ?? 0 > 0
+        var replacementRampCount = 0
+        var voicesEnteringRampDownFromResults = 0
+        var newVoicesStarted = 0
+        var sustainedVoicesCarried = 0
+        for index in 0..<burstDiagnosticCount {
+            guard let diagnostic = burstDiagnosticScratch[index] else {
+                continue
             }
-            return false
-        }.count
-        let rampDownStartDelta = Self.uint64Delta(snapshotAfter.rampDownStartCount, rampDownStartCountBefore)
-        let voicesEnteringRampDownFromResults = diagnostics.reduce(0) { total, diagnostic in
-            if case let .noteTrigger(result) = diagnostic.result {
-                return total + (result.channelStopBeforeAdd?.rampedVoiceCount ?? 0)
+            if diagnostic.adapterChannelAssociationRetained {
+                sustainedVoicesCarried += 1
             }
-            return total
+            if case let .noteTrigger(result) = diagnostic.result {
+                let rampedVoiceCount = result.channelStopBeforeAdd?.rampedVoiceCount ?? 0
+                if rampedVoiceCount > 0 {
+                    replacementRampCount += 1
+                }
+                voicesEnteringRampDownFromResults += rampedVoiceCount
+                if result.succeeded {
+                    newVoicesStarted += 1
+                }
+            }
         }
+        let rampDownStartDelta = Self.uint64Delta(snapshotAfter.rampDownStartCount, rampDownStartCountBefore)
         let voicesEnteringRampDown = max(voicesEnteringRampDownFromResults, rampDownStartDelta)
-        let newVoicesStarted = diagnostics.filter { diagnostic in
-            if case let .noteTrigger(result) = diagnostic.result {
-                return result.succeeded
-            }
-            return false
-        }.count
-        let sustainedVoicesCarried = associationBefore.filter { channel, eventIndex in
-            associationAfter[channel] == eventIndex
-        }.count
+        let burstSummary = sameFrameBurstSummary(
+            burstStartIndex: burstStartIndex,
+            burstEndIndex: burstEndIndex,
+            replacementRampCount: replacementRampCount
+        )
         let burst = RuntimeCMixerSameFrameBurstDiagnostic(
             id: burstID,
             eventOrdinal: 0,
-            categories: sameFrameBurstCategories(from: burstEvents, replacementRampCount: replacementRampCount),
-            affectedChannels: Array(Set(burstEvents.map(\.channelIndex))).sorted(),
-            noteTriggerCount: burstEvents.filter { event in
-                if case .noteTrigger = event.action { return true }
-                return false
-            }.count,
+            categoryMask: burstSummary.categoryMask,
+            affectedChannelSet: burstSummary.affectedChannelSet,
+            noteTriggerCount: burstSummary.noteTriggerCount,
             replacementRampCount: replacementRampCount,
-            gainPanUpdateCount: burstEvents.filter { event in
-                if case .gainPanUpdate = event.action { return true }
-                return false
-            }.count,
-            stepUpdateCount: burstEvents.filter { event in
-                if case .stepUpdate = event.action { return true }
-                return false
-            }.count,
-            noteCutCount: burstEvents.filter { event in
-                if case .noteCut = event.action { return true }
-                return false
-            }.count,
-            keyOffCount: burstEvents.filter { $0.categories.contains("key_off") }.count,
-            globalVolumeUpdateCount: burstEvents.filter { $0.categories.contains("hxy_global_volume_update") }.count,
+            gainPanUpdateCount: burstSummary.gainPanUpdateCount,
+            stepUpdateCount: burstSummary.stepUpdateCount,
+            noteCutCount: burstSummary.noteCutCount,
+            keyOffCount: burstSummary.keyOffCount,
+            globalVolumeUpdateCount: burstSummary.globalVolumeUpdateCount,
             activeVoiceCountBefore: snapshotBefore.activeVoiceCount,
             activeVoiceCountAfter: snapshotAfter.activeVoiceCount,
             loadedVoiceCountBefore: snapshotBefore.loadedVoiceCount,
@@ -4493,12 +4719,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             voicesCompletingRampDown: Self.uint64Delta(snapshotAfter.rampDownCompletionCount, rampDownCompletionCountBefore),
             newVoicesStarted: newVoicesStarted,
             sustainedVoicesCarried: sustainedVoicesCarried,
-            atOrderStart: burstEvents.contains { $0.source.rowIndex == 0 && $0.syntheticTick == 0 },
-            atRowTransition: burstEvents.contains { $0.syntheticTick == 0 }
+            atOrderStart: burstSummary.atOrderStart,
+            atRowTransition: burstSummary.atRowTransition
         )
         let voicesCompletingRampDown = Self.uint64Delta(snapshotAfter.rampDownCompletionCount, rampDownCompletionCountBefore)
-        for (index, diagnostic) in diagnostics.enumerated() {
-            appliedAdapterEventDiagnostics.append(RuntimeCMixerAppliedAdapterEventDiagnostic(
+        for index in 0..<burstDiagnosticCount {
+            guard let diagnostic = burstDiagnosticScratch[index] else {
+                continue
+            }
+            appliedAdapterEventDiagnostics.record(RuntimeCMixerAppliedAdapterEventDiagnostic(
                 event: diagnostic.event,
                 context: diagnostic.context,
                 plannedRuntimeFrame: diagnostic.plannedRuntimeFrame,
@@ -4514,8 +4743,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 sameFrameBurst: RuntimeCMixerSameFrameBurstDiagnostic(
                     id: burst.id,
                     eventOrdinal: index + 1,
-                    categories: burst.categories,
-                    affectedChannels: burst.affectedChannels,
+                    categoryMask: burst.categoryMask,
+                    affectedChannelSet: burst.affectedChannelSet,
                     noteTriggerCount: burst.noteTriggerCount,
                     replacementRampCount: burst.replacementRampCount,
                     gainPanUpdateCount: burst.gainPanUpdateCount,
@@ -4544,30 +4773,74 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
     }
 
-    private func sameFrameBurstCategories(
-        from events: [RuntimeCMixerAdapterEvent],
-        replacementRampCount: Int
-    ) -> [String] {
-        var categories = Set(events.flatMap(\.categories).map(Self.normalizedBurstCategory))
-        if replacementRampCount > 0 {
-            categories.insert("replacement_stop_ramp")
-        }
-        return categories.sorted()
+    private struct RuntimeCMixerSameFrameBurstSummary {
+        let categoryMask: UInt32
+        let affectedChannelSet: RuntimeCMixerAffectedChannelSet
+        let noteTriggerCount: Int
+        let gainPanUpdateCount: Int
+        let stepUpdateCount: Int
+        let noteCutCount: Int
+        let keyOffCount: Int
+        let globalVolumeUpdateCount: Int
+        let atOrderStart: Bool
+        let atRowTransition: Bool
     }
 
-    private static func normalizedBurstCategory(_ category: String) -> String {
-        switch category {
-        case "step_pitch_update":
-            return "step_update"
-        case "hxy_global_volume", "hxy_global_volume_update":
-            return "global_volume_update"
-        case "key_off":
-            return "key_off_fadeout"
-        case "replacement":
-            return "replacement_stop_ramp"
-        default:
-            return category
+    private func sameFrameBurstSummary(
+        burstStartIndex: Int,
+        burstEndIndex: Int,
+        replacementRampCount: Int
+    ) -> RuntimeCMixerSameFrameBurstSummary {
+        var categoryMask: UInt32 = 0
+        var affectedChannelSet = RuntimeCMixerAffectedChannelSet()
+        var noteTriggerCount = 0
+        var gainPanUpdateCount = 0
+        var stepUpdateCount = 0
+        var noteCutCount = 0
+        var keyOffCount = 0
+        var globalVolumeUpdateCount = 0
+        var atOrderStart = false
+        var atRowTransition = false
+        for index in burstStartIndex..<burstEndIndex {
+            let event = adapterEventSchedule[index].event
+            affectedChannelSet.insert(event.channelIndex)
+            atOrderStart = atOrderStart || (event.source.rowIndex == 0 && event.syntheticTick == 0)
+            atRowTransition = atRowTransition || event.syntheticTick == 0
+            switch event.action {
+            case .noteTrigger:
+                noteTriggerCount += 1
+            case .gainPanUpdate:
+                gainPanUpdateCount += 1
+            case .stepUpdate:
+                stepUpdateCount += 1
+            case .noteCut:
+                noteCutCount += 1
+            }
+            if event.categories.contains("key_off") {
+                keyOffCount += 1
+            }
+            if event.categories.contains("hxy_global_volume_update") {
+                globalVolumeUpdateCount += 1
+            }
+            for category in event.categories {
+                categoryMask |= RuntimeCMixerSameFrameBurstDiagnostic.categoryMask(for: category)
+            }
         }
+        if replacementRampCount > 0 {
+            categoryMask |= RuntimeCMixerSameFrameBurstDiagnostic.categoryMask(for: "replacement_stop_ramp")
+        }
+        return RuntimeCMixerSameFrameBurstSummary(
+            categoryMask: categoryMask,
+            affectedChannelSet: affectedChannelSet,
+            noteTriggerCount: noteTriggerCount,
+            gainPanUpdateCount: gainPanUpdateCount,
+            stepUpdateCount: stepUpdateCount,
+            noteCutCount: noteCutCount,
+            keyOffCount: keyOffCount,
+            globalVolumeUpdateCount: globalVolumeUpdateCount,
+            atOrderStart: atOrderStart,
+            atRowTransition: atRowTransition
+        )
     }
 
     private static func uint64Delta(_ current: UInt64, _ previous: UInt64) -> Int {
@@ -4719,9 +4992,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
-        appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        appliedAdapterEventDiagnostics.removeAll()
         lastCaptureSummary = nil
         lastOutputBufferCopyDiagnostics = nil
+        callbackLockFailureCounter.store(0, ordering: .relaxed)
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
         callbackBoundaryAppliedEventCount = 0
@@ -4731,6 +5005,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func recordZeroFillCallback(frameCount: Int) {
         guard lock.try() else {
+            callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
             return
         }
         defer {
@@ -4925,9 +5200,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackThreadIsMain: lastCallbackThreadDiagnostics?.isMainThread,
             callbackThreadID: lastCallbackThreadDiagnostics?.threadID,
             callbackMainThreadDependencyDetected: callbackMainThreadInvocationCount > 0,
-            callbackAllocationWarning: true,
+            callbackAllocationWarning: false,
+            callbackRealtimeSafeDiagnostics: true,
+            callbackDiagnosticDropCount: appliedAdapterEventDiagnostics.droppedCount,
+            callbackRingBufferCapacity: appliedAdapterEventDiagnostics.capacity,
             callbackLockWaitCount: 0,
             callbackLockWaitDurationMS: 0,
+            callbackLockFailureCount: callbackLockFailureCounter.load(ordering: .relaxed),
             eventQueueProducerThreadID: eventQueueProducerThreadDiagnostics?.threadID,
             eventQueueProducerThreadIsMain: eventQueueProducerThreadDiagnostics?.isMainThread,
             eventQueueConsumerThreadID: eventQueueConsumerThreadDiagnostics?.threadID,
@@ -5068,11 +5347,6 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             outputDiscontinuityCount050 &+= UInt64(max(0, outputMetrics.discontinuityCount050))
             outputDiscontinuityCount &+= UInt64(max(0, outputMetrics.discontinuityCount))
             maxOutputAdjacentSampleJump = max(maxOutputAdjacentSampleJump, outputMetrics.maxAdjacentSampleJump)
-            recordTopOutputAdjacentSampleJumpsLocked(
-                outputMetrics.topAdjacentSampleJumps,
-                callbackStartFrame: callbackStartFrame,
-                callbackIndex: callbackIndex
-            )
             if let discontinuityFrameOffset = outputMetrics.maxDiscontinuityFrameOffset,
                let discontinuitySampleJump = outputMetrics.maxDiscontinuitySampleJump {
                 lastOutputDiscontinuitySampleJump = discontinuitySampleJump
@@ -5083,11 +5357,6 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 lastOutputDiscontinuityRuntimeFrame = runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue
             }
             outputPeakWarningSampleCount &+= UInt64(max(0, outputMetrics.peakWarningSampleCount))
-            recordTopOutputPeaksLocked(
-                outputMetrics.topPeaks,
-                callbackStartFrame: callbackStartFrame,
-                callbackIndex: callbackIndex
-            )
             overrangeSampleCount &+= UInt64(max(0, outputMetrics.overrangeSampleCount))
             clippingSampleCount &+= UInt64(max(0, outputMetrics.clippingSampleCount))
         } else {
@@ -5099,78 +5368,72 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
     }
 
-    private func recordTopOutputAdjacentSampleJumpsLocked(
-        _ jumps: [RuntimeCMixerOutputMetrics.SampleJump],
-        callbackStartFrame: UInt64,
-        callbackIndex: UInt64
-    ) {
-        for jump in jumps {
-            let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, jump.frameOffset)))
-            let row = RuntimeCMixerTopOutputSampleJump(
-                sampleJump: jump.sampleJump,
-                runtimeFrame: runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue,
-                callbackIndex: callbackIndex,
-                frameOffset: jump.frameOffset,
-                channelIndex: jump.channelIndex
-            )
-            insertTopOutputAdjacentSampleJumpLocked(row)
-        }
-    }
-
-    private func recordTopOutputPeaksLocked(
-        _ peaks: [RuntimeCMixerOutputMetrics.Peak],
-        callbackStartFrame: UInt64,
-        callbackIndex: UInt64
-    ) {
-        for peak in peaks {
-            let runtimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, peak.frameOffset)))
-            let row = RuntimeCMixerTopOutputPeak(
-                peak: peak.peak,
-                runtimeFrame: runtimeFrame.overflow ? UInt64.max : runtimeFrame.partialValue,
-                callbackIndex: callbackIndex,
-                frameOffset: peak.frameOffset,
-                channelIndex: peak.channelIndex
-            )
-            insertTopOutputPeakLocked(row)
-        }
-    }
-
     private func insertTopOutputAdjacentSampleJumpLocked(_ row: RuntimeCMixerTopOutputSampleJump) {
-        topOutputAdjacentSampleJumps.append(row)
-        topOutputAdjacentSampleJumps.sort {
-            if $0.sampleJump != $1.sampleJump {
-                return $0.sampleJump > $1.sampleJump
-            }
-            if $0.runtimeFrame != $1.runtimeFrame {
-                return $0.runtimeFrame < $1.runtimeFrame
-            }
-            return $0.channelIndex < $1.channelIndex
+        if topOutputAdjacentSampleJumps.count < Self.transientDiagnosticTopCount {
+            topOutputAdjacentSampleJumps.append(row)
+        } else if let last = topOutputAdjacentSampleJumps.last,
+                  !topOutputAdjacentSampleJumpPrecedes(row, last) {
+            return
+        } else if !topOutputAdjacentSampleJumps.isEmpty {
+            topOutputAdjacentSampleJumps[topOutputAdjacentSampleJumps.count - 1] = row
         }
-        if topOutputAdjacentSampleJumps.count > Self.transientDiagnosticTopCount {
-            topOutputAdjacentSampleJumps.removeLast(topOutputAdjacentSampleJumps.count - Self.transientDiagnosticTopCount)
+        var index = topOutputAdjacentSampleJumps.count - 1
+        while index > 0,
+              topOutputAdjacentSampleJumpPrecedes(topOutputAdjacentSampleJumps[index], topOutputAdjacentSampleJumps[index - 1]) {
+            topOutputAdjacentSampleJumps.swapAt(index, index - 1)
+            index -= 1
         }
     }
 
     private func insertTopOutputPeakLocked(_ row: RuntimeCMixerTopOutputPeak) {
-        topOutputPeaks.append(row)
-        topOutputPeaks.sort {
-            if $0.peak != $1.peak {
-                return $0.peak > $1.peak
-            }
-            if $0.runtimeFrame != $1.runtimeFrame {
-                return $0.runtimeFrame < $1.runtimeFrame
-            }
-            return $0.channelIndex < $1.channelIndex
+        if topOutputPeaks.count < Self.transientDiagnosticTopCount {
+            topOutputPeaks.append(row)
+        } else if let last = topOutputPeaks.last,
+                  !topOutputPeakPrecedes(row, last) {
+            return
+        } else if !topOutputPeaks.isEmpty {
+            topOutputPeaks[topOutputPeaks.count - 1] = row
         }
-        if topOutputPeaks.count > Self.transientDiagnosticTopCount {
-            topOutputPeaks.removeLast(topOutputPeaks.count - Self.transientDiagnosticTopCount)
+        var index = topOutputPeaks.count - 1
+        while index > 0,
+              topOutputPeakPrecedes(topOutputPeaks[index], topOutputPeaks[index - 1]) {
+            topOutputPeaks.swapAt(index, index - 1)
+            index -= 1
         }
+    }
+
+    private func topOutputAdjacentSampleJumpPrecedes(
+        _ lhs: RuntimeCMixerTopOutputSampleJump,
+        _ rhs: RuntimeCMixerTopOutputSampleJump
+    ) -> Bool {
+        if lhs.sampleJump != rhs.sampleJump {
+            return lhs.sampleJump > rhs.sampleJump
+        }
+        if lhs.runtimeFrame != rhs.runtimeFrame {
+            return lhs.runtimeFrame < rhs.runtimeFrame
+        }
+        return lhs.channelIndex < rhs.channelIndex
+    }
+
+    private func topOutputPeakPrecedes(
+        _ lhs: RuntimeCMixerTopOutputPeak,
+        _ rhs: RuntimeCMixerTopOutputPeak
+    ) -> Bool {
+        if lhs.peak != rhs.peak {
+            return lhs.peak > rhs.peak
+        }
+        if lhs.runtimeFrame != rhs.runtimeFrame {
+            return lhs.runtimeFrame < rhs.runtimeFrame
+        }
+        return lhs.channelIndex < rhs.channelIndex
     }
 
     private func outputMetrics(
         _ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
         sampleCount: Int,
-        channelCount: Int
+        channelCount: Int,
+        callbackStartFrame: UInt64,
+        callbackIndex: UInt64
     ) -> RuntimeCMixerOutputMetrics {
         let boundedSampleCount = min(max(0, sampleCount), outputInterleavedPCM.count)
         guard boundedSampleCount > 0 else {
@@ -5184,14 +5447,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         var discontinuityCount050 = 0
         var discontinuityCount075 = 0
         var maxAdjacentSampleJump = Float(0)
-        var topAdjacentSampleJumps = [RuntimeCMixerOutputMetrics.SampleJump]()
-        topAdjacentSampleJumps.reserveCapacity(Self.transientDiagnosticTopCount)
         var maxDiscontinuitySampleJump: Float?
         var maxDiscontinuityFrameOffset: Int?
         var maxDiscontinuityChannelIndex: Int?
         var peakWarningCount = 0
-        var topPeaks = [RuntimeCMixerOutputMetrics.Peak]()
-        topPeaks.reserveCapacity(Self.transientDiagnosticTopCount)
         var overrangeCount = 0
         var clippingCount = 0
         for index in 0..<boundedSampleCount {
@@ -5204,13 +5463,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             if absolute > Self.outputPeakWarningThreshold {
                 peakWarningCount += 1
             }
-            insertPeak(
-                RuntimeCMixerOutputMetrics.Peak(
+            let peakRuntimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, frameOffset)))
+            insertTopOutputPeakLocked(
+                RuntimeCMixerTopOutputPeak(
                     peak: absolute,
+                    runtimeFrame: peakRuntimeFrame.overflow ? UInt64.max : peakRuntimeFrame.partialValue,
+                    callbackIndex: callbackIndex,
                     frameOffset: frameOffset,
                     channelIndex: channelIndex
-                ),
-                into: &topPeaks
+                )
             )
             if absolute > 1 {
                 overrangeCount += 1
@@ -5241,13 +5502,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                         maxDiscontinuityChannelIndex = channelIndex
                     }
                 }
-                insertSampleJump(
-                    RuntimeCMixerOutputMetrics.SampleJump(
+                let jumpRuntimeFrame = callbackStartFrame.addingReportingOverflow(UInt64(max(0, frameOffset)))
+                insertTopOutputAdjacentSampleJumpLocked(
+                    RuntimeCMixerTopOutputSampleJump(
                         sampleJump: sampleJump,
+                        runtimeFrame: jumpRuntimeFrame.overflow ? UInt64.max : jumpRuntimeFrame.partialValue,
+                        callbackIndex: callbackIndex,
                         frameOffset: frameOffset,
                         channelIndex: channelIndex
-                    ),
-                    into: &topAdjacentSampleJumps
+                    )
                 )
             }
         }
@@ -5260,53 +5523,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             discontinuityCount050: discontinuityCount050,
             discontinuityCount075: discontinuityCount075,
             maxAdjacentSampleJump: maxAdjacentSampleJump,
-            topAdjacentSampleJumps: topAdjacentSampleJumps,
             maxDiscontinuityFrameOffset: maxDiscontinuityFrameOffset,
             maxDiscontinuityChannelIndex: maxDiscontinuityChannelIndex,
             maxDiscontinuitySampleJump: maxDiscontinuitySampleJump,
             peakWarningSampleCount: peakWarningCount,
-            topPeaks: topPeaks,
             overrangeSampleCount: overrangeCount,
             clippingSampleCount: clippingCount
         )
-    }
-
-    private func insertSampleJump(
-        _ row: RuntimeCMixerOutputMetrics.SampleJump,
-        into rows: inout [RuntimeCMixerOutputMetrics.SampleJump]
-    ) {
-        rows.append(row)
-        rows.sort {
-            if $0.sampleJump != $1.sampleJump {
-                return $0.sampleJump > $1.sampleJump
-            }
-            if $0.frameOffset != $1.frameOffset {
-                return $0.frameOffset < $1.frameOffset
-            }
-            return $0.channelIndex < $1.channelIndex
-        }
-        if rows.count > Self.transientDiagnosticTopCount {
-            rows.removeLast(rows.count - Self.transientDiagnosticTopCount)
-        }
-    }
-
-    private func insertPeak(
-        _ row: RuntimeCMixerOutputMetrics.Peak,
-        into rows: inout [RuntimeCMixerOutputMetrics.Peak]
-    ) {
-        rows.append(row)
-        rows.sort {
-            if $0.peak != $1.peak {
-                return $0.peak > $1.peak
-            }
-            if $0.frameOffset != $1.frameOffset {
-                return $0.frameOffset < $1.frameOffset
-            }
-            return $0.channelIndex < $1.channelIndex
-        }
-        if rows.count > Self.transientDiagnosticTopCount {
-            rows.removeLast(rows.count - Self.transientDiagnosticTopCount)
-        }
     }
 
     private func applyOutputGain(
@@ -7413,8 +7636,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackThreadID: snapshot.callbackThreadID,
             callbackMainThreadDependencyDetected: snapshot.callbackMainThreadDependencyDetected,
             callbackAllocationWarning: snapshot.callbackAllocationWarning,
+            callbackRealtimeSafeDiagnostics: snapshot.callbackRealtimeSafeDiagnostics,
+            callbackDiagnosticDropCount: snapshot.callbackDiagnosticDropCount,
+            callbackRingBufferCapacity: snapshot.callbackRingBufferCapacity,
             callbackLockWaitCount: snapshot.callbackLockWaitCount,
             callbackLockWaitDurationMS: snapshot.callbackLockWaitDurationMS,
+            callbackLockFailureCount: snapshot.callbackLockFailureCount,
             eventQueueProducerThreadID: snapshot.eventQueueProducerThreadID,
             eventQueueProducerThreadIsMain: snapshot.eventQueueProducerThreadIsMain,
             eventQueueConsumerThreadID: snapshot.eventQueueConsumerThreadID,

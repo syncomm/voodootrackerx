@@ -195,6 +195,9 @@ when `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is present. Set
 trace and capture disabled and only minimal callback counters/output delivery
 diagnostics enabled. These flags are local diagnostic controls for
 `VTX_AUDIO_BACKEND=c_mixer`; they do not affect the default AVAudio backend.
+Set `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1` only for short local
+diagnostic runs that need scratch/capture/output hash comparison; it is
+disabled by default to keep the experimental source-node callback smaller.
 For local isolation, compare `c_mixer` with trace and capture enabled, trace
 only, capture only, both disabled, and minimal-callback mode. Keep any listening
 notes, traces, captures, logs, and summaries local and unstaged.
@@ -213,12 +216,16 @@ The current callback real-time inventory is intentionally narrow: it renders
 through the preallocated C mixer wrapper, applies runtime gain into a reused
 interleaved scratch buffer, optionally copies into a bounded in-memory capture
 buffer, copies into the supplied `AVAudioSourceNode` buffers, and updates
-in-memory counters/sample summaries. It does not perform file I/O, call AppKit,
-parse module data, or enqueue trace writes. Shared runtime state is entered with
-a non-blocking lock attempt; if the callback cannot enter, it zero-fills rather
-than waiting. The optional output-copy verification hashes/sample summaries are
-diagnostic-only and can be removed from callback overhead with the disable flags
-above.
+preallocated counters and fixed-capacity diagnostic buffers. It does not
+perform file I/O, call AppKit, parse module data, enqueue trace writes, grow
+diagnostic arrays, or mutate diagnostic dictionaries. Shared runtime state is
+entered with a non-blocking lock attempt; if the callback cannot enter, it
+zero-fills rather than waiting and reports the try-lock failure count later.
+Adapter-event callback diagnostics are written into a fixed-capacity ring
+buffer and drained outside the callback; if the ring fills, diagnostics are
+dropped and summarized with `callbackDiagnosticDropCount` rather than allocating
+more storage. The optional output-copy verification hashes/sample summaries are
+diagnostic-only and opt-in with `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1`.
 
 Capture-related trace fields include `runtimeCaptureEnabled`,
 `runtimeCapturePathName`, `runtimeCaptureSampleRate`,
@@ -253,9 +260,11 @@ hashed device UID and numeric device id.
 The experimental callback isolation fields report whether the
 `AVAudioSourceNode` render block ran on the main thread, the callback thread id,
 whether a main-thread callback dependency was detected, whether known diagnostic
-allocation risk remains in the callback, lock-wait counters, event-queue
-producer/consumer thread ids, and playback-follow publication counts. For a
-local isolation run, set
+allocation risk remains in the callback, whether realtime-safe diagnostic
+buffering is active, fixed ring-buffer capacity, diagnostic drop count,
+try-lock failure count, lock-wait counters, event-queue producer/consumer
+thread ids, and playback-follow publication counts. For a local isolation run,
+set
 `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` with
 `VTX_AUDIO_BACKEND=c_mixer` to suppress tracker follow callbacks without
 changing the default AVAudio backend.
@@ -383,13 +392,15 @@ Callback timing/output-copy rows can also include
 `callbackDurationMaxMS`, `callbackDurationAverageMS`,
 `callbackDurationWarningCount`, `callbackRenderQuantumDurationMS`,
 `callbackOverRenderQuantumBudgetCount`, `callbackIntervalMinMS`,
-`callbackIntervalMaxMS`, `outputBufferCopyAttemptCount`,
+`callbackIntervalMaxMS`, `callbackRealtimeSafeDiagnostics`,
+`callbackDiagnosticDropCount`, `callbackRingBufferCapacity`,
+`callbackLockFailureCount`, `outputBufferCopyAttemptCount`,
 `outputBufferCopyFailureCount`, `outputBufferCopyLastSucceeded`,
 `outputBufferCopyLayout`, requested/copied frame and sample counts, channel
-counts, partial-copy flags, and scratch/capture/output hashes. A matching
-scratch-capture hash plus matching scratch-output hash means the output buffer
-received the same samples that runtime capture recorded; any mismatch points
-past C mixer DSP and toward callback/output delivery.
+counts, partial-copy flags, and, when explicitly enabled, scratch/capture/output
+hashes. A matching scratch-capture hash plus matching scratch-output hash means
+the output buffer received the same samples that runtime capture recorded; any
+mismatch points past C mixer DSP and toward callback/output delivery.
 
 Supported runtime C mixer control updates now classify the remaining update
 handoff cases instead of treating no-op refreshes and missing targets as one

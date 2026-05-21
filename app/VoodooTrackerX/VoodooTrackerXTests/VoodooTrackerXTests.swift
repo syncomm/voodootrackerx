@@ -8945,8 +8945,12 @@ final class VoodooTrackerXTests: XCTestCase {
             callbackThreadID: 1_234,
             callbackMainThreadDependencyDetected: false,
             callbackAllocationWarning: true,
+            callbackRealtimeSafeDiagnostics: false,
+            callbackDiagnosticDropCount: 7,
+            callbackRingBufferCapacity: 4_096,
             callbackLockWaitCount: 0,
             callbackLockWaitDurationMS: 0,
+            callbackLockFailureCount: 2,
             eventQueueProducerThreadID: 100,
             eventQueueProducerThreadIsMain: true,
             eventQueueConsumerThreadID: 1_234,
@@ -8967,6 +8971,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["callbackThreadIsMain"] as? Bool, false)
         XCTAssertEqual(object["callbackThreadID"] as? Int, 1_234)
         XCTAssertEqual(object["callbackAllocationWarning"] as? Bool, true)
+        XCTAssertEqual(object["callbackRealtimeSafeDiagnostics"] as? Bool, false)
+        XCTAssertEqual(object["callbackDiagnosticDropCount"] as? Int, 7)
+        XCTAssertEqual(object["callbackRingBufferCapacity"] as? Int, 4_096)
+        XCTAssertEqual(object["callbackLockFailureCount"] as? Int, 2)
         XCTAssertEqual(object["eventQueueProducerThreadIsMain"] as? Bool, true)
         XCTAssertEqual(object["eventQueueConsumerThreadIsMain"] as? Bool, false)
     }
@@ -10550,12 +10558,62 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(snapshot.callbackIntervalMinMS)
         XCTAssertNil(snapshot.callbackIntervalMaxMS)
         XCTAssertNil(snapshot.callbackIntervalLastMS)
+        XCTAssertFalse(snapshot.callbackAllocationWarning)
+        XCTAssertTrue(snapshot.callbackRealtimeSafeDiagnostics)
+        XCTAssertEqual(snapshot.callbackDiagnosticDropCount, 0)
+        XCTAssertEqual(snapshot.callbackRingBufferCapacity, RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity)
+        XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
         XCTAssertEqual(snapshot.runtimeMinimalCallbackMode, false)
         XCTAssertEqual(snapshot.outputBufferCopyAttemptCount, 0)
         XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
         XCTAssertNil(snapshot.outputBufferCopyLastSucceeded)
         XCTAssertNil(snapshot.outputBufferCopyScratchHash)
         XCTAssertNil(snapshot.outputBufferCopyOutputHash)
+    }
+
+    func testRuntimeCMixerFixedRingBufferRecordsDeterministically() {
+        var ring = RuntimeCMixerFixedRingBuffer<Int>(capacity: 3)
+
+        ring.record(1)
+        ring.record(2)
+        XCTAssertEqual(ring.drain(), [1, 2])
+        XCTAssertTrue(ring.isEmpty)
+        XCTAssertEqual(ring.droppedCount, 0)
+
+        ring.record(3)
+        ring.record(4)
+        XCTAssertEqual(ring.drain(), [3, 4])
+        XCTAssertEqual(ring.capacity, 3)
+    }
+
+    func testRuntimeCMixerFixedRingBufferDropsAndReportsWhenFull() {
+        var ring = RuntimeCMixerFixedRingBuffer<String>(capacity: 2)
+
+        ring.record("a")
+        ring.record("b")
+        ring.record("c")
+
+        XCTAssertEqual(ring.count, 2)
+        XCTAssertEqual(ring.droppedCount, 1)
+        XCTAssertEqual(ring.drain(), ["a", "b"])
+        XCTAssertEqual(ring.droppedCount, 1)
+    }
+
+    func testRuntimeCMixerNormalRenderReportsRealtimeSafeCallbackDiagnostics() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+
+        _ = renderRuntimePCM(core, frames: 4)
+
+        let snapshot = core.snapshot()
+        XCTAssertFalse(snapshot.callbackAllocationWarning)
+        XCTAssertTrue(snapshot.callbackRealtimeSafeDiagnostics)
+        XCTAssertEqual(snapshot.callbackDiagnosticDropCount, 0)
+        XCTAssertEqual(snapshot.callbackRingBufferCapacity, RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity)
+        XCTAssertEqual(snapshot.callbackLockWaitCount, 0)
+        XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
     }
 
     func testRuntimeCMixerCallbackRealtimeDiagnosticsUpdateCounters() {

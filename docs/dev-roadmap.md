@@ -277,6 +277,14 @@ normalization, local alignment shifts, and optional offline diagnostics JSON.
 This is diagnostics-only: it does not make the C mixer default, alter offline
 rendering, change C mixer DSP, add XM effects, modify tracker viewport behavior,
 or refactor parser architecture.
+ADR 008 documents the next runtime-host decision point: clean offline C mixer
+renders, clean runtime source captures, and AVAudioSourceNode output-copy
+verification leave the experimental SourceNode delivery path suspect for
+remaining live-only pops/clicks, without proving it as root cause.
+AVAudioPlayerNode/AVAudioUnitVarispeed remains the default runtime backend, the
+SourceNode C mixer remains opt-in through `VTX_AUDIO_BACKEND=c_mixer`, and the
+recommended next runtime spike is a developer-only CoreAudio/AUAudioUnit-style
+C mixer output host to isolate the delivery layer.
 Transport stop-position preservation and the tracker-style plain Spacebar
 play/stop shortcut are implemented for manual debugging workflow: manual Stop
 preserves the current published order/row position, play resumes from the
@@ -359,7 +367,9 @@ Immediate audio accuracy sequence:
 72. Runtime C Mixer AVAudioSourceNode Format / Device Sample-Rate Alignment — done
 73. Runtime C Mixer AVAudio Callback Realtime Safety / I/O Buffer Diagnostics — done
 74. Runtime C Mixer Render Callback Diagnostics Decoupling — done
-75. Reference comparison stabilization against MikMod/OpenMPT
+75. ADR: Alternative Runtime Output Host for C Mixer — done
+76. Runtime C Mixer CoreAudio/AUAudioUnit Output Host Spike
+77. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -426,6 +436,9 @@ Features:
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior
+- planned developer-only CoreAudio/AUAudioUnit-style runtime output host spike
+  for isolating whether remaining live-only artifacts are specific to
+  AVAudioEngine/AVAudioSourceNode delivery
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

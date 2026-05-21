@@ -246,6 +246,15 @@ flags can disable trace, capture, or both for callback-overhead isolation. This
 diagnostics PR keeps AVAudio as the default, keeps the runtime C mixer opt-in,
 does not alter offline rendering or C mixer DSP, and leaves any actual AVAudio
 graph/output-device fix for a later scoped PR.
+Runtime C mixer AVAudio output-device and callback-isolation diagnostics now
+extend the same trace with main-mixer input/output format, output-node latency
+and presentation latency, hashed output-device identity, hardware IO/latency
+fields, engine configuration-change counts, graph/route change counts, callback
+thread id/main-thread status, event-queue producer/consumer thread ids,
+diagnostic allocation-risk reporting, and a local-only follow-publication
+disable flag for UI/callback isolation. This remains diagnostics-only; output
+tap capture and any AVAudio graph or hardware-route fix are separate follow-up
+work.
 Runtime/offline mismatch window correlation diagnostics are available after
 live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports

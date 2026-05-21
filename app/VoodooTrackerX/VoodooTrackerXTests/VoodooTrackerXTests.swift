@@ -8907,6 +8907,70 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(deferredObject["targetVoiceIndex"])
     }
 
+    func testRuntimeCMixerTraceSerializesEngineRouteAndCallbackDiagnostics() throws {
+        let event = RuntimeCMixerTraceEvent(
+            runtimeAction: "engine_configuration_change",
+            runtimeAudioBackend: "c_mixer",
+            experimentalCMixerEnabled: true,
+            sampleRate: 48_000,
+            cMixerRenderSampleRate: 48_000,
+            cMixerRenderChannelCount: 2,
+            audioSourceNodeRenderSampleRate: 48_000,
+            audioSourceNodeChannelCount: 2,
+            audioEngineMainMixerOutputSampleRate: 48_000,
+            audioEngineMainMixerOutputChannelCount: 2,
+            audioEngineMainMixerInputSampleRate: 48_000,
+            audioEngineMainMixerInputChannelCount: 2,
+            audioEngineOutputNodeSampleRate: 48_000,
+            audioEngineOutputNodeChannelCount: 2,
+            audioHardwareNominalSampleRate: 48_000,
+            audioHardwareDeviceID: 42,
+            audioHardwareDeviceUIDHash: "abcdef0123456789",
+            audioHardwareIOBufferFrameSize: 256,
+            audioHardwareIOBufferDuration: 0.005_333_333,
+            audioHardwareLatencyFrames: 64,
+            audioHardwareLatencyDuration: 0.001_333_333,
+            audioHardwareSafetyOffsetFrames: 12,
+            audioHardwareSafetyOffsetDuration: 0.000_25,
+            audioEngineRunning: true,
+            audioEngineSourceNodeAttached: true,
+            audioEngineSourceNodeConnected: true,
+            audioEngineMainMixerConnectedToOutput: true,
+            audioEngineConfigurationChangeCount: 1,
+            audioGraphFormatChangeCount: 2,
+            audioOutputRouteChangeCount: 3,
+            audioGraphFormatChanged: true,
+            audioOutputRouteChanged: true,
+            callbackThreadIsMain: false,
+            callbackThreadID: 1_234,
+            callbackMainThreadDependencyDetected: false,
+            callbackAllocationWarning: true,
+            callbackLockWaitCount: 0,
+            callbackLockWaitDurationMS: 0,
+            eventQueueProducerThreadID: 100,
+            eventQueueProducerThreadIsMain: true,
+            eventQueueConsumerThreadID: 1_234,
+            eventQueueConsumerThreadIsMain: false,
+            reason: "av_audio_engine_configuration_change"
+        )
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: event)) as? [String: Any])
+
+        XCTAssertEqual(object["runtimeAction"] as? String, "engine_configuration_change")
+        XCTAssertEqual(object["audioHardwareDeviceID"] as? Int, 42)
+        XCTAssertEqual(object["audioHardwareDeviceUIDHash"] as? String, "abcdef0123456789")
+        XCTAssertEqual(object["audioEngineConfigurationChangeCount"] as? Int, 1)
+        XCTAssertEqual(object["audioGraphFormatChangeCount"] as? Int, 2)
+        XCTAssertEqual(object["audioOutputRouteChangeCount"] as? Int, 3)
+        XCTAssertEqual(object["audioGraphFormatChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputRouteChanged"] as? Bool, true)
+        XCTAssertEqual(object["callbackThreadIsMain"] as? Bool, false)
+        XCTAssertEqual(object["callbackThreadID"] as? Int, 1_234)
+        XCTAssertEqual(object["callbackAllocationWarning"] as? Bool, true)
+        XCTAssertEqual(object["eventQueueProducerThreadIsMain"] as? Bool, true)
+        XCTAssertEqual(object["eventQueueConsumerThreadIsMain"] as? Bool, false)
+    }
+
     func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
         let configuration = PlaybackDebugLaunchConfiguration.parse(environment: [
             PlaybackDebugLaunchConfiguration.startOrderEnvironmentKey: "30",
@@ -9658,7 +9722,8 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     private func makeRuntimeCMixerPlaybackHarness(
         sampleRate: Double = 100,
-        channelCount: Int = 1
+        channelCount: Int = 1,
+        environment: [String: String] = [:]
     ) -> (
         engine: PlaybackEngine,
         audioEngine: RuntimeCMixerAudioEngine,
@@ -9674,7 +9739,7 @@ final class VoodooTrackerXTests: XCTestCase {
             traceWriter: traceWriter
         )
         return (
-            PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter),
+            PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter, environment: environment),
             audioEngine,
             traceWriter
         )
@@ -9755,6 +9820,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowFrameDelta, 15)
         XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowRowDelta, 1)
         XCTAssertEqual(latest?.playbackEngineToCMixerFrameDelta, 15)
+    }
+
+    @MainActor
+    func testRuntimeCMixerFollowPublicationCanBeDisabledForDiagnostics() {
+        let harness = makeRuntimeCMixerPlaybackHarness(environment: [
+            RuntimeCMixerDiagnosticEnvironment.disableFollowPublicationEnvironmentKey: "1"
+        ])
+        var publishedPositions = [PlaybackPosition]()
+        harness.engine.positionDidChange = { position in
+            publishedPositions.append(position)
+        }
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 25)
+        harness.engine.advanceOneTick()
+
+        XCTAssertTrue(publishedPositions.isEmpty)
+        let latest = harness.traceWriter.events.last { $0.runtimeAction == "playback_follow_position_published" }
+        XCTAssertEqual(latest?.playbackFollowPublicationDisabled, true)
+        XCTAssertEqual(latest?.playbackFollowPublicationCount, 0)
+        XCTAssertEqual(latest?.playbackFollowPublicationSuppressedCount, 2)
     }
 
     @MainActor

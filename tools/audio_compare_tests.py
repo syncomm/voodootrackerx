@@ -2519,11 +2519,33 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioSourceNodeChannelCount=2,
                         audioEngineMainMixerOutputSampleRate=48000,
                         audioEngineMainMixerOutputChannelCount=2,
+                        audioEngineMainMixerInputSampleRate=44100,
+                        audioEngineMainMixerInputChannelCount=2,
+                        audioEngineMainMixerLatency=0.0,
+                        audioEngineMainMixerOutputPresentationLatency=0.001,
                         audioEngineOutputNodeSampleRate=48000,
                         audioEngineOutputNodeChannelCount=2,
+                        audioEngineOutputNodeLatency=0.002,
+                        audioEngineOutputNodeOutputPresentationLatency=0.003,
                         audioHardwareNominalSampleRate=48000,
+                        audioHardwareDeviceID=51,
+                        audioHardwareDeviceUIDHash="abcdef0123456789",
                         audioHardwareIOBufferFrameSize=512,
                         audioHardwareIOBufferDuration=0.0106666667,
+                        audioHardwareLatencyFrames=71,
+                        audioHardwareLatencyDuration=0.0014791667,
+                        audioHardwareSafetyOffsetFrames=11,
+                        audioHardwareSafetyOffsetDuration=0.0002291667,
+                        audioHardwareTransportType=1,
+                        audioEngineRunning=True,
+                        audioEngineSourceNodeAttached=True,
+                        audioEngineSourceNodeConnected=True,
+                        audioEngineMainMixerConnectedToOutput=True,
+                        audioEngineConfigurationChangeCount=1,
+                        audioGraphFormatChangeCount=2,
+                        audioOutputRouteChangeCount=3,
+                        audioGraphFormatChanged=True,
+                        audioOutputRouteChanged=True,
                         audioFormatConversionLikely=True,
                         runtimeCaptureMatchesSourceNodeFormat=True,
                         runtimeCaptureMatchesEngineOutputFormat=False,
@@ -2542,13 +2564,63 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["runtime_sample_rate_source"], "fallback_44100")
             self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 44100)
             self.assertEqual(audio_graph["source_node_render_sample_rate"], 44100)
+            self.assertEqual(audio_graph["main_mixer_input_sample_rate"], 44100)
             self.assertEqual(audio_graph["output_node_sample_rate"], 48000)
             self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
+            self.assertEqual(audio_graph["hardware_device_id"], 51)
+            self.assertEqual(audio_graph["hardware_device_uid_hash"], "abcdef0123456789")
             self.assertEqual(audio_graph["hardware_io_buffer_frame_size"], 512)
+            self.assertEqual(audio_graph["hardware_latency_frames"], 71)
+            self.assertEqual(audio_graph["hardware_safety_offset_frames"], 11)
+            self.assertTrue(audio_graph["engine_running"])
+            self.assertTrue(audio_graph["source_node_attached"])
+            self.assertTrue(audio_graph["source_node_connected"])
+            self.assertTrue(audio_graph["main_mixer_connected_to_output"])
+            self.assertEqual(audio_graph["engine_configuration_change_count"], 1)
+            self.assertEqual(audio_graph["graph_format_change_count"], 2)
+            self.assertEqual(audio_graph["output_route_change_count"], 3)
+            self.assertTrue(audio_graph["graph_format_changed"])
+            self.assertTrue(audio_graph["output_route_changed"])
             self.assertTrue(audio_graph["format_conversion_likely"])
             self.assertTrue(audio_graph["runtime_capture_matches_source_node_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_engine_output_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_hardware_sample_rate"])
+
+    def test_runtime_trace_summary_reports_matching_audio_graph_rates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_initialized",
+                        selectedRuntimeSampleRate=48000,
+                        cMixerRuntimeSampleRate=48000,
+                        cMixerRenderSampleRate=48000,
+                        cMixerRenderChannelCount=2,
+                        audioSourceNodeRenderSampleRate=48000,
+                        audioSourceNodeChannelCount=2,
+                        audioEngineMainMixerInputSampleRate=48000,
+                        audioEngineMainMixerInputChannelCount=2,
+                        audioEngineMainMixerOutputSampleRate=48000,
+                        audioEngineMainMixerOutputChannelCount=2,
+                        audioEngineOutputNodeSampleRate=48000,
+                        audioEngineOutputNodeChannelCount=2,
+                        audioHardwareNominalSampleRate=48000,
+                        audioFormatConversionLikely=False,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            audio_graph = summary["audio_graph"]
+
+            self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 48000)
+            self.assertEqual(audio_graph["source_node_render_sample_rate"], 48000)
+            self.assertEqual(audio_graph["main_mixer_input_sample_rate"], 48000)
+            self.assertEqual(audio_graph["main_mixer_output_sample_rate"], 48000)
+            self.assertEqual(audio_graph["output_node_sample_rate"], 48000)
+            self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
+            self.assertFalse(audio_graph["format_conversion_likely"])
 
     def test_runtime_trace_summary_reports_callback_and_output_copy_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2646,6 +2718,47 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                 "runtime scratch/capture/output buffer hashes diverged",
                 summary["suspicious_findings"],
             )
+
+    def test_runtime_trace_summary_reports_callback_isolation_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "render_callback",
+                        renderCallbackCount=4,
+                        callbackThreadIsMain=False,
+                        callbackThreadID=1234,
+                        callbackMainThreadDependencyDetected=False,
+                        callbackAllocationWarning=True,
+                        callbackLockWaitCount=0,
+                        callbackLockWaitDurationMS=0.0,
+                        eventQueueProducerThreadID=100,
+                        eventQueueProducerThreadIsMain=True,
+                        eventQueueConsumerThreadID=1234,
+                        eventQueueConsumerThreadIsMain=False,
+                        playbackFollowPublicationDisabled=True,
+                        playbackFollowPublicationCount=0,
+                        playbackFollowPublicationSuppressedCount=3,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            isolation = summary["callback_isolation"]
+
+            self.assertFalse(isolation["callback_thread_is_main"])
+            self.assertEqual(isolation["callback_thread_id"], 1234)
+            self.assertFalse(isolation["main_thread_dependency_detected"])
+            self.assertTrue(isolation["allocation_warning"])
+            self.assertEqual(isolation["lock_wait_count"], 0)
+            self.assertEqual(isolation["event_queue_producer_thread_id"], 100)
+            self.assertTrue(isolation["event_queue_producer_thread_is_main"])
+            self.assertEqual(isolation["event_queue_consumer_thread_id"], 1234)
+            self.assertFalse(isolation["event_queue_consumer_thread_is_main"])
+            self.assertTrue(isolation["follow_publication_disabled"])
+            self.assertEqual(isolation["follow_publication_count"], 0)
+            self.assertEqual(isolation["follow_publication_suppressed_count"], 3)
 
     def test_synthetic_trace_with_hard_replacement_stop_reports_follow_up(self):
         with tempfile.TemporaryDirectory() as tmpdir:

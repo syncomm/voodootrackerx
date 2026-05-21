@@ -1762,6 +1762,21 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "interval_max_ms": rounded_optional(max_numeric(events, "callbackIntervalMaxMS")),
         "interval_last_ms": rounded_optional(last_number(events, "callbackIntervalLastMS")),
     }
+    callback_isolation = {
+        "callback_thread_is_main": last_bool(events, "callbackThreadIsMain"),
+        "callback_thread_id": last_exact_integer(events, "callbackThreadID"),
+        "main_thread_dependency_detected": any(event.get("callbackMainThreadDependencyDetected") is True for event in events),
+        "allocation_warning": any(event.get("callbackAllocationWarning") is True for event in events),
+        "lock_wait_count": int(max_numeric(events, "callbackLockWaitCount") or 0),
+        "lock_wait_duration_ms": rounded_optional(max_numeric(events, "callbackLockWaitDurationMS")),
+        "event_queue_producer_thread_id": last_exact_integer(events, "eventQueueProducerThreadID"),
+        "event_queue_producer_thread_is_main": last_bool(events, "eventQueueProducerThreadIsMain"),
+        "event_queue_consumer_thread_id": last_exact_integer(events, "eventQueueConsumerThreadID"),
+        "event_queue_consumer_thread_is_main": last_bool(events, "eventQueueConsumerThreadIsMain"),
+        "follow_publication_disabled": any(event.get("playbackFollowPublicationDisabled") is True for event in events),
+        "follow_publication_count": int(max_numeric(events, "playbackFollowPublicationCount") or 0),
+        "follow_publication_suppressed_count": int(max_numeric(events, "playbackFollowPublicationSuppressedCount") or 0),
+    }
     output_copy_failure_count = int(max_numeric(events, "outputBufferCopyFailureCount") or 0)
     output_copy_last_succeeded = last_bool(events, "outputBufferCopyLastSucceeded")
     output_copy_filled_requested_frames = last_bool(events, "outputBufferCopyFilledRequestedFrames")
@@ -1920,6 +1935,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("runtime render underrun, zero-fill, or failure counters are nonzero")
     if callback_duration_warning_count > 0 or callback_over_budget_count > 0:
         suspicious_findings.append("AVAudioSourceNode callback duration warnings or over-budget callbacks observed")
+    if callback_isolation["main_thread_dependency_detected"]:
+        suspicious_findings.append("AVAudioSourceNode callback ran on or depended on the main thread")
+    if callback_isolation["lock_wait_count"] > 0:
+        suspicious_findings.append("AVAudioSourceNode callback lock waits observed")
+    if callback_isolation["allocation_warning"]:
+        suspicious_findings.append("AVAudioSourceNode callback still contains diagnostic allocation risk")
     if (
         output_copy_failure_count > 0
         or output_copy_last_succeeded is False
@@ -1972,6 +1993,12 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("PlaybackEngine position and C mixer sample-time position diverge over time")
     if any(published_follow_divergent(row) for row in published_position_delta_rows):
         suspicious_findings.append("Published playback-follow position and C mixer sample-time position mismatch observed")
+    if any(event.get("audioEngineConfigurationChangeCount") for event in events):
+        suspicious_findings.append("AVAudioEngine configuration changes observed during playback")
+    if any(event.get("audioGraphFormatChanged") is True for event in events):
+        suspicious_findings.append("AVAudio graph format changes observed during playback")
+    if any(event.get("audioOutputRouteChanged") is True for event in events):
+        suspicious_findings.append("output route/device changes observed during playback")
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
     large_same_frame_burst = bool(same_frame_bursts and same_frame_bursts[0]["event_count"] >= 24)
@@ -1986,7 +2013,9 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
     )
     published_follow_aligned = bool(published_position_delta_rows) and not published_follow_has_material_drift
 
-    if hard_replacement_stops:
+    if callback_isolation["main_thread_dependency_detected"] or callback_isolation["lock_wait_count"] > 0:
+        recommended_next_pr = "Runtime C Mixer Render Callback Isolation"
+    elif hard_replacement_stops:
         recommended_next_pr = "Runtime C Mixer Hard Stop / Replacement Follow-Up"
     elif has_sample_time_delta:
         recommended_next_pr = "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation"
@@ -2000,6 +2029,8 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         or output_copy_scratch_output_matches is False
     ):
         recommended_next_pr = "Runtime C Mixer AVAudio Callback Deadline / Output Delivery Follow-Up"
+    elif any(event.get("audioEngineConfigurationChangeCount") for event in events) or any(event.get("audioOutputRouteChanged") is True for event in events):
+        recommended_next_pr = "Runtime C Mixer AVAudio Output Device / Route Follow-Up"
     elif published_follow_has_material_drift:
         recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
     elif position_diverges_over_time(events) and not published_follow_aligned:
@@ -2060,6 +2091,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         },
         "capture": capture,
         "callback_timing": callback_timing,
+        "callback_isolation": callback_isolation,
         "output_buffer_copy": output_buffer_copy,
         "runtime_policy": runtime_policy,
         "audio_graph": {
@@ -2074,11 +2106,33 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "source_node_channel_count": integer(last_number(events, "audioSourceNodeChannelCount")),
             "main_mixer_output_sample_rate": rounded(last_number(events, "audioEngineMainMixerOutputSampleRate") or 0.0),
             "main_mixer_output_channel_count": integer(last_number(events, "audioEngineMainMixerOutputChannelCount")),
+            "main_mixer_input_sample_rate": rounded(last_number(events, "audioEngineMainMixerInputSampleRate") or 0.0),
+            "main_mixer_input_channel_count": integer(last_number(events, "audioEngineMainMixerInputChannelCount")),
+            "main_mixer_latency_seconds": rounded_optional(last_number(events, "audioEngineMainMixerLatency")),
+            "main_mixer_output_presentation_latency_seconds": rounded_optional(last_number(events, "audioEngineMainMixerOutputPresentationLatency")),
             "output_node_sample_rate": rounded(last_number(events, "audioEngineOutputNodeSampleRate") or 0.0),
             "output_node_channel_count": integer(last_number(events, "audioEngineOutputNodeChannelCount")),
+            "output_node_latency_seconds": rounded_optional(last_number(events, "audioEngineOutputNodeLatency")),
+            "output_node_output_presentation_latency_seconds": rounded_optional(last_number(events, "audioEngineOutputNodeOutputPresentationLatency")),
             "hardware_nominal_sample_rate": rounded_optional(last_number(events, "audioHardwareNominalSampleRate")),
+            "hardware_device_id": last_exact_integer(events, "audioHardwareDeviceID"),
+            "hardware_device_uid_hash": last_string(events, "audioHardwareDeviceUIDHash"),
             "hardware_io_buffer_frame_size": integer(last_number(events, "audioHardwareIOBufferFrameSize")),
             "hardware_io_buffer_duration_seconds": rounded_optional(last_number(events, "audioHardwareIOBufferDuration")),
+            "hardware_latency_frames": integer(last_number(events, "audioHardwareLatencyFrames")),
+            "hardware_latency_duration_seconds": rounded_optional(last_number(events, "audioHardwareLatencyDuration")),
+            "hardware_safety_offset_frames": integer(last_number(events, "audioHardwareSafetyOffsetFrames")),
+            "hardware_safety_offset_duration_seconds": rounded_optional(last_number(events, "audioHardwareSafetyOffsetDuration")),
+            "hardware_transport_type": last_exact_integer(events, "audioHardwareTransportType"),
+            "engine_running": last_bool(events, "audioEngineRunning"),
+            "source_node_attached": last_bool(events, "audioEngineSourceNodeAttached"),
+            "source_node_connected": last_bool(events, "audioEngineSourceNodeConnected"),
+            "main_mixer_connected_to_output": last_bool(events, "audioEngineMainMixerConnectedToOutput"),
+            "engine_configuration_change_count": int(max_numeric(events, "audioEngineConfigurationChangeCount") or 0),
+            "graph_format_change_count": int(max_numeric(events, "audioGraphFormatChangeCount") or 0),
+            "output_route_change_count": int(max_numeric(events, "audioOutputRouteChangeCount") or 0),
+            "graph_format_changed": any(event.get("audioGraphFormatChanged") is True for event in events),
+            "output_route_changed": any(event.get("audioOutputRouteChanged") is True for event in events),
             "format_conversion_likely": last_bool(events, "audioFormatConversionLikely"),
             "runtime_capture_matches_source_node_format": last_bool(events, "runtimeCaptureMatchesSourceNodeFormat"),
             "runtime_capture_matches_engine_output_format": last_bool(events, "runtimeCaptureMatchesEngineOutputFormat"),
@@ -2261,6 +2315,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
     capture = summary["capture"]
     callback_timing = summary["callback_timing"]
+    callback_isolation = summary["callback_isolation"]
     output_buffer_copy = summary["output_buffer_copy"]
     runtime_policy = summary["runtime_policy"]
     audio_graph = summary["audio_graph"]
@@ -2279,6 +2334,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
         f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
         f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
+        f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
         f"- Output buffer copy: attempts={output_buffer_copy['attempt_count']} failures={output_buffer_copy['failure_count']} last_succeeded={output_buffer_copy['last_succeeded']} layout={output_buffer_copy['layout']} frames={output_buffer_copy['copied_frame_count']}/{output_buffer_copy['requested_frame_count']} channels={output_buffer_copy['output_channel_count']} filled={output_buffer_copy['filled_requested_frames']} scratch_capture_hash_match={output_buffer_copy['scratch_capture_hash_matches']} scratch_output_hash_match={output_buffer_copy['scratch_output_hash_matches']}",
         f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
@@ -2287,7 +2343,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Runtime capture: enabled={capture['enabled']} path_name={capture['path_name']} frames={capture['captured_frame_count']} duration={capture['duration_seconds']} truncated={capture['truncated']} peak={capture['output_peak']} clipping={capture['clipping_sample_count']} write_succeeded={capture['write_succeeded']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
         f"- Runtime sample-rate policy: selected={audio_graph['selected_runtime_sample_rate']}Hz c_mixer_runtime={audio_graph['c_mixer_runtime_sample_rate']}Hz policy={audio_graph['runtime_sample_rate_policy']} source={audio_graph['runtime_sample_rate_source']} warning={audio_graph['runtime_sample_rate_configuration_warning']}",
-        f"- Audio graph: c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch source={audio_graph['source_node_render_sample_rate']}Hz/{audio_graph['source_node_channel_count']}ch main_mixer={audio_graph['main_mixer_output_sample_rate']}Hz/{audio_graph['main_mixer_output_channel_count']}ch output={audio_graph['output_node_sample_rate']}Hz/{audio_graph['output_node_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) conversion_likely={audio_graph['format_conversion_likely']} capture_matches_source={audio_graph['runtime_capture_matches_source_node_format']} capture_matches_output={audio_graph['runtime_capture_matches_engine_output_format']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
+        f"- Audio graph: running={audio_graph['engine_running']} source_attached={audio_graph['source_node_attached']} source_connected={audio_graph['source_node_connected']} main_connected={audio_graph['main_mixer_connected_to_output']} c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch source={audio_graph['source_node_render_sample_rate']}Hz/{audio_graph['source_node_channel_count']}ch main_in={audio_graph['main_mixer_input_sample_rate']}Hz/{audio_graph['main_mixer_input_channel_count']}ch main_out={audio_graph['main_mixer_output_sample_rate']}Hz/{audio_graph['main_mixer_output_channel_count']}ch output={audio_graph['output_node_sample_rate']}Hz/{audio_graph['output_node_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz device_id={audio_graph['hardware_device_id']} device_uid_hash={audio_graph['hardware_device_uid_hash']} io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) output_latency={audio_graph['output_node_latency_seconds']} presentation_latency={audio_graph['output_node_output_presentation_latency_seconds']} hardware_latency={audio_graph['hardware_latency_frames']} frames ({audio_graph['hardware_latency_duration_seconds']}s) safety_offset={audio_graph['hardware_safety_offset_frames']} frames ({audio_graph['hardware_safety_offset_duration_seconds']}s) route_changes={audio_graph['output_route_change_count']} graph_format_changes={audio_graph['graph_format_change_count']} engine_config_changes={audio_graph['engine_configuration_change_count']} conversion_likely={audio_graph['format_conversion_likely']} capture_matches_source={audio_graph['runtime_capture_matches_source_node_format']} capture_matches_output={audio_graph['runtime_capture_matches_engine_output_format']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",

@@ -566,6 +566,7 @@ struct PatternCursor: Equatable {
 final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
     var editInputHandler: ((PatternEditInput) -> Bool)?
+    var transportShortcutHandler: (() -> Bool)?
     var wheelNavigationHandler: ((CGFloat) -> Void)?
     private var preciseVerticalWheelAccumulator: CGFloat = 0
     var theme = TrackerTheme.legacyDark
@@ -608,6 +609,18 @@ final class PatternTextView: NSTextView {
             navigationHandler?(.left)
         case 124:
             navigationHandler?(.right)
+        case 49:
+            if TrackerTransportShortcut.isPlainSpacebarToggle(
+                keyCode: event.keyCode,
+                charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                hasCommandModifier: event.modifierFlags.contains(.command),
+                hasOptionModifier: event.modifierFlags.contains(.option),
+                hasControlModifier: event.modifierFlags.contains(.control)
+            ),
+               transportShortcutHandler?() == true {
+                return
+            }
+            super.keyDown(with: event)
         case 51, 117:
             if editInputHandler?(.clearField) == true {
                 return

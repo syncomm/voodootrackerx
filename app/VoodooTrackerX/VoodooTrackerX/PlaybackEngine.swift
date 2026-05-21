@@ -66,10 +66,18 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?) {
-        play(from: context, debugStart: nil)
+        play(from: context, debugStart: nil, action: .play)
     }
 
     func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
+        play(from: context, debugStart: debugStart, action: .play)
+    }
+
+    private func play(
+        from context: PlaybackStartContext?,
+        debugStart: PlaybackDebugStartRequest?,
+        action: PlaybackTransportAction
+    ) {
         guard !state.isPlaying else {
             logger.debug("Ignoring play request because playback is already active")
             return
@@ -79,17 +87,25 @@ final class PlaybackEngine: PlaybackTransport {
             return
         }
         let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
+        let positionBeforePlay = currentPosition
         currentPosition = resolvedDebugStart?.position ?? playbackStartPosition(from: context, in: song) ?? song.startPosition
         resetRuntimeState(resetTiming: resolvedDebugStart != nil)
         activeDebugStartTraceContext = resolvedDebugStart.map {
             PlaybackDebugStartTraceContext(request: $0.request, position: $0.position, actualTickInRow: $0.actualTickInRow)
         }
         if let currentPosition {
+            recordRuntimeTransportAction(
+                action,
+                positionBefore: positionBeforePlay,
+                positionAfter: currentPosition,
+                tickInRowBefore: 0,
+                reason: "transport_play"
+            )
             enter(position: currentPosition, previousPosition: nil)
             applyDebugStartTickIfNeeded(resolvedDebugStart?.actualTickInRow, at: currentPosition)
         }
         restartTimer()
-        apply(action: .play, nextState: PlaybackState(mode: .playing, context: context))
+        apply(action: action, nextState: PlaybackState(mode: .playing, context: context))
     }
 
     @discardableResult
@@ -125,36 +141,59 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func stop() {
-        stop(notify: true, resetAudio: false)
+        stop(action: .stop)
     }
 
-    private func stop(notify: Bool, resetAudio: Bool) {
+    private func stop(action: PlaybackTransportAction) {
+        stop(notify: true, resetAudio: false, action: action)
+    }
+
+    private func stop(notify: Bool, resetAudio: Bool, action: PlaybackTransportAction = .stop) {
         let wasActive = state.mode != .stopped || timer != nil
         guard wasActive || resetAudio else {
             logger.debug("Ignoring stop request because playback is already stopped")
             return
         }
+        let positionBeforeStop = currentPosition
+        let tickInRowBeforeStop = tickState.tickInRow
+        let preservedPosition = resetAudio
+            ? song?.startPosition
+            : currentPublishedFollowPosition?.position ?? currentPosition ?? song?.startPosition
         timer?.invalidate()
         timer = nil
-        tickState.reset()
         if resetAudio {
             audioEngine.reset()
         } else {
-            stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "transport_stop")
+            stopAllAudio(
+                context: runtimeTraceContext(at: positionBeforeStop, tickInRow: tickInRowBeforeStop, channelIndex: nil),
+                reason: "transport_stop"
+            )
         }
-        currentPosition = song?.startPosition
+        tickState.reset()
+        currentPosition = preservedPosition
         pendingPositionCommand = nil
         channelStates.removeAll()
         globalState = PlaybackGlobalState()
         rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
-        timing = song?.initialTiming ?? .xmDefault
+        if resetAudio {
+            timing = song?.initialTiming ?? .xmDefault
+        }
         activeDebugStartTraceContext = nil
+        if notify {
+            recordRuntimeTransportAction(
+                action,
+                positionBefore: positionBeforeStop,
+                positionAfter: currentPosition,
+                tickInRowBefore: tickInRowBeforeStop,
+                reason: "transport_stop_preserve_position"
+            )
+        }
         traceWriter.flush()
         runtimeCMixerTraceWriter.flush()
         currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
-        apply(action: .stop, nextState: .stopped)
+        apply(action: action, nextState: .stopped)
         if notify, wasActive {
             playbackDidStop?()
         }
@@ -176,6 +215,14 @@ final class PlaybackEngine: PlaybackTransport {
             pause()
         case .paused, .stopped:
             play(from: context ?? state.context)
+        }
+    }
+
+    func togglePlayStop(from context: PlaybackStartContext?) {
+        if state.isPlaying {
+            stop(action: .spacebarStop)
+        } else {
+            play(from: context ?? state.context, debugStart: nil, action: .spacebarPlay)
         }
     }
 
@@ -747,6 +794,36 @@ final class PlaybackEngine: PlaybackTransport {
         ))
     }
 
+    private func recordRuntimeTransportAction(
+        _ action: PlaybackTransportAction,
+        positionBefore: PlaybackPosition?,
+        positionAfter: PlaybackPosition?,
+        tickInRowBefore: Int,
+        reason: String
+    ) {
+        guard runtimeCMixerTraceWriter.isEnabled else {
+            return
+        }
+        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .avAudio
+        runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
+            runtimeAction: action.traceName,
+            runtimeAudioBackend: backend.diagnosticName,
+            experimentalCMixerEnabled: backend == .cMixer,
+            sampleRate: audioEngine.audioBufferSampleRate,
+            context: runtimeTraceContext(at: positionAfter ?? positionBefore, tickInRow: positionAfter == nil ? tickInRowBefore : 0, channelIndex: nil),
+            targetScope: "transport",
+            targetedAllVoices: true,
+            previousOrderIndex: positionBefore?.orderIndex,
+            previousPatternIndex: positionBefore?.patternIndex,
+            previousRowIndex: positionBefore?.rowIndex,
+            nextOrderIndex: positionAfter?.orderIndex,
+            nextPatternIndex: positionAfter?.patternIndex,
+            nextRowIndex: positionAfter?.rowIndex,
+            cMixerCallSucceeded: nil,
+            reason: reason
+        ))
+    }
+
     private func recordRuntimeRowTransition(from previousPosition: PlaybackPosition?, to position: PlaybackPosition, phase: String) {
         guard let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput else {
             return
@@ -848,7 +925,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func playbackStartPosition(from context: PlaybackStartContext?, in song: PlaybackSong) -> PlaybackPosition? {
         guard let context else {
-            return song.startPosition
+            return currentPosition ?? song.startPosition
         }
         if let contextPosition = song.position(orderIndex: context.songPosition, rowIndex: context.row),
            contextPosition.patternIndex == context.patternIndex {

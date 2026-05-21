@@ -9497,6 +9497,29 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeCMixerStopPreservesPublishedSampleTimePosition() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 3],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 25)
+        harness.engine.advanceOneTick()
+        harness.engine.stop()
+
+        XCTAssertEqual(harness.engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
+        XCTAssertEqual(harness.traceWriter.events.last { $0.runtimeAction == "spacebarStop" }, nil)
+        let stopEvent = harness.traceWriter.events.last { $0.runtimeAction == "stop" }
+        XCTAssertEqual(stopEvent?.runtimeAudioBackend, "c_mixer")
+        XCTAssertEqual(stopEvent?.previousRowIndex, 1)
+        XCTAssertEqual(stopEvent?.nextRowIndex, 2)
+        XCTAssertEqual(stopEvent?.reason, "transport_stop_preserve_position")
+    }
+
+    @MainActor
     func testRuntimeCMixerConsumesPlannedNoteEventsInsteadOfSimpleRuntimeNotes() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let audioEngine = RuntimeCMixerAudioEngine(
@@ -11834,6 +11857,116 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineStopPreservesAdvancedPositionAndDoesNotResetToSongStart() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, runtimeCMixerTraceWriter: traceWriter)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowCounts: [2: 2, 3: 4],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.stop()
+
+        let preserved = PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 1)
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertEqual(engine.currentPosition, preserved)
+        XCTAssertNotEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(audioOutput.stopAllCount, 1)
+
+        let stopEvent = traceWriter.events.last { $0.runtimeAction == "stop" }
+        XCTAssertEqual(stopEvent?.runtimeAudioBackend, "av_audio")
+        XCTAssertEqual(stopEvent?.previousOrderIndex, 1)
+        XCTAssertEqual(stopEvent?.previousPatternIndex, 3)
+        XCTAssertEqual(stopEvent?.previousRowIndex, 1)
+        XCTAssertEqual(stopEvent?.nextOrderIndex, 1)
+        XCTAssertEqual(stopEvent?.nextPatternIndex, 3)
+        XCTAssertEqual(stopEvent?.nextRowIndex, 1)
+        XCTAssertEqual(stopEvent?.reason, "transport_stop_preserve_position")
+    }
+
+    @MainActor
+    func testPlaybackEnginePlayAfterStopStartsFromPreservedPosition() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioOutput)
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 64), baseSampleRate: 44_100)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 4],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            note: 49,
+            instrument: 1,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+        engine.stop()
+        let preserved = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2)
+        XCTAssertEqual(engine.currentPosition, preserved)
+
+        engine.play(from: nil)
+
+        XCTAssertEqual(engine.state.mode, .playing)
+        XCTAssertEqual(engine.currentPosition, preserved)
+        XCTAssertEqual(audioOutput.triggeredRequests.count, 4)
+    }
+
+    @MainActor
+    func testPlaybackEngineSpacebarToggleStopsAndPreservesPosition() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, runtimeCMixerTraceWriter: traceWriter)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 4],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 1))
+        engine.advanceOneTick()
+        engine.togglePlayStop(from: nil)
+
+        let preserved = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2)
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertEqual(engine.currentPosition, preserved)
+        XCTAssertEqual(audioOutput.stopAllCount, 1)
+        XCTAssertEqual(traceWriter.events.last { $0.runtimeAction == "spacebarStop" }?.nextRowIndex, 2)
+    }
+
+    @MainActor
+    func testPlaybackEngineSpacebarToggleStartsFromPreservedPosition() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, runtimeCMixerTraceWriter: traceWriter)
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 64), baseSampleRate: 44_100)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 4],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            note: 49,
+            instrument: 1,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+        let preservedContext = PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 2)
+        engine.play(from: preservedContext)
+        engine.stop()
+
+        engine.togglePlayStop(from: nil)
+
+        XCTAssertEqual(engine.state.mode, .playing)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
+        XCTAssertEqual(traceWriter.events.last { $0.runtimeAction == "spacebarPlay" }?.nextRowIndex, 2)
+        XCTAssertEqual(audioOutput.triggeredRequests.count, 2)
+    }
+
+    @MainActor
     func testPlaybackEngineStopIsIdempotentAfterPlayback() {
         let audioOutput = TestPlaybackAudioOutput()
         let engine = PlaybackEngine(audioEngine: audioOutput)
@@ -13358,6 +13491,41 @@ final class VoodooTrackerXTests: XCTestCase {
         let source = TestXMPatternEventCell(note: 10, instrument: 0x12, volumeColumn: 0x34, effectType: 0x05, effectParam: 0x67)
         XCTAssertNil(TestPatternEditEngine.apply(input: .clearField, to: source, field: .instrument, editModeEnabled: false))
         XCTAssertNil(TestPatternEditEngine.apply(input: .hexDigit(0x0A), to: source, field: .effectParam, editModeEnabled: false))
+    }
+
+    func testSpacebarShortcutDoesNotMapToPatternEditInput() {
+        XCTAssertTrue(TrackerTransportShortcut.isPlainSpacebarToggle(
+            keyCode: TrackerTransportShortcut.spacebarKeyCode,
+            charactersIgnoringModifiers: " ",
+            hasCommandModifier: false,
+            hasOptionModifier: false,
+            hasControlModifier: false
+        ))
+        XCTAssertNil(TestPatternEditEngine.hexNibble(from: " "))
+    }
+
+    func testTrackerTransportShortcutMatchesPlainSpacebarOnly() {
+        XCTAssertTrue(TrackerTransportShortcut.isPlainSpacebarToggle(
+            keyCode: 49,
+            charactersIgnoringModifiers: " ",
+            hasCommandModifier: false,
+            hasOptionModifier: false,
+            hasControlModifier: false
+        ))
+        XCTAssertFalse(TrackerTransportShortcut.isPlainSpacebarToggle(
+            keyCode: 49,
+            charactersIgnoringModifiers: " ",
+            hasCommandModifier: true,
+            hasOptionModifier: false,
+            hasControlModifier: false
+        ))
+        XCTAssertFalse(TrackerTransportShortcut.isPlainSpacebarToggle(
+            keyCode: 36,
+            charactersIgnoringModifiers: "\r",
+            hasCommandModifier: false,
+            hasOptionModifier: false,
+            hasControlModifier: false
+        ))
     }
 
     func testSongPositionDrivesDisplayedPatternSelection() {

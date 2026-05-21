@@ -148,6 +148,16 @@ when the trace-only threshold is crossed, and the runtime output gain/headroom
 policy. The current runtime C path applies no equivalent of the offline
 `--auto-headroom` export policy.
 
+Transport trace rows may include `runtimeAction` values `play`, `stop`,
+`spacebarPlay`, and `spacebarStop`. These rows report the selected
+`runtimeAudioBackend`, the previous order/pattern/row in
+`previousOrderIndex`, `previousPatternIndex`, and `previousRowIndex`, and the
+position after the transport action in `nextOrderIndex`, `nextPatternIndex`,
+and `nextRowIndex`. For stop actions, the `next...` fields are the preserved
+position. For play actions, the `next...` fields are the position used to start
+playback. The fields are diagnostics only; they do not change backend
+selection, mixer DSP, parser behavior, or tracker viewport rendering.
+
 When the experimental backend is selected, Debug builds can also capture the
 actual post-gain AVAudio source-node output buffer to a local WAV:
 

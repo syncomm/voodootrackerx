@@ -8,4 +8,5 @@ protocol PlaybackTransport: AnyObject {
     func stop()
     func pause()
     func togglePlayPause(from context: PlaybackStartContext?)
+    func togglePlayStop(from context: PlaybackStartContext?)
 }

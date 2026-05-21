@@ -2516,11 +2516,132 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertTrue(lifecycle["output_continues_after_planned_song_end"])
             self.assertTrue(lifecycle["final_sustained_voices_continue_after_planned_song_end"])
             self.assertFalse(lifecycle["capture_cap_reached"])
+            self.assertFalse(lifecycle["capture_truncated"])
             self.assertFalse(lifecycle["capture_cap_triggered_stop"])
             self.assertFalse(lifecycle["debug_stop_triggered_stop"])
             self.assertTrue(lifecycle["planned_song_end_triggered_stop"])
             self.assertTrue(lifecycle["capture_seconds_only_affects_capture"])
             self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Song-End Stop / Tail Handling")
+
+    def test_runtime_trace_summary_reports_song_end_tail_stop_as_capture_independent(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "adapter_event_schedule_configured",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=5,
+                        runtimeCaptureFrameLimit=500,
+                        runtimeCapturedFrameCount=0,
+                        debugStopAfterSeconds=300,
+                        sampleRate=100,
+                        plannedSongEndFrame=1000,
+                        plannedSongEndSeconds=10,
+                        runtimeTailSeconds=3,
+                        runtimeTailFrames=300,
+                        runtimeTailPolicy="default_runtime_tail_seconds",
+                        songEndStopFrame=1300,
+                        songEndStopSeconds=13,
+                        plannedSongEndRuntimeFrame=1000,
+                        plannedSongEndRuntimeSeconds=10,
+                        songEndStopRuntimeFrame=1300,
+                        songEndStopRuntimeSeconds=13,
+                        eventQueueExhausted=False,
+                    ),
+                    self.event(
+                        "capture_truncated",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=5,
+                        runtimeCaptureFrameLimit=500,
+                        runtimeCapturedFrameCount=500,
+                        runtimeCaptureDurationSeconds=5,
+                        runtimeCaptureTruncated=True,
+                        stopReason="capture_cap_only",
+                        captureCapTriggeredPlaybackStop=False,
+                    ),
+                    self.event(
+                        "render_callback",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=5,
+                        runtimeCaptureFrameLimit=500,
+                        runtimeCapturedFrameCount=500,
+                        runtimeCaptureDurationSeconds=5,
+                        runtimeCaptureTruncated=True,
+                        sampleRate=100,
+                        currentFrame=1300,
+                        plannedSongEndFrame=1000,
+                        plannedSongEndSeconds=10,
+                        runtimeTailSeconds=3,
+                        runtimeTailFrames=300,
+                        songEndStopFrame=1300,
+                        songEndStopSeconds=13,
+                        plannedSongEndRuntimeFrame=1000,
+                        plannedSongEndRuntimeSeconds=10,
+                        songEndStopRuntimeFrame=1300,
+                        songEndStopRuntimeSeconds=13,
+                        runtimeFrameAtPlannedSongEnd=1000,
+                        runtimeSecondsAtPlannedSongEnd=10,
+                        runtimeFrameAtSongEndTailStop=1300,
+                        runtimeSecondsAtSongEndTailStop=13,
+                        eventQueueExhausted=True,
+                        eventQueueExhaustedFrame=1000,
+                        eventQueueExhaustedSeconds=10,
+                        activeVoiceCountAtPlannedSongEnd=1,
+                        loadedVoiceCountAtPlannedSongEnd=1,
+                        activeVoiceCountAtTailStop=1,
+                        loadedVoiceCountAtTailStop=1,
+                        activeVoiceCountAfterPlannedSongEnd=0,
+                        loadedVoiceCountAfterPlannedSongEnd=0,
+                        outputContinuesAfterPlannedSongEnd=True,
+                        finalSustainedVoicesContinueAfterPlannedSongEnd=True,
+                    ),
+                    self.event(
+                        "c_mixer_clear_all",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=5,
+                        runtimeCaptureFrameLimit=500,
+                        runtimeCapturedFrameCount=500,
+                        runtimeCaptureDurationSeconds=5,
+                        runtimeCaptureTruncated=True,
+                        sampleRate=100,
+                        currentFrame=1300,
+                        cMixerRenderedFramesBeforeClear=1300,
+                        cMixerPlaybackSecondsBeforeClear=13,
+                        runtimeTailSeconds=3,
+                        runtimeTailFrames=300,
+                        songEndStopFrame=1300,
+                        songEndStopSeconds=13,
+                        runtimeFrameAtSongEndTailStop=1300,
+                        runtimeSecondsAtSongEndTailStop=13,
+                        activeVoiceCountAtTailStop=1,
+                        loadedVoiceCountAtTailStop=1,
+                        eventQueueExhausted=True,
+                        stopReason="song_end_tail",
+                        captureCapTriggeredPlaybackStop=False,
+                        reason="runtime_song_end_tail",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            lifecycle = summary["lifecycle"]
+
+            self.assertEqual(lifecycle["runtime_tail_seconds"], 3)
+            self.assertEqual(lifecycle["runtime_tail_frames"], 300)
+            self.assertEqual(lifecycle["song_end_stop_frame"], 1300)
+            self.assertEqual(lifecycle["song_end_stop_seconds"], 13)
+            self.assertEqual(lifecycle["runtime_frame_at_song_end_tail_stop"], 1300)
+            self.assertEqual(lifecycle["runtime_playback_stopped_frame"], 1300)
+            self.assertEqual(lifecycle["runtime_playback_stop_reason"], "song_end_tail")
+            self.assertEqual(lifecycle["active_voice_count_at_tail_stop"], 1)
+            self.assertEqual(lifecycle["loaded_voice_count_at_tail_stop"], 1)
+            self.assertTrue(lifecycle["capture_cap_reached"])
+            self.assertTrue(lifecycle["capture_truncated"])
+            self.assertFalse(lifecycle["capture_cap_triggered_stop"])
+            self.assertTrue(lifecycle["planned_song_end_triggered_stop"])
+            self.assertTrue(lifecycle["capture_seconds_only_affects_capture"])
+            self.assertNotEqual(summary["recommended_next_pr"], "Runtime C Mixer Song-End Stop / Tail Handling")
 
     def test_runtime_trace_summary_flags_capture_cap_lifetime_coupling_when_observed(self):
         with tempfile.TemporaryDirectory() as tmpdir:

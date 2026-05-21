@@ -3,11 +3,14 @@ import os
 
 @MainActor
 final class PlaybackEngine: PlaybackTransport {
+    private static let runtimeCMixerSongEndTransportStopGraceSeconds: TimeInterval = 0.5
+
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Playback")
     private let audioEngine: PlaybackAudioOutput
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
     private let runtimeCMixerFollowPublicationDisabled: Bool
+    private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
     private let debugStopAfterSeconds: TimeInterval?
 
     private(set) var state: PlaybackState = .stopped
@@ -17,7 +20,10 @@ final class PlaybackEngine: PlaybackTransport {
     private(set) var timing = PlaybackTiming.xmDefault
     private var tickState = PlaybackTickState()
     private var timer: Timer?
+    private var runtimeCMixerSongEndStopTimer: Timer?
+    private var runtimeCMixerSongEndStopPending = false
     private var pendingPositionCommand: PlaybackPositionCommand?
+    private var runtimeAdapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
     private var channelStates = [Int: PlaybackChannelState]()
     private var globalState = PlaybackGlobalState()
     private var rowDelayDurationsRemaining = 0
@@ -50,6 +56,10 @@ final class PlaybackEngine: PlaybackTransport {
                 RuntimeCMixerDiagnosticEnvironment.disableFollowPublicationEnvironmentKey,
                 environment: environment
             )
+        runtimeCMixerSongEndTailPolicy =
+            ((resolvedAudioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.usesRuntimeCMixer ?? false)
+                ? RuntimeCMixerSongEndTailPolicy.resolve(environment: environment)
+                : .defaultPolicy
     }
 
     func load(song: PlaybackSong?) {
@@ -69,6 +79,7 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeNoteTriggerEventCount = 0
         activeDebugStartTraceContext = nil
         configureRuntimeAdapterEventPlan(for: song)
+        cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
 
@@ -120,6 +131,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         restartTimer()
         apply(action: action, nextState: PlaybackState(mode: .playing, context: context))
+        scheduleRuntimeCMixerSongEndStopIfNeeded()
     }
 
     @discardableResult
@@ -131,6 +143,7 @@ final class PlaybackEngine: PlaybackTransport {
         let shouldPlay = autoplay ?? state.isPlaying
         timer?.invalidate()
         timer = nil
+        cancelRuntimeCMixerSongEndStop()
         stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "debug_seek")
         currentPosition = resolvedStart.position
         resetRuntimeState(resetTiming: true)
@@ -147,6 +160,7 @@ final class PlaybackEngine: PlaybackTransport {
             applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
             restartTimer()
             apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
+            scheduleRuntimeCMixerSongEndStopIfNeeded()
         } else {
             publishPlaybackFollowPosition(timerPosition: resolvedStart.position, tickInRow: 0, allowBackendOverride: false)
             apply(action: .stop, nextState: .stopped)
@@ -183,10 +197,11 @@ final class PlaybackEngine: PlaybackTransport {
             : currentPublishedFollowPosition?.position ?? currentPosition ?? song?.startPosition
         timer?.invalidate()
         timer = nil
+        cancelRuntimeCMixerSongEndStop()
         if resetAudio {
             audioEngine.reset()
         } else {
-            let audioStopReason = reason == "planned_song_end" || reason == "debug_stop_after_seconds"
+            let audioStopReason = reason == "planned_song_end" || reason == "runtime_song_end_tail" || reason == "debug_stop_after_seconds"
                 ? reason
                 : "transport_stop"
             stopAllAudio(
@@ -202,6 +217,7 @@ final class PlaybackEngine: PlaybackTransport {
         rowDelayDurationsRemaining = 0
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
+        runtimeCMixerSongEndStopPending = false
         if resetAudio {
             timing = song?.initialTiming ?? .xmDefault
         }
@@ -230,6 +246,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         timer?.invalidate()
         timer = nil
+        cancelRuntimeCMixerSongEndStop()
         stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "transport_pause")
         apply(action: .pause, nextState: PlaybackState(mode: .paused, context: state.context))
     }
@@ -271,6 +288,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         activeDebugStartTraceContext = nil
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.resetRuntimeAdapterEventConsumption()
+        runtimeCMixerSongEndStopPending = false
     }
 
     private var usesRuntimeAdapterEventPlan: Bool {
@@ -279,12 +297,15 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func configureRuntimeAdapterEventPlan(for song: PlaybackSong?) {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
+            runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
             return
         }
-        adapterConsumer.configureRuntimeAdapterEventPlan(RuntimeCMixerAdapterEventPlan.make(
+        let plan = RuntimeCMixerAdapterEventPlan.make(
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate
-        ))
+        )
+        runtimeAdapterEventPlan = plan
+        adapterConsumer.configureRuntimeAdapterEventPlan(plan)
     }
 
     private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int) {
@@ -333,9 +354,72 @@ final class PlaybackEngine: PlaybackTransport {
                 currentPosition = restartPosition
                 publishPlaybackFollowPosition(timerPosition: restartPosition, tickInRow: 0, allowBackendOverride: false)
             }
+            guard !holdTransportForRuntimeCMixerSongEndTailIfNeeded() else {
+                return
+            }
             logger.debug("Playback reached end of song; stopping cleanly")
             stop(action: .stop, reason: "planned_song_end")
         }
+    }
+
+    private func scheduleRuntimeCMixerSongEndStopIfNeeded() {
+        cancelRuntimeCMixerSongEndStop()
+        guard runtimeUsesCMixer,
+              runtimeAdapterEventPlan.generated,
+              let plannedSongEndFrame = runtimeAdapterEventPlan.plannedSongEndFrame,
+              let currentPosition,
+              audioEngine.audioBufferSampleRate.isFinite,
+              audioEngine.audioBufferSampleRate > 0 else {
+            return
+        }
+        let context = runtimeTraceContext(
+            at: currentPosition,
+            tickInRow: tickState.tickInRow,
+            channelIndex: nil
+        )
+        guard let plannedStartFrame = runtimeAdapterEventPlan.plannedFrame(matching: context) ??
+            runtimeAdapterEventPlan.plannedRowStartFrame(matching: context) else {
+            return
+        }
+        let tailFrames = runtimeCMixerSongEndTailPolicy.tailFrames(sampleRate: audioEngine.audioBufferSampleRate)
+        let framesUntilSongEnd = max(0, plannedSongEndFrame - plannedStartFrame)
+        let stopFrames = framesUntilSongEnd.addingReportingOverflow(tailFrames)
+        guard !stopFrames.overflow else {
+            return
+        }
+        let stopSeconds = Double(max(0, stopFrames.partialValue)) / audioEngine.audioBufferSampleRate +
+            Self.runtimeCMixerSongEndTransportStopGraceSeconds
+        runtimeCMixerSongEndStopPending = true
+        guard stopSeconds > 0 else {
+            stop(action: .stop, reason: "runtime_song_end_tail")
+            return
+        }
+        runtimeCMixerSongEndStopTimer = Timer.scheduledTimer(withTimeInterval: stopSeconds, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.runtimeCMixerSongEndStopTimer = nil
+                self?.runtimeCMixerSongEndStopPending = false
+                self?.stop(action: .stop, reason: "runtime_song_end_tail")
+            }
+        }
+    }
+
+    private func holdTransportForRuntimeCMixerSongEndTailIfNeeded() -> Bool {
+        guard runtimeCMixerSongEndStopPending else {
+            return false
+        }
+        timer?.invalidate()
+        timer = nil
+        return true
+    }
+
+    private func cancelRuntimeCMixerSongEndStop() {
+        runtimeCMixerSongEndStopTimer?.invalidate()
+        runtimeCMixerSongEndStopTimer = nil
+        runtimeCMixerSongEndStopPending = false
+    }
+
+    private var runtimeUsesCMixer: Bool {
+        (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.usesRuntimeCMixer == true
     }
 
     private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?) {

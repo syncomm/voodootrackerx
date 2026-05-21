@@ -205,13 +205,21 @@ python3 scripts/summarize-runtime-c-mixer-trace.py \
 
 The summary also separates capture lifetime from playback lifetime. It reports
 `runtimeCaptureSeconds`, `debugStopAfterSeconds`, planned song-end frame/time,
-capture end frame/time, runtime stop frame/time, event-queue exhaustion
-frame/time, active/loaded voices at and after planned song end, whether output
-continued after planned song end, whether capture cap or debug stop triggered
-the stop, and whether planned song end triggered stop or silence.
+runtime tail seconds/frames, song-end stop frame/time, capture end frame/time,
+runtime stop frame/time, event-queue exhaustion frame/time, active/loaded
+voices at planned song end and tail stop, whether output continued after
+planned song end, whether capture cap or debug stop triggered the stop, and
+whether planned song end plus tail triggered stop or silence.
 `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` is a capture-buffer cap only; it must not
-be used as the playback lifetime. `VTX_DEBUG_STOP_AFTER_SECONDS` may stop
-playback during local automation.
+be used as the playback lifetime. A shorter capture cap truncates only the
+local capture, and a longer cap does not extend playback. Runtime C mixer
+playback stops or silences at planned song end plus the runtime tail, which
+defaults to 3 seconds and can be overridden locally with
+`VTX_C_MIXER_RUNTIME_TAIL_SECONDS=N`. `VTX_DEBUG_STOP_AFTER_SECONDS` may stop
+playback during local automation. Both `c_mixer` and `c_mixer_coreaudio` remain
+experimental, opt-in backends; generated traces, captures, WAVs, JSON reports,
+Markdown summaries, logs, screenshots, and listening notes should stay local
+and unstaged.
 
 For overhead isolation, `VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` disables the
 runtime C mixer trace writer when the experimental backend is selected.

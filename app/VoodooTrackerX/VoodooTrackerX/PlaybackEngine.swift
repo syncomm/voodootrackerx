@@ -8,6 +8,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
     private let runtimeCMixerFollowPublicationDisabled: Bool
+    private let debugStopAfterSeconds: TimeInterval?
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -36,6 +37,7 @@ final class PlaybackEngine: PlaybackTransport {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
+        debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
             environment: environment,
             runtimeCMixerTraceWriter: runtimeCMixerTraceWriter
@@ -156,11 +158,19 @@ final class PlaybackEngine: PlaybackTransport {
         stop(action: .stop)
     }
 
-    private func stop(action: PlaybackTransportAction) {
-        stop(notify: true, resetAudio: false, action: action)
+    func stopFromDebugTimer() {
+        stop(action: .stop, reason: "debug_stop_after_seconds")
     }
 
-    private func stop(notify: Bool, resetAudio: Bool, action: PlaybackTransportAction = .stop) {
+    private func stop(action: PlaybackTransportAction) {
+        stop(action: action, reason: "transport_stop_preserve_position")
+    }
+
+    private func stop(action: PlaybackTransportAction, reason: String) {
+        stop(notify: true, resetAudio: false, action: action, reason: reason)
+    }
+
+    private func stop(notify: Bool, resetAudio: Bool, action: PlaybackTransportAction = .stop, reason: String = "transport_stop_preserve_position") {
         let wasActive = state.mode != .stopped || timer != nil
         guard wasActive || resetAudio else {
             logger.debug("Ignoring stop request because playback is already stopped")
@@ -176,9 +186,12 @@ final class PlaybackEngine: PlaybackTransport {
         if resetAudio {
             audioEngine.reset()
         } else {
+            let audioStopReason = reason == "planned_song_end" || reason == "debug_stop_after_seconds"
+                ? reason
+                : "transport_stop"
             stopAllAudio(
                 context: runtimeTraceContext(at: positionBeforeStop, tickInRow: tickInRowBeforeStop, channelIndex: nil),
-                reason: "transport_stop"
+                reason: audioStopReason
             )
         }
         tickState.reset()
@@ -199,7 +212,7 @@ final class PlaybackEngine: PlaybackTransport {
                 positionBefore: positionBeforeStop,
                 positionAfter: currentPosition,
                 tickInRowBefore: tickInRowBeforeStop,
-                reason: "transport_stop_preserve_position"
+                reason: reason
             )
         }
         traceWriter.flush()
@@ -321,7 +334,7 @@ final class PlaybackEngine: PlaybackTransport {
                 publishPlaybackFollowPosition(timerPosition: restartPosition, tickInRow: 0, allowBackendOverride: false)
             }
             logger.debug("Playback reached end of song; stopping cleanly")
-            stop()
+            stop(action: .stop, reason: "planned_song_end")
         }
     }
 
@@ -798,6 +811,7 @@ final class PlaybackEngine: PlaybackTransport {
             experimentalCMixerEnabled: backend.usesRuntimeCMixer,
             alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: backend.runtimeOutputHostType,
+            debugStopAfterSeconds: debugStopAfterSeconds,
             sampleRate: audioEngine.audioBufferSampleRate,
             context: context,
             targetScope: targetScope,
@@ -825,6 +839,7 @@ final class PlaybackEngine: PlaybackTransport {
             experimentalCMixerEnabled: backend.usesRuntimeCMixer,
             alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: backend.runtimeOutputHostType,
+            debugStopAfterSeconds: debugStopAfterSeconds,
             sampleRate: audioEngine.audioBufferSampleRate,
             context: runtimeTraceContext(at: positionAfter ?? positionBefore, tickInRow: positionAfter == nil ? tickInRowBefore : 0, channelIndex: nil),
             targetScope: "transport",

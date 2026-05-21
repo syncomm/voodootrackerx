@@ -9600,6 +9600,86 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackAudioOutputFactoryReportsDebugStopSeparatelyFromCaptureSecondsForBothCMixerHosts() {
+        for backendValue in ["c_mixer", "c_mixer_coreaudio"] {
+            let traceWriter = TestRuntimeCMixerTraceWriter()
+            let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("debug-stop-capture-\(backendValue)-\(UUID().uuidString).wav")
+            _ = PlaybackAudioOutputFactory.make(
+                environment: [
+                    RuntimeAudioBackendSelection.environmentKey: backendValue,
+                    RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path,
+                    RuntimeCMixerCaptureConfiguration.secondsEnvironmentKey: "0.5",
+                    PlaybackDebugLaunchConfiguration.stopAfterSecondsEnvironmentKey: "2.0"
+                ],
+                runtimeCMixerTraceWriter: traceWriter
+            )
+
+            let selected = traceWriter.events.first
+            XCTAssertEqual(selected?.runtimeAudioBackend, backendValue)
+            XCTAssertEqual(selected?.runtimeCaptureSeconds, 0.5)
+            XCTAssertEqual(selected?.debugStopAfterSeconds, 2.0)
+            XCTAssertEqual(selected?.runtimeCaptureEnabled, true)
+        }
+    }
+
+    func testRuntimeCMixerCaptureLimitDoesNotStopRenderingPlaybackAudio() {
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("capture-limit-\(UUID().uuidString).wav")
+        let captureConfiguration = RuntimeCMixerCaptureConfiguration.resolve(environment: [
+            RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path,
+            RuntimeCMixerCaptureConfiguration.secondsEnvironmentKey: "0.2"
+        ])
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 10, channelCount: 1),
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ]),
+            captureConfiguration: captureConfiguration
+        )
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 10, loopStart: 0, loopLength: 2, loopType: 1)
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 2), [1, 1])
+        let cappedSnapshot = core.snapshot()
+        XCTAssertEqual(cappedSnapshot.capture.frameLimit, 2)
+        XCTAssertEqual(cappedSnapshot.capture.capturedFrameCount, 2)
+        XCTAssertTrue(cappedSnapshot.capture.truncated)
+
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 3), [1, 1, 1])
+        let continuedSnapshot = core.snapshot()
+        XCTAssertEqual(continuedSnapshot.currentFrame, 5)
+        XCTAssertEqual(continuedSnapshot.activeVoiceCount, 1)
+        XCTAssertEqual(continuedSnapshot.capture.capturedFrameCount, 2)
+        XCTAssertTrue(continuedSnapshot.capture.truncated)
+    }
+
+    func testRuntimeCMixerSongEndLifecycleDiagnosticsDetectSustainedVoicesAfterPlanEnd() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 10, channelCount: 1),
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 10, loopStart: 0, loopLength: 2, loopType: 1)
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        core.configureAdapterEventScheduleForTesting([], runtimeFrameOffset: 0, plannedSongEndFrame: 2)
+
+        XCTAssertPCMEqual(renderRuntimePCM(core, frames: 5), [1, 1, 1, 1, 1])
+        let snapshot = core.snapshot()
+
+        XCTAssertEqual(snapshot.plannedSongEndFrame, 2)
+        XCTAssertEqual(snapshot.plannedSongEndRuntimeFrame, 2)
+        XCTAssertEqual(snapshot.runtimeFrameAtPlannedSongEnd, 2)
+        XCTAssertEqual(snapshot.eventQueueExhaustedFrame, 0)
+        XCTAssertTrue(snapshot.eventQueueExhausted)
+        XCTAssertEqual(snapshot.activeVoiceCountAtPlannedSongEnd, 1)
+        XCTAssertEqual(snapshot.loadedVoiceCountAtPlannedSongEnd, 1)
+        XCTAssertEqual(snapshot.activeVoiceCountAfterPlannedSongEnd, 1)
+        XCTAssertEqual(snapshot.loadedVoiceCountAfterPlannedSongEnd, 1)
+        XCTAssertEqual(snapshot.outputContinuesAfterPlannedSongEnd, true)
+        XCTAssertEqual(snapshot.finalSustainedVoicesContinueAfterPlannedSongEnd, true)
+    }
+
+    @MainActor
     func testPlaybackAudioOutputFactoryDisablesCaptureForCMixerBackendWhenFlagged() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("disabled-engine-capture-\(UUID().uuidString).wav")
@@ -12121,6 +12201,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(clearAll?.reason, "transport_stop")
         XCTAssertNotNil(clearAll?.stoppedVoiceCount)
         XCTAssertGreaterThanOrEqual(clearAll?.clearAllCount ?? 0, 1)
+        XCTAssertGreaterThanOrEqual(clearAll?.cMixerRenderedFramesBeforeClear ?? 0, 1_024)
+        XCTAssertGreaterThan(clearAll?.cMixerPlaybackSecondsBeforeClear ?? 0, 0)
     }
 
     @MainActor
@@ -12214,6 +12296,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(transitions[0].playbackEnginePatternIndex, 2)
         XCTAssertEqual(transitions[0].playbackEngineRowIndex, 0)
         XCTAssertEqual(transitions[0].playbackEngineTickInRow, 0)
+        XCTAssertEqual(transitions[0].plannedSongEndFrame, 1_764)
+        XCTAssertEqual(transitions[0].plannedSongEndSeconds ?? 0, 0.04, accuracy: 0.000_001)
         XCTAssertEqual(transitions[0].playbackEngineToCMixerFrameDelta, 0)
         XCTAssertEqual(transitions[0].playbackEngineToCMixerPositionMismatch, false)
         XCTAssertEqual(transitions[0].rowTransitionDeltaCategory, "exact")
@@ -12681,6 +12765,26 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(stopEvent?.nextPatternIndex, 3)
         XCTAssertEqual(stopEvent?.nextRowIndex, 1)
         XCTAssertEqual(stopEvent?.reason, "transport_stop_preserve_position")
+    }
+
+    @MainActor
+    func testPlaybackEngineReportsPlannedSongEndStopSeparatelyFromManualStop() {
+        let audioOutput = TestPlaybackAudioOutput()
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let engine = PlaybackEngine(audioEngine: audioOutput, runtimeCMixerTraceWriter: traceWriter)
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 1],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.advanceOneTick()
+
+        XCTAssertEqual(engine.state, .stopped)
+        XCTAssertEqual(audioOutput.stopAllCount, 1)
+        let stopEvent = traceWriter.events.last { $0.runtimeAction == "stop" }
+        XCTAssertEqual(stopEvent?.reason, "planned_song_end")
     }
 
     @MainActor

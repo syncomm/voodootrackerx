@@ -287,6 +287,13 @@ developer-only `VTX_AUDIO_BACKEND=c_mixer_coreaudio` spike now provides a
 minimal CoreAudio DefaultOutput Audio Unit host for isolating the delivery
 layer. The new host is opt-in only and keeps the SourceNode C mixer backend
 available for A/B comparison.
+Runtime output-host A/B comparison diagnostics now summarize the SourceNode and
+CoreAudio hosts side by side, including backend/host selection, callback shape,
+sample-rate/channel fields, capture status, CoreAudio OSStatus fields, and
+runtime lifecycle clocks. Capture duration is reported separately from
+`VTX_DEBUG_STOP_AFTER_SECONDS` and planned song end, so capture caps can be
+tested without treating them as playback lifetime. CoreAudio host hardening and
+runtime song-end/tail handling remain separate follow-up work.
 Transport stop-position preservation and the tracker-style plain Spacebar
 play/stop shortcut are implemented for manual debugging workflow: manual Stop
 preserves the current published order/row position, play resumes from the
@@ -371,7 +378,10 @@ Immediate audio accuracy sequence:
 74. Runtime C Mixer Render Callback Diagnostics Decoupling — done
 75. ADR: Alternative Runtime Output Host for C Mixer — done
 76. Runtime C Mixer CoreAudio/AUAudioUnit Output Host Spike — done
-77. Reference comparison stabilization against MikMod/OpenMPT
+77. Runtime C Mixer Output Host A/B Listening and Capture Comparison — done
+78. Runtime C Mixer Song-End Stop / Tail Handling — planned separate follow-up
+79. Runtime C Mixer CoreAudio Host Hardening — planned separate follow-up
+80. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -441,6 +451,10 @@ Features:
 - developer-only CoreAudio DefaultOutput Audio Unit runtime output host spike through
   `VTX_AUDIO_BACKEND=c_mixer_coreaudio` for isolating whether remaining
   live-only artifacts are specific to AVAudioEngine/AVAudioSourceNode delivery
+- local-only output-host A/B summaries that compare `c_mixer` and
+  `c_mixer_coreaudio` trace fields and distinguish capture duration, debug stop
+  duration, planned song end, and continued output after planned event-stream
+  exhaustion
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

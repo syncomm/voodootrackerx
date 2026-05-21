@@ -198,6 +198,24 @@ absolute locally, but trace rows and summaries report only the output basename.
 Generated WAVs, traces, and comparison reports should stay under `/tmp` or
 another untracked local path.
 
+Runtime C mixer playback lifetime is planned from the same adapter timeline
+used to queue runtime C mixer events. The experimental `c_mixer` and
+`c_mixer_coreaudio` backends now silence the C mixer and stop transport at the
+planned song end plus a short runtime tail. The default tail is 3 seconds and
+can be changed locally with `VTX_C_MIXER_RUNTIME_TAIL_SECONDS=N`. Trace rows
+report `plannedSongEndFrame`, `plannedSongEndSeconds`, `runtimeTailSeconds`,
+`runtimeTailFrames`, `songEndStopFrame`, `songEndStopSeconds`,
+`runtimeFrameAtSongEndTailStop`, active/loaded voice counts at planned end and
+tail stop, event-queue exhaustion, and normalized `stopReason` values such as
+`song_end_tail`, `debug_stop`, `user_stop`, `transport_stop`, and
+`capture_cap_only`.
+
+`VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` is capture-only. A shorter capture cap
+may truncate the local WAV buffer while playback continues to the planned song
+end plus tail. A longer capture cap does not keep runtime playback alive.
+`VTX_DEBUG_STOP_AFTER_SECONDS` remains a playback stop for local automation and
+takes precedence when it fires before song end plus tail.
+
 Set `VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE=1` to disable runtime capture even
 when `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is present. Set
 `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` to run the experimental C mixer with

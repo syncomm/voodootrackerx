@@ -45,6 +45,7 @@ TRANSPORT_CLEAR_REASONS = {
 LIFECYCLE_STOP_REASONS = {
     "debug_stop_after_seconds",
     "planned_song_end",
+    "runtime_song_end_tail",
     "runtime_capture_cap_stop",
     "transport_pause",
     "transport_stop",
@@ -1889,7 +1890,7 @@ def build_summary(
         "configuration_warning": first_string(events, "runtimeCaptureConfigurationWarning"),
     }
     stop_event = last_lifecycle_stop_event(events)
-    stop_reason = str(stop_event.get("reason") or "unknown") if stop_event else None
+    stop_reason = str(stop_event.get("stopReason") or stop_event.get("reason") or "unknown") if stop_event else None
     stop_frame = (
         integer(stop_event.get("cMixerRenderedFramesBeforeClear"))
         if stop_event
@@ -1927,6 +1928,11 @@ def build_summary(
     planned_song_end_frame = integer(first_number(events, "plannedSongEndFrame"))
     planned_song_end_runtime_frame = last_exact_integer(events, "plannedSongEndRuntimeFrame")
     runtime_frame_at_planned_song_end = last_exact_integer(events, "runtimeFrameAtPlannedSongEnd")
+    runtime_tail_seconds = first_number(events, "runtimeTailSeconds")
+    runtime_tail_frames = last_exact_integer(events, "runtimeTailFrames")
+    song_end_stop_frame = last_exact_integer(events, "songEndStopFrame")
+    song_end_stop_runtime_frame = last_exact_integer(events, "songEndStopRuntimeFrame")
+    runtime_frame_at_tail_stop = last_exact_integer(events, "runtimeFrameAtSongEndTailStop")
     event_queue_exhausted_frame = last_exact_integer(events, "eventQueueExhaustedFrame")
     event_queue_exhausted_seconds = last_number(events, "eventQueueExhaustedSeconds")
     capture_frame_limit = capture["frame_limit"]
@@ -1939,19 +1945,36 @@ def build_summary(
             and captured_frame_count >= capture_frame_limit
         )
     )
-    debug_stop_triggered_stop = stop_reason == "debug_stop_after_seconds"
-    planned_song_end_triggered_stop = stop_reason == "planned_song_end"
+    debug_stop_triggered_stop = stop_reason in {"debug_stop", "debug_stop_after_seconds"}
+    planned_song_end_triggered_stop = stop_reason in {"song_end_tail", "planned_song_end", "runtime_song_end_tail"}
     known_non_capture_stop = stop_reason in {
+        "debug_stop",
         "debug_stop_after_seconds",
+        "song_end_tail",
         "planned_song_end",
+        "runtime_song_end_tail",
+        "user_stop",
         "transport_stop",
         "transport_stop_preserve_position",
         "transport_pause",
         "transport_stop_all",
     }
-    capture_cap_triggered_stop = False if stop_event and known_non_capture_stop else None
-    if stop_reason is not None and "capture" in stop_reason:
+    any_capture_cap_triggered_stop = any(event.get("captureCapTriggeredPlaybackStop") is True for event in events)
+    stop_event_capture_cap_triggered_stop = (
+        stop_event.get("captureCapTriggeredPlaybackStop")
+        if stop_event and isinstance(stop_event.get("captureCapTriggeredPlaybackStop"), bool)
+        else None
+    )
+    if any_capture_cap_triggered_stop:
         capture_cap_triggered_stop = True
+    elif isinstance(stop_event_capture_cap_triggered_stop, bool):
+        capture_cap_triggered_stop = stop_event_capture_cap_triggered_stop
+    elif stop_reason is not None and "capture" in stop_reason:
+        capture_cap_triggered_stop = True
+    elif stop_event and known_non_capture_stop:
+        capture_cap_triggered_stop = False
+    else:
+        capture_cap_triggered_stop = first_present_bool(events, "captureCapTriggeredPlaybackStop")
     output_continues_after_song_end = any(event.get("outputContinuesAfterPlannedSongEnd") is True for event in events)
     sustained_after_song_end = any(
         event.get("finalSustainedVoicesContinueAfterPlannedSongEnd") is True for event in events
@@ -1968,8 +1991,19 @@ def build_summary(
         "planned_song_end_runtime_seconds": rounded_optional(last_number(events, "plannedSongEndRuntimeSeconds")),
         "runtime_frame_at_planned_song_end": runtime_frame_at_planned_song_end,
         "runtime_seconds_at_planned_song_end": rounded_optional(last_number(events, "runtimeSecondsAtPlannedSongEnd")),
+        "runtime_tail_seconds": rounded_optional(runtime_tail_seconds),
+        "runtime_tail_frames": runtime_tail_frames,
+        "runtime_tail_policy": first_string(events, "runtimeTailPolicy"),
+        "runtime_tail_configuration_warning": first_string(events, "runtimeTailConfigurationWarning"),
+        "song_end_stop_frame": song_end_stop_frame,
+        "song_end_stop_seconds": rounded_optional(last_number(events, "songEndStopSeconds")),
+        "song_end_stop_runtime_frame": song_end_stop_runtime_frame,
+        "song_end_stop_runtime_seconds": rounded_optional(last_number(events, "songEndStopRuntimeSeconds")),
+        "runtime_frame_at_song_end_tail_stop": runtime_frame_at_tail_stop,
+        "runtime_seconds_at_song_end_tail_stop": rounded_optional(last_number(events, "runtimeSecondsAtSongEndTailStop")),
         "capture_end_frame": captured_frame_count,
         "capture_end_seconds": capture["duration_seconds"],
+        "capture_truncated": capture["truncated"],
         "runtime_playback_stopped_frame": stop_frame,
         "runtime_playback_stopped_seconds": rounded_optional(stop_seconds),
         "runtime_playback_stop_reason": stop_reason,
@@ -1978,6 +2012,8 @@ def build_summary(
         "event_queue_exhausted_seconds": rounded_optional(event_queue_exhausted_seconds),
         "active_voice_count_at_planned_song_end": integer(first_number(events, "activeVoiceCountAtPlannedSongEnd")),
         "loaded_voice_count_at_planned_song_end": integer(first_number(events, "loadedVoiceCountAtPlannedSongEnd")),
+        "active_voice_count_at_tail_stop": integer(first_number(events, "activeVoiceCountAtTailStop")),
+        "loaded_voice_count_at_tail_stop": integer(first_number(events, "loadedVoiceCountAtTailStop")),
         "active_voice_count_after_planned_song_end": integer(last_number(events, "activeVoiceCountAfterPlannedSongEnd")),
         "loaded_voice_count_after_planned_song_end": integer(last_number(events, "loadedVoiceCountAfterPlannedSongEnd")),
         "output_continues_after_planned_song_end": output_continues_after_song_end,
@@ -2317,9 +2353,10 @@ def build_summary(
         suspicious_findings.append("output route/device changes observed during playback")
     if lifecycle["capture_cap_triggered_stop"] is True:
         suspicious_findings.append("runtime capture cap appears to have triggered playback stop")
-    if output_continues_after_song_end:
+    song_end_tail_stop_reached = runtime_frame_at_tail_stop is not None or stop_reason == "song_end_tail"
+    if output_continues_after_song_end and not song_end_tail_stop_reached:
         suspicious_findings.append("runtime output continued after the planned song end")
-    if sustained_after_song_end:
+    if sustained_after_song_end and not song_end_tail_stop_reached:
         suspicious_findings.append("final sustained voices remained active after the planned song end")
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
@@ -2337,7 +2374,7 @@ def build_summary(
 
     if lifecycle["capture_cap_triggered_stop"] is True:
         recommended_next_pr = "Runtime C Mixer Capture Lifetime / Song-End Separation"
-    elif output_continues_after_song_end or sustained_after_song_end:
+    elif (output_continues_after_song_end or sustained_after_song_end) and not song_end_tail_stop_reached:
         recommended_next_pr = "Runtime C Mixer Song-End Stop / Tail Handling"
     elif callback_isolation["main_thread_dependency_detected"] or callback_isolation["lock_wait_count"] > 0:
         recommended_next_pr = "Runtime C Mixer Render Callback Isolation"
@@ -2696,8 +2733,8 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",
         f"- Likely transient correlation: {health['likely_correlation_category']}",
         f"- Runtime capture: enabled={capture['enabled']} path_name={capture['path_name']} frames={capture['captured_frame_count']} duration={capture['duration_seconds']} truncated={capture['truncated']} peak={capture['output_peak']} clipping={capture['clipping_sample_count']} write_succeeded={capture['write_succeeded']}",
-        f"- Runtime lifecycle: capture_seconds={lifecycle['capture_seconds']} debug_stop_after_seconds={lifecycle['debug_stop_after_seconds']} planned_end_frame={lifecycle['planned_song_end_frame']} planned_end_seconds={lifecycle['planned_song_end_seconds']} planned_end_runtime_frame={lifecycle['planned_song_end_runtime_frame']} capture_end_frame={lifecycle['capture_end_frame']} stopped_frame={lifecycle['runtime_playback_stopped_frame']} stop_reason={lifecycle['runtime_playback_stop_reason']}",
-        f"- Song-end state: event_queue_exhausted={lifecycle['event_queue_exhausted']} exhausted_frame={lifecycle['event_queue_exhausted_frame']} active_at_end={lifecycle['active_voice_count_at_planned_song_end']} loaded_at_end={lifecycle['loaded_voice_count_at_planned_song_end']} active_after_end={lifecycle['active_voice_count_after_planned_song_end']} loaded_after_end={lifecycle['loaded_voice_count_after_planned_song_end']} output_after_end={lifecycle['output_continues_after_planned_song_end']} sustained_after_end={lifecycle['final_sustained_voices_continue_after_planned_song_end']}",
+        f"- Runtime lifecycle: capture_seconds={lifecycle['capture_seconds']} debug_stop_after_seconds={lifecycle['debug_stop_after_seconds']} planned_end_frame={lifecycle['planned_song_end_frame']} planned_end_seconds={lifecycle['planned_song_end_seconds']} planned_end_runtime_frame={lifecycle['planned_song_end_runtime_frame']} tail_seconds={lifecycle['runtime_tail_seconds']} tail_frames={lifecycle['runtime_tail_frames']} song_end_stop_frame={lifecycle['song_end_stop_frame']} song_end_stop_seconds={lifecycle['song_end_stop_seconds']} capture_end_frame={lifecycle['capture_end_frame']} stopped_frame={lifecycle['runtime_playback_stopped_frame']} stop_reason={lifecycle['runtime_playback_stop_reason']}",
+        f"- Song-end state: event_queue_exhausted={lifecycle['event_queue_exhausted']} exhausted_frame={lifecycle['event_queue_exhausted_frame']} active_at_end={lifecycle['active_voice_count_at_planned_song_end']} loaded_at_end={lifecycle['loaded_voice_count_at_planned_song_end']} active_at_tail_stop={lifecycle['active_voice_count_at_tail_stop']} loaded_at_tail_stop={lifecycle['loaded_voice_count_at_tail_stop']} active_after_end={lifecycle['active_voice_count_after_planned_song_end']} loaded_after_end={lifecycle['loaded_voice_count_after_planned_song_end']} output_after_end={lifecycle['output_continues_after_planned_song_end']} sustained_after_end={lifecycle['final_sustained_voices_continue_after_planned_song_end']}",
         f"- Stop source checks: capture_cap_reached={lifecycle['capture_cap_reached']} capture_cap_triggered_stop={lifecycle['capture_cap_triggered_stop']} debug_stop_triggered_stop={lifecycle['debug_stop_triggered_stop']} planned_song_end_triggered_stop={lifecycle['planned_song_end_triggered_stop']} planned_song_end_triggered_silence={lifecycle['planned_song_end_triggered_silence']} capture_seconds_only_affects_capture={lifecycle['capture_seconds_only_affects_capture']}",
         f"- Clean source / dirty live: source_capture_clean={clean['source_capture_clean']} output_copy_verifier_clean={clean['output_copy_verifier_clean']} live_artifact_manual={clean['live_artifact_manually_reported']} route_device_candidate={clean['route_device_candidate_cause']} callback_candidate={clean['callback_candidate_cause']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",

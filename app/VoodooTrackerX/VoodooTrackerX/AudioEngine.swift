@@ -238,6 +238,60 @@ enum RuntimeCMixerDiagnosticEnvironment {
     }
 }
 
+struct RuntimeCMixerSongEndTailPolicy: Equatable {
+    static let tailSecondsEnvironmentKey = "VTX_C_MIXER_RUNTIME_TAIL_SECONDS"
+    static let defaultTailSeconds = 3.0
+
+    let tailSeconds: Double
+    let tailPolicy: String
+    let configurationWarning: String?
+
+    static let defaultPolicy = RuntimeCMixerSongEndTailPolicy(
+        tailSeconds: RuntimeCMixerSongEndTailPolicy.defaultTailSeconds,
+        tailPolicy: "default_runtime_tail_seconds",
+        configurationWarning: nil
+    )
+
+    static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeCMixerSongEndTailPolicy {
+        guard let rawValue = trimmedEnvironmentValue(environment[tailSecondsEnvironmentKey]) else {
+            return defaultPolicy
+        }
+        guard let parsed = Double(rawValue),
+              parsed.isFinite,
+              parsed >= 0 else {
+            return RuntimeCMixerSongEndTailPolicy(
+                tailSeconds: defaultTailSeconds,
+                tailPolicy: "default_runtime_tail_seconds_fallback",
+                configurationWarning: "invalid_runtime_tail_seconds"
+            )
+        }
+        return RuntimeCMixerSongEndTailPolicy(
+            tailSeconds: parsed,
+            tailPolicy: "env_runtime_tail_seconds",
+            configurationWarning: nil
+        )
+    }
+
+    func tailFrames(sampleRate: Double) -> Int {
+        let safeSampleRate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : MixerRenderConfig.defaultSampleRate
+        let frames = (safeSampleRate * tailSeconds).rounded(.up)
+        guard frames.isFinite,
+              frames > 0,
+              frames <= Double(Int.max) else {
+            return 0
+        }
+        return Int(frames)
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 enum RuntimeCMixerDeviceIdentityRedactor {
     static func stableHash(_ value: String) -> String {
         var hash = UInt64(14_695_981_039_346_656_037)
@@ -808,15 +862,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let plannedSongEndRuntimeSeconds: Double?
     let runtimeFrameAtPlannedSongEnd: UInt64?
     let runtimeSecondsAtPlannedSongEnd: Double?
+    let runtimeTailSeconds: Double?
+    let runtimeTailFrames: Int?
+    let runtimeTailPolicy: String?
+    let runtimeTailConfigurationWarning: String?
+    let songEndStopFrame: Int?
+    let songEndStopSeconds: Double?
+    let songEndStopRuntimeFrame: UInt64?
+    let songEndStopRuntimeSeconds: Double?
+    let runtimeFrameAtSongEndTailStop: UInt64?
+    let runtimeSecondsAtSongEndTailStop: Double?
     let eventQueueExhausted: Bool?
     let eventQueueExhaustedFrame: UInt64?
     let eventQueueExhaustedSeconds: Double?
     let activeVoiceCountAtPlannedSongEnd: Int?
     let loadedVoiceCountAtPlannedSongEnd: Int?
+    let activeVoiceCountAtTailStop: Int?
+    let loadedVoiceCountAtTailStop: Int?
     let activeVoiceCountAfterPlannedSongEnd: Int?
     let loadedVoiceCountAfterPlannedSongEnd: Int?
     let outputContinuesAfterPlannedSongEnd: Bool?
     let finalSustainedVoicesContinueAfterPlannedSongEnd: Bool?
+    let captureSeconds: Double?
+    let captureEndFrame: Int?
+    let captureTruncated: Bool?
+    let captureCapTriggeredPlaybackStop: Bool?
+    let stopReason: String?
     let cMixerSampleTimeFrame: Int?
     let cMixerSampleTimePositionStatus: String?
     let cMixerSampleTimeOrderIndex: Int?
@@ -1196,15 +1267,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         plannedSongEndRuntimeSeconds: Double? = nil,
         runtimeFrameAtPlannedSongEnd: UInt64? = nil,
         runtimeSecondsAtPlannedSongEnd: Double? = nil,
+        runtimeTailSeconds: Double? = nil,
+        runtimeTailFrames: Int? = nil,
+        runtimeTailPolicy: String? = nil,
+        runtimeTailConfigurationWarning: String? = nil,
+        songEndStopFrame: Int? = nil,
+        songEndStopSeconds: Double? = nil,
+        songEndStopRuntimeFrame: UInt64? = nil,
+        songEndStopRuntimeSeconds: Double? = nil,
+        runtimeFrameAtSongEndTailStop: UInt64? = nil,
+        runtimeSecondsAtSongEndTailStop: Double? = nil,
         eventQueueExhausted: Bool? = nil,
         eventQueueExhaustedFrame: UInt64? = nil,
         eventQueueExhaustedSeconds: Double? = nil,
         activeVoiceCountAtPlannedSongEnd: Int? = nil,
         loadedVoiceCountAtPlannedSongEnd: Int? = nil,
+        activeVoiceCountAtTailStop: Int? = nil,
+        loadedVoiceCountAtTailStop: Int? = nil,
         activeVoiceCountAfterPlannedSongEnd: Int? = nil,
         loadedVoiceCountAfterPlannedSongEnd: Int? = nil,
         outputContinuesAfterPlannedSongEnd: Bool? = nil,
         finalSustainedVoicesContinueAfterPlannedSongEnd: Bool? = nil,
+        captureSeconds: Double? = nil,
+        captureEndFrame: Int? = nil,
+        captureTruncated: Bool? = nil,
+        captureCapTriggeredPlaybackStop: Bool? = nil,
+        stopReason: String? = nil,
         cMixerSampleTimeFrame: Int? = nil,
         cMixerSampleTimePositionStatus: String? = nil,
         cMixerSampleTimeOrderIndex: Int? = nil,
@@ -1557,15 +1645,32 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.plannedSongEndRuntimeSeconds = plannedSongEndRuntimeSeconds
         self.runtimeFrameAtPlannedSongEnd = runtimeFrameAtPlannedSongEnd
         self.runtimeSecondsAtPlannedSongEnd = runtimeSecondsAtPlannedSongEnd
+        self.runtimeTailSeconds = runtimeTailSeconds
+        self.runtimeTailFrames = runtimeTailFrames
+        self.runtimeTailPolicy = runtimeTailPolicy
+        self.runtimeTailConfigurationWarning = runtimeTailConfigurationWarning
+        self.songEndStopFrame = songEndStopFrame
+        self.songEndStopSeconds = songEndStopSeconds
+        self.songEndStopRuntimeFrame = songEndStopRuntimeFrame
+        self.songEndStopRuntimeSeconds = songEndStopRuntimeSeconds
+        self.runtimeFrameAtSongEndTailStop = runtimeFrameAtSongEndTailStop
+        self.runtimeSecondsAtSongEndTailStop = runtimeSecondsAtSongEndTailStop
         self.eventQueueExhausted = eventQueueExhausted
         self.eventQueueExhaustedFrame = eventQueueExhaustedFrame
         self.eventQueueExhaustedSeconds = eventQueueExhaustedSeconds
         self.activeVoiceCountAtPlannedSongEnd = activeVoiceCountAtPlannedSongEnd
         self.loadedVoiceCountAtPlannedSongEnd = loadedVoiceCountAtPlannedSongEnd
+        self.activeVoiceCountAtTailStop = activeVoiceCountAtTailStop
+        self.loadedVoiceCountAtTailStop = loadedVoiceCountAtTailStop
         self.activeVoiceCountAfterPlannedSongEnd = activeVoiceCountAfterPlannedSongEnd
         self.loadedVoiceCountAfterPlannedSongEnd = loadedVoiceCountAfterPlannedSongEnd
         self.outputContinuesAfterPlannedSongEnd = outputContinuesAfterPlannedSongEnd
         self.finalSustainedVoicesContinueAfterPlannedSongEnd = finalSustainedVoicesContinueAfterPlannedSongEnd
+        self.captureSeconds = captureSeconds
+        self.captureEndFrame = captureEndFrame
+        self.captureTruncated = captureTruncated
+        self.captureCapTriggeredPlaybackStop = captureCapTriggeredPlaybackStop
+        self.stopReason = stopReason
         self.cMixerSampleTimeFrame = cMixerSampleTimeFrame
         self.cMixerSampleTimePositionStatus = cMixerSampleTimePositionStatus
         self.cMixerSampleTimeOrderIndex = cMixerSampleTimeOrderIndex
@@ -2225,6 +2330,9 @@ enum PlaybackAudioOutputFactory {
         let routeLabel = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(environment: environment)
             : nil
+        let songEndTailPolicy = selection.backend.usesRuntimeCMixer
+            ? RuntimeCMixerSongEndTailPolicy.resolve(environment: environment)
+            : nil
         let captureConfiguration = selection.backend.usesRuntimeCMixer && callbackDiagnostics?.minimalCallbackMode != true
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
@@ -2256,6 +2364,11 @@ enum PlaybackAudioOutputFactory {
                 "Runtime C mixer capture policy warning=\(warning, privacy: .public) path_name=\(captureConfiguration.pathName, privacy: .public)"
             )
         }
+        if let warning = songEndTailPolicy?.configurationWarning {
+            logger.warning(
+                "Runtime C mixer tail policy warning=\(warning, privacy: .public) seconds=\(songEndTailPolicy?.tailSeconds ?? RuntimeCMixerSongEndTailPolicy.defaultTailSeconds, privacy: .public)"
+            )
+        }
         let selectedSampleRate = sampleRateSelection?.sampleRate ?? MixerRenderConfig.defaultSampleRate
         logger.info(
             "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) experimental_c_mixer_enabled=\(selection.experimentalCMixerEnabled, privacy: .public) sample_rate=\(selectedSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
@@ -2277,6 +2390,14 @@ enum PlaybackAudioOutputFactory {
                 runtimeSampleRateSource: sampleRateSelection?.source,
                 runtimeSampleRateConfigurationWarning: sampleRateSelection?.configurationWarning,
                 audioOutputRouteLabel: routeLabel,
+                runtimeTailSeconds: songEndTailPolicy?.tailSeconds,
+                runtimeTailFrames: songEndTailPolicy.map { $0.tailFrames(sampleRate: selectedSampleRate) },
+                runtimeTailPolicy: songEndTailPolicy?.tailPolicy,
+                runtimeTailConfigurationWarning: songEndTailPolicy?.configurationWarning,
+                captureSeconds: captureConfiguration?.seconds,
+                captureEndFrame: captureConfiguration?.frameLimit(sampleRate: selectedSampleRate),
+                captureTruncated: captureConfiguration == nil ? nil : false,
+                captureCapTriggeredPlaybackStop: false,
                 channelCount: selection.backend.usesRuntimeCMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
@@ -2322,6 +2443,7 @@ enum PlaybackAudioOutputFactory {
                 updatePolicy: updatePolicy ?? .defaultPolicy,
                 captureConfiguration: captureConfiguration,
                 callbackDiagnostics: callbackDiagnostics ?? .defaultConfiguration,
+                songEndTailPolicy: songEndTailPolicy ?? .defaultPolicy,
                 runtimeSampleRateSelection: sampleRateSelection,
                 routeLabel: routeLabel,
                 traceWriter: runtimeCMixerTraceWriter
@@ -2442,12 +2564,23 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let plannedSongEndFrame: Int?
     let plannedSongEndRuntimeFrame: UInt64?
     let runtimeFrameAtPlannedSongEnd: UInt64?
+    let runtimeTailSeconds: Double
+    let runtimeTailFrames: Int
+    let runtimeTailPolicy: String
+    let runtimeTailConfigurationWarning: String?
+    let songEndStopFrame: Int?
+    let songEndStopRuntimeFrame: UInt64?
+    let runtimeFrameAtSongEndTailStop: UInt64?
     let activeVoiceCountAtPlannedSongEnd: Int?
     let loadedVoiceCountAtPlannedSongEnd: Int?
+    let activeVoiceCountAtTailStop: Int?
+    let loadedVoiceCountAtTailStop: Int?
     let activeVoiceCountAfterPlannedSongEnd: Int?
     let loadedVoiceCountAfterPlannedSongEnd: Int?
     let outputContinuesAfterPlannedSongEnd: Bool?
     let finalSustainedVoicesContinueAfterPlannedSongEnd: Bool?
+    let songEndTailStopReached: Bool
+    let captureCapTriggeredPlaybackStop: Bool
     let appliedPlannedEventCount: UInt64
     let exactFrameAppliedEventCount: UInt64
     let callbackBoundaryAppliedEventCount: UInt64
@@ -3230,6 +3363,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
+    private let songEndTailPolicy: RuntimeCMixerSongEndTailPolicy
+    private let runtimeTailFrames: Int
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
@@ -3302,8 +3437,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var plannedSongEndFrame: Int?
     private var plannedSongEndRuntimeFrame: UInt64?
     private var runtimeFrameAtPlannedSongEnd: UInt64?
+    private var songEndStopFrame: Int?
+    private var songEndStopRuntimeFrame: UInt64?
+    private var runtimeFrameAtSongEndTailStop: UInt64?
     private var activeVoiceCountAtPlannedSongEnd: Int?
     private var loadedVoiceCountAtPlannedSongEnd: Int?
+    private var activeVoiceCountAtTailStop: Int?
+    private var loadedVoiceCountAtTailStop: Int?
     private var eventQueueExhaustedFrame: UInt64?
     private var appliedAdapterEventDiagnostics = RuntimeCMixerFixedRingBuffer<RuntimeCMixerAppliedAdapterEventDiagnostic>(
         capacity: RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity
@@ -3325,12 +3465,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
-        callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration
+        callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
+        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
         self.updatePolicy = updatePolicy
         self.callbackDiagnostics = callbackDiagnostics
+        self.songEndTailPolicy = songEndTailPolicy
+        runtimeTailFrames = songEndTailPolicy.tailFrames(sampleRate: config.sampleRate)
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         let configuredMixer = CSoftwareMixer(config: config)
         mixer = configuredMixer
@@ -3381,9 +3524,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         self.plannedSongEndFrame = plannedSongEndFrame
         plannedSongEndRuntimeFrame = Self.runtimeFrame(plannedFrame: plannedSongEndFrame, offset: runtimeFrameOffset)
+        songEndStopFrame = Self.songEndStopFrame(plannedSongEndFrame: plannedSongEndFrame, tailFrames: runtimeTailFrames)
+        songEndStopRuntimeFrame = Self.runtimeFrame(plannedFrame: songEndStopFrame, offset: runtimeFrameOffset)
         runtimeFrameAtPlannedSongEnd = nil
+        runtimeFrameAtSongEndTailStop = nil
         activeVoiceCountAtPlannedSongEnd = nil
         loadedVoiceCountAtPlannedSongEnd = nil
+        activeVoiceCountAtTailStop = nil
+        loadedVoiceCountAtTailStop = nil
         eventQueueExhaustedFrame = adapterEventSchedule.isEmpty ? mixer.currentFrame : nil
         eventQueueProducerThreadDiagnostics = RuntimeCMixerThreadDiagnostics.current()
         eventQueueConsumerThreadDiagnostics = nil
@@ -3409,9 +3557,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         plannedSongEndFrame = nil
         plannedSongEndRuntimeFrame = nil
+        songEndStopFrame = nil
+        songEndStopRuntimeFrame = nil
         runtimeFrameAtPlannedSongEnd = nil
+        runtimeFrameAtSongEndTailStop = nil
         activeVoiceCountAtPlannedSongEnd = nil
         loadedVoiceCountAtPlannedSongEnd = nil
+        activeVoiceCountAtTailStop = nil
+        loadedVoiceCountAtTailStop = nil
         eventQueueExhaustedFrame = nil
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
@@ -4665,6 +4818,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return UInt64(runtimeFrame)
     }
 
+    private static func songEndStopFrame(plannedSongEndFrame: Int?, tailFrames: Int) -> Int? {
+        guard let plannedSongEndFrame else {
+            return nil
+        }
+        let (frame, overflow) = plannedSongEndFrame.addingReportingOverflow(max(0, tailFrames))
+        guard !overflow else {
+            return nil
+        }
+        return frame
+    }
+
     private func updateType(gainChanged: Bool, panChanged: Bool, stepChanged: Bool) -> String {
         let changedCount = [gainChanged, panChanged, stepChanged].filter { $0 }.count
         if changedCount == 0 {
@@ -5026,52 +5190,61 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         guard safeFrameCount > 0 else {
             return
         }
-        guard let plannedSongEndRuntimeFrame,
-              runtimeFrameAtPlannedSongEnd == nil else {
-            renderSubrangeLocked(
-                into: outputInterleavedPCM,
-                startFrameOffset: startFrameOffset,
-                frameCount: safeFrameCount
-            )
-            return
-        }
-
         let safeStartOffset = max(0, startFrameOffset)
-        let subrangeStart = callbackStartFrame.addingReportingOverflow(UInt64(safeStartOffset))
-        guard !subrangeStart.overflow else {
+        var renderedFrames = 0
+        while renderedFrames < safeFrameCount {
+            let absoluteOffset = safeStartOffset + renderedFrames
+            let subrangeStart = callbackStartFrame.addingReportingOverflow(UInt64(absoluteOffset))
+            guard !subrangeStart.overflow else {
+                renderSubrangeLocked(
+                    into: outputInterleavedPCM,
+                    startFrameOffset: absoluteOffset,
+                    frameCount: safeFrameCount - renderedFrames
+                )
+                return
+            }
+            let subrangeStartFrame = subrangeStart.partialValue
+            let remainingFrames = safeFrameCount - renderedFrames
+            let subrangeEnd = subrangeStartFrame.addingReportingOverflow(UInt64(remainingFrames))
+            let subrangeEndFrame = subrangeEnd.overflow ? UInt64.max : subrangeEnd.partialValue
+
+            if let plannedSongEndRuntimeFrame,
+               runtimeFrameAtPlannedSongEnd == nil,
+               plannedSongEndRuntimeFrame >= subrangeStartFrame,
+               plannedSongEndRuntimeFrame <= subrangeEndFrame {
+                let framesBeforeEnd = Int(plannedSongEndRuntimeFrame - subrangeStartFrame)
+                renderSubrangeLocked(
+                    into: outputInterleavedPCM,
+                    startFrameOffset: absoluteOffset,
+                    frameCount: framesBeforeEnd
+                )
+                renderedFrames += framesBeforeEnd
+                recordPlannedSongEndBoundaryLocked(runtimeFrame: plannedSongEndRuntimeFrame)
+                continue
+            }
+
+            if let songEndStopRuntimeFrame,
+               runtimeFrameAtSongEndTailStop == nil,
+               songEndStopRuntimeFrame >= subrangeStartFrame,
+               songEndStopRuntimeFrame <= subrangeEndFrame {
+                let framesBeforeStop = Int(songEndStopRuntimeFrame - subrangeStartFrame)
+                renderSubrangeLocked(
+                    into: outputInterleavedPCM,
+                    startFrameOffset: absoluteOffset,
+                    frameCount: framesBeforeStop
+                )
+                renderedFrames += framesBeforeStop
+                recordSongEndTailStopBoundaryLocked(runtimeFrame: songEndStopRuntimeFrame)
+                continue
+            }
+
             renderSubrangeLocked(
                 into: outputInterleavedPCM,
-                startFrameOffset: startFrameOffset,
-                frameCount: safeFrameCount
+                startFrameOffset: absoluteOffset,
+                frameCount: remainingFrames
             )
             return
         }
-        let subrangeStartFrame = subrangeStart.partialValue
-        let subrangeEnd = subrangeStartFrame.addingReportingOverflow(UInt64(safeFrameCount))
-        let subrangeEndFrame = subrangeEnd.overflow ? UInt64.max : subrangeEnd.partialValue
-
-        guard plannedSongEndRuntimeFrame >= subrangeStartFrame,
-              plannedSongEndRuntimeFrame <= subrangeEndFrame else {
-            renderSubrangeLocked(
-                into: outputInterleavedPCM,
-                startFrameOffset: startFrameOffset,
-                frameCount: safeFrameCount
-            )
-            return
-        }
-
-        let framesBeforeEnd = Int(plannedSongEndRuntimeFrame - subrangeStartFrame)
-        renderSubrangeLocked(
-            into: outputInterleavedPCM,
-            startFrameOffset: startFrameOffset,
-            frameCount: framesBeforeEnd
-        )
-        recordPlannedSongEndBoundaryLocked(runtimeFrame: plannedSongEndRuntimeFrame)
-        renderSubrangeLocked(
-            into: outputInterleavedPCM,
-            startFrameOffset: safeStartOffset + framesBeforeEnd,
-            frameCount: safeFrameCount - framesBeforeEnd
-        )
     }
 
     private func recordPlannedSongEndBoundaryLocked(runtimeFrame: UInt64) {
@@ -5081,6 +5254,29 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         runtimeFrameAtPlannedSongEnd = runtimeFrame
         activeVoiceCountAtPlannedSongEnd = mixer.activeVoiceCount
         loadedVoiceCountAtPlannedSongEnd = mixer.loadedVoiceCount
+    }
+
+    private func recordSongEndTailStopBoundaryLocked(runtimeFrame: UInt64) {
+        guard runtimeFrameAtSongEndTailStop == nil else {
+            return
+        }
+        if runtimeFrameAtPlannedSongEnd == nil,
+           let plannedSongEndRuntimeFrame,
+           plannedSongEndRuntimeFrame <= runtimeFrame {
+            recordPlannedSongEndBoundaryLocked(runtimeFrame: plannedSongEndRuntimeFrame)
+        }
+        runtimeFrameAtSongEndTailStop = runtimeFrame
+        activeVoiceCountAtTailStop = mixer.activeVoiceCount
+        loadedVoiceCountAtTailStop = mixer.loadedVoiceCount
+        mixer.clearVoices()
+        voiceStateByChannel.removeAll()
+        adapterVoiceStateByEventIndex.removeAll()
+        adapterEventIndexByChannel.removeAll()
+        stoppedFrameByChannel.removeAll()
+        nextAdapterEventScheduleIndex = adapterEventSchedule.count
+        if eventQueueExhaustedFrame == nil {
+            eventQueueExhaustedFrame = runtimeFrame
+        }
     }
 
     private func renderSubrangeLocked(
@@ -5444,9 +5640,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         nextAdapterEventScheduleIndex = 0
         plannedSongEndFrame = nil
         plannedSongEndRuntimeFrame = nil
+        songEndStopFrame = nil
+        songEndStopRuntimeFrame = nil
         runtimeFrameAtPlannedSongEnd = nil
+        runtimeFrameAtSongEndTailStop = nil
         activeVoiceCountAtPlannedSongEnd = nil
         loadedVoiceCountAtPlannedSongEnd = nil
+        activeVoiceCountAtTailStop = nil
+        loadedVoiceCountAtTailStop = nil
         eventQueueExhaustedFrame = nil
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
@@ -5750,12 +5951,23 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             plannedSongEndFrame: plannedSongEndFrame,
             plannedSongEndRuntimeFrame: plannedSongEndRuntimeFrame,
             runtimeFrameAtPlannedSongEnd: runtimeFrameAtPlannedSongEnd,
+            runtimeTailSeconds: songEndTailPolicy.tailSeconds,
+            runtimeTailFrames: runtimeTailFrames,
+            runtimeTailPolicy: songEndTailPolicy.tailPolicy,
+            runtimeTailConfigurationWarning: songEndTailPolicy.configurationWarning,
+            songEndStopFrame: songEndStopFrame,
+            songEndStopRuntimeFrame: songEndStopRuntimeFrame,
+            runtimeFrameAtSongEndTailStop: runtimeFrameAtSongEndTailStop,
             activeVoiceCountAtPlannedSongEnd: activeVoiceCountAtPlannedSongEnd,
             loadedVoiceCountAtPlannedSongEnd: loadedVoiceCountAtPlannedSongEnd,
+            activeVoiceCountAtTailStop: activeVoiceCountAtTailStop,
+            loadedVoiceCountAtTailStop: loadedVoiceCountAtTailStop,
             activeVoiceCountAfterPlannedSongEnd: activeAfterSongEnd,
             loadedVoiceCountAfterPlannedSongEnd: loadedAfterSongEnd,
             outputContinuesAfterPlannedSongEnd: outputContinuesAfterSongEnd,
             finalSustainedVoicesContinueAfterPlannedSongEnd: sustainedAfterSongEnd,
+            songEndTailStopReached: runtimeFrameAtSongEndTailStop != nil,
+            captureCapTriggeredPlaybackStop: false,
             appliedPlannedEventCount: appliedPlannedEventCount,
             exactFrameAppliedEventCount: exactFrameAppliedEventCount,
             callbackBoundaryAppliedEventCount: callbackBoundaryAppliedEventCount,
@@ -6988,6 +7200,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
         callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
+        songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy,
         runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
         routeLabel: String? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
@@ -7000,7 +7213,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             outputPolicy: outputPolicy,
             updatePolicy: updatePolicy,
             captureConfiguration: captureConfiguration,
-            callbackDiagnostics: callbackDiagnostics
+            callbackDiagnostics: callbackDiagnostics,
+            songEndTailPolicy: songEndTailPolicy
         )
         self.traceWriter = traceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
@@ -7069,6 +7283,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         drainAppliedRuntimeAdapterEvents()
         return output
     }
+
+#if DEBUG
+    func configureAdapterEventScheduleForTesting(
+        _ events: [RuntimeCMixerAdapterEvent],
+        runtimeFrameOffset: Int,
+        plannedSongEndFrame: Int? = nil
+    ) {
+        _ = renderCore.configureAdapterEventSchedule(
+            events,
+            runtimeFrameOffset: runtimeFrameOffset,
+            plannedSongEndFrame: plannedSongEndFrame
+        )
+    }
+
+    func snapshotForTesting() -> RuntimeCMixerRenderSnapshot {
+        renderCore.snapshot()
+    }
+#endif
 
     var hasRuntimeAdapterEventPlan: Bool {
         adapterEventPlan.generated
@@ -8299,9 +8531,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
-        let plannedSongEndFrame = adapterEventPlan.plannedSongEndFrame ?? snapshot.plannedSongEndFrame
-        let plannedSongEndRuntimeFrame = snapshot.plannedSongEndRuntimeFrame
-        let runtimeFrameAtPlannedSongEnd = snapshot.runtimeFrameAtPlannedSongEnd
+        let lifecycleSnapshot = snapshotBefore ?? snapshot
+        let plannedSongEndFrame = adapterEventPlan.plannedSongEndFrame ?? lifecycleSnapshot.plannedSongEndFrame ?? snapshot.plannedSongEndFrame
+        let plannedSongEndRuntimeFrame = lifecycleSnapshot.plannedSongEndRuntimeFrame ?? snapshot.plannedSongEndRuntimeFrame
+        let runtimeFrameAtPlannedSongEnd = lifecycleSnapshot.runtimeFrameAtPlannedSongEnd ?? snapshot.runtimeFrameAtPlannedSongEnd
+        let songEndStopFrame = lifecycleSnapshot.songEndStopFrame ?? snapshot.songEndStopFrame
+        let songEndStopRuntimeFrame = lifecycleSnapshot.songEndStopRuntimeFrame ?? snapshot.songEndStopRuntimeFrame
+        let runtimeFrameAtSongEndTailStop = lifecycleSnapshot.runtimeFrameAtSongEndTailStop ?? snapshot.runtimeFrameAtSongEndTailStop
+        let stopReason = normalizedStopReason(action: action, reason: reason, snapshot: snapshot, snapshotBefore: snapshotBefore)
         let audioGraph = audioGraphDiagnostics(snapshot: snapshot)
         let audioGraphChanges = updateAudioGraphChangeCounters(audioGraph)
         let event = RuntimeCMixerTraceEvent(
@@ -8436,15 +8673,32 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             plannedSongEndRuntimeSeconds: seconds(frame: plannedSongEndRuntimeFrame, sampleRate: snapshot.sampleRate),
             runtimeFrameAtPlannedSongEnd: runtimeFrameAtPlannedSongEnd,
             runtimeSecondsAtPlannedSongEnd: seconds(frame: runtimeFrameAtPlannedSongEnd, sampleRate: snapshot.sampleRate),
+            runtimeTailSeconds: lifecycleSnapshot.runtimeTailSeconds,
+            runtimeTailFrames: lifecycleSnapshot.runtimeTailFrames,
+            runtimeTailPolicy: lifecycleSnapshot.runtimeTailPolicy,
+            runtimeTailConfigurationWarning: lifecycleSnapshot.runtimeTailConfigurationWarning,
+            songEndStopFrame: songEndStopFrame,
+            songEndStopSeconds: seconds(frame: songEndStopFrame, sampleRate: snapshot.sampleRate),
+            songEndStopRuntimeFrame: songEndStopRuntimeFrame,
+            songEndStopRuntimeSeconds: seconds(frame: songEndStopRuntimeFrame, sampleRate: snapshot.sampleRate),
+            runtimeFrameAtSongEndTailStop: runtimeFrameAtSongEndTailStop,
+            runtimeSecondsAtSongEndTailStop: seconds(frame: runtimeFrameAtSongEndTailStop, sampleRate: snapshot.sampleRate),
             eventQueueExhausted: snapshot.eventQueueExhausted,
             eventQueueExhaustedFrame: snapshot.eventQueueExhaustedFrame,
             eventQueueExhaustedSeconds: seconds(frame: snapshot.eventQueueExhaustedFrame, sampleRate: snapshot.sampleRate),
-            activeVoiceCountAtPlannedSongEnd: snapshot.activeVoiceCountAtPlannedSongEnd,
-            loadedVoiceCountAtPlannedSongEnd: snapshot.loadedVoiceCountAtPlannedSongEnd,
+            activeVoiceCountAtPlannedSongEnd: lifecycleSnapshot.activeVoiceCountAtPlannedSongEnd ?? snapshot.activeVoiceCountAtPlannedSongEnd,
+            loadedVoiceCountAtPlannedSongEnd: lifecycleSnapshot.loadedVoiceCountAtPlannedSongEnd ?? snapshot.loadedVoiceCountAtPlannedSongEnd,
+            activeVoiceCountAtTailStop: lifecycleSnapshot.activeVoiceCountAtTailStop ?? snapshot.activeVoiceCountAtTailStop,
+            loadedVoiceCountAtTailStop: lifecycleSnapshot.loadedVoiceCountAtTailStop ?? snapshot.loadedVoiceCountAtTailStop,
             activeVoiceCountAfterPlannedSongEnd: snapshot.activeVoiceCountAfterPlannedSongEnd,
             loadedVoiceCountAfterPlannedSongEnd: snapshot.loadedVoiceCountAfterPlannedSongEnd,
             outputContinuesAfterPlannedSongEnd: snapshot.outputContinuesAfterPlannedSongEnd,
             finalSustainedVoicesContinueAfterPlannedSongEnd: snapshot.finalSustainedVoicesContinueAfterPlannedSongEnd,
+            captureSeconds: snapshot.capture.seconds,
+            captureEndFrame: snapshot.capture.frameLimit,
+            captureTruncated: snapshot.capture.truncated,
+            captureCapTriggeredPlaybackStop: lifecycleSnapshot.captureCapTriggeredPlaybackStop,
+            stopReason: stopReason,
             cMixerSampleTimeFrame: sampleTimePosition.cMixerSampleTimeFrame,
             cMixerSampleTimePositionStatus: sampleTimePosition.cMixerSampleTimePositionStatus,
             cMixerSampleTimeOrderIndex: sampleTimePosition.cMixerSampleTimeOrderIndex,
@@ -8695,6 +8949,35 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 snapshot: snapshot,
                 reason: baseReason ?? "audio_output_route_changed"
             ))
+        }
+    }
+
+    private func normalizedStopReason(
+        action: String,
+        reason: String?,
+        snapshot: RuntimeCMixerRenderSnapshot,
+        snapshotBefore: RuntimeCMixerRenderSnapshot?
+    ) -> String? {
+        if action == "capture_truncated" {
+            return "capture_cap_only"
+        }
+        let lifecycleSnapshot = snapshotBefore ?? snapshot
+        if lifecycleSnapshot.songEndTailStopReached {
+            return "song_end_tail"
+        }
+        switch reason {
+        case "debug_stop_after_seconds":
+            return "debug_stop"
+        case "runtime_song_end_tail", "planned_song_end":
+            return "song_end_tail"
+        case "transport_stop":
+            return "user_stop"
+        case "transport_pause", "transport_stop_all", "runtime_c_mixer_backend_reset", "runtime_c_mixer_engine_start_failed":
+            return "transport_stop"
+        case "runtime_capture_cap_stop":
+            return "capture_cap_only"
+        default:
+            return nil
         }
     }
 

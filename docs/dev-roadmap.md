@@ -292,8 +292,10 @@ CoreAudio hosts side by side, including backend/host selection, callback shape,
 sample-rate/channel fields, capture status, CoreAudio OSStatus fields, and
 runtime lifecycle clocks. Capture duration is reported separately from
 `VTX_DEBUG_STOP_AFTER_SECONDS` and planned song end, so capture caps can be
-tested without treating them as playback lifetime. CoreAudio host hardening and
-runtime song-end/tail handling remain separate follow-up work.
+tested without treating them as playback lifetime. Runtime C mixer song-end
+tail handling now stops or silences `c_mixer` and `c_mixer_coreaudio` at the
+planned adapter song end plus a short tail; CoreAudio host hardening remains a
+separate follow-up.
 Transport stop-position preservation and the tracker-style plain Spacebar
 play/stop shortcut are implemented for manual debugging workflow: manual Stop
 preserves the current published order/row position, play resumes from the
@@ -455,6 +457,9 @@ Features:
   `c_mixer_coreaudio` trace fields and distinguish capture duration, debug stop
   duration, planned song end, and continued output after planned event-stream
   exhaustion
+- runtime C mixer song-end/tail handling for `c_mixer` and `c_mixer_coreaudio`,
+  with capture duration remaining capture-only and AVAudio still the default
+  runtime backend
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

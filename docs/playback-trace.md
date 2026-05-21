@@ -264,6 +264,20 @@ Runtime host/format trace fields include `runtimeAudioBackend`,
 hardware rates should make `audioFormatConversionLikely` false or reduce the
 remaining conversion evidence; mismatched rates keep the diagnostic true.
 
+Runtime lifecycle trace fields include `debugStopAfterSeconds`,
+`cMixerRenderedFramesBeforeClear`, `cMixerPlaybackSecondsBeforeClear`,
+`plannedSongEndFrame`, `plannedSongEndSeconds`,
+`plannedSongEndRuntimeFrame`, `plannedSongEndRuntimeSeconds`,
+`runtimeFrameAtPlannedSongEnd`, `runtimeSecondsAtPlannedSongEnd`,
+`eventQueueExhausted`, `eventQueueExhaustedFrame`,
+`eventQueueExhaustedSeconds`, `activeVoiceCountAtPlannedSongEnd`,
+`loadedVoiceCountAtPlannedSongEnd`, `activeVoiceCountAfterPlannedSongEnd`,
+`loadedVoiceCountAfterPlannedSongEnd`, `outputContinuesAfterPlannedSongEnd`,
+and `finalSustainedVoicesContinueAfterPlannedSongEnd`. Use these fields with
+`runtimeCaptureSeconds`, capture write/truncation rows, and stop-action rows to
+distinguish capture duration, debug stop duration, planned song end, and any
+continued output after the planned event stream is exhausted.
+
 Runtime output-device diagnostics also report main-mixer input/output format,
 output-node latency and presentation latency, hardware IO buffer duration,
 hardware latency and safety offset when CoreAudio exposes them, a hashed default

@@ -746,6 +746,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeOutputHostStartStatus: Int?
     let runtimeOutputHostStopStatus: Int?
     let runtimeOutputHostLastErrorStatus: Int?
+    let debugStopAfterSeconds: Double?
     let sampleRate: Double?
     let selectedRuntimeSampleRate: Double?
     let cMixerRuntimeSampleRate: Double?
@@ -799,6 +800,23 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeCaptureMatchesHardwareSampleRate: Bool?
     let cMixerRenderedFrames: UInt64?
     let cMixerPlaybackSeconds: Double?
+    let cMixerRenderedFramesBeforeClear: UInt64?
+    let cMixerPlaybackSecondsBeforeClear: Double?
+    let plannedSongEndFrame: Int?
+    let plannedSongEndSeconds: Double?
+    let plannedSongEndRuntimeFrame: UInt64?
+    let plannedSongEndRuntimeSeconds: Double?
+    let runtimeFrameAtPlannedSongEnd: UInt64?
+    let runtimeSecondsAtPlannedSongEnd: Double?
+    let eventQueueExhausted: Bool?
+    let eventQueueExhaustedFrame: UInt64?
+    let eventQueueExhaustedSeconds: Double?
+    let activeVoiceCountAtPlannedSongEnd: Int?
+    let loadedVoiceCountAtPlannedSongEnd: Int?
+    let activeVoiceCountAfterPlannedSongEnd: Int?
+    let loadedVoiceCountAfterPlannedSongEnd: Int?
+    let outputContinuesAfterPlannedSongEnd: Bool?
+    let finalSustainedVoicesContinueAfterPlannedSongEnd: Bool?
     let cMixerSampleTimeFrame: Int?
     let cMixerSampleTimePositionStatus: String?
     let cMixerSampleTimeOrderIndex: Int?
@@ -1116,6 +1134,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeOutputHostStartStatus: Int? = nil,
         runtimeOutputHostStopStatus: Int? = nil,
         runtimeOutputHostLastErrorStatus: Int? = nil,
+        debugStopAfterSeconds: Double? = nil,
         sampleRate: Double? = nil,
         selectedRuntimeSampleRate: Double? = nil,
         cMixerRuntimeSampleRate: Double? = nil,
@@ -1169,6 +1188,23 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeCaptureMatchesHardwareSampleRate: Bool? = nil,
         cMixerRenderedFrames: UInt64? = nil,
         cMixerPlaybackSeconds: Double? = nil,
+        cMixerRenderedFramesBeforeClear: UInt64? = nil,
+        cMixerPlaybackSecondsBeforeClear: Double? = nil,
+        plannedSongEndFrame: Int? = nil,
+        plannedSongEndSeconds: Double? = nil,
+        plannedSongEndRuntimeFrame: UInt64? = nil,
+        plannedSongEndRuntimeSeconds: Double? = nil,
+        runtimeFrameAtPlannedSongEnd: UInt64? = nil,
+        runtimeSecondsAtPlannedSongEnd: Double? = nil,
+        eventQueueExhausted: Bool? = nil,
+        eventQueueExhaustedFrame: UInt64? = nil,
+        eventQueueExhaustedSeconds: Double? = nil,
+        activeVoiceCountAtPlannedSongEnd: Int? = nil,
+        loadedVoiceCountAtPlannedSongEnd: Int? = nil,
+        activeVoiceCountAfterPlannedSongEnd: Int? = nil,
+        loadedVoiceCountAfterPlannedSongEnd: Int? = nil,
+        outputContinuesAfterPlannedSongEnd: Bool? = nil,
+        finalSustainedVoicesContinueAfterPlannedSongEnd: Bool? = nil,
         cMixerSampleTimeFrame: Int? = nil,
         cMixerSampleTimePositionStatus: String? = nil,
         cMixerSampleTimeOrderIndex: Int? = nil,
@@ -1459,6 +1495,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeOutputHostStartStatus = runtimeOutputHostStartStatus
         self.runtimeOutputHostStopStatus = runtimeOutputHostStopStatus
         self.runtimeOutputHostLastErrorStatus = runtimeOutputHostLastErrorStatus
+        self.debugStopAfterSeconds = debugStopAfterSeconds
         self.sampleRate = sampleRate
         self.selectedRuntimeSampleRate = selectedRuntimeSampleRate
         self.cMixerRuntimeSampleRate = cMixerRuntimeSampleRate
@@ -1512,6 +1549,23 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeCaptureMatchesHardwareSampleRate = runtimeCaptureMatchesHardwareSampleRate
         self.cMixerRenderedFrames = cMixerRenderedFrames
         self.cMixerPlaybackSeconds = cMixerPlaybackSeconds
+        self.cMixerRenderedFramesBeforeClear = cMixerRenderedFramesBeforeClear
+        self.cMixerPlaybackSecondsBeforeClear = cMixerPlaybackSecondsBeforeClear
+        self.plannedSongEndFrame = plannedSongEndFrame
+        self.plannedSongEndSeconds = plannedSongEndSeconds
+        self.plannedSongEndRuntimeFrame = plannedSongEndRuntimeFrame
+        self.plannedSongEndRuntimeSeconds = plannedSongEndRuntimeSeconds
+        self.runtimeFrameAtPlannedSongEnd = runtimeFrameAtPlannedSongEnd
+        self.runtimeSecondsAtPlannedSongEnd = runtimeSecondsAtPlannedSongEnd
+        self.eventQueueExhausted = eventQueueExhausted
+        self.eventQueueExhaustedFrame = eventQueueExhaustedFrame
+        self.eventQueueExhaustedSeconds = eventQueueExhaustedSeconds
+        self.activeVoiceCountAtPlannedSongEnd = activeVoiceCountAtPlannedSongEnd
+        self.loadedVoiceCountAtPlannedSongEnd = loadedVoiceCountAtPlannedSongEnd
+        self.activeVoiceCountAfterPlannedSongEnd = activeVoiceCountAfterPlannedSongEnd
+        self.loadedVoiceCountAfterPlannedSongEnd = loadedVoiceCountAfterPlannedSongEnd
+        self.outputContinuesAfterPlannedSongEnd = outputContinuesAfterPlannedSongEnd
+        self.finalSustainedVoicesContinueAfterPlannedSongEnd = finalSustainedVoicesContinueAfterPlannedSongEnd
         self.cMixerSampleTimeFrame = cMixerSampleTimeFrame
         self.cMixerSampleTimePositionStatus = cMixerSampleTimePositionStatus
         self.cMixerSampleTimeOrderIndex = cMixerSampleTimeOrderIndex
@@ -2174,6 +2228,7 @@ enum PlaybackAudioOutputFactory {
         let captureConfiguration = selection.backend.usesRuntimeCMixer && callbackDiagnostics?.minimalCallbackMode != true
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
+        let debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
@@ -2214,6 +2269,7 @@ enum PlaybackAudioOutputFactory {
                 experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
                 alternativeRuntimeOutputHostEnabled: selection.backend.alternativeRuntimeOutputHostEnabled,
                 runtimeOutputHostType: selection.backend.runtimeOutputHostType,
+                debugStopAfterSeconds: debugStopAfterSeconds,
                 sampleRate: selectedSampleRate,
                 selectedRuntimeSampleRate: sampleRateSelection?.sampleRate,
                 cMixerRuntimeSampleRate: sampleRateSelection?.sampleRate,
@@ -2281,6 +2337,8 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let loadedVoiceCount: Int
     let scheduledVoiceCount: Int
     let eventQueueBacklogCount: Int
+    let eventQueueExhausted: Bool
+    let eventQueueExhaustedFrame: UInt64?
     let renderCallbackCount: UInt64
     let renderCallCount: UInt64
     let successfulRenderCount: UInt64
@@ -2381,6 +2439,15 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let runtimeUpdateEpsilonConfigurationWarning: String?
     let capture: RuntimeCMixerCaptureSnapshot
     let currentFrame: UInt64
+    let plannedSongEndFrame: Int?
+    let plannedSongEndRuntimeFrame: UInt64?
+    let runtimeFrameAtPlannedSongEnd: UInt64?
+    let activeVoiceCountAtPlannedSongEnd: Int?
+    let loadedVoiceCountAtPlannedSongEnd: Int?
+    let activeVoiceCountAfterPlannedSongEnd: Int?
+    let loadedVoiceCountAfterPlannedSongEnd: Int?
+    let outputContinuesAfterPlannedSongEnd: Bool?
+    let finalSustainedVoicesContinueAfterPlannedSongEnd: Bool?
     let appliedPlannedEventCount: UInt64
     let exactFrameAppliedEventCount: UInt64
     let callbackBoundaryAppliedEventCount: UInt64
@@ -3232,6 +3299,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var clippingSampleCount: UInt64 = 0
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
     private var nextAdapterEventScheduleIndex = 0
+    private var plannedSongEndFrame: Int?
+    private var plannedSongEndRuntimeFrame: UInt64?
+    private var runtimeFrameAtPlannedSongEnd: UInt64?
+    private var activeVoiceCountAtPlannedSongEnd: Int?
+    private var loadedVoiceCountAtPlannedSongEnd: Int?
+    private var eventQueueExhaustedFrame: UInt64?
     private var appliedAdapterEventDiagnostics = RuntimeCMixerFixedRingBuffer<RuntimeCMixerAppliedAdapterEventDiagnostic>(
         capacity: RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity
     )
@@ -3275,7 +3348,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     @discardableResult
     fileprivate func configureAdapterEventSchedule(
         _ events: [RuntimeCMixerAdapterEvent],
-        runtimeFrameOffset: Int
+        runtimeFrameOffset: Int,
+        plannedSongEndFrame: Int? = nil
     ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
         lock.lock()
         defer {
@@ -3305,6 +3379,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
         adapterEventSchedule = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
         nextAdapterEventScheduleIndex = 0
+        self.plannedSongEndFrame = plannedSongEndFrame
+        plannedSongEndRuntimeFrame = Self.runtimeFrame(plannedFrame: plannedSongEndFrame, offset: runtimeFrameOffset)
+        runtimeFrameAtPlannedSongEnd = nil
+        activeVoiceCountAtPlannedSongEnd = nil
+        loadedVoiceCountAtPlannedSongEnd = nil
+        eventQueueExhaustedFrame = adapterEventSchedule.isEmpty ? mixer.currentFrame : nil
         eventQueueProducerThreadDiagnostics = RuntimeCMixerThreadDiagnostics.current()
         eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll()
@@ -3327,6 +3407,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        plannedSongEndFrame = nil
+        plannedSongEndRuntimeFrame = nil
+        runtimeFrameAtPlannedSongEnd = nil
+        activeVoiceCountAtPlannedSongEnd = nil
+        loadedVoiceCountAtPlannedSongEnd = nil
+        eventQueueExhaustedFrame = nil
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll()
@@ -3339,9 +3425,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     func configureAdapterEventScheduleForTesting(
         _ events: [RuntimeCMixerAdapterEvent],
-        runtimeFrameOffset: Int
+        runtimeFrameOffset: Int,
+        plannedSongEndFrame: Int? = nil
     ) {
-        _ = configureAdapterEventSchedule(events, runtimeFrameOffset: runtimeFrameOffset)
+        _ = configureAdapterEventSchedule(
+            events,
+            runtimeFrameOffset: runtimeFrameOffset,
+            plannedSongEndFrame: plannedSongEndFrame
+        )
     }
 
     fileprivate func drainAppliedAdapterEventDiagnostics() -> [RuntimeCMixerAppliedAdapterEventDiagnostic] {
@@ -4562,6 +4653,18 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
     }
 
+    private static func runtimeFrame(plannedFrame: Int?, offset: Int) -> UInt64? {
+        guard let plannedFrame else {
+            return nil
+        }
+        let (runtimeFrame, overflow) = plannedFrame.addingReportingOverflow(offset)
+        guard !overflow,
+              runtimeFrame >= 0 else {
+            return nil
+        }
+        return UInt64(runtimeFrame)
+    }
+
     private func updateType(gainChanged: Bool, panChanged: Bool, stepChanged: Bool) -> String {
         let changedCount = [gainChanged, panChanged, stepChanged].filter { $0 }.count
         if changedCount == 0 {
@@ -4830,6 +4933,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackIndex: UInt64,
         callbackThread: RuntimeCMixerThreadDiagnostics?
     ) {
+        if adapterEventSchedule.isEmpty,
+           eventQueueExhaustedFrame == nil {
+            eventQueueExhaustedFrame = callbackStartFrame
+        }
         var renderedFrames = 0
         while nextAdapterEventScheduleIndex < adapterEventSchedule.count {
             let nextEvent = adapterEventSchedule[nextAdapterEventScheduleIndex]
@@ -4841,8 +4948,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 ? 0
                 : Int(nextEvent.runtimeFrame - callbackStartFrame)
             let framesBeforeEvent = max(0, eventOffset - renderedFrames)
-            renderSubrangeLocked(
+            renderSubrangeWithSongEndProbeLocked(
                 into: outputInterleavedPCM,
+                callbackStartFrame: callbackStartFrame,
                 startFrameOffset: renderedFrames,
                 frameCount: framesBeforeEvent
             )
@@ -4894,13 +5002,85 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 burstDiagnosticScratch[index] = nil
             }
             nextAdapterEventScheduleIndex = burstEndIndex
+            if nextAdapterEventScheduleIndex >= adapterEventSchedule.count,
+               eventQueueExhaustedFrame == nil {
+                eventQueueExhaustedFrame = mixer.currentFrame
+            }
         }
 
-        renderSubrangeLocked(
+        renderSubrangeWithSongEndProbeLocked(
             into: outputInterleavedPCM,
+            callbackStartFrame: callbackStartFrame,
             startFrameOffset: renderedFrames,
             frameCount: max(0, frameCount - renderedFrames)
         )
+    }
+
+    private func renderSubrangeWithSongEndProbeLocked(
+        into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        callbackStartFrame: UInt64,
+        startFrameOffset: Int,
+        frameCount: Int
+    ) {
+        let safeFrameCount = max(0, frameCount)
+        guard safeFrameCount > 0 else {
+            return
+        }
+        guard let plannedSongEndRuntimeFrame,
+              runtimeFrameAtPlannedSongEnd == nil else {
+            renderSubrangeLocked(
+                into: outputInterleavedPCM,
+                startFrameOffset: startFrameOffset,
+                frameCount: safeFrameCount
+            )
+            return
+        }
+
+        let safeStartOffset = max(0, startFrameOffset)
+        let subrangeStart = callbackStartFrame.addingReportingOverflow(UInt64(safeStartOffset))
+        guard !subrangeStart.overflow else {
+            renderSubrangeLocked(
+                into: outputInterleavedPCM,
+                startFrameOffset: startFrameOffset,
+                frameCount: safeFrameCount
+            )
+            return
+        }
+        let subrangeStartFrame = subrangeStart.partialValue
+        let subrangeEnd = subrangeStartFrame.addingReportingOverflow(UInt64(safeFrameCount))
+        let subrangeEndFrame = subrangeEnd.overflow ? UInt64.max : subrangeEnd.partialValue
+
+        guard plannedSongEndRuntimeFrame >= subrangeStartFrame,
+              plannedSongEndRuntimeFrame <= subrangeEndFrame else {
+            renderSubrangeLocked(
+                into: outputInterleavedPCM,
+                startFrameOffset: startFrameOffset,
+                frameCount: safeFrameCount
+            )
+            return
+        }
+
+        let framesBeforeEnd = Int(plannedSongEndRuntimeFrame - subrangeStartFrame)
+        renderSubrangeLocked(
+            into: outputInterleavedPCM,
+            startFrameOffset: startFrameOffset,
+            frameCount: framesBeforeEnd
+        )
+        recordPlannedSongEndBoundaryLocked(runtimeFrame: plannedSongEndRuntimeFrame)
+        renderSubrangeLocked(
+            into: outputInterleavedPCM,
+            startFrameOffset: safeStartOffset + framesBeforeEnd,
+            frameCount: safeFrameCount - framesBeforeEnd
+        )
+    }
+
+    private func recordPlannedSongEndBoundaryLocked(runtimeFrame: UInt64) {
+        guard runtimeFrameAtPlannedSongEnd == nil else {
+            return
+        }
+        runtimeFrameAtPlannedSongEnd = runtimeFrame
+        activeVoiceCountAtPlannedSongEnd = mixer.activeVoiceCount
+        loadedVoiceCountAtPlannedSongEnd = mixer.loadedVoiceCount
     }
 
     private func renderSubrangeLocked(
@@ -5262,6 +5442,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         stoppedFrameByChannel.removeAll()
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        plannedSongEndFrame = nil
+        plannedSongEndRuntimeFrame = nil
+        runtimeFrameAtPlannedSongEnd = nil
+        activeVoiceCountAtPlannedSongEnd = nil
+        loadedVoiceCountAtPlannedSongEnd = nil
+        eventQueueExhaustedFrame = nil
         eventQueueProducerThreadDiagnostics = nil
         eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll()
@@ -5437,6 +5623,19 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let rms = cumulativeOutputSampleCount > 0
             ? Float(sqrt(cumulativeOutputSquareSum / Double(cumulativeOutputSampleCount)))
             : 0
+        let eventQueueExhausted = adapterEventSchedule.isEmpty || nextAdapterEventScheduleIndex >= adapterEventSchedule.count
+        let activeAfterSongEnd: Int?
+        let loadedAfterSongEnd: Int?
+        if let plannedSongEndRuntimeFrame,
+           mixer.currentFrame > plannedSongEndRuntimeFrame {
+            activeAfterSongEnd = mixer.activeVoiceCount
+            loadedAfterSongEnd = mixer.loadedVoiceCount
+        } else {
+            activeAfterSongEnd = nil
+            loadedAfterSongEnd = nil
+        }
+        let outputContinuesAfterSongEnd = activeAfterSongEnd.map { $0 > 0 || (loadedAfterSongEnd ?? 0) > 0 }
+        let sustainedAfterSongEnd = outputContinuesAfterSongEnd.map { $0 && eventQueueExhausted }
         return RuntimeCMixerRenderSnapshot(
             sampleRate: mixer.config.sampleRate,
             channelCount: mixer.config.channelCount,
@@ -5444,6 +5643,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             loadedVoiceCount: mixer.loadedVoiceCount,
             scheduledVoiceCount: 0,
             eventQueueBacklogCount: max(0, adapterEventSchedule.count - nextAdapterEventScheduleIndex),
+            eventQueueExhausted: eventQueueExhausted,
+            eventQueueExhaustedFrame: eventQueueExhaustedFrame,
             renderCallbackCount: renderCallbackCount,
             renderCallCount: renderCallCount,
             successfulRenderCount: successfulRenderCount,
@@ -5546,6 +5747,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             runtimeUpdateEpsilonConfigurationWarning: updatePolicy.configurationWarning,
             capture: captureBuffer?.snapshot ?? .disabled,
             currentFrame: mixer.currentFrame,
+            plannedSongEndFrame: plannedSongEndFrame,
+            plannedSongEndRuntimeFrame: plannedSongEndRuntimeFrame,
+            runtimeFrameAtPlannedSongEnd: runtimeFrameAtPlannedSongEnd,
+            activeVoiceCountAtPlannedSongEnd: activeVoiceCountAtPlannedSongEnd,
+            loadedVoiceCountAtPlannedSongEnd: loadedVoiceCountAtPlannedSongEnd,
+            activeVoiceCountAfterPlannedSongEnd: activeAfterSongEnd,
+            loadedVoiceCountAfterPlannedSongEnd: loadedAfterSongEnd,
+            outputContinuesAfterPlannedSongEnd: outputContinuesAfterSongEnd,
+            finalSustainedVoicesContinueAfterPlannedSongEnd: sustainedAfterSongEnd,
             appliedPlannedEventCount: appliedPlannedEventCount,
             exactFrameAppliedEventCount: exactFrameAppliedEventCount,
             callbackBoundaryAppliedEventCount: callbackBoundaryAppliedEventCount,
@@ -6940,7 +7150,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
         let result = renderCore.configureAdapterEventSchedule(
             adapterEventPlan.events,
-            runtimeFrameOffset: offset
+            runtimeFrameOffset: offset,
+            plannedSongEndFrame: adapterEventPlan.plannedSongEndFrame
         )
         adapterEventScheduleConfigured = true
         prepareIfNeeded()
@@ -7223,6 +7434,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return nil
         }
         return Int(frame)
+    }
+
+    private func seconds(frame: Int?, sampleRate: Double) -> Double? {
+        guard let frame,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return nil
+        }
+        return Double(frame) / sampleRate
+    }
+
+    private func seconds(frame: UInt64?, sampleRate: Double) -> Double? {
+        guard let frame,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return nil
+        }
+        return Double(frame) / sampleRate
     }
 
     private func audioGraphDiagnostics(snapshot: RuntimeCMixerRenderSnapshot) -> RuntimeCMixerAudioGraphDiagnostics {
@@ -8070,6 +8299,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
+        let plannedSongEndFrame = adapterEventPlan.plannedSongEndFrame ?? snapshot.plannedSongEndFrame
+        let plannedSongEndRuntimeFrame = snapshot.plannedSongEndRuntimeFrame
+        let runtimeFrameAtPlannedSongEnd = snapshot.runtimeFrameAtPlannedSongEnd
         let audioGraph = audioGraphDiagnostics(snapshot: snapshot)
         let audioGraphChanges = updateAudioGraphChangeCounters(audioGraph)
         let event = RuntimeCMixerTraceEvent(
@@ -8194,6 +8426,25 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeCaptureMatchesHardwareSampleRate: audioGraph.captureMatchesHardwareSampleRate,
             cMixerRenderedFrames: sampleTimePosition.cMixerRenderedFrames,
             cMixerPlaybackSeconds: sampleTimePosition.cMixerPlaybackSeconds,
+            cMixerRenderedFramesBeforeClear: action == "c_mixer_clear_all" ? snapshotBefore?.currentFrame : nil,
+            cMixerPlaybackSecondsBeforeClear: action == "c_mixer_clear_all"
+                ? seconds(frame: snapshotBefore?.currentFrame, sampleRate: snapshotBefore?.sampleRate ?? snapshot.sampleRate)
+                : nil,
+            plannedSongEndFrame: plannedSongEndFrame,
+            plannedSongEndSeconds: seconds(frame: plannedSongEndFrame, sampleRate: snapshot.sampleRate),
+            plannedSongEndRuntimeFrame: plannedSongEndRuntimeFrame,
+            plannedSongEndRuntimeSeconds: seconds(frame: plannedSongEndRuntimeFrame, sampleRate: snapshot.sampleRate),
+            runtimeFrameAtPlannedSongEnd: runtimeFrameAtPlannedSongEnd,
+            runtimeSecondsAtPlannedSongEnd: seconds(frame: runtimeFrameAtPlannedSongEnd, sampleRate: snapshot.sampleRate),
+            eventQueueExhausted: snapshot.eventQueueExhausted,
+            eventQueueExhaustedFrame: snapshot.eventQueueExhaustedFrame,
+            eventQueueExhaustedSeconds: seconds(frame: snapshot.eventQueueExhaustedFrame, sampleRate: snapshot.sampleRate),
+            activeVoiceCountAtPlannedSongEnd: snapshot.activeVoiceCountAtPlannedSongEnd,
+            loadedVoiceCountAtPlannedSongEnd: snapshot.loadedVoiceCountAtPlannedSongEnd,
+            activeVoiceCountAfterPlannedSongEnd: snapshot.activeVoiceCountAfterPlannedSongEnd,
+            loadedVoiceCountAfterPlannedSongEnd: snapshot.loadedVoiceCountAfterPlannedSongEnd,
+            outputContinuesAfterPlannedSongEnd: snapshot.outputContinuesAfterPlannedSongEnd,
+            finalSustainedVoicesContinueAfterPlannedSongEnd: snapshot.finalSustainedVoicesContinueAfterPlannedSongEnd,
             cMixerSampleTimeFrame: sampleTimePosition.cMixerSampleTimeFrame,
             cMixerSampleTimePositionStatus: sampleTimePosition.cMixerSampleTimePositionStatus,
             cMixerSampleTimeOrderIndex: sampleTimePosition.cMixerSampleTimeOrderIndex,

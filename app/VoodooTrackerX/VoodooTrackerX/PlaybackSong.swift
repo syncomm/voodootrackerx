@@ -381,15 +381,26 @@ struct RuntimeCMixerAdapterEvent: Equatable {
 struct RuntimeCMixerAdapterEventPlan: Equatable {
     let generated: Bool
     let sampleRate: Double
+    let plannedSongEndFrame: Int?
     let plannedEventCount: Int
     let events: [RuntimeCMixerAdapterEvent]
     let categories: [String]
     let plan: PlaybackSongSyntheticPlan?
 
+    var plannedSongEndSeconds: Double? {
+        guard let plannedSongEndFrame,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return nil
+        }
+        return Double(plannedSongEndFrame) / sampleRate
+    }
+
     static func unavailable(sampleRate: Double = MixerRenderConfig.defaultSampleRate) -> RuntimeCMixerAdapterEventPlan {
         RuntimeCMixerAdapterEventPlan(
             generated: false,
             sampleRate: sampleRate,
+            plannedSongEndFrame: nil,
             plannedEventCount: 0,
             events: [],
             categories: [],
@@ -542,9 +553,13 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return lhs.id < rhs.id
         }
         let categories = Array(Set(sortedEvents.flatMap(\.categories))).sorted()
+        let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
+            .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
+            .max()
         return RuntimeCMixerAdapterEventPlan(
             generated: true,
             sampleRate: sampleRate,
+            plannedSongEndFrame: plannedSongEndFrame,
             plannedEventCount: sortedEvents.count,
             events: sortedEvents,
             categories: categories,

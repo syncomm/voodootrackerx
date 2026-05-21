@@ -2441,6 +2441,127 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertTrue(capture["write_succeeded"])
             self.assertFalse(capture["write_failed"])
 
+    def test_runtime_trace_summary_reports_song_end_lifecycle_and_capture_separation(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "adapter_event_schedule_configured",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=240,
+                        runtimeCaptureFrameLimit=24000,
+                        runtimeCapturedFrameCount=0,
+                        debugStopAfterSeconds=300,
+                        sampleRate=100,
+                        plannedSongEndFrame=1000,
+                        plannedSongEndSeconds=10,
+                        plannedSongEndRuntimeFrame=1000,
+                        plannedSongEndRuntimeSeconds=10,
+                        eventQueueExhausted=False,
+                        eventQueueBacklogCount=2,
+                    ),
+                    self.event(
+                        "render_callback",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=240,
+                        runtimeCaptureFrameLimit=24000,
+                        runtimeCapturedFrameCount=1200,
+                        runtimeCaptureDurationSeconds=12,
+                        debugStopAfterSeconds=300,
+                        sampleRate=100,
+                        currentFrame=1200,
+                        plannedSongEndFrame=1000,
+                        plannedSongEndSeconds=10,
+                        plannedSongEndRuntimeFrame=1000,
+                        plannedSongEndRuntimeSeconds=10,
+                        runtimeFrameAtPlannedSongEnd=1000,
+                        runtimeSecondsAtPlannedSongEnd=10,
+                        eventQueueExhausted=True,
+                        eventQueueExhaustedFrame=900,
+                        eventQueueExhaustedSeconds=9,
+                        activeVoiceCountAtPlannedSongEnd=1,
+                        loadedVoiceCountAtPlannedSongEnd=1,
+                        activeVoiceCountAfterPlannedSongEnd=1,
+                        loadedVoiceCountAfterPlannedSongEnd=1,
+                        outputContinuesAfterPlannedSongEnd=True,
+                        finalSustainedVoicesContinueAfterPlannedSongEnd=True,
+                    ),
+                    self.event(
+                        "c_mixer_clear_all",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=240,
+                        runtimeCaptureFrameLimit=24000,
+                        runtimeCapturedFrameCount=1200,
+                        runtimeCaptureDurationSeconds=12,
+                        debugStopAfterSeconds=300,
+                        sampleRate=100,
+                        currentFrame=1200,
+                        cMixerPlaybackSeconds=12,
+                        reason="planned_song_end",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            lifecycle = summary["lifecycle"]
+
+            self.assertEqual(lifecycle["capture_seconds"], 240)
+            self.assertEqual(lifecycle["debug_stop_after_seconds"], 300)
+            self.assertEqual(lifecycle["planned_song_end_frame"], 1000)
+            self.assertEqual(lifecycle["planned_song_end_seconds"], 10)
+            self.assertEqual(lifecycle["event_queue_exhausted_frame"], 900)
+            self.assertEqual(lifecycle["active_voice_count_at_planned_song_end"], 1)
+            self.assertEqual(lifecycle["loaded_voice_count_after_planned_song_end"], 1)
+            self.assertTrue(lifecycle["output_continues_after_planned_song_end"])
+            self.assertTrue(lifecycle["final_sustained_voices_continue_after_planned_song_end"])
+            self.assertFalse(lifecycle["capture_cap_reached"])
+            self.assertFalse(lifecycle["capture_cap_triggered_stop"])
+            self.assertFalse(lifecycle["debug_stop_triggered_stop"])
+            self.assertTrue(lifecycle["planned_song_end_triggered_stop"])
+            self.assertTrue(lifecycle["capture_seconds_only_affects_capture"])
+            self.assertEqual(summary["recommended_next_pr"], "Runtime C Mixer Song-End Stop / Tail Handling")
+
+    def test_runtime_trace_summary_flags_capture_cap_lifetime_coupling_when_observed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "capture_truncated",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=2,
+                        runtimeCaptureFrameLimit=200,
+                        runtimeCapturedFrameCount=200,
+                        runtimeCaptureDurationSeconds=2,
+                        runtimeCaptureTruncated=True,
+                    ),
+                    self.event(
+                        "c_mixer_clear_all",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureSeconds=2,
+                        runtimeCaptureFrameLimit=200,
+                        runtimeCapturedFrameCount=200,
+                        runtimeCaptureDurationSeconds=2,
+                        runtimeCaptureTruncated=True,
+                        currentFrame=200,
+                        cMixerPlaybackSeconds=2,
+                        reason="runtime_capture_cap_stop",
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            lifecycle = summary["lifecycle"]
+
+            self.assertTrue(lifecycle["capture_cap_reached"])
+            self.assertTrue(lifecycle["capture_cap_triggered_stop"])
+            self.assertFalse(lifecycle["capture_seconds_only_affects_capture"])
+            self.assertEqual(
+                summary["recommended_next_pr"],
+                "Runtime C Mixer Capture Lifetime / Song-End Separation",
+            )
+
     def test_synthetic_trace_with_clipping_and_underrun_reports_health_counters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(
@@ -2800,11 +2921,11 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(output_copy["output_hash"], 2)
             self.assertFalse(output_copy["scratch_output_hash_matches"])
             self.assertIn(
-                "AVAudioSourceNode callback duration warnings or over-budget callbacks observed",
+                "runtime output callback duration warnings or over-budget callbacks observed",
                 summary["suspicious_findings"],
             )
             self.assertIn(
-                "AVAudioSourceNode output buffer copy verification failed",
+                "runtime output buffer copy verification failed",
                 summary["suspicious_findings"],
             )
             self.assertIn(

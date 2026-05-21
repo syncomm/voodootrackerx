@@ -158,6 +158,61 @@ the alternative host. Trace rows and summaries report `runtimeAudioBackend`,
 prepare/initialize/start/stop `OSStatus` values, and the last nonzero host
 status when one is observed.
 
+For controlled output-host A/B listening, run the same local/private module
+from the same start position with both experimental hosts:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-ab-sourcenode-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-ab-sourcenode-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_DEBUG_STOP_AFTER_SECONDS=240 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+
+VTX_AUDIO_BACKEND=c_mixer_coreaudio \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-ab-coreaudio-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-ab-coreaudio-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_DEBUG_STOP_AFTER_SECONDS=240 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Summarize each trace with the same command and compare backend, host type,
+sample rate, channel count, callback counts, callback frame count range,
+underrun/zero-fill/failed render counters, callback duration warnings, capture
+duration/clipping, route/sample-rate diagnostics, and CoreAudio output-unit
+`OSStatus` values:
+
+```bash
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-ab-sourcenode-trace.jsonl \
+  --live-artifact-reported unknown \
+  --json /tmp/vtx-ab-sourcenode-summary.json \
+  --markdown /tmp/vtx-ab-sourcenode-summary.md
+
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-ab-coreaudio-trace.jsonl \
+  --live-artifact-reported unknown \
+  --json /tmp/vtx-ab-coreaudio-summary.json \
+  --markdown /tmp/vtx-ab-coreaudio-summary.md
+```
+
+The summary also separates capture lifetime from playback lifetime. It reports
+`runtimeCaptureSeconds`, `debugStopAfterSeconds`, planned song-end frame/time,
+capture end frame/time, runtime stop frame/time, event-queue exhaustion
+frame/time, active/loaded voices at and after planned song end, whether output
+continued after planned song end, whether capture cap or debug stop triggered
+the stop, and whether planned song end triggered stop or silence.
+`VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` is a capture-buffer cap only; it must not
+be used as the playback lifetime. `VTX_DEBUG_STOP_AFTER_SECONDS` may stop
+playback during local automation.
+
 For overhead isolation, `VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` disables the
 runtime C mixer trace writer when the experimental backend is selected.
 

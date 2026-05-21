@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         debugStopTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                self?.playbackEngine.stop()
+                self?.playbackEngine.stopFromDebugTimer()
                 self?.syncControlPanelView()
             }
         }

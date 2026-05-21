@@ -535,6 +535,33 @@ The helper reads runtime JSONL traces and emits deterministic JSON and Markdown
 summaries. It is local/offline tooling only and is tested with synthetic traces,
 not private modules.
 
+When a full or near-full runtime live-output capture is compared with a full
+offline C mixer WAV, use the window correlation helper to connect the
+whole-song `scripts/audio-compare.py` worst windows back to runtime trace rows:
+
+```bash
+python3 scripts/correlate-runtime-offline-window.py \
+  --runtime-wav /tmp/vtx-c-runtime-capture.wav \
+  --offline-wav /tmp/vtx-offline-c-mixer.wav \
+  --runtime-trace /tmp/vtx-c-runtime-capture-trace.jsonl \
+  --offline-diagnostics-json /tmp/vtx-offline-c-mixer-diagnostics.json \
+  --comparison-json /tmp/vtx-runtime-vs-offline-audio-compare.json \
+  --comparison-window-limit 8 \
+  --window 181.2:181.7 \
+  --window 188.5:188.7 \
+  --json /tmp/vtx-runtime-offline-window-correlation.json \
+  --markdown /tmp/vtx-runtime-offline-window-correlation.md
+```
+
+The helper reports window-level audio metrics, best local alignment shift,
+scalar normalization evidence, nearby note triggers, replacement ramps, ramp
+cleanup, key-off/fadeout, gain/pan and sample-step updates, global-volume
+updates, same-frame bursts, sustained voice association fields, active/loaded
+voice ranges, optional offline diagnostics counts, and a conservative runtime
+follow-up recommendation. It is diagnostic-only and does not change playback or
+rendering behavior. Keep captures, traces, WAVs, JSON reports, and Markdown
+reports from private/local modules under `/tmp` or another ignored local path.
+
 The summary focuses on runtime-only artifact evidence:
 
 - peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and

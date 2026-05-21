@@ -8437,8 +8437,39 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(RuntimeCMixerTraceConfiguration.traceURL(environment: [:]))
     }
 
+    func testRuntimeCMixerTraceConfigurationCanBeDisabledByEnvironment() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("disabled-c-runtime-trace-\(UUID().uuidString).jsonl")
+
+        XCTAssertNil(RuntimeCMixerTraceConfiguration.traceURL(environment: [
+            RuntimeCMixerTraceConfiguration.pathEnvironmentKey: url.path,
+            RuntimeCMixerDiagnosticEnvironment.disableTraceEnvironmentKey: "1"
+        ]))
+        XCTAssertNil(RuntimeCMixerTraceConfiguration.traceURL(environment: [
+            RuntimeCMixerTraceConfiguration.pathEnvironmentKey: url.path,
+            RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey: "1"
+        ]))
+    }
+
     func testRuntimeCMixerCaptureConfigurationIsDisabledByDefault() {
         XCTAssertNil(RuntimeCMixerCaptureConfiguration.resolve(environment: [:]))
+    }
+
+    func testRuntimeCMixerCaptureConfigurationCanBeDisabledByEnvironment() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("disabled-capture-\(UUID().uuidString).wav")
+
+        XCTAssertNil(RuntimeCMixerCaptureConfiguration.resolve(environment: [
+            RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: url.path,
+            RuntimeCMixerDiagnosticEnvironment.disableCaptureEnvironmentKey: "1"
+        ]))
+    }
+
+    func testRuntimeCMixerMinimalCallbackModeDisablesNewOutputBufferVerification() {
+        let configuration = RuntimeCMixerCallbackDiagnosticsConfiguration.resolve(environment: [
+            RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey: "1"
+        ])
+
+        XCTAssertTrue(configuration.minimalCallbackMode)
+        XCTAssertFalse(configuration.outputBufferVerificationEnabled)
     }
 
     func testRuntimeCMixerCaptureConfigurationParsesPathAndSecondsCap() {
@@ -9270,6 +9301,43 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackAudioOutputFactoryDisablesCaptureForCMixerBackendWhenFlagged() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("disabled-engine-capture-\(UUID().uuidString).wav")
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeAudioBackendSelection.environmentKey: "c_mixer",
+                RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path,
+                RuntimeCMixerDiagnosticEnvironment.disableCaptureEnvironmentKey: "1"
+            ],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+        XCTAssertNil(traceWriter.events.first?.runtimeCapturePathName)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryMinimalCallbackModeKeepsCMixerOptInAndDisablesCapture() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("minimal-engine-capture-\(UUID().uuidString).wav")
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeAudioBackendSelection.environmentKey: "c_mixer",
+                RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path,
+                RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey: "1"
+            ],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
+        XCTAssertEqual(traceWriter.events.first?.runtimeMinimalCallbackMode, true)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+    }
+
+    @MainActor
     func testPlaybackAudioOutputFactoryTracesCMixerGainPolicyEnvironmentOverrides() {
         let gainTraceWriter = TestRuntimeCMixerTraceWriter()
         _ = PlaybackAudioOutputFactory.make(
@@ -9320,10 +9388,10 @@ final class VoodooTrackerXTests: XCTestCase {
         var first = [Float(0.1), -0.2, 0.3, -0.4]
         var second = [Float(0.5), -0.6]
 
-        first.withUnsafeMutableBufferPointer { pointer in
+        let firstSummary = first.withUnsafeMutableBufferPointer { pointer in
             buffer.capture(pointer, frameCount: 2, channelCount: 2)
         }
-        second.withUnsafeMutableBufferPointer { pointer in
+        let secondSummary = second.withUnsafeMutableBufferPointer { pointer in
             buffer.capture(pointer, frameCount: 1, channelCount: 2)
         }
 
@@ -9337,6 +9405,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(capture.snapshot.outputPeak, 0.6, accuracy: 0.000_001)
         XCTAssertEqual(capture.snapshot.outputRMS, Float(sqrt(0.91 / 6.0)), accuracy: 0.000_001)
         XCTAssertPCMEqual(capture.block.interleavedPCM, [0.1, -0.2, 0.3, -0.4, 0.5, -0.6])
+        let expectedFirstSummary = first.withUnsafeBufferPointer {
+            RuntimeCMixerSampleSummary.summarize($0, frameCount: 2, channelCount: 2)
+        }
+        let expectedSecondSummary = second.withUnsafeBufferPointer {
+            RuntimeCMixerSampleSummary.summarize($0, frameCount: 1, channelCount: 2)
+        }
+        XCTAssertEqual(firstSummary?.checksum, expectedFirstSummary.checksum)
+        XCTAssertEqual(secondSummary?.checksum, expectedSecondSummary.checksum)
     }
 
     func testRuntimeCMixerCaptureBufferRespectsFrameCapAndReportsTruncation() throws {
@@ -9354,7 +9430,7 @@ final class VoodooTrackerXTests: XCTestCase {
         )
         var output = [Float(0.25), 0.5, 0.75, 1.0, -1.25]
 
-        output.withUnsafeMutableBufferPointer { pointer in
+        _ = output.withUnsafeMutableBufferPointer { pointer in
             buffer.capture(pointer, frameCount: 5, channelCount: 1)
         }
 
@@ -9384,7 +9460,7 @@ final class VoodooTrackerXTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 2)
         )
         var output = [Float(0), 0.5, -0.5, 1.0]
-        output.withUnsafeMutableBufferPointer { pointer in
+        _ = output.withUnsafeMutableBufferPointer { pointer in
             buffer.capture(pointer, frameCount: 2, channelCount: 2)
         }
         let capture = try XCTUnwrap(buffer.blockSnapshot())
@@ -10373,6 +10449,138 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.rampDownStartCount, 0)
         XCTAssertEqual(snapshot.rampDownCompletionCount, 0)
         XCTAssertEqual(snapshot.abruptRampDownStopCount, 0)
+        XCTAssertEqual(snapshot.callbackDurationWarningThresholdMS, 2)
+        XCTAssertNil(snapshot.callbackDurationMinMS)
+        XCTAssertNil(snapshot.callbackDurationMaxMS)
+        XCTAssertNil(snapshot.callbackDurationAverageMS)
+        XCTAssertEqual(snapshot.callbackDurationWarningCount, 0)
+        XCTAssertNil(snapshot.callbackRenderQuantumDurationMS)
+        XCTAssertEqual(snapshot.callbackOverRenderQuantumBudgetCount, 0)
+        XCTAssertNil(snapshot.callbackIntervalMinMS)
+        XCTAssertNil(snapshot.callbackIntervalMaxMS)
+        XCTAssertNil(snapshot.callbackIntervalLastMS)
+        XCTAssertEqual(snapshot.runtimeMinimalCallbackMode, false)
+        XCTAssertEqual(snapshot.outputBufferCopyAttemptCount, 0)
+        XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
+        XCTAssertNil(snapshot.outputBufferCopyLastSucceeded)
+        XCTAssertNil(snapshot.outputBufferCopyScratchHash)
+        XCTAssertNil(snapshot.outputBufferCopyOutputHash)
+    }
+
+    func testRuntimeCMixerCallbackRealtimeDiagnosticsUpdateCounters() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
+            maximumRenderFrames: 16
+        )
+
+        core.recordCallbackRealtimeDiagnosticsForTesting(
+            durationSeconds: 0.001,
+            requestedFrameCount: 10,
+            intervalSeconds: nil
+        )
+        core.recordCallbackRealtimeDiagnosticsForTesting(
+            durationSeconds: 0.012,
+            requestedFrameCount: 10,
+            intervalSeconds: 0.010
+        )
+
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.callbackDurationMinMS ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackDurationMaxMS ?? -1, 12, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackDurationAverageMS ?? -1, 6.5, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackDurationWarningCount, 1)
+        XCTAssertEqual(snapshot.callbackRenderQuantumDurationMS ?? -1, 10, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackRenderQuantumMinMS ?? -1, 10, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackRenderQuantumMaxMS ?? -1, 10, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackOverRenderQuantumBudgetCount, 1)
+        XCTAssertEqual(snapshot.callbackIntervalMinMS ?? -1, 10, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackIntervalMaxMS ?? -1, 10, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackIntervalLastMS ?? -1, 10, accuracy: 0.000_001)
+    }
+
+    func testRuntimeCMixerOutputCopyHelperWritesExpectedStereoFramesAndHashes() {
+        let scratch = [Float(0.1), -0.2, 0.3, -0.4]
+        var output = Array(repeating: Float(-1), count: 4)
+        let captureSummary = scratch.withUnsafeBufferPointer {
+            RuntimeCMixerSampleSummary.summarize($0, frameCount: 2, channelCount: 2)
+        }
+
+        let diagnostics = scratch.withUnsafeBufferPointer { scratchPointer in
+            output.withUnsafeMutableBufferPointer { outputPointer in
+                RuntimeCMixerOutputBufferCopy.copyInterleavedSamples(
+                    scratch: scratchPointer,
+                    frameCount: 2,
+                    sourceChannelCount: 2,
+                    into: outputPointer,
+                    outputChannelCount: 2,
+                    captureSummary: captureSummary
+                )
+            }
+        }
+
+        XCTAssertPCMEqual(output, scratch)
+        XCTAssertEqual(diagnostics.requestedFrameCount, 2)
+        XCTAssertEqual(diagnostics.sourceChannelCount, 2)
+        XCTAssertEqual(diagnostics.outputChannelCount, 2)
+        XCTAssertEqual(diagnostics.copiedFrameCount, 2)
+        XCTAssertEqual(diagnostics.copiedSampleCount, 4)
+        XCTAssertEqual(diagnostics.expectedSampleCount, 4)
+        XCTAssertTrue(diagnostics.filledRequestedFrames)
+        XCTAssertTrue(diagnostics.channelCountMatches)
+        XCTAssertFalse(diagnostics.partialCopy)
+        XCTAssertTrue(diagnostics.succeeded)
+        XCTAssertEqual(diagnostics.scratchCaptureHashMatches, true)
+        XCTAssertEqual(diagnostics.scratchOutputHashMatches, true)
+    }
+
+    func testRuntimeCMixerOutputCopyHelperDetectsPartialOutputBuffer() {
+        let scratch = [Float(0.1), -0.2, 0.3, -0.4]
+        var output = Array(repeating: Float(-1), count: 2)
+
+        let diagnostics = scratch.withUnsafeBufferPointer { scratchPointer in
+            output.withUnsafeMutableBufferPointer { outputPointer in
+                RuntimeCMixerOutputBufferCopy.copyInterleavedSamples(
+                    scratch: scratchPointer,
+                    frameCount: 2,
+                    sourceChannelCount: 2,
+                    into: outputPointer,
+                    outputChannelCount: 2
+                )
+            }
+        }
+
+        XCTAssertPCMEqual(output, [0.1, -0.2])
+        XCTAssertEqual(diagnostics.copiedFrameCount, 1)
+        XCTAssertEqual(diagnostics.copiedSampleCount, 2)
+        XCTAssertEqual(diagnostics.expectedSampleCount, 4)
+        XCTAssertFalse(diagnostics.filledRequestedFrames)
+        XCTAssertTrue(diagnostics.partialCopy)
+        XCTAssertFalse(diagnostics.succeeded)
+    }
+
+    func testRuntimeCMixerOutputCopyHelperDetectsShortScratchBuffer() {
+        let scratch = [Float(0.1), -0.2]
+        var output = Array(repeating: Float(-1), count: 4)
+
+        let diagnostics = scratch.withUnsafeBufferPointer { scratchPointer in
+            output.withUnsafeMutableBufferPointer { outputPointer in
+                RuntimeCMixerOutputBufferCopy.copyInterleavedSamples(
+                    scratch: scratchPointer,
+                    frameCount: 2,
+                    sourceChannelCount: 2,
+                    into: outputPointer,
+                    outputChannelCount: 2
+                )
+            }
+        }
+
+        XCTAssertPCMEqual(output, [0.1, -0.2, -1, -1])
+        XCTAssertEqual(diagnostics.copiedFrameCount, 1)
+        XCTAssertEqual(diagnostics.copiedSampleCount, 2)
+        XCTAssertEqual(diagnostics.expectedSampleCount, 4)
+        XCTAssertFalse(diagnostics.filledRequestedFrames)
+        XCTAssertTrue(diagnostics.partialCopy)
+        XCTAssertFalse(diagnostics.succeeded)
     }
 
     func testRuntimeCMixerRenderCoreReportsRenderPositionDiagnostics() {

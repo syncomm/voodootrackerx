@@ -186,6 +186,43 @@ enum RuntimeCMixerFormatDiagnostics {
     }
 }
 
+enum RuntimeCMixerDiagnosticEnvironment {
+    static let disableTraceEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_TRACE"
+    static let disableCaptureEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE"
+    static let minimalCallbackEnvironmentKey = "VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK"
+
+    static func flagEnabled(_ key: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !value.isEmpty else {
+            return false
+        }
+        return ["1", "true", "yes", "on"].contains(value)
+    }
+}
+
+struct RuntimeCMixerCallbackDiagnosticsConfiguration: Equatable {
+    let minimalCallbackMode: Bool
+    let outputBufferVerificationEnabled: Bool
+
+    static let defaultConfiguration = RuntimeCMixerCallbackDiagnosticsConfiguration(
+        minimalCallbackMode: false,
+        outputBufferVerificationEnabled: true
+    )
+
+    static func resolve(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> RuntimeCMixerCallbackDiagnosticsConfiguration {
+        let minimal = RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+            RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey,
+            environment: environment
+        )
+        return RuntimeCMixerCallbackDiagnosticsConfiguration(
+            minimalCallbackMode: minimal,
+            outputBufferVerificationEnabled: !minimal
+        )
+    }
+}
+
 @MainActor
 protocol PlaybackAudioBackendProviding: AnyObject {
     var runtimeAudioBackend: RuntimeAudioBackend { get }
@@ -215,6 +252,199 @@ struct RuntimeCMixerTopOutputPeak: Encodable, Equatable {
     let callbackIndex: UInt64
     let frameOffset: Int
     let channelIndex: Int
+}
+
+struct RuntimeCMixerSampleSummary: Encodable, Equatable {
+    let frameCount: Int
+    let channelCount: Int
+    let sampleCount: Int
+    let finiteSampleCount: Int
+    let checksum: UInt64
+    let peak: Float
+    let rms: Float
+
+    static let empty = RuntimeCMixerSampleSummary(
+        frameCount: 0,
+        channelCount: 0,
+        sampleCount: 0,
+        finiteSampleCount: 0,
+        checksum: RuntimeCMixerSampleSummary.hashOffsetBasis,
+        peak: 0,
+        rms: 0
+    )
+
+    private static let hashOffsetBasis = UInt64(14_695_981_039_346_656_037)
+    private static let hashPrime = UInt64(1_099_511_628_211)
+
+    static func summarize(
+        _ buffer: UnsafeBufferPointer<Float>,
+        frameCount: Int,
+        channelCount: Int
+    ) -> RuntimeCMixerSampleSummary {
+        let safeChannelCount = max(1, channelCount)
+        let boundedSampleCount = min(max(0, frameCount) * safeChannelCount, buffer.count)
+        guard boundedSampleCount > 0 else {
+            return .empty
+        }
+
+        var checksum = hashOffsetBasis
+        var peak = Float(0)
+        var squareSum = Double(0)
+        var finiteSampleCount = 0
+        for sampleIndex in 0..<boundedSampleCount {
+            let sample = buffer[sampleIndex].isFinite ? buffer[sampleIndex] : 0
+            if buffer[sampleIndex].isFinite {
+                finiteSampleCount += 1
+            }
+            peak = max(peak, abs(sample))
+            squareSum += Double(sample) * Double(sample)
+            checksum = hash(checksum, sample: sample)
+        }
+        return RuntimeCMixerSampleSummary(
+            frameCount: boundedSampleCount / safeChannelCount,
+            channelCount: safeChannelCount,
+            sampleCount: boundedSampleCount,
+            finiteSampleCount: finiteSampleCount,
+            checksum: checksum,
+            peak: peak,
+            rms: Float(sqrt(squareSum / Double(boundedSampleCount)))
+        )
+    }
+
+    static func hash(_ hash: UInt64, sample: Float) -> UInt64 {
+        var value = hash
+        let bits = sample.bitPattern
+        for shift in stride(from: 0, through: 24, by: 8) {
+            value ^= UInt64((bits >> UInt32(shift)) & 0xFF)
+            value &*= hashPrime
+        }
+        return value
+    }
+}
+
+struct RuntimeCMixerOutputBufferCopyDiagnostics: Equatable {
+    let layout: String
+    let requestedFrameCount: Int
+    let sourceChannelCount: Int
+    let outputBufferCount: Int
+    let outputChannelCount: Int
+    let copiedFrameCount: Int
+    let copiedSampleCount: Int
+    let expectedSampleCount: Int
+    let filledRequestedFrames: Bool
+    let channelCountMatches: Bool
+    let partialCopy: Bool
+    let scratchSummary: RuntimeCMixerSampleSummary?
+    let captureSummary: RuntimeCMixerSampleSummary?
+    let outputSummary: RuntimeCMixerSampleSummary?
+
+    var succeeded: Bool {
+        filledRequestedFrames && channelCountMatches && !partialCopy
+    }
+
+    var scratchCaptureHashMatches: Bool? {
+        guard let scratchSummary,
+              let captureSummary else {
+            return nil
+        }
+        return scratchSummary.checksum == captureSummary.checksum &&
+            scratchSummary.sampleCount == captureSummary.sampleCount
+    }
+
+    var scratchOutputHashMatches: Bool? {
+        guard let scratchSummary,
+              let outputSummary else {
+            return nil
+        }
+        return scratchSummary.checksum == outputSummary.checksum &&
+            scratchSummary.sampleCount == outputSummary.sampleCount
+    }
+}
+
+enum RuntimeCMixerOutputBufferCopy {
+    static func copyInterleavedSamples(
+        scratch: UnsafeBufferPointer<Float>,
+        frameCount: Int,
+        sourceChannelCount: Int,
+        into output: UnsafeMutableBufferPointer<Float>,
+        outputChannelCount: Int,
+        captureSummary: RuntimeCMixerSampleSummary? = nil,
+        collectSummaries: Bool = true
+    ) -> RuntimeCMixerOutputBufferCopyDiagnostics {
+        let safeFrameCount = max(0, frameCount)
+        let safeSourceChannelCount = max(1, sourceChannelCount)
+        let safeOutputChannelCount = max(1, outputChannelCount)
+        let expectedSampleCount = safeFrameCount * safeSourceChannelCount
+        let availableSourceFrames = scratch.count / safeSourceChannelCount
+        let availableOutputFrames = output.count / safeOutputChannelCount
+        let framesToCopy = min(safeFrameCount, availableSourceFrames, availableOutputFrames)
+        let channelCountMatches = safeOutputChannelCount == safeSourceChannelCount
+        var outputHash = RuntimeCMixerSampleSummary.empty.checksum
+        var outputPeak = Float(0)
+        var outputSquareSum = Double(0)
+        var outputFiniteSampleCount = 0
+        var copiedSampleCount = 0
+
+        for frame in 0..<framesToCopy {
+            for outputChannel in 0..<safeOutputChannelCount {
+                let outputIndex = frame * safeOutputChannelCount + outputChannel
+                let sample: Float
+                if outputChannel < safeSourceChannelCount {
+                    let sourceIndex = frame * safeSourceChannelCount + outputChannel
+                    sample = scratch[sourceIndex].isFinite ? scratch[sourceIndex] : 0
+                    copiedSampleCount += 1
+                    if collectSummaries {
+                        outputHash = RuntimeCMixerSampleSummary.hash(outputHash, sample: sample)
+                        outputPeak = max(outputPeak, abs(sample))
+                        outputSquareSum += Double(sample) * Double(sample)
+                        outputFiniteSampleCount += 1
+                    }
+                } else {
+                    sample = 0
+                }
+                output[outputIndex] = sample
+            }
+        }
+
+        let scratchSummary = collectSummaries
+            ? RuntimeCMixerSampleSummary.summarize(
+                scratch,
+                frameCount: safeFrameCount,
+                channelCount: safeSourceChannelCount
+            )
+            : nil
+        let outputSummary: RuntimeCMixerSampleSummary?
+        if collectSummaries, copiedSampleCount > 0 {
+            outputSummary = RuntimeCMixerSampleSummary(
+                frameCount: framesToCopy,
+                channelCount: safeSourceChannelCount,
+                sampleCount: copiedSampleCount,
+                finiteSampleCount: outputFiniteSampleCount,
+                checksum: outputHash,
+                peak: outputPeak,
+                rms: Float(sqrt(outputSquareSum / Double(copiedSampleCount)))
+            )
+        } else {
+            outputSummary = collectSummaries ? .empty : nil
+        }
+        let filledRequestedFrames = framesToCopy == safeFrameCount && copiedSampleCount >= expectedSampleCount
+        return RuntimeCMixerOutputBufferCopyDiagnostics(
+            layout: "single_interleaved_buffer",
+            requestedFrameCount: safeFrameCount,
+            sourceChannelCount: safeSourceChannelCount,
+            outputBufferCount: 1,
+            outputChannelCount: safeOutputChannelCount,
+            copiedFrameCount: framesToCopy,
+            copiedSampleCount: copiedSampleCount,
+            expectedSampleCount: expectedSampleCount,
+            filledRequestedFrames: filledRequestedFrames,
+            channelCountMatches: channelCountMatches,
+            partialCopy: !filledRequestedFrames,
+            scratchSummary: scratchSummary,
+            captureSummary: captureSummary,
+            outputSummary: outputSummary
+        )
+    }
 }
 
 struct RuntimeCMixerTraceEvent: Encodable, Equatable {
@@ -406,6 +636,38 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let callbackRequestedFrameCount: Int?
     let callbackStartFrame: UInt64?
     let callbackEndFrame: UInt64?
+    let callbackDurationWarningThresholdMS: Double?
+    let callbackDurationMinMS: Double?
+    let callbackDurationMaxMS: Double?
+    let callbackDurationAverageMS: Double?
+    let callbackDurationWarningCount: UInt64?
+    let callbackRenderQuantumDurationMS: Double?
+    let callbackRenderQuantumMinMS: Double?
+    let callbackRenderQuantumMaxMS: Double?
+    let callbackOverRenderQuantumBudgetCount: UInt64?
+    let callbackIntervalMinMS: Double?
+    let callbackIntervalMaxMS: Double?
+    let callbackIntervalLastMS: Double?
+    let runtimeMinimalCallbackMode: Bool?
+    let outputBufferCopyAttemptCount: UInt64?
+    let outputBufferCopyFailureCount: UInt64?
+    let outputBufferCopyLastSucceeded: Bool?
+    let outputBufferCopyLayout: String?
+    let outputBufferCopyRequestedFrameCount: Int?
+    let outputBufferCopySourceChannelCount: Int?
+    let outputBufferCopyOutputBufferCount: Int?
+    let outputBufferCopyOutputChannelCount: Int?
+    let outputBufferCopyCopiedFrameCount: Int?
+    let outputBufferCopyCopiedSampleCount: Int?
+    let outputBufferCopyExpectedSampleCount: Int?
+    let outputBufferCopyFilledRequestedFrames: Bool?
+    let outputBufferCopyChannelCountMatches: Bool?
+    let outputBufferCopyPartialCopy: Bool?
+    let outputBufferCopyScratchHash: UInt64?
+    let outputBufferCopyCaptureHash: UInt64?
+    let outputBufferCopyOutputHash: UInt64?
+    let outputBufferCopyScratchCaptureHashMatches: Bool?
+    let outputBufferCopyScratchOutputHashMatches: Bool?
     let renderCallbackCount: UInt64?
     let renderCallCount: UInt64?
     let successfulRenderCount: UInt64?
@@ -664,6 +926,38 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         callbackRequestedFrameCount: Int? = nil,
         callbackStartFrame: UInt64? = nil,
         callbackEndFrame: UInt64? = nil,
+        callbackDurationWarningThresholdMS: Double? = nil,
+        callbackDurationMinMS: Double? = nil,
+        callbackDurationMaxMS: Double? = nil,
+        callbackDurationAverageMS: Double? = nil,
+        callbackDurationWarningCount: UInt64? = nil,
+        callbackRenderQuantumDurationMS: Double? = nil,
+        callbackRenderQuantumMinMS: Double? = nil,
+        callbackRenderQuantumMaxMS: Double? = nil,
+        callbackOverRenderQuantumBudgetCount: UInt64? = nil,
+        callbackIntervalMinMS: Double? = nil,
+        callbackIntervalMaxMS: Double? = nil,
+        callbackIntervalLastMS: Double? = nil,
+        runtimeMinimalCallbackMode: Bool? = nil,
+        outputBufferCopyAttemptCount: UInt64? = nil,
+        outputBufferCopyFailureCount: UInt64? = nil,
+        outputBufferCopyLastSucceeded: Bool? = nil,
+        outputBufferCopyLayout: String? = nil,
+        outputBufferCopyRequestedFrameCount: Int? = nil,
+        outputBufferCopySourceChannelCount: Int? = nil,
+        outputBufferCopyOutputBufferCount: Int? = nil,
+        outputBufferCopyOutputChannelCount: Int? = nil,
+        outputBufferCopyCopiedFrameCount: Int? = nil,
+        outputBufferCopyCopiedSampleCount: Int? = nil,
+        outputBufferCopyExpectedSampleCount: Int? = nil,
+        outputBufferCopyFilledRequestedFrames: Bool? = nil,
+        outputBufferCopyChannelCountMatches: Bool? = nil,
+        outputBufferCopyPartialCopy: Bool? = nil,
+        outputBufferCopyScratchHash: UInt64? = nil,
+        outputBufferCopyCaptureHash: UInt64? = nil,
+        outputBufferCopyOutputHash: UInt64? = nil,
+        outputBufferCopyScratchCaptureHashMatches: Bool? = nil,
+        outputBufferCopyScratchOutputHashMatches: Bool? = nil,
         renderCallbackCount: UInt64? = nil,
         renderCallCount: UInt64? = nil,
         successfulRenderCount: UInt64? = nil,
@@ -947,6 +1241,38 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.callbackRequestedFrameCount = callbackRequestedFrameCount
         self.callbackStartFrame = callbackStartFrame
         self.callbackEndFrame = callbackEndFrame
+        self.callbackDurationWarningThresholdMS = callbackDurationWarningThresholdMS
+        self.callbackDurationMinMS = callbackDurationMinMS
+        self.callbackDurationMaxMS = callbackDurationMaxMS
+        self.callbackDurationAverageMS = callbackDurationAverageMS
+        self.callbackDurationWarningCount = callbackDurationWarningCount
+        self.callbackRenderQuantumDurationMS = callbackRenderQuantumDurationMS
+        self.callbackRenderQuantumMinMS = callbackRenderQuantumMinMS
+        self.callbackRenderQuantumMaxMS = callbackRenderQuantumMaxMS
+        self.callbackOverRenderQuantumBudgetCount = callbackOverRenderQuantumBudgetCount
+        self.callbackIntervalMinMS = callbackIntervalMinMS
+        self.callbackIntervalMaxMS = callbackIntervalMaxMS
+        self.callbackIntervalLastMS = callbackIntervalLastMS
+        self.runtimeMinimalCallbackMode = runtimeMinimalCallbackMode
+        self.outputBufferCopyAttemptCount = outputBufferCopyAttemptCount
+        self.outputBufferCopyFailureCount = outputBufferCopyFailureCount
+        self.outputBufferCopyLastSucceeded = outputBufferCopyLastSucceeded
+        self.outputBufferCopyLayout = outputBufferCopyLayout
+        self.outputBufferCopyRequestedFrameCount = outputBufferCopyRequestedFrameCount
+        self.outputBufferCopySourceChannelCount = outputBufferCopySourceChannelCount
+        self.outputBufferCopyOutputBufferCount = outputBufferCopyOutputBufferCount
+        self.outputBufferCopyOutputChannelCount = outputBufferCopyOutputChannelCount
+        self.outputBufferCopyCopiedFrameCount = outputBufferCopyCopiedFrameCount
+        self.outputBufferCopyCopiedSampleCount = outputBufferCopyCopiedSampleCount
+        self.outputBufferCopyExpectedSampleCount = outputBufferCopyExpectedSampleCount
+        self.outputBufferCopyFilledRequestedFrames = outputBufferCopyFilledRequestedFrames
+        self.outputBufferCopyChannelCountMatches = outputBufferCopyChannelCountMatches
+        self.outputBufferCopyPartialCopy = outputBufferCopyPartialCopy
+        self.outputBufferCopyScratchHash = outputBufferCopyScratchHash
+        self.outputBufferCopyCaptureHash = outputBufferCopyCaptureHash
+        self.outputBufferCopyOutputHash = outputBufferCopyOutputHash
+        self.outputBufferCopyScratchCaptureHashMatches = outputBufferCopyScratchCaptureHashMatches
+        self.outputBufferCopyScratchOutputHashMatches = outputBufferCopyScratchOutputHashMatches
         self.renderCallbackCount = renderCallbackCount
         self.renderCallCount = renderCallCount
         self.successfulRenderCount = successfulRenderCount
@@ -1125,6 +1451,18 @@ enum RuntimeCMixerTraceConfiguration {
     static let pathEnvironmentKey = "VTX_C_MIXER_RUNTIME_TRACE_PATH"
 
     static func traceURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard
+            !RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+                RuntimeCMixerDiagnosticEnvironment.disableTraceEnvironmentKey,
+                environment: environment
+            ),
+            !RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+                RuntimeCMixerDiagnosticEnvironment.minimalCallbackEnvironmentKey,
+                environment: environment
+            )
+        else {
+            return nil
+        }
         guard let rawPath = environment[pathEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawPath.isEmpty else {
             return nil
@@ -1166,6 +1504,12 @@ struct RuntimeCMixerCaptureConfiguration: Equatable {
     let configurationWarning: String?
 
     static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeCMixerCaptureConfiguration? {
+        guard !RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+            RuntimeCMixerDiagnosticEnvironment.disableCaptureEnvironmentKey,
+            environment: environment
+        ) else {
+            return nil
+        }
         guard let rawPath = trimmedEnvironmentValue(environment[pathEnvironmentKey]) else {
             return nil
         }
@@ -1307,18 +1651,23 @@ final class RuntimeCMixerCaptureBuffer {
         )
     }
 
-    func capture(_ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int, channelCount: Int) {
+    @discardableResult
+    func capture(
+        _ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        frameCount: Int,
+        channelCount: Int
+    ) -> RuntimeCMixerSampleSummary? {
         let safeChannelCount = max(1, channelCount)
         let availableFrames = outputInterleavedPCM.count / safeChannelCount
         let requestedFrames = min(max(0, frameCount), availableFrames)
         guard requestedFrames > 0 else {
-            return
+            return nil
         }
         guard !truncated,
               capturedFrameCount < frameLimit,
               !interleavedPCM.isEmpty else {
             truncated = true
-            return
+            return nil
         }
 
         let remainingFrames = max(0, frameLimit - capturedFrameCount)
@@ -1329,13 +1678,19 @@ final class RuntimeCMixerCaptureBuffer {
               destinationStart >= 0,
               destinationStart + samplesToCopy <= interleavedPCM.count else {
             truncated = true
-            return
+            return nil
         }
 
+        var checksum = RuntimeCMixerSampleSummary.empty.checksum
+        var segmentPeak = Float(0)
+        var segmentSquareSum = Double(0)
         for sampleIndex in 0..<samplesToCopy {
             let sample = outputInterleavedPCM[sampleIndex].isFinite ? outputInterleavedPCM[sampleIndex] : 0
             interleavedPCM[destinationStart + sampleIndex] = sample
+            checksum = RuntimeCMixerSampleSummary.hash(checksum, sample: sample)
             let absolute = abs(sample)
+            segmentPeak = max(segmentPeak, absolute)
+            segmentSquareSum += Double(sample) * Double(sample)
             outputPeak = max(outputPeak, absolute)
             outputSquareSum += Double(sample) * Double(sample)
             capturedSampleCount &+= 1
@@ -1351,6 +1706,18 @@ final class RuntimeCMixerCaptureBuffer {
         if framesToCopy < requestedFrames || capturedFrameCount >= frameLimit {
             truncated = true
         }
+        let rms = samplesToCopy > 0
+            ? Float(sqrt(segmentSquareSum / Double(samplesToCopy)))
+            : 0
+        return RuntimeCMixerSampleSummary(
+            frameCount: framesToCopy,
+            channelCount: safeChannelCount,
+            sampleCount: samplesToCopy,
+            finiteSampleCount: samplesToCopy,
+            checksum: checksum,
+            peak: segmentPeak,
+            rms: rms
+        )
     }
 
     func blockSnapshot() -> RuntimeCMixerCaptureBlockSnapshot? {
@@ -1409,7 +1776,10 @@ enum PlaybackAudioOutputFactory {
         let sampleRateSelection = selection.backend == .cMixer
             ? RuntimeCMixerSampleRateSelection.resolve(environment: environment)
             : nil
-        let captureConfiguration = selection.backend == .cMixer
+        let callbackDiagnostics = selection.backend == .cMixer
+            ? RuntimeCMixerCallbackDiagnosticsConfiguration.resolve(environment: environment)
+            : nil
+        let captureConfiguration = selection.backend == .cMixer && callbackDiagnostics?.minimalCallbackMode != true
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
         if let requestedValue = selection.requestedValue,
@@ -1459,6 +1829,7 @@ enum PlaybackAudioOutputFactory {
                 channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
+                runtimeMinimalCallbackMode: callbackDiagnostics?.minimalCallbackMode,
                 runtimeOutputGain: outputPolicy?.outputGain,
                 runtimeHeadroomPolicy: outputPolicy?.headroomPolicy,
                 runtimeGainPolicyLabel: outputPolicy?.headroomPolicy,
@@ -1498,6 +1869,7 @@ enum PlaybackAudioOutputFactory {
                 outputPolicy: outputPolicy ?? .defaultPolicy,
                 updatePolicy: updatePolicy ?? .defaultPolicy,
                 captureConfiguration: captureConfiguration,
+                callbackDiagnostics: callbackDiagnostics ?? .defaultConfiguration,
                 runtimeSampleRateSelection: sampleRateSelection,
                 traceWriter: runtimeCMixerTraceWriter
             )
@@ -1523,6 +1895,38 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let callbackRequestedFrameCount: Int?
     let callbackStartFrame: UInt64?
     let callbackEndFrame: UInt64?
+    let callbackDurationWarningThresholdMS: Double
+    let callbackDurationMinMS: Double?
+    let callbackDurationMaxMS: Double?
+    let callbackDurationAverageMS: Double?
+    let callbackDurationWarningCount: UInt64
+    let callbackRenderQuantumDurationMS: Double?
+    let callbackRenderQuantumMinMS: Double?
+    let callbackRenderQuantumMaxMS: Double?
+    let callbackOverRenderQuantumBudgetCount: UInt64
+    let callbackIntervalMinMS: Double?
+    let callbackIntervalMaxMS: Double?
+    let callbackIntervalLastMS: Double?
+    let runtimeMinimalCallbackMode: Bool
+    let outputBufferCopyAttemptCount: UInt64
+    let outputBufferCopyFailureCount: UInt64
+    let outputBufferCopyLastSucceeded: Bool?
+    let outputBufferCopyLayout: String?
+    let outputBufferCopyRequestedFrameCount: Int?
+    let outputBufferCopySourceChannelCount: Int?
+    let outputBufferCopyOutputBufferCount: Int?
+    let outputBufferCopyOutputChannelCount: Int?
+    let outputBufferCopyCopiedFrameCount: Int?
+    let outputBufferCopyCopiedSampleCount: Int?
+    let outputBufferCopyExpectedSampleCount: Int?
+    let outputBufferCopyFilledRequestedFrames: Bool?
+    let outputBufferCopyChannelCountMatches: Bool?
+    let outputBufferCopyPartialCopy: Bool?
+    let outputBufferCopyScratchHash: UInt64?
+    let outputBufferCopyCaptureHash: UInt64?
+    let outputBufferCopyOutputHash: UInt64?
+    let outputBufferCopyScratchCaptureHashMatches: Bool?
+    let outputBufferCopyScratchOutputHashMatches: Bool?
     let minRequestedFrameCount: Int?
     let maxRequestedFrameCount: Int?
     let lastRequestedFrameCount: Int?
@@ -2132,10 +2536,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let outputDiscontinuityThreshold = Float(0.75)
     static let outputPeakWarningThreshold = Float(0.95)
     static let transientDiagnosticTopCount = 8
+    static let callbackDurationWarningThresholdSeconds = 0.002
 
     private let lock = NSLock()
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
+    private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
@@ -2158,6 +2564,23 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var lastCallbackRequestedFrameCount: Int?
     private var lastCallbackStartFrame: UInt64?
     private var lastCallbackEndFrame: UInt64?
+    private var callbackDurationMinSeconds: Double?
+    private var callbackDurationMaxSeconds: Double?
+    private var callbackDurationTotalSeconds = Double(0)
+    private var callbackDurationSampleCount: UInt64 = 0
+    private var callbackDurationWarningCount: UInt64 = 0
+    private var callbackRenderQuantumLastSeconds: Double?
+    private var callbackRenderQuantumMinSeconds: Double?
+    private var callbackRenderQuantumMaxSeconds: Double?
+    private var callbackOverRenderQuantumBudgetCount: UInt64 = 0
+    private var callbackIntervalMinSeconds: Double?
+    private var callbackIntervalMaxSeconds: Double?
+    private var callbackIntervalLastSeconds: Double?
+    private var lastCallbackStartUptimeNanos: UInt64?
+    private var lastCaptureSummary: RuntimeCMixerSampleSummary?
+    private var outputBufferCopyAttemptCount: UInt64 = 0
+    private var outputBufferCopyFailureCount: UInt64 = 0
+    private var lastOutputBufferCopyDiagnostics: RuntimeCMixerOutputBufferCopyDiagnostics?
     private var zeroFillCount: UInt64 = 0
     private var underrunCount: UInt64 = 0
     private var silentOutputCallbackCount: UInt64 = 0
@@ -2200,11 +2623,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         maximumRenderFrames: Int = 16_384,
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
-        captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil
+        captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
+        callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration
     ) {
         self.config = config
         self.outputPolicy = outputPolicy
         self.updatePolicy = updatePolicy
+        self.callbackDiagnostics = callbackDiagnostics
         self.maximumRenderFrames = max(1, maximumRenderFrames)
         let configuredMixer = CSoftwareMixer(config: config)
         mixer = configuredMixer
@@ -3634,11 +4059,122 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private func captureOutputLocked(_ outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int) {
-        captureBuffer?.capture(
+        lastCaptureSummary = captureBuffer?.capture(
             outputInterleavedPCM,
             frameCount: frameCount,
             channelCount: mixer.config.channelCount
         )
+    }
+
+    private func lastCaptureSummaryForOutputCopy() -> RuntimeCMixerSampleSummary? {
+        guard lock.try() else {
+            return nil
+        }
+        defer {
+            lock.unlock()
+        }
+        return lastCaptureSummary
+    }
+
+    func recordCallbackRealtimeDiagnosticsForTesting(
+        durationSeconds: Double,
+        requestedFrameCount: Int,
+        intervalSeconds: Double? = nil
+    ) {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        recordCallbackRealtimeDiagnosticsLocked(
+            durationSeconds: durationSeconds,
+            requestedFrameCount: requestedFrameCount,
+            intervalSeconds: intervalSeconds
+        )
+    }
+
+    private func recordCallbackRealtimeDiagnostics(
+        startUptimeNanos: UInt64,
+        endUptimeNanos: UInt64,
+        requestedFrameCount: Int
+    ) {
+        guard lock.try() else {
+            return
+        }
+        defer {
+            lock.unlock()
+        }
+        let durationSeconds = seconds(fromNanoseconds: endUptimeNanos &- startUptimeNanos)
+        let intervalSeconds = lastCallbackStartUptimeNanos.map { seconds(fromNanoseconds: startUptimeNanos &- $0) }
+        lastCallbackStartUptimeNanos = startUptimeNanos
+        recordCallbackRealtimeDiagnosticsLocked(
+            durationSeconds: durationSeconds,
+            requestedFrameCount: requestedFrameCount,
+            intervalSeconds: intervalSeconds
+        )
+    }
+
+    private func recordCallbackRealtimeDiagnosticsLocked(
+        durationSeconds: Double,
+        requestedFrameCount: Int,
+        intervalSeconds: Double?
+    ) {
+        guard durationSeconds.isFinite,
+              durationSeconds >= 0 else {
+            return
+        }
+        callbackDurationMinSeconds = callbackDurationMinSeconds.map { min($0, durationSeconds) } ?? durationSeconds
+        callbackDurationMaxSeconds = callbackDurationMaxSeconds.map { max($0, durationSeconds) } ?? durationSeconds
+        callbackDurationTotalSeconds += durationSeconds
+        callbackDurationSampleCount &+= 1
+        if durationSeconds > Self.callbackDurationWarningThresholdSeconds {
+            callbackDurationWarningCount &+= 1
+        }
+
+        let quantumSeconds = renderQuantumDurationSeconds(frameCount: requestedFrameCount)
+        callbackRenderQuantumLastSeconds = quantumSeconds
+        callbackRenderQuantumMinSeconds = callbackRenderQuantumMinSeconds.map { min($0, quantumSeconds) } ?? quantumSeconds
+        callbackRenderQuantumMaxSeconds = callbackRenderQuantumMaxSeconds.map { max($0, quantumSeconds) } ?? quantumSeconds
+        if durationSeconds > quantumSeconds {
+            callbackOverRenderQuantumBudgetCount &+= 1
+        }
+
+        if let intervalSeconds,
+           intervalSeconds.isFinite,
+           intervalSeconds >= 0 {
+            callbackIntervalLastSeconds = intervalSeconds
+            callbackIntervalMinSeconds = callbackIntervalMinSeconds.map { min($0, intervalSeconds) } ?? intervalSeconds
+            callbackIntervalMaxSeconds = callbackIntervalMaxSeconds.map { max($0, intervalSeconds) } ?? intervalSeconds
+        }
+    }
+
+    private func recordOutputBufferCopyDiagnostics(_ diagnostics: RuntimeCMixerOutputBufferCopyDiagnostics) {
+        guard lock.try() else {
+            return
+        }
+        defer {
+            lock.unlock()
+        }
+        outputBufferCopyAttemptCount &+= 1
+        if !diagnostics.succeeded {
+            outputBufferCopyFailureCount &+= 1
+        }
+        lastOutputBufferCopyDiagnostics = diagnostics
+    }
+
+    private func renderQuantumDurationSeconds(frameCount: Int) -> Double {
+        guard mixer.config.sampleRate.isFinite,
+              mixer.config.sampleRate > 0 else {
+            return 0
+        }
+        return Double(max(0, frameCount)) / mixer.config.sampleRate
+    }
+
+    private func seconds(fromNanoseconds nanoseconds: UInt64) -> Double {
+        Double(nanoseconds) / 1_000_000_000.0
+    }
+
+    private func milliseconds(_ seconds: Double) -> Double {
+        seconds * 1_000.0
     }
 
     private func renderCallbackWithScheduledAdapterEventsLocked(
@@ -3985,6 +4521,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     func render(frameCount: AVAudioFrameCount, ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
         let safeFrameCount = Int(frameCount)
+        let callbackStartNanos = DispatchTime.now().uptimeNanoseconds
+        defer {
+            recordCallbackRealtimeDiagnostics(
+                startUptimeNanos: callbackStartNanos,
+                endUptimeNanos: DispatchTime.now().uptimeNanoseconds,
+                requestedFrameCount: safeFrameCount
+            )
+        }
 
         // Audio callback safety rules: no AppKit, no parsing, no file I/O, no diagnostics logging, and no
         // allocation-heavy work. Voice/sample preparation happens on the main side before this callback; this
@@ -4006,7 +4550,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
         }
         if rendered {
-            copyScratchToAudioBuffers(ioData: ioData, frameCount: safeFrameCount)
+            let copyDiagnostics = copyScratchToAudioBuffers(ioData: ioData, frameCount: safeFrameCount)
+            recordOutputBufferCopyDiagnostics(copyDiagnostics)
         }
         return noErr
     }
@@ -4022,6 +4567,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
         appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
+        lastCaptureSummary = nil
+        lastOutputBufferCopyDiagnostics = nil
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
         callbackBoundaryAppliedEventCount = 0
@@ -4208,6 +4755,40 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackRequestedFrameCount: lastCallbackRequestedFrameCount,
             callbackStartFrame: lastCallbackStartFrame,
             callbackEndFrame: lastCallbackEndFrame,
+            callbackDurationWarningThresholdMS: milliseconds(Self.callbackDurationWarningThresholdSeconds),
+            callbackDurationMinMS: callbackDurationMinSeconds.map(milliseconds),
+            callbackDurationMaxMS: callbackDurationMaxSeconds.map(milliseconds),
+            callbackDurationAverageMS: callbackDurationSampleCount > 0
+                ? milliseconds(callbackDurationTotalSeconds / Double(callbackDurationSampleCount))
+                : nil,
+            callbackDurationWarningCount: callbackDurationWarningCount,
+            callbackRenderQuantumDurationMS: callbackRenderQuantumLastSeconds.map(milliseconds),
+            callbackRenderQuantumMinMS: callbackRenderQuantumMinSeconds.map(milliseconds),
+            callbackRenderQuantumMaxMS: callbackRenderQuantumMaxSeconds.map(milliseconds),
+            callbackOverRenderQuantumBudgetCount: callbackOverRenderQuantumBudgetCount,
+            callbackIntervalMinMS: callbackIntervalMinSeconds.map(milliseconds),
+            callbackIntervalMaxMS: callbackIntervalMaxSeconds.map(milliseconds),
+            callbackIntervalLastMS: callbackIntervalLastSeconds.map(milliseconds),
+            runtimeMinimalCallbackMode: callbackDiagnostics.minimalCallbackMode,
+            outputBufferCopyAttemptCount: outputBufferCopyAttemptCount,
+            outputBufferCopyFailureCount: outputBufferCopyFailureCount,
+            outputBufferCopyLastSucceeded: lastOutputBufferCopyDiagnostics?.succeeded,
+            outputBufferCopyLayout: lastOutputBufferCopyDiagnostics?.layout,
+            outputBufferCopyRequestedFrameCount: lastOutputBufferCopyDiagnostics?.requestedFrameCount,
+            outputBufferCopySourceChannelCount: lastOutputBufferCopyDiagnostics?.sourceChannelCount,
+            outputBufferCopyOutputBufferCount: lastOutputBufferCopyDiagnostics?.outputBufferCount,
+            outputBufferCopyOutputChannelCount: lastOutputBufferCopyDiagnostics?.outputChannelCount,
+            outputBufferCopyCopiedFrameCount: lastOutputBufferCopyDiagnostics?.copiedFrameCount,
+            outputBufferCopyCopiedSampleCount: lastOutputBufferCopyDiagnostics?.copiedSampleCount,
+            outputBufferCopyExpectedSampleCount: lastOutputBufferCopyDiagnostics?.expectedSampleCount,
+            outputBufferCopyFilledRequestedFrames: lastOutputBufferCopyDiagnostics?.filledRequestedFrames,
+            outputBufferCopyChannelCountMatches: lastOutputBufferCopyDiagnostics?.channelCountMatches,
+            outputBufferCopyPartialCopy: lastOutputBufferCopyDiagnostics?.partialCopy,
+            outputBufferCopyScratchHash: lastOutputBufferCopyDiagnostics?.scratchSummary?.checksum,
+            outputBufferCopyCaptureHash: lastOutputBufferCopyDiagnostics?.captureSummary?.checksum,
+            outputBufferCopyOutputHash: lastOutputBufferCopyDiagnostics?.outputSummary?.checksum,
+            outputBufferCopyScratchCaptureHashMatches: lastOutputBufferCopyDiagnostics?.scratchCaptureHashMatches,
+            outputBufferCopyScratchOutputHashMatches: lastOutputBufferCopyDiagnostics?.scratchOutputHashMatches,
             minRequestedFrameCount: minRequestedFrameCount,
             maxRequestedFrameCount: maxRequestedFrameCount,
             lastRequestedFrameCount: lastRequestedFrameCount,
@@ -4702,9 +5283,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
     }
 
-    private func copyScratchToAudioBuffers(ioData: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
+    private func copyScratchToAudioBuffers(
+        ioData: UnsafeMutablePointer<AudioBufferList>,
+        frameCount: Int
+    ) -> RuntimeCMixerOutputBufferCopyDiagnostics {
         let buffers = UnsafeMutableAudioBufferListPointer(ioData)
         let channelCount = mixer.config.channelCount
+        let captureSummary = callbackDiagnostics.outputBufferVerificationEnabled
+            ? lastCaptureSummaryForOutputCopy()
+            : nil
         if buffers.count == 1,
            let data = buffers[0].mData,
            Int(buffers[0].mNumberChannels) == channelCount {
@@ -4713,32 +5300,142 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 frameCount * channelCount
             )
             let output = data.assumingMemoryBound(to: Float.self)
-            for sampleIndex in 0..<sampleCount {
-                output[sampleIndex] = scratchInterleavedPCM[sampleIndex]
+            let scratchCount = min(sampleCount, scratchInterleavedPCM.count)
+            return scratchInterleavedPCM.withUnsafeBufferPointer { scratch in
+                RuntimeCMixerOutputBufferCopy.copyInterleavedSamples(
+                    scratch: UnsafeBufferPointer(start: scratch.baseAddress, count: scratchCount),
+                    frameCount: frameCount,
+                    sourceChannelCount: channelCount,
+                    into: UnsafeMutableBufferPointer(start: output, count: sampleCount),
+                    outputChannelCount: channelCount,
+                    captureSummary: captureSummary,
+                    collectSummaries: callbackDiagnostics.outputBufferVerificationEnabled
+                )
             }
-            return
         }
 
+        var outputHash = RuntimeCMixerSampleSummary.empty.checksum
+        var outputPeak = Float(0)
+        var outputSquareSum = Double(0)
+        var outputFiniteSampleCount = 0
+        var copiedSampleCount = 0
+        var copiedFrameCount = max(0, frameCount)
+        var partialCopy = false
+        var outputChannelCount = 0
+        let collectSummaries = callbackDiagnostics.outputBufferVerificationEnabled
         for (bufferIndex, buffer) in buffers.enumerated() {
             guard let data = buffer.mData else {
+                partialCopy = true
                 continue
             }
             let bufferChannelCount = max(1, Int(buffer.mNumberChannels))
+            outputChannelCount += bufferChannelCount
             let availableSampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+            copiedFrameCount = min(copiedFrameCount, availableSampleCount / bufferChannelCount)
             let output = data.assumingMemoryBound(to: Float.self)
             for frame in 0..<frameCount {
                 for bufferChannel in 0..<bufferChannelCount {
                     let outputIndex = frame * bufferChannelCount + bufferChannel
                     guard outputIndex < availableSampleCount else {
-                        return
+                        partialCopy = true
+                        break
                     }
                     let sourceChannel = buffers.count == channelCount ? bufferIndex : bufferChannel
-                    output[outputIndex] = sourceChannel < channelCount
+                    let sample: Float = sourceChannel < channelCount
                         ? scratchInterleavedPCM[(frame * channelCount) + sourceChannel]
                         : 0
+                    output[outputIndex] = sample
+                    if sourceChannel < channelCount {
+                        copiedSampleCount += 1
+                        if collectSummaries {
+                            let sanitized = sample.isFinite ? sample : 0
+                            outputHash = RuntimeCMixerSampleSummary.hash(outputHash, sample: sanitized)
+                            outputPeak = max(outputPeak, abs(sanitized))
+                            outputSquareSum += Double(sanitized) * Double(sanitized)
+                            outputFiniteSampleCount += sample.isFinite ? 1 : 0
+                        }
+                    }
                 }
             }
         }
+        let expectedSampleCount = max(0, frameCount) * channelCount
+        let filledRequestedFrames = copiedSampleCount >= expectedSampleCount && !partialCopy
+        let channelCountMatches = outputChannelCount == channelCount
+        let scratchSummary = collectSummaries
+            ? scratchInterleavedPCM.withUnsafeBufferPointer { scratch in
+                RuntimeCMixerSampleSummary.summarize(
+                    scratch,
+                    frameCount: frameCount,
+                    channelCount: channelCount
+                )
+            }
+            : nil
+        let outputSummary: RuntimeCMixerSampleSummary?
+        if collectSummaries, copiedSampleCount > 0, buffers.count == channelCount {
+            var splitHash = RuntimeCMixerSampleSummary.empty.checksum
+            var splitPeak = Float(0)
+            var splitSquareSum = Double(0)
+            var splitFiniteSampleCount = 0
+            var splitSampleCount = 0
+            for frame in 0..<copiedFrameCount {
+                for sourceChannel in 0..<channelCount {
+                    let buffer = buffers[sourceChannel]
+                    guard let data = buffer.mData else {
+                        continue
+                    }
+                    let bufferChannelCount = max(1, Int(buffer.mNumberChannels))
+                    let availableSampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    let outputIndex = frame * bufferChannelCount
+                    guard outputIndex < availableSampleCount else {
+                        continue
+                    }
+                    let sample = data.assumingMemoryBound(to: Float.self)[outputIndex]
+                    let sanitized = sample.isFinite ? sample : 0
+                    splitHash = RuntimeCMixerSampleSummary.hash(splitHash, sample: sanitized)
+                    splitPeak = max(splitPeak, abs(sanitized))
+                    splitSquareSum += Double(sanitized) * Double(sanitized)
+                    splitFiniteSampleCount += sample.isFinite ? 1 : 0
+                    splitSampleCount += 1
+                }
+            }
+            outputSummary = RuntimeCMixerSampleSummary(
+                frameCount: copiedFrameCount,
+                channelCount: channelCount,
+                sampleCount: splitSampleCount,
+                finiteSampleCount: splitFiniteSampleCount,
+                checksum: splitHash,
+                peak: splitPeak,
+                rms: splitSampleCount > 0 ? Float(sqrt(splitSquareSum / Double(splitSampleCount))) : 0
+            )
+        } else if collectSummaries, copiedSampleCount > 0 {
+            outputSummary = RuntimeCMixerSampleSummary(
+                frameCount: copiedFrameCount,
+                channelCount: channelCount,
+                sampleCount: copiedSampleCount,
+                finiteSampleCount: outputFiniteSampleCount,
+                checksum: outputHash,
+                peak: outputPeak,
+                rms: Float(sqrt(outputSquareSum / Double(copiedSampleCount)))
+            )
+        } else {
+            outputSummary = collectSummaries ? .empty : nil
+        }
+        return RuntimeCMixerOutputBufferCopyDiagnostics(
+            layout: buffers.count == channelCount ? "split_noninterleaved_buffers" : "multi_buffer_interleaved",
+            requestedFrameCount: max(0, frameCount),
+            sourceChannelCount: channelCount,
+            outputBufferCount: buffers.count,
+            outputChannelCount: outputChannelCount,
+            copiedFrameCount: copiedFrameCount,
+            copiedSampleCount: copiedSampleCount,
+            expectedSampleCount: expectedSampleCount,
+            filledRequestedFrames: filledRequestedFrames,
+            channelCountMatches: channelCountMatches,
+            partialCopy: partialCopy || !filledRequestedFrames,
+            scratchSummary: scratchSummary,
+            captureSummary: captureSummary,
+            outputSummary: outputSummary
+        )
     }
 }
 
@@ -5036,6 +5733,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
+        callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
         runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
@@ -5044,7 +5742,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             config: config,
             outputPolicy: outputPolicy,
             updatePolicy: updatePolicy,
-            captureConfiguration: captureConfiguration
+            captureConfiguration: captureConfiguration,
+            callbackDiagnostics: callbackDiagnostics
         )
         self.traceWriter = traceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
@@ -6276,6 +6975,38 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackRequestedFrameCount: eventTiming?.callbackRequestedFrameCount ?? snapshot.callbackRequestedFrameCount,
             callbackStartFrame: eventTiming?.callbackStartFrame ?? snapshot.callbackStartFrame,
             callbackEndFrame: eventTiming?.callbackEndFrame ?? snapshot.callbackEndFrame,
+            callbackDurationWarningThresholdMS: snapshot.callbackDurationWarningThresholdMS,
+            callbackDurationMinMS: snapshot.callbackDurationMinMS,
+            callbackDurationMaxMS: snapshot.callbackDurationMaxMS,
+            callbackDurationAverageMS: snapshot.callbackDurationAverageMS,
+            callbackDurationWarningCount: snapshot.callbackDurationWarningCount,
+            callbackRenderQuantumDurationMS: snapshot.callbackRenderQuantumDurationMS,
+            callbackRenderQuantumMinMS: snapshot.callbackRenderQuantumMinMS,
+            callbackRenderQuantumMaxMS: snapshot.callbackRenderQuantumMaxMS,
+            callbackOverRenderQuantumBudgetCount: snapshot.callbackOverRenderQuantumBudgetCount,
+            callbackIntervalMinMS: snapshot.callbackIntervalMinMS,
+            callbackIntervalMaxMS: snapshot.callbackIntervalMaxMS,
+            callbackIntervalLastMS: snapshot.callbackIntervalLastMS,
+            runtimeMinimalCallbackMode: snapshot.runtimeMinimalCallbackMode,
+            outputBufferCopyAttemptCount: snapshot.outputBufferCopyAttemptCount,
+            outputBufferCopyFailureCount: snapshot.outputBufferCopyFailureCount,
+            outputBufferCopyLastSucceeded: snapshot.outputBufferCopyLastSucceeded,
+            outputBufferCopyLayout: snapshot.outputBufferCopyLayout,
+            outputBufferCopyRequestedFrameCount: snapshot.outputBufferCopyRequestedFrameCount,
+            outputBufferCopySourceChannelCount: snapshot.outputBufferCopySourceChannelCount,
+            outputBufferCopyOutputBufferCount: snapshot.outputBufferCopyOutputBufferCount,
+            outputBufferCopyOutputChannelCount: snapshot.outputBufferCopyOutputChannelCount,
+            outputBufferCopyCopiedFrameCount: snapshot.outputBufferCopyCopiedFrameCount,
+            outputBufferCopyCopiedSampleCount: snapshot.outputBufferCopyCopiedSampleCount,
+            outputBufferCopyExpectedSampleCount: snapshot.outputBufferCopyExpectedSampleCount,
+            outputBufferCopyFilledRequestedFrames: snapshot.outputBufferCopyFilledRequestedFrames,
+            outputBufferCopyChannelCountMatches: snapshot.outputBufferCopyChannelCountMatches,
+            outputBufferCopyPartialCopy: snapshot.outputBufferCopyPartialCopy,
+            outputBufferCopyScratchHash: snapshot.outputBufferCopyScratchHash,
+            outputBufferCopyCaptureHash: snapshot.outputBufferCopyCaptureHash,
+            outputBufferCopyOutputHash: snapshot.outputBufferCopyOutputHash,
+            outputBufferCopyScratchCaptureHashMatches: snapshot.outputBufferCopyScratchCaptureHashMatches,
+            outputBufferCopyScratchOutputHashMatches: snapshot.outputBufferCopyScratchOutputHashMatches,
             renderCallbackCount: snapshot.renderCallbackCount,
             renderCallCount: snapshot.renderCallCount,
             successfulRenderCount: snapshot.successfulRenderCount,

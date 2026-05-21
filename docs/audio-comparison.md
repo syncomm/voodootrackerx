@@ -142,6 +142,9 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
+For overhead isolation, `VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` disables the
+runtime C mixer trace writer when the experimental backend is selected.
+
 Enable a local-only runtime C mixer live output capture when the actual
 post-gain AVAudio source-node buffer needs to be compared with the clean
 offline C mixer render:
@@ -170,6 +173,13 @@ headers use the selected runtime C mixer sample rate. The default capture limit
 is 240 seconds. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap, and
 larger values are clamped to the same local-debug safety limit. If the cap is
 reached, capture stops and the runtime trace reports truncation.
+
+`VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE=1` disables capture even if a capture path
+is present. `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` disables trace and capture
+and keeps only minimal callback/output-delivery diagnostics for the experimental
+backend. A useful local isolation matrix is: trace plus capture, trace only,
+capture only, both disabled, and minimal-callback mode. Generated traces,
+captures, reports, logs, screenshots, and listening notes remain local-only.
 
 To compare the runtime capture against an offline C mixer render, first render a
 clean local candidate WAV under `/tmp`:
@@ -233,9 +243,11 @@ timing, parser behavior, tracker UI, or XM effect support.
 Use `scripts/summarize-runtime-c-mixer-trace.py` on the JSONL trace to recap
 capture enablement, basename-only output path, sample rate, channel count,
 captured frames/duration, truncation, runtime sample-rate policy, runtime
-gain/headroom policy, output peak/RMS, and overrange/clipping counters. Keep
-all WAVs, PCM-derived reports, JSONL traces, logs, and listening notes outside
-git. Public docs and tests must continue to use placeholder module paths only.
+gain/headroom policy, callback timing, output buffer copy verification,
+scratch/capture/output hash checks, output peak/RMS, and overrange/clipping
+counters. Keep all WAVs, PCM-derived reports, JSONL traces, logs, and listening
+notes outside git. Public docs and tests must continue to use placeholder
+module paths only.
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.
@@ -329,7 +341,12 @@ count, C mixer render sample rate/channel count, main mixer and output node
 formats, default output device nominal sample rate, hardware buffer frame
 size/duration when accessible, `audioFormatConversionLikely`, and booleans
 indicating whether capture format matches the source node, engine output, or
-hardware sample rate.
+hardware sample rate. Callback timing fields report requested frame ranges,
+min/max/average callback duration, conservative duration warning counts,
+estimated render quantum duration, callbacks over the render quantum budget,
+and callback-to-callback interval ranges. Output-copy verification fields report
+buffer layout, requested/copied frames and samples, channel-count matches,
+partial-copy evidence, and scratch/capture/output hash comparisons.
 Supported runtime updates emit `c_mixer_update_gain_pan_applied`,
 `c_mixer_update_step_applied`, or
 `c_mixer_update_gain_pan_step_applied` when the handoff can target and change
@@ -367,7 +384,8 @@ The same trace now carries runtime output diagnostics for the experimental C
 mixer path: backend sample rate and channel count, render callback count,
 requested frame counts, cumulative requested/rendered frames, min/max/last
 callback sizes, successful/failed render counts, detected zero-fill and underrun
-counts, silent-output counts, post-gain output peak/RMS summaries,
+counts, silent-output counts, callback duration/interval/budget counters,
+output buffer fill/copy/hash verification, post-gain output peak/RMS summaries,
 post-gain overrange/clipping counts, `clippingDetected`,
 `runtimeClippingRecommendation` when clipping remains, runtime output gain,
 configured runtime headroom dB when applicable, runtime gain policy labels,

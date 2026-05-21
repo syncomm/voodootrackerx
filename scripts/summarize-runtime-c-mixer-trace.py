@@ -134,8 +134,34 @@ def last_number(events: list[dict[str, Any]], field: str) -> float | None:
     return None
 
 
+def exact_integer(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return int(value)
+    return None
+
+
+def last_exact_integer(events: list[dict[str, Any]], field: str) -> int | None:
+    for event in reversed(events):
+        value = exact_integer(event.get(field))
+        if value is not None:
+            return value
+    return None
+
+
 def first_string(events: list[dict[str, Any]], field: str) -> str | None:
     for event in events:
+        value = event.get(field)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def last_string(events: list[dict[str, Any]], field: str) -> str | None:
+    for event in reversed(events):
         value = event.get(field)
         if isinstance(value, str) and value:
             return value
@@ -1717,6 +1743,53 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         "write_error": first_string(events, "runtimeCaptureWriteError"),
         "configuration_warning": first_string(events, "runtimeCaptureConfigurationWarning"),
     }
+    callback_duration_warning_count = int(max_numeric(events, "callbackDurationWarningCount") or 0)
+    callback_over_budget_count = int(max_numeric(events, "callbackOverRenderQuantumBudgetCount") or 0)
+    callback_timing = {
+        "minimal_callback_mode": last_bool(events, "runtimeMinimalCallbackMode"),
+        "callback_count": render_callback_count,
+        "requested_frame_count_range": numeric_range(events, "callbackRequestedFrameCount", "requestedFrameCount"),
+        "duration_warning_threshold_ms": rounded_optional(last_number(events, "callbackDurationWarningThresholdMS")),
+        "duration_min_ms": rounded_optional(last_number(events, "callbackDurationMinMS")),
+        "duration_max_ms": rounded_optional(max_numeric(events, "callbackDurationMaxMS")),
+        "duration_average_ms": rounded_optional(last_number(events, "callbackDurationAverageMS")),
+        "duration_warning_count": callback_duration_warning_count,
+        "render_quantum_duration_ms": rounded_optional(last_number(events, "callbackRenderQuantumDurationMS")),
+        "render_quantum_min_ms": rounded_optional(last_number(events, "callbackRenderQuantumMinMS")),
+        "render_quantum_max_ms": rounded_optional(max_numeric(events, "callbackRenderQuantumMaxMS")),
+        "over_render_quantum_budget_count": callback_over_budget_count,
+        "interval_min_ms": rounded_optional(last_number(events, "callbackIntervalMinMS")),
+        "interval_max_ms": rounded_optional(max_numeric(events, "callbackIntervalMaxMS")),
+        "interval_last_ms": rounded_optional(last_number(events, "callbackIntervalLastMS")),
+    }
+    output_copy_failure_count = int(max_numeric(events, "outputBufferCopyFailureCount") or 0)
+    output_copy_last_succeeded = last_bool(events, "outputBufferCopyLastSucceeded")
+    output_copy_filled_requested_frames = last_bool(events, "outputBufferCopyFilledRequestedFrames")
+    output_copy_channel_count_matches = last_bool(events, "outputBufferCopyChannelCountMatches")
+    output_copy_partial_copy = last_bool(events, "outputBufferCopyPartialCopy")
+    output_copy_scratch_capture_matches = last_bool(events, "outputBufferCopyScratchCaptureHashMatches")
+    output_copy_scratch_output_matches = last_bool(events, "outputBufferCopyScratchOutputHashMatches")
+    output_buffer_copy = {
+        "attempt_count": int(max_numeric(events, "outputBufferCopyAttemptCount") or 0),
+        "failure_count": output_copy_failure_count,
+        "last_succeeded": output_copy_last_succeeded,
+        "layout": last_string(events, "outputBufferCopyLayout"),
+        "requested_frame_count": integer(last_number(events, "outputBufferCopyRequestedFrameCount")),
+        "source_channel_count": integer(last_number(events, "outputBufferCopySourceChannelCount")),
+        "output_buffer_count": integer(last_number(events, "outputBufferCopyOutputBufferCount")),
+        "output_channel_count": integer(last_number(events, "outputBufferCopyOutputChannelCount")),
+        "copied_frame_count": integer(last_number(events, "outputBufferCopyCopiedFrameCount")),
+        "copied_sample_count": integer(last_number(events, "outputBufferCopyCopiedSampleCount")),
+        "expected_sample_count": integer(last_number(events, "outputBufferCopyExpectedSampleCount")),
+        "filled_requested_frames": output_copy_filled_requested_frames,
+        "channel_count_matches": output_copy_channel_count_matches,
+        "partial_copy": output_copy_partial_copy,
+        "scratch_hash": last_exact_integer(events, "outputBufferCopyScratchHash"),
+        "capture_hash": last_exact_integer(events, "outputBufferCopyCaptureHash"),
+        "output_hash": last_exact_integer(events, "outputBufferCopyOutputHash"),
+        "scratch_capture_hash_matches": output_copy_scratch_capture_matches,
+        "scratch_output_hash_matches": output_copy_scratch_output_matches,
+    }
     last_output_discontinuity_events = [
         event for event in events
         if event.get("lastOutputDiscontinuityRuntimeFrame") is not None
@@ -1845,6 +1918,18 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("runtime clipping/overrange remains after runtime gain")
     if underrun_count > 0 or zero_fill_count > 0 or failed_render_count > 0:
         suspicious_findings.append("runtime render underrun, zero-fill, or failure counters are nonzero")
+    if callback_duration_warning_count > 0 or callback_over_budget_count > 0:
+        suspicious_findings.append("AVAudioSourceNode callback duration warnings or over-budget callbacks observed")
+    if (
+        output_copy_failure_count > 0
+        or output_copy_last_succeeded is False
+        or output_copy_filled_requested_frames is False
+        or output_copy_channel_count_matches is False
+        or output_copy_partial_copy is True
+    ):
+        suspicious_findings.append("AVAudioSourceNode output buffer copy verification failed")
+    if output_copy_scratch_capture_matches is False or output_copy_scratch_output_matches is False:
+        suspicious_findings.append("runtime scratch/capture/output buffer hashes diverged")
     if unexpected_silent_output_count > 0:
         suspicious_findings.append("unexpected silent output callbacks observed while voices were active or loaded")
     if output_discontinuity_count > 0:
@@ -1907,6 +1992,14 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         recommended_next_pr = "Runtime C Mixer Remaining Sample-Time Timing Gap Investigation"
     elif output_discontinuity_count > 0:
         recommended_next_pr = "Runtime C Mixer Output Discontinuity Diagnostics / Fix"
+    elif (
+        callback_duration_warning_count > 0
+        or callback_over_budget_count > 0
+        or output_copy_failure_count > 0
+        or output_copy_last_succeeded is False
+        or output_copy_scratch_output_matches is False
+    ):
+        recommended_next_pr = "Runtime C Mixer AVAudio Callback Deadline / Output Delivery Follow-Up"
     elif published_follow_has_material_drift:
         recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
     elif position_diverges_over_time(events) and not published_follow_aligned:
@@ -1966,6 +2059,8 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             },
         },
         "capture": capture,
+        "callback_timing": callback_timing,
+        "output_buffer_copy": output_buffer_copy,
         "runtime_policy": runtime_policy,
         "audio_graph": {
             "selected_runtime_sample_rate": rounded(last_number(events, "selectedRuntimeSampleRate") or 0.0),
@@ -2165,6 +2260,8 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
 def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
     capture = summary["capture"]
+    callback_timing = summary["callback_timing"]
+    output_buffer_copy = summary["output_buffer_copy"]
     runtime_policy = summary["runtime_policy"]
     audio_graph = summary["audio_graph"]
     stops = summary["stops"]
@@ -2181,6 +2278,8 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Overrange samples: {health['overrange_sample_count']}",
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
         f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
+        f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
+        f"- Output buffer copy: attempts={output_buffer_copy['attempt_count']} failures={output_buffer_copy['failure_count']} last_succeeded={output_buffer_copy['last_succeeded']} layout={output_buffer_copy['layout']} frames={output_buffer_copy['copied_frame_count']}/{output_buffer_copy['requested_frame_count']} channels={output_buffer_copy['output_channel_count']} filled={output_buffer_copy['filled_requested_frames']} scratch_capture_hash_match={output_buffer_copy['scratch_capture_hash_matches']} scratch_output_hash_match={output_buffer_copy['scratch_output_hash_matches']}",
         f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
         f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",

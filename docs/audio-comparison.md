@@ -187,6 +187,34 @@ python3 scripts/audio-compare.py \
   --markdown /tmp/vtx-runtime-vs-offline-audio-compare.md
 ```
 
+For remaining subtle runtime/offline differences, compare the full or
+near-full capture first, then correlate specific mismatch windows with the
+runtime trace and optional offline diagnostics JSON:
+
+```bash
+python3 scripts/correlate-runtime-offline-window.py \
+  --runtime-wav /tmp/vtx-c-runtime-capture.wav \
+  --offline-wav /tmp/vtx-offline-c-mixer.wav \
+  --runtime-trace /tmp/vtx-c-runtime-capture-trace.jsonl \
+  --offline-diagnostics-json /tmp/vtx-offline-c-mixer-diagnostics.json \
+  --comparison-json /tmp/vtx-runtime-vs-offline-audio-compare.json \
+  --comparison-window-limit 8 \
+  --window 181.2:181.7 \
+  --window 188.5:188.7 \
+  --alignment-search-frames 1024 \
+  --json /tmp/vtx-runtime-offline-window-correlation.json \
+  --markdown /tmp/vtx-runtime-offline-window-correlation.md
+```
+
+The correlation helper reports runtime/offline peak and RMS, normalized
+correlation, RMS difference, max absolute difference, best local runtime
+alignment shift, scalar gain normalization evidence, nearby runtime trace event
+categories, same-frame bursts, sustained voice association fields, active and
+loaded voice ranges, cleanup/ramp evidence, optional offline diagnostics counts,
+and a conservative next-PR recommendation. It is a local diagnostic report
+only. It does not alter runtime output, offline rendering, mixer DSP, gain,
+timing, parser behavior, tracker UI, or XM effect support.
+
 Use `scripts/summarize-runtime-c-mixer-trace.py` on the JSONL trace to recap
 capture enablement, basename-only output path, sample rate, channel count,
 captured frames/duration, truncation, runtime gain/headroom policy, output
@@ -507,6 +535,13 @@ these hazards near worst mismatch windows and can conservatively recommend a
 traversal-focused PR when those hazards dominate the local evidence.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
+
+For runtime live-output captures versus offline C mixer WAVs, prefer
+`scripts/correlate-runtime-offline-window.py`. It consumes the full-song
+`scripts/audio-compare.py` JSON worst windows plus any explicit `--window`
+values, then maps those windows to runtime JSONL trace rows and optional offline
+diagnostics JSON. This keeps full-song evidence visible while still producing
+small, readable window-level reports for follow-up runtime decisions.
 
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,

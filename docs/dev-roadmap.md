@@ -220,6 +220,16 @@ carried voices, order-start/row-transition flags, and carried-channel
 association fields for update-without-note cells. The runtime C mixer remains
 experimental and opt-in; AVAudio remains the default backend, and broader
 runtime stabilization remains separate future work.
+Runtime/offline mismatch window correlation diagnostics are now the current
+runtime investigation path after live capture. A local-only helper compares full
+or near-full runtime capture WAVs against offline C mixer WAVs, imports
+whole-song `scripts/audio-compare.py` worst windows, adds explicit target
+windows, and correlates each window with runtime trace events, same-frame
+bursts, sustained voice association, active/loaded voice ranges, gain/headroom
+normalization, local alignment shifts, and optional offline diagnostics JSON.
+This is diagnostics-only: it does not make the C mixer default, alter offline
+rendering, change C mixer DSP, add XM effects, modify tracker viewport behavior,
+or refactor parser architecture.
 
 Immediate audio accuracy sequence:
 
@@ -292,7 +302,8 @@ Immediate audio accuracy sequence:
 67. Runtime C Mixer Peak-Safe Headroom / Burst Transient Stabilization — done
 68. Runtime C Mixer Live Output Capture / Offline WAV Comparison — done
 69. Runtime C Mixer Event-Burst / Voice Transition Stabilization — done
-70. Reference comparison stabilization against MikMod/OpenMPT
+70. Runtime / Offline Mismatch Window Correlation Diagnostics — done
+71. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

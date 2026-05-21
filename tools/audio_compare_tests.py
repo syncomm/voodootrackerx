@@ -17,6 +17,9 @@ DISCONTINUITY_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "a
 RUNTIME_TRACE_SUMMARY_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "summarize-runtime-c-mixer-trace.py"
 )
+RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "correlate-runtime-offline-window.py"
+)
 
 
 def load_audio_compare_module():
@@ -46,9 +49,19 @@ def load_runtime_trace_summary_module():
     return module
 
 
+def load_runtime_offline_window_module():
+    spec = importlib.util.spec_from_file_location("runtime_offline_window", RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 runtime_trace_summary = load_runtime_trace_summary_module()
+runtime_offline_window = load_runtime_offline_window_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -579,6 +592,424 @@ def sine_frames(sample_rate=8000, channels=1, seconds=0.25, amplitude=0.5):
         sample = math.sin(2.0 * math.pi * 440.0 * frame / sample_rate) * amplitude
         frames.append(tuple(sample for _ in range(channels)) if channels > 1 else sample)
     return frames
+
+
+class RuntimeOfflineWindowCorrelationTests(unittest.TestCase):
+    def test_synthetic_window_comparison_reports_core_metrics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.010:0.060"],
+                window_frames=[],
+                alignment_search_frames=8,
+            )
+            window = report["windows"][0]
+
+            self.assertGreater(window["audio"]["runtime"]["peak"], 0)
+            self.assertGreater(window["audio"]["offline"]["rms"], 0)
+            self.assertIn("normalized_correlation", window["audio"]["alignment"]["zero_shift"])
+            self.assertIn("rms_difference", window["audio"]["alignment"]["zero_shift"])
+            self.assertIn("max_abs_difference", window["audio"]["alignment"]["zero_shift"])
+
+    def test_synthetic_window_comparison_detects_amplitude_only_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir, runtime_gain=0.5)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.010:0.080"],
+                window_frames=[],
+                alignment_search_frames=8,
+            )
+            assessment = report["windows"][0]["assessment"]
+
+            self.assertEqual(assessment["classification"], "amplitude_difference")
+            self.assertEqual(
+                assessment["recommended_next_pr"],
+                "Runtime C Mixer Gain/Headroom Normalization Follow-Up",
+            )
+
+    def test_synthetic_window_comparison_detects_timing_shift(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir, runtime_shift_frames=4)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.010:0.090"],
+                window_frames=[],
+                alignment_search_frames=12,
+            )
+            window = report["windows"][0]
+
+            self.assertEqual(window["assessment"]["classification"], "timing_shift")
+            self.assertEqual(window["audio"]["alignment"]["best_shift"]["runtime_shift_frames"], 4)
+            self.assertEqual(
+                window["assessment"]["recommended_next_pr"],
+                "Runtime C Mixer Alignment/Timing Follow-Up",
+            )
+
+    def test_synthetic_trace_correlation_reports_nearby_event_categories(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.018:0.030"],
+                window_frames=[],
+                trace_padding_frames=16,
+            )
+            categories = report["windows"][0]["runtime_trace_correlation"]["category_counts"]
+
+            self.assertEqual(categories["note_trigger"], 1)
+            self.assertEqual(categories["gain_pan_update"], 1)
+            self.assertEqual(categories["step_update"], 1)
+
+    def test_synthetic_same_frame_burst_correlation_reports_expected_burst(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.020:0.021"],
+                window_frames=[],
+                trace_padding_frames=2,
+            )
+            burst = report["windows"][0]["runtime_trace_correlation"]["same_frame_bursts"][0]
+
+            self.assertEqual(burst["runtime_frame"], 20)
+            self.assertEqual(burst["event_count"], 3)
+            self.assertEqual(burst["declared_burst_size"], 3)
+            self.assertEqual(burst["categories"]["note_trigger"], 1)
+            self.assertEqual(burst["categories"]["gain_pan_update"], 1)
+            self.assertEqual(burst["categories"]["step_update"], 1)
+
+    def test_synthetic_voice_state_correlation_reports_active_loaded_ranges(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.020:0.021"],
+                window_frames=[],
+                trace_padding_frames=2,
+            )
+            trace = report["windows"][0]["runtime_trace_correlation"]
+
+            self.assertEqual(trace["active_voice_range"], {"min": 1, "max": 3})
+            self.assertEqual(trace["loaded_voice_range"], {"min": 2, "max": 4})
+
+    def test_synthetic_non_sustained_replacement_false_association_is_not_loss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+            replacement = self.trace_event(
+                "c_mixer_stop_channel_ramped",
+                frame=80,
+                category="replacement",
+                orderIndex=0,
+                patternIndex=2,
+                rowIndex=8,
+                tickInRow=0,
+                channelIndex=3,
+                adapterSustainedVoiceUpdate=False,
+                adapterChannelAssociationRetained=False,
+                adapterActiveEventIndex=12,
+            )
+            with paths["trace"].open("a", encoding="utf-8") as trace_file:
+                trace_file.write(json.dumps(replacement, sort_keys=True) + "\n")
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.080:0.081"],
+                window_frames=[],
+                trace_padding_frames=2,
+            )
+            sustained = report["windows"][0]["runtime_trace_correlation"]["sustained_voice_transitions"]
+
+            self.assertEqual(sustained["sustained_update_count"], 0)
+            self.assertEqual(sustained["lost_association_count"], 0)
+
+    def test_synthetic_offline_diagnostics_correlation_reports_category_comparison(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir, include_offline_diagnostics=True)
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=["0.018:0.030"],
+                window_frames=[],
+                offline_diagnostics_json=paths["offline_diagnostics"],
+                trace_padding_frames=16,
+            )
+            offline = report["windows"][0]["offline_diagnostics_correlation"]
+            comparison = report["windows"][0]["runtime_vs_offline_event_category_comparison"]
+
+            self.assertTrue(offline["provided"])
+            self.assertEqual(offline["category_counts"]["note_trigger"], 1)
+            self.assertTrue(comparison["offline_diagnostics_provided"])
+            self.assertIn("gain_pan_update", [row["category"] for row in comparison["rows"]])
+
+    def test_synthetic_comparison_json_windows_are_imported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+            comparison_json = Path(tmpdir) / "comparison.json"
+            comparison_json.write_text(json.dumps(synthetic_comparison_json(start_frame=20, end_frame=30)), encoding="utf-8")
+
+            report = runtime_offline_window.build_report(
+                runtime_wav=paths["runtime_wav"],
+                offline_wav=paths["offline_wav"],
+                runtime_trace=paths["trace"],
+                windows=[],
+                window_frames=[],
+                comparison_json=comparison_json,
+                comparison_window_limit=1,
+            )
+
+            self.assertEqual(report["windows"][0]["start_frame"], 20)
+            self.assertEqual(report["windows"][0]["end_frame"], 30)
+            self.assertEqual(report["inputs"]["audio_comparison_path_name"], "comparison.json")
+
+    def test_missing_and_malformed_inputs_fail_clearly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_wav = tmpdir_path / "runtime.wav"
+            offline_wav = tmpdir_path / "offline.wav"
+            trace = tmpdir_path / "bad.jsonl"
+            write_pcm16_wav(runtime_wav, sample_rate=1000, frames=[0.0, 0.1])
+            write_pcm16_wav(offline_wav, sample_rate=1000, frames=[0.0, 0.1])
+            trace.write_text("{bad json\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH),
+                    "--runtime-wav",
+                    str(runtime_wav),
+                    "--offline-wav",
+                    str(offline_wav),
+                    "--runtime-trace",
+                    str(trace),
+                    "--window",
+                    "0:0.001",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("correlate-runtime-offline-window:", result.stderr)
+            self.assertIn("malformed runtime trace", result.stderr)
+
+    def test_json_and_markdown_output_are_deterministic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.write_window_fixture(tmpdir)
+            json_a = Path(tmpdir) / "a.json"
+            json_b = Path(tmpdir) / "b.json"
+            markdown_a = Path(tmpdir) / "a.md"
+            markdown_b = Path(tmpdir) / "b.md"
+            base_command = [
+                sys.executable,
+                str(RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH),
+                "--runtime-wav",
+                str(paths["runtime_wav"]),
+                "--offline-wav",
+                str(paths["offline_wav"]),
+                "--runtime-trace",
+                str(paths["trace"]),
+                "--window",
+                "0.010:0.060",
+                "--alignment-search-frames",
+                "8",
+            ]
+
+            first = subprocess.run(
+                base_command + ["--json", str(json_a), "--markdown", str(markdown_a)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            second = subprocess.run(
+                base_command + ["--json", str(json_b), "--markdown", str(markdown_b)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertEqual(json.loads(json_a.read_text(encoding="utf-8")), json.loads(json_b.read_text(encoding="utf-8")))
+            self.assertEqual(markdown_a.read_text(encoding="utf-8"), markdown_b.read_text(encoding="utf-8"))
+
+    def test_temp_files_are_cleaned_by_temporary_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            self.write_window_fixture(tmpdir)
+            self.assertTrue(any(tmpdir_path.iterdir()))
+        self.assertFalse(tmpdir_path.exists())
+
+    def write_window_fixture(
+        self,
+        tmpdir,
+        *,
+        runtime_gain=1.0,
+        runtime_shift_frames=0,
+        include_offline_diagnostics=False,
+    ):
+        tmpdir_path = Path(tmpdir)
+        offline_wav = tmpdir_path / "offline.wav"
+        runtime_wav = tmpdir_path / "runtime.wav"
+        trace = tmpdir_path / "runtime.jsonl"
+        frames = [math.sin(2.0 * math.pi * index / 17.0) * 0.6 for index in range(128)]
+        runtime_frames = [0.0] * runtime_shift_frames + frames
+        runtime_frames = runtime_frames[:len(frames)] if len(runtime_frames) >= len(frames) else runtime_frames + [0.0] * (len(frames) - len(runtime_frames))
+        runtime_frames = [frame * runtime_gain for frame in runtime_frames]
+        write_pcm16_wav(offline_wav, sample_rate=1000, frames=frames)
+        write_pcm16_wav(runtime_wav, sample_rate=1000, frames=runtime_frames)
+        self.write_trace(trace)
+        result = {"offline_wav": offline_wav, "runtime_wav": runtime_wav, "trace": trace}
+        if include_offline_diagnostics:
+            diagnostics = tmpdir_path / "offline-diagnostics.json"
+            diagnostics.write_text(json.dumps(self.offline_diagnostics()), encoding="utf-8")
+            result["offline_diagnostics"] = diagnostics
+        return result
+
+    def write_trace(self, path):
+        events = [
+            self.trace_event(
+                "c_mixer_add_voice",
+                frame=20,
+                category="note_trigger",
+                orderIndex=0,
+                patternIndex=2,
+                rowIndex=4,
+                tickInRow=0,
+                channelIndex=0,
+                sameFrameBurstSize=3,
+                sameFrameBurstID=9,
+                sameFrameBurstEventOrdinal=0,
+                sameFrameBurstActiveVoiceCountBefore=1,
+                sameFrameBurstActiveVoiceCountAfter=3,
+                sameFrameBurstLoadedVoiceCountBefore=2,
+                sameFrameBurstLoadedVoiceCountAfter=4,
+                sameFrameBurstNewVoicesStarted=1,
+            ),
+            self.trace_event(
+                "c_mixer_update_gain_pan_applied",
+                frame=20,
+                category="gain_pan_update",
+                orderIndex=0,
+                patternIndex=2,
+                rowIndex=4,
+                tickInRow=0,
+                channelIndex=1,
+                sameFrameBurstSize=3,
+                sameFrameBurstID=9,
+                sameFrameBurstEventOrdinal=1,
+                sameFrameBurstGainPanUpdateCount=1,
+                adapterSustainedVoiceUpdate=True,
+                adapterChannelAssociationRetained=True,
+                adapterActiveEventIndex=7,
+            ),
+            self.trace_event(
+                "c_mixer_update_step_applied",
+                frame=20,
+                category="step_update",
+                orderIndex=0,
+                patternIndex=2,
+                rowIndex=4,
+                tickInRow=0,
+                channelIndex=2,
+                sameFrameBurstSize=3,
+                sameFrameBurstID=9,
+                sameFrameBurstEventOrdinal=2,
+                sameFrameBurstStepUpdateCount=1,
+                sameFrameBurstAffectedChannels=[0, 1, 2],
+            ),
+            self.trace_event(
+                "row_transition",
+                frame=28,
+                category="row_transition",
+                orderIndex=0,
+                patternIndex=2,
+                rowIndex=5,
+                tickInRow=0,
+                activeVoiceCount=2,
+                loadedVoiceCount=3,
+            ),
+        ]
+        path.write_text("\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n", encoding="utf-8")
+
+    def trace_event(self, action, frame, category=None, **fields):
+        return {
+            "schemaVersion": 1,
+            "runtimeAction": action,
+            "runtimeAudioBackend": "c_mixer",
+            "experimentalCMixerEnabled": True,
+            "sampleRate": 1000,
+            "eventAppliedFrame": frame,
+            "runtimeEventCategory": category,
+            **fields,
+        }
+
+    def offline_diagnostics(self):
+        return {
+            "schema_version": 1,
+            "render": {"sample_rate": 1000, "rendered_frame_count": 128},
+            "events": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 0,
+                    "scheduled_start_frame": 20,
+                    "note": 49,
+                    "instrument_index": 1,
+                }
+            ],
+            "volume_panning_state_updates": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 1,
+                    "scheduled_frame": 20,
+                    "status": "applied",
+                    "active_voice_updated": True,
+                    "gain_before": 1.0,
+                    "gain_after": 0.5,
+                }
+            ],
+            "tone_portamento_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 2,
+                    "scheduled_frame": 20,
+                    "status": "applied",
+                    "step_updates": [{"scheduled_frame": 20, "playback_step_before": 1.0, "playback_step_after": 1.1}],
+                }
+            ],
+            "note_cut_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 3,
+                    "scheduled_frame": 20,
+                    "status": "applied",
+                }
+            ],
+        }
 
 
 class AudioDiscontinuityTests(unittest.TestCase):

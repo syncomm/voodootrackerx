@@ -25,6 +25,8 @@
 		A0000000000000000000004B /* PlaybackTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* PlaybackTypes.swift */; };
 		A0000000000000000000004C /* PlaybackEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000004E /* PlaybackEffect.swift */; };
 		A0000000000000000000004D /* PlaybackEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000004E /* PlaybackEffect.swift */; };
+		E00000000000000000000011 /* XMEffectCommandDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000021 /* XMEffectCommandDisplay.swift */; };
+		E00000000000000000000012 /* XMEffectCommandDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000021 /* XMEffectCommandDisplay.swift */; };
 		B00000000000000000000011 /* PlaybackTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* PlaybackTrace.swift */; };
 		B00000000000000000000012 /* PlaybackTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000021 /* PlaybackTrace.swift */; };
 		B00000000000000000000013 /* PlaybackTraceEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* PlaybackTraceEvent.swift */; };
@@ -64,6 +66,7 @@
 		A00000000000000000000045 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		A00000000000000000000046 /* AudioTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTypes.swift; sourceTree = "<group>"; };
 		A0000000000000000000004E /* PlaybackEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEffect.swift; sourceTree = "<group>"; };
+		E00000000000000000000021 /* XMEffectCommandDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMEffectCommandDisplay.swift; sourceTree = "<group>"; };
 		B00000000000000000000021 /* PlaybackTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTrace.swift; sourceTree = "<group>"; };
 		B00000000000000000000022 /* PlaybackTraceEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTraceEvent.swift; sourceTree = "<group>"; };
 		B00000000000000000000023 /* PlaybackTraceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTraceWriter.swift; sourceTree = "<group>"; };
@@ -149,6 +152,7 @@
 				A0000000000000000000002D /* LogoPanelView.swift */,
 				A0000000000000000000002E /* TrackerWindowController.swift */,
 				A0000000000000000000002F /* TrackerEditorView.swift */,
+				E00000000000000000000021 /* XMEffectCommandDisplay.swift */,
 				A00000000000000000000028 /* ModuleCoreBridge.h */,
 				A0000000000000000000002A /* vtx-logo.svg */,
 				A0000000000000000000002B /* vtx-logo.png */,
@@ -303,6 +307,7 @@
 				A00000000000000000000044 /* AudioTypes.swift in Sources */,
 				A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */,
 				A0000000000000000000004C /* PlaybackEffect.swift in Sources */,
+				E00000000000000000000011 /* XMEffectCommandDisplay.swift in Sources */,
 				A00000000000000000000035 /* PlaybackEngine.swift in Sources */,
 				A00000000000000000000039 /* PlaybackSong.swift in Sources */,
 				A0000000000000000000003A /* PlaybackSongBuilder.swift in Sources */,
@@ -333,6 +338,7 @@
 				A00000000000000000000047 /* AudioEngine.swift in Sources */,
 				A00000000000000000000048 /* AudioTypes.swift in Sources */,
 				A0000000000000000000004D /* PlaybackEffect.swift in Sources */,
+				E00000000000000000000012 /* XMEffectCommandDisplay.swift in Sources */,
 				A00000000000000000000049 /* PlaybackEngine.swift in Sources */,
 				A0000000000000000000003D /* PlaybackSong.swift in Sources */,
 				A0000000000000000000003F /* PlaybackTiming.swift in Sources */,

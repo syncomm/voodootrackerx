@@ -69,6 +69,7 @@ let package = Package(
                 "PlaybackTiming.swift",
                 "SoftwareMixer.swift",
                 "CSoftwareMixer.swift",
+                "XMEffectCommandDisplay.swift",
             ]
         ),
         .testTarget(

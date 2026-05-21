@@ -14597,6 +14597,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(TestPatternEditEngine.apply(input: .hexDigit(0x0A), to: source, field: .effectParam, editModeEnabled: false))
     }
 
+    func testXMEffectDisplayKeepsClassicLowCommandLetters() {
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x00, effectParam: 0x01), "001")
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x0F, effectParam: 0x00), "F00")
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x0E, effectParam: 0x9C), "E9C")
+    }
+
+    func testXMEffectDisplayMapsRecognizedHighCommandBytesToClassicLetters() {
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x10, effectParam: 0x40), "G40")
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x11, effectParam: 0x01), "H01")
+        XCTAssertNotEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0x11, effectParam: 0x01), "1101")
+    }
+
+    func testXMEffectDisplayFieldWidthStaysStableForHighAndUnknownCommands() {
+        let fields = [
+            XMEffectCommandDisplay.formatEffectField(effectType: 0x00, effectParam: 0x00),
+            XMEffectCommandDisplay.formatEffectField(effectType: 0x0F, effectParam: 0x00),
+            XMEffectCommandDisplay.formatEffectField(effectType: 0x11, effectParam: 0x01),
+            XMEffectCommandDisplay.formatEffectField(effectType: 0xFE, effectParam: 0x7A),
+        ]
+
+        XCTAssertEqual(XMEffectCommandDisplay.formatEffectField(effectType: 0xFE, effectParam: 0x7A), "?7A")
+        for field in fields {
+            XCTAssertEqual(field.utf16.count, XMEffectCommandDisplay.fieldWidth, field)
+        }
+    }
+
     func testSpacebarShortcutDoesNotMapToPatternEditInput() {
         XCTAssertTrue(TrackerTransportShortcut.isPlainSpacebarToggle(
             keyCode: TrackerTransportShortcut.spacebarKeyCode,

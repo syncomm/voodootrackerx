@@ -123,12 +123,7 @@ public struct ModuleMetadataLoader {
         let note = formatXMNote(cell.note)
         let instrument = cell.instrument == 0 ? ".." : String(format: "%02X", cell.instrument)
         let volume = cell.volumeColumn == 0 ? ".." : String(format: "%02X", cell.volumeColumn)
-        let effect: String
-        if cell.effectType == 0 && cell.effectParam == 0 {
-            effect = "..."
-        } else {
-            effect = String(format: "%1X%02X", cell.effectType, cell.effectParam)
-        }
+        let effect = XMEffectCommandDisplay.formatEffectField(effectType: cell.effectType, effectParam: cell.effectParam)
         return "\(note) \(instrument) \(volume) \(effect)"
     }
 

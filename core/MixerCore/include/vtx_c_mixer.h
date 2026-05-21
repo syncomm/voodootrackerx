@@ -123,6 +123,31 @@ typedef struct {
 } VTXCMixerVoice;
 
 typedef struct {
+    int loaded;
+    int active;
+    int has_channel_tag;
+    uint32_t channel_tag;
+    float gain;
+    float pan;
+    double sample_step;
+    float effective_gain;
+    float effective_pan;
+    int key_on;
+    float fadeout_value;
+    int gain_ramp_active;
+    float gain_ramp_start;
+    float gain_ramp_target;
+    uint32_t gain_ramp_total_frames;
+    uint32_t gain_ramp_position_frame;
+    int deactivate_after_gain_ramp;
+    int pan_ramp_active;
+    float pan_ramp_start;
+    float pan_ramp_target;
+    uint32_t pan_ramp_total_frames;
+    uint32_t pan_ramp_position_frame;
+} VTXCMixerVoiceDiagnostic;
+
+typedef struct {
     uint32_t voice_index;
     uint64_t scheduled_frame;
     int update_gain;
@@ -170,6 +195,13 @@ VTXCMixerStatus vtx_c_mixer_set_voice_channel_tag(
     VTXCMixerState *state,
     uint32_t voice_index,
     uint32_t channel_tag
+);
+
+// Copies the current C-side voice state into caller-owned diagnostic storage.
+VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
+    const VTXCMixerState *state,
+    uint32_t voice_index,
+    VTXCMixerVoiceDiagnostic *out_diagnostic
 );
 
 // Stops and releases loaded voices with a matching channel tag. Untagged voices

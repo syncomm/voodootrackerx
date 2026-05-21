@@ -168,12 +168,13 @@ absolute locally, but trace rows and summaries report only the output basename.
 Generated WAVs, traces, and comparison reports should stay under `/tmp` or
 another untracked local path.
 
-The audio callback does not write the WAV. It copies the already-gained
-interleaved Float32 source-node output into a bounded in-memory buffer and stops
-capturing when the cap is reached. WAV writing happens later, outside the
-callback, when playback stops or the backend resets. If the buffer fills, trace
-rows use `runtimeAction == "capture_truncated"`; otherwise a successful write
-uses `runtimeAction == "capture_written"`. Failed writes use
+The audio callback does not write the WAV. It captures the same already-gained
+interleaved Float32 scratch frames that are then copied into the
+`AVAudioSourceNode` output buffers, before AVAudioEngine graph conversion,
+output-node conversion, or hardware sample-rate conversion. WAV writing happens
+later, outside the callback, when playback stops or the backend resets. If the
+buffer fills, trace rows use `runtimeAction == "capture_truncated"`; otherwise a
+successful write uses `runtimeAction == "capture_written"`. Failed writes use
 `runtimeAction == "capture_write_failed"`.
 
 Capture-related trace fields include `runtimeCaptureEnabled`,
@@ -274,9 +275,30 @@ instead of a hard stop: the replaced tagged voice is faded out over
 `replacementRampFrames` frames, currently `32`, while the new replacement voice
 starts at the intended time. Ramped replacement rows include `rampedVoiceCount`,
 `replacementRampFrames`, `replacementVoicesOverlap`, active/loaded voice
-snapshots when available, and the cumulative `replacementRampCount`. True
+snapshots when available, and the cumulative `replacementRampCount`. Dense
+same-frame replacement bursts also include the outgoing voice id/tag and
+pre-replacement state (`replacementOldVoiceIndex`,
+`replacementOldVoiceChannelTag`, gain/pan/sample-step, key-on, and fadeout
+fields), the replacement ramp start/target state
+(`replacementRampStartVoiceIndex`, `replacementRampStartGain`,
+`replacementRampTargetGain`, `replacementRampStartPan`,
+`replacementRampStartSampleStep`), the new voice id/tag when known, and
+booleans showing whether same-frame gain/pan, sample-step, key-off, or fadeout
+state was already reflected before the replacement ramp began. True
 transport-wide stop/reset actions use `c_mixer_clear_all` and
 `targetScope == "all_channels"`.
+
+Runtime C mixer trace rows include AVAudio delivery diagnostics for downstream
+output investigation: `audioSourceNodeRenderSampleRate`,
+`audioSourceNodeChannelCount`, `cMixerRenderSampleRate`,
+`cMixerRenderChannelCount`, `audioEngineMainMixerOutputSampleRate`,
+`audioEngineMainMixerOutputChannelCount`, `audioEngineOutputNodeSampleRate`,
+`audioEngineOutputNodeChannelCount`, `audioHardwareNominalSampleRate`,
+`audioHardwareIOBufferFrameSize`, `audioHardwareIOBufferDuration`,
+`audioFormatConversionLikely`, `runtimeCaptureMatchesSourceNodeFormat`,
+`runtimeCaptureMatchesEngineOutputFormat`, and
+`runtimeCaptureMatchesHardwareSampleRate`. These fields are diagnostic only and
+do not change the default AVAudio backend or opt-in C mixer behavior.
 Supported runtime C mixer control updates now classify the remaining update
 handoff cases instead of treating no-op refreshes and missing targets as one
 deferred bucket. Applied update rows remain

@@ -647,6 +647,126 @@ private func pitchOffsetSemitones(forPlaybackStep playbackStep: Double) -> Doubl
     12 * log2(playbackStep)
 }
 
+private func makeSyntheticEventMapping(
+    source: PlaybackPosition = PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+    channelIndex: Int = 0,
+    note: UInt8 = 49,
+    instrumentIndex: Int = 1,
+    sampleIndex: Int = 0,
+    selectedSampleLength: Int = 64,
+    syntheticTick: Int = 0,
+    eventIndex: Int = 0,
+    effectType: UInt8 = 0,
+    effectParam: UInt8 = 0,
+    effectivePan: Float = 0,
+    playbackStep: Double = 1
+) -> PlaybackSongSyntheticEventMapping {
+    let sampleOffset = PlaybackSongSyntheticSampleOffsetDiagnostic(
+        source: source,
+        channelIndex: channelIndex,
+        syntheticRow: source.rowIndex,
+        syntheticTick: syntheticTick,
+        effectType: effectType,
+        effectParam: effectParam,
+        status: .notPresent,
+        detected: false,
+        applied: false,
+        deferred: false,
+        ignoredAsNoOp: false,
+        skipped: false,
+        outOfRange: false,
+        computedOffsetFrames: 0,
+        appliedOffsetFrames: nil,
+        selectedSampleLength: selectedSampleLength
+    )
+    let envelopeSemantics = PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
+        envelopeEnabled: false,
+        sourcePointCount: 0,
+        mappedPointCount: 0,
+        sustainEnabled: false,
+        sustainApplied: false,
+        sustainDeferred: false,
+        sustainPointIndex: nil,
+        sustainTick: nil,
+        sustainFrame: nil,
+        loopEnabled: false,
+        loopApplied: false,
+        loopDeferred: false,
+        loopStartPointIndex: nil,
+        loopEndPointIndex: nil,
+        loopStartTick: nil,
+        loopEndTick: nil,
+        loopStartFrame: nil,
+        loopEndFrame: nil,
+        keyOffEncountered: false,
+        keyOffApplied: false,
+        keyOffDeferred: false,
+        keyOffSource: nil,
+        keyOffChannelIndex: nil,
+        keyOffSyntheticRow: nil,
+        keyOffSyntheticTick: nil,
+        releaseFrame: nil,
+        fadeoutValue: 0,
+        fadeoutApplied: false,
+        fadeoutDeferred: false,
+        limitations: []
+    )
+    return PlaybackSongSyntheticEventMapping(
+        source: source,
+        channelIndex: channelIndex,
+        note: note,
+        instrumentIndex: instrumentIndex,
+        sampleIndex: sampleIndex,
+        selectedSampleLength: selectedSampleLength,
+        sampleMapKeymapPresent: false,
+        mappedSampleIndex: nil,
+        mappedSampleValid: false,
+        sampleSelectionMethod: .firstPlayableFallback,
+        sampleSelectionStrategy: PlaybackSongSyntheticSampleSelectionMethod.firstPlayableFallback.rawValue,
+        firstPlayableSampleFallbackUsed: false,
+        sampleMapKeymapBehaviorDeferred: false,
+        sampleMapKeymapMissingOrDeferred: false,
+        effectType: effectType,
+        effectParam: effectParam,
+        syntheticRow: source.rowIndex,
+        syntheticTick: syntheticTick,
+        eventIndex: eventIndex,
+        loopMode: .none,
+        volumeColumn: PlaybackSongVolumeColumnDecoder.decode(0),
+        sampleOffset: sampleOffset,
+        hasIgnoredVolumeColumn: false,
+        hasIgnoredEffect: false,
+        effectiveVolumeValue: 64,
+        effectiveGlobalVolumeValue: 64,
+        effectiveGlobalVolumeMultiplier: 1,
+        effectivePan: effectivePan,
+        volumeEnvelopeStatus: .absent,
+        sourceVolumeEnvelopePointCount: 0,
+        mappedVolumeEnvelopePointCount: 0,
+        hasDeferredVolumeEnvelopeSustain: false,
+        hasDeferredVolumeEnvelopeLoop: false,
+        hasDeferredVolumeEnvelopeFadeout: false,
+        volumeEnvelopeSemantics: envelopeSemantics,
+        sampleBaseSampleRate: 44_100,
+        sampleRelativeNote: 0,
+        sampleFinetune: 0,
+        outputSampleRate: 44_100,
+        effectiveNoteValue: Int(note),
+        effectiveNoteIndex: Int(note) - 1,
+        effectiveFinetune: 0,
+        linearPeriod: nil,
+        linearFrequency: nil,
+        finetuneStatus: .applied,
+        usesLinearFrequencyTable: true,
+        frequencyTableStatus: .linearApplied,
+        linearFrequencyApplied: true,
+        amigaFrequencyDeferred: false,
+        playbackStep: playbackStep,
+        pitchMappingApplied: true,
+        pitchMappingUsedNeutralStep: playbackStep == 1
+    )
+}
+
 private func swiftOneShotBlock(
     sample: MixerSampleBuffer,
     frames: Int,
@@ -8971,6 +9091,11 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilon, RuntimeCMixerRenderCore.updateEpsilon)
         XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+        let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
+        XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(initializedEvent?.cMixerRenderChannelCount, MixerRenderConfig.defaultChannelCount)
+        XCTAssertEqual(initializedEvent?.audioSourceNodeRenderSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(initializedEvent?.audioSourceNodeChannelCount, MixerRenderConfig.defaultChannelCount)
     }
 
     @MainActor
@@ -8999,6 +9124,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureFrameLimit, Int((MixerRenderConfig.defaultSampleRate * 0.5).rounded(.up)))
         XCTAssertEqual(traceWriter.events.first?.runtimeCapturedFrameCount, 0)
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureTruncated, false)
+        let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
+        XCTAssertEqual(initializedEvent?.runtimeCaptureMatchesSourceNodeFormat, true)
     }
 
     @MainActor
@@ -10375,6 +10502,159 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(core.snapshot().rampingOutVoiceCount, 0)
         XCTAssertEqual(core.snapshot().rampDownCompletionCount, 1)
         XCTAssertEqual(core.snapshot().abruptRampDownStopCount, 0)
+    }
+
+    func testRuntimeCMixerSameFrameAdapterUpdateBeforeReplacementReportsRampState() throws {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 64,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let oldEvent = SyntheticTrackerEvent(
+            row: 0,
+            scheduledStartFrame: 0,
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 64)),
+            gain: 1,
+            pan: 0,
+            playbackStep: 1
+        )
+        let replacementEvent = SyntheticTrackerEvent(
+            row: 0,
+            scheduledStartFrame: 0,
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(0.5), count: 64)),
+            gain: 1,
+            pan: 0,
+            playbackStep: 1
+        )
+        let oldMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 0)
+        let replacementMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 1)
+
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(oldEvent, eventIndex: 0, mapping: oldMapping).succeeded)
+        let gainPanUpdate = core.applyAdapterGainPanUpdateWithDiagnostics(
+            channel: 0,
+            activeEventIndex: 0,
+            gain: 0.25,
+            pan: 0.75
+        )
+        let stepUpdate = core.applyAdapterStepUpdateWithDiagnostics(
+            channel: 0,
+            activeEventIndex: 0,
+            playbackStep: 2
+        )
+        let replacement = core.triggerAdapterEventWithDiagnostics(
+            replacementEvent,
+            eventIndex: 1,
+            mapping: replacementMapping
+        )
+        let stop = try XCTUnwrap(replacement.channelStopBeforeAdd)
+
+        XCTAssertEqual(gainPanUpdate.disposition, "update_applied")
+        XCTAssertEqual(stepUpdate.disposition, "update_applied")
+        XCTAssertEqual(stop.replacementGainPanAppliedBeforeRamp, false)
+        XCTAssertEqual(stop.replacementStepAppliedBeforeRamp, false)
+        XCTAssertEqual(stop.replacementOldVoiceState?.gain ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementOldVoiceState?.pan ?? -1, 0, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementRampStartState?.gainRampStart ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementRampStartState?.pan ?? -1, 0, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementRampStartState?.sampleStep ?? -1, 1, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementRampTargetGain ?? -1, 0, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementNewVoiceIndex, replacement.newVoiceIndex)
+        XCTAssertEqual(stop.replacementNewVoiceChannelTag, 0)
+    }
+
+    func testRuntimeCMixerScheduledSameFrameMixedBurstOrderingIsDeterministicForReplacement() {
+        func renderFirstFrame() -> Float {
+            let core = RuntimeCMixerRenderCore(
+                config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+                maximumRenderFrames: 64,
+                outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                    RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+                ])
+            )
+            let oldEvent = SyntheticTrackerEvent(
+                row: 0,
+                scheduledStartFrame: 0,
+                sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 64)),
+                gain: 1
+            )
+            let replacementEvent = SyntheticTrackerEvent(
+                row: 0,
+                scheduledStartFrame: 0,
+                sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(0.5), count: 64)),
+                gain: 1
+            )
+            let oldMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 0)
+            let replacementMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 1)
+            XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(oldEvent, eventIndex: 0, mapping: oldMapping).succeeded)
+            core.configureAdapterEventScheduleForTesting([
+                RuntimeCMixerAdapterEvent(
+                    id: 2,
+                    source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+                    channelIndex: 0,
+                    syntheticTick: 0,
+                    scheduledFrame: 0,
+                    action: .noteTrigger(eventIndex: 1, event: replacementEvent, mapping: replacementMapping),
+                    categories: ["note_trigger", "replacement"]
+                ),
+                RuntimeCMixerAdapterEvent(
+                    id: 1,
+                    source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+                    channelIndex: 0,
+                    syntheticTick: 0,
+                    scheduledFrame: 0,
+                    action: .gainPanUpdate(activeEventIndex: 0, gain: 0.25, pan: nil),
+                    categories: ["gain_pan_update"]
+                )
+            ], runtimeFrameOffset: 0)
+            return renderRuntimePCM(core, frames: 1)[0]
+        }
+
+        let first = renderFirstFrame()
+        XCTAssertEqual(renderFirstFrame(), first, accuracy: 0.000_001)
+    }
+
+    func testRuntimeCMixerReplacementDiagnosticsExposeKeyOffFadeoutState() throws {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            maximumRenderFrames: 64,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let oldEvent = SyntheticTrackerEvent(
+            row: 0,
+            scheduledStartFrame: 0,
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 64)),
+            gain: 1,
+            keyOffFrame: 0,
+            fadeoutFrameDecrement: 0.25
+        )
+        let replacementEvent = SyntheticTrackerEvent(
+            row: 0,
+            scheduledStartFrame: 1,
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(0.5), count: 64)),
+            gain: 1
+        )
+        let oldMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 0)
+        let replacementMapping = makeSyntheticEventMapping(channelIndex: 0, eventIndex: 1)
+
+        XCTAssertTrue(core.triggerAdapterEventWithDiagnostics(oldEvent, eventIndex: 0, mapping: oldMapping).succeeded)
+        _ = renderRuntimePCM(core, frames: 1)
+        let replacement = core.triggerAdapterEventWithDiagnostics(
+            replacementEvent,
+            eventIndex: 1,
+            mapping: replacementMapping
+        )
+        let stop = try XCTUnwrap(replacement.channelStopBeforeAdd)
+
+        XCTAssertEqual(stop.replacementKeyOffAppliedBeforeRamp, true)
+        XCTAssertEqual(stop.replacementFadeoutAppliedBeforeRamp, true)
+        XCTAssertEqual(stop.replacementOldVoiceState?.keyOn, false)
+        XCTAssertEqual(stop.replacementOldVoiceState?.fadeoutValue ?? -1, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(stop.replacementRampStartState?.keyOn, false)
+        XCTAssertEqual(stop.replacementRampStartState?.fadeoutValue ?? -1, 0.75, accuracy: 0.000_001)
     }
 
     func testRuntimeCMixerGlobalStopClearsReplacementRampImmediately() {

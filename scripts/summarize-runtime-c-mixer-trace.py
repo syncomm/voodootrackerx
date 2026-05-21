@@ -50,6 +50,12 @@ def rounded(value: float) -> float:
     return round(float(value), FLOAT_DIGITS)
 
 
+def rounded_optional(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return rounded(value)
+
+
 def number(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
@@ -120,6 +126,14 @@ def first_number(events: list[dict[str, Any]], field: str) -> float | None:
     return None
 
 
+def last_number(events: list[dict[str, Any]], field: str) -> float | None:
+    for event in reversed(events):
+        value = number(event.get(field))
+        if value is not None:
+            return value
+    return None
+
+
 def first_string(events: list[dict[str, Any]], field: str) -> str | None:
     for event in events:
         value = event.get(field)
@@ -130,6 +144,14 @@ def first_string(events: list[dict[str, Any]], field: str) -> str | None:
 
 def first_bool(events: list[dict[str, Any]], field: str) -> bool | None:
     for event in events:
+        value = event.get(field)
+        if isinstance(value, bool):
+            return value
+    return None
+
+
+def last_bool(events: list[dict[str, Any]], field: str) -> bool | None:
+    for event in reversed(events):
         value = event.get(field)
         if isinstance(value, bool):
             return value
@@ -1945,6 +1967,24 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         },
         "capture": capture,
         "runtime_policy": runtime_policy,
+        "audio_graph": {
+            "c_mixer_render_sample_rate": rounded(last_number(events, "cMixerRenderSampleRate") or 0.0),
+            "c_mixer_render_channel_count": integer(last_number(events, "cMixerRenderChannelCount")),
+            "source_node_render_sample_rate": rounded(last_number(events, "audioSourceNodeRenderSampleRate") or 0.0),
+            "source_node_channel_count": integer(last_number(events, "audioSourceNodeChannelCount")),
+            "main_mixer_output_sample_rate": rounded(last_number(events, "audioEngineMainMixerOutputSampleRate") or 0.0),
+            "main_mixer_output_channel_count": integer(last_number(events, "audioEngineMainMixerOutputChannelCount")),
+            "output_node_sample_rate": rounded(last_number(events, "audioEngineOutputNodeSampleRate") or 0.0),
+            "output_node_channel_count": integer(last_number(events, "audioEngineOutputNodeChannelCount")),
+            "hardware_nominal_sample_rate": rounded_optional(last_number(events, "audioHardwareNominalSampleRate")),
+            "hardware_io_buffer_frame_size": integer(last_number(events, "audioHardwareIOBufferFrameSize")),
+            "hardware_io_buffer_duration_seconds": rounded_optional(last_number(events, "audioHardwareIOBufferDuration")),
+            "format_conversion_likely": last_bool(events, "audioFormatConversionLikely"),
+            "runtime_capture_matches_source_node_format": last_bool(events, "runtimeCaptureMatchesSourceNodeFormat"),
+            "runtime_capture_matches_engine_output_format": last_bool(events, "runtimeCaptureMatchesEngineOutputFormat"),
+            "runtime_capture_matches_hardware_sample_rate": last_bool(events, "runtimeCaptureMatchesHardwareSampleRate"),
+            "callback_requested_frame_count_range": numeric_range(events, "callbackRequestedFrameCount", "requestedFrameCount"),
+        },
         "voices": {
             "active_voice_range": numeric_range(events, "activeVoiceCount", "activeVoiceCountBefore", "activeVoiceCountAfter"),
             "loaded_voice_range": numeric_range(events, "loadedVoiceCount", "loadedVoiceCountBefore", "loadedVoiceCountAfter"),
@@ -1954,6 +1994,30 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "ramped_replacement_stop_events": len(ramped_replacements),
             "ramped_replacement_voice_count": sum(integer(event.get("rampedVoiceCount")) or 0 for event in ramped_replacements),
             "ramped_replacement_overlap_events": replacement_overlap_count,
+            "replacement_gain_pan_applied_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementGainPanAppliedBeforeRamp") is True,
+            ),
+            "replacement_gain_pan_missing_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementGainPanAppliedBeforeRamp") is False,
+            ),
+            "replacement_step_applied_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementStepAppliedBeforeRamp") is True,
+            ),
+            "replacement_step_missing_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementStepAppliedBeforeRamp") is False,
+            ),
+            "replacement_key_off_applied_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementKeyOffAppliedBeforeRamp") is True,
+            ),
+            "replacement_fadeout_applied_before_ramp_events": count_if(
+                ramped_replacements,
+                lambda event: event.get("replacementFadeoutAppliedBeforeRamp") is True,
+            ),
             "immediate_hard_replacement_stop_events": len(hard_replacement_stops),
             "immediate_hard_stop_events": action_counts["c_mixer_stop_channel"],
             "immediate_hard_stop_reasons": dict(sorted(hard_stop_reasons.items())),
@@ -2097,6 +2161,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
     capture = summary["capture"]
     runtime_policy = summary["runtime_policy"]
+    audio_graph = summary["audio_graph"]
     stops = summary["stops"]
     updates = summary["updates"]
     voices = summary["voices"]
@@ -2117,9 +2182,11 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Likely transient correlation: {health['likely_correlation_category']}",
         f"- Runtime capture: enabled={capture['enabled']} path_name={capture['path_name']} frames={capture['captured_frame_count']} duration={capture['duration_seconds']} truncated={capture['truncated']} peak={capture['output_peak']} clipping={capture['clipping_sample_count']} write_succeeded={capture['write_succeeded']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
+        f"- Audio graph: c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch source={audio_graph['source_node_render_sample_rate']}Hz/{audio_graph['source_node_channel_count']}ch main_mixer={audio_graph['main_mixer_output_sample_rate']}Hz/{audio_graph['main_mixer_output_channel_count']}ch output={audio_graph['output_node_sample_rate']}Hz/{audio_graph['output_node_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) conversion_likely={audio_graph['format_conversion_likely']} capture_matches_source={audio_graph['runtime_capture_matches_source_node_format']} capture_matches_output={audio_graph['runtime_capture_matches_engine_output_format']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",
+        f"- Replacement ramp prep gain/pan true/false, step true/false, key-off, fadeout: {stops['replacement_gain_pan_applied_before_ramp_events']} / {stops['replacement_gain_pan_missing_before_ramp_events']}, {stops['replacement_step_applied_before_ramp_events']} / {stops['replacement_step_missing_before_ramp_events']}, {stops['replacement_key_off_applied_before_ramp_events']}, {stops['replacement_fadeout_applied_before_ramp_events']}",
         f"- Ramping-out voices / ramp starts / completions / abrupt ramp stops: {stops['ramping_out_voice_count']} / {stops['ramp_down_start_count']} / {stops['ramp_down_completion_count']} / {stops['abrupt_ramp_down_stop_count']}",
         f"- Immediate hard replacement stops: {stops['immediate_hard_replacement_stop_events']}",
         f"- Immediate hard channel stops: {stops['immediate_hard_stop_events']}",

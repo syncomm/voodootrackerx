@@ -962,6 +962,43 @@ VTXCMixerStatus vtx_c_mixer_set_voice_channel_tag(
     return VTX_C_MIXER_STATUS_OK;
 }
 
+VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
+    const VTXCMixerState *state,
+    uint32_t voice_index,
+    VTXCMixerVoiceDiagnostic *out_diagnostic
+) {
+    const VTXCMixerVoice *voice;
+
+    if (state == NULL || out_diagnostic == NULL || voice_index >= state->voice_count) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+
+    voice = &state->voices[voice_index];
+    out_diagnostic->loaded = vtx_c_mixer_voice_slot_is_loaded(voice) ? 1 : 0;
+    out_diagnostic->active = voice->active ? 1 : 0;
+    out_diagnostic->has_channel_tag = voice->has_channel_tag ? 1 : 0;
+    out_diagnostic->channel_tag = voice->channel_tag;
+    out_diagnostic->gain = voice->gain;
+    out_diagnostic->pan = voice->pan;
+    out_diagnostic->sample_step = voice->sample_step;
+    out_diagnostic->effective_gain = vtx_c_mixer_effective_gain(voice);
+    out_diagnostic->effective_pan = vtx_c_mixer_effective_pan(voice);
+    out_diagnostic->key_on = voice->key_on ? 1 : 0;
+    out_diagnostic->fadeout_value = voice->fadeout_value;
+    out_diagnostic->gain_ramp_active = voice->gain_ramp_active ? 1 : 0;
+    out_diagnostic->gain_ramp_start = voice->gain_ramp_start;
+    out_diagnostic->gain_ramp_target = voice->gain_ramp_target;
+    out_diagnostic->gain_ramp_total_frames = voice->gain_ramp_total_frames;
+    out_diagnostic->gain_ramp_position_frame = voice->gain_ramp_position_frame;
+    out_diagnostic->deactivate_after_gain_ramp = voice->deactivate_after_gain_ramp ? 1 : 0;
+    out_diagnostic->pan_ramp_active = voice->pan_ramp_active ? 1 : 0;
+    out_diagnostic->pan_ramp_start = voice->pan_ramp_start;
+    out_diagnostic->pan_ramp_target = voice->pan_ramp_target;
+    out_diagnostic->pan_ramp_total_frames = voice->pan_ramp_total_frames;
+    out_diagnostic->pan_ramp_position_frame = voice->pan_ramp_position_frame;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 VTXCMixerStatus vtx_c_mixer_stop_voices_for_channel_tag(
     VTXCMixerState *state,
     uint32_t channel_tag,

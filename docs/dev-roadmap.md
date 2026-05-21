@@ -248,13 +248,16 @@ does not alter offline rendering or C mixer DSP, and leaves any actual AVAudio
 graph/output-device fix for a later scoped PR.
 Runtime C mixer AVAudio output-device and callback-isolation diagnostics now
 extend the same trace with main-mixer input/output format, output-node latency
-and presentation latency, hashed output-device identity, hardware IO/latency
-fields, engine configuration-change counts, graph/route change counts, callback
-thread id/main-thread status, event-queue producer/consumer thread ids,
-diagnostic allocation-risk reporting, and a local-only follow-publication
-disable flag for UI/callback isolation. This remains diagnostics-only; output
-tap capture and any AVAudio graph or hardware-route fix are separate follow-up
-work.
+and presentation latency, hashed output-device identity, optional safe route
+label, hardware transport type, hardware IO/latency fields, engine
+configuration/restart counts, graph/route change counts, route-change event
+fields, callback thread id/main-thread status, event-queue producer/consumer
+thread ids, diagnostic allocation-risk reporting, and a local-only
+follow-publication disable flag for UI/callback isolation. Trace summaries also
+report clean-source/dirty-live route-device versus callback candidate
+conclusions for local route-matrix smokes. This remains diagnostics-only;
+output tap capture and any AVAudio graph or hardware-route fix are separate
+follow-up work.
 Runtime C mixer render callback diagnostics now use fixed-capacity diagnostic
 buffers and counters for callback-side event summaries, over-budget/output
 health counters, try-lock failures, and diagnostic drops. Trace summaries report

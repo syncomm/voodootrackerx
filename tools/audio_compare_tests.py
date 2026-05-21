@@ -2530,6 +2530,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioHardwareNominalSampleRate=48000,
                         audioHardwareDeviceID=51,
                         audioHardwareDeviceUIDHash="abcdef0123456789",
+                        audioOutputRouteLabel="bluetooth-route",
                         audioHardwareIOBufferFrameSize=512,
                         audioHardwareIOBufferDuration=0.0106666667,
                         audioHardwareLatencyFrames=71,
@@ -2537,15 +2538,22 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioHardwareSafetyOffsetFrames=11,
                         audioHardwareSafetyOffsetDuration=0.0002291667,
                         audioHardwareTransportType=1,
+                        audioHardwareTransportTypeName="bluetooth",
                         audioEngineRunning=True,
                         audioEngineSourceNodeAttached=True,
                         audioEngineSourceNodeConnected=True,
                         audioEngineMainMixerConnectedToOutput=True,
                         audioEngineConfigurationChangeCount=1,
+                        audioEngineRestartCount=2,
                         audioGraphFormatChangeCount=2,
                         audioOutputRouteChangeCount=3,
                         audioGraphFormatChanged=True,
                         audioOutputRouteChanged=True,
+                        audioOutputDeviceChanged=True,
+                        audioOutputSampleRateChanged=True,
+                        audioOutputChannelCountChanged=False,
+                        audioHardwareIOBufferDurationChanged=True,
+                        audioEngineOutputNodeFormatChanged=True,
                         audioFormatConversionLikely=True,
                         runtimeCaptureMatchesSourceNodeFormat=True,
                         runtimeCaptureMatchesEngineOutputFormat=False,
@@ -2569,22 +2577,107 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
             self.assertEqual(audio_graph["hardware_device_id"], 51)
             self.assertEqual(audio_graph["hardware_device_uid_hash"], "abcdef0123456789")
+            self.assertEqual(audio_graph["route_label"], "bluetooth-route")
             self.assertEqual(audio_graph["hardware_io_buffer_frame_size"], 512)
             self.assertEqual(audio_graph["hardware_latency_frames"], 71)
             self.assertEqual(audio_graph["hardware_safety_offset_frames"], 11)
+            self.assertEqual(audio_graph["hardware_transport_type_name"], "bluetooth")
             self.assertTrue(audio_graph["engine_running"])
             self.assertTrue(audio_graph["source_node_attached"])
             self.assertTrue(audio_graph["source_node_connected"])
             self.assertTrue(audio_graph["main_mixer_connected_to_output"])
             self.assertEqual(audio_graph["engine_configuration_change_count"], 1)
+            self.assertEqual(audio_graph["engine_restart_count"], 2)
             self.assertEqual(audio_graph["graph_format_change_count"], 2)
             self.assertEqual(audio_graph["output_route_change_count"], 3)
             self.assertTrue(audio_graph["graph_format_changed"])
             self.assertTrue(audio_graph["output_route_changed"])
+            self.assertTrue(audio_graph["output_device_changed"])
+            self.assertTrue(audio_graph["output_sample_rate_changed"])
+            self.assertFalse(audio_graph["output_channel_count_changed"])
+            self.assertTrue(audio_graph["io_buffer_duration_changed"])
+            self.assertTrue(audio_graph["output_node_format_changed"])
             self.assertTrue(audio_graph["format_conversion_likely"])
             self.assertTrue(audio_graph["runtime_capture_matches_source_node_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_engine_output_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_hardware_sample_rate"])
+
+    def test_runtime_trace_summary_reports_route_change_event_counts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "audio_output_route_changed",
+                        runtimeEventCategory="audio_graph_change",
+                        audioOutputRouteLabel="usb-interface",
+                        audioHardwareDeviceUIDHash="abcdef0123456789",
+                        audioHardwareTransportTypeName="usb",
+                        audioEngineConfigurationChangeCount=1,
+                        audioEngineRestartCount=2,
+                        audioGraphFormatChangeCount=1,
+                        audioOutputRouteChangeCount=1,
+                        audioGraphFormatChanged=True,
+                        audioOutputRouteChanged=True,
+                        audioOutputDeviceChanged=True,
+                        audioOutputSampleRateChanged=True,
+                        audioOutputChannelCountChanged=False,
+                        audioHardwareIOBufferDurationChanged=True,
+                        audioEngineOutputNodeFormatChanged=True,
+                    ),
+                    self.event(
+                        "audio_output_node_format_changed",
+                        runtimeEventCategory="audio_graph_change",
+                        audioOutputRouteLabel="usb-interface",
+                        audioEngineRestartCount=2,
+                        audioGraphFormatChangeCount=2,
+                        audioOutputRouteChangeCount=1,
+                        audioGraphFormatChanged=True,
+                        audioOutputRouteChanged=False,
+                        audioEngineOutputNodeFormatChanged=True,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            audio_graph = summary["audio_graph"]
+
+            self.assertEqual(audio_graph["route_label"], "usb-interface")
+            self.assertEqual(audio_graph["hardware_device_uid_hash"], "abcdef0123456789")
+            self.assertEqual(audio_graph["hardware_transport_type_name"], "usb")
+            self.assertEqual(audio_graph["engine_configuration_change_count"], 1)
+            self.assertEqual(audio_graph["engine_restart_count"], 2)
+            self.assertEqual(audio_graph["graph_format_change_count"], 2)
+            self.assertEqual(audio_graph["output_route_change_count"], 1)
+            self.assertEqual(audio_graph["route_change_event_count"], 1)
+            self.assertEqual(audio_graph["output_node_format_change_event_count"], 1)
+            self.assertTrue(audio_graph["output_device_changed"])
+            self.assertTrue(audio_graph["output_sample_rate_changed"])
+            self.assertFalse(audio_graph["output_channel_count_changed"])
+            self.assertTrue(audio_graph["io_buffer_duration_changed"])
+            self.assertTrue(audio_graph["output_node_format_changed"])
+
+    def test_runtime_trace_summary_handles_missing_route_info(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [self.event("backend_initialized")],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            audio_graph = summary["audio_graph"]
+
+            self.assertIsNone(audio_graph["route_label"])
+            self.assertIsNone(audio_graph["hardware_device_uid_hash"])
+            self.assertIsNone(audio_graph["hardware_transport_type_name"])
+            self.assertEqual(audio_graph["engine_configuration_change_count"], 0)
+            self.assertEqual(audio_graph["engine_restart_count"], 0)
+            self.assertEqual(audio_graph["graph_format_change_count"], 0)
+            self.assertEqual(audio_graph["output_route_change_count"], 0)
+            self.assertEqual(audio_graph["route_change_event_count"], 0)
+            self.assertEqual(audio_graph["output_node_format_change_event_count"], 0)
+            self.assertFalse(audio_graph["output_route_changed"])
+            self.assertFalse(audio_graph["output_device_changed"])
 
     def test_runtime_trace_summary_reports_matching_audio_graph_rates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2718,6 +2811,142 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                 "runtime scratch/capture/output buffer hashes diverged",
                 summary["suspicious_findings"],
             )
+
+    def test_runtime_trace_summary_reports_clean_source_dirty_live_conclusion(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "render_callback",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureWriteSucceeded=True,
+                        runtimeCaptureOverrangeSampleCount=0,
+                        runtimeCaptureClippingSampleCount=0,
+                        outputBufferCopyAttemptCount=1,
+                        outputBufferCopyFailureCount=0,
+                        outputBufferCopyLastSucceeded=True,
+                        outputBufferCopyFilledRequestedFrames=True,
+                        outputBufferCopyChannelCountMatches=True,
+                        outputBufferCopyPartialCopy=False,
+                        outputBufferCopyScratchCaptureHashMatches=True,
+                        outputBufferCopyScratchOutputHashMatches=True,
+                        renderCallbackCount=8,
+                        callbackDurationWarningCount=0,
+                        callbackOverRenderQuantumBudgetCount=0,
+                        callbackThreadIsMain=False,
+                        callbackMainThreadDependencyDetected=False,
+                        callbackAllocationWarning=False,
+                        callbackRealtimeSafeDiagnostics=True,
+                        callbackDiagnosticDropCount=0,
+                        callbackLockWaitCount=0,
+                        callbackLockFailureCount=0,
+                        audioOutputRouteLabel="bluetooth-route",
+                        audioHardwareTransportTypeName="bluetooth",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=True,
+            )
+            conclusion = summary["clean_source_dirty_live"]
+
+            self.assertEqual(conclusion["source_capture_clean"], "true")
+            self.assertEqual(conclusion["output_copy_verifier_clean"], "true")
+            self.assertEqual(conclusion["live_artifact_manually_reported"], "true")
+            self.assertEqual(conclusion["callback_candidate_cause"], "false")
+            self.assertEqual(conclusion["route_device_candidate_cause"], "true")
+
+    def test_runtime_trace_summary_clean_source_dirty_live_flags_callback_candidate(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "render_callback",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureWriteSucceeded=True,
+                        runtimeCaptureOverrangeSampleCount=0,
+                        runtimeCaptureClippingSampleCount=0,
+                        outputBufferCopyAttemptCount=1,
+                        outputBufferCopyFailureCount=0,
+                        outputBufferCopyLastSucceeded=True,
+                        outputBufferCopyFilledRequestedFrames=True,
+                        outputBufferCopyChannelCountMatches=True,
+                        outputBufferCopyPartialCopy=False,
+                        outputBufferCopyScratchCaptureHashMatches=True,
+                        outputBufferCopyScratchOutputHashMatches=True,
+                        renderCallbackCount=8,
+                        callbackDurationWarningCount=1,
+                        callbackOverRenderQuantumBudgetCount=0,
+                        callbackMainThreadDependencyDetected=False,
+                        callbackAllocationWarning=False,
+                        callbackDiagnosticDropCount=0,
+                        callbackLockWaitCount=0,
+                        callbackLockFailureCount=0,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=True,
+            )
+            conclusion = summary["clean_source_dirty_live"]
+
+            self.assertEqual(conclusion["source_capture_clean"], "true")
+            self.assertEqual(conclusion["output_copy_verifier_clean"], "true")
+            self.assertEqual(conclusion["callback_candidate_cause"], "true")
+            self.assertEqual(conclusion["route_device_candidate_cause"], "unknown")
+
+    def test_runtime_trace_summary_clean_source_dirty_live_clean_manual_report_has_no_candidate(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "render_callback",
+                        runtimeCaptureEnabled=True,
+                        runtimeCaptureWriteSucceeded=True,
+                        runtimeCaptureOverrangeSampleCount=0,
+                        runtimeCaptureClippingSampleCount=0,
+                        outputBufferCopyAttemptCount=1,
+                        outputBufferCopyFailureCount=0,
+                        outputBufferCopyLastSucceeded=True,
+                        outputBufferCopyFilledRequestedFrames=True,
+                        outputBufferCopyChannelCountMatches=True,
+                        outputBufferCopyPartialCopy=False,
+                        outputBufferCopyScratchCaptureHashMatches=True,
+                        outputBufferCopyScratchOutputHashMatches=True,
+                        renderCallbackCount=8,
+                        callbackDurationWarningCount=1,
+                        callbackOverRenderQuantumBudgetCount=0,
+                        callbackMainThreadDependencyDetected=False,
+                        callbackAllocationWarning=False,
+                        callbackDiagnosticDropCount=0,
+                        callbackLockWaitCount=0,
+                        callbackLockFailureCount=0,
+                        audioOutputRouteChanged=True,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=False,
+            )
+            conclusion = summary["clean_source_dirty_live"]
+
+            self.assertEqual(conclusion["source_capture_clean"], "true")
+            self.assertEqual(conclusion["output_copy_verifier_clean"], "true")
+            self.assertEqual(conclusion["live_artifact_manually_reported"], "false")
+            self.assertEqual(conclusion["callback_candidate_cause"], "false")
+            self.assertEqual(conclusion["route_device_candidate_cause"], "false")
 
     def test_runtime_trace_summary_reports_callback_isolation_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmpdir:

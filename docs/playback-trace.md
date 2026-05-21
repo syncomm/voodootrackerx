@@ -6,7 +6,7 @@ behavior. Use it when comparing VoodooTracker X against MikMod, OpenMPT, or
 other reference playback for real XM files.
 
 Do not commit traces from copyrighted modules. Keep local modules and generated
-trace files in `/tmp`, `~/Desktop`, or another untracked location.
+trace files in `/tmp` or another untracked local path.
 
 ## Enable Trace Export
 
@@ -252,10 +252,46 @@ remaining conversion evidence; mismatched rates keep the diagnostic true.
 Runtime output-device diagnostics also report main-mixer input/output format,
 output-node latency and presentation latency, hardware IO buffer duration,
 hardware latency and safety offset when CoreAudio exposes them, a hashed default
-device UID, engine running/connection state, AVAudioEngine configuration-change
-count, graph format-change count, and output route-change count. The raw device
-name and raw device UID are not written to public docs; local traces use only a
-hashed device UID and numeric device id.
+device UID, optional safe route label, transport type label, engine
+running/connection state, AVAudioEngine configuration-change count, engine
+start/restart count, graph format-change count, output route-change count, and
+change-event booleans for route/device, sample rate, channel count, IO buffer
+duration, and output-node format changes. The raw device name and raw device
+UID are not written to public docs; local traces use only a hashed device UID,
+numeric device id, and any safe label explicitly supplied for the run.
+
+For route matrix runs, set `VTX_C_MIXER_RUNTIME_ROUTE_LABEL` to a generic label
+such as `built-in`, `bluetooth`, or `usb-interface`, then run the same
+`VTX_AUDIO_BACKEND=c_mixer` smoke on at least two practical routes:
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_ROUTE_LABEL=bluetooth \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-route-bluetooth.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-route-bluetooth-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Summarize each route locally:
+
+```bash
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-c-route-bluetooth.jsonl \
+  --live-artifact-reported unknown \
+  --json /tmp/vtx-c-route-bluetooth-summary.json \
+  --markdown /tmp/vtx-c-route-bluetooth-summary.md
+```
+
+The summary reports route/device fields, route/config change counts, callback
+health, output-copy verifier status, source-capture cleanliness, and a
+`clean_source_dirty_live` route-vs-callback candidate conclusion. Use
+`--live-artifact-reported yes` or `no` only for a local run that was actually
+listened to. Generated traces, captures, reports, logs, and listening notes
+must stay local and unstaged.
 
 The experimental callback isolation fields report whether the
 `AVAudioSourceNode` render block ran on the main thread, the callback thread id,

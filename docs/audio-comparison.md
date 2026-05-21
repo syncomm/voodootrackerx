@@ -145,6 +145,47 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 For overhead isolation, `VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` disables the
 runtime C mixer trace writer when the experimental backend is selected.
 
+For live-only pop isolation, run the same experimental C mixer smoke against a
+small output-route matrix. Use safe route labels such as `built-in`,
+`bluetooth`, or `usb-interface`; do not use local device names, machine names,
+or full hardware identifiers in docs or committed notes. Local traces may
+contain the hashed output-device UID and the safe route label under `/tmp`.
+
+```bash
+VTX_AUDIO_BACKEND=c_mixer \
+VTX_C_MIXER_RUNTIME_ROUTE_LABEL=built-in \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-route-built-in.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-route-built-in-capture.wav \
+VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
+VTX_DEBUG_AUTOPLAY=1 \
+VTX_DEBUG_START_ORDER=0 \
+VTX_DEBUG_STOP_AFTER_SECONDS=240 \
+VTX_OPEN_PATH=/path/to/local-reference-module.xm \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Repeat with another available route, for example:
+
+- built-in speakers or wired output, if available
+- AirPods/Bluetooth, if that is where artifacts are heard
+- USB or interface output, if available
+
+After each run, summarize the trace and record the manual listening result
+locally:
+
+```bash
+python3 scripts/summarize-runtime-c-mixer-trace.py \
+  /tmp/vtx-c-route-built-in.jsonl \
+  --live-artifact-reported unknown \
+  --json /tmp/vtx-c-route-built-in-summary.json \
+  --markdown /tmp/vtx-c-route-built-in-summary.md
+```
+
+Use `--live-artifact-reported yes` only when the current route produced an
+audible live artifact during that run; use `no` when the run was listened to
+and no artifact was heard. Keep the trace, capture, summary, listening notes,
+and any files derived from local/private modules outside git.
+
 Enable a local-only runtime C mixer live output capture when the actual
 post-gain AVAudio source-node buffer needs to be compared with the clean
 offline C mixer render:
@@ -258,7 +299,12 @@ gain/headroom policy, callback timing, callback thread/main-thread isolation,
 event queue producer/consumer threads, playback-follow publication counts,
 output buffer copy verification, scratch/capture/output hash checks,
 source/main/output/hardware graph fields, hardware IO/latency fields, route and
-configuration-change counts, output peak/RMS, and overrange/clipping counters.
+configuration-change counts, output route labels, hashed device identity,
+transport type labels, output-node format changes, output peak/RMS, and
+overrange/clipping counters. The summary also includes a
+`clean_source_dirty_live` conclusion with source-capture cleanliness,
+output-copy-verifier cleanliness, the manual live-artifact note, route/device
+candidate status, and callback candidate status.
 Keep all WAVs, PCM-derived reports, JSONL traces, logs, and listening notes
 outside git. Public docs and tests must continue to use placeholder module
 paths only.

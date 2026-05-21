@@ -239,8 +239,15 @@ the same runtime timeline. The policy is traced as `graph_aligned`,
 available only for local opt-in C-mixer diagnostics. AVAudio remains the
 default runtime backend, offline rendering defaults are unchanged, and broader
 runtime stabilization remains separate.
-Runtime/offline mismatch window correlation diagnostics are now the current
-runtime investigation path after live capture. A local-only helper compares full
+Runtime C mixer AVAudio callback/output-delivery diagnostics now add local-only
+callback duration, render quantum, callback interval, output-buffer fill/copy,
+and scratch/capture/output hash evidence for the experimental backend. Local
+flags can disable trace, capture, or both for callback-overhead isolation. This
+diagnostics PR keeps AVAudio as the default, keeps the runtime C mixer opt-in,
+does not alter offline rendering or C mixer DSP, and leaves any actual AVAudio
+graph/output-device fix for a later scoped PR.
+Runtime/offline mismatch window correlation diagnostics are available after
+live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
 whole-song `scripts/audio-compare.py` worst windows, adds explicit target
 windows, and correlates each window with runtime trace events, same-frame
@@ -329,6 +336,7 @@ Immediate audio accuracy sequence:
 70. Runtime / Offline Mismatch Window Correlation Diagnostics — done
 71. Transport stop-position preservation / Spacebar playback shortcut — done
 72. Runtime C Mixer AVAudioSourceNode Format / Device Sample-Rate Alignment — done
+73. Runtime C Mixer AVAudio Callback Realtime Safety / I/O Buffer Diagnostics — done
 73. Reference comparison stabilization against MikMod/OpenMPT
 
 ---

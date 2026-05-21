@@ -481,6 +481,11 @@ and reference comparison before any default runtime backend switch.
 - Verification: focused synthetic tests for graph-aligned, fallback, and explicit runtime sample-rate policy; planned frame and sample-time resolver use of the selected runtime sample rate; capture sample-rate reporting; format conversion diagnostics for matching and mismatched rates; backend default/opt-in behavior; existing runtime capture/event/sample-time tests, offline render tests, audio comparison tests, app build/test, and local-only smoke artifacts kept out of git.
 - Status: done.
 
+### PR 2.7.11v — Runtime C Mixer AVAudio Callback Realtime Safety / I/O Buffer Diagnostics
+- Scope: add diagnostics-first evidence for remaining live-only artifacts after clean offline C mixer renders and clean runtime captures. Report AVAudio source-node callback timing, render quantum budget, callback intervals, output-buffer fill/copy layout, scratch/capture/output hash comparisons, and local trace/capture/minimal-callback isolation flags. Keep `VTX_AUDIO_BACKEND=c_mixer` opt-in, keep AVAudioPlayerNode/AVAudioUnitVarispeed as default, leave offline rendering and C mixer DSP semantics unchanged, and avoid tracker viewport/parser/effect changes.
+- Verification: focused synthetic tests for callback counters, output copy helpers, capture-vs-source summaries, env disable flags, backend default/opt-in behavior, existing runtime capture/sample-rate/sample-time tests, offline render tests, audio comparison tests, app build/test, local-only smoke artifacts kept out of git, and no private/local module fixtures.
+- Status: done.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

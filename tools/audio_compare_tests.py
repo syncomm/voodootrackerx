@@ -2550,6 +2550,103 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertFalse(audio_graph["runtime_capture_matches_engine_output_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_hardware_sample_rate"])
 
+    def test_runtime_trace_summary_reports_callback_and_output_copy_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "render_callback",
+                        renderCallbackCount=2,
+                        callbackRequestedFrameCount=512,
+                        callbackDurationWarningThresholdMS=2.0,
+                        callbackDurationMinMS=0.25,
+                        callbackDurationMaxMS=3.0,
+                        callbackDurationAverageMS=1.625,
+                        callbackDurationWarningCount=1,
+                        callbackRenderQuantumDurationMS=10.666667,
+                        callbackRenderQuantumMinMS=10.666667,
+                        callbackRenderQuantumMaxMS=10.666667,
+                        callbackOverRenderQuantumBudgetCount=0,
+                        callbackIntervalMinMS=10.0,
+                        callbackIntervalMaxMS=12.0,
+                        callbackIntervalLastMS=12.0,
+                        runtimeMinimalCallbackMode=False,
+                        outputBufferCopyAttemptCount=2,
+                        outputBufferCopyFailureCount=0,
+                        outputBufferCopyLastSucceeded=True,
+                        outputBufferCopyLayout="single_interleaved_buffer",
+                        outputBufferCopyRequestedFrameCount=512,
+                        outputBufferCopySourceChannelCount=2,
+                        outputBufferCopyOutputBufferCount=1,
+                        outputBufferCopyOutputChannelCount=2,
+                        outputBufferCopyCopiedFrameCount=512,
+                        outputBufferCopyCopiedSampleCount=1024,
+                        outputBufferCopyExpectedSampleCount=1024,
+                        outputBufferCopyFilledRequestedFrames=True,
+                        outputBufferCopyChannelCountMatches=True,
+                        outputBufferCopyPartialCopy=False,
+                        outputBufferCopyScratchHash=1469598103934665603,
+                        outputBufferCopyCaptureHash=1469598103934665603,
+                        outputBufferCopyOutputHash=1469598103934665603,
+                        outputBufferCopyScratchCaptureHashMatches=True,
+                        outputBufferCopyScratchOutputHashMatches=True,
+                    ),
+                    self.event(
+                        "render_callback",
+                        renderCallbackCount=3,
+                        callbackRequestedFrameCount=256,
+                        callbackDurationMaxMS=12.5,
+                        callbackDurationAverageMS=5.25,
+                        callbackDurationWarningCount=2,
+                        callbackOverRenderQuantumBudgetCount=1,
+                        callbackIntervalMaxMS=20.0,
+                        outputBufferCopyAttemptCount=3,
+                        outputBufferCopyFailureCount=1,
+                        outputBufferCopyLastSucceeded=False,
+                        outputBufferCopyFilledRequestedFrames=False,
+                        outputBufferCopyChannelCountMatches=False,
+                        outputBufferCopyPartialCopy=True,
+                        outputBufferCopyScratchHash=1,
+                        outputBufferCopyCaptureHash=1,
+                        outputBufferCopyOutputHash=2,
+                        outputBufferCopyScratchCaptureHashMatches=True,
+                        outputBufferCopyScratchOutputHashMatches=False,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            callback_timing = summary["callback_timing"]
+            output_copy = summary["output_buffer_copy"]
+
+            self.assertEqual(callback_timing["callback_count"], 3)
+            self.assertEqual(callback_timing["requested_frame_count_range"], {"min": 256, "max": 512})
+            self.assertEqual(callback_timing["duration_max_ms"], 12.5)
+            self.assertEqual(callback_timing["duration_average_ms"], 5.25)
+            self.assertEqual(callback_timing["duration_warning_count"], 2)
+            self.assertEqual(callback_timing["over_render_quantum_budget_count"], 1)
+            self.assertEqual(callback_timing["interval_max_ms"], 20.0)
+            self.assertEqual(output_copy["attempt_count"], 3)
+            self.assertEqual(output_copy["failure_count"], 1)
+            self.assertFalse(output_copy["last_succeeded"])
+            self.assertTrue(output_copy["partial_copy"])
+            self.assertEqual(output_copy["scratch_hash"], 1)
+            self.assertEqual(output_copy["output_hash"], 2)
+            self.assertFalse(output_copy["scratch_output_hash_matches"])
+            self.assertIn(
+                "AVAudioSourceNode callback duration warnings or over-budget callbacks observed",
+                summary["suspicious_findings"],
+            )
+            self.assertIn(
+                "AVAudioSourceNode output buffer copy verification failed",
+                summary["suspicious_findings"],
+            )
+            self.assertIn(
+                "runtime scratch/capture/output buffer hashes diverged",
+                summary["suspicious_findings"],
+            )
+
     def test_synthetic_trace_with_hard_replacement_stop_reports_follow_up(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(

@@ -132,7 +132,9 @@ The experimental runtime C mixer backend remains opt-in with
 `VTX_AUDIO_BACKEND=c_mixer`; unset or unknown values keep the default
 `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend. In Debug builds, set
 `VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl` to write a
-local-only JSONL trace for the runtime C mixer path.
+local-only JSONL trace for the runtime C mixer path. Set
+`VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` to keep the experimental backend running
+without runtime C mixer trace writer overhead.
 
 For the experimental runtime C mixer only, the runtime render format now aligns
 to the AVAudio output graph/device sample rate where practical. The automatic
@@ -187,6 +189,16 @@ absolute locally, but trace rows and summaries report only the output basename.
 Generated WAVs, traces, and comparison reports should stay under `/tmp` or
 another untracked local path.
 
+Set `VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE=1` to disable runtime capture even
+when `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is present. Set
+`VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` to run the experimental C mixer with
+trace and capture disabled and only minimal callback counters/output delivery
+diagnostics enabled. These flags are local diagnostic controls for
+`VTX_AUDIO_BACKEND=c_mixer`; they do not affect the default AVAudio backend.
+For local isolation, compare `c_mixer` with trace and capture enabled, trace
+only, capture only, both disabled, and minimal-callback mode. Keep any listening
+notes, traces, captures, logs, and summaries local and unstaged.
+
 The audio callback does not write the WAV. It captures the same already-gained
 interleaved Float32 scratch frames that are then copied into the
 `AVAudioSourceNode` output buffers, before AVAudioEngine graph conversion,
@@ -196,6 +208,17 @@ capture sample rate is the selected runtime C mixer sample rate. If the buffer
 fills, trace rows use `runtimeAction == "capture_truncated"`; otherwise a
 successful write uses `runtimeAction == "capture_written"`. Failed writes use
 `runtimeAction == "capture_write_failed"`.
+
+The current callback real-time inventory is intentionally narrow: it renders
+through the preallocated C mixer wrapper, applies runtime gain into a reused
+interleaved scratch buffer, optionally copies into a bounded in-memory capture
+buffer, copies into the supplied `AVAudioSourceNode` buffers, and updates
+in-memory counters/sample summaries. It does not perform file I/O, call AppKit,
+parse module data, or enqueue trace writes. Shared runtime state is entered with
+a non-blocking lock attempt; if the callback cannot enter, it zero-fills rather
+than waiting. The optional output-copy verification hashes/sample summaries are
+diagnostic-only and can be removed from callback overhead with the disable flags
+above.
 
 Capture-related trace fields include `runtimeCaptureEnabled`,
 `runtimeCapturePathName`, `runtimeCaptureSampleRate`,
@@ -329,6 +352,20 @@ output investigation: `audioSourceNodeRenderSampleRate`,
 `runtimeCaptureMatchesEngineOutputFormat`, and
 `runtimeCaptureMatchesHardwareSampleRate`. These fields are diagnostic only and
 do not change the default AVAudio backend or opt-in C mixer behavior.
+
+Callback timing/output-copy rows can also include
+`runtimeMinimalCallbackMode`, `callbackDurationMinMS`,
+`callbackDurationMaxMS`, `callbackDurationAverageMS`,
+`callbackDurationWarningCount`, `callbackRenderQuantumDurationMS`,
+`callbackOverRenderQuantumBudgetCount`, `callbackIntervalMinMS`,
+`callbackIntervalMaxMS`, `outputBufferCopyAttemptCount`,
+`outputBufferCopyFailureCount`, `outputBufferCopyLastSucceeded`,
+`outputBufferCopyLayout`, requested/copied frame and sample counts, channel
+counts, partial-copy flags, and scratch/capture/output hashes. A matching
+scratch-capture hash plus matching scratch-output hash means the output buffer
+received the same samples that runtime capture recorded; any mismatch points
+past C mixer DSP and toward callback/output delivery.
+
 Supported runtime C mixer control updates now classify the remaining update
 handoff cases instead of treating no-op refreshes and missing targets as one
 deferred bucket. Applied update rows remain
@@ -618,6 +655,12 @@ The summary focuses on runtime-only artifact evidence:
 
 - peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and
   adjacent-sample output discontinuity counters
+- callback timing: requested frame range, min/max/average callback duration,
+  conservative duration warnings, estimated render quantum duration, callbacks
+  over the render quantum budget, and callback-to-callback interval range
+- output buffer copy verification: buffer layout, requested/copied
+  frames/samples, channel-count match, partial-copy evidence, and
+  scratch/capture/output hash comparison
 - runtime gain/headroom policy, including default `-12 dB` headroom,
   default-vs-environment source, fixed headroom dB, and configuration warnings
 - lower-threshold discontinuity counts, top adjacent same-channel jumps, top

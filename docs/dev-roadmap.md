@@ -240,6 +240,11 @@ normalization, local alignment shifts, and optional offline diagnostics JSON.
 This is diagnostics-only: it does not make the C mixer default, alter offline
 rendering, change C mixer DSP, add XM effects, modify tracker viewport behavior,
 or refactor parser architecture.
+Transport stop-position preservation and the tracker-style plain Spacebar
+play/stop shortcut are implemented for manual debugging workflow: manual Stop
+preserves the current published order/row position, play resumes from the
+current position, and Space toggles play/stop through the tracker grid focus
+path without adding broader shortcut parity or pattern-editing behavior.
 
 Immediate audio accuracy sequence:
 
@@ -313,7 +318,8 @@ Immediate audio accuracy sequence:
 68. Runtime C Mixer Live Output Capture / Offline WAV Comparison — done
 69. Runtime C Mixer Event-Burst / Voice Transition Stabilization — done
 70. Runtime / Offline Mismatch Window Correlation Diagnostics — done
-71. Reference comparison stabilization against MikMod/OpenMPT
+71. Transport stop-position preservation / Spacebar playback shortcut — done
+72. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -381,6 +387,8 @@ Features:
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
+- stop-position preservation plus a tracker-style plain Spacebar play/stop
+  shortcut for manual playback debugging
 - playback debug seek and trace export
 - local reference comparison workflow against MikMod/OpenMPT for already-rendered WAVs
 - deterministic software mixer skeleton for future offline rendering

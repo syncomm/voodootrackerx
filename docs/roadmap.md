@@ -78,6 +78,12 @@ Current stabilization note:
 - Runtime C mixer event-burst and sustained-voice transition stabilization now aligns same-frame runtime adapter event ordering with the offline C mixer frame boundary: gain/pan and sample-step updates apply before note cuts and note triggers, while same-channel replacement ramps remain internal to the note trigger path. Runtime traces and the summary helper report same-frame burst IDs, event ordinals, affected channels, category counters, active/loaded voice counts before and after, ramp-down starts/completions, new voices, sustained carried voices, order-start/row-transition flags, and carried-channel association fields for no-note update cells. This is a narrow opt-in runtime C mixer stabilization and diagnostics pass; AVAudio remains the default backend, unsupported XM effects remain unsupported, tracker viewport behavior is unchanged, parser architecture is unchanged, and broader runtime stabilization remains future work.
 - Runtime C mixer event-burst mitigation follow-up is kept diagnostics-only after local capture comparison showed no material runtime/offline metric improvement from forcing same-frame state into replacement ramps. Replacement trace rows expose old voice state, replacement ramp start/target state, new voice id/tag when known, and booleans for gain/pan, sample-step, key-off, and fadeout state before ramp start. Runtime traces also report AVAudio source-node, main-mixer, output-node, and hardware sample-rate/channel diagnostics for downstream output delivery investigation. This is runtime C mixer opt-in only and does not change offline rendering semantics, add XM effects, alter tracker viewport behavior, or change parser architecture.
 - Runtime/offline mismatch window correlation diagnostics now provide a local-only bridge from full or near-full runtime capture comparisons back to runtime trace rows and optional offline diagnostics JSON. The helper imports whole-song `scripts/audio-compare.py` worst windows, accepts explicit target windows, reports runtime/offline peak and RMS, normalized correlation, RMS difference, max absolute difference, best local alignment shift, scalar normalization evidence, same-frame bursts, sustained voice association, active/loaded voice ranges, cleanup/ramp evidence, and a conservative next-PR recommendation. This is diagnostics-only; it does not make the C mixer default, modify offline render behavior, change C mixer DSP, add XM effects, modify tracker viewport behavior, or refactor parser architecture.
+- Transport stop-position preservation and a tracker-style plain Spacebar
+  play/stop shortcut are implemented for manual debugging workflow. Manual Stop
+  preserves the current published order/row position, play resumes from the
+  current position, and Space toggles play/stop through the tracker grid focus
+  path without broad shortcut parity, menu changes, pattern editing behavior,
+  parser changes, C mixer DSP changes, or tracker viewport math changes.
 
 ### PR 2.1 — Audio device/output skeleton (macOS)
 - Scope: audio thread/engine scaffolding (no module playback), timing-safe callback path
@@ -462,6 +468,11 @@ and reference comparison before any default runtime backend switch.
 ### PR 2.7.11s — Runtime C Mixer Event Burst / AVAudio Delivery Diagnostics Follow-Up
 - Scope: keep the event-burst follow-up diagnostics-only after local capture comparison showed no material benefit from the attempted replacement-ramp state behavior change. Preserve runtime live-output capture and replacement burst diagnostics, add AVAudio source-node/main-mixer/output-node/hardware sample-rate and channel diagnostics, and use those fields to test whether remaining live GUI artifacts are downstream of the captured C mixer PCM.
 - Verification: focused synthetic runtime C mixer tests for mixed burst ordering, replacement ramp state diagnostics, key-off/fadeout diagnostics, intended-frame note starts, channel preservation, global stop preservation, runtime headroom, exact sample-time event application, capture diagnostics, AVAudio graph trace fields, existing runtime/offline render tests, app build/test, local-only full or near-full runtime/offline capture comparison with generated artifacts kept out of git, and no private/local module fixtures in automated tests.
+- Status: done.
+
+### PR 2.7.11t — Transport Stop Position Preservation / Spacebar Playback Shortcut
+- Scope: preserve the current playback/edit order-row when Stop is pressed and add a conservative plain Spacebar play/stop shortcut through the tracker grid focus path.
+- Verification: focused synthetic transport tests for Stop preservation, play-after-stop start position, Spacebar stop/play behavior, backend selection defaults, opt-in C mixer behavior, and no pattern-editing mutation from Spacebar; manual local smoke with private/local modules kept out of git.
 - Status: done.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT

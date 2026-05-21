@@ -92,6 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.trackerEditorView.metadataTextView.editInputHandler = { [weak self] input in
             self?.handlePatternEditInput(input) ?? false
         }
+        controller.trackerEditorView.metadataTextView.transportShortcutHandler = { [weak self] in
+            self?.handleSpacebarTransportShortcut() ?? false
+        }
         controller.trackerEditorView.metadataTextView.wheelNavigationHandler = { [weak self] deltaY in
             self?.handlePatternWheel(deltaY: deltaY)
         }
@@ -327,6 +330,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func stopPressed(_ sender: NSButton) {
         playbackEngine.stop()
         syncControlPanelView()
+    }
+
+    private func handleSpacebarTransportShortcut() -> Bool {
+        guard loadedMetadata != nil else {
+            return false
+        }
+        playbackEngine.togglePlayStop(from: currentPlaybackStartContext())
+        syncControlPanelView()
+        return true
     }
 
     @objc

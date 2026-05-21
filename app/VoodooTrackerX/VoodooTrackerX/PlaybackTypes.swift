@@ -112,4 +112,45 @@ enum PlaybackTransportAction: Equatable {
     case stop
     case pause
     case togglePlayPause
+    case spacebarPlay
+    case spacebarStop
+
+    var traceName: String {
+        switch self {
+        case .play:
+            return "play"
+        case .stop:
+            return "stop"
+        case .pause:
+            return "pause"
+        case .togglePlayPause:
+            return "togglePlayPause"
+        case .spacebarPlay:
+            return "spacebarPlay"
+        case .spacebarStop:
+            return "spacebarStop"
+        }
+    }
+}
+
+enum TrackerTransportShortcut {
+    static let spacebarKeyCode: UInt16 = 49
+
+    static func isPlainSpacebarToggle(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        hasCommandModifier: Bool,
+        hasOptionModifier: Bool,
+        hasControlModifier: Bool
+    ) -> Bool {
+        guard keyCode == spacebarKeyCode else {
+            return false
+        }
+        guard !hasCommandModifier,
+              !hasOptionModifier,
+              !hasControlModifier else {
+            return false
+        }
+        return charactersIgnoringModifiers == " "
+    }
 }

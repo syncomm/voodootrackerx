@@ -43,7 +43,7 @@ final class PlaybackEngine: PlaybackTransport {
         self.audioEngine = resolvedAudioEngine
         self.traceWriter = traceWriter
         runtimeCMixerFollowPublicationDisabled =
-            (resolvedAudioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend == .cMixer &&
+            ((resolvedAudioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.usesRuntimeCMixer ?? false) &&
             RuntimeCMixerDiagnosticEnvironment.flagEnabled(
                 RuntimeCMixerDiagnosticEnvironment.disableFollowPublicationEnvironmentKey,
                 environment: environment
@@ -795,7 +795,9 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: backend.diagnosticName,
-            experimentalCMixerEnabled: backend == .cMixer,
+            experimentalCMixerEnabled: backend.usesRuntimeCMixer,
+            alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
+            runtimeOutputHostType: backend.runtimeOutputHostType,
             sampleRate: audioEngine.audioBufferSampleRate,
             context: context,
             targetScope: targetScope,
@@ -820,7 +822,9 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action.traceName,
             runtimeAudioBackend: backend.diagnosticName,
-            experimentalCMixerEnabled: backend == .cMixer,
+            experimentalCMixerEnabled: backend.usesRuntimeCMixer,
+            alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
+            runtimeOutputHostType: backend.runtimeOutputHostType,
             sampleRate: audioEngine.audioBufferSampleRate,
             context: runtimeTraceContext(at: positionAfter ?? positionBefore, tickInRow: positionAfter == nil ? tickInRowBefore : 0, channelIndex: nil),
             targetScope: "transport",

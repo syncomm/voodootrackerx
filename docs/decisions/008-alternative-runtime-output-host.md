@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted as future opt-in experiment guidance. This ADR does not implement a
-new backend.
+Accepted as opt-in experiment guidance. The implementation branch follows this
+ADR with `VTX_AUDIO_BACKEND=c_mixer_coreaudio`, using a minimal CoreAudio
+DefaultOutput Audio Unit host while keeping the default AVAudio backend and the
+existing `VTX_AUDIO_BACKEND=c_mixer` SourceNode backend available.
 
 ## Context
 
@@ -43,8 +45,8 @@ Keep the existing runtime backend choices in place:
 - Existing backends must not be removed or weakened by this decision.
 - Offline C mixer rendering remains the authoritative export/render path.
 
-Plan a future opt-in alternative output host experiment for the C mixer, likely
-using a CoreAudio/AUAudioUnit-style output callback. The experiment should
+Plan an opt-in alternative output host experiment for the C mixer, using a
+small CoreAudio/AUAudioUnit-style output callback where practical. The experiment should
 answer one narrow question: whether the remaining live-only artifact is caused
 by AVAudioEngine/AVAudioSourceNode delivery rather than by the C mixer PCM,
 adapter event stream, sample-rate policy, or callback-side diagnostics.
@@ -93,9 +95,8 @@ notes kept outside git.
 
 ## Non-Goals
 
-This ADR does not:
+This ADR and its initial implementation do not:
 
-- implement a new runtime backend
 - switch the default runtime backend
 - remove the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
 - remove the experimental `AVAudioSourceNode` C mixer backend

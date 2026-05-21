@@ -2223,6 +2223,19 @@ def build_summary(
         "trace": {"path_name": trace_path.name if trace_path else None},
         "event_count": len(events),
         "actions": dict(sorted(action_counts.items())),
+        "backend": {
+            "runtime_audio_backend": first_string(events, "runtimeAudioBackend"),
+            "requested_backend_flag_value": first_string(events, "backendFlagValue"),
+            "fallback_reason": first_string(events, "fallbackReason"),
+            "experimental_c_mixer_enabled": first_bool(events, "experimentalCMixerEnabled"),
+            "alternative_runtime_output_host_enabled": first_bool(events, "alternativeRuntimeOutputHostEnabled"),
+            "runtime_output_host_type": first_string(events, "runtimeOutputHostType"),
+            "runtime_output_host_prepare_status": last_exact_integer(events, "runtimeOutputHostPrepareStatus"),
+            "runtime_output_host_initialize_status": last_exact_integer(events, "runtimeOutputHostInitializeStatus"),
+            "runtime_output_host_start_status": last_exact_integer(events, "runtimeOutputHostStartStatus"),
+            "runtime_output_host_stop_status": last_exact_integer(events, "runtimeOutputHostStopStatus"),
+            "runtime_output_host_last_error_status": last_exact_integer(events, "runtimeOutputHostLastErrorStatus"),
+        },
         "health": {
             "peak": rounded(output_peak),
             "clipping_sample_count": clipping_count,
@@ -2486,6 +2499,7 @@ def build_summary(
 
 
 def build_markdown(summary: dict[str, Any]) -> str:
+    backend = summary["backend"]
     health = summary["health"]
     capture = summary["capture"]
     clean = summary["clean_source_dirty_live"]
@@ -2503,6 +2517,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         "# Runtime C Mixer Trace Summary",
         "",
         f"- Events: {summary['event_count']}",
+        f"- Backend: selected={backend['runtime_audio_backend']} requested={backend['requested_backend_flag_value']} fallback={backend['fallback_reason']} experimental_c_mixer={backend['experimental_c_mixer_enabled']} alternative_host={backend['alternative_runtime_output_host_enabled']} host_type={backend['runtime_output_host_type']} prepare_status={backend['runtime_output_host_prepare_status']} initialize_status={backend['runtime_output_host_initialize_status']} start_status={backend['runtime_output_host_start_status']} stop_status={backend['runtime_output_host_stop_status']} last_error_status={backend['runtime_output_host_last_error_status']}",
         f"- Peak: {health['peak']}",
         f"- Clipping samples: {health['clipping_sample_count']}",
         f"- Overrange samples: {health['overrange_sample_count']}",

@@ -283,8 +283,10 @@ verification leave the experimental SourceNode delivery path suspect for
 remaining live-only pops/clicks, without proving it as root cause.
 AVAudioPlayerNode/AVAudioUnitVarispeed remains the default runtime backend, the
 SourceNode C mixer remains opt-in through `VTX_AUDIO_BACKEND=c_mixer`, and the
-recommended next runtime spike is a developer-only CoreAudio/AUAudioUnit-style
-C mixer output host to isolate the delivery layer.
+developer-only `VTX_AUDIO_BACKEND=c_mixer_coreaudio` spike now provides a
+minimal CoreAudio DefaultOutput Audio Unit host for isolating the delivery
+layer. The new host is opt-in only and keeps the SourceNode C mixer backend
+available for A/B comparison.
 Transport stop-position preservation and the tracker-style plain Spacebar
 play/stop shortcut are implemented for manual debugging workflow: manual Stop
 preserves the current published order/row position, play resumes from the
@@ -368,7 +370,7 @@ Immediate audio accuracy sequence:
 73. Runtime C Mixer AVAudio Callback Realtime Safety / I/O Buffer Diagnostics — done
 74. Runtime C Mixer Render Callback Diagnostics Decoupling — done
 75. ADR: Alternative Runtime Output Host for C Mixer — done
-76. Runtime C Mixer CoreAudio/AUAudioUnit Output Host Spike
+76. Runtime C Mixer CoreAudio/AUAudioUnit Output Host Spike — done
 77. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
@@ -436,9 +438,9 @@ Features:
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior
-- planned developer-only CoreAudio/AUAudioUnit-style runtime output host spike
-  for isolating whether remaining live-only artifacts are specific to
-  AVAudioEngine/AVAudioSourceNode delivery
+- developer-only CoreAudio DefaultOutput Audio Unit runtime output host spike through
+  `VTX_AUDIO_BACKEND=c_mixer_coreaudio` for isolating whether remaining
+  live-only artifacts are specific to AVAudioEngine/AVAudioSourceNode delivery
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

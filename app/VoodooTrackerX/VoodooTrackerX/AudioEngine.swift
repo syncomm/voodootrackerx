@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreAudio
 import Darwin
 import Foundation
@@ -19,6 +20,7 @@ protocol PlaybackAudioOutput: AnyObject {
 enum RuntimeAudioBackend: Equatable {
     case avAudio
     case cMixer
+    case cMixerCoreAudio
 
     var diagnosticName: String {
         switch self {
@@ -26,6 +28,32 @@ enum RuntimeAudioBackend: Equatable {
             return "av_audio"
         case .cMixer:
             return "c_mixer"
+        case .cMixerCoreAudio:
+            return "c_mixer_coreaudio"
+        }
+    }
+
+    var usesRuntimeCMixer: Bool {
+        switch self {
+        case .avAudio:
+            return false
+        case .cMixer, .cMixerCoreAudio:
+            return true
+        }
+    }
+
+    var alternativeRuntimeOutputHostEnabled: Bool {
+        self == .cMixerCoreAudio
+    }
+
+    var runtimeOutputHostType: String {
+        switch self {
+        case .avAudio:
+            return "av_audio_player_node_varispeed"
+        case .cMixer:
+            return "av_audio_source_node"
+        case .cMixerCoreAudio:
+            return "coreaudio_default_output_unit"
         }
     }
 }
@@ -33,13 +61,14 @@ enum RuntimeAudioBackend: Equatable {
 struct RuntimeAudioBackendSelection: Equatable {
     static let environmentKey = "VTX_AUDIO_BACKEND"
     static let cMixerEnvironmentValue = "c_mixer"
+    static let cMixerCoreAudioEnvironmentValue = "c_mixer_coreaudio"
 
     let backend: RuntimeAudioBackend
     let requestedValue: String?
     let fallbackReason: String?
 
     var experimentalCMixerEnabled: Bool {
-        backend == .cMixer
+        backend.usesRuntimeCMixer
     }
 
     static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeAudioBackendSelection {
@@ -48,14 +77,18 @@ struct RuntimeAudioBackendSelection: Equatable {
               !requestedValue.isEmpty else {
             return RuntimeAudioBackendSelection(backend: .avAudio, requestedValue: nil, fallbackReason: nil)
         }
-        guard requestedValue == cMixerEnvironmentValue else {
+        switch requestedValue {
+        case cMixerEnvironmentValue:
+            return RuntimeAudioBackendSelection(backend: .cMixer, requestedValue: requestedValue, fallbackReason: nil)
+        case cMixerCoreAudioEnvironmentValue:
+            return RuntimeAudioBackendSelection(backend: .cMixerCoreAudio, requestedValue: requestedValue, fallbackReason: nil)
+        default:
             return RuntimeAudioBackendSelection(
                 backend: .avAudio,
                 requestedValue: requestedValue,
                 fallbackReason: "unknown_backend"
             )
         }
-        return RuntimeAudioBackendSelection(backend: .cMixer, requestedValue: requestedValue, fallbackReason: nil)
     }
 }
 
@@ -322,6 +355,98 @@ struct RuntimeCMixerCallbackDiagnosticsConfiguration: Equatable {
             minimalCallbackMode: minimal,
             outputBufferVerificationEnabled: !minimal && outputBufferVerificationEnabled
         )
+    }
+}
+
+struct RuntimeCMixerCoreAudioHostConfiguration: Equatable {
+    let sampleRate: Double
+    let channelCount: Int
+
+    init(
+        sampleRate: Double,
+        channelCount: Int
+    ) {
+        self.sampleRate = sampleRate.isFinite && sampleRate > 0
+            ? sampleRate
+            : MixerRenderConfig.defaultSampleRate
+        self.channelCount = max(1, channelCount)
+    }
+
+    var streamDescription: AudioStreamBasicDescription {
+        AudioStreamBasicDescription(
+            mSampleRate: sampleRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat |
+                kAudioFormatFlagIsPacked |
+                kAudioFormatFlagsNativeEndian |
+                kAudioFormatFlagIsNonInterleaved,
+            mBytesPerPacket: UInt32(MemoryLayout<Float>.size),
+            mFramesPerPacket: 1,
+            mBytesPerFrame: UInt32(MemoryLayout<Float>.size),
+            mChannelsPerFrame: UInt32(channelCount),
+            mBitsPerChannel: UInt32(MemoryLayout<Float>.size * 8),
+            mReserved: 0
+        )
+    }
+}
+
+struct RuntimeCMixerOutputHostLifecycle: Equatable {
+    enum State: Equatable {
+        case stopped
+        case prepared
+        case running
+    }
+
+    private(set) var state: State = .stopped
+    private(set) var lastPrepareStatus: OSStatus?
+    private(set) var lastInitializeStatus: OSStatus?
+    private(set) var lastStartStatus: OSStatus?
+    private(set) var lastStopStatus: OSStatus?
+    private(set) var lastErrorStatus: OSStatus?
+
+    @discardableResult
+    mutating func prepare(status: OSStatus = noErr, initializeStatus: OSStatus? = nil) -> Bool {
+        lastPrepareStatus = status
+        if let initializeStatus {
+            lastInitializeStatus = initializeStatus
+        }
+        if status == noErr,
+           state == .stopped {
+            state = .prepared
+        }
+        recordError(status)
+        return status == noErr
+    }
+
+    @discardableResult
+    mutating func start(status: OSStatus = noErr) -> Bool {
+        lastStartStatus = status
+        if status == noErr {
+            state = .running
+        }
+        recordError(status)
+        return status == noErr
+    }
+
+    @discardableResult
+    mutating func stop(status: OSStatus = noErr) -> Bool {
+        lastStopStatus = status
+        if status == noErr,
+           state == .running {
+            state = .prepared
+        }
+        recordError(status)
+        return status == noErr
+    }
+
+    mutating func reset() {
+        state = .stopped
+    }
+
+    private mutating func recordError(_ status: OSStatus) {
+        if status != noErr {
+            lastErrorStatus = status
+        }
     }
 }
 
@@ -614,6 +739,13 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let fallbackToSimpleRuntimeEventCount: UInt64?
     let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
+    let alternativeRuntimeOutputHostEnabled: Bool?
+    let runtimeOutputHostType: String?
+    let runtimeOutputHostPrepareStatus: Int?
+    let runtimeOutputHostInitializeStatus: Int?
+    let runtimeOutputHostStartStatus: Int?
+    let runtimeOutputHostStopStatus: Int?
+    let runtimeOutputHostLastErrorStatus: Int?
     let sampleRate: Double?
     let selectedRuntimeSampleRate: Double?
     let cMixerRuntimeSampleRate: Double?
@@ -977,6 +1109,13 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         fallbackToSimpleRuntimeEventCount: UInt64? = nil,
         runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
+        alternativeRuntimeOutputHostEnabled: Bool? = nil,
+        runtimeOutputHostType: String? = nil,
+        runtimeOutputHostPrepareStatus: Int? = nil,
+        runtimeOutputHostInitializeStatus: Int? = nil,
+        runtimeOutputHostStartStatus: Int? = nil,
+        runtimeOutputHostStopStatus: Int? = nil,
+        runtimeOutputHostLastErrorStatus: Int? = nil,
         sampleRate: Double? = nil,
         selectedRuntimeSampleRate: Double? = nil,
         cMixerRuntimeSampleRate: Double? = nil,
@@ -1313,6 +1452,13 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.fallbackToSimpleRuntimeEventCount = fallbackToSimpleRuntimeEventCount
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
+        self.alternativeRuntimeOutputHostEnabled = alternativeRuntimeOutputHostEnabled
+        self.runtimeOutputHostType = runtimeOutputHostType
+        self.runtimeOutputHostPrepareStatus = runtimeOutputHostPrepareStatus
+        self.runtimeOutputHostInitializeStatus = runtimeOutputHostInitializeStatus
+        self.runtimeOutputHostStartStatus = runtimeOutputHostStartStatus
+        self.runtimeOutputHostStopStatus = runtimeOutputHostStopStatus
+        self.runtimeOutputHostLastErrorStatus = runtimeOutputHostLastErrorStatus
         self.sampleRate = sampleRate
         self.selectedRuntimeSampleRate = selectedRuntimeSampleRate
         self.cMixerRuntimeSampleRate = cMixerRuntimeSampleRate
@@ -2010,22 +2156,22 @@ enum PlaybackAudioOutputFactory {
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
     ) -> PlaybackAudioOutput {
         let selection = RuntimeAudioBackendSelection.resolve(environment: environment)
-        let outputPolicy = selection.backend == .cMixer
+        let outputPolicy = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerOutputPolicy.resolve(environment: environment)
             : nil
-        let updatePolicy = selection.backend == .cMixer
+        let updatePolicy = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerUpdatePolicy.resolve(environment: environment)
             : nil
-        let sampleRateSelection = selection.backend == .cMixer
+        let sampleRateSelection = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerSampleRateSelection.resolve(environment: environment)
             : nil
-        let callbackDiagnostics = selection.backend == .cMixer
+        let callbackDiagnostics = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerCallbackDiagnosticsConfiguration.resolve(environment: environment)
             : nil
-        let routeLabel = selection.backend == .cMixer
+        let routeLabel = selection.backend.usesRuntimeCMixer
             ? RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(environment: environment)
             : nil
-        let captureConfiguration = selection.backend == .cMixer && callbackDiagnostics?.minimalCallbackMode != true
+        let captureConfiguration = selection.backend.usesRuntimeCMixer && callbackDiagnostics?.minimalCallbackMode != true
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
         if let requestedValue = selection.requestedValue,
@@ -2066,6 +2212,8 @@ enum PlaybackAudioOutputFactory {
                 backendFlagValue: selection.requestedValue,
                 fallbackReason: selection.fallbackReason,
                 experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
+                alternativeRuntimeOutputHostEnabled: selection.backend.alternativeRuntimeOutputHostEnabled,
+                runtimeOutputHostType: selection.backend.runtimeOutputHostType,
                 sampleRate: selectedSampleRate,
                 selectedRuntimeSampleRate: sampleRateSelection?.sampleRate,
                 cMixerRuntimeSampleRate: sampleRateSelection?.sampleRate,
@@ -2073,7 +2221,7 @@ enum PlaybackAudioOutputFactory {
                 runtimeSampleRateSource: sampleRateSelection?.source,
                 runtimeSampleRateConfigurationWarning: sampleRateSelection?.configurationWarning,
                 audioOutputRouteLabel: routeLabel,
-                channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
+                channelCount: selection.backend.usesRuntimeCMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
                 runtimeMinimalCallbackMode: callbackDiagnostics?.minimalCallbackMode,
@@ -2089,7 +2237,7 @@ enum PlaybackAudioOutputFactory {
                 runtimeUpdateEpsilon: updatePolicy?.updateEpsilon,
                 runtimeUpdateEpsilonPolicy: updatePolicy?.updateEpsilonPolicy,
                 runtimeUpdateEpsilonConfigurationWarning: updatePolicy?.configurationWarning,
-                runtimeCaptureEnabled: selection.backend == .cMixer && captureConfiguration != nil,
+                runtimeCaptureEnabled: selection.backend.usesRuntimeCMixer && captureConfiguration != nil,
                 runtimeCapturePathName: captureConfiguration?.pathName,
                 runtimeCaptureSampleRate: captureConfiguration == nil ? nil : selectedSampleRate,
                 runtimeCaptureChannelCount: captureConfiguration == nil ? nil : MixerRenderConfig.defaultChannelCount,
@@ -2110,8 +2258,9 @@ enum PlaybackAudioOutputFactory {
         switch selection.backend {
         case .avAudio:
             return PlaybackAudioEngine()
-        case .cMixer:
+        case .cMixer, .cMixerCoreAudio:
             return RuntimeCMixerAudioEngine(
+                backend: selection.backend,
                 sampleRate: selectedSampleRate,
                 outputPolicy: outputPolicy ?? .defaultPolicy,
                 updatePolicy: updatePolicy ?? .defaultPolicy,
@@ -6164,7 +6313,12 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         mainMixerLatency: Double,
         mainMixerOutputPresentationLatency: Double,
         outputNodeLatency: Double,
-        outputNodeOutputPresentationLatency: Double
+        outputNodeOutputPresentationLatency: Double,
+        engineRunningOverride: Bool? = nil,
+        sourceNodeAttachedOverride: Bool? = nil,
+        sourceNodeConnectedOverride: Bool? = nil,
+        mainMixerConnectedToOutputOverride: Bool? = nil,
+        formatConversionLikelyOverride: Bool? = nil
     ) {
         self.routeLabel = routeLabel
         cMixerRenderSampleRate = snapshot.sampleRate
@@ -6192,11 +6346,11 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         hardwareSafetyOffsetDuration = outputDevice.safetyOffsetDuration
         hardwareTransportType = outputDevice.transportType
         hardwareTransportTypeName = outputDevice.transportTypeName
-        self.engineRunning = engineRunning
-        self.sourceNodeAttached = sourceNodeAttached
-        self.sourceNodeConnected = sourceNodeConnected
-        self.mainMixerConnectedToOutput = mainMixerConnectedToOutput
-        formatConversionLikely = RuntimeCMixerFormatDiagnostics.formatConversionLikely(
+        self.engineRunning = engineRunningOverride ?? engineRunning
+        self.sourceNodeAttached = sourceNodeAttachedOverride ?? sourceNodeAttached
+        self.sourceNodeConnected = sourceNodeConnectedOverride ?? sourceNodeConnected
+        self.mainMixerConnectedToOutput = mainMixerConnectedToOutputOverride ?? mainMixerConnectedToOutput
+        formatConversionLikely = formatConversionLikelyOverride ?? RuntimeCMixerFormatDiagnostics.formatConversionLikely(
             sourceSampleRate: sourceNodeRenderSampleRate,
             sourceChannelCount: sourceNodeChannelCount,
             mainMixerSampleRate: mainMixerOutputSampleRate,
@@ -6402,12 +6556,193 @@ private struct RuntimeCMixerPendingTransition: Equatable {
     let updateCount: UInt64
 }
 
+private let runtimeCMixerDefaultOutputUnitRenderCallback: AURenderCallback = { userData, _, _, _, frameCount, ioData in
+    guard let ioData else {
+        return noErr
+    }
+    let host = Unmanaged<RuntimeCMixerDefaultOutputUnitHost>.fromOpaque(userData).takeUnretainedValue()
+    return host.render(frameCount: frameCount, ioData: ioData)
+}
+
+private final class RuntimeCMixerDefaultOutputUnitHost {
+    private let renderCore: RuntimeCMixerRenderCore
+    private(set) var configuration: RuntimeCMixerCoreAudioHostConfiguration
+    private var outputUnit: AudioUnit?
+    private var lifecycle = RuntimeCMixerOutputHostLifecycle()
+
+    init(
+        configuration: RuntimeCMixerCoreAudioHostConfiguration,
+        renderCore: RuntimeCMixerRenderCore
+    ) {
+        self.configuration = configuration
+        self.renderCore = renderCore
+    }
+
+    deinit {
+        reset()
+    }
+
+    var isPrepared: Bool {
+        outputUnit != nil && lifecycle.state != .stopped
+    }
+
+    var isRunning: Bool {
+        lifecycle.state == .running
+    }
+
+    var lastPrepareStatus: OSStatus? {
+        lifecycle.lastPrepareStatus
+    }
+
+    var lastInitializeStatus: OSStatus? {
+        lifecycle.lastInitializeStatus
+    }
+
+    var lastStartStatus: OSStatus? {
+        lifecycle.lastStartStatus
+    }
+
+    var lastStopStatus: OSStatus? {
+        lifecycle.lastStopStatus
+    }
+
+    var lastErrorStatus: OSStatus? {
+        lifecycle.lastErrorStatus
+    }
+
+    @discardableResult
+    func prepare() -> OSStatus {
+        if isPrepared {
+            return noErr
+        }
+        var componentDescription = AudioComponentDescription(
+            componentType: kAudioUnitType_Output,
+            componentSubType: kAudioUnitSubType_DefaultOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        guard let component = AudioComponentFindNext(nil, &componentDescription) else {
+            let status = kAudio_ParamError
+            lifecycle.prepare(status: status)
+            return status
+        }
+        var unit: AudioUnit?
+        let newInstanceStatus = AudioComponentInstanceNew(component, &unit)
+        guard newInstanceStatus == noErr else {
+            lifecycle.prepare(status: newInstanceStatus)
+            return newInstanceStatus
+        }
+        guard let unit else {
+            let status = kAudio_ParamError
+            lifecycle.prepare(status: status)
+            return status
+        }
+        outputUnit = unit
+
+        var streamDescription = configuration.streamDescription
+        let streamFormatStatus = withUnsafePointer(to: &streamDescription) { pointer in
+            AudioUnitSetProperty(
+                unit,
+                kAudioUnitProperty_StreamFormat,
+                kAudioUnitScope_Input,
+                0,
+                pointer,
+                UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+            )
+        }
+        guard streamFormatStatus == noErr else {
+            lifecycle.prepare(status: streamFormatStatus)
+            reset()
+            return streamFormatStatus
+        }
+
+        var callback = AURenderCallbackStruct(
+            inputProc: runtimeCMixerDefaultOutputUnitRenderCallback,
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+        )
+        let callbackStatus = withUnsafePointer(to: &callback) { pointer in
+            AudioUnitSetProperty(
+                unit,
+                kAudioUnitProperty_SetRenderCallback,
+                kAudioUnitScope_Input,
+                0,
+                pointer,
+                UInt32(MemoryLayout<AURenderCallbackStruct>.size)
+            )
+        }
+        guard callbackStatus == noErr else {
+            lifecycle.prepare(status: callbackStatus)
+            reset()
+            return callbackStatus
+        }
+
+        let initializeStatus = AudioUnitInitialize(unit)
+        guard initializeStatus == noErr else {
+            lifecycle.prepare(status: initializeStatus, initializeStatus: initializeStatus)
+            reset()
+            return initializeStatus
+        }
+        lifecycle.prepare(status: noErr, initializeStatus: initializeStatus)
+        return noErr
+    }
+
+    @discardableResult
+    func start() -> OSStatus {
+        if isRunning {
+            return noErr
+        }
+        let prepareStatus = prepare()
+        guard prepareStatus == noErr,
+              let unit = outputUnit else {
+            return prepareStatus
+        }
+        let startStatus = AudioOutputUnitStart(unit)
+        lifecycle.start(status: startStatus)
+        return startStatus
+    }
+
+    @discardableResult
+    func stop() -> OSStatus {
+        guard let unit = outputUnit,
+              isPrepared else {
+            lifecycle.stop(status: noErr)
+            return noErr
+        }
+        let status = isRunning ? AudioOutputUnitStop(unit) : noErr
+        lifecycle.stop(status: status)
+        return status
+    }
+
+    func reset() {
+        if let unit = outputUnit {
+            if isRunning {
+                let status = AudioOutputUnitStop(unit)
+                lifecycle.stop(status: status)
+            }
+            AudioUnitUninitialize(unit)
+            AudioComponentInstanceDispose(unit)
+        }
+        outputUnit = nil
+        lifecycle.reset()
+    }
+
+    fileprivate func render(
+        frameCount: UInt32,
+        ioData: UnsafeMutablePointer<AudioBufferList>
+    ) -> OSStatus {
+        renderCore.render(frameCount: AVAudioFrameCount(frameCount), ioData: ioData)
+    }
+}
+
 @MainActor
 final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
+    private let backend: RuntimeAudioBackend
     private let engine = AVAudioEngine()
     private let format: AVAudioFormat
-    private let sourceNode: AVAudioSourceNode
+    private let sourceNode: AVAudioSourceNode?
+    private let coreAudioOutputHost: RuntimeCMixerDefaultOutputUnitHost?
     private let renderCore: RuntimeCMixerRenderCore
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
@@ -6436,6 +6771,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var pendingTransition: RuntimeCMixerPendingTransition?
 
     init(
+        backend: RuntimeAudioBackend = .cMixer,
         sampleRate: Double = MixerRenderConfig.defaultSampleRate,
         channelCount: Int = MixerRenderConfig.defaultChannelCount,
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
@@ -6446,6 +6782,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         routeLabel: String? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
+        let resolvedBackend = backend.usesRuntimeCMixer ? backend : .cMixer
+        self.backend = resolvedBackend
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
         renderCore = RuntimeCMixerRenderCore(
             config: config,
@@ -6457,15 +6795,25 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         self.traceWriter = traceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
         self.routeLabel = RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(routeLabel)
+        let usesCoreAudioOutputHost = resolvedBackend == .cMixerCoreAudio
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: renderCore.config.sampleRate,
             channels: AVAudioChannelCount(renderCore.config.channelCount),
             interleaved: false
         )!
-        sourceNode = makeRuntimeCMixerSourceNode(format: format, renderCore: renderCore)
+        sourceNode = usesCoreAudioOutputHost ? nil : makeRuntimeCMixerSourceNode(format: format, renderCore: renderCore)
+        coreAudioOutputHost = usesCoreAudioOutputHost
+            ? RuntimeCMixerDefaultOutputUnitHost(
+                configuration: RuntimeCMixerCoreAudioHostConfiguration(
+                    sampleRate: renderCore.config.sampleRate,
+                    channelCount: renderCore.config.channelCount
+                ),
+                renderCore: renderCore
+            )
+            : nil
         logger.info(
-            "Initialized experimental C mixer runtime backend sample_rate=\(self.renderCore.config.sampleRate, privacy: .public) channel_count=\(self.renderCore.config.channelCount, privacy: .public)"
+            "Initialized experimental C mixer runtime backend=\(self.backend.diagnosticName, privacy: .public) host_type=\(self.backend.runtimeOutputHostType, privacy: .public) sample_rate=\(self.renderCore.config.sampleRate, privacy: .public) channel_count=\(self.renderCore.config.channelCount, privacy: .public)"
         )
         recordRuntimeEvent(
             action: "backend_initialized",
@@ -6475,13 +6823,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             succeeded: nil,
             reason: "runtime_c_mixer_initialized"
         )
-        engineConfigurationObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.recordEngineConfigurationChange()
+        if resolvedBackend == .cMixer {
+            engineConfigurationObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange,
+                object: engine,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.recordEngineConfigurationChange()
+                }
             }
         }
     }
@@ -6493,7 +6843,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     var runtimeAudioBackend: RuntimeAudioBackend {
-        .cMixer
+        backend
     }
 
     var audioBufferSampleRate: Double {
@@ -6765,6 +7115,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if magnitude <= 1 {
             return "within_one_frame"
         }
+        if let context,
+           let cMixerPosition {
+            if cMixerPosition.source.orderIndex != context.orderIndex ||
+                cMixerPosition.source.patternIndex != context.patternIndex ||
+                cMixerPosition.source.rowIndex != context.rowIndex {
+                return "different_row_or_order"
+            }
+            if cMixerPosition.tickInRow != (context.tickInRow ?? 0) {
+                return "same_row_different_tick"
+            }
+        }
         let tickFrames: Int?
         if let cMixerPosition {
             tickFrames = max(1, cMixerPosition.rowDurationFrames / max(1, cMixerPosition.effectiveSpeed))
@@ -6777,13 +7138,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if let tickFrames,
            magnitude < max(1, tickFrames) {
             return "within_tick"
-        }
-        if let context,
-           let cMixerPosition,
-           cMixerPosition.source.orderIndex == context.orderIndex,
-           cMixerPosition.source.patternIndex == context.patternIndex,
-           cMixerPosition.source.rowIndex == context.rowIndex {
-            return "same_row_different_tick"
         }
         return "different_row_or_order"
     }
@@ -6873,6 +7227,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     private func audioGraphDiagnostics(snapshot: RuntimeCMixerRenderSnapshot) -> RuntimeCMixerAudioGraphDiagnostics {
         let outputDevice = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        let sourceNodeConnected = sourceNode.map {
+            isPrepared && !engine.outputConnectionPoints(for: $0, outputBus: 0).isEmpty
+        } ?? false
         return RuntimeCMixerAudioGraphDiagnostics(
             snapshot: snapshot,
             routeLabel: routeLabel,
@@ -6883,12 +7240,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             outputDevice: outputDevice,
             engineRunning: engine.isRunning,
             sourceNodeAttached: isPrepared,
-            sourceNodeConnected: isPrepared && !engine.outputConnectionPoints(for: sourceNode, outputBus: 0).isEmpty,
+            sourceNodeConnected: sourceNodeConnected,
             mainMixerConnectedToOutput: !engine.outputConnectionPoints(for: engine.mainMixerNode, outputBus: 0).isEmpty,
             mainMixerLatency: engine.mainMixerNode.latency,
             mainMixerOutputPresentationLatency: engine.mainMixerNode.outputPresentationLatency,
             outputNodeLatency: engine.outputNode.latency,
-            outputNodeOutputPresentationLatency: engine.outputNode.outputPresentationLatency
+            outputNodeOutputPresentationLatency: engine.outputNode.outputPresentationLatency,
+            engineRunningOverride: backend == .cMixerCoreAudio ? coreAudioOutputHost?.isRunning : nil,
+            sourceNodeAttachedOverride: backend == .cMixerCoreAudio ? false : isPrepared,
+            sourceNodeConnectedOverride: backend == .cMixerCoreAudio ? false : sourceNodeConnected,
+            mainMixerConnectedToOutputOverride: backend == .cMixerCoreAudio ? false : nil,
+            formatConversionLikelyOverride: backend == .cMixerCoreAudio ? false : nil
         )
     }
 
@@ -7309,6 +7671,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
         drainAppliedRuntimeAdapterEvents()
+        if backend == .cMixerCoreAudio {
+            coreAudioOutputHost?.stop()
+        }
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
         eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
@@ -7322,7 +7687,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stoppedVoiceCount: result.stoppedVoiceCount,
             reason: result.reason
         )
-        engine.pause()
+        if backend != .cMixerCoreAudio {
+            engine.pause()
+        }
         if isFallbackActive {
             fallbackAudioEngine.stopAll()
         }
@@ -7438,10 +7805,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func reset() {
         drainAppliedRuntimeAdapterEvents()
         stopAll()
-        engine.stop()
+        if backend == .cMixerCoreAudio {
+            coreAudioOutputHost?.reset()
+        } else {
+            engine.stop()
+        }
         fallbackAudioEngine.reset()
         isFallbackActive = false
-        if isPrepared {
+        if isPrepared,
+           let sourceNode {
             engine.detach(sourceNode)
         }
         engine.reset()
@@ -7461,6 +7833,32 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard !isPrepared else {
             return
         }
+        if backend == .cMixerCoreAudio {
+            let status = coreAudioOutputHost?.prepare() ?? kAudio_ParamError
+            isPrepared = status == noErr
+            recordRuntimeEvent(
+                action: status == noErr ? "backend_prepared" : "backend_prepare_failed",
+                context: nil,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: status == noErr,
+                reason: status == noErr
+                    ? "runtime_c_mixer_coreaudio_output_unit_prepared"
+                    : "runtime_c_mixer_coreaudio_output_unit_prepare_failed_status_\(status)"
+            )
+            return
+        }
+        guard let sourceNode else {
+            recordRuntimeEvent(
+                action: "backend_prepare_failed",
+                context: nil,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: false,
+                reason: "runtime_c_mixer_source_node_missing"
+            )
+            return
+        }
         engine.attach(sourceNode)
         engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
         engine.prepare()
@@ -7476,6 +7874,41 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     private func startEngineIfNeeded() -> Bool {
+        if backend == .cMixerCoreAudio {
+            guard coreAudioOutputHost?.isRunning != true else {
+                return true
+            }
+            let status = coreAudioOutputHost?.start() ?? kAudio_ParamError
+            guard status == noErr else {
+                logger.error(
+                    "Experimental C mixer CoreAudio output unit start succeeded=false falling_back=true status=\(status, privacy: .public)"
+                )
+                renderCore.stopAll()
+                recordRuntimeEvent(
+                    action: "backend_start_failed",
+                    context: nil,
+                    targetScope: "none",
+                    snapshot: renderCore.snapshot(),
+                    succeeded: false,
+                    reason: "runtime_c_mixer_coreaudio_output_unit_start_failed_status_\(status)"
+                )
+                return false
+            }
+            isPrepared = true
+            audioEngineRestartCount &+= 1
+            logger.info(
+                "Experimental C mixer CoreAudio output unit start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
+            )
+            recordRuntimeEvent(
+                action: "backend_start",
+                context: nil,
+                targetScope: "none",
+                snapshot: renderCore.snapshot(),
+                succeeded: true,
+                reason: "runtime_c_mixer_coreaudio_output_unit_started"
+            )
+            return true
+        }
         guard !engine.isRunning else {
             return true
         }
@@ -7701,6 +8134,13 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             fallbackToSimpleRuntimeEventCount: eventCounters.fallbackToSimpleRuntimeEventCount,
             runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
+            alternativeRuntimeOutputHostEnabled: runtimeAudioBackend.alternativeRuntimeOutputHostEnabled,
+            runtimeOutputHostType: runtimeAudioBackend.runtimeOutputHostType,
+            runtimeOutputHostPrepareStatus: coreAudioOutputHost?.lastPrepareStatus.map(Int.init),
+            runtimeOutputHostInitializeStatus: coreAudioOutputHost?.lastInitializeStatus.map(Int.init),
+            runtimeOutputHostStartStatus: coreAudioOutputHost?.lastStartStatus.map(Int.init),
+            runtimeOutputHostStopStatus: coreAudioOutputHost?.lastStopStatus.map(Int.init),
+            runtimeOutputHostLastErrorStatus: coreAudioOutputHost?.lastErrorStatus.map(Int.init),
             sampleRate: snapshot.sampleRate,
             selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
             cMixerRuntimeSampleRate: snapshot.sampleRate,
@@ -8019,6 +8459,13 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
             runtimeEventCategory: "audio_graph_change",
             experimentalCMixerEnabled: true,
+            alternativeRuntimeOutputHostEnabled: runtimeAudioBackend.alternativeRuntimeOutputHostEnabled,
+            runtimeOutputHostType: runtimeAudioBackend.runtimeOutputHostType,
+            runtimeOutputHostPrepareStatus: coreAudioOutputHost?.lastPrepareStatus.map(Int.init),
+            runtimeOutputHostInitializeStatus: coreAudioOutputHost?.lastInitializeStatus.map(Int.init),
+            runtimeOutputHostStartStatus: coreAudioOutputHost?.lastStartStatus.map(Int.init),
+            runtimeOutputHostStopStatus: coreAudioOutputHost?.lastStopStatus.map(Int.init),
+            runtimeOutputHostLastErrorStatus: coreAudioOutputHost?.lastErrorStatus.map(Int.init),
             sampleRate: snapshot.sampleRate,
             selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
             cMixerRuntimeSampleRate: snapshot.sampleRate,

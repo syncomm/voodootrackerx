@@ -12,6 +12,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let runtimeCMixerFollowPublicationDisabled: Bool
     private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
     private let debugStopAfterSeconds: TimeInterval?
+    private let startsRealtimeTimer: Bool
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -40,9 +41,11 @@ final class PlaybackEngine: PlaybackTransport {
         audioEngine: PlaybackAudioOutput? = nil,
         traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter(),
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
+        startsRealtimeTimer: Bool = true,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
+        self.startsRealtimeTimer = startsRealtimeTimer
         debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
             environment: environment,
@@ -321,6 +324,10 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func restartTimer() {
         timer?.invalidate()
+        guard startsRealtimeTimer else {
+            timer = nil
+            return
+        }
         let timer = Timer(timeInterval: timing.tickDuration, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.advanceOneTick()

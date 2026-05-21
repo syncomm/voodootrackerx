@@ -7170,6 +7170,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let traceWriter: RuntimeCMixerTraceWriting
     private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
     private let routeLabel: String?
+    private let startsOutputHostOnDemand: Bool
     private var isPrepared = false
     private var isFallbackActive = false
     nonisolated(unsafe) private var engineConfigurationObserver: NSObjectProtocol?
@@ -7203,10 +7204,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         songEndTailPolicy: RuntimeCMixerSongEndTailPolicy = .defaultPolicy,
         runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
         routeLabel: String? = nil,
+        startsOutputHostOnDemand: Bool = true,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let resolvedBackend = backend.usesRuntimeCMixer ? backend : .cMixer
         self.backend = resolvedBackend
+        self.startsOutputHostOnDemand = startsOutputHostOnDemand
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
         renderCore = RuntimeCMixerRenderCore(
             config: config,
@@ -7386,9 +7389,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             plannedSongEndFrame: adapterEventPlan.plannedSongEndFrame
         )
         adapterEventScheduleConfigured = true
-        prepareIfNeeded()
-        if !startEngineIfNeeded() {
-            isFallbackActive = true
+        if startsOutputHostOnDemand {
+            prepareIfNeeded()
+            if !startEngineIfNeeded() {
+                isFallbackActive = true
+            }
         }
         recordRuntimeEvent(
             action: "adapter_event_schedule_configured",
@@ -7959,7 +7964,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             fallbackAudioEngine.trigger(request)
             return
         }
-        prepareIfNeeded()
+        if startsOutputHostOnDemand {
+            prepareIfNeeded()
+        }
         let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
         let result = renderCore.triggerWithDiagnostics(request)
         if let channelStop = result.channelStopBeforeAdd {
@@ -8007,6 +8014,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
         guard result.succeeded else {
             logger.debug("Experimental C mixer runtime ignored an unplayable trigger")
+            return
+        }
+        guard startsOutputHostOnDemand else {
             return
         }
         if !startEngineIfNeeded() {

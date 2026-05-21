@@ -2730,9 +2730,13 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         callbackThreadIsMain=False,
                         callbackThreadID=1234,
                         callbackMainThreadDependencyDetected=False,
-                        callbackAllocationWarning=True,
+                        callbackAllocationWarning=False,
+                        callbackRealtimeSafeDiagnostics=True,
+                        callbackDiagnosticDropCount=2,
+                        callbackRingBufferCapacity=4096,
                         callbackLockWaitCount=0,
                         callbackLockWaitDurationMS=0.0,
+                        callbackLockFailureCount=1,
                         eventQueueProducerThreadID=100,
                         eventQueueProducerThreadIsMain=True,
                         eventQueueConsumerThreadID=1234,
@@ -2750,8 +2754,12 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertFalse(isolation["callback_thread_is_main"])
             self.assertEqual(isolation["callback_thread_id"], 1234)
             self.assertFalse(isolation["main_thread_dependency_detected"])
-            self.assertTrue(isolation["allocation_warning"])
+            self.assertFalse(isolation["allocation_warning"])
+            self.assertTrue(isolation["realtime_safe_diagnostics"])
+            self.assertEqual(isolation["diagnostic_drop_count"], 2)
+            self.assertEqual(isolation["ring_buffer_capacity"], 4096)
             self.assertEqual(isolation["lock_wait_count"], 0)
+            self.assertEqual(isolation["lock_failure_count"], 1)
             self.assertEqual(isolation["event_queue_producer_thread_id"], 100)
             self.assertTrue(isolation["event_queue_producer_thread_is_main"])
             self.assertEqual(isolation["event_queue_consumer_thread_id"], 1234)

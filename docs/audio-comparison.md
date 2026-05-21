@@ -179,11 +179,18 @@ is present. `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` disables trace and capture
 and keeps only minimal callback/output-delivery diagnostics for the experimental
 backend. `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` suppresses
 experimental C-mixer tracker-follow publication for local callback/UI isolation
-without changing the default AVAudio backend. A useful local isolation matrix
-is: trace plus capture with normal follow publication, trace/capture disabled
-with follow publication disabled, trace only, capture only, both disabled, and
-minimal-callback mode. Generated traces, captures, reports, logs, screenshots,
-and listening notes remain local-only.
+without changing the default AVAudio backend.
+`VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1` enables the optional
+scratch/capture/output hash verifier for short local diagnostics; it is off by
+default so normal experimental callback diagnostics use fixed-capacity ring
+buffers and counters instead of growing diagnostic collections. If that ring
+fills, the trace summary reports `callbackDiagnosticDropCount` and continues
+without allocating more callback storage. A useful local isolation matrix is:
+trace plus capture with normal follow publication, trace/capture disabled with
+follow publication disabled, trace only, capture only, both disabled, minimal
+callback mode, and a short output-copy-verifier run when needed. Generated
+traces, captures, reports, logs, screenshots, and listening notes remain
+local-only.
 
 To compare the runtime capture against an offline C mixer render, first render a
 clean local candidate WAV under `/tmp`:

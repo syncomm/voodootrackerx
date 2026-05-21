@@ -9889,6 +9889,7 @@ final class VoodooTrackerXTests: XCTestCase {
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
         let sample = makePlaybackSample(pcm: [0.25, 0.5, 0.75, 1.0], baseSampleRate: 100)
@@ -10176,10 +10177,16 @@ final class VoodooTrackerXTests: XCTestCase {
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
             songEndTailPolicy: RuntimeCMixerSongEndTailPolicy.resolve(environment: environment),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
         return (
-            PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter, environment: environment),
+            PlaybackEngine(
+                audioEngine: audioEngine,
+                runtimeCMixerTraceWriter: traceWriter,
+                startsRealtimeTimer: false,
+                environment: environment
+            ),
             audioEngine,
             traceWriter
         )
@@ -10201,6 +10208,7 @@ final class VoodooTrackerXTests: XCTestCase {
                     tailPolicy: "test_runtime_tail_seconds",
                     configurationWarning: nil
                 ),
+                startsOutputHostOnDemand: false,
                 traceWriter: traceWriter
             )
             let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 10, loopStart: 0, loopLength: 2, loopType: 1)
@@ -10255,6 +10263,7 @@ final class VoodooTrackerXTests: XCTestCase {
                 secondsPolicy: "env_runtime_capture_seconds",
                 configurationWarning: nil
             ),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
 
@@ -10424,11 +10433,13 @@ final class VoodooTrackerXTests: XCTestCase {
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
         let engine = PlaybackEngine(
             audioEngine: audioEngine,
-            runtimeCMixerTraceWriter: traceWriter
+            runtimeCMixerTraceWriter: traceWriter,
+            startsRealtimeTimer: false
         )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 512), baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
@@ -10690,11 +10701,13 @@ final class VoodooTrackerXTests: XCTestCase {
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
         let engine = PlaybackEngine(
             audioEngine: audioEngine,
-            runtimeCMixerTraceWriter: traceWriter
+            runtimeCMixerTraceWriter: traceWriter,
+            startsRealtimeTimer: false
         )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 512), baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
@@ -10823,6 +10836,7 @@ final class VoodooTrackerXTests: XCTestCase {
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 16), baseSampleRate: 44_100)
@@ -10954,6 +10968,7 @@ final class VoodooTrackerXTests: XCTestCase {
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
             captureConfiguration: captureConfiguration,
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
 
@@ -11000,6 +11015,7 @@ final class VoodooTrackerXTests: XCTestCase {
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
             captureConfiguration: captureConfiguration,
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
 
@@ -12151,6 +12167,7 @@ final class VoodooTrackerXTests: XCTestCase {
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
             ]),
+            startsOutputHostOnDemand: false,
             traceWriter: traceWriter
         )
 
@@ -12361,8 +12378,15 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     func testRuntimeCMixerTraceDistinguishesAdapterNoteCutFromAllVoiceClear() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
-        let audioEngine = RuntimeCMixerAudioEngine(traceWriter: traceWriter)
-        let engine = PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter)
+        let audioEngine = RuntimeCMixerAudioEngine(
+            startsOutputHostOnDemand: false,
+            traceWriter: traceWriter
+        )
+        let engine = PlaybackEngine(
+            audioEngine: audioEngine,
+            runtimeCMixerTraceWriter: traceWriter,
+            startsRealtimeTimer: false
+        )
         let sample = PlaybackSample(
             instrumentIndex: 1,
             sampleIndex: 0,
@@ -12415,8 +12439,15 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     func testRuntimeCMixerTraceRecordsChannelScopedReplacement() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
-        let audioEngine = RuntimeCMixerAudioEngine(traceWriter: traceWriter)
-        let engine = PlaybackEngine(audioEngine: audioEngine, runtimeCMixerTraceWriter: traceWriter)
+        let audioEngine = RuntimeCMixerAudioEngine(
+            startsOutputHostOnDemand: false,
+            traceWriter: traceWriter
+        )
+        let engine = PlaybackEngine(
+            audioEngine: audioEngine,
+            runtimeCMixerTraceWriter: traceWriter,
+            startsRealtimeTimer: false
+        )
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 4_096), baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],
@@ -12459,7 +12490,15 @@ final class VoodooTrackerXTests: XCTestCase {
     @MainActor
     func testRuntimeCMixerTraceRecordsRowTransitionsWithRenderSnapshot() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
-        let engine = PlaybackEngine(audioEngine: RuntimeCMixerAudioEngine(traceWriter: traceWriter), runtimeCMixerTraceWriter: traceWriter)
+        let audioEngine = RuntimeCMixerAudioEngine(
+            startsOutputHostOnDemand: false,
+            traceWriter: traceWriter
+        )
+        let engine = PlaybackEngine(
+            audioEngine: audioEngine,
+            runtimeCMixerTraceWriter: traceWriter,
+            startsRealtimeTimer: false
+        )
         let sample = makePlaybackSample(pcm: [0.25, 0.25], baseSampleRate: 44_100)
         engine.load(song: makePlaybackSong(
             orderPatternIndices: [2],

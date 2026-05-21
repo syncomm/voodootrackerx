@@ -121,6 +121,18 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
+When `VTX_AUDIO_BACKEND=c_mixer` selects the experimental runtime backend, the
+C mixer now chooses its runtime render sample rate from the AVAudio output
+graph where practical. The automatic policy prefers the output node rate, then
+the default output device's nominal hardware rate, then the main mixer rate,
+and falls back to 44100 Hz only when no valid graph/device rate is available.
+The selected rate is used for the C mixer render config, the
+`AVAudioSourceNode` format, runtime capture, planned adapter event frames, and
+sample-time position resolution. For local diagnostics only, developers can
+force the experimental runtime C mixer rate with
+`VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`; the variable is ignored unless the
+C mixer backend is selected.
+
 Enable a local-only runtime C mixer JSONL trace:
 
 ```bash
@@ -153,7 +165,8 @@ the audio callback when playback stops or the backend resets. The callback
 captures the same already-gained interleaved scratch frames that are then copied
 into the `AVAudioSourceNode` output buffers; this is before AVAudioEngine graph
 conversion, output-node conversion, or hardware sample-rate conversion. It does
-not perform file I/O, call AppKit, or write the WAV. The default capture limit
+not perform file I/O, call AppKit, or write the WAV. Capture reports and WAV
+headers use the selected runtime C mixer sample rate. The default capture limit
 is 240 seconds. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap, and
 larger values are clamped to the same local-debug safety limit. If the cap is
 reached, capture stops and the runtime trace reports truncation.
@@ -219,10 +232,10 @@ timing, parser behavior, tracker UI, or XM effect support.
 
 Use `scripts/summarize-runtime-c-mixer-trace.py` on the JSONL trace to recap
 capture enablement, basename-only output path, sample rate, channel count,
-captured frames/duration, truncation, runtime gain/headroom policy, output
-peak/RMS, and overrange/clipping counters. Keep all WAVs, PCM-derived reports,
-JSONL traces, logs, and listening notes outside git. Public docs and tests must
-continue to use placeholder module paths only.
+captured frames/duration, truncation, runtime sample-rate policy, runtime
+gain/headroom policy, output peak/RMS, and overrange/clipping counters. Keep
+all WAVs, PCM-derived reports, JSONL traces, logs, and listening notes outside
+git. Public docs and tests must continue to use placeholder module paths only.
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.
@@ -310,9 +323,11 @@ replacement ramps whose outgoing voice already reflected final same-frame state
 from ramps that started with older C-side state. True transport stop/reset
 actions still emit `c_mixer_clear_all` and target all channels.
 Runtime C mixer traces also include local-only AVAudio graph diagnostics:
-source-node render sample rate/channel count, C mixer render sample rate/channel
-count, main mixer and output node formats, default output device nominal sample
-rate, hardware buffer frame size/duration when accessible, and booleans
+selected runtime sample rate, runtime sample-rate policy (`graph_aligned`,
+`explicit_env`, or `fallback_44100`), source-node render sample rate/channel
+count, C mixer render sample rate/channel count, main mixer and output node
+formats, default output device nominal sample rate, hardware buffer frame
+size/duration when accessible, `audioFormatConversionLikely`, and booleans
 indicating whether capture format matches the source node, engine output, or
 hardware sample rate.
 Supported runtime updates emit `c_mixer_update_gain_pan_applied`,

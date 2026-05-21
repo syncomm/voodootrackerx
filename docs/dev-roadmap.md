@@ -230,6 +230,15 @@ output-node, and hardware sample-rate/channel diagnostics for downstream output
 delivery investigation. This is runtime C mixer opt-in only and does not change
 offline rendering semantics, add XM effects, alter tracker viewport behavior,
 or change parser architecture.
+Runtime C mixer AVAudio source format alignment now selects the experimental
+runtime C mixer sample rate from the AVAudio output graph/device where
+practical, configures the C mixer/source-node/capture path with that selected
+rate, and keeps planned adapter event frames plus sample-time resolver frames on
+the same runtime timeline. The policy is traced as `graph_aligned`,
+`explicit_env`, or `fallback_44100`, with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE`
+available only for local opt-in C-mixer diagnostics. AVAudio remains the
+default runtime backend, offline rendering defaults are unchanged, and broader
+runtime stabilization remains separate.
 Runtime/offline mismatch window correlation diagnostics are now the current
 runtime investigation path after live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
@@ -319,7 +328,8 @@ Immediate audio accuracy sequence:
 69. Runtime C Mixer Event-Burst / Voice Transition Stabilization — done
 70. Runtime / Offline Mismatch Window Correlation Diagnostics — done
 71. Transport stop-position preservation / Spacebar playback shortcut — done
-72. Reference comparison stabilization against MikMod/OpenMPT
+72. Runtime C Mixer AVAudioSourceNode Format / Device Sample-Rate Alignment — done
+73. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

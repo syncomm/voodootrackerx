@@ -57,6 +57,135 @@ struct RuntimeAudioBackendSelection: Equatable {
     }
 }
 
+struct RuntimeCMixerSampleRateCandidates: Equatable {
+    let outputNodeSampleRate: Double?
+    let mainMixerSampleRate: Double?
+    let hardwareSampleRate: Double?
+
+    static func current() -> RuntimeCMixerSampleRateCandidates {
+        let probeEngine = AVAudioEngine()
+        let outputDevice = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        return RuntimeCMixerSampleRateCandidates(
+            outputNodeSampleRate: probeEngine.outputNode.outputFormat(forBus: 0).sampleRate,
+            mainMixerSampleRate: probeEngine.mainMixerNode.outputFormat(forBus: 0).sampleRate,
+            hardwareSampleRate: outputDevice.nominalSampleRate
+        )
+    }
+}
+
+struct RuntimeCMixerSampleRateSelection: Equatable {
+    static let environmentKey = "VTX_C_MIXER_RUNTIME_SAMPLE_RATE"
+
+    let sampleRate: Double
+    let policy: String
+    let source: String
+    let configurationWarning: String?
+
+    static func resolve(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        candidates: RuntimeCMixerSampleRateCandidates = .current()
+    ) -> RuntimeCMixerSampleRateSelection {
+        if let rawValue = trimmedEnvironmentValue(environment[environmentKey]) {
+            if let parsed = Double(rawValue),
+               isValidSampleRate(parsed) {
+                return RuntimeCMixerSampleRateSelection(
+                    sampleRate: parsed,
+                    policy: "explicit_env",
+                    source: "environment",
+                    configurationWarning: nil
+                )
+            }
+            return automaticSelection(
+                candidates: candidates,
+                configurationWarning: "invalid_runtime_sample_rate"
+            )
+        }
+        return automaticSelection(candidates: candidates, configurationWarning: nil)
+    }
+
+    private static func automaticSelection(
+        candidates: RuntimeCMixerSampleRateCandidates,
+        configurationWarning: String?
+    ) -> RuntimeCMixerSampleRateSelection {
+        if let outputNodeSampleRate = candidates.outputNodeSampleRate,
+           isValidSampleRate(outputNodeSampleRate) {
+            return RuntimeCMixerSampleRateSelection(
+                sampleRate: outputNodeSampleRate,
+                policy: "graph_aligned",
+                source: "output_node",
+                configurationWarning: configurationWarning
+            )
+        }
+        if let hardwareSampleRate = candidates.hardwareSampleRate,
+           isValidSampleRate(hardwareSampleRate) {
+            return RuntimeCMixerSampleRateSelection(
+                sampleRate: hardwareSampleRate,
+                policy: "graph_aligned",
+                source: "hardware",
+                configurationWarning: configurationWarning
+            )
+        }
+        if let mainMixerSampleRate = candidates.mainMixerSampleRate,
+           isValidSampleRate(mainMixerSampleRate) {
+            return RuntimeCMixerSampleRateSelection(
+                sampleRate: mainMixerSampleRate,
+                policy: "graph_aligned",
+                source: "main_mixer",
+                configurationWarning: configurationWarning
+            )
+        }
+        return RuntimeCMixerSampleRateSelection(
+            sampleRate: MixerRenderConfig.defaultSampleRate,
+            policy: "fallback_44100",
+            source: "fallback_44100",
+            configurationWarning: configurationWarning
+        )
+    }
+
+    private static func isValidSampleRate(_ sampleRate: Double) -> Bool {
+        sampleRate.isFinite && sampleRate > 0
+    }
+
+    private static func trimmedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+enum RuntimeCMixerFormatDiagnostics {
+    static func formatConversionLikely(
+        sourceSampleRate: Double,
+        sourceChannelCount: Int,
+        mainMixerSampleRate: Double,
+        mainMixerChannelCount: Int,
+        outputSampleRate: Double,
+        outputChannelCount: Int,
+        hardwareSampleRate: Double?
+    ) -> Bool {
+        let knownRateMismatch = !sampleRatesMatch(sourceSampleRate, mainMixerSampleRate) ||
+            !sampleRatesMatch(sourceSampleRate, outputSampleRate) ||
+            (hardwareSampleRate.map { !sampleRatesMatch(sourceSampleRate, $0) } ?? false)
+        let knownChannelMismatch = sourceChannelCount != mainMixerChannelCount ||
+            sourceChannelCount != outputChannelCount
+        return knownRateMismatch || knownChannelMismatch
+    }
+
+    static func sampleRatesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool? {
+        guard let lhs,
+              let rhs else {
+            return nil
+        }
+        return sampleRatesMatch(lhs, rhs)
+    }
+
+    static func sampleRatesMatch(_ lhs: Double, _ rhs: Double) -> Bool {
+        lhs.isFinite && rhs.isFinite && abs(lhs - rhs) <= 0.5
+    }
+}
+
 @MainActor
 protocol PlaybackAudioBackendProviding: AnyObject {
     var runtimeAudioBackend: RuntimeAudioBackend { get }
@@ -154,6 +283,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
     let sampleRate: Double?
+    let selectedRuntimeSampleRate: Double?
+    let cMixerRuntimeSampleRate: Double?
+    let runtimeSampleRatePolicy: String?
+    let runtimeSampleRateSource: String?
+    let runtimeSampleRateConfigurationWarning: String?
     let cMixerRenderSampleRate: Double?
     let cMixerRenderChannelCount: Int?
     let audioSourceNodeRenderSampleRate: Double?
@@ -433,6 +567,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
         sampleRate: Double? = nil,
+        selectedRuntimeSampleRate: Double? = nil,
+        cMixerRuntimeSampleRate: Double? = nil,
+        runtimeSampleRatePolicy: String? = nil,
+        runtimeSampleRateSource: String? = nil,
+        runtimeSampleRateConfigurationWarning: String? = nil,
         cMixerRenderSampleRate: Double? = nil,
         cMixerRenderChannelCount: Int? = nil,
         audioSourceNodeRenderSampleRate: Double? = nil,
@@ -685,6 +824,11 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
         self.sampleRate = sampleRate
+        self.selectedRuntimeSampleRate = selectedRuntimeSampleRate
+        self.cMixerRuntimeSampleRate = cMixerRuntimeSampleRate
+        self.runtimeSampleRatePolicy = runtimeSampleRatePolicy
+        self.runtimeSampleRateSource = runtimeSampleRateSource
+        self.runtimeSampleRateConfigurationWarning = runtimeSampleRateConfigurationWarning
         self.cMixerRenderSampleRate = cMixerRenderSampleRate
         self.cMixerRenderChannelCount = cMixerRenderChannelCount
         self.audioSourceNodeRenderSampleRate = audioSourceNodeRenderSampleRate
@@ -1262,6 +1406,9 @@ enum PlaybackAudioOutputFactory {
         let updatePolicy = selection.backend == .cMixer
             ? RuntimeCMixerUpdatePolicy.resolve(environment: environment)
             : nil
+        let sampleRateSelection = selection.backend == .cMixer
+            ? RuntimeCMixerSampleRateSelection.resolve(environment: environment)
+            : nil
         let captureConfiguration = selection.backend == .cMixer
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
@@ -1281,14 +1428,20 @@ enum PlaybackAudioOutputFactory {
                 "Runtime C mixer update policy warning=\(warning, privacy: .public) epsilon=\(updatePolicy?.updateEpsilon ?? RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon, privacy: .public)"
             )
         }
+        if let warning = sampleRateSelection?.configurationWarning {
+            logger.warning(
+                "Runtime C mixer sample-rate policy warning=\(warning, privacy: .public) selected_sample_rate=\(sampleRateSelection?.sampleRate ?? MixerRenderConfig.defaultSampleRate, privacy: .public)"
+            )
+        }
         if let captureConfiguration,
            let warning = captureConfiguration.configurationWarning {
             logger.warning(
                 "Runtime C mixer capture policy warning=\(warning, privacy: .public) path_name=\(captureConfiguration.pathName, privacy: .public)"
             )
         }
+        let selectedSampleRate = sampleRateSelection?.sampleRate ?? MixerRenderConfig.defaultSampleRate
         logger.info(
-            "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) experimental_c_mixer_enabled=\(selection.experimentalCMixerEnabled, privacy: .public) sample_rate=\(MixerRenderConfig.defaultSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
+            "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) experimental_c_mixer_enabled=\(selection.experimentalCMixerEnabled, privacy: .public) sample_rate=\(selectedSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
         )
         if runtimeCMixerTraceWriter.isEnabled {
             runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
@@ -1297,7 +1450,12 @@ enum PlaybackAudioOutputFactory {
                 backendFlagValue: selection.requestedValue,
                 fallbackReason: selection.fallbackReason,
                 experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
-                sampleRate: MixerRenderConfig.defaultSampleRate,
+                sampleRate: selectedSampleRate,
+                selectedRuntimeSampleRate: sampleRateSelection?.sampleRate,
+                cMixerRuntimeSampleRate: sampleRateSelection?.sampleRate,
+                runtimeSampleRatePolicy: sampleRateSelection?.policy,
+                runtimeSampleRateSource: sampleRateSelection?.source,
+                runtimeSampleRateConfigurationWarning: sampleRateSelection?.configurationWarning,
                 channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
@@ -1315,10 +1473,10 @@ enum PlaybackAudioOutputFactory {
                 runtimeUpdateEpsilonConfigurationWarning: updatePolicy?.configurationWarning,
                 runtimeCaptureEnabled: selection.backend == .cMixer && captureConfiguration != nil,
                 runtimeCapturePathName: captureConfiguration?.pathName,
-                runtimeCaptureSampleRate: captureConfiguration == nil ? nil : MixerRenderConfig.defaultSampleRate,
+                runtimeCaptureSampleRate: captureConfiguration == nil ? nil : selectedSampleRate,
                 runtimeCaptureChannelCount: captureConfiguration == nil ? nil : MixerRenderConfig.defaultChannelCount,
                 runtimeCaptureSeconds: captureConfiguration?.seconds,
-                runtimeCaptureFrameLimit: captureConfiguration?.frameLimit(sampleRate: MixerRenderConfig.defaultSampleRate),
+                runtimeCaptureFrameLimit: captureConfiguration?.frameLimit(sampleRate: selectedSampleRate),
                 runtimeCapturedFrameCount: captureConfiguration == nil ? nil : 0,
                 runtimeCaptureDurationSeconds: captureConfiguration == nil ? nil : 0,
                 runtimeCaptureTruncated: captureConfiguration == nil ? nil : false,
@@ -1336,9 +1494,11 @@ enum PlaybackAudioOutputFactory {
             return PlaybackAudioEngine()
         case .cMixer:
             return RuntimeCMixerAudioEngine(
+                sampleRate: selectedSampleRate,
                 outputPolicy: outputPolicy ?? .defaultPolicy,
                 updatePolicy: updatePolicy ?? .defaultPolicy,
                 captureConfiguration: captureConfiguration,
+                runtimeSampleRateSelection: sampleRateSelection,
                 traceWriter: runtimeCMixerTraceWriter
             )
         }
@@ -4706,7 +4866,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         hardwareNominalSampleRate = outputDevice.nominalSampleRate
         hardwareIOBufferFrameSize = outputDevice.ioBufferFrameSize
         hardwareIOBufferDuration = outputDevice.ioBufferDuration
-        formatConversionLikely = Self.formatConversionLikely(
+        formatConversionLikely = RuntimeCMixerFormatDiagnostics.formatConversionLikely(
             sourceSampleRate: sourceNodeRenderSampleRate,
             sourceChannelCount: sourceNodeChannelCount,
             mainMixerSampleRate: mainMixerOutputSampleRate,
@@ -4725,27 +4885,10 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
             sampleRate: outputNodeSampleRate,
             channelCount: outputNodeChannelCount
         )
-        captureMatchesHardwareSampleRate = Self.sampleRatesMatch(
+        captureMatchesHardwareSampleRate = RuntimeCMixerFormatDiagnostics.sampleRatesMatch(
             snapshot.capture.sampleRate,
             hardwareNominalSampleRate
         )
-    }
-
-    private static func formatConversionLikely(
-        sourceSampleRate: Double,
-        sourceChannelCount: Int,
-        mainMixerSampleRate: Double,
-        mainMixerChannelCount: Int,
-        outputSampleRate: Double,
-        outputChannelCount: Int,
-        hardwareSampleRate: Double?
-    ) -> Bool {
-        let knownRateMismatch = !sampleRatesMatch(sourceSampleRate, mainMixerSampleRate) ||
-            !sampleRatesMatch(sourceSampleRate, outputSampleRate) ||
-            (hardwareSampleRate.map { !sampleRatesMatch(sourceSampleRate, $0) } ?? false)
-        let knownChannelMismatch = sourceChannelCount != mainMixerChannelCount ||
-            sourceChannelCount != outputChannelCount
-        return knownRateMismatch || knownChannelMismatch
     }
 
     private static func captureMatches(
@@ -4758,20 +4901,8 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
               let captureChannelCount = capture.channelCount else {
             return nil
         }
-        return sampleRatesMatch(captureSampleRate, sampleRate) &&
+        return RuntimeCMixerFormatDiagnostics.sampleRatesMatch(captureSampleRate, sampleRate) &&
             captureChannelCount == channelCount
-    }
-
-    private static func sampleRatesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool? {
-        guard let lhs,
-              let rhs else {
-            return nil
-        }
-        return sampleRatesMatch(lhs, rhs)
-    }
-
-    private static func sampleRatesMatch(_ lhs: Double, _ rhs: Double) -> Bool {
-        lhs.isFinite && rhs.isFinite && abs(lhs - rhs) <= 0.5
     }
 }
 
@@ -4887,6 +5018,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let outputDeviceDiagnostics = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
+    private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
     private var isPrepared = false
     private var isFallbackActive = false
     private var eventCounters = RuntimeCMixerEventCounters()
@@ -4904,6 +5036,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         outputPolicy: RuntimeCMixerOutputPolicy = .defaultPolicy,
         updatePolicy: RuntimeCMixerUpdatePolicy = .defaultPolicy,
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
+        runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
@@ -4914,6 +5047,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             captureConfiguration: captureConfiguration
         )
         self.traceWriter = traceWriter
+        self.runtimeSampleRateSelection = runtimeSampleRateSelection
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: renderCore.config.sampleRate,
@@ -6045,6 +6179,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
             sampleRate: snapshot.sampleRate,
+            selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
+            cMixerRuntimeSampleRate: snapshot.sampleRate,
+            runtimeSampleRatePolicy: runtimeSampleRateSelection?.policy,
+            runtimeSampleRateSource: runtimeSampleRateSelection?.source,
+            runtimeSampleRateConfigurationWarning: runtimeSampleRateSelection?.configurationWarning,
             cMixerRenderSampleRate: audioGraph.cMixerRenderSampleRate,
             cMixerRenderChannelCount: audioGraph.cMixerRenderChannelCount,
             audioSourceNodeRenderSampleRate: audioGraph.sourceNodeRenderSampleRate,

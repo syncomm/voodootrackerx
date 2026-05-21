@@ -141,6 +141,14 @@ This remains a maturation step for the opt-in backend; it does not make the C
 mixer default, add a user-facing toggle, change tracker viewport math, change C
 mixer DSP semantics, or claim runtime readiness.
 
+A later AVAudio delivery maturation step aligns the experimental runtime C
+mixer source format with the AVAudio output graph/device sample rate where
+practical. The selected runtime rate is used consistently for the C mixer render
+config, `AVAudioSourceNode` format, runtime capture, planned adapter event
+frames, and sample-time position resolver. The backend remains opt-in through
+`VTX_AUDIO_BACKEND=c_mixer`; the AVAudioPlayerNode/AVAudioUnitVarispeed backend
+remains the default; offline rendering defaults are unchanged.
+
 ## Feature Flag Proposal
 
 The recommended initial flag is:

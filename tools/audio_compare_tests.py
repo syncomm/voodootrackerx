@@ -2509,6 +2509,10 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                 [
                     self.event(
                         "backend_initialized",
+                        selectedRuntimeSampleRate=44100,
+                        cMixerRuntimeSampleRate=44100,
+                        runtimeSampleRatePolicy="fallback_44100",
+                        runtimeSampleRateSource="fallback_44100",
                         cMixerRenderSampleRate=44100,
                         cMixerRenderChannelCount=2,
                         audioSourceNodeRenderSampleRate=44100,
@@ -2532,6 +2536,10 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
             audio_graph = summary["audio_graph"]
 
+            self.assertEqual(audio_graph["selected_runtime_sample_rate"], 44100)
+            self.assertEqual(audio_graph["c_mixer_runtime_sample_rate"], 44100)
+            self.assertEqual(audio_graph["runtime_sample_rate_policy"], "fallback_44100")
+            self.assertEqual(audio_graph["runtime_sample_rate_source"], "fallback_44100")
             self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 44100)
             self.assertEqual(audio_graph["source_node_render_sample_rate"], 44100)
             self.assertEqual(audio_graph["output_node_sample_rate"], 48000)

@@ -134,6 +134,15 @@ The experimental runtime C mixer backend remains opt-in with
 `VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-runtime-trace.jsonl` to write a
 local-only JSONL trace for the runtime C mixer path.
 
+For the experimental runtime C mixer only, the runtime render format now aligns
+to the AVAudio output graph/device sample rate where practical. The automatic
+policy selects the output node rate first, then the default output device's
+nominal hardware rate, then the main mixer rate, and falls back to 44100 Hz
+only if those rates are unavailable or invalid. `VTX_C_MIXER_RUNTIME_SAMPLE_RATE`
+can force a finite positive sample rate for local diagnostics, but it is ignored
+unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental backend. Offline
+`vtx_render_bounded_xm` defaults and behavior are unchanged.
+
 The runtime C mixer trace now includes output diagnostics intended to explain
 live-only pops, crackle, harsh transitions, and runtime/offline differences
 without changing playback semantics. Trace rows can include backend sample rate,
@@ -182,8 +191,9 @@ The audio callback does not write the WAV. It captures the same already-gained
 interleaved Float32 scratch frames that are then copied into the
 `AVAudioSourceNode` output buffers, before AVAudioEngine graph conversion,
 output-node conversion, or hardware sample-rate conversion. WAV writing happens
-later, outside the callback, when playback stops or the backend resets. If the
-buffer fills, trace rows use `runtimeAction == "capture_truncated"`; otherwise a
+later, outside the callback, when playback stops or the backend resets. The
+capture sample rate is the selected runtime C mixer sample rate. If the buffer
+fills, trace rows use `runtimeAction == "capture_truncated"`; otherwise a
 successful write uses `runtimeAction == "capture_written"`. Failed writes use
 `runtimeAction == "capture_write_failed"`.
 
@@ -198,6 +208,16 @@ Capture-related trace fields include `runtimeCaptureEnabled`,
 `runtimeCaptureConfigurationWarning`. Use these fields with the runtime
 gain/headroom fields when comparing `/tmp` runtime captures against offline
 `vtx_render_bounded_xm` WAVs.
+
+Runtime format trace fields include `selectedRuntimeSampleRate`,
+`cMixerRuntimeSampleRate`, `runtimeSampleRatePolicy`,
+`runtimeSampleRateSource`, `runtimeSampleRateConfigurationWarning`,
+`cMixerRenderSampleRate`, `audioSourceNodeRenderSampleRate`,
+`audioEngineMainMixerOutputSampleRate`, `audioEngineOutputNodeSampleRate`,
+`audioHardwareNominalSampleRate`, `runtimeCaptureSampleRate`, and
+`audioFormatConversionLikely`. Matching source, C mixer, capture, output, and
+hardware rates should make `audioFormatConversionLikely` false or reduce the
+remaining conversion evidence; mismatched rates keep the diagnostic true.
 
 Transient diagnostics are also included in later snapshot rows. The trace keeps
 the existing high adjacent-sample jump threshold and adds cumulative counts for

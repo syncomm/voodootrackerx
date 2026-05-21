@@ -8923,6 +8923,118 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertFalse(selection.experimentalCMixerEnabled)
     }
 
+    func testRuntimeCMixerSampleRatePolicyUsesOutputGraphRateWhenAvailable() {
+        let selection = RuntimeCMixerSampleRateSelection.resolve(
+            environment: [:],
+            candidates: RuntimeCMixerSampleRateCandidates(
+                outputNodeSampleRate: 48_000,
+                mainMixerSampleRate: 44_100,
+                hardwareSampleRate: 48_000
+            )
+        )
+
+        XCTAssertEqual(selection.sampleRate, 48_000)
+        XCTAssertEqual(selection.policy, "graph_aligned")
+        XCTAssertEqual(selection.source, "output_node")
+        XCTAssertNil(selection.configurationWarning)
+    }
+
+    func testRuntimeCMixerSampleRatePolicyFallsBackWhenGraphRateIsUnavailable() {
+        let selection = RuntimeCMixerSampleRateSelection.resolve(
+            environment: [:],
+            candidates: RuntimeCMixerSampleRateCandidates(
+                outputNodeSampleRate: 0,
+                mainMixerSampleRate: nil,
+                hardwareSampleRate: Double.nan
+            )
+        )
+
+        XCTAssertEqual(selection.sampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(selection.policy, "fallback_44100")
+        XCTAssertEqual(selection.source, "fallback_44100")
+        XCTAssertNil(selection.configurationWarning)
+    }
+
+    func testRuntimeCMixerSampleRatePolicyUsesHardwareBeforeMainMixerFallback() {
+        let selection = RuntimeCMixerSampleRateSelection.resolve(
+            environment: [:],
+            candidates: RuntimeCMixerSampleRateCandidates(
+                outputNodeSampleRate: nil,
+                mainMixerSampleRate: 44_100,
+                hardwareSampleRate: 48_000
+            )
+        )
+
+        XCTAssertEqual(selection.sampleRate, 48_000)
+        XCTAssertEqual(selection.policy, "graph_aligned")
+        XCTAssertEqual(selection.source, "hardware")
+    }
+
+    func testRuntimeCMixerSampleRatePolicyAcceptsExplicitEnvironmentOverride() {
+        let selection = RuntimeCMixerSampleRateSelection.resolve(
+            environment: [
+                RuntimeCMixerSampleRateSelection.environmentKey: "96000"
+            ],
+            candidates: RuntimeCMixerSampleRateCandidates(
+                outputNodeSampleRate: 48_000,
+                mainMixerSampleRate: 48_000,
+                hardwareSampleRate: 48_000
+            )
+        )
+
+        XCTAssertEqual(selection.sampleRate, 96_000)
+        XCTAssertEqual(selection.policy, "explicit_env")
+        XCTAssertEqual(selection.source, "environment")
+        XCTAssertNil(selection.configurationWarning)
+    }
+
+    func testRuntimeCMixerSampleRatePolicyFallsBackToGraphForInvalidEnvironmentOverride() {
+        let selection = RuntimeCMixerSampleRateSelection.resolve(
+            environment: [
+                RuntimeCMixerSampleRateSelection.environmentKey: "not-a-rate"
+            ],
+            candidates: RuntimeCMixerSampleRateCandidates(
+                outputNodeSampleRate: 48_000,
+                mainMixerSampleRate: 48_000,
+                hardwareSampleRate: 48_000
+            )
+        )
+
+        XCTAssertEqual(selection.sampleRate, 48_000)
+        XCTAssertEqual(selection.policy, "graph_aligned")
+        XCTAssertEqual(selection.source, "output_node")
+        XCTAssertEqual(selection.configurationWarning, "invalid_runtime_sample_rate")
+    }
+
+    func testRuntimeCMixerFormatDiagnosticsDetectMatchingRates() {
+        let likely = RuntimeCMixerFormatDiagnostics.formatConversionLikely(
+            sourceSampleRate: 48_000,
+            sourceChannelCount: 2,
+            mainMixerSampleRate: 48_000,
+            mainMixerChannelCount: 2,
+            outputSampleRate: 48_000,
+            outputChannelCount: 2,
+            hardwareSampleRate: 48_000
+        )
+
+        XCTAssertFalse(likely)
+        XCTAssertEqual(RuntimeCMixerFormatDiagnostics.sampleRatesMatch(48_000, 48_000.4), true)
+    }
+
+    func testRuntimeCMixerFormatDiagnosticsDetectLikelyConversionWhenRatesDiffer() {
+        let likely = RuntimeCMixerFormatDiagnostics.formatConversionLikely(
+            sourceSampleRate: 44_100,
+            sourceChannelCount: 2,
+            mainMixerSampleRate: 48_000,
+            mainMixerChannelCount: 2,
+            outputSampleRate: 48_000,
+            outputChannelCount: 2,
+            hardwareSampleRate: 48_000
+        )
+
+        XCTAssertTrue(likely)
+    }
+
     func testRuntimeCMixerDefaultGainPolicyUsesConservativeHeadroom() {
         let policy = RuntimeCMixerOutputPolicy.resolve(environment: [:])
 
@@ -9074,12 +9186,15 @@ final class VoodooTrackerXTests: XCTestCase {
             environment: [RuntimeAudioBackendSelection.environmentKey: "c_mixer"],
             runtimeCMixerTraceWriter: traceWriter
         )
+        let selectedSampleRate = traceWriter.events.first?.selectedRuntimeSampleRate ?? MixerRenderConfig.defaultSampleRate
 
         XCTAssertTrue(output is RuntimeCMixerAudioEngine)
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.sampleRate, 44_100)
+        XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
+        XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
+        XCTAssertNotNil(traceWriter.events.first?.runtimeSampleRatePolicy)
         XCTAssertEqual(traceWriter.events.first?.channelCount, 2)
         XCTAssertEqual(traceWriter.events.first?.runtimeHeadroomPolicy, "default_runtime_headroom_db")
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputGain, RuntimeCMixerOutputPolicy.defaultPolicy.outputGain)
@@ -9092,10 +9207,35 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeUpdateEpsilonPolicy, "default_runtime_update_epsilon")
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
         let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
-        XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(initializedEvent?.selectedRuntimeSampleRate, selectedSampleRate)
+        XCTAssertEqual(initializedEvent?.cMixerRuntimeSampleRate, selectedSampleRate)
+        XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRenderChannelCount, MixerRenderConfig.defaultChannelCount)
-        XCTAssertEqual(initializedEvent?.audioSourceNodeRenderSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(initializedEvent?.audioSourceNodeRenderSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.audioSourceNodeChannelCount, MixerRenderConfig.defaultChannelCount)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryAppliesExplicitCMixerRuntimeSampleRateOverride() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeAudioBackendSelection.environmentKey: "c_mixer",
+                RuntimeCMixerSampleRateSelection.environmentKey: "48000"
+            ],
+            runtimeCMixerTraceWriter: traceWriter
+        )
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
+        XCTAssertEqual(traceWriter.events.first?.selectedRuntimeSampleRate, 48_000)
+        XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, 48_000)
+        XCTAssertEqual(traceWriter.events.first?.runtimeSampleRatePolicy, "explicit_env")
+        XCTAssertEqual(traceWriter.events.first?.runtimeSampleRateSource, "environment")
+        XCTAssertNil(traceWriter.events.first?.runtimeSampleRateConfigurationWarning)
+        let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
+        XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, 48_000)
+        XCTAssertEqual(initializedEvent?.audioSourceNodeRenderSampleRate, 48_000)
     }
 
     @MainActor
@@ -9113,15 +9253,16 @@ final class VoodooTrackerXTests: XCTestCase {
             ],
             runtimeCMixerTraceWriter: traceWriter
         )
+        let selectedSampleRate = traceWriter.events.first?.selectedRuntimeSampleRate ?? MixerRenderConfig.defaultSampleRate
 
         XCTAssertTrue(output is RuntimeCMixerAudioEngine)
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeCapturePathName, captureURL.lastPathComponent)
-        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureSampleRate, MixerRenderConfig.defaultSampleRate)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureSampleRate, selectedSampleRate)
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureChannelCount, MixerRenderConfig.defaultChannelCount)
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureSeconds, 0.5)
-        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureFrameLimit, Int((MixerRenderConfig.defaultSampleRate * 0.5).rounded(.up)))
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureFrameLimit, Int((selectedSampleRate * 0.5).rounded(.up)))
         XCTAssertEqual(traceWriter.events.first?.runtimeCapturedFrameCount, 0)
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureTruncated, false)
         let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
@@ -9313,6 +9454,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(sameFrameEvents.map(\.channelIndex), [0, 1])
     }
 
+    func testRuntimeCMixerAdapterEventPlanUsesSelectedRuntimeSampleRateForFrames() {
+        let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), baseSampleRate: 48_000)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000)
+        let noteTrigger = plan.events.first { event in
+            if case .noteTrigger = event.action {
+                return true
+            }
+            return false
+        }
+
+        XCTAssertEqual(plan.sampleRate, 48_000)
+        XCTAssertEqual(noteTrigger?.scheduledFrame, 4_800)
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -9332,6 +9499,24 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(second.tickInRow, 0)
         XCTAssertEqual(third.source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0))
         XCTAssertEqual(third.tickInRow, 0)
+    }
+
+    func testSampleTimePositionResolverUsesSelectedRuntimeSampleRate() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let plan = try XCTUnwrap(RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 48_000).plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+
+        let first = try XCTUnwrap(resolver.position(atFrame: 4_799))
+        let second = try XCTUnwrap(resolver.position(atFrame: 4_800))
+
+        XCTAssertEqual(first.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(first.tickInRow, 0)
+        XCTAssertEqual(second.source, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1))
+        XCTAssertEqual(second.tickInRow, 0)
     }
 
     func testSampleTimePositionResolverMapsFramesInsideRowToTick() throws {

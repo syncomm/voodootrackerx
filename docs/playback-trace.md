@@ -242,6 +242,31 @@ Runtime format trace fields include `selectedRuntimeSampleRate`,
 hardware rates should make `audioFormatConversionLikely` false or reduce the
 remaining conversion evidence; mismatched rates keep the diagnostic true.
 
+Runtime output-device diagnostics also report main-mixer input/output format,
+output-node latency and presentation latency, hardware IO buffer duration,
+hardware latency and safety offset when CoreAudio exposes them, a hashed default
+device UID, engine running/connection state, AVAudioEngine configuration-change
+count, graph format-change count, and output route-change count. The raw device
+name and raw device UID are not written to public docs; local traces use only a
+hashed device UID and numeric device id.
+
+The experimental callback isolation fields report whether the
+`AVAudioSourceNode` render block ran on the main thread, the callback thread id,
+whether a main-thread callback dependency was detected, whether known diagnostic
+allocation risk remains in the callback, lock-wait counters, event-queue
+producer/consumer thread ids, and playback-follow publication counts. For a
+local isolation run, set
+`VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` with
+`VTX_AUDIO_BACKEND=c_mixer` to suppress tracker follow callbacks without
+changing the default AVAudio backend.
+
+This PR does not add an output/main-mixer tap WAV capture. Installing an
+AVAudioEngine tap would introduce another callback path, buffer copy, and
+synchronization surface while the current investigation is isolating the
+existing source-node callback and output graph. Keep source-node capture and
+graph/device traces as the local comparison tools for now; a post-mixer tap can
+be a separate, explicitly measured diagnostics PR if needed.
+
 Transient diagnostics are also included in later snapshot rows. The trace keeps
 the existing high adjacent-sample jump threshold and adds cumulative counts for
 lower thresholds such as `0.25`, `0.35`, `0.50`, and `0.75`, the max adjacent

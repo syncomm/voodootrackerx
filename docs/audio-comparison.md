@@ -177,9 +177,13 @@ reached, capture stops and the runtime trace reports truncation.
 `VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE=1` disables capture even if a capture path
 is present. `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` disables trace and capture
 and keeps only minimal callback/output-delivery diagnostics for the experimental
-backend. A useful local isolation matrix is: trace plus capture, trace only,
-capture only, both disabled, and minimal-callback mode. Generated traces,
-captures, reports, logs, screenshots, and listening notes remain local-only.
+backend. `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` suppresses
+experimental C-mixer tracker-follow publication for local callback/UI isolation
+without changing the default AVAudio backend. A useful local isolation matrix
+is: trace plus capture with normal follow publication, trace/capture disabled
+with follow publication disabled, trace only, capture only, both disabled, and
+minimal-callback mode. Generated traces, captures, reports, logs, screenshots,
+and listening notes remain local-only.
 
 To compare the runtime capture against an offline C mixer render, first render a
 clean local candidate WAV under `/tmp`:
@@ -243,11 +247,20 @@ timing, parser behavior, tracker UI, or XM effect support.
 Use `scripts/summarize-runtime-c-mixer-trace.py` on the JSONL trace to recap
 capture enablement, basename-only output path, sample rate, channel count,
 captured frames/duration, truncation, runtime sample-rate policy, runtime
-gain/headroom policy, callback timing, output buffer copy verification,
-scratch/capture/output hash checks, output peak/RMS, and overrange/clipping
-counters. Keep all WAVs, PCM-derived reports, JSONL traces, logs, and listening
-notes outside git. Public docs and tests must continue to use placeholder
-module paths only.
+gain/headroom policy, callback timing, callback thread/main-thread isolation,
+event queue producer/consumer threads, playback-follow publication counts,
+output buffer copy verification, scratch/capture/output hash checks,
+source/main/output/hardware graph fields, hardware IO/latency fields, route and
+configuration-change counts, output peak/RMS, and overrange/clipping counters.
+Keep all WAVs, PCM-derived reports, JSONL traces, logs, and listening notes
+outside git. Public docs and tests must continue to use placeholder module
+paths only.
+
+No output/main-mixer tap WAV is installed by this diagnostics pass. A tap would
+add another AVAudio callback and synchronization path while the current local
+matrix is measuring the existing source-node callback and AVAudio output graph.
+If source-node capture stays clean while live hardware output remains artifacted
+and graph diagnostics are inconclusive, add a separate measured output-tap PR.
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.

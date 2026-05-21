@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreAudio
+import Darwin
 import Foundation
 import os
 
@@ -190,6 +191,7 @@ enum RuntimeCMixerDiagnosticEnvironment {
     static let disableTraceEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_TRACE"
     static let disableCaptureEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_CAPTURE"
     static let minimalCallbackEnvironmentKey = "VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK"
+    static let disableFollowPublicationEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION"
 
     static func flagEnabled(_ key: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -524,11 +526,33 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let audioSourceNodeChannelCount: Int?
     let audioEngineMainMixerOutputSampleRate: Double?
     let audioEngineMainMixerOutputChannelCount: Int?
+    let audioEngineMainMixerInputSampleRate: Double?
+    let audioEngineMainMixerInputChannelCount: Int?
+    let audioEngineMainMixerLatency: Double?
+    let audioEngineMainMixerOutputPresentationLatency: Double?
     let audioEngineOutputNodeSampleRate: Double?
     let audioEngineOutputNodeChannelCount: Int?
+    let audioEngineOutputNodeLatency: Double?
+    let audioEngineOutputNodeOutputPresentationLatency: Double?
     let audioHardwareNominalSampleRate: Double?
+    let audioHardwareDeviceID: UInt32?
+    let audioHardwareDeviceUIDHash: String?
     let audioHardwareIOBufferFrameSize: UInt32?
     let audioHardwareIOBufferDuration: Double?
+    let audioHardwareLatencyFrames: UInt32?
+    let audioHardwareLatencyDuration: Double?
+    let audioHardwareSafetyOffsetFrames: UInt32?
+    let audioHardwareSafetyOffsetDuration: Double?
+    let audioHardwareTransportType: UInt32?
+    let audioEngineRunning: Bool?
+    let audioEngineSourceNodeAttached: Bool?
+    let audioEngineSourceNodeConnected: Bool?
+    let audioEngineMainMixerConnectedToOutput: Bool?
+    let audioEngineConfigurationChangeCount: UInt64?
+    let audioGraphFormatChangeCount: UInt64?
+    let audioOutputRouteChangeCount: UInt64?
+    let audioGraphFormatChanged: Bool?
+    let audioOutputRouteChanged: Bool?
     let audioFormatConversionLikely: Bool?
     let runtimeCaptureMatchesSourceNodeFormat: Bool?
     let runtimeCaptureMatchesEngineOutputFormat: Bool?
@@ -560,6 +584,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let publishedPlaybackFollowToCMixerRowDelta: Int?
     let playbackEngineToPublishedPlaybackFollowFrameDelta: Int?
     let playbackEngineToPublishedPlaybackFollowRowDelta: Int?
+    let playbackFollowPublicationDisabled: Bool?
+    let playbackFollowPublicationCount: UInt64?
+    let playbackFollowPublicationSuppressedCount: UInt64?
     let channelCount: Int?
     let orderIndex: Int?
     let patternIndex: Int?
@@ -648,6 +675,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let callbackIntervalMinMS: Double?
     let callbackIntervalMaxMS: Double?
     let callbackIntervalLastMS: Double?
+    let callbackThreadIsMain: Bool?
+    let callbackThreadID: UInt64?
+    let callbackMainThreadDependencyDetected: Bool?
+    let callbackAllocationWarning: Bool?
+    let callbackLockWaitCount: UInt64?
+    let callbackLockWaitDurationMS: Double?
+    let eventQueueProducerThreadID: UInt64?
+    let eventQueueProducerThreadIsMain: Bool?
+    let eventQueueConsumerThreadID: UInt64?
+    let eventQueueConsumerThreadIsMain: Bool?
     let runtimeMinimalCallbackMode: Bool?
     let outputBufferCopyAttemptCount: UInt64?
     let outputBufferCopyFailureCount: UInt64?
@@ -840,11 +877,33 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         audioSourceNodeChannelCount: Int? = nil,
         audioEngineMainMixerOutputSampleRate: Double? = nil,
         audioEngineMainMixerOutputChannelCount: Int? = nil,
+        audioEngineMainMixerInputSampleRate: Double? = nil,
+        audioEngineMainMixerInputChannelCount: Int? = nil,
+        audioEngineMainMixerLatency: Double? = nil,
+        audioEngineMainMixerOutputPresentationLatency: Double? = nil,
         audioEngineOutputNodeSampleRate: Double? = nil,
         audioEngineOutputNodeChannelCount: Int? = nil,
+        audioEngineOutputNodeLatency: Double? = nil,
+        audioEngineOutputNodeOutputPresentationLatency: Double? = nil,
         audioHardwareNominalSampleRate: Double? = nil,
+        audioHardwareDeviceID: UInt32? = nil,
+        audioHardwareDeviceUIDHash: String? = nil,
         audioHardwareIOBufferFrameSize: UInt32? = nil,
         audioHardwareIOBufferDuration: Double? = nil,
+        audioHardwareLatencyFrames: UInt32? = nil,
+        audioHardwareLatencyDuration: Double? = nil,
+        audioHardwareSafetyOffsetFrames: UInt32? = nil,
+        audioHardwareSafetyOffsetDuration: Double? = nil,
+        audioHardwareTransportType: UInt32? = nil,
+        audioEngineRunning: Bool? = nil,
+        audioEngineSourceNodeAttached: Bool? = nil,
+        audioEngineSourceNodeConnected: Bool? = nil,
+        audioEngineMainMixerConnectedToOutput: Bool? = nil,
+        audioEngineConfigurationChangeCount: UInt64? = nil,
+        audioGraphFormatChangeCount: UInt64? = nil,
+        audioOutputRouteChangeCount: UInt64? = nil,
+        audioGraphFormatChanged: Bool? = nil,
+        audioOutputRouteChanged: Bool? = nil,
         audioFormatConversionLikely: Bool? = nil,
         runtimeCaptureMatchesSourceNodeFormat: Bool? = nil,
         runtimeCaptureMatchesEngineOutputFormat: Bool? = nil,
@@ -876,6 +935,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         publishedPlaybackFollowToCMixerRowDelta: Int? = nil,
         playbackEngineToPublishedPlaybackFollowFrameDelta: Int? = nil,
         playbackEngineToPublishedPlaybackFollowRowDelta: Int? = nil,
+        playbackFollowPublicationDisabled: Bool? = nil,
+        playbackFollowPublicationCount: UInt64? = nil,
+        playbackFollowPublicationSuppressedCount: UInt64? = nil,
         channelCount: Int? = nil,
         context: AudioRuntimeTraceContext? = nil,
         targetScope: String = "none",
@@ -938,6 +1000,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         callbackIntervalMinMS: Double? = nil,
         callbackIntervalMaxMS: Double? = nil,
         callbackIntervalLastMS: Double? = nil,
+        callbackThreadIsMain: Bool? = nil,
+        callbackThreadID: UInt64? = nil,
+        callbackMainThreadDependencyDetected: Bool? = nil,
+        callbackAllocationWarning: Bool? = nil,
+        callbackLockWaitCount: UInt64? = nil,
+        callbackLockWaitDurationMS: Double? = nil,
+        eventQueueProducerThreadID: UInt64? = nil,
+        eventQueueProducerThreadIsMain: Bool? = nil,
+        eventQueueConsumerThreadID: UInt64? = nil,
+        eventQueueConsumerThreadIsMain: Bool? = nil,
         runtimeMinimalCallbackMode: Bool? = nil,
         outputBufferCopyAttemptCount: UInt64? = nil,
         outputBufferCopyFailureCount: UInt64? = nil,
@@ -1129,11 +1201,33 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.audioSourceNodeChannelCount = audioSourceNodeChannelCount
         self.audioEngineMainMixerOutputSampleRate = audioEngineMainMixerOutputSampleRate
         self.audioEngineMainMixerOutputChannelCount = audioEngineMainMixerOutputChannelCount
+        self.audioEngineMainMixerInputSampleRate = audioEngineMainMixerInputSampleRate
+        self.audioEngineMainMixerInputChannelCount = audioEngineMainMixerInputChannelCount
+        self.audioEngineMainMixerLatency = audioEngineMainMixerLatency
+        self.audioEngineMainMixerOutputPresentationLatency = audioEngineMainMixerOutputPresentationLatency
         self.audioEngineOutputNodeSampleRate = audioEngineOutputNodeSampleRate
         self.audioEngineOutputNodeChannelCount = audioEngineOutputNodeChannelCount
+        self.audioEngineOutputNodeLatency = audioEngineOutputNodeLatency
+        self.audioEngineOutputNodeOutputPresentationLatency = audioEngineOutputNodeOutputPresentationLatency
         self.audioHardwareNominalSampleRate = audioHardwareNominalSampleRate
+        self.audioHardwareDeviceID = audioHardwareDeviceID
+        self.audioHardwareDeviceUIDHash = audioHardwareDeviceUIDHash
         self.audioHardwareIOBufferFrameSize = audioHardwareIOBufferFrameSize
         self.audioHardwareIOBufferDuration = audioHardwareIOBufferDuration
+        self.audioHardwareLatencyFrames = audioHardwareLatencyFrames
+        self.audioHardwareLatencyDuration = audioHardwareLatencyDuration
+        self.audioHardwareSafetyOffsetFrames = audioHardwareSafetyOffsetFrames
+        self.audioHardwareSafetyOffsetDuration = audioHardwareSafetyOffsetDuration
+        self.audioHardwareTransportType = audioHardwareTransportType
+        self.audioEngineRunning = audioEngineRunning
+        self.audioEngineSourceNodeAttached = audioEngineSourceNodeAttached
+        self.audioEngineSourceNodeConnected = audioEngineSourceNodeConnected
+        self.audioEngineMainMixerConnectedToOutput = audioEngineMainMixerConnectedToOutput
+        self.audioEngineConfigurationChangeCount = audioEngineConfigurationChangeCount
+        self.audioGraphFormatChangeCount = audioGraphFormatChangeCount
+        self.audioOutputRouteChangeCount = audioOutputRouteChangeCount
+        self.audioGraphFormatChanged = audioGraphFormatChanged
+        self.audioOutputRouteChanged = audioOutputRouteChanged
         self.audioFormatConversionLikely = audioFormatConversionLikely
         self.runtimeCaptureMatchesSourceNodeFormat = runtimeCaptureMatchesSourceNodeFormat
         self.runtimeCaptureMatchesEngineOutputFormat = runtimeCaptureMatchesEngineOutputFormat
@@ -1165,6 +1259,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.publishedPlaybackFollowToCMixerRowDelta = publishedPlaybackFollowToCMixerRowDelta
         self.playbackEngineToPublishedPlaybackFollowFrameDelta = playbackEngineToPublishedPlaybackFollowFrameDelta
         self.playbackEngineToPublishedPlaybackFollowRowDelta = playbackEngineToPublishedPlaybackFollowRowDelta
+        self.playbackFollowPublicationDisabled = playbackFollowPublicationDisabled
+        self.playbackFollowPublicationCount = playbackFollowPublicationCount
+        self.playbackFollowPublicationSuppressedCount = playbackFollowPublicationSuppressedCount
         self.channelCount = channelCount
         orderIndex = context?.orderIndex
         patternIndex = context?.patternIndex
@@ -1253,6 +1350,16 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.callbackIntervalMinMS = callbackIntervalMinMS
         self.callbackIntervalMaxMS = callbackIntervalMaxMS
         self.callbackIntervalLastMS = callbackIntervalLastMS
+        self.callbackThreadIsMain = callbackThreadIsMain
+        self.callbackThreadID = callbackThreadID
+        self.callbackMainThreadDependencyDetected = callbackMainThreadDependencyDetected
+        self.callbackAllocationWarning = callbackAllocationWarning
+        self.callbackLockWaitCount = callbackLockWaitCount
+        self.callbackLockWaitDurationMS = callbackLockWaitDurationMS
+        self.eventQueueProducerThreadID = eventQueueProducerThreadID
+        self.eventQueueProducerThreadIsMain = eventQueueProducerThreadIsMain
+        self.eventQueueConsumerThreadID = eventQueueConsumerThreadID
+        self.eventQueueConsumerThreadIsMain = eventQueueConsumerThreadIsMain
         self.runtimeMinimalCallbackMode = runtimeMinimalCallbackMode
         self.outputBufferCopyAttemptCount = outputBufferCopyAttemptCount
         self.outputBufferCopyFailureCount = outputBufferCopyFailureCount
@@ -1907,6 +2014,16 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let callbackIntervalMinMS: Double?
     let callbackIntervalMaxMS: Double?
     let callbackIntervalLastMS: Double?
+    let callbackThreadIsMain: Bool?
+    let callbackThreadID: UInt64?
+    let callbackMainThreadDependencyDetected: Bool
+    let callbackAllocationWarning: Bool
+    let callbackLockWaitCount: UInt64
+    let callbackLockWaitDurationMS: Double
+    let eventQueueProducerThreadID: UInt64?
+    let eventQueueProducerThreadIsMain: Bool?
+    let eventQueueConsumerThreadID: UInt64?
+    let eventQueueConsumerThreadIsMain: Bool?
     let runtimeMinimalCallbackMode: Bool
     let outputBufferCopyAttemptCount: UInt64
     let outputBufferCopyFailureCount: UInt64
@@ -2531,6 +2648,18 @@ fileprivate struct RuntimeCMixerAdapterEventScheduleConfigurationResult: Equatab
     let skippedOverflowCount: Int
 }
 
+struct RuntimeCMixerThreadDiagnostics: Equatable {
+    let threadID: UInt64
+    let isMainThread: Bool
+
+    static func current() -> RuntimeCMixerThreadDiagnostics {
+        RuntimeCMixerThreadDiagnostics(
+            threadID: UInt64(pthread_mach_thread_np(pthread_self())),
+            isMainThread: Thread.isMainThread
+        )
+    }
+}
+
 final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let updateEpsilon = RuntimeCMixerUpdatePolicy.defaultUpdateEpsilon
     static let outputDiscontinuityThreshold = Float(0.75)
@@ -2577,6 +2706,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var callbackIntervalMaxSeconds: Double?
     private var callbackIntervalLastSeconds: Double?
     private var lastCallbackStartUptimeNanos: UInt64?
+    private var lastCallbackThreadDiagnostics: RuntimeCMixerThreadDiagnostics?
+    private var callbackMainThreadInvocationCount: UInt64 = 0
+    private var eventQueueProducerThreadDiagnostics: RuntimeCMixerThreadDiagnostics?
+    private var eventQueueConsumerThreadDiagnostics: RuntimeCMixerThreadDiagnostics?
     private var lastCaptureSummary: RuntimeCMixerSampleSummary?
     private var outputBufferCopyAttemptCount: UInt64 = 0
     private var outputBufferCopyFailureCount: UInt64 = 0
@@ -2676,6 +2809,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
         adapterEventSchedule = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
         nextAdapterEventScheduleIndex = 0
+        eventQueueProducerThreadDiagnostics = RuntimeCMixerThreadDiagnostics.current()
+        eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
         appliedAdapterEventDiagnostics.reserveCapacity(adapterEventSchedule.count)
         appliedPlannedEventCount = 0
@@ -2697,6 +2832,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        eventQueueProducerThreadDiagnostics = nil
+        eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
@@ -3984,7 +4121,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     @discardableResult
-    func render(into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>, frameCount: Int) -> Bool {
+    func render(
+        into outputInterleavedPCM: UnsafeMutableBufferPointer<Float>,
+        frameCount: Int,
+        callbackThread: RuntimeCMixerThreadDiagnostics? = nil
+    ) -> Bool {
         let safeFrameCount = max(0, frameCount)
         guard lock.try() else {
             clear(outputInterleavedPCM)
@@ -4006,7 +4147,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 zeroFilled: false,
                 activeVoiceCountBefore: activeVoiceCountBefore,
                 loadedVoiceCountBefore: loadedVoiceCountBefore,
-                outputMetrics: .silence
+                outputMetrics: .silence,
+                callbackThread: callbackThread
             )
             return true
         }
@@ -4023,7 +4165,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 zeroFilled: true,
                 activeVoiceCountBefore: activeVoiceCountBefore,
                 loadedVoiceCountBefore: loadedVoiceCountBefore,
-                outputMetrics: .silence
+                outputMetrics: .silence,
+                callbackThread: callbackThread
             )
             return false
         }
@@ -4035,7 +4178,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             frameCount: safeFrameCount,
             callbackStartFrame: callbackStartFrame,
             callbackEndFrame: callbackEndFrame,
-            callbackIndex: renderCallbackCount &+ 1
+            callbackIndex: renderCallbackCount &+ 1,
+            callbackThread: callbackThread
         )
         let sampleCount = safeFrameCount * mixer.config.channelCount
         applyOutputGain(outputInterleavedPCM, sampleCount: sampleCount)
@@ -4053,7 +4197,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 outputInterleavedPCM,
                 sampleCount: sampleCount,
                 channelCount: mixer.config.channelCount
-            )
+            ),
+            callbackThread: callbackThread
         )
         return true
     }
@@ -4182,7 +4327,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         frameCount: Int,
         callbackStartFrame: UInt64,
         callbackEndFrame: UInt64,
-        callbackIndex: UInt64
+        callbackIndex: UInt64,
+        callbackThread: RuntimeCMixerThreadDiagnostics?
     ) {
         var renderedFrames = 0
         while nextAdapterEventScheduleIndex < adapterEventSchedule.count {
@@ -4216,6 +4362,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             let rampDownCompletionCountBefore = mixer.rampDownCompletionCount
             var burstDiagnostics = [RuntimeCMixerAppliedAdapterEventDiagnostic]()
             burstDiagnostics.reserveCapacity(sameFrameBurstSize)
+            if let callbackThread {
+                eventQueueConsumerThreadDiagnostics = callbackThread
+            }
             for eventIndex in burstStartIndex..<burstEndIndex {
                 burstDiagnostics.append(applyQueuedAdapterEventLocked(
                     adapterEventSchedule[eventIndex],
@@ -4521,6 +4670,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     func render(frameCount: AVAudioFrameCount, ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
         let safeFrameCount = Int(frameCount)
+        let callbackThread = RuntimeCMixerThreadDiagnostics.current()
         let callbackStartNanos = DispatchTime.now().uptimeNanoseconds
         defer {
             recordCallbackRealtimeDiagnostics(
@@ -4546,7 +4696,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let rendered = scratchInterleavedPCM.withUnsafeMutableBufferPointer { scratch in
             render(
                 into: UnsafeMutableBufferPointer(start: scratch.baseAddress, count: sampleCount),
-                frameCount: safeFrameCount
+                frameCount: safeFrameCount,
+                callbackThread: callbackThread
             )
         }
         if rendered {
@@ -4566,6 +4717,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         stoppedFrameByChannel.removeAll()
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        eventQueueProducerThreadDiagnostics = nil
+        eventQueueConsumerThreadDiagnostics = nil
         appliedAdapterEventDiagnostics.removeAll(keepingCapacity: true)
         lastCaptureSummary = nil
         lastOutputBufferCopyDiagnostics = nil
@@ -4769,6 +4922,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackIntervalMinMS: callbackIntervalMinSeconds.map(milliseconds),
             callbackIntervalMaxMS: callbackIntervalMaxSeconds.map(milliseconds),
             callbackIntervalLastMS: callbackIntervalLastSeconds.map(milliseconds),
+            callbackThreadIsMain: lastCallbackThreadDiagnostics?.isMainThread,
+            callbackThreadID: lastCallbackThreadDiagnostics?.threadID,
+            callbackMainThreadDependencyDetected: callbackMainThreadInvocationCount > 0,
+            callbackAllocationWarning: true,
+            callbackLockWaitCount: 0,
+            callbackLockWaitDurationMS: 0,
+            eventQueueProducerThreadID: eventQueueProducerThreadDiagnostics?.threadID,
+            eventQueueProducerThreadIsMain: eventQueueProducerThreadDiagnostics?.isMainThread,
+            eventQueueConsumerThreadID: eventQueueConsumerThreadDiagnostics?.threadID,
+            eventQueueConsumerThreadIsMain: eventQueueConsumerThreadDiagnostics?.isMainThread,
             runtimeMinimalCallbackMode: callbackDiagnostics.minimalCallbackMode,
             outputBufferCopyAttemptCount: outputBufferCopyAttemptCount,
             outputBufferCopyFailureCount: outputBufferCopyFailureCount,
@@ -4862,10 +5025,17 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         zeroFilled: Bool,
         activeVoiceCountBefore: Int,
         loadedVoiceCountBefore: Int,
-        outputMetrics: RuntimeCMixerOutputMetrics
+        outputMetrics: RuntimeCMixerOutputMetrics,
+        callbackThread: RuntimeCMixerThreadDiagnostics? = nil
     ) {
         let callbackIndex = renderCallbackCount &+ 1
         renderCallbackCount &+= 1
+        if let callbackThread {
+            lastCallbackThreadDiagnostics = callbackThread
+            if callbackThread.isMainThread {
+                callbackMainThreadInvocationCount &+= 1
+            }
+        }
         lastCallbackIndex = callbackIndex
         lastCallbackRequestedFrameCount = requestedFrameCount
         lastCallbackStartFrame = callbackStartFrame
@@ -5449,8 +5619,13 @@ private func makeRuntimeCMixerSourceNode(
 }
 
 private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
+    let deviceID: AudioObjectID?
+    let deviceUIDHash: String?
     let nominalSampleRate: Double?
     let ioBufferFrameSize: UInt32?
+    let latencyFrames: UInt32?
+    let safetyOffsetFrames: UInt32?
+    let transportType: UInt32?
 
     var ioBufferDuration: Double? {
         guard let nominalSampleRate,
@@ -5461,14 +5636,44 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
         return Double(ioBufferFrameSize) / nominalSampleRate
     }
 
+    var latencyDuration: Double? {
+        duration(frames: latencyFrames)
+    }
+
+    var safetyOffsetDuration: Double? {
+        duration(frames: safetyOffsetFrames)
+    }
+
     static func currentDefaultOutputDevice() -> RuntimeCMixerAudioOutputDeviceDiagnostics {
         guard let deviceID = defaultOutputDeviceID() else {
-            return RuntimeCMixerAudioOutputDeviceDiagnostics(nominalSampleRate: nil, ioBufferFrameSize: nil)
+            return RuntimeCMixerAudioOutputDeviceDiagnostics(
+                deviceID: nil,
+                deviceUIDHash: nil,
+                nominalSampleRate: nil,
+                ioBufferFrameSize: nil,
+                latencyFrames: nil,
+                safetyOffsetFrames: nil,
+                transportType: nil
+            )
         }
         return RuntimeCMixerAudioOutputDeviceDiagnostics(
+            deviceID: deviceID,
+            deviceUIDHash: deviceUIDHash(for: deviceID),
             nominalSampleRate: nominalSampleRate(for: deviceID),
-            ioBufferFrameSize: ioBufferFrameSize(for: deviceID)
+            ioBufferFrameSize: ioBufferFrameSize(for: deviceID),
+            latencyFrames: uint32Property(for: deviceID, selector: kAudioDevicePropertyLatency),
+            safetyOffsetFrames: uint32Property(for: deviceID, selector: kAudioDevicePropertySafetyOffset),
+            transportType: uint32Property(for: deviceID, selector: kAudioDevicePropertyTransportType)
         )
+    }
+
+    private func duration(frames: UInt32?) -> Double? {
+        guard let nominalSampleRate,
+              nominalSampleRate > 0,
+              let frames else {
+            return nil
+        }
+        return Double(frames) / nominalSampleRate
     }
 
     private static func defaultOutputDeviceID() -> AudioObjectID? {
@@ -5512,19 +5717,58 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
     }
 
     private static func ioBufferFrameSize(for deviceID: AudioObjectID) -> UInt32? {
+        uint32Property(for: deviceID, selector: kAudioDevicePropertyBufferFrameSize)
+    }
+
+    private static func uint32Property(for deviceID: AudioObjectID, selector: AudioObjectPropertySelector) -> UInt32? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var frameSize = UInt32(0)
+        var value = UInt32(0)
         var size = UInt32(MemoryLayout<UInt32>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &frameSize)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
         guard status == noErr,
-              frameSize > 0 else {
+              value > 0 else {
             return nil
         }
-        return frameSize
+        return value
+    }
+
+    private static func deviceUIDHash(for deviceID: AudioObjectID) -> String? {
+        guard let uid = stringProperty(for: deviceID, selector: kAudioDevicePropertyDeviceUID) else {
+            return nil
+        }
+        return stableHash(uid)
+    }
+
+    private static func stringProperty(for deviceID: AudioObjectID, selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
+        guard status == noErr else {
+            return nil
+        }
+        guard let string = value?.takeUnretainedValue() as String?,
+              !string.isEmpty else {
+            return nil
+        }
+        return string
+    }
+
+    private static func stableHash(_ value: String) -> String {
+        var hash = UInt64(14_695_981_039_346_656_037)
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
     }
 }
 
@@ -5535,11 +5779,28 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     let sourceNodeChannelCount: Int
     let mainMixerOutputSampleRate: Double
     let mainMixerOutputChannelCount: Int
+    let mainMixerInputSampleRate: Double
+    let mainMixerInputChannelCount: Int
+    let mainMixerLatency: Double
+    let mainMixerOutputPresentationLatency: Double
     let outputNodeSampleRate: Double
     let outputNodeChannelCount: Int
+    let outputNodeLatency: Double
+    let outputNodeOutputPresentationLatency: Double
+    let outputDeviceID: AudioObjectID?
+    let outputDeviceUIDHash: String?
     let hardwareNominalSampleRate: Double?
     let hardwareIOBufferFrameSize: UInt32?
     let hardwareIOBufferDuration: Double?
+    let hardwareLatencyFrames: UInt32?
+    let hardwareLatencyDuration: Double?
+    let hardwareSafetyOffsetFrames: UInt32?
+    let hardwareSafetyOffsetDuration: Double?
+    let hardwareTransportType: UInt32?
+    let engineRunning: Bool
+    let sourceNodeAttached: Bool
+    let sourceNodeConnected: Bool
+    let mainMixerConnectedToOutput: Bool
     let formatConversionLikely: Bool
     let captureMatchesSourceNodeFormat: Bool?
     let captureMatchesEngineOutputFormat: Bool?
@@ -5548,9 +5809,18 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     init(
         snapshot: RuntimeCMixerRenderSnapshot,
         sourceFormat: AVAudioFormat,
+        mainMixerInputFormat: AVAudioFormat,
         mainMixerOutputFormat: AVAudioFormat,
         outputNodeFormat: AVAudioFormat,
-        outputDevice: RuntimeCMixerAudioOutputDeviceDiagnostics
+        outputDevice: RuntimeCMixerAudioOutputDeviceDiagnostics,
+        engineRunning: Bool,
+        sourceNodeAttached: Bool,
+        sourceNodeConnected: Bool,
+        mainMixerConnectedToOutput: Bool,
+        mainMixerLatency: Double,
+        mainMixerOutputPresentationLatency: Double,
+        outputNodeLatency: Double,
+        outputNodeOutputPresentationLatency: Double
     ) {
         cMixerRenderSampleRate = snapshot.sampleRate
         cMixerRenderChannelCount = snapshot.channelCount
@@ -5558,11 +5828,28 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         sourceNodeChannelCount = Int(sourceFormat.channelCount)
         mainMixerOutputSampleRate = mainMixerOutputFormat.sampleRate
         mainMixerOutputChannelCount = Int(mainMixerOutputFormat.channelCount)
+        mainMixerInputSampleRate = mainMixerInputFormat.sampleRate
+        mainMixerInputChannelCount = Int(mainMixerInputFormat.channelCount)
+        self.mainMixerLatency = mainMixerLatency
+        self.mainMixerOutputPresentationLatency = mainMixerOutputPresentationLatency
         outputNodeSampleRate = outputNodeFormat.sampleRate
         outputNodeChannelCount = Int(outputNodeFormat.channelCount)
+        self.outputNodeLatency = outputNodeLatency
+        self.outputNodeOutputPresentationLatency = outputNodeOutputPresentationLatency
+        outputDeviceID = outputDevice.deviceID
+        outputDeviceUIDHash = outputDevice.deviceUIDHash
         hardwareNominalSampleRate = outputDevice.nominalSampleRate
         hardwareIOBufferFrameSize = outputDevice.ioBufferFrameSize
         hardwareIOBufferDuration = outputDevice.ioBufferDuration
+        hardwareLatencyFrames = outputDevice.latencyFrames
+        hardwareLatencyDuration = outputDevice.latencyDuration
+        hardwareSafetyOffsetFrames = outputDevice.safetyOffsetFrames
+        hardwareSafetyOffsetDuration = outputDevice.safetyOffsetDuration
+        hardwareTransportType = outputDevice.transportType
+        self.engineRunning = engineRunning
+        self.sourceNodeAttached = sourceNodeAttached
+        self.sourceNodeConnected = sourceNodeConnected
+        self.mainMixerConnectedToOutput = mainMixerConnectedToOutput
         formatConversionLikely = RuntimeCMixerFormatDiagnostics.formatConversionLikely(
             sourceSampleRate: sourceNodeRenderSampleRate,
             sourceChannelCount: sourceNodeChannelCount,
@@ -5588,6 +5875,34 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         )
     }
 
+    var formatSignature: [String] {
+        [
+            "\(cMixerRenderSampleRate)",
+            "\(cMixerRenderChannelCount)",
+            "\(sourceNodeRenderSampleRate)",
+            "\(sourceNodeChannelCount)",
+            "\(mainMixerInputSampleRate)",
+            "\(mainMixerInputChannelCount)",
+            "\(mainMixerOutputSampleRate)",
+            "\(mainMixerOutputChannelCount)",
+            "\(outputNodeSampleRate)",
+            "\(outputNodeChannelCount)",
+            "\(hardwareNominalSampleRate ?? -1)"
+        ]
+    }
+
+    var routeSignature: [String] {
+        [
+            outputDeviceUIDHash ?? "unknown",
+            "\(outputDeviceID ?? 0)",
+            "\(hardwareNominalSampleRate ?? -1)",
+            "\(hardwareIOBufferFrameSize ?? 0)",
+            "\(hardwareLatencyFrames ?? 0)",
+            "\(hardwareSafetyOffsetFrames ?? 0)",
+            "\(hardwareTransportType ?? 0)"
+        ]
+    }
+
     private static func captureMatches(
         capture: RuntimeCMixerCaptureSnapshot,
         sampleRate: Double,
@@ -5610,7 +5925,7 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func stop(channel: Int, context: AudioRuntimeTraceContext?)
     func stopAll(context: AudioRuntimeTraceContext?, reason: String)
     func recordTransition(previousContext: AudioRuntimeTraceContext?, context: AudioRuntimeTraceContext?, phase: String, reason: String)
-    func recordPublishedPlaybackFollowPosition(timerContext: AudioRuntimeTraceContext?, publishedPosition: PlaybackFollowPosition)
+    func recordPublishedPlaybackFollowPosition(timerContext: AudioRuntimeTraceContext?, publishedPosition: PlaybackFollowPosition, publicationDisabled: Bool)
 }
 
 @MainActor
@@ -5712,12 +6027,20 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let format: AVAudioFormat
     private let sourceNode: AVAudioSourceNode
     private let renderCore: RuntimeCMixerRenderCore
-    private let outputDeviceDiagnostics = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
     private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
     private var isPrepared = false
     private var isFallbackActive = false
+    nonisolated(unsafe) private var engineConfigurationObserver: NSObjectProtocol?
+    private var engineConfigurationChangeCount: UInt64 = 0
+    private var audioGraphFormatChangeCount: UInt64 = 0
+    private var audioOutputRouteChangeCount: UInt64 = 0
+    private var lastAudioGraphFormatSignature: [String]?
+    private var lastAudioGraphWasPrepared = false
+    private var lastAudioOutputRouteSignature: [String]?
+    private var playbackFollowPublicationCount: UInt64 = 0
+    private var playbackFollowPublicationSuppressedCount: UInt64 = 0
     private var eventCounters = RuntimeCMixerEventCounters()
     private var adapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
     private var consumedAdapterEventIDs = Set<Int>()
@@ -5765,6 +6088,21 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             succeeded: nil,
             reason: "runtime_c_mixer_initialized"
         )
+        engineConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.recordEngineConfigurationChange()
+            }
+        }
+    }
+
+    deinit {
+        if let engineConfigurationObserver {
+            NotificationCenter.default.removeObserver(engineConfigurationObserver)
+        }
     }
 
     var runtimeAudioBackend: RuntimeAudioBackend {
@@ -6147,13 +6485,63 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     private func audioGraphDiagnostics(snapshot: RuntimeCMixerRenderSnapshot) -> RuntimeCMixerAudioGraphDiagnostics {
-        RuntimeCMixerAudioGraphDiagnostics(
+        let outputDevice = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
+        return RuntimeCMixerAudioGraphDiagnostics(
             snapshot: snapshot,
             sourceFormat: format,
+            mainMixerInputFormat: engine.mainMixerNode.inputFormat(forBus: 0),
             mainMixerOutputFormat: engine.mainMixerNode.outputFormat(forBus: 0),
             outputNodeFormat: engine.outputNode.outputFormat(forBus: 0),
-            outputDevice: outputDeviceDiagnostics
+            outputDevice: outputDevice,
+            engineRunning: engine.isRunning,
+            sourceNodeAttached: isPrepared,
+            sourceNodeConnected: isPrepared && !engine.outputConnectionPoints(for: sourceNode, outputBus: 0).isEmpty,
+            mainMixerConnectedToOutput: !engine.outputConnectionPoints(for: engine.mainMixerNode, outputBus: 0).isEmpty,
+            mainMixerLatency: engine.mainMixerNode.latency,
+            mainMixerOutputPresentationLatency: engine.mainMixerNode.outputPresentationLatency,
+            outputNodeLatency: engine.outputNode.latency,
+            outputNodeOutputPresentationLatency: engine.outputNode.outputPresentationLatency
         )
+    }
+
+    private func recordEngineConfigurationChange() {
+        engineConfigurationChangeCount &+= 1
+        recordRuntimeEvent(
+            action: "engine_configuration_change",
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: nil,
+            reason: "av_audio_engine_configuration_change"
+        )
+    }
+
+    private func updateAudioGraphChangeCounters(_ graph: RuntimeCMixerAudioGraphDiagnostics) -> (formatChanged: Bool, routeChanged: Bool) {
+        let formatChanged: Bool
+        if lastAudioGraphWasPrepared,
+           graph.sourceNodeAttached,
+           let lastAudioGraphFormatSignature {
+            formatChanged = lastAudioGraphFormatSignature != graph.formatSignature
+        } else {
+            formatChanged = false
+        }
+        if formatChanged {
+            audioGraphFormatChangeCount &+= 1
+        }
+        lastAudioGraphFormatSignature = graph.formatSignature
+        lastAudioGraphWasPrepared = graph.sourceNodeAttached
+
+        let routeChanged: Bool
+        if let lastAudioOutputRouteSignature {
+            routeChanged = lastAudioOutputRouteSignature != graph.routeSignature
+        } else {
+            routeChanged = false
+        }
+        if routeChanged {
+            audioOutputRouteChangeCount &+= 1
+        }
+        lastAudioOutputRouteSignature = graph.routeSignature
+        return (formatChanged, routeChanged)
     }
 
     private func drainAppliedRuntimeAdapterEvents() {
@@ -6600,9 +6988,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func recordPublishedPlaybackFollowPosition(
         timerContext: AudioRuntimeTraceContext?,
-        publishedPosition: PlaybackFollowPosition
+        publishedPosition: PlaybackFollowPosition,
+        publicationDisabled: Bool
     ) {
         drainAppliedRuntimeAdapterEvents()
+        if publicationDisabled {
+            playbackFollowPublicationSuppressedCount &+= 1
+        } else {
+            playbackFollowPublicationCount &+= 1
+        }
         recordRuntimeEvent(
             action: "playback_follow_position_published",
             context: timerContext,
@@ -6610,6 +7004,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             snapshot: renderCore.snapshot(),
             succeeded: nil,
             publishedPlaybackFollowPosition: publishedPosition,
+            playbackFollowPublicationDisabled: publicationDisabled,
             reason: "playback_follow_position_published"
         )
     }
@@ -6786,6 +7181,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         transition: RuntimeCMixerTransitionTraceFields? = nil,
         runtimeEventFallbackReason: String? = nil,
         publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
+        playbackFollowPublicationDisabled: Bool? = nil,
         captureWriteSucceeded: Bool? = nil,
         captureWriteError: String? = nil,
         reason: String?
@@ -6815,6 +7211,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
         let audioGraph = audioGraphDiagnostics(snapshot: snapshot)
+        let audioGraphChanges = updateAudioGraphChangeCounters(audioGraph)
         traceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
@@ -6889,11 +7286,33 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioSourceNodeChannelCount: audioGraph.sourceNodeChannelCount,
             audioEngineMainMixerOutputSampleRate: audioGraph.mainMixerOutputSampleRate,
             audioEngineMainMixerOutputChannelCount: audioGraph.mainMixerOutputChannelCount,
+            audioEngineMainMixerInputSampleRate: audioGraph.mainMixerInputSampleRate,
+            audioEngineMainMixerInputChannelCount: audioGraph.mainMixerInputChannelCount,
+            audioEngineMainMixerLatency: audioGraph.mainMixerLatency,
+            audioEngineMainMixerOutputPresentationLatency: audioGraph.mainMixerOutputPresentationLatency,
             audioEngineOutputNodeSampleRate: audioGraph.outputNodeSampleRate,
             audioEngineOutputNodeChannelCount: audioGraph.outputNodeChannelCount,
+            audioEngineOutputNodeLatency: audioGraph.outputNodeLatency,
+            audioEngineOutputNodeOutputPresentationLatency: audioGraph.outputNodeOutputPresentationLatency,
             audioHardwareNominalSampleRate: audioGraph.hardwareNominalSampleRate,
+            audioHardwareDeviceID: audioGraph.outputDeviceID,
+            audioHardwareDeviceUIDHash: audioGraph.outputDeviceUIDHash,
             audioHardwareIOBufferFrameSize: audioGraph.hardwareIOBufferFrameSize,
             audioHardwareIOBufferDuration: audioGraph.hardwareIOBufferDuration,
+            audioHardwareLatencyFrames: audioGraph.hardwareLatencyFrames,
+            audioHardwareLatencyDuration: audioGraph.hardwareLatencyDuration,
+            audioHardwareSafetyOffsetFrames: audioGraph.hardwareSafetyOffsetFrames,
+            audioHardwareSafetyOffsetDuration: audioGraph.hardwareSafetyOffsetDuration,
+            audioHardwareTransportType: audioGraph.hardwareTransportType,
+            audioEngineRunning: audioGraph.engineRunning,
+            audioEngineSourceNodeAttached: audioGraph.sourceNodeAttached,
+            audioEngineSourceNodeConnected: audioGraph.sourceNodeConnected,
+            audioEngineMainMixerConnectedToOutput: audioGraph.mainMixerConnectedToOutput,
+            audioEngineConfigurationChangeCount: engineConfigurationChangeCount,
+            audioGraphFormatChangeCount: audioGraphFormatChangeCount,
+            audioOutputRouteChangeCount: audioOutputRouteChangeCount,
+            audioGraphFormatChanged: audioGraphChanges.formatChanged,
+            audioOutputRouteChanged: audioGraphChanges.routeChanged,
             audioFormatConversionLikely: audioGraph.formatConversionLikely,
             runtimeCaptureMatchesSourceNodeFormat: audioGraph.captureMatchesSourceNodeFormat,
             runtimeCaptureMatchesEngineOutputFormat: audioGraph.captureMatchesEngineOutputFormat,
@@ -6925,6 +7344,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             publishedPlaybackFollowToCMixerRowDelta: publishedToCMixerRowDelta,
             playbackEngineToPublishedPlaybackFollowFrameDelta: playbackEngineToPublishedFrameDelta,
             playbackEngineToPublishedPlaybackFollowRowDelta: playbackEngineToPublishedRowDelta,
+            playbackFollowPublicationDisabled: playbackFollowPublicationDisabled,
+            playbackFollowPublicationCount: playbackFollowPublicationCount,
+            playbackFollowPublicationSuppressedCount: playbackFollowPublicationSuppressedCount,
             channelCount: snapshot.channelCount,
             context: context,
             targetScope: targetScope,
@@ -6987,6 +7409,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackIntervalMinMS: snapshot.callbackIntervalMinMS,
             callbackIntervalMaxMS: snapshot.callbackIntervalMaxMS,
             callbackIntervalLastMS: snapshot.callbackIntervalLastMS,
+            callbackThreadIsMain: snapshot.callbackThreadIsMain,
+            callbackThreadID: snapshot.callbackThreadID,
+            callbackMainThreadDependencyDetected: snapshot.callbackMainThreadDependencyDetected,
+            callbackAllocationWarning: snapshot.callbackAllocationWarning,
+            callbackLockWaitCount: snapshot.callbackLockWaitCount,
+            callbackLockWaitDurationMS: snapshot.callbackLockWaitDurationMS,
+            eventQueueProducerThreadID: snapshot.eventQueueProducerThreadID,
+            eventQueueProducerThreadIsMain: snapshot.eventQueueProducerThreadIsMain,
+            eventQueueConsumerThreadID: snapshot.eventQueueConsumerThreadID,
+            eventQueueConsumerThreadIsMain: snapshot.eventQueueConsumerThreadIsMain,
             runtimeMinimalCallbackMode: snapshot.runtimeMinimalCallbackMode,
             outputBufferCopyAttemptCount: snapshot.outputBufferCopyAttemptCount,
             outputBufferCopyFailureCount: snapshot.outputBufferCopyFailureCount,

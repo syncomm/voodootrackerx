@@ -7,6 +7,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let audioEngine: PlaybackAudioOutput
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
+    private let runtimeCMixerFollowPublicationDisabled: Bool
 
     private(set) var state: PlaybackState = .stopped
     private(set) var song: PlaybackSong?
@@ -31,11 +32,22 @@ final class PlaybackEngine: PlaybackTransport {
     init(
         audioEngine: PlaybackAudioOutput? = nil,
         traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter(),
-        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
+        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
-        self.audioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(runtimeCMixerTraceWriter: runtimeCMixerTraceWriter)
+        let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
+            environment: environment,
+            runtimeCMixerTraceWriter: runtimeCMixerTraceWriter
+        )
+        self.audioEngine = resolvedAudioEngine
         self.traceWriter = traceWriter
+        runtimeCMixerFollowPublicationDisabled =
+            (resolvedAudioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend == .cMixer &&
+            RuntimeCMixerDiagnosticEnvironment.flagEnabled(
+                RuntimeCMixerDiagnosticEnvironment.disableFollowPublicationEnvironmentKey,
+                environment: environment
+            )
     }
 
     func load(song: PlaybackSong?) {
@@ -860,10 +872,13 @@ final class PlaybackEngine: PlaybackTransport {
         if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
             diagnosticOutput.recordPublishedPlaybackFollowPosition(
                 timerContext: runtimeTraceContext(at: timerPosition, tickInRow: tickInRow, channelIndex: nil),
-                publishedPosition: followPosition
+                publishedPosition: followPosition,
+                publicationDisabled: runtimeCMixerFollowPublicationDisabled
             )
         }
-        positionDidChange?(followPosition.position)
+        if !runtimeCMixerFollowPublicationDisabled {
+            positionDidChange?(followPosition.position)
+        }
     }
 
     private func effectiveControls(for channelState: PlaybackChannelState) -> AudioChannelControls {

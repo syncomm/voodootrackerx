@@ -194,6 +194,7 @@ enum RuntimeCMixerDiagnosticEnvironment {
     static let minimalCallbackEnvironmentKey = "VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK"
     static let disableFollowPublicationEnvironmentKey = "VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION"
     static let outputBufferVerificationEnvironmentKey = "VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY"
+    static let routeLabelEnvironmentKey = "VTX_C_MIXER_RUNTIME_ROUTE_LABEL"
 
     static func flagEnabled(_ key: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -201,6 +202,99 @@ enum RuntimeCMixerDiagnosticEnvironment {
             return false
         }
         return ["1", "true", "yes", "on"].contains(value)
+    }
+}
+
+enum RuntimeCMixerDeviceIdentityRedactor {
+    static func stableHash(_ value: String) -> String {
+        var hash = UInt64(14_695_981_039_346_656_037)
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
+    }
+
+    static func hashedStableID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return stableHash(trimmed)
+    }
+
+    static func safeRouteLabel(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        safeRouteLabel(environment[RuntimeCMixerDiagnosticEnvironment.routeLabelEnvironmentKey])
+    }
+
+    static func safeRouteLabel(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        var result = ""
+        var previousWasSeparator = false
+        for scalar in trimmed.lowercased().unicodeScalars {
+            let character: Character?
+            if CharacterSet.alphanumerics.contains(scalar) {
+                character = Character(scalar)
+                previousWasSeparator = false
+            } else if scalar == "-" || scalar == "_" || scalar == "." {
+                character = Character(scalar)
+                previousWasSeparator = false
+            } else if !previousWasSeparator {
+                character = "-"
+                previousWasSeparator = true
+            } else {
+                character = nil
+            }
+            if let character {
+                result.append(character)
+            }
+            if result.count >= 48 {
+                break
+            }
+        }
+        let sanitized = result.trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
+        return sanitized.isEmpty ? nil : sanitized
+    }
+
+    static func transportTypeName(for transportType: UInt32?) -> String? {
+        guard let transportType else {
+            return nil
+        }
+        switch transportType {
+        case kAudioDeviceTransportTypeBuiltIn:
+            return "built_in"
+        case kAudioDeviceTransportTypeAggregate:
+            return "aggregate"
+        case kAudioDeviceTransportTypeVirtual:
+            return "virtual"
+        case kAudioDeviceTransportTypePCI:
+            return "pci"
+        case kAudioDeviceTransportTypeUSB:
+            return "usb"
+        case kAudioDeviceTransportTypeFireWire:
+            return "firewire"
+        case kAudioDeviceTransportTypeBluetooth:
+            return "bluetooth"
+        case kAudioDeviceTransportTypeBluetoothLE:
+            return "bluetooth_le"
+        case kAudioDeviceTransportTypeHDMI:
+            return "hdmi"
+        case kAudioDeviceTransportTypeDisplayPort:
+            return "display_port"
+        case kAudioDeviceTransportTypeAirPlay:
+            return "airplay"
+        case kAudioDeviceTransportTypeAVB:
+            return "avb"
+        case kAudioDeviceTransportTypeThunderbolt:
+            return "thunderbolt"
+        default:
+            return "unknown_\(transportType)"
+        }
     }
 }
 
@@ -543,6 +637,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let audioHardwareNominalSampleRate: Double?
     let audioHardwareDeviceID: UInt32?
     let audioHardwareDeviceUIDHash: String?
+    let audioOutputRouteLabel: String?
     let audioHardwareIOBufferFrameSize: UInt32?
     let audioHardwareIOBufferDuration: Double?
     let audioHardwareLatencyFrames: UInt32?
@@ -550,15 +645,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let audioHardwareSafetyOffsetFrames: UInt32?
     let audioHardwareSafetyOffsetDuration: Double?
     let audioHardwareTransportType: UInt32?
+    let audioHardwareTransportTypeName: String?
     let audioEngineRunning: Bool?
     let audioEngineSourceNodeAttached: Bool?
     let audioEngineSourceNodeConnected: Bool?
     let audioEngineMainMixerConnectedToOutput: Bool?
     let audioEngineConfigurationChangeCount: UInt64?
+    let audioEngineRestartCount: UInt64?
     let audioGraphFormatChangeCount: UInt64?
     let audioOutputRouteChangeCount: UInt64?
     let audioGraphFormatChanged: Bool?
     let audioOutputRouteChanged: Bool?
+    let audioOutputDeviceChanged: Bool?
+    let audioOutputSampleRateChanged: Bool?
+    let audioOutputChannelCountChanged: Bool?
+    let audioHardwareIOBufferDurationChanged: Bool?
+    let audioEngineOutputNodeFormatChanged: Bool?
     let audioFormatConversionLikely: Bool?
     let runtimeCaptureMatchesSourceNodeFormat: Bool?
     let runtimeCaptureMatchesEngineOutputFormat: Bool?
@@ -898,6 +1000,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         audioHardwareNominalSampleRate: Double? = nil,
         audioHardwareDeviceID: UInt32? = nil,
         audioHardwareDeviceUIDHash: String? = nil,
+        audioOutputRouteLabel: String? = nil,
         audioHardwareIOBufferFrameSize: UInt32? = nil,
         audioHardwareIOBufferDuration: Double? = nil,
         audioHardwareLatencyFrames: UInt32? = nil,
@@ -905,15 +1008,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         audioHardwareSafetyOffsetFrames: UInt32? = nil,
         audioHardwareSafetyOffsetDuration: Double? = nil,
         audioHardwareTransportType: UInt32? = nil,
+        audioHardwareTransportTypeName: String? = nil,
         audioEngineRunning: Bool? = nil,
         audioEngineSourceNodeAttached: Bool? = nil,
         audioEngineSourceNodeConnected: Bool? = nil,
         audioEngineMainMixerConnectedToOutput: Bool? = nil,
         audioEngineConfigurationChangeCount: UInt64? = nil,
+        audioEngineRestartCount: UInt64? = nil,
         audioGraphFormatChangeCount: UInt64? = nil,
         audioOutputRouteChangeCount: UInt64? = nil,
         audioGraphFormatChanged: Bool? = nil,
         audioOutputRouteChanged: Bool? = nil,
+        audioOutputDeviceChanged: Bool? = nil,
+        audioOutputSampleRateChanged: Bool? = nil,
+        audioOutputChannelCountChanged: Bool? = nil,
+        audioHardwareIOBufferDurationChanged: Bool? = nil,
+        audioEngineOutputNodeFormatChanged: Bool? = nil,
         audioFormatConversionLikely: Bool? = nil,
         runtimeCaptureMatchesSourceNodeFormat: Bool? = nil,
         runtimeCaptureMatchesEngineOutputFormat: Bool? = nil,
@@ -1226,6 +1336,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.audioHardwareNominalSampleRate = audioHardwareNominalSampleRate
         self.audioHardwareDeviceID = audioHardwareDeviceID
         self.audioHardwareDeviceUIDHash = audioHardwareDeviceUIDHash
+        self.audioOutputRouteLabel = audioOutputRouteLabel
         self.audioHardwareIOBufferFrameSize = audioHardwareIOBufferFrameSize
         self.audioHardwareIOBufferDuration = audioHardwareIOBufferDuration
         self.audioHardwareLatencyFrames = audioHardwareLatencyFrames
@@ -1233,15 +1344,22 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.audioHardwareSafetyOffsetFrames = audioHardwareSafetyOffsetFrames
         self.audioHardwareSafetyOffsetDuration = audioHardwareSafetyOffsetDuration
         self.audioHardwareTransportType = audioHardwareTransportType
+        self.audioHardwareTransportTypeName = audioHardwareTransportTypeName
         self.audioEngineRunning = audioEngineRunning
         self.audioEngineSourceNodeAttached = audioEngineSourceNodeAttached
         self.audioEngineSourceNodeConnected = audioEngineSourceNodeConnected
         self.audioEngineMainMixerConnectedToOutput = audioEngineMainMixerConnectedToOutput
         self.audioEngineConfigurationChangeCount = audioEngineConfigurationChangeCount
+        self.audioEngineRestartCount = audioEngineRestartCount
         self.audioGraphFormatChangeCount = audioGraphFormatChangeCount
         self.audioOutputRouteChangeCount = audioOutputRouteChangeCount
         self.audioGraphFormatChanged = audioGraphFormatChanged
         self.audioOutputRouteChanged = audioOutputRouteChanged
+        self.audioOutputDeviceChanged = audioOutputDeviceChanged
+        self.audioOutputSampleRateChanged = audioOutputSampleRateChanged
+        self.audioOutputChannelCountChanged = audioOutputChannelCountChanged
+        self.audioHardwareIOBufferDurationChanged = audioHardwareIOBufferDurationChanged
+        self.audioEngineOutputNodeFormatChanged = audioEngineOutputNodeFormatChanged
         self.audioFormatConversionLikely = audioFormatConversionLikely
         self.runtimeCaptureMatchesSourceNodeFormat = runtimeCaptureMatchesSourceNodeFormat
         self.runtimeCaptureMatchesEngineOutputFormat = runtimeCaptureMatchesEngineOutputFormat
@@ -1904,6 +2022,9 @@ enum PlaybackAudioOutputFactory {
         let callbackDiagnostics = selection.backend == .cMixer
             ? RuntimeCMixerCallbackDiagnosticsConfiguration.resolve(environment: environment)
             : nil
+        let routeLabel = selection.backend == .cMixer
+            ? RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(environment: environment)
+            : nil
         let captureConfiguration = selection.backend == .cMixer && callbackDiagnostics?.minimalCallbackMode != true
             ? RuntimeCMixerCaptureConfiguration.resolve(environment: environment)
             : nil
@@ -1951,6 +2072,7 @@ enum PlaybackAudioOutputFactory {
                 runtimeSampleRatePolicy: sampleRateSelection?.policy,
                 runtimeSampleRateSource: sampleRateSelection?.source,
                 runtimeSampleRateConfigurationWarning: sampleRateSelection?.configurationWarning,
+                audioOutputRouteLabel: routeLabel,
                 channelCount: selection.backend == .cMixer ? MixerRenderConfig.defaultChannelCount : 1,
                 targetScope: "none",
                 targetedAllVoices: false,
@@ -1996,6 +2118,7 @@ enum PlaybackAudioOutputFactory {
                 captureConfiguration: captureConfiguration,
                 callbackDiagnostics: callbackDiagnostics ?? .defaultConfiguration,
                 runtimeSampleRateSelection: sampleRateSelection,
+                routeLabel: routeLabel,
                 traceWriter: runtimeCMixerTraceWriter
             )
         }
@@ -5849,6 +5972,7 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
     let latencyFrames: UInt32?
     let safetyOffsetFrames: UInt32?
     let transportType: UInt32?
+    let transportTypeName: String?
 
     var ioBufferDuration: Double? {
         guard let nominalSampleRate,
@@ -5876,9 +6000,11 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
                 ioBufferFrameSize: nil,
                 latencyFrames: nil,
                 safetyOffsetFrames: nil,
-                transportType: nil
+                transportType: nil,
+                transportTypeName: nil
             )
         }
+        let transportType = uint32Property(for: deviceID, selector: kAudioDevicePropertyTransportType)
         return RuntimeCMixerAudioOutputDeviceDiagnostics(
             deviceID: deviceID,
             deviceUIDHash: deviceUIDHash(for: deviceID),
@@ -5886,7 +6012,8 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
             ioBufferFrameSize: ioBufferFrameSize(for: deviceID),
             latencyFrames: uint32Property(for: deviceID, selector: kAudioDevicePropertyLatency),
             safetyOffsetFrames: uint32Property(for: deviceID, selector: kAudioDevicePropertySafetyOffset),
-            transportType: uint32Property(for: deviceID, selector: kAudioDevicePropertyTransportType)
+            transportType: transportType,
+            transportTypeName: RuntimeCMixerDeviceIdentityRedactor.transportTypeName(for: transportType)
         )
     }
 
@@ -5960,10 +6087,9 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
     }
 
     private static func deviceUIDHash(for deviceID: AudioObjectID) -> String? {
-        guard let uid = stringProperty(for: deviceID, selector: kAudioDevicePropertyDeviceUID) else {
-            return nil
-        }
-        return stableHash(uid)
+        RuntimeCMixerDeviceIdentityRedactor.hashedStableID(
+            stringProperty(for: deviceID, selector: kAudioDevicePropertyDeviceUID)
+        )
     }
 
     private static func stringProperty(for deviceID: AudioObjectID, selector: AudioObjectPropertySelector) -> String? {
@@ -5985,17 +6111,10 @@ private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
         return string
     }
 
-    private static func stableHash(_ value: String) -> String {
-        var hash = UInt64(14_695_981_039_346_656_037)
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return String(format: "%016llx", hash)
-    }
 }
 
 private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
+    let routeLabel: String?
     let cMixerRenderSampleRate: Double
     let cMixerRenderChannelCount: Int
     let sourceNodeRenderSampleRate: Double
@@ -6020,6 +6139,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     let hardwareSafetyOffsetFrames: UInt32?
     let hardwareSafetyOffsetDuration: Double?
     let hardwareTransportType: UInt32?
+    let hardwareTransportTypeName: String?
     let engineRunning: Bool
     let sourceNodeAttached: Bool
     let sourceNodeConnected: Bool
@@ -6031,6 +6151,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
 
     init(
         snapshot: RuntimeCMixerRenderSnapshot,
+        routeLabel: String?,
         sourceFormat: AVAudioFormat,
         mainMixerInputFormat: AVAudioFormat,
         mainMixerOutputFormat: AVAudioFormat,
@@ -6045,6 +6166,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         outputNodeLatency: Double,
         outputNodeOutputPresentationLatency: Double
     ) {
+        self.routeLabel = routeLabel
         cMixerRenderSampleRate = snapshot.sampleRate
         cMixerRenderChannelCount = snapshot.channelCount
         sourceNodeRenderSampleRate = sourceFormat.sampleRate
@@ -6069,6 +6191,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         hardwareSafetyOffsetFrames = outputDevice.safetyOffsetFrames
         hardwareSafetyOffsetDuration = outputDevice.safetyOffsetDuration
         hardwareTransportType = outputDevice.transportType
+        hardwareTransportTypeName = outputDevice.transportTypeName
         self.engineRunning = engineRunning
         self.sourceNodeAttached = sourceNodeAttached
         self.sourceNodeConnected = sourceNodeConnected
@@ -6116,6 +6239,7 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
 
     var routeSignature: [String] {
         [
+            routeLabel ?? "unlabeled",
             outputDeviceUIDHash ?? "unknown",
             "\(outputDeviceID ?? 0)",
             "\(hardwareNominalSampleRate ?? -1)",
@@ -6123,6 +6247,21 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
             "\(hardwareLatencyFrames ?? 0)",
             "\(hardwareSafetyOffsetFrames ?? 0)",
             "\(hardwareTransportType ?? 0)"
+        ]
+    }
+
+    var outputDeviceIdentitySignature: [String] {
+        [
+            outputDeviceUIDHash ?? "unknown",
+            "\(outputDeviceID ?? 0)",
+            "\(hardwareTransportType ?? 0)"
+        ]
+    }
+
+    var outputNodeFormatSignature: [String] {
+        [
+            "\(outputNodeSampleRate)",
+            "\(outputNodeChannelCount)"
         ]
     }
 
@@ -6139,6 +6278,26 @@ private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         return RuntimeCMixerFormatDiagnostics.sampleRatesMatch(captureSampleRate, sampleRate) &&
             captureChannelCount == channelCount
     }
+}
+
+private struct RuntimeCMixerAudioGraphChanges: Equatable {
+    let formatChanged: Bool
+    let routeChanged: Bool
+    let outputDeviceChanged: Bool
+    let outputSampleRateChanged: Bool
+    let outputChannelCountChanged: Bool
+    let hardwareIOBufferDurationChanged: Bool
+    let outputNodeFormatChanged: Bool
+
+    static let none = RuntimeCMixerAudioGraphChanges(
+        formatChanged: false,
+        routeChanged: false,
+        outputDeviceChanged: false,
+        outputSampleRateChanged: false,
+        outputChannelCountChanged: false,
+        hardwareIOBufferDurationChanged: false,
+        outputNodeFormatChanged: false
+    )
 }
 
 @MainActor
@@ -6253,15 +6412,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
     private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
+    private let routeLabel: String?
     private var isPrepared = false
     private var isFallbackActive = false
     nonisolated(unsafe) private var engineConfigurationObserver: NSObjectProtocol?
     private var engineConfigurationChangeCount: UInt64 = 0
+    private var audioEngineRestartCount: UInt64 = 0
     private var audioGraphFormatChangeCount: UInt64 = 0
     private var audioOutputRouteChangeCount: UInt64 = 0
     private var lastAudioGraphFormatSignature: [String]?
     private var lastAudioGraphWasPrepared = false
     private var lastAudioOutputRouteSignature: [String]?
+    private var lastAudioGraphDiagnostics: RuntimeCMixerAudioGraphDiagnostics?
     private var playbackFollowPublicationCount: UInt64 = 0
     private var playbackFollowPublicationSuppressedCount: UInt64 = 0
     private var eventCounters = RuntimeCMixerEventCounters()
@@ -6281,6 +6443,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         captureConfiguration: RuntimeCMixerCaptureConfiguration? = nil,
         callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration = .defaultConfiguration,
         runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
+        routeLabel: String? = nil,
         traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
     ) {
         let config = MixerRenderConfig(sampleRate: sampleRate, channelCount: channelCount)
@@ -6293,6 +6456,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
         self.traceWriter = traceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
+        self.routeLabel = RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(routeLabel)
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: renderCore.config.sampleRate,
@@ -6711,6 +6875,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let outputDevice = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
         return RuntimeCMixerAudioGraphDiagnostics(
             snapshot: snapshot,
+            routeLabel: routeLabel,
             sourceFormat: format,
             mainMixerInputFormat: engine.mainMixerNode.inputFormat(forBus: 0),
             mainMixerOutputFormat: engine.mainMixerNode.outputFormat(forBus: 0),
@@ -6739,7 +6904,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
     }
 
-    private func updateAudioGraphChangeCounters(_ graph: RuntimeCMixerAudioGraphDiagnostics) -> (formatChanged: Bool, routeChanged: Bool) {
+    private func updateAudioGraphChangeCounters(_ graph: RuntimeCMixerAudioGraphDiagnostics) -> RuntimeCMixerAudioGraphChanges {
         let formatChanged: Bool
         if lastAudioGraphWasPrepared,
            graph.sourceNodeAttached,
@@ -6764,7 +6929,45 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioOutputRouteChangeCount &+= 1
         }
         lastAudioOutputRouteSignature = graph.routeSignature
-        return (formatChanged, routeChanged)
+        let previousGraph = lastAudioGraphDiagnostics
+        let changes = RuntimeCMixerAudioGraphChanges(
+            formatChanged: formatChanged,
+            routeChanged: routeChanged,
+            outputDeviceChanged: previousGraph.map {
+                $0.outputDeviceIdentitySignature != graph.outputDeviceIdentitySignature
+            } ?? false,
+            outputSampleRateChanged: previousGraph.map {
+                Self.sampleRateChanged($0.outputNodeSampleRate, graph.outputNodeSampleRate) ||
+                    Self.sampleRateChanged($0.hardwareNominalSampleRate, graph.hardwareNominalSampleRate)
+            } ?? false,
+            outputChannelCountChanged: previousGraph.map {
+                $0.outputNodeChannelCount != graph.outputNodeChannelCount
+            } ?? false,
+            hardwareIOBufferDurationChanged: previousGraph.map {
+                Self.doubleChanged($0.hardwareIOBufferDuration, graph.hardwareIOBufferDuration)
+            } ?? false,
+            outputNodeFormatChanged: previousGraph.map {
+                $0.outputNodeFormatSignature != graph.outputNodeFormatSignature
+            } ?? false
+        )
+        lastAudioGraphDiagnostics = graph
+        return changes
+    }
+
+    private static func sampleRateChanged(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        guard let lhs,
+              let rhs else {
+            return lhs != nil || rhs != nil
+        }
+        return !RuntimeCMixerFormatDiagnostics.sampleRatesMatch(lhs, rhs)
+    }
+
+    private static func doubleChanged(_ lhs: Double?, _ rhs: Double?) -> Bool {
+        guard let lhs,
+              let rhs else {
+            return lhs != nil || rhs != nil
+        }
+        return lhs.isFinite && rhs.isFinite ? abs(lhs - rhs) > 0.000_001 : lhs != rhs
     }
 
     private func drainAppliedRuntimeAdapterEvents() {
@@ -7278,6 +7481,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
         do {
             try engine.start()
+            audioEngineRestartCount &+= 1
             logger.info(
                 "Experimental C mixer runtime start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
             )
@@ -7435,7 +7639,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         }
         let audioGraph = audioGraphDiagnostics(snapshot: snapshot)
         let audioGraphChanges = updateAudioGraphChangeCounters(audioGraph)
-        traceWriter.record(RuntimeCMixerTraceEvent(
+        let event = RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
             runtimeEventSource: runtimeEventSource,
@@ -7520,6 +7724,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareNominalSampleRate: audioGraph.hardwareNominalSampleRate,
             audioHardwareDeviceID: audioGraph.outputDeviceID,
             audioHardwareDeviceUIDHash: audioGraph.outputDeviceUIDHash,
+            audioOutputRouteLabel: audioGraph.routeLabel,
             audioHardwareIOBufferFrameSize: audioGraph.hardwareIOBufferFrameSize,
             audioHardwareIOBufferDuration: audioGraph.hardwareIOBufferDuration,
             audioHardwareLatencyFrames: audioGraph.hardwareLatencyFrames,
@@ -7527,15 +7732,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareSafetyOffsetFrames: audioGraph.hardwareSafetyOffsetFrames,
             audioHardwareSafetyOffsetDuration: audioGraph.hardwareSafetyOffsetDuration,
             audioHardwareTransportType: audioGraph.hardwareTransportType,
+            audioHardwareTransportTypeName: audioGraph.hardwareTransportTypeName,
             audioEngineRunning: audioGraph.engineRunning,
             audioEngineSourceNodeAttached: audioGraph.sourceNodeAttached,
             audioEngineSourceNodeConnected: audioGraph.sourceNodeConnected,
             audioEngineMainMixerConnectedToOutput: audioGraph.mainMixerConnectedToOutput,
             audioEngineConfigurationChangeCount: engineConfigurationChangeCount,
+            audioEngineRestartCount: audioEngineRestartCount,
             audioGraphFormatChangeCount: audioGraphFormatChangeCount,
             audioOutputRouteChangeCount: audioOutputRouteChangeCount,
             audioGraphFormatChanged: audioGraphChanges.formatChanged,
             audioOutputRouteChanged: audioGraphChanges.routeChanged,
+            audioOutputDeviceChanged: audioGraphChanges.outputDeviceChanged,
+            audioOutputSampleRateChanged: audioGraphChanges.outputSampleRateChanged,
+            audioOutputChannelCountChanged: audioGraphChanges.outputChannelCountChanged,
+            audioHardwareIOBufferDurationChanged: audioGraphChanges.hardwareIOBufferDurationChanged,
+            audioEngineOutputNodeFormatChanged: audioGraphChanges.outputNodeFormatChanged,
             audioFormatConversionLikely: audioGraph.formatConversionLikely,
             runtimeCaptureMatchesSourceNodeFormat: audioGraph.captureMatchesSourceNodeFormat,
             runtimeCaptureMatchesEngineOutputFormat: audioGraph.captureMatchesEngineOutputFormat,
@@ -7759,7 +7971,118 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             transitionUpdateCount: transition?.updateCount,
             cMixerCallSucceeded: succeeded,
             reason: reason
-        ))
+        )
+        traceWriter.record(event)
+        recordAudioGraphChangeEvents(
+            graph: audioGraph,
+            changes: audioGraphChanges,
+            snapshot: snapshot,
+            baseReason: reason
+        )
+    }
+
+    private func recordAudioGraphChangeEvents(
+        graph: RuntimeCMixerAudioGraphDiagnostics,
+        changes: RuntimeCMixerAudioGraphChanges,
+        snapshot: RuntimeCMixerRenderSnapshot,
+        baseReason: String?
+    ) {
+        if changes.outputNodeFormatChanged {
+            traceWriter.record(audioGraphChangeEvent(
+                action: "audio_output_node_format_changed",
+                graph: graph,
+                changes: changes,
+                snapshot: snapshot,
+                reason: "audio_output_node_format_changed"
+            ))
+        }
+        if changes.routeChanged {
+            traceWriter.record(audioGraphChangeEvent(
+                action: "audio_output_route_changed",
+                graph: graph,
+                changes: changes,
+                snapshot: snapshot,
+                reason: baseReason ?? "audio_output_route_changed"
+            ))
+        }
+    }
+
+    private func audioGraphChangeEvent(
+        action: String,
+        graph: RuntimeCMixerAudioGraphDiagnostics,
+        changes: RuntimeCMixerAudioGraphChanges,
+        snapshot: RuntimeCMixerRenderSnapshot,
+        reason: String
+    ) -> RuntimeCMixerTraceEvent {
+        RuntimeCMixerTraceEvent(
+            runtimeAction: action,
+            runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+            runtimeEventCategory: "audio_graph_change",
+            experimentalCMixerEnabled: true,
+            sampleRate: snapshot.sampleRate,
+            selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
+            cMixerRuntimeSampleRate: snapshot.sampleRate,
+            runtimeSampleRatePolicy: runtimeSampleRateSelection?.policy,
+            runtimeSampleRateSource: runtimeSampleRateSelection?.source,
+            runtimeSampleRateConfigurationWarning: runtimeSampleRateSelection?.configurationWarning,
+            cMixerRenderSampleRate: graph.cMixerRenderSampleRate,
+            cMixerRenderChannelCount: graph.cMixerRenderChannelCount,
+            audioSourceNodeRenderSampleRate: graph.sourceNodeRenderSampleRate,
+            audioSourceNodeChannelCount: graph.sourceNodeChannelCount,
+            audioEngineMainMixerOutputSampleRate: graph.mainMixerOutputSampleRate,
+            audioEngineMainMixerOutputChannelCount: graph.mainMixerOutputChannelCount,
+            audioEngineMainMixerInputSampleRate: graph.mainMixerInputSampleRate,
+            audioEngineMainMixerInputChannelCount: graph.mainMixerInputChannelCount,
+            audioEngineMainMixerLatency: graph.mainMixerLatency,
+            audioEngineMainMixerOutputPresentationLatency: graph.mainMixerOutputPresentationLatency,
+            audioEngineOutputNodeSampleRate: graph.outputNodeSampleRate,
+            audioEngineOutputNodeChannelCount: graph.outputNodeChannelCount,
+            audioEngineOutputNodeLatency: graph.outputNodeLatency,
+            audioEngineOutputNodeOutputPresentationLatency: graph.outputNodeOutputPresentationLatency,
+            audioHardwareNominalSampleRate: graph.hardwareNominalSampleRate,
+            audioHardwareDeviceID: graph.outputDeviceID,
+            audioHardwareDeviceUIDHash: graph.outputDeviceUIDHash,
+            audioOutputRouteLabel: graph.routeLabel,
+            audioHardwareIOBufferFrameSize: graph.hardwareIOBufferFrameSize,
+            audioHardwareIOBufferDuration: graph.hardwareIOBufferDuration,
+            audioHardwareLatencyFrames: graph.hardwareLatencyFrames,
+            audioHardwareLatencyDuration: graph.hardwareLatencyDuration,
+            audioHardwareSafetyOffsetFrames: graph.hardwareSafetyOffsetFrames,
+            audioHardwareSafetyOffsetDuration: graph.hardwareSafetyOffsetDuration,
+            audioHardwareTransportType: graph.hardwareTransportType,
+            audioHardwareTransportTypeName: graph.hardwareTransportTypeName,
+            audioEngineRunning: graph.engineRunning,
+            audioEngineSourceNodeAttached: graph.sourceNodeAttached,
+            audioEngineSourceNodeConnected: graph.sourceNodeConnected,
+            audioEngineMainMixerConnectedToOutput: graph.mainMixerConnectedToOutput,
+            audioEngineConfigurationChangeCount: engineConfigurationChangeCount,
+            audioEngineRestartCount: audioEngineRestartCount,
+            audioGraphFormatChangeCount: audioGraphFormatChangeCount,
+            audioOutputRouteChangeCount: audioOutputRouteChangeCount,
+            audioGraphFormatChanged: changes.formatChanged,
+            audioOutputRouteChanged: changes.routeChanged,
+            audioOutputDeviceChanged: changes.outputDeviceChanged,
+            audioOutputSampleRateChanged: changes.outputSampleRateChanged,
+            audioOutputChannelCountChanged: changes.outputChannelCountChanged,
+            audioHardwareIOBufferDurationChanged: changes.hardwareIOBufferDurationChanged,
+            audioEngineOutputNodeFormatChanged: changes.outputNodeFormatChanged,
+            audioFormatConversionLikely: graph.formatConversionLikely,
+            runtimeCaptureMatchesSourceNodeFormat: graph.captureMatchesSourceNodeFormat,
+            runtimeCaptureMatchesEngineOutputFormat: graph.captureMatchesEngineOutputFormat,
+            runtimeCaptureMatchesHardwareSampleRate: graph.captureMatchesHardwareSampleRate,
+            cMixerRenderedFrames: snapshot.currentFrame,
+            cMixerPlaybackSeconds: snapshot.sampleRate > 0 ? Double(snapshot.currentFrame) / snapshot.sampleRate : nil,
+            channelCount: snapshot.channelCount,
+            targetScope: "none",
+            currentFrame: snapshot.currentFrame,
+            runtimeRenderedFrameCount: snapshot.renderedFrameCount,
+            callbackIndex: snapshot.callbackIndex,
+            callbackRequestedFrameCount: snapshot.callbackRequestedFrameCount,
+            callbackStartFrame: snapshot.callbackStartFrame,
+            callbackEndFrame: snapshot.callbackEndFrame,
+            renderCallbackCount: snapshot.renderCallbackCount,
+            reason: reason
+        )
     }
 
     private func contextWithFallbackChannel(

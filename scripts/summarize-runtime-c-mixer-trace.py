@@ -184,6 +184,23 @@ def last_bool(events: list[dict[str, Any]], field: str) -> bool | None:
     return None
 
 
+def first_present_bool(events: list[dict[str, Any]], *fields: str) -> bool | None:
+    for event in events:
+        for field in fields:
+            value = event.get(field)
+            if isinstance(value, bool):
+                return value
+    return None
+
+
+def tri_state(value: bool | None) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "unknown"
+
+
 def average(values: list[int]) -> float | None:
     if not values:
         return None
@@ -1641,7 +1658,87 @@ def summarize_update_parity(events: list[dict[str, Any]]) -> list[dict[str, Any]
     ]
 
 
-def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) -> dict[str, Any]:
+def source_capture_clean(capture: dict[str, Any]) -> bool | None:
+    if not capture["enabled"]:
+        return None
+    if capture["write_failed"] or capture["overrange_sample_count"] > 0 or capture["clipping_sample_count"] > 0:
+        return False
+    return True
+
+
+def output_copy_verifier_clean(output_buffer_copy: dict[str, Any]) -> bool | None:
+    if output_buffer_copy["attempt_count"] <= 0:
+        return None
+    unhealthy = (
+        output_buffer_copy["failure_count"] > 0
+        or output_buffer_copy["last_succeeded"] is False
+        or output_buffer_copy["filled_requested_frames"] is False
+        or output_buffer_copy["channel_count_matches"] is False
+        or output_buffer_copy["partial_copy"] is True
+        or output_buffer_copy["scratch_capture_hash_matches"] is False
+        or output_buffer_copy["scratch_output_hash_matches"] is False
+    )
+    return not unhealthy
+
+
+def callback_candidate_cause(
+    callback_timing: dict[str, Any],
+    callback_isolation: dict[str, Any],
+    underrun_count: int,
+    zero_fill_count: int,
+    failed_render_count: int,
+) -> bool | None:
+    observed = (
+        callback_timing["callback_count"] > 0
+        or callback_isolation["callback_thread_id"] is not None
+        or callback_isolation["realtime_safe_diagnostics"] is not None
+    )
+    unhealthy = (
+        callback_timing["duration_warning_count"] > 0
+        or callback_timing["over_render_quantum_budget_count"] > 0
+        or callback_isolation["main_thread_dependency_detected"]
+        or callback_isolation["allocation_warning"]
+        or callback_isolation["diagnostic_drop_count"] > 0
+        or callback_isolation["lock_wait_count"] > 0
+        or callback_isolation["lock_failure_count"] > 0
+        or underrun_count > 0
+        or zero_fill_count > 0
+        or failed_render_count > 0
+    )
+    if unhealthy:
+        return True
+    return False if observed else None
+
+
+def route_device_candidate_cause(
+    source_clean: bool | None,
+    output_copy_clean: bool | None,
+    callback_candidate: bool | None,
+    live_artifact_reported: bool | None,
+    route_or_config_changed: bool,
+    format_conversion_likely: bool | None,
+) -> bool | None:
+    if live_artifact_reported is False:
+        return False
+    if source_clean is False or output_copy_clean is False:
+        return False
+    if route_or_config_changed or format_conversion_likely is True:
+        return True
+    if (
+        live_artifact_reported is True
+        and source_clean is True
+        and output_copy_clean is True
+        and callback_candidate is False
+    ):
+        return True
+    return None
+
+
+def build_summary(
+    events: list[dict[str, Any]],
+    trace_path: Path | None = None,
+    live_artifact_reported: bool | None = None,
+) -> dict[str, Any]:
     action_counts = Counter(
         event.get("runtimeAction") for event in events if isinstance(event.get("runtimeAction"), str)
     )
@@ -1931,6 +2028,64 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         ramp_down_completion_count=ramp_down_completion_count,
         abrupt_ramp_down_stop_count=abrupt_ramp_down_stop_count,
     )
+    engine_configuration_change_count = int(max_numeric(events, "audioEngineConfigurationChangeCount") or 0)
+    engine_restart_count = int(max_numeric(events, "audioEngineRestartCount") or 0)
+    graph_format_change_count = int(max_numeric(events, "audioGraphFormatChangeCount") or 0)
+    output_route_change_count = int(max_numeric(events, "audioOutputRouteChangeCount") or 0)
+    graph_format_changed = any(event.get("audioGraphFormatChanged") is True for event in events)
+    output_route_changed = any(event.get("audioOutputRouteChanged") is True for event in events)
+    output_device_changed = any(event.get("audioOutputDeviceChanged") is True for event in events)
+    output_sample_rate_changed = any(event.get("audioOutputSampleRateChanged") is True for event in events)
+    output_channel_count_changed = any(event.get("audioOutputChannelCountChanged") is True for event in events)
+    io_buffer_duration_changed = any(event.get("audioHardwareIOBufferDurationChanged") is True for event in events)
+    output_node_format_changed = any(event.get("audioEngineOutputNodeFormatChanged") is True for event in events)
+    format_conversion_likely = last_bool(events, "audioFormatConversionLikely")
+    source_clean_bool = source_capture_clean(capture)
+    output_copy_clean_bool = output_copy_verifier_clean(output_buffer_copy)
+    manual_live_artifact_bool = live_artifact_reported
+    if manual_live_artifact_bool is None:
+        manual_live_artifact_bool = first_present_bool(
+            events,
+            "manualLiveArtifactReported",
+            "liveArtifactManuallyReported",
+            "liveArtifactReported",
+        )
+    callback_candidate_bool = callback_candidate_cause(
+        callback_timing=callback_timing,
+        callback_isolation=callback_isolation,
+        underrun_count=underrun_count,
+        zero_fill_count=zero_fill_count,
+        failed_render_count=failed_render_count,
+    )
+    if manual_live_artifact_bool is False:
+        callback_candidate_bool = False
+    route_or_config_changed = (
+        output_route_change_count > 0
+        or engine_configuration_change_count > 0
+        or graph_format_change_count > 0
+        or output_route_changed
+        or graph_format_changed
+        or output_device_changed
+        or output_sample_rate_changed
+        or output_channel_count_changed
+        or io_buffer_duration_changed
+        or output_node_format_changed
+    )
+    route_device_candidate_bool = route_device_candidate_cause(
+        source_clean=source_clean_bool,
+        output_copy_clean=output_copy_clean_bool,
+        callback_candidate=callback_candidate_bool,
+        live_artifact_reported=manual_live_artifact_bool,
+        route_or_config_changed=route_or_config_changed,
+        format_conversion_likely=format_conversion_likely,
+    )
+    clean_source_dirty_live = {
+        "source_capture_clean": tri_state(source_clean_bool),
+        "output_copy_verifier_clean": tri_state(output_copy_clean_bool),
+        "live_artifact_manually_reported": tri_state(manual_live_artifact_bool),
+        "route_device_candidate_cause": tri_state(route_device_candidate_bool),
+        "callback_candidate_cause": tri_state(callback_candidate_bool),
+    }
 
     suspicious_findings: list[str] = []
     if clipping_count > 0:
@@ -2001,11 +2156,11 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         suspicious_findings.append("PlaybackEngine position and C mixer sample-time position diverge over time")
     if any(published_follow_divergent(row) for row in published_position_delta_rows):
         suspicious_findings.append("Published playback-follow position and C mixer sample-time position mismatch observed")
-    if any(event.get("audioEngineConfigurationChangeCount") for event in events):
+    if engine_configuration_change_count > 0:
         suspicious_findings.append("AVAudioEngine configuration changes observed during playback")
-    if any(event.get("audioGraphFormatChanged") is True for event in events):
+    if graph_format_changed:
         suspicious_findings.append("AVAudio graph format changes observed during playback")
-    if any(event.get("audioOutputRouteChanged") is True for event in events):
+    if output_route_changed:
         suspicious_findings.append("output route/device changes observed during playback")
 
     large_event_burst = bool(bursts and bursts[0]["event_count"] >= 24)
@@ -2037,7 +2192,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
         or output_copy_scratch_output_matches is False
     ):
         recommended_next_pr = "Runtime C Mixer AVAudio Callback Deadline / Output Delivery Follow-Up"
-    elif any(event.get("audioEngineConfigurationChangeCount") for event in events) or any(event.get("audioOutputRouteChanged") is True for event in events):
+    elif engine_configuration_change_count > 0 or output_route_changed:
         recommended_next_pr = "Runtime C Mixer AVAudio Output Device / Route Follow-Up"
     elif published_follow_has_material_drift:
         recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
@@ -2098,6 +2253,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             },
         },
         "capture": capture,
+        "clean_source_dirty_live": clean_source_dirty_live,
         "callback_timing": callback_timing,
         "callback_isolation": callback_isolation,
         "output_buffer_copy": output_buffer_copy,
@@ -2125,6 +2281,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "hardware_nominal_sample_rate": rounded_optional(last_number(events, "audioHardwareNominalSampleRate")),
             "hardware_device_id": last_exact_integer(events, "audioHardwareDeviceID"),
             "hardware_device_uid_hash": last_string(events, "audioHardwareDeviceUIDHash"),
+            "route_label": last_string(events, "audioOutputRouteLabel"),
             "hardware_io_buffer_frame_size": integer(last_number(events, "audioHardwareIOBufferFrameSize")),
             "hardware_io_buffer_duration_seconds": rounded_optional(last_number(events, "audioHardwareIOBufferDuration")),
             "hardware_latency_frames": integer(last_number(events, "audioHardwareLatencyFrames")),
@@ -2132,16 +2289,25 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
             "hardware_safety_offset_frames": integer(last_number(events, "audioHardwareSafetyOffsetFrames")),
             "hardware_safety_offset_duration_seconds": rounded_optional(last_number(events, "audioHardwareSafetyOffsetDuration")),
             "hardware_transport_type": last_exact_integer(events, "audioHardwareTransportType"),
+            "hardware_transport_type_name": last_string(events, "audioHardwareTransportTypeName"),
             "engine_running": last_bool(events, "audioEngineRunning"),
             "source_node_attached": last_bool(events, "audioEngineSourceNodeAttached"),
             "source_node_connected": last_bool(events, "audioEngineSourceNodeConnected"),
             "main_mixer_connected_to_output": last_bool(events, "audioEngineMainMixerConnectedToOutput"),
-            "engine_configuration_change_count": int(max_numeric(events, "audioEngineConfigurationChangeCount") or 0),
-            "graph_format_change_count": int(max_numeric(events, "audioGraphFormatChangeCount") or 0),
-            "output_route_change_count": int(max_numeric(events, "audioOutputRouteChangeCount") or 0),
-            "graph_format_changed": any(event.get("audioGraphFormatChanged") is True for event in events),
-            "output_route_changed": any(event.get("audioOutputRouteChanged") is True for event in events),
-            "format_conversion_likely": last_bool(events, "audioFormatConversionLikely"),
+            "engine_configuration_change_count": engine_configuration_change_count,
+            "engine_restart_count": engine_restart_count,
+            "graph_format_change_count": graph_format_change_count,
+            "output_route_change_count": output_route_change_count,
+            "graph_format_changed": graph_format_changed,
+            "output_route_changed": output_route_changed,
+            "output_device_changed": output_device_changed,
+            "output_sample_rate_changed": output_sample_rate_changed,
+            "output_channel_count_changed": output_channel_count_changed,
+            "io_buffer_duration_changed": io_buffer_duration_changed,
+            "output_node_format_changed": output_node_format_changed,
+            "route_change_event_count": action_counts["audio_output_route_changed"],
+            "output_node_format_change_event_count": action_counts["audio_output_node_format_changed"],
+            "format_conversion_likely": format_conversion_likely,
             "runtime_capture_matches_source_node_format": last_bool(events, "runtimeCaptureMatchesSourceNodeFormat"),
             "runtime_capture_matches_engine_output_format": last_bool(events, "runtimeCaptureMatchesEngineOutputFormat"),
             "runtime_capture_matches_hardware_sample_rate": last_bool(events, "runtimeCaptureMatchesHardwareSampleRate"),
@@ -2322,6 +2488,7 @@ def build_summary(events: list[dict[str, Any]], trace_path: Path | None = None) 
 def build_markdown(summary: dict[str, Any]) -> str:
     health = summary["health"]
     capture = summary["capture"]
+    clean = summary["clean_source_dirty_live"]
     callback_timing = summary["callback_timing"]
     callback_isolation = summary["callback_isolation"]
     output_buffer_copy = summary["output_buffer_copy"]
@@ -2349,9 +2516,10 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Peak warning samples > {health['output_peak_warning_threshold']}: {health['output_peak_warning_sample_count']}",
         f"- Likely transient correlation: {health['likely_correlation_category']}",
         f"- Runtime capture: enabled={capture['enabled']} path_name={capture['path_name']} frames={capture['captured_frame_count']} duration={capture['duration_seconds']} truncated={capture['truncated']} peak={capture['output_peak']} clipping={capture['clipping_sample_count']} write_succeeded={capture['write_succeeded']}",
+        f"- Clean source / dirty live: source_capture_clean={clean['source_capture_clean']} output_copy_verifier_clean={clean['output_copy_verifier_clean']} live_artifact_manual={clean['live_artifact_manually_reported']} route_device_candidate={clean['route_device_candidate_cause']} callback_candidate={clean['callback_candidate_cause']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
         f"- Runtime sample-rate policy: selected={audio_graph['selected_runtime_sample_rate']}Hz c_mixer_runtime={audio_graph['c_mixer_runtime_sample_rate']}Hz policy={audio_graph['runtime_sample_rate_policy']} source={audio_graph['runtime_sample_rate_source']} warning={audio_graph['runtime_sample_rate_configuration_warning']}",
-        f"- Audio graph: running={audio_graph['engine_running']} source_attached={audio_graph['source_node_attached']} source_connected={audio_graph['source_node_connected']} main_connected={audio_graph['main_mixer_connected_to_output']} c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch source={audio_graph['source_node_render_sample_rate']}Hz/{audio_graph['source_node_channel_count']}ch main_in={audio_graph['main_mixer_input_sample_rate']}Hz/{audio_graph['main_mixer_input_channel_count']}ch main_out={audio_graph['main_mixer_output_sample_rate']}Hz/{audio_graph['main_mixer_output_channel_count']}ch output={audio_graph['output_node_sample_rate']}Hz/{audio_graph['output_node_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz device_id={audio_graph['hardware_device_id']} device_uid_hash={audio_graph['hardware_device_uid_hash']} io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) output_latency={audio_graph['output_node_latency_seconds']} presentation_latency={audio_graph['output_node_output_presentation_latency_seconds']} hardware_latency={audio_graph['hardware_latency_frames']} frames ({audio_graph['hardware_latency_duration_seconds']}s) safety_offset={audio_graph['hardware_safety_offset_frames']} frames ({audio_graph['hardware_safety_offset_duration_seconds']}s) route_changes={audio_graph['output_route_change_count']} graph_format_changes={audio_graph['graph_format_change_count']} engine_config_changes={audio_graph['engine_configuration_change_count']} conversion_likely={audio_graph['format_conversion_likely']} capture_matches_source={audio_graph['runtime_capture_matches_source_node_format']} capture_matches_output={audio_graph['runtime_capture_matches_engine_output_format']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
+        f"- Audio graph: running={audio_graph['engine_running']} source_attached={audio_graph['source_node_attached']} source_connected={audio_graph['source_node_connected']} main_connected={audio_graph['main_mixer_connected_to_output']} c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch source={audio_graph['source_node_render_sample_rate']}Hz/{audio_graph['source_node_channel_count']}ch main_in={audio_graph['main_mixer_input_sample_rate']}Hz/{audio_graph['main_mixer_input_channel_count']}ch main_out={audio_graph['main_mixer_output_sample_rate']}Hz/{audio_graph['main_mixer_output_channel_count']}ch output={audio_graph['output_node_sample_rate']}Hz/{audio_graph['output_node_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz route_label={audio_graph['route_label']} device_id={audio_graph['hardware_device_id']} device_uid_hash={audio_graph['hardware_device_uid_hash']} transport={audio_graph['hardware_transport_type_name']}({audio_graph['hardware_transport_type']}) io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) output_latency={audio_graph['output_node_latency_seconds']} presentation_latency={audio_graph['output_node_output_presentation_latency_seconds']} hardware_latency={audio_graph['hardware_latency_frames']} frames ({audio_graph['hardware_latency_duration_seconds']}s) safety_offset={audio_graph['hardware_safety_offset_frames']} frames ({audio_graph['hardware_safety_offset_duration_seconds']}s) route_changes={audio_graph['output_route_change_count']} route_change_events={audio_graph['route_change_event_count']} graph_format_changes={audio_graph['graph_format_change_count']} output_node_format_events={audio_graph['output_node_format_change_event_count']} engine_config_changes={audio_graph['engine_configuration_change_count']} engine_restarts={audio_graph['engine_restart_count']} device_changed={audio_graph['output_device_changed']} sample_rate_changed={audio_graph['output_sample_rate_changed']} channel_count_changed={audio_graph['output_channel_count_changed']} io_buffer_changed={audio_graph['io_buffer_duration_changed']} output_node_format_changed={audio_graph['output_node_format_changed']} conversion_likely={audio_graph['format_conversion_likely']} capture_matches_source={audio_graph['runtime_capture_matches_source_node_format']} capture_matches_output={audio_graph['runtime_capture_matches_engine_output_format']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",
@@ -2647,6 +2815,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("trace", type=Path, help="Runtime C mixer JSONL trace path")
     parser.add_argument("--json", dest="json_report", type=Path, help="Optional JSON summary output path")
     parser.add_argument("--markdown", type=Path, help="Optional Markdown summary output path")
+    parser.add_argument(
+        "--live-artifact-reported",
+        choices=("yes", "no", "unknown"),
+        default="unknown",
+        help="Manual listening note for whether a live-only artifact was heard on this route",
+    )
     return parser.parse_args(argv)
 
 
@@ -2654,7 +2828,16 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
         events = load_trace(args.trace)
-        summary = build_summary(events, trace_path=args.trace)
+        manual_live_artifact = {
+            "yes": True,
+            "no": False,
+            "unknown": None,
+        }[args.live_artifact_reported]
+        summary = build_summary(
+            events,
+            trace_path=args.trace,
+            live_artifact_reported=manual_live_artifact,
+        )
     except TraceSummaryError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

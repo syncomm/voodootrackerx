@@ -8494,6 +8494,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(capped?.configurationWarning, "runtime_capture_seconds_capped")
     }
 
+    func testRuntimeCMixerDeviceIdentityHashIsDeterministicAndRedacted() {
+        let first = RuntimeCMixerDeviceIdentityRedactor.hashedStableID("local-device-uid")
+        let second = RuntimeCMixerDeviceIdentityRedactor.hashedStableID("local-device-uid")
+        let different = RuntimeCMixerDeviceIdentityRedactor.hashedStableID("other-local-device-uid")
+
+        XCTAssertEqual(first, second)
+        XCTAssertNotEqual(first, "local-device-uid")
+        XCTAssertEqual(first?.count, 16)
+        XCTAssertNotEqual(first, different)
+        XCTAssertNil(RuntimeCMixerDeviceIdentityRedactor.hashedStableID("  "))
+    }
+
+    func testRuntimeCMixerRouteLabelSanitizesSafeManualLabels() {
+        XCTAssertEqual(
+            RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(" Built In / Wired Output "),
+            "built-in-wired-output"
+        )
+        XCTAssertEqual(
+            RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(environment: [
+                RuntimeCMixerDiagnosticEnvironment.routeLabelEnvironmentKey: "Bluetooth Route"
+            ]),
+            "bluetooth-route"
+        )
+        XCTAssertNil(RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(" / "))
+    }
+
     @MainActor
     func testRuntimeCMixerTraceWriterEmitsValidJSONL() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vtx-c-runtime-trace-\(UUID().uuidString).jsonl")
@@ -8926,21 +8952,30 @@ final class VoodooTrackerXTests: XCTestCase {
             audioHardwareNominalSampleRate: 48_000,
             audioHardwareDeviceID: 42,
             audioHardwareDeviceUIDHash: "abcdef0123456789",
+            audioOutputRouteLabel: "bluetooth-route",
             audioHardwareIOBufferFrameSize: 256,
             audioHardwareIOBufferDuration: 0.005_333_333,
             audioHardwareLatencyFrames: 64,
             audioHardwareLatencyDuration: 0.001_333_333,
             audioHardwareSafetyOffsetFrames: 12,
             audioHardwareSafetyOffsetDuration: 0.000_25,
+            audioHardwareTransportType: 1_651_275_109,
+            audioHardwareTransportTypeName: "bluetooth",
             audioEngineRunning: true,
             audioEngineSourceNodeAttached: true,
             audioEngineSourceNodeConnected: true,
             audioEngineMainMixerConnectedToOutput: true,
             audioEngineConfigurationChangeCount: 1,
+            audioEngineRestartCount: 2,
             audioGraphFormatChangeCount: 2,
             audioOutputRouteChangeCount: 3,
             audioGraphFormatChanged: true,
             audioOutputRouteChanged: true,
+            audioOutputDeviceChanged: true,
+            audioOutputSampleRateChanged: true,
+            audioOutputChannelCountChanged: false,
+            audioHardwareIOBufferDurationChanged: true,
+            audioEngineOutputNodeFormatChanged: true,
             callbackThreadIsMain: false,
             callbackThreadID: 1_234,
             callbackMainThreadDependencyDetected: false,
@@ -8963,11 +8998,19 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeAction"] as? String, "engine_configuration_change")
         XCTAssertEqual(object["audioHardwareDeviceID"] as? Int, 42)
         XCTAssertEqual(object["audioHardwareDeviceUIDHash"] as? String, "abcdef0123456789")
+        XCTAssertEqual(object["audioOutputRouteLabel"] as? String, "bluetooth-route")
+        XCTAssertEqual(object["audioHardwareTransportTypeName"] as? String, "bluetooth")
         XCTAssertEqual(object["audioEngineConfigurationChangeCount"] as? Int, 1)
+        XCTAssertEqual(object["audioEngineRestartCount"] as? Int, 2)
         XCTAssertEqual(object["audioGraphFormatChangeCount"] as? Int, 2)
         XCTAssertEqual(object["audioOutputRouteChangeCount"] as? Int, 3)
         XCTAssertEqual(object["audioGraphFormatChanged"] as? Bool, true)
         XCTAssertEqual(object["audioOutputRouteChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputDeviceChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputSampleRateChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputChannelCountChanged"] as? Bool, false)
+        XCTAssertEqual(object["audioHardwareIOBufferDurationChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioEngineOutputNodeFormatChanged"] as? Bool, true)
         XCTAssertEqual(object["callbackThreadIsMain"] as? Bool, false)
         XCTAssertEqual(object["callbackThreadID"] as? Int, 1_234)
         XCTAssertEqual(object["callbackAllocationWarning"] as? Bool, true)
@@ -8977,6 +9020,49 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["callbackLockFailureCount"] as? Int, 2)
         XCTAssertEqual(object["eventQueueProducerThreadIsMain"] as? Bool, true)
         XCTAssertEqual(object["eventQueueConsumerThreadIsMain"] as? Bool, false)
+    }
+
+    func testRuntimeCMixerRouteChangeTraceEventSerializesChangeReasons() throws {
+        let event = RuntimeCMixerTraceEvent(
+            runtimeAction: "audio_output_route_changed",
+            runtimeAudioBackend: "c_mixer",
+            runtimeEventCategory: "audio_graph_change",
+            experimentalCMixerEnabled: true,
+            sampleRate: 48_000,
+            audioEngineOutputNodeSampleRate: 48_000,
+            audioEngineOutputNodeChannelCount: 2,
+            audioHardwareNominalSampleRate: 48_000,
+            audioHardwareDeviceUIDHash: "abcdef0123456789",
+            audioOutputRouteLabel: "usb-interface",
+            audioHardwareIOBufferFrameSize: 128,
+            audioHardwareIOBufferDuration: 0.002_666_667,
+            audioHardwareTransportTypeName: "usb",
+            audioEngineConfigurationChangeCount: 1,
+            audioEngineRestartCount: 2,
+            audioGraphFormatChangeCount: 1,
+            audioOutputRouteChangeCount: 1,
+            audioGraphFormatChanged: true,
+            audioOutputRouteChanged: true,
+            audioOutputDeviceChanged: true,
+            audioOutputSampleRateChanged: true,
+            audioOutputChannelCountChanged: false,
+            audioHardwareIOBufferDurationChanged: true,
+            audioEngineOutputNodeFormatChanged: true,
+            reason: "audio_output_route_changed"
+        )
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: RuntimeCMixerTraceJSONLFormatter.line(for: event)) as? [String: Any])
+
+        XCTAssertEqual(object["runtimeAction"] as? String, "audio_output_route_changed")
+        XCTAssertEqual(object["runtimeEventCategory"] as? String, "audio_graph_change")
+        XCTAssertEqual(object["audioOutputRouteLabel"] as? String, "usb-interface")
+        XCTAssertEqual(object["audioHardwareDeviceUIDHash"] as? String, "abcdef0123456789")
+        XCTAssertEqual(object["audioHardwareTransportTypeName"] as? String, "usb")
+        XCTAssertEqual(object["audioOutputRouteChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputDeviceChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioOutputSampleRateChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioHardwareIOBufferDurationChanged"] as? Bool, true)
+        XCTAssertEqual(object["audioEngineOutputNodeFormatChanged"] as? Bool, true)
     }
 
     func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
@@ -9316,6 +9402,32 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(initializedEvent?.cMixerRenderChannelCount, MixerRenderConfig.defaultChannelCount)
         XCTAssertEqual(initializedEvent?.audioSourceNodeRenderSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.audioSourceNodeChannelCount, MixerRenderConfig.defaultChannelCount)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryRecordsSafeRouteLabelOnlyForCMixerBackend() {
+        let avTraceWriter = TestRuntimeCMixerTraceWriter()
+        _ = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeCMixerDiagnosticEnvironment.routeLabelEnvironmentKey: "Bluetooth Route"
+            ],
+            runtimeCMixerTraceWriter: avTraceWriter
+        )
+        XCTAssertNil(avTraceWriter.events.first?.audioOutputRouteLabel)
+
+        let cTraceWriter = TestRuntimeCMixerTraceWriter()
+        _ = PlaybackAudioOutputFactory.make(
+            environment: [
+                RuntimeAudioBackendSelection.environmentKey: "c_mixer",
+                RuntimeCMixerDiagnosticEnvironment.routeLabelEnvironmentKey: "Bluetooth Route"
+            ],
+            runtimeCMixerTraceWriter: cTraceWriter
+        )
+        XCTAssertEqual(cTraceWriter.events.first?.audioOutputRouteLabel, "bluetooth-route")
+        XCTAssertEqual(
+            cTraceWriter.events.first { $0.runtimeAction == "backend_initialized" }?.audioOutputRouteLabel,
+            "bluetooth-route"
+        )
     }
 
     @MainActor

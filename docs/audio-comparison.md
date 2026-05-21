@@ -314,6 +314,11 @@ add another AVAudio callback and synchronization path while the current local
 matrix is measuring the existing source-node callback and AVAudio output graph.
 If source-node capture stays clean while live hardware output remains artifacted
 and graph diagnostics are inconclusive, add a separate measured output-tap PR.
+ADR 008 records the preferred next architecture question for that case: keep
+AVAudioPlayerNode/AVAudioUnitVarispeed as the default, keep the
+AVAudioSourceNode C mixer path experimental and opt-in, and use a future
+developer-only CoreAudio/AUAudioUnit-style output host spike to test whether
+the remaining live artifact is specific to AVAudioEngine SourceNode delivery.
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the AVAudio source-node buffers.

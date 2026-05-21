@@ -63,6 +63,48 @@ struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
     let rejectionReason: CSoftwareMixerVoiceStateUpdateRejectionReason?
 }
 
+struct CSoftwareMixerVoiceDiagnostic: Equatable {
+    let loaded: Bool
+    let active: Bool
+    let channelTag: Int?
+    let gain: Float
+    let pan: Float
+    let sampleStep: Double
+    let effectiveGain: Float
+    let effectivePan: Float
+    let keyOn: Bool
+    let fadeoutValue: Float
+    let gainRamp: CSoftwareMixerValueRampRuntimeState?
+    let deactivateAfterGainRamp: Bool
+    let panRamp: CSoftwareMixerValueRampRuntimeState?
+
+    init(_ diagnostic: VTXCMixerVoiceDiagnostic) {
+        loaded = diagnostic.loaded != 0
+        active = diagnostic.active != 0
+        channelTag = diagnostic.has_channel_tag == 0 ? nil : Int(diagnostic.channel_tag)
+        gain = diagnostic.gain
+        pan = diagnostic.pan
+        sampleStep = diagnostic.sample_step
+        effectiveGain = diagnostic.effective_gain
+        effectivePan = diagnostic.effective_pan
+        keyOn = diagnostic.key_on != 0
+        fadeoutValue = diagnostic.fadeout_value
+        gainRamp = diagnostic.gain_ramp_active == 0 ? nil : CSoftwareMixerValueRampRuntimeState(
+            start: diagnostic.gain_ramp_start,
+            target: diagnostic.gain_ramp_target,
+            totalFrames: Int(diagnostic.gain_ramp_total_frames),
+            positionFrame: Int(diagnostic.gain_ramp_position_frame)
+        )
+        deactivateAfterGainRamp = diagnostic.deactivate_after_gain_ramp != 0
+        panRamp = diagnostic.pan_ramp_active == 0 ? nil : CSoftwareMixerValueRampRuntimeState(
+            start: diagnostic.pan_ramp_start,
+            target: diagnostic.pan_ramp_target,
+            totalFrames: Int(diagnostic.pan_ramp_total_frames),
+            positionFrame: Int(diagnostic.pan_ramp_position_frame)
+        )
+    }
+}
+
 struct CSoftwareMixerValueRampRuntimeState: Equatable {
     let start: Float
     let target: Float
@@ -389,6 +431,23 @@ final class CSoftwareMixer {
             UInt32(channel)
         )
         Self.requireOK(status)
+    }
+
+    /// Returns the current C-side voice state used by runtime/offline diagnostics.
+    func voiceDiagnostic(forVoiceAt voiceIndex: Int) -> CSoftwareMixerVoiceDiagnostic? {
+        guard voiceIndex >= 0 && voiceIndex <= Int(UInt32.max) else {
+            return nil
+        }
+        var diagnostic = VTXCMixerVoiceDiagnostic()
+        let status = vtx_c_mixer_get_voice_diagnostic(
+            &state,
+            UInt32(voiceIndex),
+            &diagnostic
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return nil
+        }
+        return CSoftwareMixerVoiceDiagnostic(diagnostic)
     }
 
     /// Stops and releases C-backed voices tagged with one caller-owned channel identifier.

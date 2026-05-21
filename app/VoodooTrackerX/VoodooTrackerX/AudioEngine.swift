@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 import os
 
@@ -153,6 +154,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeEventFallbackReason: String?
     let experimentalCMixerEnabled: Bool
     let sampleRate: Double?
+    let cMixerRenderSampleRate: Double?
+    let cMixerRenderChannelCount: Int?
+    let audioSourceNodeRenderSampleRate: Double?
+    let audioSourceNodeChannelCount: Int?
+    let audioEngineMainMixerOutputSampleRate: Double?
+    let audioEngineMainMixerOutputChannelCount: Int?
+    let audioEngineOutputNodeSampleRate: Double?
+    let audioEngineOutputNodeChannelCount: Int?
+    let audioHardwareNominalSampleRate: Double?
+    let audioHardwareIOBufferFrameSize: UInt32?
+    let audioHardwareIOBufferDuration: Double?
+    let audioFormatConversionLikely: Bool?
+    let runtimeCaptureMatchesSourceNodeFormat: Bool?
+    let runtimeCaptureMatchesEngineOutputFormat: Bool?
+    let runtimeCaptureMatchesHardwareSampleRate: Bool?
     let cMixerRenderedFrames: UInt64?
     let cMixerPlaybackSeconds: Double?
     let cMixerSampleTimeFrame: Int?
@@ -205,6 +221,30 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let rampedVoiceCount: Int?
     let replacementRampFrames: Int?
     let replacementVoicesOverlap: Bool?
+    let replacementOldVoiceIndex: Int?
+    let replacementOldVoiceChannelTag: Int?
+    let replacementOldVoiceGain: Float?
+    let replacementOldVoiceEffectiveGain: Float?
+    let replacementOldVoicePan: Float?
+    let replacementOldVoiceEffectivePan: Float?
+    let replacementOldVoiceSampleStep: Double?
+    let replacementOldVoiceKeyOn: Bool?
+    let replacementOldVoiceFadeoutValue: Float?
+    let replacementRampStartVoiceIndex: Int?
+    let replacementRampStartVoiceChannelTag: Int?
+    let replacementRampStartGain: Float?
+    let replacementRampTargetGain: Float?
+    let replacementRampStartPan: Float?
+    let replacementRampTargetPan: Float?
+    let replacementRampStartSampleStep: Double?
+    let replacementRampStartKeyOn: Bool?
+    let replacementRampStartFadeoutValue: Float?
+    let replacementNewVoiceIndex: Int?
+    let replacementNewVoiceChannelTag: Int?
+    let replacementGainPanAppliedBeforeRamp: Bool?
+    let replacementStepAppliedBeforeRamp: Bool?
+    let replacementKeyOffAppliedBeforeRamp: Bool?
+    let replacementFadeoutAppliedBeforeRamp: Bool?
     let targetVoiceIndex: Int?
     let gainBefore: Float?
     let gainAfter: Float?
@@ -393,6 +433,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeEventFallbackReason: String? = nil,
         experimentalCMixerEnabled: Bool,
         sampleRate: Double? = nil,
+        cMixerRenderSampleRate: Double? = nil,
+        cMixerRenderChannelCount: Int? = nil,
+        audioSourceNodeRenderSampleRate: Double? = nil,
+        audioSourceNodeChannelCount: Int? = nil,
+        audioEngineMainMixerOutputSampleRate: Double? = nil,
+        audioEngineMainMixerOutputChannelCount: Int? = nil,
+        audioEngineOutputNodeSampleRate: Double? = nil,
+        audioEngineOutputNodeChannelCount: Int? = nil,
+        audioHardwareNominalSampleRate: Double? = nil,
+        audioHardwareIOBufferFrameSize: UInt32? = nil,
+        audioHardwareIOBufferDuration: Double? = nil,
+        audioFormatConversionLikely: Bool? = nil,
+        runtimeCaptureMatchesSourceNodeFormat: Bool? = nil,
+        runtimeCaptureMatchesEngineOutputFormat: Bool? = nil,
+        runtimeCaptureMatchesHardwareSampleRate: Bool? = nil,
         cMixerRenderedFrames: UInt64? = nil,
         cMixerPlaybackSeconds: Double? = nil,
         cMixerSampleTimeFrame: Int? = nil,
@@ -434,6 +489,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         rampedVoiceCount: Int? = nil,
         replacementRampFrames: Int? = nil,
         replacementVoicesOverlap: Bool? = nil,
+        replacementOldVoiceState: RuntimeCMixerReplacementVoiceState? = nil,
+        replacementRampStartState: RuntimeCMixerReplacementVoiceState? = nil,
+        replacementRampTargetGain: Float? = nil,
+        replacementNewVoiceIndex: Int? = nil,
+        replacementNewVoiceChannelTag: Int? = nil,
+        replacementGainPanAppliedBeforeRamp: Bool? = nil,
+        replacementStepAppliedBeforeRamp: Bool? = nil,
+        replacementKeyOffAppliedBeforeRamp: Bool? = nil,
+        replacementFadeoutAppliedBeforeRamp: Bool? = nil,
         targetVoiceIndex: Int? = nil,
         gainBefore: Float? = nil,
         gainAfter: Float? = nil,
@@ -621,6 +685,21 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
         self.experimentalCMixerEnabled = experimentalCMixerEnabled
         self.sampleRate = sampleRate
+        self.cMixerRenderSampleRate = cMixerRenderSampleRate
+        self.cMixerRenderChannelCount = cMixerRenderChannelCount
+        self.audioSourceNodeRenderSampleRate = audioSourceNodeRenderSampleRate
+        self.audioSourceNodeChannelCount = audioSourceNodeChannelCount
+        self.audioEngineMainMixerOutputSampleRate = audioEngineMainMixerOutputSampleRate
+        self.audioEngineMainMixerOutputChannelCount = audioEngineMainMixerOutputChannelCount
+        self.audioEngineOutputNodeSampleRate = audioEngineOutputNodeSampleRate
+        self.audioEngineOutputNodeChannelCount = audioEngineOutputNodeChannelCount
+        self.audioHardwareNominalSampleRate = audioHardwareNominalSampleRate
+        self.audioHardwareIOBufferFrameSize = audioHardwareIOBufferFrameSize
+        self.audioHardwareIOBufferDuration = audioHardwareIOBufferDuration
+        self.audioFormatConversionLikely = audioFormatConversionLikely
+        self.runtimeCaptureMatchesSourceNodeFormat = runtimeCaptureMatchesSourceNodeFormat
+        self.runtimeCaptureMatchesEngineOutputFormat = runtimeCaptureMatchesEngineOutputFormat
+        self.runtimeCaptureMatchesHardwareSampleRate = runtimeCaptureMatchesHardwareSampleRate
         self.cMixerRenderedFrames = cMixerRenderedFrames
         self.cMixerPlaybackSeconds = cMixerPlaybackSeconds
         self.cMixerSampleTimeFrame = cMixerSampleTimeFrame
@@ -673,6 +752,30 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.rampedVoiceCount = rampedVoiceCount
         self.replacementRampFrames = replacementRampFrames
         self.replacementVoicesOverlap = replacementVoicesOverlap
+        replacementOldVoiceIndex = replacementOldVoiceState?.voiceIndex
+        replacementOldVoiceChannelTag = replacementOldVoiceState?.channelTag
+        replacementOldVoiceGain = replacementOldVoiceState?.gain
+        replacementOldVoiceEffectiveGain = replacementOldVoiceState?.effectiveGain
+        replacementOldVoicePan = replacementOldVoiceState?.pan
+        replacementOldVoiceEffectivePan = replacementOldVoiceState?.effectivePan
+        replacementOldVoiceSampleStep = replacementOldVoiceState?.sampleStep
+        replacementOldVoiceKeyOn = replacementOldVoiceState?.keyOn
+        replacementOldVoiceFadeoutValue = replacementOldVoiceState?.fadeoutValue
+        replacementRampStartVoiceIndex = replacementRampStartState?.voiceIndex
+        replacementRampStartVoiceChannelTag = replacementRampStartState?.channelTag
+        replacementRampStartGain = replacementRampStartState?.gainRampStart ?? replacementRampStartState?.effectiveGain
+        self.replacementRampTargetGain = replacementRampTargetGain ?? replacementRampStartState?.gainRampTarget
+        replacementRampStartPan = replacementRampStartState?.panRampStart ?? replacementRampStartState?.effectivePan
+        replacementRampTargetPan = replacementRampStartState?.panRampTarget ?? replacementRampStartState?.pan
+        replacementRampStartSampleStep = replacementRampStartState?.sampleStep
+        replacementRampStartKeyOn = replacementRampStartState?.keyOn
+        replacementRampStartFadeoutValue = replacementRampStartState?.fadeoutValue
+        self.replacementNewVoiceIndex = replacementNewVoiceIndex
+        self.replacementNewVoiceChannelTag = replacementNewVoiceChannelTag
+        self.replacementGainPanAppliedBeforeRamp = replacementGainPanAppliedBeforeRamp
+        self.replacementStepAppliedBeforeRamp = replacementStepAppliedBeforeRamp
+        self.replacementKeyOffAppliedBeforeRamp = replacementKeyOffAppliedBeforeRamp
+        self.replacementFadeoutAppliedBeforeRamp = replacementFadeoutAppliedBeforeRamp
         self.targetVoiceIndex = targetVoiceIndex
         self.gainBefore = gainBefore
         self.gainAfter = gainAfter
@@ -1547,6 +1650,7 @@ private struct RuntimeCMixerOutputMetrics: Equatable {
 struct RuntimeCMixerTriggerResult: Equatable {
     let succeeded: Bool
     let reason: String?
+    let newVoiceIndex: Int?
     let snapshotBefore: RuntimeCMixerRenderSnapshot
     let snapshotAfter: RuntimeCMixerRenderSnapshot
     let channelStopBeforeAdd: RuntimeCMixerChannelStopResult?
@@ -1689,6 +1793,15 @@ struct RuntimeCMixerChannelStopResult: Equatable {
     let rampedVoiceCount: Int
     let replacementRampFrames: Int?
     let replacementVoicesOverlap: Bool
+    let replacementOldVoiceState: RuntimeCMixerReplacementVoiceState?
+    let replacementRampStartState: RuntimeCMixerReplacementVoiceState?
+    let replacementRampTargetGain: Float?
+    let replacementNewVoiceIndex: Int?
+    let replacementNewVoiceChannelTag: Int?
+    let replacementGainPanAppliedBeforeRamp: Bool?
+    let replacementStepAppliedBeforeRamp: Bool?
+    let replacementKeyOffAppliedBeforeRamp: Bool?
+    let replacementFadeoutAppliedBeforeRamp: Bool?
     let snapshotBefore: RuntimeCMixerRenderSnapshot
     let snapshotAfter: RuntimeCMixerRenderSnapshot
     let reason: String
@@ -1726,6 +1839,40 @@ private struct RuntimeCMixerAdapterVoiceState: Equatable {
     var gain: Float
     var pan: Float
     var sampleStep: Double
+    var lastGainPanUpdateFrame: UInt64?
+    var lastStepUpdateFrame: UInt64?
+}
+
+struct RuntimeCMixerReplacementVoiceState: Equatable {
+    let voiceIndex: Int
+    let channelTag: Int?
+    let gain: Float
+    let effectiveGain: Float
+    let pan: Float
+    let effectivePan: Float
+    let sampleStep: Double
+    let keyOn: Bool
+    let fadeoutValue: Float
+    let gainRampStart: Float?
+    let gainRampTarget: Float?
+    let panRampStart: Float?
+    let panRampTarget: Float?
+
+    init(voiceIndex: Int, diagnostic: CSoftwareMixerVoiceDiagnostic) {
+        self.voiceIndex = voiceIndex
+        channelTag = diagnostic.channelTag
+        gain = diagnostic.gain
+        effectiveGain = diagnostic.effectiveGain
+        pan = diagnostic.pan
+        effectivePan = diagnostic.effectivePan
+        sampleStep = diagnostic.sampleStep
+        keyOn = diagnostic.keyOn
+        fadeoutValue = diagnostic.fadeoutValue
+        gainRampStart = diagnostic.gainRamp?.start
+        gainRampTarget = diagnostic.gainRamp?.target
+        panRampStart = diagnostic.panRamp?.start
+        panRampTarget = diagnostic.panRamp?.target
+    }
 }
 
 private struct RuntimeCMixerChannelControlState: Equatable {
@@ -2037,6 +2184,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return RuntimeCMixerTriggerResult(
                 succeeded: false,
                 reason: invalidReason,
+                newVoiceIndex: nil,
                 snapshotBefore: snapshot,
                 snapshotAfter: snapshot,
                 channelStopBeforeAdd: nil
@@ -2100,6 +2248,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 rampedVoiceCount: replacementRampBeforeAdd.rampedVoiceCount,
                 replacementRampFrames: replacementRampBeforeAdd.replacementRampFrames,
                 replacementVoicesOverlap: true,
+                replacementOldVoiceState: replacementRampBeforeAdd.replacementOldVoiceState,
+                replacementRampStartState: replacementRampBeforeAdd.replacementRampStartState,
+                replacementRampTargetGain: replacementRampBeforeAdd.replacementRampTargetGain,
+                replacementNewVoiceIndex: voiceIndex,
+                replacementNewVoiceChannelTag: request.channel,
+                replacementGainPanAppliedBeforeRamp: replacementRampBeforeAdd.replacementGainPanAppliedBeforeRamp,
+                replacementStepAppliedBeforeRamp: replacementRampBeforeAdd.replacementStepAppliedBeforeRamp,
+                replacementKeyOffAppliedBeforeRamp: replacementRampBeforeAdd.replacementKeyOffAppliedBeforeRamp,
+                replacementFadeoutAppliedBeforeRamp: replacementRampBeforeAdd.replacementFadeoutAppliedBeforeRamp,
                 snapshotBefore: replacementRampBeforeAdd.snapshotBefore,
                 snapshotAfter: snapshotAfter,
                 reason: replacementRampBeforeAdd.reason
@@ -2110,6 +2267,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return RuntimeCMixerTriggerResult(
             succeeded: true,
             reason: nil,
+            newVoiceIndex: voiceIndex,
             snapshotBefore: snapshotBefore,
             snapshotAfter: snapshotAfter,
             channelStopBeforeAdd: channelStopBeforeAdd
@@ -2154,6 +2312,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return RuntimeCMixerTriggerResult(
                 succeeded: false,
                 reason: invalidReason,
+                newVoiceIndex: nil,
                 snapshotBefore: snapshot,
                 snapshotAfter: snapshot,
                 channelStopBeforeAdd: nil
@@ -2165,6 +2324,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return RuntimeCMixerTriggerResult(
                 succeeded: false,
                 reason: "current_frame_out_of_range",
+                newVoiceIndex: nil,
                 snapshotBefore: snapshot,
                 snapshotAfter: snapshot,
                 channelStopBeforeAdd: nil
@@ -2199,7 +2359,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             channel: mapping.channelIndex,
             gain: event.gain,
             pan: event.pan,
-            sampleStep: event.playbackStep
+            sampleStep: event.playbackStep,
+            lastGainPanUpdateFrame: nil,
+            lastStepUpdateFrame: nil
         )
         adapterEventIndexByChannel[mapping.channelIndex] = eventIndex
         stoppedFrameByChannel.removeValue(forKey: mapping.channelIndex)
@@ -2212,6 +2374,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 rampedVoiceCount: replacementRampBeforeAdd.rampedVoiceCount,
                 replacementRampFrames: replacementRampBeforeAdd.replacementRampFrames,
                 replacementVoicesOverlap: true,
+                replacementOldVoiceState: replacementRampBeforeAdd.replacementOldVoiceState,
+                replacementRampStartState: replacementRampBeforeAdd.replacementRampStartState,
+                replacementRampTargetGain: replacementRampBeforeAdd.replacementRampTargetGain,
+                replacementNewVoiceIndex: voiceIndex,
+                replacementNewVoiceChannelTag: mapping.channelIndex,
+                replacementGainPanAppliedBeforeRamp: replacementRampBeforeAdd.replacementGainPanAppliedBeforeRamp,
+                replacementStepAppliedBeforeRamp: replacementRampBeforeAdd.replacementStepAppliedBeforeRamp,
+                replacementKeyOffAppliedBeforeRamp: replacementRampBeforeAdd.replacementKeyOffAppliedBeforeRamp,
+                replacementFadeoutAppliedBeforeRamp: replacementRampBeforeAdd.replacementFadeoutAppliedBeforeRamp,
                 snapshotBefore: replacementRampBeforeAdd.snapshotBefore,
                 snapshotAfter: snapshotAfter,
                 reason: replacementRampBeforeAdd.reason
@@ -2222,6 +2393,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return RuntimeCMixerTriggerResult(
             succeeded: true,
             reason: nil,
+            newVoiceIndex: voiceIndex,
             snapshotBefore: snapshotBefore,
             snapshotAfter: snapshotAfter,
             channelStopBeforeAdd: channelStopBeforeAdd
@@ -2858,6 +3030,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         let panBefore = voiceState.pan
         voiceState.gain = nextGain ?? voiceState.gain
         voiceState.pan = nextPan ?? voiceState.pan
+        voiceState.lastGainPanUpdateFrame = mixer.currentFrame
         adapterVoiceStateByEventIndex[activeEventIndex] = voiceState
         return RuntimeCMixerUpdateResult(
             channel: channel,
@@ -3022,6 +3195,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         let stepBefore = voiceState.sampleStep
         voiceState.sampleStep = playbackStep
+        voiceState.lastStepUpdateFrame = mixer.currentFrame
         adapterVoiceStateByEventIndex[activeEventIndex] = voiceState
         return RuntimeCMixerUpdateResult(
             channel: channel,
@@ -3717,6 +3891,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     private func rampDownReplacementChannelLocked(_ channel: Int, reason: String) -> RuntimeCMixerChannelStopResult {
         let snapshotBefore = snapshotLocked()
+        let currentFrame = mixer.currentFrame
+        let adapterVoiceState = adapterEventIndexByChannel[channel].flatMap { adapterVoiceStateByEventIndex[$0] }
+        let fallbackVoiceIndex = voiceStateByChannel[channel]?.voiceIndex
+        let replacementOldVoiceIndex = adapterVoiceState?.voiceIndex ?? fallbackVoiceIndex
+        let replacementOldVoiceState = replacementOldVoiceIndex
+            .flatMap { replacementVoiceState(voiceIndex: $0) }
+        let sameFrameGainPanUpdate = adapterVoiceState?.lastGainPanUpdateFrame == currentFrame
+        let sameFrameStepUpdate = adapterVoiceState?.lastStepUpdateFrame == currentFrame
         let rampedVoiceCount: Int
         if channel >= 0 && channel <= Int(UInt32.max) {
             rampedVoiceCount = mixer.rampDownVoices(
@@ -3728,16 +3910,80 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         } else {
             rampedVoiceCount = 0
         }
+        let replacementRampStartState = rampedVoiceCount > 0
+            ? replacementOldVoiceIndex.flatMap { replacementVoiceState(voiceIndex: $0) }
+            : nil
+        let replacementGainPanAppliedBeforeRamp = replacementGainPanAppliedBeforeRamp(
+            expected: adapterVoiceState,
+            rampStartState: replacementRampStartState,
+            sameFrameGainPanUpdate: sameFrameGainPanUpdate
+        )
+        let replacementStepAppliedBeforeRamp = replacementStepAppliedBeforeRamp(
+            expected: adapterVoiceState,
+            rampStartState: replacementRampStartState,
+            sameFrameStepUpdate: sameFrameStepUpdate
+        )
         return RuntimeCMixerChannelStopResult(
             channel: channel,
             stoppedVoiceCount: 0,
             rampedVoiceCount: rampedVoiceCount,
             replacementRampFrames: CSoftwareMixer.replacementStopRampFrameCount,
             replacementVoicesOverlap: false,
+            replacementOldVoiceState: replacementOldVoiceState,
+            replacementRampStartState: replacementRampStartState,
+            replacementRampTargetGain: replacementRampStartState?.gainRampTarget,
+            replacementNewVoiceIndex: nil,
+            replacementNewVoiceChannelTag: nil,
+            replacementGainPanAppliedBeforeRamp: replacementGainPanAppliedBeforeRamp,
+            replacementStepAppliedBeforeRamp: replacementStepAppliedBeforeRamp,
+            replacementKeyOffAppliedBeforeRamp: replacementRampStartState.map { !$0.keyOn },
+            replacementFadeoutAppliedBeforeRamp: replacementRampStartState.map { $0.fadeoutValue < 0.999_999 },
             snapshotBefore: snapshotBefore,
             snapshotAfter: snapshotLocked(),
             reason: reason
         )
+    }
+
+    private func replacementVoiceState(voiceIndex: Int) -> RuntimeCMixerReplacementVoiceState? {
+        mixer.voiceDiagnostic(forVoiceAt: voiceIndex).map {
+            RuntimeCMixerReplacementVoiceState(voiceIndex: voiceIndex, diagnostic: $0)
+        }
+    }
+
+    private func replacementGainPanAppliedBeforeRamp(
+        expected: RuntimeCMixerAdapterVoiceState?,
+        rampStartState: RuntimeCMixerReplacementVoiceState?,
+        sameFrameGainPanUpdate: Bool
+    ) -> Bool? {
+        guard sameFrameGainPanUpdate,
+              let expected,
+              let rampStartState else {
+            return nil
+        }
+        let rampStartGain = rampStartState.gainRampStart ?? rampStartState.effectiveGain
+        return Self.approximatelyEqual(rampStartGain, expected.gain) &&
+            Self.approximatelyEqual(rampStartState.pan, expected.pan)
+    }
+
+    private func replacementStepAppliedBeforeRamp(
+        expected: RuntimeCMixerAdapterVoiceState?,
+        rampStartState: RuntimeCMixerReplacementVoiceState?,
+        sameFrameStepUpdate: Bool
+    ) -> Bool? {
+        guard sameFrameStepUpdate,
+              let expected,
+              let rampStartState else {
+            return nil
+        }
+        return Self.approximatelyEqual(rampStartState.sampleStep, expected.sampleStep)
+    }
+
+    private static func approximatelyEqual(_ lhs: Float, _ rhs: Float, tolerance: Float = 0.000_001) -> Bool {
+        abs(lhs - rhs) <= tolerance
+    }
+
+    private static func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.000_001) -> Bool {
+        abs(lhs - rhs) <= tolerance
     }
 
     private func stopChannelLocked(_ channel: Int, reason: String) -> RuntimeCMixerChannelStopResult {
@@ -3757,6 +4003,15 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             rampedVoiceCount: 0,
             replacementRampFrames: nil,
             replacementVoicesOverlap: false,
+            replacementOldVoiceState: nil,
+            replacementRampStartState: nil,
+            replacementRampTargetGain: nil,
+            replacementNewVoiceIndex: nil,
+            replacementNewVoiceChannelTag: nil,
+            replacementGainPanAppliedBeforeRamp: nil,
+            replacementStepAppliedBeforeRamp: nil,
+            replacementKeyOffAppliedBeforeRamp: nil,
+            replacementFadeoutAppliedBeforeRamp: nil,
             snapshotBefore: snapshotBefore,
             snapshotAfter: snapshotLocked(),
             reason: reason
@@ -4336,6 +4591,190 @@ private func makeRuntimeCMixerSourceNode(
     }
 }
 
+private struct RuntimeCMixerAudioOutputDeviceDiagnostics: Equatable {
+    let nominalSampleRate: Double?
+    let ioBufferFrameSize: UInt32?
+
+    var ioBufferDuration: Double? {
+        guard let nominalSampleRate,
+              nominalSampleRate > 0,
+              let ioBufferFrameSize else {
+            return nil
+        }
+        return Double(ioBufferFrameSize) / nominalSampleRate
+    }
+
+    static func currentDefaultOutputDevice() -> RuntimeCMixerAudioOutputDeviceDiagnostics {
+        guard let deviceID = defaultOutputDeviceID() else {
+            return RuntimeCMixerAudioOutputDeviceDiagnostics(nominalSampleRate: nil, ioBufferFrameSize: nil)
+        }
+        return RuntimeCMixerAudioOutputDeviceDiagnostics(
+            nominalSampleRate: nominalSampleRate(for: deviceID),
+            ioBufferFrameSize: ioBufferFrameSize(for: deviceID)
+        )
+    }
+
+    private static func defaultOutputDeviceID() -> AudioObjectID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &deviceID
+        )
+        guard status == noErr,
+              deviceID != AudioObjectID(kAudioObjectUnknown) else {
+            return nil
+        }
+        return deviceID
+    }
+
+    private static func nominalSampleRate(for deviceID: AudioObjectID) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var sampleRate = Float64(0)
+        var size = UInt32(MemoryLayout<Float64>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &sampleRate)
+        guard status == noErr,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return nil
+        }
+        return Double(sampleRate)
+    }
+
+    private static func ioBufferFrameSize(for deviceID: AudioObjectID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var frameSize = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &frameSize)
+        guard status == noErr,
+              frameSize > 0 else {
+            return nil
+        }
+        return frameSize
+    }
+}
+
+private struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
+    let cMixerRenderSampleRate: Double
+    let cMixerRenderChannelCount: Int
+    let sourceNodeRenderSampleRate: Double
+    let sourceNodeChannelCount: Int
+    let mainMixerOutputSampleRate: Double
+    let mainMixerOutputChannelCount: Int
+    let outputNodeSampleRate: Double
+    let outputNodeChannelCount: Int
+    let hardwareNominalSampleRate: Double?
+    let hardwareIOBufferFrameSize: UInt32?
+    let hardwareIOBufferDuration: Double?
+    let formatConversionLikely: Bool
+    let captureMatchesSourceNodeFormat: Bool?
+    let captureMatchesEngineOutputFormat: Bool?
+    let captureMatchesHardwareSampleRate: Bool?
+
+    init(
+        snapshot: RuntimeCMixerRenderSnapshot,
+        sourceFormat: AVAudioFormat,
+        mainMixerOutputFormat: AVAudioFormat,
+        outputNodeFormat: AVAudioFormat,
+        outputDevice: RuntimeCMixerAudioOutputDeviceDiagnostics
+    ) {
+        cMixerRenderSampleRate = snapshot.sampleRate
+        cMixerRenderChannelCount = snapshot.channelCount
+        sourceNodeRenderSampleRate = sourceFormat.sampleRate
+        sourceNodeChannelCount = Int(sourceFormat.channelCount)
+        mainMixerOutputSampleRate = mainMixerOutputFormat.sampleRate
+        mainMixerOutputChannelCount = Int(mainMixerOutputFormat.channelCount)
+        outputNodeSampleRate = outputNodeFormat.sampleRate
+        outputNodeChannelCount = Int(outputNodeFormat.channelCount)
+        hardwareNominalSampleRate = outputDevice.nominalSampleRate
+        hardwareIOBufferFrameSize = outputDevice.ioBufferFrameSize
+        hardwareIOBufferDuration = outputDevice.ioBufferDuration
+        formatConversionLikely = Self.formatConversionLikely(
+            sourceSampleRate: sourceNodeRenderSampleRate,
+            sourceChannelCount: sourceNodeChannelCount,
+            mainMixerSampleRate: mainMixerOutputSampleRate,
+            mainMixerChannelCount: mainMixerOutputChannelCount,
+            outputSampleRate: outputNodeSampleRate,
+            outputChannelCount: outputNodeChannelCount,
+            hardwareSampleRate: hardwareNominalSampleRate
+        )
+        captureMatchesSourceNodeFormat = Self.captureMatches(
+            capture: snapshot.capture,
+            sampleRate: sourceNodeRenderSampleRate,
+            channelCount: sourceNodeChannelCount
+        )
+        captureMatchesEngineOutputFormat = Self.captureMatches(
+            capture: snapshot.capture,
+            sampleRate: outputNodeSampleRate,
+            channelCount: outputNodeChannelCount
+        )
+        captureMatchesHardwareSampleRate = Self.sampleRatesMatch(
+            snapshot.capture.sampleRate,
+            hardwareNominalSampleRate
+        )
+    }
+
+    private static func formatConversionLikely(
+        sourceSampleRate: Double,
+        sourceChannelCount: Int,
+        mainMixerSampleRate: Double,
+        mainMixerChannelCount: Int,
+        outputSampleRate: Double,
+        outputChannelCount: Int,
+        hardwareSampleRate: Double?
+    ) -> Bool {
+        let knownRateMismatch = !sampleRatesMatch(sourceSampleRate, mainMixerSampleRate) ||
+            !sampleRatesMatch(sourceSampleRate, outputSampleRate) ||
+            (hardwareSampleRate.map { !sampleRatesMatch(sourceSampleRate, $0) } ?? false)
+        let knownChannelMismatch = sourceChannelCount != mainMixerChannelCount ||
+            sourceChannelCount != outputChannelCount
+        return knownRateMismatch || knownChannelMismatch
+    }
+
+    private static func captureMatches(
+        capture: RuntimeCMixerCaptureSnapshot,
+        sampleRate: Double,
+        channelCount: Int
+    ) -> Bool? {
+        guard capture.enabled,
+              let captureSampleRate = capture.sampleRate,
+              let captureChannelCount = capture.channelCount else {
+            return nil
+        }
+        return sampleRatesMatch(captureSampleRate, sampleRate) &&
+            captureChannelCount == channelCount
+    }
+
+    private static func sampleRatesMatch(_ lhs: Double?, _ rhs: Double?) -> Bool? {
+        guard let lhs,
+              let rhs else {
+            return nil
+        }
+        return sampleRatesMatch(lhs, rhs)
+    }
+
+    private static func sampleRatesMatch(_ lhs: Double, _ rhs: Double) -> Bool {
+        lhs.isFinite && rhs.isFinite && abs(lhs - rhs) <= 0.5
+    }
+}
+
 @MainActor
 protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?)
@@ -4445,6 +4884,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let format: AVAudioFormat
     private let sourceNode: AVAudioSourceNode
     private let renderCore: RuntimeCMixerRenderCore
+    private let outputDeviceDiagnostics = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
     private var isPrepared = false
@@ -4873,6 +5313,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return Int(frame)
     }
 
+    private func audioGraphDiagnostics(snapshot: RuntimeCMixerRenderSnapshot) -> RuntimeCMixerAudioGraphDiagnostics {
+        RuntimeCMixerAudioGraphDiagnostics(
+            snapshot: snapshot,
+            sourceFormat: format,
+            mainMixerOutputFormat: engine.mainMixerNode.outputFormat(forBus: 0),
+            outputNodeFormat: engine.outputNode.outputFormat(forBus: 0),
+            outputDevice: outputDeviceDiagnostics
+        )
+    }
+
     private func drainAppliedRuntimeAdapterEvents() {
         let diagnostics = renderCore.drainAppliedAdapterEventDiagnostics()
         guard !diagnostics.isEmpty else {
@@ -4906,6 +5356,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                     rampedVoiceCount: channelStop.rampedVoiceCount,
                     replacementRampFrames: channelStop.replacementRampFrames,
                     replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
+                    replacementOldVoiceState: channelStop.replacementOldVoiceState,
+                    replacementRampStartState: channelStop.replacementRampStartState,
+                    replacementRampTargetGain: channelStop.replacementRampTargetGain,
+                    replacementNewVoiceIndex: channelStop.replacementNewVoiceIndex,
+                    replacementNewVoiceChannelTag: channelStop.replacementNewVoiceChannelTag,
+                    replacementGainPanAppliedBeforeRamp: channelStop.replacementGainPanAppliedBeforeRamp,
+                    replacementStepAppliedBeforeRamp: channelStop.replacementStepAppliedBeforeRamp,
+                    replacementKeyOffAppliedBeforeRamp: channelStop.replacementKeyOffAppliedBeforeRamp,
+                    replacementFadeoutAppliedBeforeRamp: channelStop.replacementFadeoutAppliedBeforeRamp,
+                    targetVoiceIndex: channelStop.replacementOldVoiceState?.voiceIndex,
                     runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
                     adapterEventCategory: "replacement",
                     eventTiming: eventTimingTraceFields(for: diagnostic, runtimeEventCategory: "replacement_stop_ramp"),
@@ -4920,6 +5380,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 snapshotBefore: result.snapshotBefore,
                 snapshot: result.snapshotAfter,
                 succeeded: result.succeeded,
+                targetVoiceIndex: result.newVoiceIndex,
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
                 adapterEventCategory: diagnostic.event.primaryCategory,
                 eventTiming: timing,
@@ -5044,6 +5505,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 rampedVoiceCount: channelStop.rampedVoiceCount,
                 replacementRampFrames: channelStop.replacementRampFrames,
                 replacementVoicesOverlap: channelStop.replacementVoicesOverlap,
+                replacementOldVoiceState: channelStop.replacementOldVoiceState,
+                replacementRampStartState: channelStop.replacementRampStartState,
+                replacementRampTargetGain: channelStop.replacementRampTargetGain,
+                replacementNewVoiceIndex: channelStop.replacementNewVoiceIndex,
+                replacementNewVoiceChannelTag: channelStop.replacementNewVoiceChannelTag,
+                replacementGainPanAppliedBeforeRamp: channelStop.replacementGainPanAppliedBeforeRamp,
+                replacementStepAppliedBeforeRamp: channelStop.replacementStepAppliedBeforeRamp,
+                replacementKeyOffAppliedBeforeRamp: channelStop.replacementKeyOffAppliedBeforeRamp,
+                replacementFadeoutAppliedBeforeRamp: channelStop.replacementFadeoutAppliedBeforeRamp,
+                targetVoiceIndex: channelStop.replacementOldVoiceState?.voiceIndex,
                 runtimeEventSource: simpleRuntimeEventSource().rawValue,
                 adapterEventCategory: nil,
                 runtimeEventFallbackReason: fallbackReason,
@@ -5058,6 +5529,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             snapshotBefore: result.snapshotBefore,
             snapshot: result.snapshotAfter,
             succeeded: result.succeeded,
+            targetVoiceIndex: result.newVoiceIndex,
             runtimeEventSource: simpleRuntimeEventSource().rawValue,
             adapterEventCategory: nil,
             runtimeEventFallbackReason: fallbackReason,
@@ -5447,6 +5919,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         rampedVoiceCount: Int? = nil,
         replacementRampFrames: Int? = nil,
         replacementVoicesOverlap: Bool? = nil,
+        replacementOldVoiceState: RuntimeCMixerReplacementVoiceState? = nil,
+        replacementRampStartState: RuntimeCMixerReplacementVoiceState? = nil,
+        replacementRampTargetGain: Float? = nil,
+        replacementNewVoiceIndex: Int? = nil,
+        replacementNewVoiceChannelTag: Int? = nil,
+        replacementGainPanAppliedBeforeRamp: Bool? = nil,
+        replacementStepAppliedBeforeRamp: Bool? = nil,
+        replacementKeyOffAppliedBeforeRamp: Bool? = nil,
+        replacementFadeoutAppliedBeforeRamp: Bool? = nil,
         targetVoiceIndex: Int? = nil,
         gainBefore: Float? = nil,
         gainAfter: Float? = nil,
@@ -5500,6 +5981,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
+        let audioGraph = audioGraphDiagnostics(snapshot: snapshot)
         traceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
@@ -5563,6 +6045,21 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeEventFallbackReason: runtimeEventFallbackReason,
             experimentalCMixerEnabled: true,
             sampleRate: snapshot.sampleRate,
+            cMixerRenderSampleRate: audioGraph.cMixerRenderSampleRate,
+            cMixerRenderChannelCount: audioGraph.cMixerRenderChannelCount,
+            audioSourceNodeRenderSampleRate: audioGraph.sourceNodeRenderSampleRate,
+            audioSourceNodeChannelCount: audioGraph.sourceNodeChannelCount,
+            audioEngineMainMixerOutputSampleRate: audioGraph.mainMixerOutputSampleRate,
+            audioEngineMainMixerOutputChannelCount: audioGraph.mainMixerOutputChannelCount,
+            audioEngineOutputNodeSampleRate: audioGraph.outputNodeSampleRate,
+            audioEngineOutputNodeChannelCount: audioGraph.outputNodeChannelCount,
+            audioHardwareNominalSampleRate: audioGraph.hardwareNominalSampleRate,
+            audioHardwareIOBufferFrameSize: audioGraph.hardwareIOBufferFrameSize,
+            audioHardwareIOBufferDuration: audioGraph.hardwareIOBufferDuration,
+            audioFormatConversionLikely: audioGraph.formatConversionLikely,
+            runtimeCaptureMatchesSourceNodeFormat: audioGraph.captureMatchesSourceNodeFormat,
+            runtimeCaptureMatchesEngineOutputFormat: audioGraph.captureMatchesEngineOutputFormat,
+            runtimeCaptureMatchesHardwareSampleRate: audioGraph.captureMatchesHardwareSampleRate,
             cMixerRenderedFrames: sampleTimePosition.cMixerRenderedFrames,
             cMixerPlaybackSeconds: sampleTimePosition.cMixerPlaybackSeconds,
             cMixerSampleTimeFrame: sampleTimePosition.cMixerSampleTimeFrame,
@@ -5604,6 +6101,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             rampedVoiceCount: rampedVoiceCount,
             replacementRampFrames: replacementRampFrames,
             replacementVoicesOverlap: replacementVoicesOverlap,
+            replacementOldVoiceState: replacementOldVoiceState,
+            replacementRampStartState: replacementRampStartState,
+            replacementRampTargetGain: replacementRampTargetGain,
+            replacementNewVoiceIndex: replacementNewVoiceIndex,
+            replacementNewVoiceChannelTag: replacementNewVoiceChannelTag,
+            replacementGainPanAppliedBeforeRamp: replacementGainPanAppliedBeforeRamp,
+            replacementStepAppliedBeforeRamp: replacementStepAppliedBeforeRamp,
+            replacementKeyOffAppliedBeforeRamp: replacementKeyOffAppliedBeforeRamp,
+            replacementFadeoutAppliedBeforeRamp: replacementFadeoutAppliedBeforeRamp,
             targetVoiceIndex: targetVoiceIndex,
             gainBefore: gainBefore,
             gainAfter: gainAfter,

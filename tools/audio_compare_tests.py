@@ -2481,6 +2481,10 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         rampedVoiceCount=2,
                         replacementRampFrames=32,
                         replacementVoicesOverlap=True,
+                        replacementGainPanAppliedBeforeRamp=True,
+                        replacementStepAppliedBeforeRamp=True,
+                        replacementKeyOffAppliedBeforeRamp=False,
+                        replacementFadeoutAppliedBeforeRamp=False,
                         reason="note_replacement_stop_channel",
                     ),
                     self.event("c_mixer_add_voice", rowIndex=1, activeVoiceCount=3, loadedVoiceCount=3),
@@ -2493,6 +2497,50 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(summary["stops"]["ramped_replacement_voice_count"], 2)
             self.assertEqual(summary["stops"]["immediate_hard_replacement_stop_events"], 0)
             self.assertEqual(summary["stops"]["ramped_replacement_covers_all_observed_replacement_stops"], "yes")
+            self.assertEqual(summary["stops"]["replacement_gain_pan_applied_before_ramp_events"], 1)
+            self.assertEqual(summary["stops"]["replacement_gain_pan_missing_before_ramp_events"], 0)
+            self.assertEqual(summary["stops"]["replacement_step_applied_before_ramp_events"], 1)
+            self.assertEqual(summary["stops"]["replacement_step_missing_before_ramp_events"], 0)
+
+    def test_runtime_trace_summary_reports_audio_graph_format_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_initialized",
+                        cMixerRenderSampleRate=44100,
+                        cMixerRenderChannelCount=2,
+                        audioSourceNodeRenderSampleRate=44100,
+                        audioSourceNodeChannelCount=2,
+                        audioEngineMainMixerOutputSampleRate=48000,
+                        audioEngineMainMixerOutputChannelCount=2,
+                        audioEngineOutputNodeSampleRate=48000,
+                        audioEngineOutputNodeChannelCount=2,
+                        audioHardwareNominalSampleRate=48000,
+                        audioHardwareIOBufferFrameSize=512,
+                        audioHardwareIOBufferDuration=0.0106666667,
+                        audioFormatConversionLikely=True,
+                        runtimeCaptureMatchesSourceNodeFormat=True,
+                        runtimeCaptureMatchesEngineOutputFormat=False,
+                        runtimeCaptureMatchesHardwareSampleRate=False,
+                        callbackRequestedFrameCount=470,
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+            audio_graph = summary["audio_graph"]
+
+            self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 44100)
+            self.assertEqual(audio_graph["source_node_render_sample_rate"], 44100)
+            self.assertEqual(audio_graph["output_node_sample_rate"], 48000)
+            self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
+            self.assertEqual(audio_graph["hardware_io_buffer_frame_size"], 512)
+            self.assertTrue(audio_graph["format_conversion_likely"])
+            self.assertTrue(audio_graph["runtime_capture_matches_source_node_format"])
+            self.assertFalse(audio_graph["runtime_capture_matches_engine_output_format"])
+            self.assertFalse(audio_graph["runtime_capture_matches_hardware_sample_rate"])
 
     def test_synthetic_trace_with_hard_replacement_stop_reports_follow_up(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -220,6 +220,16 @@ carried voices, order-start/row-transition flags, and carried-channel
 association fields for update-without-note cells. The runtime C mixer remains
 experimental and opt-in; AVAudio remains the default backend, and broader
 runtime stabilization remains separate future work.
+Runtime C mixer event-burst mitigation follow-up is kept diagnostics-only after
+local capture comparison showed no material runtime/offline metric improvement
+from forcing same-frame state into replacement ramps. Replacement trace rows now
+expose old voice state, replacement ramp start/target state, new voice id/tag
+when known, and booleans for gain/pan, sample-step, key-off, and fadeout state
+before ramp start. Runtime traces also report AVAudio source-node, main-mixer,
+output-node, and hardware sample-rate/channel diagnostics for downstream output
+delivery investigation. This is runtime C mixer opt-in only and does not change
+offline rendering semantics, add XM effects, alter tracker viewport behavior,
+or change parser architecture.
 Runtime/offline mismatch window correlation diagnostics are now the current
 runtime investigation path after live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports

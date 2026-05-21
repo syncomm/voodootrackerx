@@ -150,11 +150,13 @@ Capture is ignored unless `VTX_AUDIO_BACKEND=c_mixer` selects the experimental
 backend and `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is set. The captured WAV is a
 diagnostic PCM16 file written from an in-memory Float32 capture buffer outside
 the audio callback when playback stops or the backend resets. The callback
-copies only the already-gained source-node output frames into a bounded buffer;
-it does not perform file I/O, call AppKit, or write the WAV. The default capture
-limit is 240 seconds. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap,
-and larger values are clamped to the same local-debug safety limit. If the cap
-is reached, capture stops and the runtime trace reports truncation.
+captures the same already-gained interleaved scratch frames that are then copied
+into the `AVAudioSourceNode` output buffers; this is before AVAudioEngine graph
+conversion, output-node conversion, or hardware sample-rate conversion. It does
+not perform file I/O, call AppKit, or write the WAV. The default capture limit
+is 240 seconds. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap, and
+larger values are clamped to the same local-debug safety limit. If the cap is
+reached, capture stops and the runtime trace reports truncation.
 
 To compare the runtime capture against an offline C mixer render, first render a
 clean local candidate WAV under `/tmp`:
@@ -299,8 +301,20 @@ stops in the experimental runtime C mixer path emit `c_mixer_stop_channel`.
 Same-channel note replacement now emits `c_mixer_stop_channel_ramped`, reports
 `rampedVoiceCount`, `replacementRampFrames` (`32`), and
 `replacementVoicesOverlap`, and lets the new replacement voice start while the
-old voice fades out briefly. True transport stop/reset actions still emit
-`c_mixer_clear_all` and target all channels.
+old voice fades out briefly. Dense burst diagnostics also report the outgoing
+voice id/tag, old gain/pan/sample-step/key/fadeout state, replacement ramp
+start/target state, new voice id/tag when known, and booleans such as
+`replacementGainPanAppliedBeforeRamp` and `replacementStepAppliedBeforeRamp`.
+The summary helper counts those fields so local captures can distinguish
+replacement ramps whose outgoing voice already reflected final same-frame state
+from ramps that started with older C-side state. True transport stop/reset
+actions still emit `c_mixer_clear_all` and target all channels.
+Runtime C mixer traces also include local-only AVAudio graph diagnostics:
+source-node render sample rate/channel count, C mixer render sample rate/channel
+count, main mixer and output node formats, default output device nominal sample
+rate, hardware buffer frame size/duration when accessible, and booleans
+indicating whether capture format matches the source node, engine output, or
+hardware sample rate.
 Supported runtime updates emit `c_mixer_update_gain_pan_applied`,
 `c_mixer_update_step_applied`, or
 `c_mixer_update_gain_pan_step_applied` when the handoff can target and change

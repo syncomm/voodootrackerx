@@ -22,11 +22,12 @@ fixtures, or require them from automated tests.
 ## Current State
 
 Default runtime playback still uses `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed`. The C-backed mixer has an experimental app playback
-path behind `VTX_AUDIO_BACKEND=c_mixer`, plus a developer-only alternative
-CoreAudio DefaultOutput Audio Unit host behind
-`VTX_AUDIO_BACKEND=c_mixer_coreaudio` for delivery-surface A/B testing. Both
-C mixer runtime paths are opt-in only and do not replace the default AVAudio
+`AVAudioUnitVarispeed`. The C-backed mixer has one experimental app playback
+host: the CoreAudio DefaultOutput Audio Unit backend selected with
+`VTX_AUDIO_BACKEND=c_mixer`. `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains
+accepted as a compatibility alias for the same host. The retired
+AVAudioSourceNode-hosted C mixer backend is no longer selectable. Runtime C
+mixer playback remains opt-in only and does not replace the default AVAudio
 backend. Offline candidate/reference comparison remains the authoritative
 render validation path.
 
@@ -86,17 +87,17 @@ Float32 render block before PCM16 conversion. Optional `--gain`,
 boundary, after Float32 offline rendering and before PCM16 encoding. Default
 export gain remains unchanged when none of those options is passed.
 
-## Runtime C Mixer A/B Listening Diagnostics
+## Runtime C Mixer Listening Diagnostics
 
 Runtime playback still defaults to `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed`. The experimental live C mixer SourceNode path remains
-opt-in only with `VTX_AUDIO_BACKEND=c_mixer`; the alternative CoreAudio
-DefaultOutput Audio Unit host is opt-in only with
-`VTX_AUDIO_BACKEND=c_mixer_coreaudio`. Unset or unknown values keep the AVAudio
-backend. Both runtime C paths are local developer diagnostics and should not be
-treated as stable replacements for the default backend.
+`AVAudioUnitVarispeed`. The experimental live C mixer path is CoreAudio
+DefaultOutput Audio Unit hosted and remains opt-in only with
+`VTX_AUDIO_BACKEND=c_mixer`; `VTX_AUDIO_BACKEND=c_mixer_coreaudio` is accepted
+as an alias for the same host. Unset or unknown values keep the AVAudio backend.
+The runtime C path is a local developer diagnostic and should not be treated as
+a stable replacement for the default backend.
 
-For local A/B listening, build the app first:
+For local listening diagnostics, build the app first:
 
 ```bash
 xcodebuild \
@@ -116,7 +117,7 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Launch with the experimental runtime C mixer backend:
+Launch with the experimental CoreAudio-hosted runtime C mixer backend:
 
 ```bash
 VTX_AUDIO_BACKEND=c_mixer \
@@ -124,7 +125,7 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Launch with the alternative CoreAudio DefaultOutput Audio Unit host:
+Launch with the explicit CoreAudio compatibility alias:
 
 ```bash
 VTX_AUDIO_BACKEND=c_mixer_coreaudio \
@@ -133,15 +134,12 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ```
 
 When an experimental runtime C mixer backend is selected, the C mixer chooses
-its runtime render sample rate from the AVAudio output graph/device where
-practical. The automatic policy prefers the output node rate, then the default
-output device's nominal hardware rate, then the main mixer rate, and falls back
-to 44100 Hz only when no valid graph/device rate is available. The selected
-rate is used for the C mixer render config, runtime host format, runtime
-capture, planned adapter event frames, and sample-time position resolution. For
-local diagnostics only, developers can force the experimental runtime C mixer
-rate with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`; the variable is ignored
-unless an experimental C mixer backend is selected.
+its runtime render sample rate from the output graph/device where practical.
+The selected rate is used for the C mixer render config, CoreAudio host format,
+runtime capture, planned adapter event frames, and sample-time position
+resolution. For local diagnostics only, developers can force the experimental
+runtime C mixer rate with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`; the variable
+is ignored unless an experimental C mixer backend is selected.
 
 Enable a local-only runtime C mixer JSONL trace:
 
@@ -152,19 +150,18 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Use `VTX_AUDIO_BACKEND=c_mixer_coreaudio` with the same trace controls to trace
-the alternative host. Trace rows and summaries report `runtimeAudioBackend`,
-`alternativeRuntimeOutputHostEnabled`, `runtimeOutputHostType`, output-unit
-prepare/initialize/start/stop `OSStatus` values, and the last nonzero host
-status when one is observed.
+Use `VTX_AUDIO_BACKEND=c_mixer_coreaudio` with the same trace controls to verify
+the compatibility alias. Trace rows and summaries report `runtimeAudioBackend`,
+`runtimeOutputHostType`, output-unit prepare/initialize/start/stop `OSStatus`
+values, and the last nonzero host status when one is observed.
 
-For controlled output-host A/B listening, run the same local/private module
-from the same start position with both experimental hosts:
+For controlled alias smoke testing, run the same local/private module from the
+same start position with both accepted backend names:
 
 ```bash
 VTX_AUDIO_BACKEND=c_mixer \
-VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-ab-sourcenode-trace.jsonl \
-VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-ab-sourcenode-capture.wav \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-primary-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-primary-capture.wav \
 VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
 VTX_DEBUG_AUTOPLAY=1 \
 VTX_DEBUG_START_ORDER=0 \
@@ -173,8 +170,8 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 
 VTX_AUDIO_BACKEND=c_mixer_coreaudio \
-VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-ab-coreaudio-trace.jsonl \
-VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-ab-coreaudio-capture.wav \
+VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-c-alias-trace.jsonl \
+VTX_C_MIXER_RUNTIME_CAPTURE_PATH=/tmp/vtx-c-alias-capture.wav \
 VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS=240 \
 VTX_DEBUG_AUTOPLAY=1 \
 VTX_DEBUG_START_ORDER=0 \
@@ -183,24 +180,24 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Summarize each trace with the same command and compare backend, host type,
-sample rate, channel count, callback counts, callback frame count range,
-underrun/zero-fill/failed render counters, callback duration warnings, capture
-duration/clipping, route/sample-rate diagnostics, and CoreAudio output-unit
-`OSStatus` values:
+Summarize each trace with the same command and compare requested backend flag,
+host type, sample rate, channel count, callback counts, callback frame count
+range, underrun/zero-fill/failed render counters, callback duration warnings,
+capture duration/clipping, route/sample-rate diagnostics, and CoreAudio
+output-unit `OSStatus` values:
 
 ```bash
 python3 scripts/summarize-runtime-c-mixer-trace.py \
-  /tmp/vtx-ab-sourcenode-trace.jsonl \
+  /tmp/vtx-c-primary-trace.jsonl \
   --live-artifact-reported unknown \
-  --json /tmp/vtx-ab-sourcenode-summary.json \
-  --markdown /tmp/vtx-ab-sourcenode-summary.md
+  --json /tmp/vtx-c-primary-summary.json \
+  --markdown /tmp/vtx-c-primary-summary.md
 
 python3 scripts/summarize-runtime-c-mixer-trace.py \
-  /tmp/vtx-ab-coreaudio-trace.jsonl \
+  /tmp/vtx-c-alias-trace.jsonl \
   --live-artifact-reported unknown \
-  --json /tmp/vtx-ab-coreaudio-summary.json \
-  --markdown /tmp/vtx-ab-coreaudio-summary.md
+  --json /tmp/vtx-c-alias-summary.json \
+  --markdown /tmp/vtx-c-alias-summary.md
 ```
 
 The summary also separates capture lifetime from playback lifetime. It reports
@@ -217,9 +214,9 @@ playback stops or silences at planned song end plus the runtime tail, which
 defaults to 3 seconds and can be overridden locally with
 `VTX_C_MIXER_RUNTIME_TAIL_SECONDS=N`. `VTX_DEBUG_STOP_AFTER_SECONDS` may stop
 playback during local automation. Both `c_mixer` and `c_mixer_coreaudio` remain
-experimental, opt-in backends; generated traces, captures, WAVs, JSON reports,
-Markdown summaries, logs, screenshots, and listening notes should stay local
-and unstaged.
+accepted experimental opt-in backend names for the same CoreAudio host;
+generated traces, captures, WAVs, JSON reports, Markdown summaries, logs,
+screenshots, and listening notes should stay local and unstaged.
 
 For overhead isolation, `VTX_C_MIXER_RUNTIME_DISABLE_TRACE=1` disables the
 runtime C mixer trace writer when the experimental backend is selected.
@@ -286,11 +283,10 @@ Capture is ignored unless an experimental C mixer backend is selected and
 PCM16 file written from an in-memory Float32 capture buffer outside the audio
 callback when playback stops or the backend resets. The callback captures the
 same already-gained interleaved scratch frames that are handed to the selected
-runtime host: copied into `AVAudioSourceNode` buffers for `c_mixer`, or copied
-into DefaultOutput Audio Unit buffers for `c_mixer_coreaudio`. It does not
-perform file I/O, call AppKit, or write the WAV. Capture reports and WAV
-headers use the selected runtime C mixer sample rate. The default capture limit
-is 240 seconds.
+CoreAudio DefaultOutput Audio Unit host for both `c_mixer` and
+`c_mixer_coreaudio`. It does not perform file I/O, call AppKit, or write the
+WAV. Capture reports and WAV headers use the selected runtime C mixer sample
+rate. The default capture limit is 240 seconds.
 `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` can lower the cap, and larger values are
 clamped to the same local-debug safety limit. If the cap is reached, capture
 stops and the runtime trace reports truncation.
@@ -390,15 +386,13 @@ outside git. Public docs and tests must continue to use placeholder module
 paths only.
 
 No output/main-mixer tap WAV is installed by this diagnostics pass. A tap would
-add another AVAudio callback and synchronization path while the current local
-matrix is measuring the existing source-node callback and AVAudio output graph.
-If source-node capture stays clean while live hardware output remains artifacted
-and graph diagnostics are inconclusive, add a separate measured output-tap PR.
-ADR 008 records the runtime-host architecture question: keep
-AVAudioPlayerNode/AVAudioUnitVarispeed as the default, keep the
-AVAudioSourceNode C mixer path experimental and opt-in, and use the
-developer-only `c_mixer_coreaudio` output host spike to test whether the
-remaining live artifact is specific to AVAudioEngine SourceNode delivery.
+add another AVAudio callback and synchronization path while current runtime
+diagnostics focus on the CoreAudio host handoff, callback health, and
+route/device evidence. ADR 008 records the runtime-host decision: keep
+AVAudioPlayerNode/AVAudioUnitVarispeed as the default, retire the
+AVAudioSourceNode C mixer path after persistent live-output artifacts, and use
+the CoreAudio DefaultOutput Audio Unit host as the preferred experimental
+runtime C mixer delivery surface.
 
 The experimental runtime C mixer applies a conservative output gain at the
 runtime handoff before samples are copied to the selected live host buffers.
@@ -461,8 +455,8 @@ VTX_DEBUG_STOP_AFTER_SECONDS=45 \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Use `VTX_AUDIO_BACKEND=c_mixer_coreaudio` in the same command to run the
-alternative host at the same start point.
+Use `VTX_AUDIO_BACKEND=c_mixer_coreaudio` in the same command to verify the
+same CoreAudio host through the compatibility alias at the same start point.
 
 The runtime C mixer trace records backend selection, PlaybackEngine
 order/pattern/row/tick/channel context, note trigger and key-off events, C mixer
@@ -487,15 +481,14 @@ The summary helper counts those fields so local captures can distinguish
 replacement ramps whose outgoing voice already reflected final same-frame state
 from ramps that started with older C-side state. True transport stop/reset
 actions still emit `c_mixer_clear_all` and target all channels.
-Runtime C mixer traces also include local-only AVAudio graph diagnostics:
+Runtime C mixer traces also include local-only output-host and route diagnostics:
 selected runtime sample rate, runtime sample-rate policy (`graph_aligned`,
-`explicit_env`, or `fallback_44100`), selected backend, alternative-host flag,
-host type, CoreAudio output-unit `OSStatus` breadcrumbs when applicable,
-source-node render sample rate/channel count when applicable, C mixer render
-sample rate/channel count, main mixer and output node formats, default output
-device nominal sample rate, hardware buffer frame size/duration when
-accessible, `audioFormatConversionLikely`, and booleans indicating whether
-capture format matches the source node, engine output, or hardware sample rate.
+`explicit_env`, or `fallback_44100`), selected backend, host type, CoreAudio
+output-unit `OSStatus` breadcrumbs, C mixer render sample rate/channel count,
+default output device nominal sample rate, hardware buffer frame size/duration
+when accessible, `audioFormatConversionLikely`, and whether capture format
+matches the hardware sample rate. Legacy SourceNode graph fields may be absent
+in new CoreAudio-hosted traces.
 Callback timing fields report requested frame ranges, min/max/average callback
 duration, conservative duration warning counts, estimated render quantum
 duration, callbacks over the render quantum budget, and callback-to-callback
@@ -532,8 +525,8 @@ restarted by tiny discrepancies. Trace rows may include `updateEpsilon`,
 `gainRequested`, `panRequested`, `sampleStepRequested`, `gainDelta`, `panDelta`,
 `sampleStepDelta`, `gainUpdateStatus`, `panUpdateStatus`, and
 `sampleStepUpdateStatus`. Gain/pan updates keep the runtime C mixer's fixed
-micro-ramp and the runtime headroom policy still applies only at the AVAudio
-source-node handoff.
+micro-ramp and the runtime headroom policy still applies only at the CoreAudio
+runtime host handoff.
 
 The same trace now carries runtime output diagnostics for the experimental C
 mixer path: backend sample rate and channel count, render callback count,

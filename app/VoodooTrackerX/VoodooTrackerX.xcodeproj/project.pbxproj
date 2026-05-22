@@ -32,8 +32,8 @@
 		F0000000000000000000003A /* RuntimeCMixerOutputRouteDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000025 /* RuntimeCMixerOutputRouteDiagnostics.swift */; };
 		F0000000000000000000003B /* RuntimeCMixerRenderCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000026 /* RuntimeCMixerRenderCore.swift */; };
 		F0000000000000000000003C /* RuntimeCMixerRenderCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000026 /* RuntimeCMixerRenderCore.swift */; };
-		F0000000000000000000003D /* RuntimeCMixerSourceNodeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000027 /* RuntimeCMixerSourceNodeBackend.swift */; };
-		F0000000000000000000003E /* RuntimeCMixerSourceNodeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000027 /* RuntimeCMixerSourceNodeBackend.swift */; };
+		F0000000000000000000003D /* RuntimeCMixerBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000027 /* RuntimeCMixerBackend.swift */; };
+		F0000000000000000000003E /* RuntimeCMixerBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000027 /* RuntimeCMixerBackend.swift */; };
 		A00000000000000000000049 /* PlaybackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000038 /* PlaybackEngine.swift */; };
 		A0000000000000000000004A /* PlaybackTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000037 /* PlaybackTransport.swift */; };
 		A0000000000000000000004B /* PlaybackTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* PlaybackTypes.swift */; };
@@ -85,7 +85,7 @@
 		F00000000000000000000024 /* RuntimeCMixerDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerDiagnostics.swift; sourceTree = "<group>"; };
 		F00000000000000000000025 /* RuntimeCMixerOutputRouteDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerOutputRouteDiagnostics.swift; sourceTree = "<group>"; };
 		F00000000000000000000026 /* RuntimeCMixerRenderCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerRenderCore.swift; sourceTree = "<group>"; };
-		F00000000000000000000027 /* RuntimeCMixerSourceNodeBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerSourceNodeBackend.swift; sourceTree = "<group>"; };
+		F00000000000000000000027 /* RuntimeCMixerBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerBackend.swift; sourceTree = "<group>"; };
 		A0000000000000000000004E /* PlaybackEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEffect.swift; sourceTree = "<group>"; };
 		E00000000000000000000021 /* XMEffectCommandDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMEffectCommandDisplay.swift; sourceTree = "<group>"; };
 		B00000000000000000000021 /* PlaybackTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTrace.swift; sourceTree = "<group>"; };
@@ -173,7 +173,7 @@
 				F00000000000000000000024 /* RuntimeCMixerDiagnostics.swift */,
 				F00000000000000000000025 /* RuntimeCMixerOutputRouteDiagnostics.swift */,
 				F00000000000000000000026 /* RuntimeCMixerRenderCore.swift */,
-				F00000000000000000000027 /* RuntimeCMixerSourceNodeBackend.swift */,
+				F00000000000000000000027 /* RuntimeCMixerBackend.swift */,
 				C00000000000000000000021 /* SoftwareMixer.swift */,
 				A00000000000000000000024 /* TrackerTheme.swift */,
 				A0000000000000000000002C /* ControlPanelView.swift */,
@@ -352,7 +352,7 @@
 				F00000000000000000000037 /* RuntimeCMixerDiagnostics.swift in Sources */,
 				F00000000000000000000039 /* RuntimeCMixerOutputRouteDiagnostics.swift in Sources */,
 				F0000000000000000000003B /* RuntimeCMixerRenderCore.swift in Sources */,
-				F0000000000000000000003D /* RuntimeCMixerSourceNodeBackend.swift in Sources */,
+				F0000000000000000000003D /* RuntimeCMixerBackend.swift in Sources */,
 				C00000000000000000000011 /* SoftwareMixer.swift in Sources */,
 				A00000000000000000000016 /* TrackerTheme.swift in Sources */,
 				A0000000000000000000001C /* ControlPanelView.swift in Sources */,
@@ -389,7 +389,7 @@
 				F00000000000000000000038 /* RuntimeCMixerDiagnostics.swift in Sources */,
 				F0000000000000000000003A /* RuntimeCMixerOutputRouteDiagnostics.swift in Sources */,
 				F0000000000000000000003C /* RuntimeCMixerRenderCore.swift in Sources */,
-				F0000000000000000000003E /* RuntimeCMixerSourceNodeBackend.swift in Sources */,
+				F0000000000000000000003E /* RuntimeCMixerBackend.swift in Sources */,
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
 				D00000000000000000000014 /* vtx_c_mixer.c in Sources */,

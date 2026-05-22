@@ -188,6 +188,25 @@ When debugging tracker UI, prefer manual GUI verification early instead of repea
 
 When debugging app behavior, use the project's canonical local build/run path first.
 
+For manual macOS app smoke/debug runs launched through LaunchServices, use the
+Debug app built under `build/Build/Products/Debug/` and set app environment with
+`launchctl setenv` before `open`, for example:
+
+```sh
+launchctl setenv VTX_OPEN_PATH /path/to/local-reference-module.xm
+launchctl setenv VTX_AUDIO_BACKEND c_mixer
+launchctl setenv VTX_C_MIXER_RUNTIME_TRACE_PATH /tmp/vtx-runtime-trace.jsonl
+launchctl setenv VTX_DEBUG_AUTOPLAY 1
+launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 2
+open build/Build/Products/Debug/VoodooTrackerX.app
+```
+
+Use private/local reference modules for manual audio listening or comparison
+smoke checks when available; do not substitute tiny synthetic fixtures for those
+checks. Keep private module names, local absolute paths, and generated traces or
+captures out of committed files. After the smoke run, quit the app and clear any
+LaunchServices environment overrides with `launchctl unsetenv`.
+
 When reproduction can be automated, agents should:
 - launch the app themselves
 - drive the UI with keyboard or mouse automation when possible

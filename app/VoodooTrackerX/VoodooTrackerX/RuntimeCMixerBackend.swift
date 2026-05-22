@@ -3,16 +3,6 @@ import AudioToolbox
 import Foundation
 import os
 
-private func makeRuntimeCMixerSourceNode(
-    format: AVAudioFormat,
-    renderCore: RuntimeCMixerRenderCore
-) -> AVAudioSourceNode {
-    AVAudioSourceNode(format: format) { _, _, frameCount, ioData in
-        renderCore.render(frameCount: frameCount, ioData: ioData)
-    }
-}
-
-
 @MainActor
 protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?)
@@ -298,10 +288,8 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
 final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput, RuntimeCMixerAdapterEventConsuming {
     private let logger = Logger(subsystem: "com.syncomm.VoodooTrackerX", category: "Audio")
     private let backend: RuntimeAudioBackend
-    private let engine = AVAudioEngine()
     private let format: AVAudioFormat
-    private let sourceNode: AVAudioSourceNode?
-    private let coreAudioOutputHost: RuntimeCMixerDefaultOutputUnitHost?
+    private let coreAudioOutputHost: RuntimeCMixerDefaultOutputUnitHost
     private let renderCore: RuntimeCMixerRenderCore
     private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
@@ -310,7 +298,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let startsOutputHostOnDemand: Bool
     private var isPrepared = false
     private var isFallbackActive = false
-    nonisolated(unsafe) private var engineConfigurationObserver: NSObjectProtocol?
     private var engineConfigurationChangeCount: UInt64 = 0
     private var audioEngineRestartCount: UInt64 = 0
     private var audioGraphFormatChangeCount: UInt64 = 0
@@ -359,23 +346,19 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         self.traceWriter = traceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
         self.routeLabel = RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(routeLabel)
-        let usesCoreAudioOutputHost = resolvedBackend == .cMixerCoreAudio
         format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: renderCore.config.sampleRate,
             channels: AVAudioChannelCount(renderCore.config.channelCount),
             interleaved: false
         )!
-        sourceNode = usesCoreAudioOutputHost ? nil : makeRuntimeCMixerSourceNode(format: format, renderCore: renderCore)
-        coreAudioOutputHost = usesCoreAudioOutputHost
-            ? RuntimeCMixerDefaultOutputUnitHost(
-                configuration: RuntimeCMixerCoreAudioHostConfiguration(
-                    sampleRate: renderCore.config.sampleRate,
-                    channelCount: renderCore.config.channelCount
-                ),
-                renderCore: renderCore
-            )
-            : nil
+        coreAudioOutputHost = RuntimeCMixerDefaultOutputUnitHost(
+            configuration: RuntimeCMixerCoreAudioHostConfiguration(
+                sampleRate: renderCore.config.sampleRate,
+                channelCount: renderCore.config.channelCount
+            ),
+            renderCore: renderCore
+        )
         logger.info(
             "Initialized experimental C mixer runtime backend=\(self.backend.diagnosticName, privacy: .public) host_type=\(self.backend.runtimeOutputHostType, privacy: .public) sample_rate=\(self.renderCore.config.sampleRate, privacy: .public) channel_count=\(self.renderCore.config.channelCount, privacy: .public)"
         )
@@ -387,23 +370,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             succeeded: nil,
             reason: "runtime_c_mixer_initialized"
         )
-        if resolvedBackend == .cMixer {
-            engineConfigurationObserver = NotificationCenter.default.addObserver(
-                forName: .AVAudioEngineConfigurationChange,
-                object: engine,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.recordEngineConfigurationChange()
-                }
-            }
-        }
-    }
-
-    deinit {
-        if let engineConfigurationObserver {
-            NotificationCenter.default.removeObserver(engineConfigurationObserver)
-        }
     }
 
     var runtimeAudioBackend: RuntimeAudioBackend {
@@ -831,49 +797,19 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     private func audioGraphDiagnostics(snapshot: RuntimeCMixerRenderSnapshot) -> RuntimeCMixerAudioGraphDiagnostics {
         let outputDevice = RuntimeCMixerAudioOutputDeviceDiagnostics.currentDefaultOutputDevice()
-        let sourceNodeConnected = sourceNode.map {
-            isPrepared && !engine.outputConnectionPoints(for: $0, outputBus: 0).isEmpty
-        } ?? false
         return RuntimeCMixerAudioGraphDiagnostics(
             snapshot: snapshot,
             routeLabel: routeLabel,
-            sourceFormat: format,
-            mainMixerInputFormat: engine.mainMixerNode.inputFormat(forBus: 0),
-            mainMixerOutputFormat: engine.mainMixerNode.outputFormat(forBus: 0),
-            outputNodeFormat: engine.outputNode.outputFormat(forBus: 0),
+            hostFormat: format,
             outputDevice: outputDevice,
-            engineRunning: engine.isRunning,
-            sourceNodeAttached: isPrepared,
-            sourceNodeConnected: sourceNodeConnected,
-            mainMixerConnectedToOutput: !engine.outputConnectionPoints(for: engine.mainMixerNode, outputBus: 0).isEmpty,
-            mainMixerLatency: engine.mainMixerNode.latency,
-            mainMixerOutputPresentationLatency: engine.mainMixerNode.outputPresentationLatency,
-            outputNodeLatency: engine.outputNode.latency,
-            outputNodeOutputPresentationLatency: engine.outputNode.outputPresentationLatency,
-            engineRunningOverride: backend == .cMixerCoreAudio ? coreAudioOutputHost?.isRunning : nil,
-            sourceNodeAttachedOverride: backend == .cMixerCoreAudio ? false : isPrepared,
-            sourceNodeConnectedOverride: backend == .cMixerCoreAudio ? false : sourceNodeConnected,
-            mainMixerConnectedToOutputOverride: backend == .cMixerCoreAudio ? false : nil,
-            formatConversionLikelyOverride: backend == .cMixerCoreAudio ? false : nil
-        )
-    }
-
-    private func recordEngineConfigurationChange() {
-        engineConfigurationChangeCount &+= 1
-        recordRuntimeEvent(
-            action: "engine_configuration_change",
-            context: nil,
-            targetScope: "none",
-            snapshot: renderCore.snapshot(),
-            succeeded: nil,
-            reason: "av_audio_engine_configuration_change"
+            outputHostRunning: coreAudioOutputHost.isRunning
         )
     }
 
     private func updateAudioGraphChangeCounters(_ graph: RuntimeCMixerAudioGraphDiagnostics) -> RuntimeCMixerAudioGraphChanges {
         let formatChanged: Bool
         if lastAudioGraphWasPrepared,
-           graph.sourceNodeAttached,
+           graph.engineRunning,
            let lastAudioGraphFormatSignature {
             formatChanged = lastAudioGraphFormatSignature != graph.formatSignature
         } else {
@@ -883,7 +819,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioGraphFormatChangeCount &+= 1
         }
         lastAudioGraphFormatSignature = graph.formatSignature
-        lastAudioGraphWasPrepared = graph.sourceNodeAttached
+        lastAudioGraphWasPrepared = graph.engineRunning
 
         let routeChanged: Bool
         if let lastAudioOutputRouteSignature {
@@ -1280,9 +1216,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
         drainAppliedRuntimeAdapterEvents()
-        if backend == .cMixerCoreAudio {
-            coreAudioOutputHost?.stop()
-        }
+        coreAudioOutputHost.stop()
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
         eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
@@ -1296,9 +1230,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stoppedVoiceCount: result.stoppedVoiceCount,
             reason: result.reason
         )
-        if backend != .cMixerCoreAudio {
-            engine.pause()
-        }
         if isFallbackActive {
             fallbackAudioEngine.stopAll()
         }
@@ -1414,18 +1345,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func reset() {
         drainAppliedRuntimeAdapterEvents()
         stopAll()
-        if backend == .cMixerCoreAudio {
-            coreAudioOutputHost?.reset()
-        } else {
-            engine.stop()
-        }
+        coreAudioOutputHost.reset()
         fallbackAudioEngine.reset()
         isFallbackActive = false
-        if isPrepared,
-           let sourceNode {
-            engine.detach(sourceNode)
-        }
-        engine.reset()
         isPrepared = false
         recordRuntimeEvent(
             action: "backend_reset",
@@ -1442,103 +1364,28 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard !isPrepared else {
             return
         }
-        if backend == .cMixerCoreAudio {
-            let status = coreAudioOutputHost?.prepare() ?? kAudio_ParamError
-            isPrepared = status == noErr
-            recordRuntimeEvent(
-                action: status == noErr ? "backend_prepared" : "backend_prepare_failed",
-                context: nil,
-                targetScope: "none",
-                snapshot: renderCore.snapshot(),
-                succeeded: status == noErr,
-                reason: status == noErr
-                    ? "runtime_c_mixer_coreaudio_output_unit_prepared"
-                    : "runtime_c_mixer_coreaudio_output_unit_prepare_failed_status_\(status)"
-            )
-            return
-        }
-        guard let sourceNode else {
-            recordRuntimeEvent(
-                action: "backend_prepare_failed",
-                context: nil,
-                targetScope: "none",
-                snapshot: renderCore.snapshot(),
-                succeeded: false,
-                reason: "runtime_c_mixer_source_node_missing"
-            )
-            return
-        }
-        engine.attach(sourceNode)
-        engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-        isPrepared = true
+        let status = coreAudioOutputHost.prepare()
+        isPrepared = status == noErr
         recordRuntimeEvent(
-            action: "backend_prepared",
+            action: status == noErr ? "backend_prepared" : "backend_prepare_failed",
             context: nil,
             targetScope: "none",
             snapshot: renderCore.snapshot(),
-            succeeded: true,
-            reason: "runtime_c_mixer_source_node_prepared"
+            succeeded: status == noErr,
+            reason: status == noErr
+                ? "runtime_c_mixer_coreaudio_output_unit_prepared"
+                : "runtime_c_mixer_coreaudio_output_unit_prepare_failed_status_\(status)"
         )
     }
 
     private func startEngineIfNeeded() -> Bool {
-        if backend == .cMixerCoreAudio {
-            guard coreAudioOutputHost?.isRunning != true else {
-                return true
-            }
-            let status = coreAudioOutputHost?.start() ?? kAudio_ParamError
-            guard status == noErr else {
-                logger.error(
-                    "Experimental C mixer CoreAudio output unit start succeeded=false falling_back=true status=\(status, privacy: .public)"
-                )
-                renderCore.stopAll()
-                recordRuntimeEvent(
-                    action: "backend_start_failed",
-                    context: nil,
-                    targetScope: "none",
-                    snapshot: renderCore.snapshot(),
-                    succeeded: false,
-                    reason: "runtime_c_mixer_coreaudio_output_unit_start_failed_status_\(status)"
-                )
-                return false
-            }
-            isPrepared = true
-            audioEngineRestartCount &+= 1
-            logger.info(
-                "Experimental C mixer CoreAudio output unit start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
-            )
-            recordRuntimeEvent(
-                action: "backend_start",
-                context: nil,
-                targetScope: "none",
-                snapshot: renderCore.snapshot(),
-                succeeded: true,
-                reason: "runtime_c_mixer_coreaudio_output_unit_started"
-            )
+        guard !coreAudioOutputHost.isRunning else {
             return true
         }
-        guard !engine.isRunning else {
-            return true
-        }
-        do {
-            try engine.start()
-            audioEngineRestartCount &+= 1
-            logger.info(
-                "Experimental C mixer runtime start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
-            )
-            recordRuntimeEvent(
-                action: "backend_start",
-                context: nil,
-                targetScope: "none",
-                snapshot: renderCore.snapshot(),
-                succeeded: true,
-                reason: "runtime_c_mixer_engine_started"
-            )
-            return true
-        } catch {
+        let status = coreAudioOutputHost.start()
+        guard status == noErr else {
             logger.error(
-                "Experimental C mixer runtime start succeeded=false falling_back=true error=\(error.localizedDescription, privacy: .public)"
+                "Experimental C mixer CoreAudio output unit start succeeded=false falling_back=true status=\(status, privacy: .public)"
             )
             renderCore.stopAll()
             recordRuntimeEvent(
@@ -1547,10 +1394,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 targetScope: "none",
                 snapshot: renderCore.snapshot(),
                 succeeded: false,
-                reason: "runtime_c_mixer_engine_start_failed"
+                reason: "runtime_c_mixer_coreaudio_output_unit_start_failed_status_\(status)"
             )
             return false
         }
+        isPrepared = true
+        audioEngineRestartCount &+= 1
+        logger.info(
+            "Experimental C mixer CoreAudio output unit start succeeded=true sample_rate=\(self.format.sampleRate, privacy: .public) channel_count=\(self.format.channelCount, privacy: .public)"
+        )
+        recordRuntimeEvent(
+            action: "backend_start",
+            context: nil,
+            targetScope: "none",
+            snapshot: renderCore.snapshot(),
+            succeeded: true,
+            reason: "runtime_c_mixer_coreaudio_output_unit_started"
+        )
+        return true
     }
 
     private func finishRuntimeCaptureIfNeeded(reason: String) {
@@ -1755,11 +1616,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             experimentalCMixerEnabled: true,
             alternativeRuntimeOutputHostEnabled: runtimeAudioBackend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: runtimeAudioBackend.runtimeOutputHostType,
-            runtimeOutputHostPrepareStatus: coreAudioOutputHost?.lastPrepareStatus.map(Int.init),
-            runtimeOutputHostInitializeStatus: coreAudioOutputHost?.lastInitializeStatus.map(Int.init),
-            runtimeOutputHostStartStatus: coreAudioOutputHost?.lastStartStatus.map(Int.init),
-            runtimeOutputHostStopStatus: coreAudioOutputHost?.lastStopStatus.map(Int.init),
-            runtimeOutputHostLastErrorStatus: coreAudioOutputHost?.lastErrorStatus.map(Int.init),
+            runtimeOutputHostPrepareStatus: coreAudioOutputHost.lastPrepareStatus.map(Int.init),
+            runtimeOutputHostInitializeStatus: coreAudioOutputHost.lastInitializeStatus.map(Int.init),
+            runtimeOutputHostStartStatus: coreAudioOutputHost.lastStartStatus.map(Int.init),
+            runtimeOutputHostStopStatus: coreAudioOutputHost.lastStopStatus.map(Int.init),
+            runtimeOutputHostLastErrorStatus: coreAudioOutputHost.lastErrorStatus.map(Int.init),
             sampleRate: snapshot.sampleRate,
             selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
             cMixerRuntimeSampleRate: snapshot.sampleRate,
@@ -2145,11 +2006,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             experimentalCMixerEnabled: true,
             alternativeRuntimeOutputHostEnabled: runtimeAudioBackend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: runtimeAudioBackend.runtimeOutputHostType,
-            runtimeOutputHostPrepareStatus: coreAudioOutputHost?.lastPrepareStatus.map(Int.init),
-            runtimeOutputHostInitializeStatus: coreAudioOutputHost?.lastInitializeStatus.map(Int.init),
-            runtimeOutputHostStartStatus: coreAudioOutputHost?.lastStartStatus.map(Int.init),
-            runtimeOutputHostStopStatus: coreAudioOutputHost?.lastStopStatus.map(Int.init),
-            runtimeOutputHostLastErrorStatus: coreAudioOutputHost?.lastErrorStatus.map(Int.init),
+            runtimeOutputHostPrepareStatus: coreAudioOutputHost.lastPrepareStatus.map(Int.init),
+            runtimeOutputHostInitializeStatus: coreAudioOutputHost.lastInitializeStatus.map(Int.init),
+            runtimeOutputHostStartStatus: coreAudioOutputHost.lastStartStatus.map(Int.init),
+            runtimeOutputHostStopStatus: coreAudioOutputHost.lastStopStatus.map(Int.init),
+            runtimeOutputHostLastErrorStatus: coreAudioOutputHost.lastErrorStatus.map(Int.init),
             sampleRate: snapshot.sampleRate,
             selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? snapshot.sampleRate,
             cMixerRuntimeSampleRate: snapshot.sampleRate,

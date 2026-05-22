@@ -18,9 +18,12 @@ viewport navigation, first-pass XM playback, playback diagnostics, and an
 initial deterministic software mixer skeleton.
 
 Default runtime playback still uses the `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed` backend. An experimental runtime C mixer skeleton now
-exists behind the developer-only `VTX_AUDIO_BACKEND=c_mixer` flag, but it is
-opt-in only and does not replace the AVAudio backend. The software mixer path is
+`AVAudioUnitVarispeed` backend. An experimental CoreAudio DefaultOutput Audio
+Unit runtime C mixer host now exists behind the developer-only
+`VTX_AUDIO_BACKEND=c_mixer` flag, with `VTX_AUDIO_BACKEND=c_mixer_coreaudio`
+accepted as an alias for the same host. It is opt-in only and does not replace
+the AVAudio backend. The retired AVAudioSourceNode C mixer host is no longer
+selectable. The software mixer path is
 groundwork for offline rendering and future reference comparison; it can render
 synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
@@ -128,7 +131,7 @@ key-off/fadeout evidence.
 The bounded/offline C mixer now reports gain/pan ramp settings and counts in
 diagnostics. ADR 007's feature-flagged runtime C mixer plan now has an initial
 implementation skeleton: it remains developer opt-in, keeps the AVAudio backend
-as the default fallback, uses an AVAudioEngine-hosted pull source, and keeps
+as the default fallback, used an AVAudioEngine-hosted pull source initially, and keeps
 tracker viewport, parser, and broad UI work out of the backend PR. Runtime C
 mixer A/B listening diagnostics now add a local-only JSONL trace for backend
 selection, PlaybackEngine order/row/tick context, note/key/stop events, C mixer
@@ -145,7 +148,7 @@ zero-fill/underrun evidence where detected, output peak/RMS and
 clipping/overrange summaries, row-transition snapshots, backend lifecycle breadcrumbs,
 and explicit runtime headroom policy reporting. The experimental runtime C
 mixer now applies a conservative runtime-only output gain/headroom policy at the
-AVAudio source-node handoff, defaults to `-12 dB`, reports post-gain clipping
+runtime C mixer handoff, defaults to `-12 dB`, reports post-gain clipping
 diagnostics and recommendations, and accepts local-only gain/headroom
 environment overrides only when `VTX_AUDIO_BACKEND=c_mixer` is selected.
 Offline export `--auto-headroom` remains separate, and AVAudio remains the
@@ -174,7 +177,7 @@ adapter event categories, row/order mapping, and fallback-to-simple-runtime
 counts. This remains opt-in behind `VTX_AUDIO_BACKEND=c_mixer`; AVAudio remains
 the default backend and unsupported XM effects remain unsupported. Runtime
 sample-time event application now queues planned adapter events by intended
-runtime frame, splits AVAudio source-node callbacks at in-buffer event offsets,
+runtime frame, splits runtime host callbacks at in-buffer event offsets,
 and traces callback ranges, planned/applied frames, offsets, same-frame burst
 sizes, exact-frame/callback-boundary/late counts, and max planned-vs-applied
 deltas. Runtime sample-time position diagnostics now resolve the C mixer frame
@@ -204,7 +207,7 @@ dry-render peak-analysis pass from the selected start position.
 Runtime C mixer live output capture tooling is now available for local-only
 offline-vs-live comparison: when `VTX_AUDIO_BACKEND=c_mixer` and
 `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` are set, the experimental backend captures
-the post-runtime-gain AVAudio source-node output into a bounded in-memory buffer
+the post-runtime-gain CoreAudio host output into a bounded in-memory buffer
 and writes a local WAV outside the audio callback on stop/reset. Capture
 summaries report basename-only paths, captured frames, truncation, gain policy,
 peak/RMS, and clipping counters. Broader pop mitigation remains separate future
@@ -225,14 +228,14 @@ local capture comparison showed no material runtime/offline metric improvement
 from forcing same-frame state into replacement ramps. Replacement trace rows now
 expose old voice state, replacement ramp start/target state, new voice id/tag
 when known, and booleans for gain/pan, sample-step, key-off, and fadeout state
-before ramp start. Runtime traces also report AVAudio source-node, main-mixer,
-output-node, and hardware sample-rate/channel diagnostics for downstream output
-delivery investigation. This is runtime C mixer opt-in only and does not change
+before ramp start. Runtime traces also preserve legacy AVAudioEngine graph
+fields and report hardware sample-rate/channel diagnostics for historical
+downstream output delivery investigation. This is runtime C mixer opt-in only and does not change
 offline rendering semantics, add XM effects, alter tracker viewport behavior,
 or change parser architecture.
 Runtime C mixer AVAudio source format alignment now selects the experimental
 runtime C mixer sample rate from the AVAudio output graph/device where
-practical, configures the C mixer/source-node/capture path with that selected
+practical, configures the C mixer/runtime-host/capture path with that selected
 rate, and keeps planned adapter event frames plus sample-time resolver frames on
 the same runtime timeline. The policy is traced as `graph_aligned`,
 `explicit_env`, or `fallback_44100`, with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE`
@@ -280,20 +283,14 @@ or refactor parser architecture.
 ADR 008 documents the next runtime-host decision point: clean offline C mixer
 renders, clean runtime source captures, and AVAudioSourceNode output-copy
 verification leave the experimental SourceNode delivery path suspect for
-remaining live-only pops/clicks, without proving it as root cause.
-AVAudioPlayerNode/AVAudioUnitVarispeed remains the default runtime backend, the
-SourceNode C mixer remains opt-in through `VTX_AUDIO_BACKEND=c_mixer`, and the
-developer-only `VTX_AUDIO_BACKEND=c_mixer_coreaudio` spike now provides a
-minimal CoreAudio DefaultOutput Audio Unit host for isolating the delivery
-layer. The new host is opt-in only and keeps the SourceNode C mixer backend
-available for A/B comparison.
-Runtime output-host A/B comparison diagnostics now summarize the SourceNode and
-CoreAudio hosts side by side, including backend/host selection, callback shape,
-sample-rate/channel fields, capture status, CoreAudio OSStatus fields, and
-runtime lifecycle clocks. Capture duration is reported separately from
-`VTX_DEBUG_STOP_AFTER_SECONDS` and planned song end, so capture caps can be
-tested without treating them as playback lifetime. Runtime C mixer song-end
-tail handling now stops or silences `c_mixer` and `c_mixer_coreaudio` at the
+remaining live-only pops/clicks, without proving it as root cause. The current
+runtime-host decision retires that SourceNode path. AVAudioPlayerNode/
+AVAudioUnitVarispeed remains the default runtime backend, and both
+`VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the
+experimental CoreAudio DefaultOutput Audio Unit host. Capture duration is
+reported separately from `VTX_DEBUG_STOP_AFTER_SECONDS` and planned song end, so
+capture caps can be tested without treating them as playback lifetime. Runtime
+C mixer song-end tail handling stops or silences the CoreAudio host at the
 planned adapter song end plus a short tail; CoreAudio host hardening remains a
 separate follow-up.
 Transport stop-position preservation and the tracker-style plain Spacebar
@@ -445,18 +442,17 @@ Components:
 Features:
 
 - first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
-- experimental opt-in runtime C mixer skeleton through `VTX_AUDIO_BACKEND=c_mixer`, with AVAudio still the default backend
-- local-only runtime C mixer A/B and output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, deterministic same-frame burst/order diagnostics, sustained carried-voice association diagnostics, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
+- experimental opt-in CoreAudio-hosted runtime C mixer through `VTX_AUDIO_BACKEND=c_mixer` or the `VTX_AUDIO_BACKEND=c_mixer_coreaudio` alias, with AVAudio still the default backend
+- local-only runtime C mixer output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, deterministic same-frame burst/order diagnostics, sustained carried-voice association diagnostics, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior
-- developer-only CoreAudio DefaultOutput Audio Unit runtime output host spike through
-  `VTX_AUDIO_BACKEND=c_mixer_coreaudio` for isolating whether remaining
-  live-only artifacts are specific to AVAudioEngine/AVAudioSourceNode delivery
-- local-only output-host A/B summaries that compare `c_mixer` and
-  `c_mixer_coreaudio` trace fields and distinguish capture duration, debug stop
-  duration, planned song end, and continued output after planned event-stream
-  exhaustion
+- CoreAudio DefaultOutput Audio Unit runtime output host as the preferred
+  experimental C mixer host, with the retired SourceNode path no longer
+  selectable
+- local-only output-host summaries that distinguish capture duration, debug
+  stop duration, planned song end, and continued output after planned
+  event-stream exhaustion
 - runtime C mixer song-end/tail handling for `c_mixer` and `c_mixer_coreaudio`,
   with capture duration remaining capture-only and AVAudio still the default
   runtime backend

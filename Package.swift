@@ -62,7 +62,7 @@ let package = Package(
                 "RuntimeCMixerDiagnostics.swift",
                 "RuntimeCMixerOutputRouteDiagnostics.swift",
                 "RuntimeCMixerRenderCore.swift",
-                "RuntimeCMixerSourceNodeBackend.swift",
+                "RuntimeCMixerBackend.swift",
                 "TrackerEditorView.swift",
                 "TrackerTheme.swift",
                 "TrackerWindowController.swift",

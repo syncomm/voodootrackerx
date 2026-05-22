@@ -103,8 +103,12 @@ pitch-effect next-PR recommendation when one bucket dominates local evidence.
 Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
 break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
-subcommands without implementing traversal behavior; filled reports and
-generated audio artifacts stay outside git. The developer-only helper keeps its default
+subcommands without implementing traversal behavior. A local-only XM effect
+coverage summary helper can now aggregate bounded offline diagnostics JSON and
+runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
+effect tables, first source coordinates, unresolved key-off/no-active buckets,
+and a conservative next-effect recommendation; filled reports and generated
+audio artifacts stay outside git. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. It can also render with `--until-song-end` plus optional
@@ -396,8 +400,10 @@ Immediate audio accuracy sequence:
 82. Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up — done
 83. Runtime C Mixer CoreAudio Default / AVAudio Legacy Fallback — done
 84. Remove AVAudioPlayerNode Legacy Backend — done
-85. Runtime Diagnostics Cleanup / Remove Obsolete Backend Debugging — in progress
-86. Reference comparison stabilization against MikMod/OpenMPT
+85. Runtime Diagnostics Cleanup / Remove Obsolete Backend Debugging — done
+86. XM Effect Coverage Audit / Local Missing-Effect Target Selection — done
+87. Minimal 4xy Vibrato Foundation — recommended next effect PR
+88. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -553,6 +559,10 @@ Features:
 - pattern traversal/timing hazard diagnostics for bounded offline renders,
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate
+- local-only XM effect coverage summaries for bounded offline diagnostics JSON
+  and runtime C mixer traces, with detected/applied/deferred/unsupported/no-op
+  command counts, first source coordinates, unresolved key-off/no-active
+  buckets, and a conservative next-effect recommendation
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 - ADR 007 documents the feature-flagged runtime C mixer backend plan; the
   current default has advanced to the CoreAudio C mixer, with the old AVAudio

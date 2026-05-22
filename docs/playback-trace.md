@@ -57,7 +57,7 @@ Recorded fields include:
 - `noteValue`, `instrumentIndex`, `sampleIndex`, `relativeNote`, `finetune`
 - `effectCommand`, `effectParameter`, `effect`
 - `computedVolume`, `finalAppliedVolume`
-- `computedPanning` (current AVAudio pan value in the `-1...1` range when known)
+- `computedPanning` (current playback pan value in the `-1...1` range when known)
 - `envelopeEnabled`, `envelopeTick`, `envelopeValue`,
   `envelopeSustainActive`, `envelopeLoopActive`, `fadeoutValue`
 - `sourceSampleRate`, `audioBufferSampleRate`, `targetFrequency`,
@@ -99,21 +99,9 @@ approximate timestamp from the report to `tickIndex`, `orderIndex`, and
 
 - Trace export is an observability tool only; it does not make playback more
   compatible.
-- The legacy `AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback still traces
-  pitch and period fields as approximations of its scheduling decisions.
-  Linear-frequency modules use note/relative-note/finetune frequency
-  calculations, but that fallback is not a FastTracker II mixer.
-- The legacy AVAudio fallback pre-renders scheduled sample buffers at
-  `audioBufferSampleRate` and traces `computedRate` as
-  `targetFrequency/audioBufferSampleRate`.
-- In the legacy AVAudio fallback, forward sample loops are supported by
-  scheduling the pre-loop/first-loop region once and then scheduling the loop
-  region with AVAudio's buffer loop option. Ping-pong loops are supported as a
-  first-pass approximation by scheduling pre-loop audio once and then looping a
-  derived buffer containing the forward loop frames plus the reversed loop
-  interior.
-- Legacy AVAudio panning is first-pass only: XM `0...255` channel state maps to
-  AVAudio `-1...1` pan control.
+- Older traces from the retired `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
+  backend contain first-pass scheduling approximations. Current runtime traces
+  should be interpreted against the CoreAudio C mixer path.
 - Volume envelopes are first-pass playback state. Envelope points are linearly
   interpolated per tick, sustain and loop points use deterministic basic
   handling, and volume fadeout advances after XM key-off (`noteValue == 97`).
@@ -130,10 +118,11 @@ The runtime C mixer backend is the default when `VTX_AUDIO_BACKEND` is unset.
 `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain
 accepted aliases for the same CoreAudio DefaultOutput Audio Unit host. Both
 names feed the same C mixer render core and planned adapter event stream into
-the CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` selects the legacy
-`AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback. The retired
-AVAudioSourceNode C mixer host is no longer selectable. Unknown backend values
-fall back to the CoreAudio default and are reported with `fallbackReason`.
+the CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value that
+falls back to the CoreAudio C mixer with `fallbackReason=retired_backend`. The
+retired AVAudioSourceNode C mixer host is no longer selectable. Unknown backend
+values fall back to the CoreAudio default and are reported with
+`fallbackReason=unknown_backend`.
 The summary helper classifies backend selection as `default`, `explicit`, or
 `fallback_default`.
 In Debug builds, set
@@ -146,8 +135,7 @@ For the runtime C mixer, the runtime render format aligns to
 the output graph/device sample rate where practical. The selected rate drives
 the C mixer render config, CoreAudio host format, runtime capture, planned
 adapter event frames, and sample-time resolver. `VTX_C_MIXER_RUNTIME_SAMPLE_RATE`
-can force a finite positive sample rate for local diagnostics, but it is ignored
-when `VTX_AUDIO_BACKEND=av_audio` selects the legacy fallback. Offline
+can force a finite positive sample rate for local diagnostics. Offline
 `vtx_render_bounded_xm` defaults and behavior are unchanged.
 
 The runtime C mixer trace now includes output diagnostics intended to explain
@@ -189,8 +177,8 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 Use `VTX_AUDIO_BACKEND=c_mixer_coreaudio` with the same local-only capture
 controls to verify the compatibility alias.
 
-`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is ignored when the legacy AVAudio fallback
-is selected.
+`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` applies to the CoreAudio C mixer path,
+including the retired `av_audio` fallback.
 `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` sets the bounded in-memory capture limit;
 the default and maximum local-debug cap is 240 seconds. The capture path may be
 absolute locally, but trace rows and summaries report only the output basename.
@@ -220,7 +208,7 @@ when `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is present. Set
 `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` to run the C mixer with
 trace and capture disabled and only minimal callback counters/output delivery
 diagnostics enabled. These flags are local diagnostic controls for
-the runtime C mixer backend; they do not affect the legacy AVAudio fallback.
+the runtime C mixer backend; they do not affect offline rendering.
 Set `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1` only for short local
 diagnostic runs that need scratch/capture/output hash comparison; it is
 disabled by default to keep the callback smaller. For local
@@ -361,7 +349,7 @@ publication counts. For a local isolation run,
 set
 `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` with
 either C mixer backend name to suppress tracker follow callbacks without
-changing the legacy AVAudio fallback.
+changing offline rendering.
 
 This PR does not add an output/main-mixer tap WAV capture. Installing an
 AVAudioEngine tap would introduce another callback path, buffer copy, and
@@ -382,8 +370,8 @@ The runtime C mixer is the default and can also be selected explicitly with
 `VTX_AUDIO_BACKEND=c_mixer` or the `VTX_AUDIO_BACKEND=c_mixer_coreaudio` alias.
 It applies a conservative default runtime output policy, currently
 `default_runtime_headroom_db` with `-12 dB` headroom. This gain is applied only
-in the runtime C mixer handoff to the selected live host; it does not affect the
-legacy AVAudio fallback and does not change `vtx_render_bounded_xm`.
+in the runtime C mixer handoff to the selected live host; it does not change
+`vtx_render_bounded_xm`.
 
 Trace rows report `runtimeOutputGain`, `runtimeHeadroomPolicy`,
 `runtimeGainPolicyLabel`, `runtimeDefaultHeadroomDB`,
@@ -414,8 +402,7 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 `VTX_C_MIXER_RUNTIME_HEADROOM_DB` must be finite and no greater than `0`. If
 both are set, or an invalid value is supplied, the runtime C mixer falls back to
 the default conservative policy and writes `runtimeGainConfigurationWarning` in
-the runtime C trace. These gain/headroom variables are ignored when the legacy
-AVAudio fallback is selected.
+the runtime C trace.
 
 Exact offline-style `--auto-headroom` for live runtime playback is intentionally
 not implemented here. Matching the offline export policy for runtime playback
@@ -573,9 +560,8 @@ cleanup, and any unexpected removal while a ramp was active.
 
 When a runtime C mixer backend is selected, the
 runtime now attempts to precompute a `PlaybackSong` adapter event plan from the
-same offline-adapter semantics used by bounded C mixer renders. The legacy
-AVAudio fallback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; these
-fields are only for the C mixer path.
+same offline-adapter semantics used by bounded C mixer renders. These fields
+are only for the C mixer path.
 
 Runtime C mixer trace rows may include:
 
@@ -606,8 +592,7 @@ their intended runtime frame and applies them inside the selected runtime host
 callback. When an event falls within a callback range, the runtime C mixer
 renders up to the event offset, applies the event, then continues the callback
 render. These fields are diagnostic-only outside the C mixer backend; they do
-not change the legacy AVAudio fallback, add a UI toggle, or change offline
-render semantics.
+not add a UI toggle or change offline render semantics.
 
 Runtime snapshot rows may include:
 
@@ -685,7 +670,7 @@ timeline:
 - `playbackEngineToCMixerFrameDelta`
 - `playbackEngineToCMixerPositionMismatch`
 - `rowTransitionDeltaCategory`
-- `publishedPlaybackFollowPositionSource`: `av_audio_timer` or
+- `publishedPlaybackFollowPositionSource`: `playback_timer` or
   `c_mixer_sample_time`
 - `publishedPlaybackFollowOrderIndex`,
   `publishedPlaybackFollowPatternIndex`,
@@ -700,15 +685,15 @@ timeline:
 These fields compare the `PlaybackEngine` timer/order-row-tick clock with the
 C mixer sample-time clock at the same trace point. For the runtime C mixer
 backend, the published playback-follow position uses the sample-time-derived C
-mixer position when the planned adapter timeline is available. The legacy
-AVAudio fallback remains timer-based. This does not
+mixer position when the planned adapter timeline is available. This does not
 change tracker viewport math, static highlight-row behavior, audio event
-timing, offline rendering, or the legacy AVAudio fallback.
+timing, or offline rendering.
 
 The expected interpretation is:
 
 - `PlaybackEngine` order/row/tick is advanced by the app-side playback timer.
-  The legacy AVAudio fallback publishes this timer position to UI/follow code.
+  Generic non-C-mixer test outputs publish this timer position to UI/follow
+  code.
 - That timer is a `Foundation.Timer(timeInterval: timing.tickDuration,
   repeats: true)` scheduled on `RunLoop.main` in `.common` mode. It is a
   main-run-loop wall-clock timer, not an audio-device sample clock.

@@ -1019,7 +1019,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let notes = [
             "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
             "Generated diagnostics are local artifacts and must not be committed.",
-            "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
+            "Offline C mixer rendering/export remains separate from CoreAudio runtime playback.",
             "C-backed offline sample stepping uses simple deterministic linear interpolation.",
             "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
             "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
@@ -2735,7 +2735,7 @@ func renderToolSummary(
     var lines = [
         "Developer-only bounded XM candidate WAV render.",
         "Generated WAVs/reports/traces/screenshots are local artifacts and must not be committed.",
-        "Runtime playback remains AVAudioPlayerNode / AVAudioUnitVarispeed; the C mixer is offline-only.",
+        "Offline C mixer rendering/export remains separate from CoreAudio runtime playback.",
         "Calculated song-end duration is bounded adapter duration, not full FT2/OpenMPT song loop/restart parity.",
         "Module: \(URL(fileURLWithPath: arguments.inputPath).standardizedFileURL.path)",
         "Output: \(URL(fileURLWithPath: arguments.outputPath).standardizedFileURL.path)",

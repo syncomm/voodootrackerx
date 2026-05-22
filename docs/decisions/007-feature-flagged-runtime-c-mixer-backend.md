@@ -5,8 +5,9 @@
 Accepted; default-backend gate completed later. The initial implementation
 skeleton landed behind the developer-only feature flag. The CoreAudio
 DefaultOutput Audio Unit C mixer backend is now the default runtime backend,
-while `VTX_AUDIO_BACKEND=av_audio` keeps the old AVAudioPlayerNode /
-AVAudioUnitVarispeed path available as an explicit legacy fallback.
+and the old AVAudioPlayerNode / AVAudioUnitVarispeed backend has been retired.
+`VTX_AUDIO_BACKEND=av_audio` is retained only as a retired value that falls
+back to the CoreAudio C mixer with diagnostics.
 
 ## Context
 
@@ -18,7 +19,7 @@ rendering timeline needed for long-term playback parity.
 
 ADR 004 accepted moving toward a deterministic pull-based software mixer behind
 the existing playback boundary while keeping the AVAudioPlayerNode backend
-available until the replacement proves itself. ADR 005 clarified the language
+available until the replacement proved itself. ADR 005 clarified the language
 boundary: Swift owns UI, orchestration, diagnostics, adapter/scheduling, and
 tests, while the C-compatible core owns the narrow hot-path mixer/DSP boundary.
 
@@ -43,7 +44,7 @@ eventual default backend.
 The runtime C mixer backend must:
 
 - Keep `AVAudioPlayerNode` / `AVAudioUnitVarispeed` available as a fallback
-  until the replacement proves itself.
+  until the replacement proves itself, then retire it in a focused PR.
 - Start opt-in only, then switch default only after the default-backend gates
   are satisfied.
 - Be easy to disable and safe to bypass during development.
@@ -52,15 +53,17 @@ The runtime C mixer backend must:
 - Keep the C mixer as a narrow render engine.
 - Reuse the same `PlaybackSong` adapter and mixer path as the offline renderer
   where practical.
-- Avoid removing, weakening, or hiding the existing AVAudio backend.
+- Avoid removing, weakening, or hiding the existing AVAudio backend before the
+  C mixer default gates are satisfied.
 - Avoid becoming the runtime default until later parity and stability gates are
   met.
 
 Those later gates have now been met for the runtime-host direction: the
 CoreAudio C mixer host is the default, `VTX_AUDIO_BACKEND=c_mixer` and
 `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain CoreAudio aliases, and
-`VTX_AUDIO_BACKEND=av_audio` is the explicit legacy fallback. The retired
-AVAudioSourceNode-hosted C mixer path remains unavailable.
+`VTX_AUDIO_BACKEND=av_audio` now falls back to that default with
+`fallbackReason=retired_backend`. The retired AVAudioSourceNode-hosted C mixer
+path remains unavailable.
 
 The initial implementation branch followed this ADR by adding backend selection,
 `VTX_AUDIO_BACKEND=c_mixer`, and an `AVAudioSourceNode`-hosted C mixer source
@@ -145,8 +148,7 @@ stable, default, or user-facing.
 
 A later sample-time follow bridge used that same resolver as the published
 playback-follow source for the runtime C mixer when the planned adapter
-timeline is available. The legacy AVAudio fallback continues to publish the
-existing `PlaybackEngine` timer position. Runtime traces now distinguish timer
+timeline is available. Runtime traces now distinguish timer
 position, C mixer sample-time position, and published follow position. This
 remains separate from tracker viewport math and C mixer DSP semantics.
 
@@ -166,7 +168,8 @@ VTX_AUDIO_BACKEND=c_mixer
 
 Unset values now select the CoreAudio C mixer default. Unknown values also fall
 back to that default and report `fallbackReason=unknown_backend`.
-`VTX_AUDIO_BACKEND=av_audio` selects the explicit legacy AVAudio fallback.
+`VTX_AUDIO_BACKEND=av_audio` is accepted only as a retired value; it falls back
+to the CoreAudio C mixer and reports `fallbackReason=retired_backend`.
 The `c_mixer` name leaves room for additional backend names later without
 creating one environment variable per backend.
 
@@ -175,7 +178,12 @@ implementation PR needs a simpler boolean gate, but it should remain internal
 and developer-facing. The first runtime experiment should not add a user-facing
 preference or menu item.
 
-## Runtime Hosting Recommendation
+## Runtime Hosting Recommendation (Historical)
+
+This recommendation described the first runtime C mixer experiment. It has
+since been superseded by ADR 008 and the CoreAudio DefaultOutput Audio Unit
+runtime host. The AVAudioSourceNode-hosted C mixer backend is retired, and the
+AVAudioPlayerNode / AVAudioUnitVarispeed backend is no longer selectable.
 
 Prefer an `AVAudioEngine`-hosted pull source, such as `AVAudioSourceNode` or an
 equivalent AVAudioEngine-compatible render source, for the first runtime C
@@ -188,7 +196,12 @@ from raw CoreAudio by itself. Raw CoreAudio can remain a later option if
 latency, buffer-size behavior, performance, or control requirements justify the
 extra surface area.
 
-## Initial Implementation Scope
+## Initial Implementation Scope (Historical)
+
+This scope describes the original feature-flagged implementation. Current
+runtime backend selection uses the CoreAudio C mixer by default, accepts
+`c_mixer` and `c_mixer_coreaudio` as aliases, and treats `av_audio` as a
+retired value that falls back to the CoreAudio C mixer with diagnostics.
 
 The first implementation PR should stay small:
 
@@ -232,14 +245,16 @@ show:
 - Play/Stop runtime smoke is stable.
 - There are no catastrophic stuck voices, runaway levels, or clipping failures.
 - Tracker-follow behavior is acceptable or separately tracked.
-- The AVAudio backend remains available as a fallback.
+- The legacy AVAudio backend can be retired without losing the runtime smoke
+  and diagnostic coverage it originally provided.
 - CI, build, and tests remain stable.
 - Manual A/B listening confirms the C backend is better or at least useful for
   development.
 
 ## Non-Goals
 
-- Remove `AVAudioPlayerNode` or `AVAudioUnitVarispeed`.
+- Remove `AVAudioPlayerNode` or `AVAudioUnitVarispeed` before the C mixer
+  default gates are satisfied.
 - Add user-facing preferences or UI.
 - Change tracker viewport behavior.
 - Refactor parser architecture.
@@ -253,7 +268,8 @@ Positive consequences:
 - Creates a clear implementation plan before touching runtime audio code.
 - Reduces the chance of an accidental runtime backend switch.
 - Enables controlled A/B listening in a later PR.
-- Preserves the stable AVAudio backend fallback.
+- Preserved the stable AVAudio backend fallback until the CoreAudio C mixer
+  became the runtime default.
 - Keeps real-time audio risk explicit.
 
 Risks:
@@ -270,7 +286,8 @@ Mitigations:
 
 - Keep the runtime C mixer feature-flagged and opt-in until the default gates
   are satisfied.
-- Keep the AVAudio backend available as an explicit fallback.
+- Retire the AVAudio backend only after the CoreAudio C mixer default path is
+  established and covered by tests.
 - Keep the implementation PR small.
 - Use manual Play/Stop and A/B smoke checklists.
 - Avoid viewport changes in the backend PR.

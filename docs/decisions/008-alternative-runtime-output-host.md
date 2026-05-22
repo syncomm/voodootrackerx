@@ -6,8 +6,9 @@ Accepted. Superseded in implementation by the runtime-host retirement pass:
 `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` now both
 select the minimal CoreAudio DefaultOutput Audio Unit host. A later default
 selection PR made that CoreAudio host the default runtime backend. The
-`AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend remains available only as
-`VTX_AUDIO_BACKEND=av_audio`, and the AVAudioSourceNode-hosted C mixer backend
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend has since been retired, and
+`VTX_AUDIO_BACKEND=av_audio` now falls back to the CoreAudio C mixer with
+`fallbackReason=retired_backend`. The AVAudioSourceNode-hosted C mixer backend
 is retired.
 
 ## Context
@@ -48,8 +49,8 @@ runtime backend choices small:
 - `VTX_AUDIO_BACKEND=c_mixer` explicitly selects the same CoreAudio host.
 - `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains accepted as an alias for the
   same CoreAudio host.
-- `VTX_AUDIO_BACKEND=av_audio` selects the legacy `AVAudioPlayerNode` /
-  `AVAudioUnitVarispeed` fallback.
+- `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value that falls back to the
+  CoreAudio C mixer.
 - The AVAudioSourceNode C mixer host is no longer selectable.
 - Offline C mixer rendering remains the authoritative export/render path.
 
@@ -67,7 +68,8 @@ Boundaries:
 - Select it by default, through `c_mixer`, or through `c_mixer_coreaudio`;
   unknown values fall back to the CoreAudio default with a diagnostic
   `fallbackReason`.
-- Keep `av_audio` as the only explicit legacy fallback.
+- Keep `av_audio` accepted as a retired value that falls back to the CoreAudio
+  default with a diagnostic `fallbackReason`.
 - Avoid a user-facing setting or menu item.
 - Capture and summarize the PCM handed to the CoreAudio host using the same
   local-only artifact rules as existing runtime captures.
@@ -102,7 +104,6 @@ notes kept outside git.
 
 This ADR and its initial implementation do not:
 
-- remove the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
 - change offline render behavior
 - change C mixer DSP semantics
 - add tracker viewport changes
@@ -117,12 +118,13 @@ Positive:
   specific, not currently explained by offline PCM or runtime handoff capture
   PCM
 - gives the next runtime stabilization PR one runtime C mixer host to harden
-- preserves the legacy AVAudio runtime backend as an explicit fallback
+- preserves a diagnostic path for retired `av_audio` selections without keeping
+  the legacy runtime backend alive
 - keeps offline C mixer export/render behavior authoritative
 
 Tradeoffs:
 
 - a lower-level host increases runtime surface area and real-time safety risk
 - the previous SourceNode A/B path is no longer available
-- future removal of the legacy AVAudio fallback should wait for additional
-  manual confidence with the CoreAudio default
+- removal of the legacy AVAudio fallback depends on confidence with the
+  CoreAudio default, which later runtime work provided

@@ -5953,7 +5953,7 @@ enum PlaybackSongSyntheticAdapter {
 /// Bounded offline render request for adapted `PlaybackSong` segments.
 ///
 /// Oversized requests are clamped to `maximumFrameCount`, matching the existing software mixer offline
-/// harness. This helper is offline-only and does not affect live `AVAudioPlayerNode` playback.
+/// harness. This helper is offline-only and does not affect live CoreAudio C mixer playback.
 struct PlaybackSongOfflineRenderRequest: Equatable {
     static let defaultMaximumFrameCount = OfflineRenderRequest.defaultMaximumFrameCount
 

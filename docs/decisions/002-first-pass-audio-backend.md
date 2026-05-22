@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted, historical. This ADR documents the first audible playback backend
+decision. The `AVAudioPlayerNode` / `AVAudioUnitVarispeed` runtime backend has
+since been retired; current runtime playback uses the CoreAudio-hosted C mixer.
 
 ## Context
 
@@ -80,6 +82,12 @@ When tracker accuracy requires it, evolve toward a dedicated custom tracker mixe
 - render continuously with predictable timing
 
 That future mixer should replace or sit behind the current `AVAudioPlayerNode` implementation without changing UI-facing transport boundaries.
+
+That replacement has now happened for runtime playback: the CoreAudio C mixer is
+the default runtime backend, `VTX_AUDIO_BACKEND=c_mixer` and
+`VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain CoreAudio aliases, and
+`VTX_AUDIO_BACKEND=av_audio` is a retired legacy value that falls back to the
+CoreAudio C mixer with diagnostics.
 
 ## Consequences
 

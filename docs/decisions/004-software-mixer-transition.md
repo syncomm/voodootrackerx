@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted as the target architecture for the next playback accuracy phase.
+Accepted as the target architecture for the playback accuracy phase. Runtime
+playback has since moved to the CoreAudio-hosted C mixer, and the
+AVAudioPlayerNode / AVAudioUnitVarispeed backend has been retired.
 
 ## Context
 
@@ -42,10 +44,11 @@ and tick-to-sample scheduling.
 Move future playback accuracy work toward a deterministic pull-based software
 mixer behind the existing playback/audio boundary.
 
-The `AVAudioPlayerNode` backend remains available until the software mixer is
-proven. This decision does not switch runtime playback, remove the first-pass
-backend, change playback behavior, touch tracker viewport rendering, or refactor
-parser architecture.
+The first-pass `AVAudioPlayerNode` backend remained available until the C mixer
+runtime path was proven enough to become the default. Current runtime playback
+uses the CoreAudio C mixer; `VTX_AUDIO_BACKEND=av_audio` is now a retired value
+that falls back to the CoreAudio C mixer with diagnostics. This decision still
+does not change tracker viewport rendering or parser architecture.
 
 ## Target Architecture
 
@@ -122,7 +125,9 @@ Keep the transition incremental and reviewable:
 - PR 6: integrate effect state with mixer-owned rendering decisions, starting
   with already-supported effects before adding broad new coverage.
 - PR 7: switch runtime playback to the mixer behind a feature flag while keeping
-  the `AVAudioPlayerNode` backend available as a fallback.
+  the `AVAudioPlayerNode` backend available as a temporary fallback.
+- Later runtime hardening: make the CoreAudio C mixer the default and retire the
+  `AVAudioPlayerNode` backend after the fallback is no longer useful.
 
 Each PR should be small enough to review on its own, include focused tests, and
 avoid unrelated tracker UI, parser, or format changes.
@@ -152,8 +157,8 @@ The transition is successful when:
   `scripts/audio-compare.py` workflow
 - trace/debug output can explain important row, tick, channel, voice, loop,
   envelope, pitch, and panning decisions
-- the existing `AVAudioPlayerNode` backend remains usable until the mixer is
-  demonstrably better
+- the CoreAudio C mixer is the default runtime path after the first-pass
+  `AVAudioPlayerNode` backend is retired
 - no tracker viewport regressions are introduced
 - parser architecture remains unchanged unless a future parser-specific ADR
   approves a separate migration
@@ -163,11 +168,7 @@ The transition is successful when:
 This ADR does not:
 
 - implement the software mixer
-- change runtime playback behavior
-- remove or deprecate the `AVAudioPlayerNode` backend immediately
-- change on-disk module formats
-- refactor XM parsing responsibilities
-- touch tracker viewport/rendering behavior
+- change tracker viewport behavior, parser ownership, or on-disk formats
 
 ## Consequences
 
@@ -177,7 +178,8 @@ Positive:
 - allows offline audio comparison before runtime risk is introduced
 - makes loop, envelope, panning, interpolation, and sample stepping behavior
   directly testable
-- preserves the stable first-pass backend while the mixer matures
+- preserved the stable first-pass backend while the mixer matured, then allowed
+  that backend to be retired once the CoreAudio C mixer became the runtime path
 - keeps parser, UI, and DSP responsibilities separate
 
 Tradeoffs:

@@ -43,7 +43,7 @@ struct PlaybackTickState: Equatable {
 /// Synthetic tracker-style timing configuration for offline C-backed mixer scheduling.
 ///
 /// This is an orchestration helper only: it does not parse XM pattern/order data, implement effects,
-/// change tempo during a render, or replace runtime `AVAudioPlayerNode` playback.
+/// change tempo during a render, or replace runtime CoreAudio C mixer playback.
 struct SyntheticTrackerTimingConfig: Equatable {
     let speed: Int
     let bpm: Int

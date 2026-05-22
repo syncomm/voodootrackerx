@@ -304,13 +304,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let format: AVAudioFormat
     private let coreAudioOutputHost: RuntimeCMixerDefaultOutputUnitHost
     private let renderCore: RuntimeCMixerRenderCore
-    private let fallbackAudioEngine = PlaybackAudioEngine()
     private let traceWriter: RuntimeCMixerTraceWriting
     private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
     private let routeLabel: String?
     private let startsOutputHostOnDemand: Bool
     private var isPrepared = false
-    private var isFallbackActive = false
     private var engineConfigurationChangeCount: UInt64 = 0
     private var audioEngineRestartCount: UInt64 = 0
     private var audioGraphFormatChangeCount: UInt64 = 0
@@ -508,9 +506,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         adapterEventScheduleConfigured = true
         if startsOutputHostOnDemand {
             prepareIfNeeded()
-            if !startEngineIfNeeded() {
-                isFallbackActive = true
-            }
+            _ = startEngineIfNeeded()
         }
         recordRuntimeEvent(
             action: "adapter_event_schedule_configured",
@@ -1102,18 +1098,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?) {
         drainAppliedRuntimeAdapterEvents()
-        if isFallbackActive {
-            recordRuntimeEvent(
-                action: "unsupported_runtime_action",
-                context: context,
-                targetScope: "channel",
-                snapshot: renderCore.snapshot(),
-                succeeded: nil,
-                reason: "runtime_c_mixer_fallback_av_audio_active"
-            )
-            fallbackAudioEngine.trigger(request)
-            return
-        }
         if startsOutputHostOnDemand {
             prepareIfNeeded()
         }
@@ -1169,10 +1153,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard startsOutputHostOnDemand else {
             return
         }
-        if !startEngineIfNeeded() {
-            isFallbackActive = true
-            fallbackAudioEngine.trigger(request)
-        }
+        _ = startEngineIfNeeded()
     }
 
     func update(channel: Int, controls: AudioChannelControls) {
@@ -1181,20 +1162,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?) {
         drainAppliedRuntimeAdapterEvents()
-        if isFallbackActive {
-            fallbackAudioEngine.update(channel: channel, controls: controls)
-        } else {
-            let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
-            let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls, context: context)
-            recordRuntimeUpdateCounters(result)
-            recordRuntimeUpdateEvent(
-                result,
-                context: contextWithFallbackChannel(context, channel: channel),
-                runtimeEventSource: simpleRuntimeEventSource().rawValue,
-                adapterEventCategory: nil,
-                runtimeEventFallbackReason: fallbackReason
-            )
-        }
+        let fallbackReason = recordSimpleRuntimeFallbackIfNeeded()
+        let result = renderCore.updateWithDiagnostics(channel: channel, controls: controls, context: context)
+        recordRuntimeUpdateCounters(result)
+        recordRuntimeUpdateEvent(
+            result,
+            context: contextWithFallbackChannel(context, channel: channel),
+            runtimeEventSource: simpleRuntimeEventSource().rawValue,
+            adapterEventCategory: nil,
+            runtimeEventFallbackReason: fallbackReason
+        )
     }
 
     private func recordRuntimeUpdateCounters(_ result: RuntimeCMixerUpdateResult) {
@@ -1281,9 +1258,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stoppedVoiceCount: result.stoppedVoiceCount,
             reason: result.reason
         )
-        if isFallbackActive {
-            fallbackAudioEngine.stop(channel: channel)
-        }
     }
 
     func stopAll() {
@@ -1306,9 +1280,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stoppedVoiceCount: result.stoppedVoiceCount,
             reason: result.reason
         )
-        if isFallbackActive {
-            fallbackAudioEngine.stopAll()
-        }
         finishRuntimeCaptureIfNeeded(reason: reason)
         resetRuntimeAdapterEventConsumption()
     }
@@ -1467,8 +1438,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         drainAppliedRuntimeAdapterEvents()
         stopAll()
         coreAudioOutputHost.reset()
-        fallbackAudioEngine.reset()
-        isFallbackActive = false
         isPrepared = false
         recordRuntimeEvent(
             action: "backend_reset",
@@ -1506,7 +1475,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let status = coreAudioOutputHost.start()
         guard status == noErr else {
             logger.error(
-                "Experimental C mixer CoreAudio output unit start succeeded=false falling_back=true status=\(status, privacy: .public)"
+                "Experimental C mixer CoreAudio output unit start succeeded=false status=\(status, privacy: .public)"
             )
             renderCore.stopAll()
             recordRuntimeEvent(

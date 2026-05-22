@@ -22,6 +22,7 @@ final class PlaybackEngine: PlaybackTransport {
     private var tickState = PlaybackTickState()
     private var timer: Timer?
     private var runtimeCMixerSongEndStopTimer: Timer?
+    private var runtimeCMixerFollowTimer: Timer?
     private var runtimeCMixerSongEndStopPending = false
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var runtimeAdapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
@@ -146,6 +147,7 @@ final class PlaybackEngine: PlaybackTransport {
         let shouldPlay = autoplay ?? state.isPlaying
         timer?.invalidate()
         timer = nil
+        cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
         stopAllAudio(context: runtimeTraceContext(at: currentPosition, tickInRow: tickState.tickInRow, channelIndex: nil), reason: "debug_seek")
         currentPosition = resolvedStart.position
@@ -200,6 +202,7 @@ final class PlaybackEngine: PlaybackTransport {
             : currentPublishedFollowPosition?.position ?? currentPosition ?? song?.startPosition
         timer?.invalidate()
         timer = nil
+        cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
         if resetAudio {
             audioEngine.reset()
@@ -326,6 +329,7 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func restartTimer() {
         timer?.invalidate()
+        cancelRuntimeCMixerFollowTimer()
         guard startsRealtimeTimer else {
             timer = nil
             return
@@ -418,6 +422,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         timer?.invalidate()
         timer = nil
+        startRuntimeCMixerFollowTimerIfNeeded()
         return true
     }
 
@@ -425,7 +430,50 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerSongEndStopTimer?.invalidate()
         runtimeCMixerSongEndStopTimer = nil
         runtimeCMixerSongEndStopPending = false
+        cancelRuntimeCMixerFollowTimer()
     }
+
+    private func startRuntimeCMixerFollowTimerIfNeeded() {
+        guard runtimeUsesCMixer,
+              startsRealtimeTimer,
+              runtimeCMixerFollowTimer == nil,
+              audioEngine as? PlaybackFollowPositionProviding != nil else {
+            return
+        }
+        let interval = min(0.05, max(1.0 / 60.0, timing.tickDuration))
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.publishRuntimeCMixerHeldFollowPosition()
+            }
+        }
+        runtimeCMixerFollowTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func cancelRuntimeCMixerFollowTimer() {
+        runtimeCMixerFollowTimer?.invalidate()
+        runtimeCMixerFollowTimer = nil
+    }
+
+    private func publishRuntimeCMixerHeldFollowPosition() {
+        guard runtimeCMixerSongEndStopPending,
+              state.isPlaying,
+              let position = currentPosition ?? currentPublishedFollowPosition?.position else {
+            return
+        }
+        publishPlaybackFollowPosition(
+            timerPosition: position,
+            tickInRow: tickState.tickInRow,
+            allowBackendOverride: true,
+            notifyDuplicatePositions: false
+        )
+    }
+
+#if DEBUG
+    func publishRuntimeCMixerHeldFollowPositionForTesting() {
+        publishRuntimeCMixerHeldFollowPosition()
+    }
+#endif
 
     private var runtimeUsesCMixer: Bool {
         (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.usesRuntimeCMixer == true
@@ -967,24 +1015,38 @@ final class PlaybackEngine: PlaybackTransport {
     private func publishPlaybackFollowPosition(
         timerPosition: PlaybackPosition,
         tickInRow: Int,
-        allowBackendOverride: Bool
+        allowBackendOverride: Bool,
+        notifyDuplicatePositions: Bool = true
     ) {
+        let provider = audioEngine as? PlaybackFollowPositionProviding
         let published = allowBackendOverride
-            ? (audioEngine as? PlaybackFollowPositionProviding)?.playbackFollowPosition(
+            ? provider?.playbackFollowPosition(
                 timerPosition: timerPosition,
                 timerTickInRow: tickInRow
             )
             : nil
+        let resolverFailureReason = allowBackendOverride && provider != nil && published == nil
+            ? "resolver_unresolved"
+            : nil
         let followPosition = published ?? PlaybackFollowPosition.timer(position: timerPosition, tickInRow: tickInRow)
+        let duplicateSuppressed = !notifyDuplicatePositions &&
+            currentPublishedFollowPosition?.position == followPosition.position &&
+            currentPublishedFollowPosition?.tickInRow == followPosition.tickInRow
+        let consumedByUI = !runtimeCMixerFollowPublicationDisabled &&
+            !duplicateSuppressed &&
+            positionDidChange != nil
         currentPublishedFollowPosition = followPosition
         if let diagnosticOutput = audioEngine as? RuntimeAudioDiagnosticOutput {
             diagnosticOutput.recordPublishedPlaybackFollowPosition(
                 timerContext: runtimeTraceContext(at: timerPosition, tickInRow: tickInRow, channelIndex: nil),
                 publishedPosition: followPosition,
-                publicationDisabled: runtimeCMixerFollowPublicationDisabled
+                publicationDisabled: runtimeCMixerFollowPublicationDisabled,
+                consumedByUI: consumedByUI,
+                duplicateSuppressed: duplicateSuppressed,
+                resolverFailureReason: resolverFailureReason
             )
         }
-        if !runtimeCMixerFollowPublicationDisabled {
+        if !runtimeCMixerFollowPublicationDisabled, !duplicateSuppressed {
             positionDidChange?(followPosition.position)
         }
     }

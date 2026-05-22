@@ -2,16 +2,19 @@
 
 ## Status
 
-Accepted. Initial implementation skeleton landed behind the developer-only
-feature flag; the backend remains experimental and opt-in.
+Accepted; default-backend gate completed later. The initial implementation
+skeleton landed behind the developer-only feature flag. The CoreAudio
+DefaultOutput Audio Unit C mixer backend is now the default runtime backend,
+while `VTX_AUDIO_BACKEND=av_audio` keeps the old AVAudioPlayerNode /
+AVAudioUnitVarispeed path available as an explicit legacy fallback.
 
 ## Context
 
-Default runtime playback currently remains on `AVAudioPlayerNode` and
-`AVAudioUnitVarispeed`. That backend enabled stable first audible playback,
-transport smoke testing, and tracker-follow integration, but it cannot own the
-sample-accurate tracker rendering timeline needed for long-term playback
-parity.
+Default runtime playback now uses the CoreAudio DefaultOutput Audio Unit C
+mixer backend. The older `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
+enabled stable first audible playback, transport smoke testing, and
+tracker-follow integration, but it cannot own the sample-accurate tracker
+rendering timeline needed for long-term playback parity.
 
 ADR 004 accepted moving toward a deterministic pull-based software mixer behind
 the existing playback boundary while keeping the AVAudioPlayerNode backend
@@ -27,20 +30,22 @@ adapter timing, volume, envelope, loop, and effect behaviors. Offline local
 comparison remains the validation path for explaining remaining differences
 before live playback risk is expanded.
 
-A runtime experiment is now useful for A/B listening, transport integration,
-and future tracker-follow alignment. The switch still carries real-time audio
-risk and must remain opt-in, reversible, and clearly experimental.
+The initial runtime experiment was useful for A/B listening, transport
+integration, and future tracker-follow alignment. That switch carried
+real-time audio risk and therefore started opt-in, reversible, and clearly
+experimental.
 
 ## Decision
 
-Use a feature-flagged runtime C mixer backend experiment without making it the
-default backend.
+Use a feature-flagged runtime C mixer backend experiment as the path toward the
+eventual default backend.
 
 The runtime C mixer backend must:
 
-- Keep `AVAudioPlayerNode` / `AVAudioUnitVarispeed` as the default runtime
-  backend.
-- Be opt-in only.
+- Keep `AVAudioPlayerNode` / `AVAudioUnitVarispeed` available as a fallback
+  until the replacement proves itself.
+- Start opt-in only, then switch default only after the default-backend gates
+  are satisfied.
 - Be easy to disable and safe to bypass during development.
 - Use Swift for transport orchestration, backend selection, diagnostics, and UI
   integration.
@@ -51,14 +56,20 @@ The runtime C mixer backend must:
 - Avoid becoming the runtime default until later parity and stability gates are
   met.
 
-The implementation branch follows this ADR by adding backend selection,
+Those later gates have now been met for the runtime-host direction: the
+CoreAudio C mixer host is the default, `VTX_AUDIO_BACKEND=c_mixer` and
+`VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain CoreAudio aliases, and
+`VTX_AUDIO_BACKEND=av_audio` is the explicit legacy fallback. The retired
+AVAudioSourceNode-hosted C mixer path remains unavailable.
+
+The initial implementation branch followed this ADR by adding backend selection,
 `VTX_AUDIO_BACKEND=c_mixer`, and an `AVAudioSourceNode`-hosted C mixer source
 while keeping the AVAudio backend as the default. It does not add UI
 preferences, parser changes, tracker viewport changes, new XM effects, or
 parity claims.
 
-A diagnostics follow-up keeps the same ADR boundaries: `VTX_AUDIO_BACKEND`
-remains opt-in, AVAudio remains the default, and a local-only
+An early diagnostics follow-up kept the same ADR boundaries:
+`VTX_AUDIO_BACKEND=c_mixer` remained opt-in, AVAudio remained the default, and a local-only
 `VTX_C_MIXER_RUNTIME_TRACE_PATH` JSONL trace records backend selection,
 PlaybackEngine event context, runtime C mixer add/clear/stop calls, render-frame
 counters, channel-scoped stop/replacement calls, and true global clear calls
@@ -67,11 +78,11 @@ runtime follow-up resolved the initial per-channel stop clears-all limitation by
 tagging runtime C mixer voices with caller-owned channel ids and stopping only
 matching tagged voices for channel stop and same-channel replacement.
 
-An output-diagnostics follow-up extends the same local-only trace with render
+An output-diagnostics follow-up extended the same local-only trace with render
 callback counters, requested/rendered frame counts, detected zero-fill/underrun
 evidence, output peak/RMS and clipping/overrange summaries, row-transition
 snapshots, backend lifecycle breadcrumbs, event counters, and explicit runtime
-headroom policy reporting. It does not make the C mixer default, change C mixer
+headroom policy reporting. It did not make the C mixer default, change C mixer
 DSP semantics, implement new XM effects, or claim runtime stability.
 
 A runtime safety follow-up adds a conservative output gain/headroom policy for
@@ -79,15 +90,15 @@ the experimental C mixer backend only. The policy applies at the
 AVAudioSourceNode buffer handoff, currently defaults to `-12 dB`, can be
 overridden for local C-mixer-only diagnostics with `VTX_C_MIXER_RUNTIME_GAIN` or
 `VTX_C_MIXER_RUNTIME_HEADROOM_DB`, and reports post-gain clipping diagnostics.
-This remains separate from offline `--auto-headroom`, does not affect the
-default AVAudio backend, and does not claim runtime parity or stability.
+This remains separate from offline `--auto-headroom` and does not claim full
+runtime parity.
 
 A runtime update-bridge follow-up applies supported gain/pan/sample-step
 control updates to the current channel-tagged runtime C mixer voice using the
 same generic C mixer voice-state update primitives as the bounded offline path.
 Applied trace events distinguish gain/pan, sample-step, and combined updates;
 missing target state and unsupported update values remain deferred diagnostics.
-This matures the experimental backend without making it default, adding a UI
+This matured the experimental backend without making it default, adding a UI
 toggle, changing tracker follow behavior, or expanding XM effect coverage.
 
 A later update-deferral cleanup keeps the same boundaries while reducing trace
@@ -105,21 +116,21 @@ intended time. Immediate channel stops, true transport/global stops, offline
 render semantics, parser behavior, tracker viewport behavior, and XM effect
 coverage remain unchanged.
 
-An adapter event-stream follow-up matures the same opt-in runtime backend by
+An adapter event-stream follow-up matured the same runtime backend by
 precomputing a `PlaybackSong` adapter event plan from the bounded/offline
 adapter path and consuming supported events from that plan at the existing
 runtime order/row/tick clock. Runtime traces report the event source, plan
-counts, consumed categories, row/order mapping, and fallback reasons. This does
+counts, consumed categories, row/order mapping, and fallback reasons. This did
 not make the C mixer default, add a UI toggle, claim runtime parity, implement
 new XM effects, change C mixer DSP semantics, or solve sample-time
 tracker-follow alignment.
 
-A later runtime maturation step keeps the same opt-in backend but applies
+A later runtime maturation step kept the same backend but applied
 already-planned adapter events at their intended runtime sample frames inside
 the AVAudio source-node callback. The runtime C mixer now maintains a sorted
 planned-event queue, splits callback renders at in-buffer event offsets, traces
-planned/applied frame fields and late/callback-boundary counters, and still
-leaves AVAudio as the default backend.
+planned/applied frame fields and late/callback-boundary counters. At that point
+AVAudio still remained the default backend.
 
 A follow-up diagnostics bridge keeps the same boundaries while making the
 runtime C mixer sample-time cursor observable as an order/pattern/row/tick
@@ -132,22 +143,18 @@ in-callback event timestamp ordering are reported separately from in-playback
 drift. This is a runtime maturation step only; it does not make the C mixer
 stable, default, or user-facing.
 
-A later sample-time follow bridge uses that same resolver as the published
-playback-follow source for the experimental runtime C mixer when the planned
-adapter timeline is available. The default AVAudio backend continues to publish
-the existing `PlaybackEngine` timer position. Runtime traces now distinguish
-timer position, C mixer sample-time position, and published follow position.
-This remains a maturation step for the opt-in backend; it does not make the C
-mixer default, add a user-facing toggle, change tracker viewport math, change C
-mixer DSP semantics, or claim runtime readiness.
+A later sample-time follow bridge used that same resolver as the published
+playback-follow source for the runtime C mixer when the planned adapter
+timeline is available. The legacy AVAudio fallback continues to publish the
+existing `PlaybackEngine` timer position. Runtime traces now distinguish timer
+position, C mixer sample-time position, and published follow position. This
+remains separate from tracker viewport math and C mixer DSP semantics.
 
-A later AVAudio delivery maturation step aligns the experimental runtime C
-mixer source format with the AVAudio output graph/device sample rate where
-practical. The selected runtime rate is used consistently for the C mixer render
-config, `AVAudioSourceNode` format, runtime capture, planned adapter event
-frames, and sample-time position resolver. The backend remains opt-in through
-`VTX_AUDIO_BACKEND=c_mixer`; the AVAudioPlayerNode/AVAudioUnitVarispeed backend
-remains the default; offline rendering defaults are unchanged.
+A later AVAudio delivery maturation step aligned the runtime C mixer source
+format with the AVAudio output graph/device sample rate where practical. The
+selected runtime rate is used consistently for the C mixer render config,
+runtime capture, planned adapter event frames, and sample-time position
+resolver. Offline rendering defaults are unchanged.
 
 ## Feature Flag Proposal
 
@@ -157,8 +164,10 @@ The recommended initial flag is:
 VTX_AUDIO_BACKEND=c_mixer
 ```
 
-Unset or unknown values should continue to use the existing AVAudioPlayerNode
-backend. This name leaves room for additional backend names later without
+Unset values now select the CoreAudio C mixer default. Unknown values also fall
+back to that default and report `fallbackReason=unknown_backend`.
+`VTX_AUDIO_BACKEND=av_audio` selects the explicit legacy AVAudio fallback.
+The `c_mixer` name leaves room for additional backend names later without
 creating one environment variable per backend.
 
 An alternative flag such as `VTX_ENABLE_C_MIXER_RUNTIME=1` is acceptable if the
@@ -230,7 +239,6 @@ show:
 
 ## Non-Goals
 
-- Switch default playback.
 - Remove `AVAudioPlayerNode` or `AVAudioUnitVarispeed`.
 - Add user-facing preferences or UI.
 - Change tracker viewport behavior.
@@ -260,8 +268,9 @@ Risks:
 
 Mitigations:
 
-- Keep the runtime C mixer feature-flagged and opt-in.
-- Keep the AVAudio backend as default.
+- Keep the runtime C mixer feature-flagged and opt-in until the default gates
+  are satisfied.
+- Keep the AVAudio backend available as an explicit fallback.
 - Keep the implementation PR small.
 - Use manual Play/Stop and A/B smoke checklists.
 - Avoid viewport changes in the backend PR.

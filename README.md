@@ -11,8 +11,8 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 - Working macOS AppKit prototype with module open/load, tracker-style pattern display, static highlight row behavior, and keyboard navigation.
 - MOD/XM parser work is covered by focused unit tests, golden snapshots, and small redistribution-safe fixtures.
 - First-pass XM playback exists for development and smoke testing, but it is not yet MikMod/OpenMPT accurate.
-- Default runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based.
-- The C-backed mixer path is used for deterministic bounded renders, diagnostics, and local comparison work. An experimental CoreAudio DefaultOutput Audio Unit runtime C mixer host is available only when launched with `VTX_AUDIO_BACKEND=c_mixer` or its compatibility alias `VTX_AUDIO_BACKEND=c_mixer_coreaudio`.
+- Default runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer backend.
+- The C-backed mixer path is used for deterministic bounded renders, runtime playback, diagnostics, and local comparison work. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted CoreAudio aliases; `VTX_AUDIO_BACKEND=av_audio` selects the legacy `AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback.
 - The app is under active development and should not be treated as production-ready.
 
 ## Build/Test Quick Start
@@ -60,7 +60,7 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and `Left`/`Right`.
 
-Developers can opt into the experimental CoreAudio-hosted runtime C mixer with `VTX_AUDIO_BACKEND=c_mixer`; `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains accepted as an alias. Unset or unknown values keep the default AVAudio backend.
+By default, runtime playback uses the CoreAudio-hosted C mixer. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` explicitly select the same CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` selects the legacy AVAudioPlayerNode / AVAudioUnitVarispeed fallback. Unknown values fall back to the CoreAudio default and are reported in diagnostics.
 
 For local smoke runs that should open a private module, start playback, and then
 stop automatically after a short pattern-transition window, set the launch
@@ -96,7 +96,7 @@ swift run vtx_render_bounded_xm \
   --sample-rate 44100
 ```
 
-The helper is developer-only. It does not change the default runtime backend, does not require the experimental runtime flag, and does not provide full XM song rendering.
+The helper is developer-only. It does not change runtime backend selection and does not provide full XM song rendering.
 
 ## Documentation Map
 

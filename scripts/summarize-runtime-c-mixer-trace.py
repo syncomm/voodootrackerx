@@ -2492,6 +2492,16 @@ def build_summary(
     else:
         recommended_next_pr = "Runtime C Mixer Playback Follow / Sample-Time Position Bridge"
 
+    backend_runtime_audio_backend = first_string(events, "runtimeAudioBackend")
+    backend_requested_flag_value = first_string(events, "backendFlagValue")
+    backend_fallback_reason = first_string(events, "fallbackReason")
+    if backend_requested_flag_value is None and backend_fallback_reason is None:
+        backend_selection_mode = "default"
+    elif backend_fallback_reason is not None:
+        backend_selection_mode = "fallback_default"
+    else:
+        backend_selection_mode = "explicit"
+
     return {
         "schema_version": 1,
         "tool": "scripts/summarize-runtime-c-mixer-trace.py",
@@ -2499,9 +2509,10 @@ def build_summary(
         "event_count": len(events),
         "actions": dict(sorted(action_counts.items())),
         "backend": {
-            "runtime_audio_backend": first_string(events, "runtimeAudioBackend"),
-            "requested_backend_flag_value": first_string(events, "backendFlagValue"),
-            "fallback_reason": first_string(events, "fallbackReason"),
+            "runtime_audio_backend": backend_runtime_audio_backend,
+            "requested_backend_flag_value": backend_requested_flag_value,
+            "fallback_reason": backend_fallback_reason,
+            "selection_mode": backend_selection_mode,
             "experimental_c_mixer_enabled": first_bool(events, "experimentalCMixerEnabled"),
             "alternative_runtime_output_host_enabled": first_bool(events, "alternativeRuntimeOutputHostEnabled"),
             "runtime_output_host_type": first_string(events, "runtimeOutputHostType"),
@@ -2804,7 +2815,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         "# Runtime C Mixer Trace Summary",
         "",
         f"- Events: {summary['event_count']}",
-        f"- Backend: selected={backend['runtime_audio_backend']} requested={backend['requested_backend_flag_value']} fallback={backend['fallback_reason']} experimental_c_mixer={backend['experimental_c_mixer_enabled']} alternative_host={backend['alternative_runtime_output_host_enabled']} host_type={backend['runtime_output_host_type']} prepare_status={backend['runtime_output_host_prepare_status']} initialize_status={backend['runtime_output_host_initialize_status']} start_status={backend['runtime_output_host_start_status']} stop_status={backend['runtime_output_host_stop_status']} last_error_status={backend['runtime_output_host_last_error_status']}",
+        f"- Backend: selected={backend['runtime_audio_backend']} mode={backend['selection_mode']} requested={backend['requested_backend_flag_value']} fallback={backend['fallback_reason']} experimental_c_mixer={backend['experimental_c_mixer_enabled']} alternative_host={backend['alternative_runtime_output_host_enabled']} host_type={backend['runtime_output_host_type']} prepare_status={backend['runtime_output_host_prepare_status']} initialize_status={backend['runtime_output_host_initialize_status']} start_status={backend['runtime_output_host_start_status']} stop_status={backend['runtime_output_host_stop_status']} last_error_status={backend['runtime_output_host_last_error_status']}",
         f"- Peak: {health['peak']}",
         f"- Clipping samples: {health['clipping_sample_count']}",
         f"- Overrange samples: {health['overrange_sample_count']}",

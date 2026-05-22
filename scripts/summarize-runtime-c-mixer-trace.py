@@ -2035,6 +2035,7 @@ def build_summary(
         "minimal_callback_mode": last_bool(events, "runtimeMinimalCallbackMode"),
         "callback_count": render_callback_count,
         "requested_frame_count_range": numeric_range(events, "callbackRequestedFrameCount", "requestedFrameCount"),
+        "callback_frame_range": numeric_range(events, "callbackStartFrame", "callbackEndFrame"),
         "duration_warning_threshold_ms": rounded_optional(last_number(events, "callbackDurationWarningThresholdMS")),
         "duration_min_ms": rounded_optional(last_number(events, "callbackDurationMinMS")),
         "duration_max_ms": rounded_optional(max_numeric(events, "callbackDurationMaxMS")),
@@ -2378,6 +2379,8 @@ def build_summary(
         recommended_next_pr = "Runtime C Mixer Song-End Stop / Tail Handling"
     elif callback_isolation["main_thread_dependency_detected"] or callback_isolation["lock_wait_count"] > 0:
         recommended_next_pr = "Runtime C Mixer Render Callback Isolation"
+    elif callback_isolation["lock_failure_count"] > 0:
+        recommended_next_pr = "Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up"
     elif hard_replacement_stops:
         recommended_next_pr = "Runtime C Mixer Hard Stop / Replacement Follow-Up"
     elif has_sample_time_delta:
@@ -2385,15 +2388,14 @@ def build_summary(
     elif output_discontinuity_count > 0:
         recommended_next_pr = "Runtime C Mixer Output Discontinuity Diagnostics / Fix"
     elif (
-        callback_duration_warning_count > 0
-        or callback_over_budget_count > 0
+        callback_over_budget_count > 0
         or output_copy_failure_count > 0
         or output_copy_last_succeeded is False
         or output_copy_scratch_output_matches is False
     ):
-        recommended_next_pr = "Runtime C Mixer AVAudio Callback Deadline / Output Delivery Follow-Up"
+        recommended_next_pr = "Runtime C Mixer CoreAudio Callback Deadline / Output Delivery Follow-Up"
     elif engine_configuration_change_count > 0 or output_route_changed:
-        recommended_next_pr = "Runtime C Mixer AVAudio Output Device / Route Follow-Up"
+        recommended_next_pr = "Runtime C Mixer CoreAudio Output Device / Route Follow-Up"
     elif published_follow_has_material_drift:
         recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
     elif position_diverges_over_time(events) and not published_follow_aligned:
@@ -2727,7 +2729,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Clipping samples: {health['clipping_sample_count']}",
         f"- Overrange samples: {health['overrange_sample_count']}",
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
-        f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']}",
+        f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']} callback_frame_range={callback_timing['callback_frame_range']}",
         f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
         f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} realtime_safe={callback_isolation['realtime_safe_diagnostics']} diagnostic_drops={callback_isolation['diagnostic_drop_count']} ring_capacity={callback_isolation['ring_buffer_capacity']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} lock_failures={callback_isolation['lock_failure_count']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
         f"- Output buffer copy: attempts={output_buffer_copy['attempt_count']} failures={output_buffer_copy['failure_count']} last_succeeded={output_buffer_copy['last_succeeded']} layout={output_buffer_copy['layout']} frames={output_buffer_copy['copied_frame_count']}/{output_buffer_copy['requested_frame_count']} channels={output_buffer_copy['output_channel_count']} filled={output_buffer_copy['filled_requested_frames']} scratch_capture_hash_match={output_buffer_copy['scratch_capture_hash_matches']} scratch_output_hash_match={output_buffer_copy['scratch_output_hash_matches']}",

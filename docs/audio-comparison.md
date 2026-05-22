@@ -714,6 +714,14 @@ and unknown effect-column and volume-column command frequency near the worst
 mismatch windows and across the bounded diagnostics data. It includes a
 conservative candidate-next-PR ranking so the next audio-correctness change can
 be chosen from local evidence without implementing fixes automatically.
+For a broader local audit that is not tied to audio mismatch windows, use
+`scripts/summarize-xm-effect-coverage.py` directly on one or more
+`vtx_render_bounded_xm --diagnostics-json` files. The effect coverage summary
+reports detected, applied, deferred, unsupported, and no-op/effect-memory
+counts by command, source coordinates for the first examples, effect-family
+counts, unresolved key-off/no-active buckets, and a conservative next-effect
+recommendation. It is local diagnostics only; generated JSON/Markdown reports
+derived from private modules must stay under `/tmp` or another ignored path.
 Candidate diagnostics and the correlation report also include a focused
 pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `4xy`,
 `5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
@@ -1189,6 +1197,42 @@ ranges, then lists:
 Missing diagnostics fields are reported as unavailable. If no candidate event
 overlaps a mismatch window, the report says so explicitly and shows nearby row
 or preceding-event context when available.
+
+## Summarize XM Effect Coverage
+
+After a bounded, windowed, or full-song local diagnostics pass, summarize effect
+coverage without comparing audio:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-effect-coverage-candidate.wav \
+  --diagnostics-json /tmp/vtx-effect-coverage-diagnostics.json \
+  --order 0 \
+  --order-count 16 \
+  --sample-rate 44100 \
+  --seconds 60 \
+  --window-rows 64
+
+python3 scripts/summarize-xm-effect-coverage.py \
+  /tmp/vtx-effect-coverage-diagnostics.json \
+  --json /tmp/vtx-effect-coverage-summary.json \
+  --markdown /tmp/vtx-effect-coverage-summary.md
+```
+
+For a local-only corpus pass, pass multiple diagnostics JSON files to the same
+summary command. The Markdown table includes command, source column, offline or
+runtime category, detected/applied/deferred/unsupported/no-op counts, first
+coordinates, and recommended implementation priority. Use the recommendation as
+triage evidence only; implementation PRs still need synthetic tests and must not
+depend on private modules.
+
+When anonymizing a private XM corpus for local reports, preserve
+`/tmp/vtx-private-xm-corpus-label-map.json` as the stable local-only label map.
+If it exists, reuse its `xm-corpus-###` labels; if new local modules are
+discovered later, append new labels without renumbering existing ones. Keep the
+map under `/tmp`, do not commit or copy it into fixtures, and publish only the
+anonymized labels in docs or PR summaries.
 
 Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral

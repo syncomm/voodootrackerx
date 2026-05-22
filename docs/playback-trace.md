@@ -746,6 +746,23 @@ The helper reads runtime JSONL traces and emits deterministic JSON and Markdown
 summaries. It is local/offline tooling only and is tested with synthetic traces,
 not private modules.
 
+To audit effect coverage across runtime traces and bounded offline diagnostics
+with one local-only table, use `scripts/summarize-xm-effect-coverage.py`:
+
+```bash
+python3 scripts/summarize-xm-effect-coverage.py \
+  /tmp/vtx-c-runtime-trace.jsonl \
+  /tmp/vtx-offline-c-mixer-diagnostics.json \
+  --json /tmp/vtx-effect-coverage-summary.json \
+  --markdown /tmp/vtx-effect-coverage-summary.md
+```
+
+The effect coverage summary reports detected, applied, deferred, unsupported,
+and no-op/effect-memory command counts, first source coordinates, runtime versus
+offline category, unresolved key-off/no-active buckets, and a conservative
+next-effect recommendation. It does not change runtime playback or offline
+rendering behavior.
+
 When a full or near-full runtime live-output capture is compared with a full
 offline C mixer WAV, use the window correlation helper to connect the
 whole-song `scripts/audio-compare.py` worst windows back to runtime trace rows:

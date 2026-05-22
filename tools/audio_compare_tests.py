@@ -20,6 +20,9 @@ RUNTIME_TRACE_SUMMARY_SCRIPT_PATH = (
 RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "correlate-runtime-offline-window.py"
 )
+EFFECT_COVERAGE_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "summarize-xm-effect-coverage.py"
+)
 
 
 def load_audio_compare_module():
@@ -58,10 +61,20 @@ def load_runtime_offline_window_module():
     return module
 
 
+def load_effect_coverage_module():
+    spec = importlib.util.spec_from_file_location("effect_coverage", EFFECT_COVERAGE_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 runtime_trace_summary = load_runtime_trace_summary_module()
 runtime_offline_window = load_runtime_offline_window_module()
+effect_coverage = load_effect_coverage_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -592,6 +605,274 @@ def sine_frames(sample_rate=8000, channels=1, seconds=0.25, amplitude=0.5):
         sample = math.sin(2.0 * math.pi * 440.0 * frame / sample_rate) * amplitude
         frames.append(tuple(sample for _ in range(channels)) if channels > 1 else sample)
     return frames
+
+
+def synthetic_effect_coverage_diagnostics():
+    return {
+        "schema_version": 1,
+        "tool": "vtx_render_bounded_xm",
+        "pattern_traversal_timing_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 1},
+                "channel_index": 0,
+                "effect_type": 0x0C,
+                "effect_param": 0x20,
+                "effect_label": "Cxx set volume",
+                "status": "applied",
+                "current_status": "applied",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 2,
+                "effect_type": 0x05,
+                "effect_param": 0x34,
+                "effect_label": "5xy tone portamento + volume slide",
+                "status": "deferred/unsupported",
+                "current_status": "deferred/unsupported",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 5},
+                "channel_index": 1,
+                "effect_type": 0x7F,
+                "effect_param": 0x01,
+                "effect_label": "7Fxx unknown/unsupported",
+                "status": "unknown",
+                "current_status": "unknown",
+            },
+        ],
+        "sample_offset_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 6},
+                "channel_index": 3,
+                "synthetic_tick": 0,
+                "effect_type": 0x09,
+                "effect_param": 0x00,
+                "status": "ignored_900_no_op",
+                "detected": True,
+                "applied": False,
+                "deferred": True,
+                "ignored_as_no_op": True,
+            }
+        ],
+        "portamento_slide_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 7},
+                "channel_index": 1,
+                "synthetic_tick": 0,
+                "effect_type": 0x01,
+                "effect_param": 0x00,
+                "status": "zero_param_effect_memory_deferred",
+                "current_status": "zero_param_effect_memory_deferred",
+                "detected": True,
+                "applied": False,
+                "deferred": True,
+                "ignored_as_no_op": True,
+            }
+        ],
+        "note_cut_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 8},
+                "channel_index": 1,
+                "synthetic_tick": 2,
+                "effect_type": 0x0E,
+                "effect_param": 0xC2,
+                "status": "no_active_voice",
+                "detected": True,
+                "applied": False,
+                "deferred": False,
+                "ignored_as_no_op": True,
+            }
+        ],
+        "volume_column_mappings": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 2},
+                "channel_index": 1,
+                "synthetic_row": 2,
+                "synthetic_tick": 0,
+                "volume_column": {
+                    "raw_value": 0x30,
+                    "command": {"name": "setVolume", "value": 32},
+                    "classification": "supported",
+                    "applied": True,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": False,
+                },
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 3},
+                "channel_index": 2,
+                "synthetic_row": 3,
+                "synthetic_tick": 0,
+                "volume_column": {
+                    "raw_value": 0xB4,
+                    "command": {"name": "vibrato", "amount": 4},
+                    "classification": "deferred",
+                    "applied": False,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": True,
+                },
+            },
+        ],
+        "key_off_events": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 9},
+                "channel_index": 4,
+                "synthetic_row": 9,
+                "synthetic_tick": 0,
+                "applied": False,
+                "deferred": True,
+                "reason": "no_active_voice",
+            }
+        ],
+    }
+
+
+class EffectCoverageSummaryTests(unittest.TestCase):
+    def test_effect_coverage_summary_counts_statuses_deterministically(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(summary["summary"]["detected_count"], 9)
+        self.assertEqual(rows["Cxx set volume"]["applied_count"], 1)
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["deferred_count"], 1)
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["unsupported_count"], 1)
+        self.assertEqual(rows["900 sample offset / effect memory"]["no_op_effect_memory_deferred_count"], 1)
+
+    def test_effect_coverage_summary_records_first_coordinates(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(
+            rows["5xy tone portamento + volume slide"]["first_coordinate"],
+            "order 0 pattern 2 row 4 ch 2",
+        )
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["first_effect_type_hex"], "05")
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["first_effect_param_hex"], "34")
+
+    def test_effect_coverage_summary_handles_empty_diagnostics(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "empty.json", {})
+        ])
+        markdown = effect_coverage.build_markdown_report(summary)
+
+        self.assertEqual(summary["summary"]["detected_count"], 0)
+        self.assertEqual(summary["effect_coverage"], [])
+        self.assertIn("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | none |", markdown)
+
+    def test_effect_coverage_summary_handles_unknown_high_effect_bytes_safely(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertIn("7Fxx unknown/unsupported", rows)
+        self.assertEqual(rows["7Fxx unknown/unsupported"]["unsupported_count"], 1)
+
+    def test_effect_coverage_summary_handles_volume_column_commands(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["volume-column set volume"]["applied_count"], 1)
+        self.assertEqual(rows["volume-column set volume"]["first_volume_column_hex"], "30")
+        self.assertEqual(rows["volume-column vibrato"]["unsupported_count"], 1)
+
+    def test_effect_coverage_summary_handles_no_op_and_effect_memory_deferred_categories(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+        unresolved = summary["unresolved_breakdown"]
+
+        self.assertEqual(rows["1xx portamento up"]["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(rows["note off / key off"]["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(sum(item["count"] for item in unresolved["no_active_voice"]), 2)
+
+    def test_effect_coverage_summary_treats_note_delay_without_note_as_no_op_not_unsupported(self):
+        diagnostics = {
+            "note_delay_effects": [
+                {
+                    "source": {"order": 3, "pattern": 8, "row": 13},
+                    "channel_index": 4,
+                    "synthetic_tick": 2,
+                    "effect_type": 0x0E,
+                    "effect_param": 0xD2,
+                    "status": "no_note_deferred",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": True,
+                    "ignored_as_no_op": False,
+                }
+            ]
+        }
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "note-delay.json", diagnostics)
+        ])
+        row = summary["effect_coverage"][0]
+
+        self.assertEqual(row["command"], "EDx note delay")
+        self.assertEqual(row["deferred_count"], 1)
+        self.assertEqual(row["unsupported_count"], 0)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(row["recommended_implementation_priority"], "observed no-op/low")
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "No clear missing-effect implementation target")
+
+    def test_effect_coverage_summary_handles_runtime_trace_effect_fields(self):
+        runtime_events = [
+            {
+                "runtimeAction": "c_mixer_update_gain_pan_applied",
+                "runtimeAudioBackend": "c_mixer",
+                "orderIndex": 0,
+                "patternIndex": 2,
+                "rowIndex": 10,
+                "tickInRow": 0,
+                "channelIndex": 1,
+                "effectType": "11",
+                "effectParam": "02",
+                "volumeColumn": "00",
+            }
+        ]
+        summary = effect_coverage.build_summary_from_payloads([
+            ("runtime_trace", "runtime.jsonl", runtime_events)
+        ])
+        row = summary["effect_coverage"][0]
+
+        self.assertEqual(row["command"], "Hxy global volume slide")
+        self.assertEqual(row["runtime_offline_category"], "runtime_c_mixer_trace")
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["first_coordinate"], "order 0 pattern 2 row 10 ch 1 tick 0")
+
+    def test_effect_coverage_summary_cli_writes_temp_outputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            diagnostics_path = tmpdir / "diagnostics.json"
+            json_path = tmpdir / "summary.json"
+            markdown_path = tmpdir / "summary.md"
+            diagnostics_path.write_text(json.dumps(synthetic_effect_coverage_diagnostics()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(EFFECT_COVERAGE_SCRIPT_PATH),
+                    str(diagnostics_path),
+                    "--json",
+                    str(json_path),
+                    "--markdown",
+                    str(markdown_path),
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 9)
+            self.assertIn("XM Effect Coverage Summary", markdown_path.read_text(encoding="utf-8"))
 
 
 class RuntimeOfflineWindowCorrelationTests(unittest.TestCase):

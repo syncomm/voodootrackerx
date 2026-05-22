@@ -303,12 +303,14 @@ final class PlaybackEngine: PlaybackTransport {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
             return
         }
+        let start = DispatchTime.now().uptimeNanoseconds
         let plan = RuntimeCMixerAdapterEventPlan.make(
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate
         )
+        let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         runtimeAdapterEventPlan = plan
-        adapterConsumer.configureRuntimeAdapterEventPlan(plan)
+        adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS)
     }
 
     private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int) {

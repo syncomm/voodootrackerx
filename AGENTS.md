@@ -188,6 +188,17 @@ When debugging tracker UI, prefer manual GUI verification early instead of repea
 
 When debugging app behavior, use the project's canonical local build/run path first.
 
+When launching VoodooTrackerX for GUI/manual smoke tests, do not put environment assignments on the same command line as the app binary. The approval system treats each env-changing launch line as a new command shape and may block unattended runs. Set env vars in the active shell/session first, then launch the app binary as its own command:
+
+```
+export VTX_AUDIO_BACKEND=c_mixer_coreaudio
+export VTX_OPEN_PATH=/path/to/local/module.xm
+export VTX_C_MIXER_RUNTIME_TRACE_PATH=/tmp/vtx-runtime-trace.jsonl
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Do not use `launchctl setenv` for these smokes; it has not reliably passed the env vars. Do not use `nohup` or a zsh wrapper. Do not request blanket approvals for env-changing launch lines.
+
 When reproduction can be automated, agents should:
 - launch the app themselves
 - drive the UI with keyboard or mouse automation when possible

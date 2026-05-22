@@ -27,7 +27,7 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
 protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
     var hasRuntimeAdapterEventPlan: Bool { get }
 
-    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan)
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?)
     func resetRuntimeAdapterEventConsumption()
     func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?)
 }
@@ -464,7 +464,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
     }
 
-    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan) {
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?) {
         adapterEventPlan = plan
         sampleTimePositionResolver = plan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
         resetRuntimeAdapterEventConsumption()
@@ -475,6 +475,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             snapshot: renderCore.snapshot(),
             succeeded: plan.generated,
             runtimeEventSource: plan.generated ? RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue : RuntimeCMixerAdapterEventSource.playbackEngineSimple.rawValue,
+            adapterPlanGenerationMS: generationMS,
             reason: plan.generated ? "runtime_c_mixer_adapter_plan_generated" : "runtime_c_mixer_adapter_plan_unavailable"
         )
     }
@@ -1645,6 +1646,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         sampleStepUpdateStatus: String? = nil,
         runtimeEventSource: String? = nil,
         adapterEventCategory: String? = nil,
+        adapterPlanGenerationMS: Double? = nil,
         eventTiming: RuntimeCMixerEventTimingTraceFields? = nil,
         transition: RuntimeCMixerTransitionTraceFields? = nil,
         runtimeEventFallbackReason: String? = nil,
@@ -1693,6 +1695,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
             runtimeEventSource: runtimeEventSource,
             adapterPlanGenerated: adapterEventPlan.generated,
+            adapterPlanGenerationMS: adapterPlanGenerationMS,
             plannedEventCount: adapterEventPlan.plannedEventCount,
             consumedPlannedEventCount: Int(min(eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
             skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
@@ -2260,4 +2263,3 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return "order:\(orderIndex) pattern:\(patternIndex) row:\(rowIndex) tick:\(tickInRow)"
     }
 }
-

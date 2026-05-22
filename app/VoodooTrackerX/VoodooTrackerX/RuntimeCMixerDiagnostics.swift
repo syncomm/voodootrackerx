@@ -223,6 +223,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let fallbackReason: String?
     let runtimeEventSource: String?
     let adapterPlanGenerated: Bool?
+    let adapterPlanGenerationMS: Double?
     let plannedEventCount: Int?
     let consumedPlannedEventCount: Int?
     let skippedUnmatchedPlannedEventCount: Int?
@@ -628,6 +629,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         fallbackReason: String? = nil,
         runtimeEventSource: String? = nil,
         adapterPlanGenerated: Bool? = nil,
+        adapterPlanGenerationMS: Double? = nil,
         plannedEventCount: Int? = nil,
         consumedPlannedEventCount: Int? = nil,
         skippedUnmatchedPlannedEventCount: Int? = nil,
@@ -1006,6 +1008,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.fallbackReason = fallbackReason
         self.runtimeEventSource = runtimeEventSource
         self.adapterPlanGenerated = adapterPlanGenerated
+        self.adapterPlanGenerationMS = adapterPlanGenerationMS
         self.plannedEventCount = plannedEventCount
         self.consumedPlannedEventCount = consumedPlannedEventCount
         self.skippedUnmatchedPlannedEventCount = skippedUnmatchedPlannedEventCount

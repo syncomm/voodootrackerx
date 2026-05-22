@@ -557,6 +557,8 @@ Runtime C mixer trace rows may include:
 - `runtimeEventSource`: `offline_adapter_plan`, `playback_engine_simple`, or
   `hybrid`
 - `adapterPlanGenerated`: whether a runtime adapter plan was available
+- `adapterPlanGenerationMS`: load-time adapter plan generation duration in
+  milliseconds, emitted on the `adapter_plan_configured` row
 - `plannedEventCount`, `consumedPlannedEventCount`,
   `skippedUnmatchedPlannedEventCount`
 - `runtimeRowOrderMapping`: the order/pattern/row/tick key used to match

@@ -8534,6 +8534,7 @@ final class VoodooTrackerXTests: XCTestCase {
             backendFlagValue: "c_mixer",
             runtimeEventSource: "offline_adapter_plan",
             adapterPlanGenerated: true,
+            adapterPlanGenerationMS: 12.5,
             plannedEventCount: 8,
             consumedPlannedEventCount: 3,
             skippedUnmatchedPlannedEventCount: 1,
@@ -8720,6 +8721,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeOutputHostStartStatus"] as? Int, 0)
         XCTAssertEqual(object["runtimeEventSource"] as? String, "offline_adapter_plan")
         XCTAssertEqual(object["adapterPlanGenerated"] as? Bool, true)
+        XCTAssertEqual(object["adapterPlanGenerationMS"] as? Double, 12.5)
         XCTAssertEqual(object["plannedEventCount"] as? Int, 8)
         XCTAssertEqual(object["consumedPlannedEventCount"] as? Int, 3)
         XCTAssertEqual(object["skippedUnmatchedPlannedEventCount"] as? Int, 1)
@@ -9995,6 +9997,38 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(plan.categories.contains("portamento_update"))
     }
 
+    func testRuntimeCMixerAdapterEventPlanKeepsRepeatedLargeSampleSemantics() throws {
+        var pcm = Array(repeating: Float(0.25), count: 8_192)
+        pcm[128] = .infinity
+        let sample = makePlaybackSample(pcm: pcm, baseSampleRate: 44_100)
+        let rows = (0..<24).map { rowIndex in
+            makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 44_100)
+        let noteTriggers = plan.events.compactMap { event -> SyntheticTrackerEvent? in
+            if case let .noteTrigger(_, syntheticEvent, _) = event.action {
+                return syntheticEvent
+            }
+            return nil
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(plan.plannedEventCount, rows.count)
+        XCTAssertEqual(plan.categories, ["note_trigger"])
+        XCTAssertEqual(noteTriggers.count, rows.count)
+        for event in noteTriggers {
+            XCTAssertEqual(event.sample.frameCount, pcm.count)
+            XCTAssertEqual(event.sample.monoPCM[0], 0.25)
+            XCTAssertEqual(event.sample.monoPCM[128], 0)
+        }
+    }
+
     func testRuntimeCMixerAdapterEventPlanOrdersSameFrameUpdatesBeforeTriggers() {
         let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 256), baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -10161,6 +10195,7 @@ final class VoodooTrackerXTests: XCTestCase {
 
     @MainActor
     private func makeRuntimeCMixerPlaybackHarness(
+        backend: RuntimeAudioBackend = .cMixer,
         sampleRate: Double = 100,
         channelCount: Int = 1,
         environment: [String: String] = [:]
@@ -10171,6 +10206,7 @@ final class VoodooTrackerXTests: XCTestCase {
     ) {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let audioEngine = RuntimeCMixerAudioEngine(
+            backend: backend,
             sampleRate: sampleRate,
             channelCount: channelCount,
             outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
@@ -10190,6 +10226,29 @@ final class VoodooTrackerXTests: XCTestCase {
             audioEngine,
             traceWriter
         )
+    }
+
+    @MainActor
+    func testPlaybackEngineLoadReportsRuntimeAdapterPlanGenerationTimeForBothHosts() throws {
+        for backend in [RuntimeAudioBackend.cMixer, .cMixerCoreAudio] {
+            let harness = makeRuntimeCMixerPlaybackHarness(backend: backend)
+            let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 128), baseSampleRate: 100)
+            harness.engine.load(song: makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [
+                    2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
+                ],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            ))
+
+            let configured = try XCTUnwrap(harness.traceWriter.events.first { $0.runtimeAction == "adapter_plan_configured" })
+            XCTAssertEqual(configured.runtimeAudioBackend, backend.diagnosticName)
+            XCTAssertEqual(configured.adapterPlanGenerated, true)
+            XCTAssertEqual(configured.plannedEventCount, 1)
+            XCTAssertGreaterThanOrEqual(configured.adapterPlanGenerationMS ?? -1, 0)
+            XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "backend_prepared" })
+            XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "backend_start" })
+        }
     }
 
     @MainActor

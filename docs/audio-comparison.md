@@ -670,10 +670,11 @@ gain/pan state updates, step/pitch updates, `Hxy` global-volume updates,
 `ECx`/`EDx`/`E9x`, and `1xx`/`2xx`/`3xx` portamento updates. Runtime C mixer
 trace rows now also report whether events came from the precomputed
 `offline_adapter_plan`, the simpler `playback_engine_simple` fallback, or a
-`hybrid` path. Inspect `adapterPlanGenerated`, `plannedEventCount`,
-`consumedPlannedEventCount`, `skippedUnmatchedPlannedEventCount`,
-`adapterEventCategoriesConsumed`, and `runtimeEventFallbackReason` before
-choosing the next runtime stabilization step. Remaining gaps after a healthy
+`hybrid` path. Inspect `adapterPlanGenerated`, `adapterPlanGenerationMS`,
+`plannedEventCount`, `consumedPlannedEventCount`,
+`skippedUnmatchedPlannedEventCount`, `adapterEventCategoriesConsumed`, and
+`runtimeEventFallbackReason` before choosing the next runtime stabilization
+step. Remaining gaps after a healthy
 adapter plan should be treated separately from C mixer DSP, runtime headroom,
 parser changes, tracker UI, and tracker-follow/sample-time position work.
 For the opt-in runtime C mixer render queue, same-frame planned events use the

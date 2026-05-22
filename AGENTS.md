@@ -197,15 +197,17 @@ launchctl setenv VTX_OPEN_PATH /path/to/local-reference-module.xm
 launchctl setenv VTX_AUDIO_BACKEND c_mixer
 launchctl setenv VTX_C_MIXER_RUNTIME_TRACE_PATH /tmp/vtx-runtime-trace.jsonl
 launchctl setenv VTX_DEBUG_AUTOPLAY 1
-launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 2
+launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 10
 open build/Build/Products/Debug/VoodooTrackerX.app
 ```
 
 Use private/local reference modules for manual audio listening or comparison
 smoke checks when available; do not substitute tiny synthetic fixtures for those
-checks. Keep private module names, local absolute paths, and generated traces or
-captures out of committed files. After the smoke run, quit the app and clear any
-LaunchServices environment overrides with `launchctl unsetenv`.
+checks. The 10-second debug stop window gives autoplay time to cross a typical
+pattern boundary; increase it for modules or start positions that need a later
+transition. Keep private module names, local absolute paths, and generated
+traces or captures out of committed files. After the smoke run, quit the app and
+clear any LaunchServices environment overrides with `launchctl unsetenv`.
 
 When reproduction can be automated, agents should:
 - launch the app themselves

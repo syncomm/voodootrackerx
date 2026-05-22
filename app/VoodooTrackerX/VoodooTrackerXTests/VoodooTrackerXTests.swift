@@ -11247,6 +11247,45 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
     }
 
+    func testRuntimeCMixerCoreAudioCallbackRecordsRealtimeAndCopyDiagnostics() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: [1, 0.5], baseSampleRate: 1_000)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+
+        var output = Array(repeating: Float(-1), count: 4)
+        output.withUnsafeMutableBufferPointer { outputBuffer in
+            let audioBuffer = AudioBuffer(
+                mNumberChannels: 2,
+                mDataByteSize: UInt32(outputBuffer.count * MemoryLayout<Float>.size),
+                mData: UnsafeMutableRawPointer(outputBuffer.baseAddress)
+            )
+            var audioBufferList = AudioBufferList(mNumberBuffers: 1, mBuffers: audioBuffer)
+            let status = withUnsafeMutablePointer(to: &audioBufferList) { listPointer in
+                core.render(frameCount: 2, ioData: listPointer)
+            }
+            XCTAssertEqual(status, noErr)
+        }
+
+        XCTAssertPCMEqual(output, [1, 1, 0.5, 0.5])
+        let snapshot = core.snapshot()
+        XCTAssertFalse(snapshot.callbackAllocationWarning)
+        XCTAssertTrue(snapshot.callbackRealtimeSafeDiagnostics)
+        XCTAssertEqual(snapshot.callbackLockWaitCount, 0)
+        XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
+        XCTAssertNotNil(snapshot.callbackDurationMaxMS)
+        XCTAssertEqual(snapshot.outputBufferCopyAttemptCount, 1)
+        XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
+        XCTAssertEqual(snapshot.outputBufferCopyLastSucceeded, true)
+        XCTAssertEqual(snapshot.outputBufferCopyLayout, "single_interleaved_buffer")
+    }
+
     func testRuntimeCMixerCallbackRealtimeDiagnosticsUpdateCounters() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),

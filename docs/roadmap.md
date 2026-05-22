@@ -84,6 +84,7 @@ Current stabilization note:
 - ADR 008 records the current runtime-host conclusion: clean offline C mixer renders, clean runtime handoff captures, and output-copy verification made the experimental AVAudioSourceNode delivery path suspect for remaining live-only pops/clicks, but did not prove it as root cause. The default runtime backend remains AVAudioPlayerNode / AVAudioUnitVarispeed, the SourceNode C mixer path is retired, and both `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` now select the minimal CoreAudio DefaultOutput Audio Unit host.
 - Runtime C mixer output-host diagnostics now report backend/host selection, callback shape, sample-rate/channel fields, capture status, CoreAudio OSStatus fields, and capture/playback lifecycle clocks for the single CoreAudio host. The summary helper distinguishes capture duration from debug stop duration and planned song end, and reports whether the runtime continues with active or loaded voices after the planned adapter event stream is exhausted. CoreAudio host hardening remains separate follow-up work.
 - Runtime C mixer song-end/tail handling now uses the planned runtime adapter timeline to compute planned song end, adds a default 3-second runtime tail overridable with `VTX_C_MIXER_RUNTIME_TAIL_SECONDS`, and stops or silences the opt-in CoreAudio C mixer host at song end plus tail. `VTX_C_MIXER_RUNTIME_CAPTURE_SECONDS` remains capture-only, `VTX_DEBUG_STOP_AFTER_SECONDS` remains a playback stop, and AVAudioPlayerNode/AVAudioUnitVarispeed remains the default runtime backend.
+- Runtime C mixer CoreAudio render-core slimdown keeps the normal callback path to one non-blocking render-core entry for render, output-buffer copy, realtime counters, and fixed-capacity diagnostics. Legacy SourceNode graph state is no longer carried inside the CoreAudio route diagnostics, while legacy trace fields remain absent or nil/false for compatibility. AVAudioPlayerNode/AVAudioUnitVarispeed remains the default backend, and offline rendering remains unchanged.
 - Transport stop-position preservation and a tracker-style plain Spacebar
   play/stop shortcut are implemented for manual debugging workflow. Manual Stop
   preserves the current published order/row position, play resumes from the
@@ -519,10 +520,15 @@ and reference comparison before any default runtime backend switch.
 ### PR 2.7.11ab — Deprecate AVAudioSourceNode C Mixer Backend / Prefer CoreAudio Experimental Host
 - Scope: retire the AVAudioSourceNode-hosted runtime C mixer backend, map both `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` to the CoreAudio DefaultOutput Audio Unit host, preserve AVAudioPlayerNode/AVAudioUnitVarispeed as default, and keep offline C mixer rendering/export unchanged.
 - Verification: backend selection tests, CoreAudio host lifecycle/capture/diagnostics tests, existing runtime/offline render tests, app build/test, audio comparison tests, file checks, local-only smoke with artifacts kept out of git, and no private module fixtures in automated tests.
-- Status: in progress.
+- Status: done.
 
-### PR 2.7.11ac — Runtime C Mixer CoreAudio Host Hardening
-- Scope: harden the preferred CoreAudio DefaultOutput host while keeping the backend opt-in until runtime lifecycle, stability, and route/device behavior are proven.
+### PR 2.7.11ac — Runtime C Mixer CoreAudio Render Core Slimdown / Realtime Boundary Hardening
+- Scope: simplify the preferred CoreAudio runtime C mixer hot path now that the SourceNode host is retired. Keep render/copy/counter updates inside one non-blocking render-core callback entry where practical, move SourceNode-era graph state out of the CoreAudio diagnostics path, preserve fixed-capacity callback diagnostics, and leave AVAudio default playback plus offline rendering unchanged.
+- Verification: focused runtime render-core and CoreAudio callback diagnostics tests, existing backend selection/lifecycle/capture/runtime adapter/offline tests, app build/test, audio comparison tests, file checks, local-only smoke with artifacts kept out of git, and no private module fixtures in automated tests.
+- Status: done.
+
+### PR 2.7.11ad — Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass
+- Scope: harden the preferred CoreAudio DefaultOutput host with manual corpus listening/capture evidence while keeping the backend opt-in until runtime lifecycle, stability, and route/device behavior are proven.
 - Verification: focused CoreAudio host lifecycle tests, route/device diagnostics, app build/test, and local-only long-run listening/capture evidence with artifacts kept out of git.
 - Status: planned.
 

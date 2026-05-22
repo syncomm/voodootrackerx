@@ -239,20 +239,24 @@ sample rate. If the buffer fills, trace rows use
 `runtimeAction == "capture_written"`. Failed writes use
 `runtimeAction == "capture_write_failed"`.
 
-The current callback real-time inventory is intentionally narrow: it renders
+The normal no-event callback real-time inventory is intentionally narrow: it renders
 through the preallocated C mixer wrapper, applies runtime gain into a reused
 interleaved scratch buffer, optionally copies into a bounded in-memory capture
 buffer, copies into the selected host's output buffers, and updates
 preallocated counters and fixed-capacity diagnostic buffers. It does not
 perform file I/O, call AppKit, parse module data, enqueue trace writes, grow
 diagnostic arrays, or mutate diagnostic dictionaries. Shared runtime state is
-entered with a non-blocking lock attempt; if the callback cannot enter, it
+entered with a single non-blocking render-core lock attempt for the normal
+CoreAudio render/copy/counter update path; if the callback cannot enter, it
 zero-fills rather than waiting and reports the try-lock failure count later.
 Adapter-event callback diagnostics are written into a fixed-capacity ring
 buffer and drained outside the callback; if the ring fills, diagnostics are
 dropped and summarized with `callbackDiagnosticDropCount` rather than allocating
-more storage. The optional output-copy verification hashes/sample summaries are
-diagnostic-only and opt-in with `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1`.
+more storage. Burst summaries use a small voice/ramp-count state snapshot rather
+than a full render snapshot. Top output peak/jump diagnostics use
+fixed-capacity slots. The optional output-copy verification hashes/sample
+summaries are diagnostic-only and opt-in with
+`VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1`.
 
 Capture-related trace fields include `runtimeCaptureEnabled`,
 `runtimeCapturePathName`, `runtimeCaptureSampleRate`,
@@ -463,7 +467,8 @@ downstream output investigation: `runtimeOutputHostType`,
 `audioHardwareNominalSampleRate`, `audioHardwareIOBufferFrameSize`,
 `audioHardwareIOBufferDuration`, `audioFormatConversionLikely`, and
 `runtimeCaptureMatchesHardwareSampleRate`. Older AVAudioEngine/SourceNode graph
-fields may be absent in new CoreAudio-hosted traces. These fields are
+fields may be absent or reported as nil/false in new CoreAudio-hosted traces.
+These fields are
 diagnostic only and do not change the default AVAudio backend or opt-in C mixer
 behavior.
 

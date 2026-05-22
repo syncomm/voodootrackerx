@@ -267,10 +267,11 @@ gain/headroom fields when comparing `/tmp` runtime captures against offline
 `vtx_render_bounded_xm` WAVs.
 
 Runtime host/format trace fields include `runtimeAudioBackend`,
-`alternativeRuntimeOutputHostEnabled`, `runtimeOutputHostType`,
-`runtimeOutputHostPrepareStatus`, `runtimeOutputHostInitializeStatus`,
-`runtimeOutputHostStartStatus`, `runtimeOutputHostStopStatus`,
-`runtimeOutputHostLastErrorStatus`, `selectedRuntimeSampleRate`,
+`runtimeOutputHostType`, `runtimeOutputHostRunning`,
+`runtimeOutputHostStartCount`, `runtimeOutputHostPrepareStatus`,
+`runtimeOutputHostInitializeStatus`, `runtimeOutputHostStartStatus`,
+`runtimeOutputHostStopStatus`, `runtimeOutputHostLastErrorStatus`,
+`selectedRuntimeSampleRate`,
 `cMixerRuntimeSampleRate`, `runtimeSampleRatePolicy`,
 `runtimeSampleRateSource`, `runtimeSampleRateConfigurationWarning`,
 `cMixerRenderSampleRate`, `cMixerRenderChannelCount`,
@@ -293,15 +294,13 @@ and `finalSustainedVoicesContinueAfterPlannedSongEnd`. Use these fields with
 distinguish capture duration, debug stop duration, planned song end, and any
 continued output after the planned event stream is exhausted.
 
-Runtime output-device diagnostics also report main-mixer input/output format,
-output-node latency and presentation latency, hardware IO buffer duration,
+Runtime output-device diagnostics also report hardware IO buffer duration,
 hardware latency and safety offset when CoreAudio exposes them, a hashed default
-device UID, optional safe route label, transport type label, engine
-running/connection state, AVAudioEngine configuration-change count, engine
-start/restart count, graph format-change count, output route-change count, and
-change-event booleans for route/device, sample rate, channel count, IO buffer
-duration, and output-node format changes. The raw device name and raw device
-UID are not written to public docs; local traces use only a hashed device UID,
+device UID, optional safe route label, transport type label, output-host
+running state, output-host start count, graph format-change count, output
+route-change count, and change-event booleans for route/device, sample rate,
+channel count, and IO buffer duration. The raw device name and raw device UID
+are not written to public docs; local traces use only a hashed device UID,
 numeric device id, and any safe label explicitly supplied for the run.
 
 For route matrix runs, set `VTX_C_MIXER_RUNTIME_ROUTE_LABEL` to a generic label
@@ -331,14 +330,14 @@ python3 scripts/summarize-runtime-c-mixer-trace.py \
 ```
 
 The summary reports route/device fields, route/config change counts, callback
-health, output-copy verifier status, source-capture cleanliness, and a
+health, output-copy verifier status, runtime-capture cleanliness, and a
 `clean_source_dirty_live` route-vs-callback candidate conclusion. Use
 `--live-artifact-reported yes` or `no` only for a local run that was actually
 listened to. Generated traces, captures, reports, logs, and listening notes
 must stay local and unstaged.
 
-The experimental callback isolation fields report whether the runtime render
-callback ran on the main thread, the callback thread id,
+The callback isolation fields report whether the runtime render callback ran on
+the main thread, the callback thread id,
 whether a main-thread callback dependency was detected, whether known diagnostic
 allocation risk remains in the callback, whether realtime-safe diagnostic
 buffering is active, fixed ring-buffer capacity, diagnostic drop count,
@@ -350,13 +349,6 @@ set
 `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` with
 either C mixer backend name to suppress tracker follow callbacks without
 changing offline rendering.
-
-This PR does not add an output/main-mixer tap WAV capture. Installing an
-AVAudioEngine tap would introduce another callback path, buffer copy, and
-synchronization surface while the current runtime C mixer investigation is
-focused on the CoreAudio host callback, handoff capture, and route/device
-diagnostics. A post-mixer tap can be a separate, explicitly measured diagnostics
-PR if needed.
 
 Transient diagnostics are also included in later snapshot rows. The trace keeps
 the existing high adjacent-sample jump threshold and adds cumulative counts for
@@ -412,8 +404,8 @@ use that approach under a title such as Runtime C Mixer Preflight Auto-Headroom.
 
 For epsilon hypothesis testing only, Debug builds accept
 `VTX_C_MIXER_RUNTIME_UPDATE_EPSILON`. The default remains `1e-5`; setting `0`
-or another finite value between `0` and `0.01` changes only the experimental
-runtime C mixer update guard and records `runtimeUpdateEpsilon`,
+or another finite value between `0` and `0.01` changes only the runtime C
+mixer update guard and records `runtimeUpdateEpsilon`,
 `runtimeUpdateEpsilonPolicy`, and any configuration warning in the trace. This
 is not a mitigation and should be used only for local diagnostics.
 
@@ -458,15 +450,14 @@ transport-wide stop/reset actions use `c_mixer_clear_all` and
 
 Runtime C mixer trace rows include CoreAudio host and route diagnostics for
 downstream output investigation: `runtimeOutputHostType`,
+`runtimeOutputHostRunning`, `runtimeOutputHostStartCount`,
 `runtimeOutputHostPrepareStatus`, `runtimeOutputHostInitializeStatus`,
 `runtimeOutputHostStartStatus`, `runtimeOutputHostStopStatus`,
 `cMixerRenderSampleRate`, `cMixerRenderChannelCount`,
 `audioHardwareNominalSampleRate`, `audioHardwareIOBufferFrameSize`,
 `audioHardwareIOBufferDuration`, `audioFormatConversionLikely`, and
-`runtimeCaptureMatchesHardwareSampleRate`. Older AVAudioEngine/SourceNode graph
-fields may be absent or reported as nil/false in new CoreAudio-hosted traces.
-These fields are
-diagnostic only and do not change runtime backend behavior.
+`runtimeCaptureMatchesHardwareSampleRate`. These fields are diagnostic only and
+do not change runtime backend behavior.
 
 Callback timing/output-copy rows can also include
 `runtimeMinimalCallbackMode`, `callbackDurationMinMS`,
@@ -703,9 +694,9 @@ The expected interpretation is:
   backend, that published value is selected from the
   C mixer sample-time resolver when possible while the timer position remains
   separately traced as `playbackEngine...`.
-- C mixer sample-time position is resolved from the experimental runtime
-  C mixer's rendered frame cursor, the backend sample rate, and the planned
-  adapter row/tick timeline.
+- C mixer sample-time position is resolved from the runtime C mixer's rendered
+  frame cursor, the backend sample rate, and the planned adapter row/tick
+  timeline.
 - For the runtime C mixer, the rendered-frame cursor comes from the selected
   runtime host callback via the narrow Swift `CSoftwareMixer` wrapper. Planned
   adapter events are queued by runtime frame, applied at exact in-callback

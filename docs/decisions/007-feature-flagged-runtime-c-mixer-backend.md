@@ -41,7 +41,7 @@ experimental.
 Use a feature-flagged runtime C mixer backend experiment as the path toward the
 eventual default backend.
 
-The runtime C mixer backend must:
+The original runtime C mixer experiment had to:
 
 - Keep `AVAudioPlayerNode` / `AVAudioUnitVarispeed` available as a fallback
   until the replacement proves itself, then retire it in a focused PR.
@@ -88,13 +88,13 @@ snapshots, backend lifecycle breadcrumbs, event counters, and explicit runtime
 headroom policy reporting. It did not make the C mixer default, change C mixer
 DSP semantics, implement new XM effects, or claim runtime stability.
 
-A runtime safety follow-up adds a conservative output gain/headroom policy for
-the experimental C mixer backend only. The policy applies at the
-AVAudioSourceNode buffer handoff, currently defaults to `-12 dB`, can be
+A runtime safety follow-up added a conservative output gain/headroom policy for
+the then-experimental C mixer backend only. That SourceNode-era policy applied
+at the AVAudioSourceNode buffer handoff, defaulted to `-12 dB`, could be
 overridden for local C-mixer-only diagnostics with `VTX_C_MIXER_RUNTIME_GAIN` or
-`VTX_C_MIXER_RUNTIME_HEADROOM_DB`, and reports post-gain clipping diagnostics.
-This remains separate from offline `--auto-headroom` and does not claim full
-runtime parity.
+`VTX_C_MIXER_RUNTIME_HEADROOM_DB`, and reported post-gain clipping diagnostics.
+The current CoreAudio C mixer runtime preserves the runtime gain/headroom
+policy and diagnostics while the AVAudioSourceNode host itself is retired.
 
 A runtime update-bridge follow-up applies supported gain/pan/sample-step
 control updates to the current channel-tagged runtime C mixer voice using the
@@ -111,7 +111,7 @@ state for a later note trigger, and no-active, stale-after-stop, missing-data,
 and unsupported update cases remain separately visible in the runtime trace.
 This does not broaden runtime effect support or change the default backend.
 
-A replacement micro-ramp follow-up keeps the same experimental boundary while
+A replacement micro-ramp follow-up kept the same experimental boundary while
 reducing runtime-only discontinuities from same-channel note replacement. When
 the runtime C mixer replaces a tagged channel voice with a new note, the old
 voice now fades out over a fixed 32-frame ramp and the new voice starts at the
@@ -128,12 +128,12 @@ not make the C mixer default, add a UI toggle, claim runtime parity, implement
 new XM effects, change C mixer DSP semantics, or solve sample-time
 tracker-follow alignment.
 
-A later runtime maturation step kept the same backend but applied
+A later SourceNode-era runtime maturation step kept the same backend but applied
 already-planned adapter events at their intended runtime sample frames inside
-the AVAudio source-node callback. The runtime C mixer now maintains a sorted
-planned-event queue, splits callback renders at in-buffer event offsets, traces
-planned/applied frame fields and late/callback-boundary counters. At that point
-AVAudio still remained the default backend.
+the AVAudio source-node callback. The runtime C mixer maintained a sorted
+planned-event queue, split callback renders at in-buffer event offsets, and
+traced planned/applied frame fields and late/callback-boundary counters. At that
+point AVAudio still remained the default backend.
 
 A follow-up diagnostics bridge keeps the same boundaries while making the
 runtime C mixer sample-time cursor observable as an order/pattern/row/tick
@@ -144,7 +144,7 @@ constant-offset versus accumulating-drift evidence without wiring that position
 into tracker viewport rendering. Transport stop/reset cursor jumps and
 in-callback event timestamp ordering are reported separately from in-playback
 drift. This is a runtime maturation step only; it does not make the C mixer
-stable, default, or user-facing.
+stable, default, or user-facing at that point in the transition.
 
 A later sample-time follow bridge used that same resolver as the published
 playback-follow source for the runtime C mixer when the planned adapter
@@ -152,11 +152,11 @@ timeline is available. Runtime traces now distinguish timer
 position, C mixer sample-time position, and published follow position. This
 remains separate from tracker viewport math and C mixer DSP semantics.
 
-A later AVAudio delivery maturation step aligned the runtime C mixer source
-format with the AVAudio output graph/device sample rate where practical. The
-selected runtime rate is used consistently for the C mixer render config,
-runtime capture, planned adapter event frames, and sample-time position
-resolver. Offline rendering defaults are unchanged.
+A later AVAudioSourceNode delivery maturation step aligned the runtime C mixer
+source format with the AVAudio output graph/device sample rate where practical.
+The current CoreAudio runtime keeps the same sample-rate consistency goal across
+the C mixer render config, runtime capture, planned adapter event frames, and
+sample-time position resolver. Offline rendering defaults are unchanged.
 
 ## Feature Flag Proposal
 

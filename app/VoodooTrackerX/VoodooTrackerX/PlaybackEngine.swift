@@ -901,8 +901,6 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: backend.diagnosticName,
-            experimentalCMixerEnabled: backend.usesRuntimeCMixer,
-            alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: backend.runtimeOutputHostType,
             debugStopAfterSeconds: debugStopAfterSeconds,
             sampleRate: audioEngine.audioBufferSampleRate,
@@ -929,8 +927,6 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action.traceName,
             runtimeAudioBackend: backend.diagnosticName,
-            experimentalCMixerEnabled: backend.usesRuntimeCMixer,
-            alternativeRuntimeOutputHostEnabled: backend.alternativeRuntimeOutputHostEnabled,
             runtimeOutputHostType: backend.runtimeOutputHostType,
             debugStopAfterSeconds: debugStopAfterSeconds,
             sampleRate: audioEngine.audioBufferSampleRate,

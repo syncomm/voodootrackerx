@@ -392,23 +392,20 @@ captured frames/duration, truncation, runtime sample-rate policy, runtime
 gain/headroom policy, callback timing, callback thread/main-thread isolation,
 event queue producer/consumer threads, playback-follow publication counts,
 output buffer copy verification, scratch/capture/output hash checks,
-source/main/output/hardware graph fields, hardware IO/latency fields, route and
+CoreAudio output-host fields, hardware IO/latency fields, route and
 configuration-change counts, output route labels, hashed device identity,
-transport type labels, output-node format changes, output peak/RMS, and
+transport type labels, output peak/RMS, and
 overrange/clipping counters. The summary also includes a
-`clean_source_dirty_live` conclusion with source-capture cleanliness,
+`clean_source_dirty_live` conclusion with runtime-capture cleanliness,
 output-copy-verifier cleanliness, the manual live-artifact note, route/device
 candidate status, and callback candidate status.
 Keep all WAVs, PCM-derived reports, JSONL traces, logs, and listening notes
 outside git. Public docs and tests must continue to use placeholder module
 paths only.
 
-No output/main-mixer tap WAV is installed by this diagnostics pass. A tap would
-add another AVAudio callback and synchronization path while current runtime
-diagnostics focus on the CoreAudio host handoff, callback health, and
-route/device evidence. ADR 008 records the runtime-host decision to retire the
-AVAudioSourceNode C mixer path after persistent live-output artifacts and use
-the CoreAudio DefaultOutput Audio Unit host as the C mixer delivery surface.
+ADR 008 records the runtime-host decision to retire the AVAudioSourceNode C
+mixer path after persistent live-output artifacts and use the CoreAudio
+DefaultOutput Audio Unit host as the C mixer delivery surface.
 AVAudioPlayerNode/AVAudioUnitVarispeed has since been retired after serving
 first audible playback.
 
@@ -504,8 +501,7 @@ selected runtime sample rate, runtime sample-rate policy (`graph_aligned`,
 output-unit `OSStatus` breadcrumbs, C mixer render sample rate/channel count,
 default output device nominal sample rate, hardware buffer frame size/duration
 when accessible, `audioFormatConversionLikely`, and whether capture format
-matches the hardware sample rate. Legacy SourceNode graph fields may be absent
-or reported as nil/false in new CoreAudio-hosted traces.
+matches the hardware sample rate.
 Callback timing fields report requested frame ranges, min/max/average callback
 duration, conservative duration warning counts, estimated render quantum
 duration, callbacks over the render quantum budget, and callback-to-callback
@@ -545,8 +541,8 @@ restarted by tiny discrepancies. Trace rows may include `updateEpsilon`,
 micro-ramp and the runtime headroom policy still applies only at the CoreAudio
 runtime host handoff.
 
-The same trace now carries runtime output diagnostics for the experimental C
-mixer path: backend sample rate and channel count, render callback count,
+The same trace carries runtime output diagnostics for the CoreAudio C mixer
+path: backend sample rate and channel count, render callback count,
 requested frame counts, cumulative requested/rendered frames, min/max/last
 callback sizes, successful/failed render counts, detected zero-fill and underrun
 counts, silent-output counts, callback duration/interval/budget counters,

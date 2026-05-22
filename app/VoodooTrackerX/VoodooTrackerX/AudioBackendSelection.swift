@@ -21,10 +21,6 @@ enum RuntimeAudioBackend: Equatable {
         true
     }
 
-    var alternativeRuntimeOutputHostEnabled: Bool {
-        usesRuntimeCMixer
-    }
-
     var runtimeOutputHostType: String {
         switch self {
         case .cMixer, .cMixerCoreAudio:
@@ -43,10 +39,6 @@ struct RuntimeAudioBackendSelection: Equatable {
     let backend: RuntimeAudioBackend
     let requestedValue: String?
     let fallbackReason: String?
-
-    var experimentalCMixerEnabled: Bool {
-        backend.usesRuntimeCMixer
-    }
 
     static func resolve(environment: [String: String] = ProcessInfo.processInfo.environment) -> RuntimeAudioBackendSelection {
         let requestedValue = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -563,7 +555,7 @@ enum PlaybackAudioOutputFactory {
         }
         let selectedSampleRate = sampleRateSelection?.sampleRate ?? MixerRenderConfig.defaultSampleRate
         logger.info(
-            "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) experimental_c_mixer_enabled=\(selection.experimentalCMixerEnabled, privacy: .public) sample_rate=\(selectedSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
+            "Selected audio backend=\(selection.backend.diagnosticName, privacy: .public) host_type=\(selection.backend.runtimeOutputHostType, privacy: .public) sample_rate=\(selectedSampleRate, privacy: .public) channel_count=\(MixerRenderConfig.defaultChannelCount, privacy: .public)"
         )
         if runtimeCMixerTraceWriter.isEnabled {
             runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
@@ -571,8 +563,6 @@ enum PlaybackAudioOutputFactory {
                 runtimeAudioBackend: selection.backend.diagnosticName,
                 backendFlagValue: selection.requestedValue,
                 fallbackReason: selection.fallbackReason,
-                experimentalCMixerEnabled: selection.experimentalCMixerEnabled,
-                alternativeRuntimeOutputHostEnabled: selection.backend.alternativeRuntimeOutputHostEnabled,
                 runtimeOutputHostType: selection.backend.runtimeOutputHostType,
                 debugStopAfterSeconds: debugStopAfterSeconds,
                 sampleRate: selectedSampleRate,

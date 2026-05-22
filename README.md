@@ -12,7 +12,7 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 - MOD/XM parser work is covered by focused unit tests, golden snapshots, and small redistribution-safe fixtures.
 - First-pass XM playback exists for development and smoke testing, but it is not yet MikMod/OpenMPT accurate.
 - Default runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed` based.
-- The C-backed mixer path is used for deterministic bounded renders, diagnostics, and local comparison work. An experimental runtime C mixer skeleton is available only when launched with `VTX_AUDIO_BACKEND=c_mixer`.
+- The C-backed mixer path is used for deterministic bounded renders, diagnostics, and local comparison work. An experimental CoreAudio DefaultOutput Audio Unit runtime C mixer host is available only when launched with `VTX_AUDIO_BACKEND=c_mixer` or its compatibility alias `VTX_AUDIO_BACKEND=c_mixer_coreaudio`.
 - The app is under active development and should not be treated as production-ready.
 
 ## Build/Test Quick Start
@@ -60,7 +60,7 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and `Left`/`Right`.
 
-Developers can opt into the experimental runtime C mixer skeleton with `VTX_AUDIO_BACKEND=c_mixer`. Unset or unknown values keep the default AVAudio backend.
+Developers can opt into the experimental CoreAudio-hosted runtime C mixer with `VTX_AUDIO_BACKEND=c_mixer`; `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains accepted as an alias. Unset or unknown values keep the default AVAudio backend.
 
 ## Developer Audio Comparison
 

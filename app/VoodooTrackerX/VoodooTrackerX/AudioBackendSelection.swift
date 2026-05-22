@@ -30,16 +30,14 @@ enum RuntimeAudioBackend: Equatable {
     }
 
     var alternativeRuntimeOutputHostEnabled: Bool {
-        self == .cMixerCoreAudio
+        usesRuntimeCMixer
     }
 
     var runtimeOutputHostType: String {
         switch self {
         case .avAudio:
             return "av_audio_player_node_varispeed"
-        case .cMixer:
-            return "av_audio_source_node"
-        case .cMixerCoreAudio:
+        case .cMixer, .cMixerCoreAudio:
             return "coreaudio_default_output_unit"
         }
     }

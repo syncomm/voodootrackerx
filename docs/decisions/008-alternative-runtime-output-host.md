@@ -2,10 +2,11 @@
 
 ## Status
 
-Accepted as opt-in experiment guidance. The implementation branch follows this
-ADR with `VTX_AUDIO_BACKEND=c_mixer_coreaudio`, using a minimal CoreAudio
-DefaultOutput Audio Unit host while keeping the default AVAudio backend and the
-existing `VTX_AUDIO_BACKEND=c_mixer` SourceNode backend available.
+Accepted. Superseded in implementation by the runtime-host retirement pass:
+`VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` now both
+select the minimal CoreAudio DefaultOutput Audio Unit host. The default
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend remains unchanged, and the
+AVAudioSourceNode-hosted C mixer backend is retired.
 
 ## Context
 
@@ -23,10 +24,9 @@ playback problem:
   reporting.
 
 Despite that, live GUI playback through the experimental
-`AVAudioSourceNode`-hosted C mixer path can still produce intermittent
-pops/clicks that are not present in the captured WAV. That makes the current
-host suspect as a delivery path, even though it does not prove that
-AVAudioSourceNode is the root cause.
+`AVAudioSourceNode`-hosted C mixer path produced intermittent pops/clicks that
+were not present in the captured WAV. That made the host suspect as a delivery
+path, even though it did not prove that AVAudioSourceNode was the root cause.
 
 Main-mixer tap diagnostics were considered, but they would add another AVAudio
 callback/synchronization path and are not a clear fix by themselves. A lower
@@ -36,36 +36,34 @@ AudioUnit/CoreAudio render callback than to an AVAudioEngine source-node graph.
 
 ## Decision
 
-Keep the existing runtime backend choices in place:
+Retire the AVAudioSourceNode-hosted runtime C mixer backend and keep the
+runtime backend choices small:
 
 - `AVAudioPlayerNode` / `AVAudioUnitVarispeed` remains the default runtime
   backend.
-- The `AVAudioSourceNode` C mixer backend remains experimental and opt-in
-  through `VTX_AUDIO_BACKEND=c_mixer`.
-- Existing backends must not be removed or weakened by this decision.
+- `VTX_AUDIO_BACKEND=c_mixer` selects the experimental CoreAudio DefaultOutput
+  Audio Unit C mixer host.
+- `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains accepted as an alias for the
+  same CoreAudio host.
+- The AVAudioSourceNode C mixer host is no longer selectable.
 - Offline C mixer rendering remains the authoritative export/render path.
 
-Plan an opt-in alternative output host experiment for the C mixer, using a
-small CoreAudio/AUAudioUnit-style output callback where practical. The experiment should
-answer one narrow question: whether the remaining live-only artifact is caused
-by AVAudioEngine/AVAudioSourceNode delivery rather than by the C mixer PCM,
-adapter event stream, sample-rate policy, or callback-side diagnostics.
+The CoreAudio host is still experimental and developer-facing only. This
+decision reduces duplicated runtime host plumbing and keeps future hardening
+focused on one C mixer delivery surface.
 
 ## Experiment Shape
 
-The future spike should be small, reversible, and developer-facing only.
+The CoreAudio host remains small, reversible, and developer-facing only.
 
-Recommended boundaries:
+Boundaries:
 
 - Use the same C mixer render core and planned adapter event stream as the
-  current experimental runtime C mixer path.
-- Select the alternative host with a new opt-in backend name or equivalent
-  local diagnostic flag; unset or unknown values must keep the default AVAudio
-  backend.
+  previous experimental runtime C mixer path.
+- Select it only through the accepted developer backend names; unset or unknown
+  values must keep the default AVAudio backend.
 - Avoid a user-facing setting or menu item.
-- Keep the current `AVAudioSourceNode` C mixer backend available for A/B
-  comparison.
-- Capture and summarize the PCM handed to the alternative host using the same
+- Capture and summarize the PCM handed to the CoreAudio host using the same
   local-only artifact rules as existing runtime captures.
 - Report host callback timing, requested frame counts, underrun/zero-fill
   evidence, sample rate, channel count, and route/device context where practical.
@@ -81,13 +79,14 @@ surface.
 
 The spike should produce evidence for these outcomes:
 
-- If offline C mixer WAVs, runtime handoff captures, and the alternative host's
-  handoff PCM are clean while live output becomes clean, the current
-  AVAudioSourceNode/AVAudioEngine delivery path becomes the leading suspect.
-- If the alternative host still clicks while its handoff PCM remains clean, the
+- If offline C mixer WAVs, runtime handoff captures, and the CoreAudio host's
+  handoff PCM are clean while live output becomes clean, the retired
+  AVAudioSourceNode/AVAudioEngine delivery path remains the leading historical
+  suspect.
+- If the CoreAudio host still clicks while its handoff PCM remains clean, the
   investigation should move toward route/device/hardware behavior or other
   downstream delivery conditions.
-- If the alternative host handoff PCM is dirty, the bug is not downstream of
+- If the CoreAudio host handoff PCM is dirty, the bug is not downstream of
   the C mixer handoff and the runtime mixer/event path must be revisited.
 
 Any comparison evidence must use local-only WAVs, traces, logs, and listening
@@ -99,7 +98,6 @@ This ADR and its initial implementation do not:
 
 - switch the default runtime backend
 - remove the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
-- remove the experimental `AVAudioSourceNode` C mixer backend
 - change offline render behavior
 - change C mixer DSP semantics
 - add tracker viewport changes
@@ -111,17 +109,15 @@ This ADR and its initial implementation do not:
 Positive:
 
 - records the current evidence that the remaining artifact is live-host
-  specific, not currently explained by offline PCM or source-node capture PCM
-- gives the next runtime stabilization PR a narrow question and reversible
-  scope
-- preserves the stable default runtime backend and the existing SourceNode A/B
-  path
+  specific, not currently explained by offline PCM or runtime handoff capture
+  PCM
+- gives the next runtime stabilization PR one runtime C mixer host to harden
+- preserves the stable default runtime backend
 - keeps offline C mixer export/render behavior authoritative
 
 Tradeoffs:
 
 - a lower-level host increases runtime surface area and real-time safety risk
-- duplicated runtime host plumbing must stay temporary until evidence justifies
-  keeping it
+- the previous SourceNode A/B path is no longer available
 - success would still require a later decision before any default backend
   change

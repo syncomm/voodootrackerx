@@ -156,18 +156,18 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     let routeLabel: String?
     let cMixerRenderSampleRate: Double
     let cMixerRenderChannelCount: Int
-    let sourceNodeRenderSampleRate: Double
-    let sourceNodeChannelCount: Int
-    let mainMixerOutputSampleRate: Double
-    let mainMixerOutputChannelCount: Int
-    let mainMixerInputSampleRate: Double
-    let mainMixerInputChannelCount: Int
-    let mainMixerLatency: Double
-    let mainMixerOutputPresentationLatency: Double
-    let outputNodeSampleRate: Double
-    let outputNodeChannelCount: Int
-    let outputNodeLatency: Double
-    let outputNodeOutputPresentationLatency: Double
+    let sourceNodeRenderSampleRate: Double?
+    let sourceNodeChannelCount: Int?
+    let mainMixerOutputSampleRate: Double?
+    let mainMixerOutputChannelCount: Int?
+    let mainMixerInputSampleRate: Double?
+    let mainMixerInputChannelCount: Int?
+    let mainMixerLatency: Double?
+    let mainMixerOutputPresentationLatency: Double?
+    let outputNodeSampleRate: Double?
+    let outputNodeChannelCount: Int?
+    let outputNodeLatency: Double?
+    let outputNodeOutputPresentationLatency: Double?
     let outputDeviceID: AudioObjectID?
     let outputDeviceUIDHash: String?
     let hardwareNominalSampleRate: Double?
@@ -191,40 +191,25 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     init(
         snapshot: RuntimeCMixerRenderSnapshot,
         routeLabel: String?,
-        sourceFormat: AVAudioFormat,
-        mainMixerInputFormat: AVAudioFormat,
-        mainMixerOutputFormat: AVAudioFormat,
-        outputNodeFormat: AVAudioFormat,
+        hostFormat _: AVAudioFormat,
         outputDevice: RuntimeCMixerAudioOutputDeviceDiagnostics,
-        engineRunning: Bool,
-        sourceNodeAttached: Bool,
-        sourceNodeConnected: Bool,
-        mainMixerConnectedToOutput: Bool,
-        mainMixerLatency: Double,
-        mainMixerOutputPresentationLatency: Double,
-        outputNodeLatency: Double,
-        outputNodeOutputPresentationLatency: Double,
-        engineRunningOverride: Bool? = nil,
-        sourceNodeAttachedOverride: Bool? = nil,
-        sourceNodeConnectedOverride: Bool? = nil,
-        mainMixerConnectedToOutputOverride: Bool? = nil,
-        formatConversionLikelyOverride: Bool? = nil
+        outputHostRunning: Bool
     ) {
         self.routeLabel = routeLabel
         cMixerRenderSampleRate = snapshot.sampleRate
         cMixerRenderChannelCount = snapshot.channelCount
-        sourceNodeRenderSampleRate = sourceFormat.sampleRate
-        sourceNodeChannelCount = Int(sourceFormat.channelCount)
-        mainMixerOutputSampleRate = mainMixerOutputFormat.sampleRate
-        mainMixerOutputChannelCount = Int(mainMixerOutputFormat.channelCount)
-        mainMixerInputSampleRate = mainMixerInputFormat.sampleRate
-        mainMixerInputChannelCount = Int(mainMixerInputFormat.channelCount)
-        self.mainMixerLatency = mainMixerLatency
-        self.mainMixerOutputPresentationLatency = mainMixerOutputPresentationLatency
-        outputNodeSampleRate = outputNodeFormat.sampleRate
-        outputNodeChannelCount = Int(outputNodeFormat.channelCount)
-        self.outputNodeLatency = outputNodeLatency
-        self.outputNodeOutputPresentationLatency = outputNodeOutputPresentationLatency
+        sourceNodeRenderSampleRate = nil
+        sourceNodeChannelCount = nil
+        mainMixerOutputSampleRate = nil
+        mainMixerOutputChannelCount = nil
+        mainMixerInputSampleRate = nil
+        mainMixerInputChannelCount = nil
+        mainMixerLatency = nil
+        mainMixerOutputPresentationLatency = nil
+        outputNodeSampleRate = nil
+        outputNodeChannelCount = nil
+        outputNodeLatency = nil
+        outputNodeOutputPresentationLatency = nil
         outputDeviceID = outputDevice.deviceID
         outputDeviceUIDHash = outputDevice.deviceUIDHash
         hardwareNominalSampleRate = outputDevice.nominalSampleRate
@@ -236,29 +221,16 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         hardwareSafetyOffsetDuration = outputDevice.safetyOffsetDuration
         hardwareTransportType = outputDevice.transportType
         hardwareTransportTypeName = outputDevice.transportTypeName
-        self.engineRunning = engineRunningOverride ?? engineRunning
-        self.sourceNodeAttached = sourceNodeAttachedOverride ?? sourceNodeAttached
-        self.sourceNodeConnected = sourceNodeConnectedOverride ?? sourceNodeConnected
-        self.mainMixerConnectedToOutput = mainMixerConnectedToOutputOverride ?? mainMixerConnectedToOutput
-        formatConversionLikely = formatConversionLikelyOverride ?? RuntimeCMixerFormatDiagnostics.formatConversionLikely(
-            sourceSampleRate: sourceNodeRenderSampleRate,
-            sourceChannelCount: sourceNodeChannelCount,
-            mainMixerSampleRate: mainMixerOutputSampleRate,
-            mainMixerChannelCount: mainMixerOutputChannelCount,
-            outputSampleRate: outputNodeSampleRate,
-            outputChannelCount: outputNodeChannelCount,
-            hardwareSampleRate: hardwareNominalSampleRate
-        )
-        captureMatchesSourceNodeFormat = Self.captureMatches(
-            capture: snapshot.capture,
-            sampleRate: sourceNodeRenderSampleRate,
-            channelCount: sourceNodeChannelCount
-        )
-        captureMatchesEngineOutputFormat = Self.captureMatches(
-            capture: snapshot.capture,
-            sampleRate: outputNodeSampleRate,
-            channelCount: outputNodeChannelCount
-        )
+        engineRunning = outputHostRunning
+        sourceNodeAttached = false
+        sourceNodeConnected = false
+        mainMixerConnectedToOutput = false
+        formatConversionLikely = RuntimeCMixerFormatDiagnostics.sampleRatesMatch(
+            cMixerRenderSampleRate,
+            hardwareNominalSampleRate
+        ).map { !$0 } ?? false
+        captureMatchesSourceNodeFormat = nil
+        captureMatchesEngineOutputFormat = nil
         captureMatchesHardwareSampleRate = RuntimeCMixerFormatDiagnostics.sampleRatesMatch(
             snapshot.capture.sampleRate,
             hardwareNominalSampleRate
@@ -269,14 +241,14 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         [
             "\(cMixerRenderSampleRate)",
             "\(cMixerRenderChannelCount)",
-            "\(sourceNodeRenderSampleRate)",
-            "\(sourceNodeChannelCount)",
-            "\(mainMixerInputSampleRate)",
-            "\(mainMixerInputChannelCount)",
-            "\(mainMixerOutputSampleRate)",
-            "\(mainMixerOutputChannelCount)",
-            "\(outputNodeSampleRate)",
-            "\(outputNodeChannelCount)",
+            sourceNodeRenderSampleRate.map { String($0) } ?? "none",
+            sourceNodeChannelCount.map { String($0) } ?? "none",
+            mainMixerInputSampleRate.map { String($0) } ?? "none",
+            mainMixerInputChannelCount.map { String($0) } ?? "none",
+            mainMixerOutputSampleRate.map { String($0) } ?? "none",
+            mainMixerOutputChannelCount.map { String($0) } ?? "none",
+            outputNodeSampleRate.map { String($0) } ?? "none",
+            outputNodeChannelCount.map { String($0) } ?? "none",
             "\(hardwareNominalSampleRate ?? -1)"
         ]
     }
@@ -304,8 +276,8 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
 
     var outputNodeFormatSignature: [String] {
         [
-            "\(outputNodeSampleRate)",
-            "\(outputNodeChannelCount)"
+            outputNodeSampleRate.map { String($0) } ?? "none",
+            outputNodeChannelCount.map { String($0) } ?? "none"
         ]
     }
 

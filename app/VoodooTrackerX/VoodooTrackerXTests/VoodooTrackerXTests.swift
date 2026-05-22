@@ -3410,6 +3410,158 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertGreaterThan(finetunedMapping.playbackStep, 1)
     }
 
+    func testPlaybackSongSyntheticAdapterE5xSetFinetuneAdjustsSameCellSampleStep() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        let baselineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let e5xSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let baseline = PlaybackSongSyntheticAdapter.adapt(baselineSong, orderIndex: 0, sampleRate: 100)
+        let e5x = PlaybackSongSyntheticAdapter.adapt(e5xSong, orderIndex: 0, sampleRate: 100)
+        let baselineMapping = try XCTUnwrap(baseline.diagnostics.eventMappings.first)
+        let e5xMapping = try XCTUnwrap(e5x.diagnostics.eventMappings.first)
+        let diagnostic = try XCTUnwrap(e5x.diagnostics.setFinetuneEffects.first)
+
+        XCTAssertEqual(e5x.diagnostics.setFinetuneEffectCount, 1)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.finetuneNibble, 15)
+        XCTAssertEqual(diagnostic.sampleFinetune, 0)
+        XCTAssertEqual(diagnostic.effectiveFinetune, 112)
+        XCTAssertEqual(e5xMapping.sampleFinetune, 0)
+        XCTAssertEqual(e5xMapping.effectiveFinetune, 112)
+        XCTAssertEqual(e5xMapping.playbackStep, pow(2.0, 0.875 / 12.0), accuracy: 0.000000001)
+        XCTAssertGreaterThan(e5xMapping.playbackStep, baselineMapping.playbackStep)
+    }
+
+    func testPlaybackSongSyntheticAdapterE50AndE5FProduceDistinctDeterministicSteps() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        func step(for effectParam: UInt8) throws -> PlaybackSongSyntheticEventMapping {
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: effectParam)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+            return try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings.first)
+        }
+
+        let e50 = try step(for: 0x50)
+        let e5f = try step(for: 0x5F)
+
+        XCTAssertEqual(e50.effectiveFinetune, -128)
+        XCTAssertEqual(e5f.effectiveFinetune, 112)
+        XCTAssertEqual(e50.playbackStep, pow(2.0, -1.0 / 12.0), accuracy: 0.000000001)
+        XCTAssertEqual(e5f.playbackStep, pow(2.0, 0.875 / 12.0), accuracy: 0.000000001)
+        XCTAssertLessThan(e50.playbackStep, e5f.playbackStep)
+    }
+
+    func testPlaybackSongSyntheticAdapterE5xWithoutNoteIsDeferredAndDoesNotAffectLaterNotes() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x5F),
+                makePlaybackRow(index: 1, note: 49, instrument: 1),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let setFinetune = try XCTUnwrap(diagnostics.setFinetuneEffects.first)
+        let laterNote = try XCTUnwrap(diagnostics.eventMappings.first)
+        let effectCommand = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.decodedLabel == "E5x set finetune" })
+
+        XCTAssertEqual(diagnostics.setFinetuneEffectCount, 1)
+        XCTAssertEqual(setFinetune.status, .noNoteDeferred)
+        XCTAssertTrue(setFinetune.deferred)
+        XCTAssertTrue(setFinetune.effectMemoryDeferred)
+        XCTAssertEqual(setFinetune.finetuneNibble, 15)
+        XCTAssertEqual(effectCommand.status, .deferredUnsupported)
+        XCTAssertEqual(laterNote.effectiveFinetune, 0)
+        XCTAssertEqual(laterNote.playbackStep, 1, accuracy: 0.000000001)
+    }
+
+    func testPlaybackSongSyntheticAdapterE5xWindowedRenderIsDeterministic() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x50),
+                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let firstWindowed = renderer.renderWindowed(request, windowRows: 1)
+        let secondWindowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(secondWindowed.block.interleavedPCM, firstWindowed.block.interleavedPCM)
+        XCTAssertEqual(firstWindowed.diagnostics.setFinetuneEffectCount, 2)
+        XCTAssertEqual(secondWindowed.diagnostics.setFinetuneEffectCount, 2)
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReportsE5xSetFinetuneMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first { $0.categories.contains("note_trigger") })
+        let adaptedPlan = try XCTUnwrap(plan.plan)
+        let mapping = try XCTUnwrap(adaptedPlan.diagnostics.eventMappings.first)
+        let diagnostic = try XCTUnwrap(adaptedPlan.diagnostics.setFinetuneEffects.first)
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("e5x_set_finetune"))
+        XCTAssertTrue(noteTrigger.categories.contains("e5x_set_finetune"))
+        XCTAssertEqual(noteTrigger.effectType, 0x0E)
+        XCTAssertEqual(noteTrigger.effectParam, 0x5F)
+        XCTAssertEqual(mapping.effectType, 0x0E)
+        XCTAssertEqual(mapping.effectParam, 0x5F)
+        XCTAssertEqual(mapping.effectiveFinetune, 112)
+        XCTAssertEqual(diagnostic.status, .applied)
+    }
+
+    func testPlaybackSongSyntheticAdapterE2xEAxAndEBxRemainDeferredUnsupported() throws {
+        let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0x21),
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xA1),
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xB1),
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let statuses = Dictionary(uniqueKeysWithValues: diagnostics.effectCommandDiagnostics.map { ($0.decodedLabel, $0.status) })
+
+        XCTAssertEqual(diagnostics.setFinetuneEffects, [])
+        XCTAssertEqual(diagnostics.portamentoSlideEffects, [])
+        XCTAssertEqual(statuses["E2x fine portamento down"], .deferredUnsupported)
+        XCTAssertEqual(statuses["EAx fine volume slide up"], .deferredUnsupported)
+        XCTAssertEqual(statuses["EBx fine volume slide down"], .deferredUnsupported)
+    }
+
     func testPlaybackSongSyntheticAdapterSampleAndOutputRatesAffectPlaybackStep() throws {
         let baseSample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
         let higherBaseSample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 200)

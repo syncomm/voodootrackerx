@@ -70,6 +70,12 @@ Recorded fields include:
   `ignored`, or `updated`
 - `decisionReason`: short machine-readable context for the decision
 
+For runtime C mixer adapter events, same-cell XM `E5x` set-finetune note
+triggers keep the original `effectCommand`/`effectParameter` metadata in the
+trace context. The applied sample-step and effective finetune are planned by the
+shared adapter diagnostics; no-note `E5x` cases remain diagnosed as deferred
+effect-memory/no-note cases instead of being treated as current-voice memory.
+
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
 commands. This captures header timing from the loaded local XM and

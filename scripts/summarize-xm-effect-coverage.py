@@ -465,6 +465,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
 
     for field_name in (
         "sample_offset_effects",
+        "set_finetune_effects",
         "note_cut_effects",
         "note_delay_effects",
         "retrigger_effects",
@@ -506,6 +507,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
 
     for field_name in (
         "sample_offset_effects",
+        "set_finetune_effects",
         "note_cut_effects",
         "note_delay_effects",
         "retrigger_effects",

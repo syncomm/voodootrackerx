@@ -573,8 +573,13 @@ offline-render responsibilities separate.
 - Verification: deterministic hand-built `PlaybackSong` tests for vibrato speed/depth decoding, tick-phase pitch modulation, zero-parameter/effect-memory behavior as scoped, interaction with current linear-frequency pitch mapping, windowed carryover, runtime trace fields if bridged, and existing bounded render/audio comparison tests; no private/local module fixtures.
 - Status: done.
 
-### PR 2.7.11ak — Next Effect Target Selection: E5x or 6xy
-- Scope: use the remaining local corpus evidence after `4xy` support to choose the next narrow effect implementation. `E5x` set finetune remains the leading non-vibrato gap from the prior corpus audit, while `6xy` vibrato + volume slide remains a separate vibrato-family follow-up; do not combine them with unrelated effect work.
+### PR 2.7.11ak — Minimal E5x Set Finetune Foundation
+- Scope: implement only same-cell note `E5x` set-finetune through the shared bounded/offline and runtime C mixer adapter sample-step path, with no broad finetune memory and no unrelated E-command behavior.
+- Verification: synthetic fixtures for detection, same-cell sample-step changes, deterministic `E50`/`E5F` behavior, no-note deferral, no leakage into later notes, runtime adapter metadata, windowed render determinism, and explicit non-goal coverage for `E2x`, `EAx`, and `EBx`; local-only corpus smoke artifacts stay out of git.
+- Status: done.
+
+### PR 2.7.11al — Next Effect Target From Remaining Corpus Evidence
+- Scope: choose the next narrow effect implementation after `E5x`; current likely targets are `E2x` fine portamento down, `EAx`/`EBx` fine volume slides, or `6xy` vibrato + volume slide as a vibrato-family follow-up.
 - Verification: synthetic fixtures for the chosen effect, effect coverage summary before/after counts, existing runtime/offline render tests, and local-only corpus smoke artifacts kept out of git.
 - Status: recommended next effect PR.
 

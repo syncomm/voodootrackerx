@@ -6,10 +6,10 @@ Accepted for developer-only bounded XM candidate WAV exports.
 
 ## Context
 
-The C-backed mixer is currently an offline validation path. Runtime playback
-still uses `AVAudioPlayerNode` and `AVAudioUnitVarispeed`, while the bounded
-offline helper adapts parsed playback-model rows into deterministic scheduled
-C mixer voices for local WAV export and diagnostics.
+The C-backed mixer started as an offline validation path. Runtime playback now
+uses the CoreAudio-hosted C mixer, while the bounded offline helper remains a
+separate path that adapts parsed playback-model rows into deterministic
+scheduled C mixer voices for local WAV export and diagnostics.
 
 Long local candidate exports can contain far more future note events than the
 fixed C scheduled-voice pool can hold at one time. Increasing that fixed pool is

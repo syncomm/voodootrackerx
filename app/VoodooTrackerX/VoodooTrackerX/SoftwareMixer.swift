@@ -2,7 +2,7 @@ import Foundation
 
 /// Deterministic software mixer configuration for offline rendering and a later runtime backend migration.
 ///
-/// This offline path does not replace the existing `AVAudioPlayerNode` playback path.
+/// This offline path remains separate from the CoreAudio-hosted runtime C mixer.
 struct MixerRenderConfig: Equatable {
     static let defaultSampleRate = 44_100.0
     static let defaultChannelCount = 2
@@ -632,8 +632,7 @@ struct OfflineRenderResult: Equatable {
 ///
 /// This type is independent of AppKit, `AVAudioPlayerNode`, and CoreAudio render-thread assumptions. It
 /// currently renders deterministic interleaved Float32 PCM for explicitly supplied synthetic sample voices;
-/// live playback remains on `PlaybackAudioEngine` until future offline rendering and reference comparison work
-/// proves the mixer.
+/// live playback now uses the CoreAudio-hosted C mixer path.
 final class SoftwareMixer {
     private(set) var config: MixerRenderConfig
     private(set) var voices: [MixerVoice]
@@ -739,7 +738,7 @@ final class SoftwareMixer {
 /// Offline harness for bounded deterministic renders from `SoftwareMixer`.
 ///
 /// This renderer is independent of AppKit, `AVAudioPlayerNode`, and live playback. It exists for tests and
-/// future CLI/export tooling; runtime playback remains on `PlaybackAudioEngine`.
+/// future CLI/export tooling; runtime playback stays separate from this bounded offline harness.
 final class SoftwareMixerOfflineRenderer {
     private let mixer: SoftwareMixer
     let maximumFrameCount: Int

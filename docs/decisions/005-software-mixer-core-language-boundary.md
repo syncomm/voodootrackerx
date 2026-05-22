@@ -3,6 +3,8 @@
 ## Status
 
 Accepted as guidance for the long-term deterministic software mixer boundary.
+Runtime playback has since moved to the CoreAudio-hosted C mixer, while this
+ADR remains the language-boundary record.
 
 ## Context
 
@@ -12,9 +14,10 @@ mixer behind the existing playback/audio boundary. Since then, the Swift
 can render deterministic silence, synthetic one-shot sample voices, synthetic
 forward loops, synthetic ping-pong loops, gain, and simple stereo panning.
 
-Runtime playback still uses the `AVAudioEngine` / `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed` backend. The Swift software mixer is not used for live
-playback.
+At the time of this ADR, runtime playback still used the `AVAudioEngine` /
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend and the Swift software
+mixer was not used for live playback. The runtime path has since moved to the
+CoreAudio-hosted C mixer.
 
 The project also already has a C `ModuleCore` parser layer. Parser ownership is
 still governed by `docs/decisions/001-xm-parsing-responsibilities.md`; this ADR
@@ -92,8 +95,8 @@ Positive:
   behavior
 - future runtime audio work can be made more portable and real-time disciplined
 - Swift remains the right layer for UI, transport, diagnostics, and integration
-- the `AVAudioPlayerNode` backend remains available while the C-backed mixer is
-  proven offline
+- the `AVAudioPlayerNode` backend remained available while the C-backed mixer
+  was proven offline and has since been retired
 
 Tradeoffs:
 
@@ -121,7 +124,8 @@ whole audio subsystem, parser, app model, or tracker UI into C.
    the primitive rendering behavior is covered.
 7. Keep the `AVAudioPlayerNode` runtime backend active until the C-backed
    software mixer is proven through offline deterministic renders.
-8. Only later add a feature-flagged runtime backend switch.
+8. Only later add a feature-flagged runtime backend switch, then retire the
+   first-pass backend after the CoreAudio C mixer becomes the runtime path.
 
 The recommended next implementation PR is a minimal C software mixer core
 skeleton with a Swift wrapper that can render deterministic silence through the

@@ -20,10 +20,10 @@ initial deterministic software mixer skeleton.
 Default runtime playback now uses the CoreAudio DefaultOutput Audio Unit C
 mixer backend. `VTX_AUDIO_BACKEND=c_mixer` and
 `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted aliases for the same
-CoreAudio host, while `VTX_AUDIO_BACKEND=av_audio` selects the legacy
-`AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback. Unknown backend values
-fall back to the CoreAudio default and are reported in diagnostics. The retired
-AVAudioSourceNode C mixer host is no longer selectable. The software mixer path is
+CoreAudio host, while `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value
+that falls back to that CoreAudio host with `fallbackReason=retired_backend`.
+Unknown backend values fall back to the CoreAudio default and are reported in
+diagnostics. The retired AVAudioSourceNode C mixer host is no longer selectable. The software mixer path is
 groundwork for offline rendering and future reference comparison; it can render
 synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
@@ -157,7 +157,7 @@ runtime C mixer handoff, defaults to `-12 dB`, reports post-gain clipping
 diagnostics and recommendations, and accepts local-only gain/headroom
 environment overrides when the runtime C mixer backend is active. Offline
 export `--auto-headroom` remains separate, and `VTX_AUDIO_BACKEND=av_audio`
-selects the legacy AVAudio fallback. The runtime C mixer now bridges supported
+falls back to the CoreAudio C mixer. The runtime C mixer now bridges supported
 runtime gain/pan/sample-step control updates to the same generic C mixer
 voice-state update primitives used by the bounded offline path, including the
 fixed gain/pan micro-ramp and channel-scoped target voice diagnostics. Missing
@@ -179,8 +179,9 @@ runtime adapter event plan from the bounded/offline `PlaybackSong` adapter and
 feeds supported plan events to the C mixer backend when available. Trace
 rows report the event source, plan generation, planned/consumed/skipped counts,
 adapter event categories, row/order mapping, and fallback-to-simple-runtime
-counts. `c_mixer` remains an explicit CoreAudio alias, `av_audio` remains the
-legacy fallback, and unsupported XM effects remain unsupported. Runtime
+counts. `c_mixer` remains an explicit CoreAudio alias, `av_audio` remains only
+as a retired value that falls back to CoreAudio, and unsupported XM effects
+remain unsupported. Runtime
 sample-time event application now queues planned adapter events by intended
 runtime frame, splits runtime host callbacks at in-buffer event offsets,
 and traces callback ranges, planned/applied frames, offsets, same-frame burst
@@ -281,10 +282,9 @@ breadcrumbs use callback-published sample-time frames while the host is running
 so main-thread UI/diagnostic publication does not take the render lock. The
 callback remains on the CoreAudio render thread.
 Runtime C mixer CoreAudio default selection now makes that CoreAudio host the
-default runtime backend. `VTX_AUDIO_BACKEND=av_audio` keeps the old
-AVAudioPlayerNode/AVAudioUnitVarispeed path available as an explicit legacy
-fallback, `c_mixer` and `c_mixer_coreaudio` remain CoreAudio aliases, and the
-retired AVAudioSourceNode C mixer path remains unavailable.
+default runtime backend. `VTX_AUDIO_BACKEND=av_audio` is now retired and falls
+back to CoreAudio C mixer, `c_mixer` and `c_mixer_coreaudio` remain CoreAudio
+aliases, and the retired AVAudioSourceNode C mixer path remains unavailable.
 Runtime/offline mismatch window correlation diagnostics are available after
 live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
@@ -300,9 +300,10 @@ renders, clean runtime source captures, and AVAudioSourceNode output-copy
 verification leave the experimental SourceNode delivery path suspect for
 remaining live-only pops/clicks, without proving it as root cause. The current
 runtime-host decision retires that SourceNode path. AVAudioPlayerNode/
-AVAudioUnitVarispeed remains the default runtime backend, and both
-`VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the
-experimental CoreAudio DefaultOutput Audio Unit host. Capture duration is
+AVAudioUnitVarispeed was the first audible playback backend and has since been
+retired. The CoreAudio DefaultOutput Audio Unit C mixer host is now selected by
+default, by `VTX_AUDIO_BACKEND=c_mixer`, and by
+`VTX_AUDIO_BACKEND=c_mixer_coreaudio`. Capture duration is
 reported separately from `VTX_DEBUG_STOP_AFTER_SECONDS` and planned song end, so
 capture caps can be tested without treating them as playback lifetime. Runtime
 C mixer song-end tail handling stops or silences the CoreAudio host at the
@@ -453,7 +454,6 @@ Improve first-pass playback into deterministic, reference-comparable playback.
 Components:
 
 - PlaybackEngine
-- PlaybackAudioEngine
 - SoftwareMixer
 - Playback trace diagnostics
 - Audio comparison tooling
@@ -463,8 +463,8 @@ Features:
 - default CoreAudio-hosted runtime C mixer playback, with
   `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` as
   explicit CoreAudio aliases
-- explicit legacy fallback playback through `VTX_AUDIO_BACKEND=av_audio` using
-  `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
+- retired `VTX_AUDIO_BACKEND=av_audio` value that falls back to the CoreAudio C
+  mixer with a diagnostic fallback reason
 - local-only runtime C mixer output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, deterministic same-frame burst/order diagnostics, sustained carried-voice association diagnostics, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
@@ -558,8 +558,8 @@ Features:
   subcommands while keeping actual traversal implementation separate
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
 - ADR 007 documents the feature-flagged runtime C mixer backend plan; the
-  current default has advanced to the CoreAudio C mixer, with AVAudio retained
-  as an explicit legacy fallback
+  current default has advanced to the CoreAudio C mixer, with the old AVAudio
+  backend retired
 
 ---
 

@@ -5,14 +5,11 @@ import Foundation
 import os
 
 enum RuntimeAudioBackend: Equatable {
-    case avAudio
     case cMixer
     case cMixerCoreAudio
 
     var diagnosticName: String {
         switch self {
-        case .avAudio:
-            return "av_audio"
         case .cMixer:
             return "c_mixer"
         case .cMixerCoreAudio:
@@ -21,12 +18,7 @@ enum RuntimeAudioBackend: Equatable {
     }
 
     var usesRuntimeCMixer: Bool {
-        switch self {
-        case .avAudio:
-            return false
-        case .cMixer, .cMixerCoreAudio:
-            return true
-        }
+        true
     }
 
     var alternativeRuntimeOutputHostEnabled: Bool {
@@ -35,8 +27,6 @@ enum RuntimeAudioBackend: Equatable {
 
     var runtimeOutputHostType: String {
         switch self {
-        case .avAudio:
-            return "av_audio_player_node_varispeed"
         case .cMixer, .cMixerCoreAudio:
             return "coreaudio_default_output_unit"
         }
@@ -48,6 +38,7 @@ struct RuntimeAudioBackendSelection: Equatable {
     static let avAudioEnvironmentValue = "av_audio"
     static let cMixerEnvironmentValue = "c_mixer"
     static let cMixerCoreAudioEnvironmentValue = "c_mixer_coreaudio"
+    static let retiredAVAudioFallbackReason = "retired_backend"
 
     let backend: RuntimeAudioBackend
     let requestedValue: String?
@@ -65,7 +56,11 @@ struct RuntimeAudioBackendSelection: Equatable {
         }
         switch requestedValue {
         case avAudioEnvironmentValue:
-            return RuntimeAudioBackendSelection(backend: .avAudio, requestedValue: requestedValue, fallbackReason: nil)
+            return RuntimeAudioBackendSelection(
+                backend: .cMixer,
+                requestedValue: requestedValue,
+                fallbackReason: retiredAVAudioFallbackReason
+            )
         case cMixerEnvironmentValue:
             return RuntimeAudioBackendSelection(backend: .cMixer, requestedValue: requestedValue, fallbackReason: nil)
         case cMixerCoreAudioEnvironmentValue:
@@ -537,7 +532,7 @@ enum PlaybackAudioOutputFactory {
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
-                "Unknown VTX_AUDIO_BACKEND value '\(requestedValue, privacy: .public)'; falling back to c_mixer reason=\(fallbackReason, privacy: .public)"
+                "Unsupported VTX_AUDIO_BACKEND value '\(requestedValue, privacy: .public)'; falling back to c_mixer reason=\(fallbackReason, privacy: .public)"
             )
         }
         if let warning = outputPolicy?.configurationWarning {
@@ -630,8 +625,6 @@ enum PlaybackAudioOutputFactory {
             ))
         }
         switch selection.backend {
-        case .avAudio:
-            return PlaybackAudioEngine()
         case .cMixer, .cMixerCoreAudio:
             return RuntimeCMixerAudioEngine(
                 backend: selection.backend,

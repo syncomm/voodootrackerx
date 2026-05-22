@@ -63,7 +63,7 @@ struct AudioRuntimeTraceContext: Equatable {
 }
 
 enum PlaybackFollowPositionSource: String, Equatable {
-    case avAudioTimer = "av_audio_timer"
+    case playbackTimer = "playback_timer"
     case cMixerSampleTime = "c_mixer_sample_time"
 }
 
@@ -79,7 +79,7 @@ struct PlaybackFollowPosition: Equatable {
         PlaybackFollowPosition(
             position: position,
             tickInRow: tickInRow,
-            source: .avAudioTimer,
+            source: .playbackTimer,
             sampleTimeFrame: nil,
             sampleTimeStatus: nil,
             syntheticRow: nil

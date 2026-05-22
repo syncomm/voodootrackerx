@@ -24,11 +24,11 @@ fixtures, or require them from automated tests.
 Default runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer
 backend. `VTX_AUDIO_BACKEND=c_mixer` and
 `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted aliases for the same
-CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` selects the legacy
-`AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback when that older runtime
-path is needed for comparison. The retired AVAudioSourceNode-hosted C mixer
-backend is no longer selectable. Offline candidate/reference comparison remains
-the authoritative render validation path.
+CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value and now
+falls back to the CoreAudio C mixer with a diagnostic fallback reason. The
+retired AVAudioSourceNode-hosted C mixer backend is no longer selectable.
+Offline candidate/reference comparison remains the authoritative render
+validation path.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
@@ -91,10 +91,9 @@ export gain remains unchanged when none of those options is passed.
 Runtime playback now defaults to the CoreAudio DefaultOutput Audio Unit C mixer
 host. `VTX_AUDIO_BACKEND=c_mixer` and
 `VTX_AUDIO_BACKEND=c_mixer_coreaudio` explicitly select the same CoreAudio host.
-`VTX_AUDIO_BACKEND=av_audio` selects the legacy AVAudioPlayerNode /
-AVAudioUnitVarispeed fallback for comparison and emergency bypass. Unknown
-backend values fall back to the CoreAudio default and are reported in
-diagnostics.
+`VTX_AUDIO_BACKEND=av_audio` is retired and falls back to the same CoreAudio
+default with `fallbackReason=retired_backend`. Unknown backend values fall back
+to the CoreAudio default with `fallbackReason=unknown_backend`.
 
 For local listening diagnostics, build the app first:
 
@@ -132,7 +131,7 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 ./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
 ```
 
-Launch with the explicit legacy AVAudio fallback:
+Verify the retired legacy `av_audio` value falls back to the CoreAudio C mixer:
 
 ```bash
 VTX_AUDIO_BACKEND=av_audio \
@@ -145,8 +144,7 @@ its runtime render sample rate from the output graph/device where practical.
 The selected rate is used for the C mixer render config, CoreAudio host format,
 runtime capture, planned adapter event frames, and sample-time position
 resolution. For local diagnostics only, developers can force the runtime C
-mixer rate with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`; the variable is
-ignored when the legacy AVAudio fallback is selected.
+mixer rate with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`.
 
 Enable a local-only runtime C mixer JSONL trace:
 
@@ -164,7 +162,8 @@ compatibility alias. Trace rows and summaries report `runtimeAudioBackend`,
 `runtimeOutputHostType`, output-unit prepare/initialize/start/stop `OSStatus`
 values, and the last nonzero host status when one is observed. For the default CoreAudio path,
 `backendFlagValue` is absent and `runtimeAudioBackend` is `c_mixer`; for the
-legacy fallback, `backendFlagValue` is `av_audio`.
+retired `av_audio` value, `backendFlagValue` is `av_audio`,
+`runtimeAudioBackend` is `c_mixer`, and `fallbackReason` is `retired_backend`.
 
 For controlled alias smoke testing, run the same local/private module from the
 same start position with both accepted backend names:
@@ -227,8 +226,8 @@ playback stops or silences at planned song end plus the runtime tail, which
 defaults to 3 seconds and can be overridden locally with
 `VTX_C_MIXER_RUNTIME_TAIL_SECONDS=N`. `VTX_DEBUG_STOP_AFTER_SECONDS` may stop
 playback during local automation. Both `c_mixer` and `c_mixer_coreaudio` remain
-accepted backend names for the same CoreAudio host, and `av_audio` remains the
-explicit legacy fallback;
+accepted backend names for the same CoreAudio host, and `av_audio` remains
+accepted only as a retired value that falls back to that host;
 generated traces, captures, WAVs, JSON reports, Markdown summaries, logs,
 screenshots, and listening notes should stay local and unstaged.
 
@@ -309,8 +308,8 @@ stops and the runtime trace reports truncation.
 is present. `VTX_C_MIXER_RUNTIME_MINIMAL_CALLBACK=1` disables trace and capture
 and keeps only minimal callback/output-delivery diagnostics for the C mixer
 backend. `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` suppresses C-mixer
-tracker-follow publication for local callback/UI isolation without changing the
-legacy AVAudio fallback.
+tracker-follow publication for local callback/UI isolation without changing
+offline rendering.
 `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1` enables the optional
 scratch/capture/output hash verifier for short local diagnostics; it is off by
 default so normal callback diagnostics use fixed-capacity ring
@@ -410,14 +409,14 @@ diagnostics focus on the CoreAudio host handoff, callback health, and
 route/device evidence. ADR 008 records the runtime-host decision to retire the
 AVAudioSourceNode C mixer path after persistent live-output artifacts and use
 the CoreAudio DefaultOutput Audio Unit host as the C mixer delivery surface.
-AVAudioPlayerNode/AVAudioUnitVarispeed is now an explicit legacy fallback.
+AVAudioPlayerNode/AVAudioUnitVarispeed has since been retired after serving
+first audible playback.
 
 The runtime C mixer applies a conservative output gain at the runtime handoff
 before samples are copied to the selected live host buffers.
 The default policy is `default_runtime_headroom_db`, currently `-12 dB`, which
 keeps runtime playback away from heavy unity-gain clipping seen in local
-diagnostic traces. This does not affect the legacy AVAudio fallback or
-`vtx_render_bounded_xm` offline renders.
+diagnostic traces. This does not affect `vtx_render_bounded_xm` offline renders.
 
 For local C-mixer-only smoke runs, override the runtime policy with exactly one
 of these variables:
@@ -443,7 +442,8 @@ invalid, the runtime C mixer falls back to the default conservative policy and
 reports `runtimeGainConfigurationWarning` in the trace. Runtime trace rows also
 report the active gain policy label, fixed headroom dB, default `-12 dB`
 headroom, and whether the gain came from an environment override. These
-variables are ignored when the legacy AVAudio fallback is selected.
+variables apply to the CoreAudio C mixer path, including the retired `av_audio`
+fallback.
 
 The live runtime path keeps a simple fixed headroom policy. It does not
 implement offline-style auto-headroom. Matching the `vtx_render_bounded_xm`
@@ -456,8 +456,7 @@ For local epsilon/delta guard diagnostics, Debug builds also accept
 The default remains `1e-5`; use `0` only for local/synthetic comparison runs to
 see whether tiny gain/pan/sample-step changes move from `suppressed_epsilon` to
 applied trace rows. Trace rows report the active `runtimeUpdateEpsilon` and
-policy. This is diagnostic-only and does not affect the legacy AVAudio fallback
-or offline WAV export.
+policy. This is diagnostic-only and does not affect offline WAV export.
 
 When comparing a specific start point, use the existing debug launch controls:
 
@@ -601,16 +600,14 @@ same trace point. Fields such as `cMixerRenderedFrames`,
 `playbackEngineToCMixerPositionMismatch` separate sample-time
 position/reporting drift from real runtime playback timing problems. The
 comparison fields do not change tracker viewport behavior, Stop behavior,
-keyboard shortcuts, audio event timing, offline renders, or the legacy AVAudio
-fallback.
+keyboard shortcuts, audio event timing, or offline renders.
 
 The runtime C mixer publishes tracker-follow position from the C mixer
 sample-time resolver when its planned adapter timeline is available.
 The trace records this as `publishedPlaybackFollowPositionSource` with
 `c_mixer_sample_time`, alongside the still-traced `PlaybackEngine` timer
-position. The legacy AVAudio fallback remains `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed` and continues to publish the existing timer-based
-position. There is no user-facing backend toggle.
+position. The legacy AVAudio fallback has been retired. There is no user-facing
+backend toggle.
 
 Use the summary helper to distinguish exact planned event application from
 position/reporting drift. It reports PlaybackEngine-vs-C-mixer frame and
@@ -629,7 +626,7 @@ playback. The offline helper can use `--gain`, `--headroom-db`, or
 `--auto-headroom` at the WAV export boundary. The runtime C mixer uses its own
 fixed runtime gain policy and does not run offline
 `--auto-headroom` during live playback. This does not change C mixer DSP
-semantics, runtime backend selection, or the legacy AVAudio fallback.
+semantics or runtime backend selection.
 
 Runtime traces, playback traces, logs, screenshots, WAVs, JSON reports, and
 notes derived from private/local modules must remain under `/tmp` or another
@@ -1443,7 +1440,8 @@ For this workflow:
 - confirm no generated WAVs, reports, traces, screenshots, or local modules are
   staged
 - confirm default runtime playback uses the CoreAudio C mixer
-- confirm `VTX_AUDIO_BACKEND=av_audio` still selects the legacy AVAudio fallback
+- confirm `VTX_AUDIO_BACKEND=av_audio` falls back to the CoreAudio C mixer with
+  `fallbackReason=retired_backend`
 - confirm tracker viewport and parser architecture code were not modified
 - confirm export gain/headroom, when used, was applied before PCM16 conversion
 - confirm generated WAVs and diagnostics JSON remain local and unstaged

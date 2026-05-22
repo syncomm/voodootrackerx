@@ -22,8 +22,6 @@
 		A00000000000000000000048 /* AudioTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000046 /* AudioTypes.swift */; };
 		F00000000000000000000031 /* AudioBackendSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000021 /* AudioBackendSelection.swift */; };
 		F00000000000000000000032 /* AudioBackendSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000021 /* AudioBackendSelection.swift */; };
-		F00000000000000000000033 /* AVAudioPlayerNodeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000022 /* AVAudioPlayerNodeBackend.swift */; };
-		F00000000000000000000034 /* AVAudioPlayerNodeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000022 /* AVAudioPlayerNodeBackend.swift */; };
 		F00000000000000000000035 /* RuntimeCMixerCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000023 /* RuntimeCMixerCapture.swift */; };
 		F00000000000000000000036 /* RuntimeCMixerCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000023 /* RuntimeCMixerCapture.swift */; };
 		F00000000000000000000037 /* RuntimeCMixerDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000024 /* RuntimeCMixerDiagnostics.swift */; };
@@ -80,7 +78,6 @@
 		A00000000000000000000045 /* AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngine.swift; sourceTree = "<group>"; };
 		A00000000000000000000046 /* AudioTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTypes.swift; sourceTree = "<group>"; };
 		F00000000000000000000021 /* AudioBackendSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioBackendSelection.swift; sourceTree = "<group>"; };
-		F00000000000000000000022 /* AVAudioPlayerNodeBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVAudioPlayerNodeBackend.swift; sourceTree = "<group>"; };
 		F00000000000000000000023 /* RuntimeCMixerCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerCapture.swift; sourceTree = "<group>"; };
 		F00000000000000000000024 /* RuntimeCMixerDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerDiagnostics.swift; sourceTree = "<group>"; };
 		F00000000000000000000025 /* RuntimeCMixerOutputRouteDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerOutputRouteDiagnostics.swift; sourceTree = "<group>"; };
@@ -156,7 +153,6 @@
 				A00000000000000000000045 /* AudioEngine.swift */,
 				F00000000000000000000021 /* AudioBackendSelection.swift */,
 				A00000000000000000000046 /* AudioTypes.swift */,
-				F00000000000000000000022 /* AVAudioPlayerNodeBackend.swift */,
 				A0000000000000000000004E /* PlaybackEffect.swift */,
 				B00000000000000000000021 /* PlaybackTrace.swift */,
 				B00000000000000000000022 /* PlaybackTraceEvent.swift */,
@@ -334,7 +330,6 @@
 				A00000000000000000000043 /* AudioEngine.swift in Sources */,
 				F00000000000000000000031 /* AudioBackendSelection.swift in Sources */,
 				A00000000000000000000044 /* AudioTypes.swift in Sources */,
-				F00000000000000000000033 /* AVAudioPlayerNodeBackend.swift in Sources */,
 				A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */,
 				A0000000000000000000004C /* PlaybackEffect.swift in Sources */,
 				E00000000000000000000011 /* XMEffectCommandDisplay.swift in Sources */,
@@ -373,7 +368,6 @@
 				A00000000000000000000047 /* AudioEngine.swift in Sources */,
 				F00000000000000000000032 /* AudioBackendSelection.swift in Sources */,
 				A00000000000000000000048 /* AudioTypes.swift in Sources */,
-				F00000000000000000000034 /* AVAudioPlayerNodeBackend.swift in Sources */,
 				A0000000000000000000004D /* PlaybackEffect.swift in Sources */,
 				E00000000000000000000012 /* XMEffectCommandDisplay.swift in Sources */,
 				A00000000000000000000049 /* PlaybackEngine.swift in Sources */,

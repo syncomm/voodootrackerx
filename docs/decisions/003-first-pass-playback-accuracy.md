@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted as guidance for current playback work.
+Accepted, historical. This ADR describes first-pass XM playback accuracy while
+the AVAudioPlayerNode / AVAudioUnitVarispeed backend was active. Runtime
+playback has since moved to the CoreAudio-hosted C mixer.
 
 ## Context
 
@@ -31,17 +33,24 @@ VoodooTracker X now has audible XM playback, stable Play/Stop lifecycle behavior
 - `EDx` note delay
 - `EEx` pattern delay
 
-The current audio backend uses `AVAudioEngine`, `AVAudioPlayerNode`, and per-channel `AVAudioUnitVarispeed`. This keeps playback stable and avoids running Swift tracker logic inside a CoreAudio render callback.
+At the time of this ADR, the audio backend used `AVAudioEngine`,
+`AVAudioPlayerNode`, and per-channel `AVAudioUnitVarispeed`. That kept playback
+stable and avoided running Swift tracker logic inside a CoreAudio render
+callback during first-pass bring-up.
 
 ## Decision
 
 Current playback is first-pass XM-compatible, not FastTracker II period-accurate.
 
-The project will keep the current `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend while stabilizing playback behavior and effect state. Exact FT2 period math, sample-accurate scheduling, exact envelope quirks, interpolation, and full effect semantics remain future mixer work.
+The project kept the `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend while
+stabilizing playback behavior and effect state. That backend has since been
+retired after the CoreAudio C mixer became the runtime path. Exact FT2 period
+math, sample-accurate scheduling, exact envelope quirks, interpolation, and full
+effect semantics remain future mixer work.
 
 ## Rationale
 
-The current backend is appropriate for proving:
+The first-pass backend was appropriate for proving:
 
 - real audible sample triggering
 - deterministic transport lifecycle
@@ -49,7 +58,9 @@ The current backend is appropriate for proving:
 - simple tick-driven effect updates
 - safe behavior on unsupported or malformed effect parameters
 
-`AVAudioPlayerNode` keeps scheduling and playback lifecycle straightforward. `AVAudioUnitVarispeed` gives the current backend a safe way to apply first-pass pitch changes to active voices without rewriting audio rendering.
+`AVAudioPlayerNode` kept scheduling and playback lifecycle straightforward.
+`AVAudioUnitVarispeed` gave that backend a safe way to apply first-pass pitch
+changes to active voices without rewriting audio rendering.
 
 The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer that owns sample stepping, period-to-frequency conversion, channel state, loops, envelopes, interpolation, panning, and sample-accurate event timing. That mixer should be introduced behind the existing playback/audio boundary rather than embedded in UI code or mixed with parser cleanup.
 
@@ -57,24 +68,27 @@ The tradeoff is accuracy. XM playback eventually needs a dedicated tracker mixer
 
 - Portamento uses a semitone-per-tick approximation, not XM period math.
 - Tone portamento slides toward note targets in semitone space rather than FT2 period space.
-- Arpeggio cycles semitone offsets through the current varispeed path rather than recalculating exact tracker periods.
+- Arpeggio cycles semitone offsets through the first-pass varispeed path rather than recalculating exact tracker periods.
 - Vibrato uses a first-pass sine waveform through varispeed pitch offsets; alternate waveforms and FT2 waveform quirks are not implemented.
 - Tremolo uses a first-pass sine waveform that modulates the channel volume scale; alternate XM tremolo waveforms and FT2 waveform quirks are not implemented.
 - Global volume is applied as a safe multiplier on top of per-channel volume state.
 - Global volume slide is tick-driven and bounded to the XM `0...64` volume range, but does not emulate every FT2 memory or mixed-nibble edge case.
-- Panning uses XM `0...255` channel state and maps that to the current AVAudio `-1...1` pan control. Channels default to a conservative tracker-style spread of approximately half-left, half-right, half-right, half-left (`64, 191, 191, 64`) repeated by channel.
+- Panning used XM `0...255` channel state and mapped that to the first-pass
+  AVAudio `-1...1` pan control. Channels default to a conservative
+  tracker-style spread of approximately half-left, half-right, half-right,
+  half-left (`64, 191, 191, 64`) repeated by channel.
 - Panning slide is tick-driven with simple effect memory; the high nibble slides right and the low nibble slides left, with mixed nibbles treated conservatively by preferring the high nibble.
 - Initial XM speed/BPM now comes from the XM header and `Fxx` updates speed for
   `01...1F` or BPM for `20...FF`; scheduling is still timer-driven.
 - Linear-frequency note triggering uses note, sample relative note, and finetune
-  to compute a first-pass frequency/rate for the AVAudio backend. Amiga-period
+  to compute a first-pass frequency/rate for the retired AVAudio backend. Amiga-period
   frequency-table playback remains approximate.
 - Scheduled AVAudio buffers are created at the backend audio buffer sample rate
   (currently 44.1 kHz by default), so traced `computedRate` is based on
   `targetFrequency/audioBufferSampleRate` rather than using the source sample
   rate as the denominator.
 - Sample length and loop metadata are decoded into PCM sample-frame units.
-  Forward sample loops are implemented in the current AVAudio backend by
+  Forward sample loops were implemented in the AVAudio backend by
   scheduling the intro/first-loop region once and then scheduling the loop
   region with AVAudio's buffer loop option.
 - Ping-pong sample loops are implemented as a first-pass AVAudio scheduling

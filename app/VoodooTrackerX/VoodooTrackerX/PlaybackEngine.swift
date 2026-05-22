@@ -897,7 +897,7 @@ final class PlaybackEngine: PlaybackTransport {
         } else {
             noteTriggerEventCount = nil
         }
-        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .avAudio
+        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .cMixer
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: backend.diagnosticName,
@@ -925,7 +925,7 @@ final class PlaybackEngine: PlaybackTransport {
         guard runtimeCMixerTraceWriter.isEnabled else {
             return
         }
-        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .avAudio
+        let backend = (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend ?? .cMixer
         runtimeCMixerTraceWriter.record(RuntimeCMixerTraceEvent(
             runtimeAction: action.traceName,
             runtimeAudioBackend: backend.diagnosticName,

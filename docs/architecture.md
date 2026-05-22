@@ -157,13 +157,17 @@ Rendering approach:
 
 # Audio Engine
 
-Current first-pass architecture:
+Current runtime architecture:
 
-PlaybackAudioEngine  
-AVAudioEngine  
-AVAudioPlayerNode  
+PlaybackEngine
+RuntimeCMixerAudioEngine
+CoreAudio DefaultOutput Audio Unit
+CSoftwareMixer
 
-The current audible playback path uses scheduled `AVAudioPlayerNode` buffers as a stabilization-oriented backend. This is intended to prove sample triggering, transport start/stop behavior, and tracker follow integration without putting Swift playback logic on a CoreAudio render callback.
+The current audible playback path uses the CoreAudio-hosted C mixer by default.
+`VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the
+same host. The first-pass `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
+has been retired.
 
 Planned long-term architecture:
 
@@ -172,9 +176,11 @@ PatternPlayer
 ChannelMixer  
 SampleVoice
 
-Future backend direction:
+Backend direction:
 
-A dedicated tracker mixer/render path may be introduced when XM effects, loops, envelopes, interpolation, and sample-accurate channel mixing become active scope. Audio and DSP logic should remain behind playback/audio boundaries and out of AppKit view/controller code.
+The C mixer remains behind playback/audio boundaries. Audio and DSP logic should
+stay out of AppKit view/controller code, and offline render/export validation
+remains separate from runtime smoke testing.
 
 For the accepted first-pass backend decision and future mixer path, see:
 

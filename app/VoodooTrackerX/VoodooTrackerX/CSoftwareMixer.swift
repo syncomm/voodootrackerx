@@ -152,8 +152,8 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
 
 /// Thin Swift wrapper around the C-backed mixer core.
 ///
-/// This wrapper exists for deterministic offline tests and future mixer migration work. It does not replace
-/// `SoftwareMixer` and is not connected to live `AVAudioPlayerNode` playback.
+/// This wrapper exists for deterministic offline tests and the narrow runtime C mixer hot path. It does not
+/// replace `SoftwareMixer`; callers decide whether the wrapper is used for offline export or runtime rendering.
 /// Synthetic samples added through this wrapper are copied into C-owned storage so Swift array lifetimes do
 /// not leak across the C render boundary. Synthetic envelope points are also copied into C-owned voice
 /// storage when attached.

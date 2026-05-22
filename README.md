@@ -12,7 +12,7 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 - MOD/XM parser work is covered by focused unit tests, golden snapshots, and small redistribution-safe fixtures.
 - First-pass XM playback exists for development and smoke testing, but it is not yet MikMod/OpenMPT accurate.
 - Default runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer backend.
-- The C-backed mixer path is used for deterministic bounded renders, runtime playback, diagnostics, and local comparison work. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted CoreAudio aliases; `VTX_AUDIO_BACKEND=av_audio` selects the legacy `AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback.
+- The C-backed mixer path is used for deterministic bounded renders, runtime playback, diagnostics, and local comparison work. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted CoreAudio aliases. `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value; it falls back to the CoreAudio C mixer and is reported in diagnostics.
 - The app is under active development and should not be treated as production-ready.
 
 ## Build/Test Quick Start
@@ -60,7 +60,7 @@ open build/Build/Products/Debug/VoodooTrackerX.app
 
 For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and `Left`/`Right`.
 
-By default, runtime playback uses the CoreAudio-hosted C mixer. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` explicitly select the same CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` selects the legacy AVAudioPlayerNode / AVAudioUnitVarispeed fallback. Unknown values fall back to the CoreAudio default and are reported in diagnostics.
+By default, runtime playback uses the CoreAudio-hosted C mixer. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` explicitly select the same CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` is retired and falls back to the CoreAudio default with a diagnostic fallback reason. Unknown values also fall back to the CoreAudio default and are reported in diagnostics.
 
 For local smoke runs that should open a private module, start playback, and then
 stop automatically after a short pattern-transition window, set the launch

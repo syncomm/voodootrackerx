@@ -50,7 +50,6 @@ let package = Package(
                 "ControlPanelView.swift",
                 "LogoPanelView.swift",
                 "ModuleCoreBridge.h",
-                "AVAudioPlayerNodeBackend.swift",
                 "PlaybackEffect.swift",
                 "PlaybackEngine.swift",
                 "PlaybackTrace.swift",

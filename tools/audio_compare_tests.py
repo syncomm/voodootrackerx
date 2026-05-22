@@ -3144,6 +3144,36 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(backend["selection_mode"], "fallback_default")
             self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
 
+    def test_runtime_trace_summary_reports_retired_av_audio_fallback_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeAudioBackend="c_mixer",
+                        backendFlagValue="av_audio",
+                        fallbackReason="retired_backend",
+                        experimentalCMixerEnabled=True,
+                        alternativeRuntimeOutputHostEnabled=True,
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=None,
+            )
+            backend = summary["backend"]
+
+            self.assertEqual(backend["runtime_audio_backend"], "c_mixer")
+            self.assertEqual(backend["requested_backend_flag_value"], "av_audio")
+            self.assertEqual(backend["fallback_reason"], "retired_backend")
+            self.assertEqual(backend["selection_mode"], "fallback_default")
+            self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
+
     def test_runtime_trace_summary_reports_alternative_output_host_selection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(

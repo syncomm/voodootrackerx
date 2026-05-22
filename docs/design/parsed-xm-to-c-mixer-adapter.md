@@ -162,10 +162,10 @@ a conservative first pass for volume-envelope sustain frames, envelope loop
 frames, note value `97` key-off release, and instrument fadeout after key-off.
 These semantics are deterministic and diagnosed, but they are still
 approximations rather than full FT2/OpenMPT envelope parity.
-Default runtime playback still uses `AVAudioPlayerNode` through the existing
-playback path. An experimental live C mixer skeleton can be enabled with
-`VTX_AUDIO_BACKEND=c_mixer`, but full real XM playback through the C mixer has
-not been implemented.
+Default runtime playback now uses the CoreAudio-hosted C mixer through the
+existing playback path. `VTX_AUDIO_BACKEND=c_mixer` and
+`VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the same CoreAudio host, while
+`VTX_AUDIO_BACKEND=av_audio` is a retired value that falls back to that host.
 
 The bounded offline C mixer uses fixed deterministic voice storage. Scheduled
 and active voices currently share one preallocated C pool with capacity 256;
@@ -197,14 +197,12 @@ and may add `--tail-seconds N` after that calculated end. This is a local
 candidate-render convenience only: it does not implement full FT2/OpenMPT song
 duration parity, song repeat/loop behavior, `Bxx`/`Dxx` traversal, or `EEx`
 pattern-delay traversal. Fixed `--seconds` and `--max-frames` remain hard
-debug caps, and runtime playback remains `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed` based.
+debug caps. Runtime playback remains separate from this bounded offline helper.
 
 Windowed rendering is not full runtime playback or full XM traversal parity.
-Runtime playback remains `AVAudioPlayerNode` / `AVAudioUnitVarispeed`, and the
-app Play button is not wired to the C mixer. The carryover pass is deliberately
-small: it computes continuation state from the bounded Swift adapter plan and
-reschedules voices that are still expected to be audible at a window boundary.
+The carryover pass is deliberately small: it computes continuation state from
+the bounded Swift adapter plan and reschedules voices that are still expected
+to be audible at a window boundary.
 The continuation state includes source sample position, forward or ping-pong
 loop direction, volume-envelope position, key-on/key-off release state, fadeout
 value, gain, and pan. If a newer adapted note event on the same channel reaches
@@ -273,10 +271,10 @@ decisions:
 | `PlaybackCell` | Raw XM cell fields: note, instrument, volume column, effect type, and effect parameter. Empty note is `0`; note-off is `97`; normal note triggers are `1...96`. |
 | `PlaybackInstrument` | App-side instrument container with samples, a parsed XM 96-note sample map when present, and a parsed volume envelope. The bounded offline adapter uses the map for valid multi-sample triggers and falls back safely otherwise. |
 | `PlaybackSample` | Decoded mono Float32 PCM plus sample volume, relative note, finetune, base sample rate, sample length, and loop metadata in sample frames. It exposes `isPlayable` and a clamped `loopRegion`. |
-| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. Runtime AVAudio playback has first-pass envelope state; the C-backed bounded offline adapter consumes enabled volume-envelope point shapes plus first-pass sustain, loop, key-off, and fadeout metadata for bounded offline renders only. |
+| `PlaybackVolumeEnvelope` | Parsed XM volume envelope points, flags, sustain/loop indices, and fadeout. The C-backed bounded offline adapter consumes enabled volume-envelope point shapes plus first-pass sustain, loop, key-off, and fadeout metadata for bounded offline renders. |
 | `PlaybackTiming` | XM-style timing values. Tick duration is `2.5 / bpm`; row duration is tick duration times clamped speed. |
-| `PlaybackEffect` types | Runtime playback effect decoding and channel/global state for the current AVAudio path. These are not part of the first adapter scope. |
-| `PlaybackEngine` | Current live playback orchestrator. It advances rows/ticks on a timer, applies first-pass effects and volume-column behavior, triggers `PlaybackAudioOutput`, and writes playback traces. It still uses the AVAudio backend for live playback. |
+| `PlaybackEffect` types | Runtime playback effect decoding and channel/global state. These are not part of the first adapter scope. |
+| `PlaybackEngine` | Current live playback orchestrator. It advances rows/ticks on a timer, applies first-pass effects and volume-column behavior, triggers `PlaybackAudioOutput`, and writes playback traces. Runtime output now goes through the CoreAudio-hosted C mixer. |
 
 Layer ownership today:
 
@@ -353,9 +351,9 @@ Boundary rules:
 - Pattern/order traversal stays in Swift and does not move into MixerCore.
 - MixerCore receives only copied PCM, gain, pan, playback step, loop metadata,
   optional synthetic envelopes, and absolute scheduled start frames.
-- Runtime playback remains on the existing `PlaybackEngine` and AVAudio backend.
-- The adapter is an offline planning/render input path only until a later
-  feature-flagged backend switch is explicitly approved.
+- Runtime playback remains on the existing `PlaybackEngine` boundary.
+- The adapter remains a bounded offline planning/render input path even though
+  runtime playback now uses the CoreAudio-hosted C mixer.
 
 ## Minimal Adapter Scope
 
@@ -468,7 +466,7 @@ The current adapter does not:
 | Risk | Mitigation |
 | --- | --- |
 | Scope expands into full XM playback. | The bounded adapter supports initial timing plus minimal `Fxx`, minimal nonzero `9xx`, minimal `E9x`, bounded orders, note triggers, sample-map/keymap selection with fallback, gain, pan default, row-level volume/panning state, and loops only. Everything else is documented as deferred. |
-| Accidental runtime backend switch. | Keep adapter under offline/test harness paths. Do not touch `PlaybackEngine`, `PlaybackAudioEngine`, transport wiring, or AppKit controls in the adapter PR. |
+| Accidental runtime behavior change. | Keep adapter changes under offline/test harness paths unless a PR explicitly targets runtime playback. Do not touch `PlaybackEngine`, transport wiring, or AppKit controls in adapter-only PRs. |
 | Parser architecture drift. | Adapter consumes `PlaybackSong` only. It must not parse files, change `ModuleCore`, or move Swift parser responsibilities. |
 | Incorrect note-to-frequency behavior. | The adapter labels linear-frequency support explicitly and keeps Amiga behavior deferred. Tests cover monotonic linear steps, octave sanity, relative note, finetune, base/output sample rates, neutral fallback, split/reset determinism, and explicit Amiga-table deferral without claiming full FT2/OpenMPT parity. |
 | Sample ownership and copying between Swift and C. | Continue using `MixerSampleBuffer` and `CSoftwareMixer` copied storage. Defer caching/ownership optimization. |
@@ -705,9 +703,9 @@ is diagnosed as out-of-row and skipped/no-opped safely. Minimal `Hxy` global
 volume slide is row-level and bounded/offline only; `Gxx` set global volume,
 pattern break, position jump, pattern delay,
 `9xx`/`E90` effect memory, `A00` volume slide memory, retrigger volume-change
-variants, and broad runtime playback integration remain out of scope. Default
-runtime playback remains on `AVAudioPlayerNode` / `AVAudioUnitVarispeed`; the
-C mixer runtime path remains experimental and opt-in only.
+variants, and broad runtime playback integration remain out of scope. Runtime
+playback uses the CoreAudio-hosted C mixer, but this bounded adapter design does
+not by itself broaden runtime effect support.
 
 ## Manual Verification Strategy
 

@@ -484,11 +484,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let callbackDurationMinMS: Double?
     let callbackDurationMaxMS: Double?
     let callbackDurationAverageMS: Double?
+    let callbackMaxDurationMS: Double?
+    let callbackAvgDurationMS: Double?
     let callbackDurationWarningCount: UInt64?
     let callbackRenderQuantumDurationMS: Double?
     let callbackRenderQuantumMinMS: Double?
     let callbackRenderQuantumMaxMS: Double?
     let callbackOverRenderQuantumBudgetCount: UInt64?
+    let callbackNearBudgetWarningCount: UInt64?
     let callbackIntervalMinMS: Double?
     let callbackIntervalMaxMS: Double?
     let callbackIntervalLastMS: Double?
@@ -502,6 +505,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let callbackLockWaitCount: UInt64?
     let callbackLockWaitDurationMS: Double?
     let callbackLockFailureCount: UInt64?
+    let callbackLockAttemptCount: UInt64?
+    let callbackTryLockFailureCount: UInt64?
+    let callbackLockFailureAudioImpact: Bool?
+    let callbackRenderedFromStaleSnapshotCount: UInt64?
+    let callbackRenderedSilenceDueToUnavailableStateCount: UInt64?
+    let callbackSkippedDiagnosticsDueToLockCount: UInt64?
+    let callbackSkippedAudioDueToLockCount: UInt64?
+    let lifecycleChangeWhileRenderingCount: UInt64?
+    let audioUnitLifecycleCallWhileCallbackActiveCount: UInt64?
     let eventQueueProducerThreadID: UInt64?
     let eventQueueProducerThreadIsMain: Bool?
     let eventQueueConsumerThreadID: UInt64?
@@ -864,11 +876,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         callbackDurationMinMS: Double? = nil,
         callbackDurationMaxMS: Double? = nil,
         callbackDurationAverageMS: Double? = nil,
+        callbackMaxDurationMS: Double? = nil,
+        callbackAvgDurationMS: Double? = nil,
         callbackDurationWarningCount: UInt64? = nil,
         callbackRenderQuantumDurationMS: Double? = nil,
         callbackRenderQuantumMinMS: Double? = nil,
         callbackRenderQuantumMaxMS: Double? = nil,
         callbackOverRenderQuantumBudgetCount: UInt64? = nil,
+        callbackNearBudgetWarningCount: UInt64? = nil,
         callbackIntervalMinMS: Double? = nil,
         callbackIntervalMaxMS: Double? = nil,
         callbackIntervalLastMS: Double? = nil,
@@ -882,6 +897,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         callbackLockWaitCount: UInt64? = nil,
         callbackLockWaitDurationMS: Double? = nil,
         callbackLockFailureCount: UInt64? = nil,
+        callbackLockAttemptCount: UInt64? = nil,
+        callbackTryLockFailureCount: UInt64? = nil,
+        callbackLockFailureAudioImpact: Bool? = nil,
+        callbackRenderedFromStaleSnapshotCount: UInt64? = nil,
+        callbackRenderedSilenceDueToUnavailableStateCount: UInt64? = nil,
+        callbackSkippedDiagnosticsDueToLockCount: UInt64? = nil,
+        callbackSkippedAudioDueToLockCount: UInt64? = nil,
+        lifecycleChangeWhileRenderingCount: UInt64? = nil,
+        audioUnitLifecycleCallWhileCallbackActiveCount: UInt64? = nil,
         eventQueueProducerThreadID: UInt64? = nil,
         eventQueueProducerThreadIsMain: Bool? = nil,
         eventQueueConsumerThreadID: UInt64? = nil,
@@ -1269,11 +1293,14 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.callbackDurationMinMS = callbackDurationMinMS
         self.callbackDurationMaxMS = callbackDurationMaxMS
         self.callbackDurationAverageMS = callbackDurationAverageMS
+        self.callbackMaxDurationMS = callbackMaxDurationMS
+        self.callbackAvgDurationMS = callbackAvgDurationMS
         self.callbackDurationWarningCount = callbackDurationWarningCount
         self.callbackRenderQuantumDurationMS = callbackRenderQuantumDurationMS
         self.callbackRenderQuantumMinMS = callbackRenderQuantumMinMS
         self.callbackRenderQuantumMaxMS = callbackRenderQuantumMaxMS
         self.callbackOverRenderQuantumBudgetCount = callbackOverRenderQuantumBudgetCount
+        self.callbackNearBudgetWarningCount = callbackNearBudgetWarningCount
         self.callbackIntervalMinMS = callbackIntervalMinMS
         self.callbackIntervalMaxMS = callbackIntervalMaxMS
         self.callbackIntervalLastMS = callbackIntervalLastMS
@@ -1287,6 +1314,15 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.callbackLockWaitCount = callbackLockWaitCount
         self.callbackLockWaitDurationMS = callbackLockWaitDurationMS
         self.callbackLockFailureCount = callbackLockFailureCount
+        self.callbackLockAttemptCount = callbackLockAttemptCount
+        self.callbackTryLockFailureCount = callbackTryLockFailureCount
+        self.callbackLockFailureAudioImpact = callbackLockFailureAudioImpact
+        self.callbackRenderedFromStaleSnapshotCount = callbackRenderedFromStaleSnapshotCount
+        self.callbackRenderedSilenceDueToUnavailableStateCount = callbackRenderedSilenceDueToUnavailableStateCount
+        self.callbackSkippedDiagnosticsDueToLockCount = callbackSkippedDiagnosticsDueToLockCount
+        self.callbackSkippedAudioDueToLockCount = callbackSkippedAudioDueToLockCount
+        self.lifecycleChangeWhileRenderingCount = lifecycleChangeWhileRenderingCount
+        self.audioUnitLifecycleCallWhileCallbackActiveCount = audioUnitLifecycleCallWhileCallbackActiveCount
         self.eventQueueProducerThreadID = eventQueueProducerThreadID
         self.eventQueueProducerThreadIsMain = eventQueueProducerThreadIsMain
         self.eventQueueConsumerThreadID = eventQueueConsumerThreadID

@@ -1750,6 +1750,10 @@ def callback_candidate_cause(
         or callback_isolation["diagnostic_drop_count"] > 0
         or callback_isolation["lock_wait_count"] > 0
         or callback_isolation["lock_failure_count"] > 0
+        or callback_isolation["skipped_audio_due_to_lock_count"] > 0
+        or callback_isolation["rendered_silence_due_to_unavailable_state_count"] > 0
+        or callback_isolation["lifecycle_change_while_rendering_count"] > 0
+        or callback_isolation["audio_unit_lifecycle_call_while_callback_active_count"] > 0
         or underrun_count > 0
         or zero_fill_count > 0
         or failed_render_count > 0
@@ -2031,6 +2035,13 @@ def build_summary(
     }
     callback_duration_warning_count = int(max_numeric(events, "callbackDurationWarningCount") or 0)
     callback_over_budget_count = int(max_numeric(events, "callbackOverRenderQuantumBudgetCount") or 0)
+    callback_near_budget_warning_count = int(max_numeric(events, "callbackNearBudgetWarningCount") or 0)
+    callback_duration_max_ms = max_numeric(events, "callbackMaxDurationMS")
+    if callback_duration_max_ms is None:
+        callback_duration_max_ms = max_numeric(events, "callbackDurationMaxMS")
+    callback_duration_average_ms = last_number(events, "callbackAvgDurationMS")
+    if callback_duration_average_ms is None:
+        callback_duration_average_ms = last_number(events, "callbackDurationAverageMS")
     callback_timing = {
         "minimal_callback_mode": last_bool(events, "runtimeMinimalCallbackMode"),
         "callback_count": render_callback_count,
@@ -2038,17 +2049,26 @@ def build_summary(
         "callback_frame_range": numeric_range(events, "callbackStartFrame", "callbackEndFrame"),
         "duration_warning_threshold_ms": rounded_optional(last_number(events, "callbackDurationWarningThresholdMS")),
         "duration_min_ms": rounded_optional(last_number(events, "callbackDurationMinMS")),
-        "duration_max_ms": rounded_optional(max_numeric(events, "callbackDurationMaxMS")),
-        "duration_average_ms": rounded_optional(last_number(events, "callbackDurationAverageMS")),
+        "duration_max_ms": rounded_optional(callback_duration_max_ms),
+        "duration_average_ms": rounded_optional(callback_duration_average_ms),
+        "callback_max_duration_ms": rounded_optional(callback_duration_max_ms),
+        "callback_avg_duration_ms": rounded_optional(callback_duration_average_ms),
         "duration_warning_count": callback_duration_warning_count,
         "render_quantum_duration_ms": rounded_optional(last_number(events, "callbackRenderQuantumDurationMS")),
         "render_quantum_min_ms": rounded_optional(last_number(events, "callbackRenderQuantumMinMS")),
         "render_quantum_max_ms": rounded_optional(max_numeric(events, "callbackRenderQuantumMaxMS")),
         "over_render_quantum_budget_count": callback_over_budget_count,
+        "near_budget_warning_count": callback_near_budget_warning_count,
         "interval_min_ms": rounded_optional(last_number(events, "callbackIntervalMinMS")),
         "interval_max_ms": rounded_optional(max_numeric(events, "callbackIntervalMaxMS")),
         "interval_last_ms": rounded_optional(last_number(events, "callbackIntervalLastMS")),
     }
+    callback_lock_failure_count = int(max_numeric(events, "callbackLockFailureCount") or 0)
+    callback_try_lock_failure_count = int(
+        max_numeric(events, "callbackTryLockFailureCount")
+        if max_numeric(events, "callbackTryLockFailureCount") is not None
+        else callback_lock_failure_count
+    )
     callback_isolation = {
         "callback_thread_is_main": last_bool(events, "callbackThreadIsMain"),
         "callback_thread_id": last_exact_integer(events, "callbackThreadID"),
@@ -2059,7 +2079,16 @@ def build_summary(
         "ring_buffer_capacity": integer(last_number(events, "callbackRingBufferCapacity")),
         "lock_wait_count": int(max_numeric(events, "callbackLockWaitCount") or 0),
         "lock_wait_duration_ms": rounded_optional(max_numeric(events, "callbackLockWaitDurationMS")),
-        "lock_failure_count": int(max_numeric(events, "callbackLockFailureCount") or 0),
+        "lock_failure_count": callback_lock_failure_count,
+        "lock_attempt_count": int(max_numeric(events, "callbackLockAttemptCount") or 0),
+        "try_lock_failure_count": callback_try_lock_failure_count,
+        "lock_failure_audio_impact": last_bool(events, "callbackLockFailureAudioImpact"),
+        "rendered_from_stale_snapshot_count": int(max_numeric(events, "callbackRenderedFromStaleSnapshotCount") or 0),
+        "rendered_silence_due_to_unavailable_state_count": int(max_numeric(events, "callbackRenderedSilenceDueToUnavailableStateCount") or 0),
+        "skipped_diagnostics_due_to_lock_count": int(max_numeric(events, "callbackSkippedDiagnosticsDueToLockCount") or 0),
+        "skipped_audio_due_to_lock_count": int(max_numeric(events, "callbackSkippedAudioDueToLockCount") or 0),
+        "lifecycle_change_while_rendering_count": int(max_numeric(events, "lifecycleChangeWhileRenderingCount") or 0),
+        "audio_unit_lifecycle_call_while_callback_active_count": int(max_numeric(events, "audioUnitLifecycleCallWhileCallbackActiveCount") or 0),
         "event_queue_producer_thread_id": last_exact_integer(events, "eventQueueProducerThreadID"),
         "event_queue_producer_thread_is_main": last_bool(events, "eventQueueProducerThreadIsMain"),
         "event_queue_consumer_thread_id": last_exact_integer(events, "eventQueueConsumerThreadID"),
@@ -2152,6 +2181,33 @@ def build_summary(
         for event in events
         if event.get("publishedPlaybackFollowPositionSource") is not None
     )
+    published_follow_events = [
+        event
+        for event in events
+        if event.get("runtimeAction") == "playback_follow_position_published"
+    ]
+    published_follow_frames = [
+        int(frame)
+        for frame in (number(event.get("cMixerRenderedFrames")) for event in published_follow_events)
+        if frame is not None
+    ]
+    published_follow_sample_rate = (
+        last_number(published_follow_events, "sampleRate")
+        or last_number(events, "sampleRate")
+        or last_number(events, "cMixerRuntimeSampleRate")
+    )
+    published_follow_duration_seconds = None
+    published_follow_rate_hz = None
+    if (
+        len(published_follow_frames) >= 2
+        and published_follow_sample_rate is not None
+        and published_follow_sample_rate > 0
+    ):
+        published_follow_duration_seconds = (
+            max(published_follow_frames) - min(published_follow_frames)
+        ) / published_follow_sample_rate
+        if published_follow_duration_seconds > 0:
+            published_follow_rate_hz = len(published_follow_events) / published_follow_duration_seconds
     parity_categories = summarize_update_parity(events)
     sustained_transitions = sustained_voice_transition_summary(events)
     max_abs_event_frame_delta = max((abs(row["event_frame_delta"]) for row in all_timing_deltas), default=0)
@@ -2289,7 +2345,18 @@ def build_summary(
     if callback_isolation["lock_wait_count"] > 0:
         suspicious_findings.append("runtime output callback lock waits observed")
     if callback_isolation["lock_failure_count"] > 0:
-        suspicious_findings.append("runtime output callback try-lock failures observed")
+        if callback_isolation["skipped_audio_due_to_lock_count"] > 0:
+            suspicious_findings.append("runtime output callback try-lock failures skipped audio")
+        elif callback_isolation["rendered_from_stale_snapshot_count"] > 0:
+            suspicious_findings.append("runtime output callback try-lock failures recovered with stale output")
+        else:
+            suspicious_findings.append("runtime output callback try-lock failures observed")
+    if callback_isolation["skipped_diagnostics_due_to_lock_count"] > 0:
+        suspicious_findings.append("runtime output callback skipped diagnostics due to lock contention")
+    if callback_isolation["lifecycle_change_while_rendering_count"] > 0:
+        suspicious_findings.append("runtime render state changed while a callback was active")
+    if callback_isolation["audio_unit_lifecycle_call_while_callback_active_count"] > 0:
+        suspicious_findings.append("CoreAudio output-unit lifecycle call overlapped an active callback")
     if callback_isolation["allocation_warning"]:
         suspicious_findings.append("runtime output callback still contains diagnostic allocation risk")
     if callback_isolation["diagnostic_drop_count"] > 0:
@@ -2377,7 +2444,13 @@ def build_summary(
         recommended_next_pr = "Runtime C Mixer Capture Lifetime / Song-End Separation"
     elif (output_continues_after_song_end or sustained_after_song_end) and not song_end_tail_stop_reached:
         recommended_next_pr = "Runtime C Mixer Song-End Stop / Tail Handling"
-    elif callback_isolation["main_thread_dependency_detected"] or callback_isolation["lock_wait_count"] > 0:
+    elif (
+        callback_isolation["main_thread_dependency_detected"]
+        or callback_isolation["lock_wait_count"] > 0
+        or callback_isolation["skipped_audio_due_to_lock_count"] > 0
+        or callback_isolation["lifecycle_change_while_rendering_count"] > 0
+        or callback_isolation["audio_unit_lifecycle_call_while_callback_active_count"] > 0
+    ):
         recommended_next_pr = "Runtime C Mixer Render Callback Isolation"
     elif callback_isolation["lock_failure_count"] > 0:
         recommended_next_pr = "Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up"
@@ -2682,6 +2755,13 @@ def build_summary(
             "first_suspicious_position_mismatch": first_position_mismatch,
             "first_position_divergence_above_threshold": first_position_divergence,
             "published_playback_follow_position_source_counts": dict(sorted(published_follow_source_counts.items())),
+            "published_playback_follow_event_count": len(published_follow_events),
+            "published_playback_follow_rate_hz": rounded_optional(published_follow_rate_hz),
+            "published_playback_follow_duration_seconds": rounded_optional(published_follow_duration_seconds),
+            "published_playback_follow_frame_range": {
+                "min": min(published_follow_frames) if published_follow_frames else None,
+                "max": max(published_follow_frames) if published_follow_frames else None,
+            },
             "published_playback_follow_position_delta_count": len(published_position_delta_values),
             "max_published_playback_follow_vs_c_mixer_abs_frame_delta": max(published_position_delta_values, default=0),
             "average_published_playback_follow_vs_c_mixer_abs_frame_delta": average(published_position_delta_values),
@@ -2730,8 +2810,8 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Overrange samples: {health['overrange_sample_count']}",
         f"- Underruns / zero-fill / unexpected silent / failed renders: {health['underrun_count']} / {health['zero_fill_count']} / {health['unexpected_silent_output_count']} / {health['failed_render_count']}",
         f"- Render callbacks: {health['render_callback_count']} frame_count_range={health['callback_requested_frame_count_range']} callback_frame_range={callback_timing['callback_frame_range']}",
-        f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
-        f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} realtime_safe={callback_isolation['realtime_safe_diagnostics']} diagnostic_drops={callback_isolation['diagnostic_drop_count']} ring_capacity={callback_isolation['ring_buffer_capacity']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} lock_failures={callback_isolation['lock_failure_count']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
+        f"- Callback timing: minimal={callback_timing['minimal_callback_mode']} max_ms={callback_timing['duration_max_ms']} avg_ms={callback_timing['duration_average_ms']} warning_count={callback_timing['duration_warning_count']} near_budget={callback_timing['near_budget_warning_count']} quantum_ms={callback_timing['render_quantum_duration_ms']} over_budget={callback_timing['over_render_quantum_budget_count']} interval_min_max_ms={callback_timing['interval_min_ms']}..{callback_timing['interval_max_ms']}",
+        f"- Callback isolation: thread_is_main={callback_isolation['callback_thread_is_main']} thread_id={callback_isolation['callback_thread_id']} main_dependency={callback_isolation['main_thread_dependency_detected']} allocation_warning={callback_isolation['allocation_warning']} realtime_safe={callback_isolation['realtime_safe_diagnostics']} diagnostic_drops={callback_isolation['diagnostic_drop_count']} ring_capacity={callback_isolation['ring_buffer_capacity']} lock_attempts={callback_isolation['lock_attempt_count']} lock_waits={callback_isolation['lock_wait_count']} lock_wait_ms={callback_isolation['lock_wait_duration_ms']} lock_failures={callback_isolation['lock_failure_count']} try_lock_failures={callback_isolation['try_lock_failure_count']} audio_impact={callback_isolation['lock_failure_audio_impact']} stale_fallbacks={callback_isolation['rendered_from_stale_snapshot_count']} skipped_audio={callback_isolation['skipped_audio_due_to_lock_count']} skipped_diagnostics={callback_isolation['skipped_diagnostics_due_to_lock_count']} silence_unavailable={callback_isolation['rendered_silence_due_to_unavailable_state_count']} lifecycle_while_rendering={callback_isolation['lifecycle_change_while_rendering_count']} au_lifecycle_while_callback={callback_isolation['audio_unit_lifecycle_call_while_callback_active_count']} event_queue_threads={callback_isolation['event_queue_producer_thread_id']}->{callback_isolation['event_queue_consumer_thread_id']} producer_main={callback_isolation['event_queue_producer_thread_is_main']} consumer_main={callback_isolation['event_queue_consumer_thread_is_main']} follow_disabled={callback_isolation['follow_publication_disabled']} follow_count={callback_isolation['follow_publication_count']} suppressed={callback_isolation['follow_publication_suppressed_count']}",
         f"- Output buffer copy: attempts={output_buffer_copy['attempt_count']} failures={output_buffer_copy['failure_count']} last_succeeded={output_buffer_copy['last_succeeded']} layout={output_buffer_copy['layout']} frames={output_buffer_copy['copied_frame_count']}/{output_buffer_copy['requested_frame_count']} channels={output_buffer_copy['output_channel_count']} filled={output_buffer_copy['filled_requested_frames']} scratch_capture_hash_match={output_buffer_copy['scratch_capture_hash_matches']} scratch_output_hash_match={output_buffer_copy['scratch_output_hash_matches']}",
         f"- Output discontinuities > {health['output_discontinuity_threshold']}: {health['output_discontinuity_count']} max_jump={health['max_output_adjacent_sample_jump']} last={health['last_output_discontinuity']}",
         f"- Output discontinuity threshold counts: {health['output_discontinuity_threshold_counts']}",
@@ -2772,7 +2852,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- PlaybackEngine-vs-C mixer drift classification: {alignment['playback_engine_vs_c_mixer_position_drift_classification']}",
         f"- PlaybackEngine-vs-C mixer mostly constant offset: {alignment['playback_engine_vs_c_mixer_position_mostly_constant_offset']}",
         f"- PlaybackEngine-vs-C mixer accumulating drift: {alignment['playback_engine_vs_c_mixer_position_accumulates']}",
-        f"- Published follow position sources: {alignment['published_playback_follow_position_source_counts']}",
+        f"- Published follow position sources: {alignment['published_playback_follow_position_source_counts']} events={alignment['published_playback_follow_event_count']} rate_hz={alignment['published_playback_follow_rate_hz']} duration_s={alignment['published_playback_follow_duration_seconds']} frame_range={alignment['published_playback_follow_frame_range']}",
         f"- Max published-follow-vs-C mixer position frame delta: {alignment['max_published_playback_follow_vs_c_mixer_abs_frame_delta']}",
         f"- Average published-follow-vs-C mixer position frame delta: {alignment['average_published_playback_follow_vs_c_mixer_abs_frame_delta']}",
         f"- Median published-follow-vs-C mixer position frame delta: {alignment['median_published_playback_follow_vs_c_mixer_abs_frame_delta']}",

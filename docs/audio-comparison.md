@@ -183,8 +183,10 @@ VTX_OPEN_PATH=/path/to/local-reference-module.xm \
 Summarize each trace with the same command and compare requested backend flag,
 host type, sample rate, channel count, callback counts, callback frame count
 range, underrun/zero-fill/failed render counters, callback duration warnings,
-capture duration/clipping, route/sample-rate diagnostics, and CoreAudio
-output-unit `OSStatus` values:
+near-budget warnings, callback lock attempts/try-lock failures, stale-output
+fallbacks, skipped-audio and skipped-diagnostics counters, lifecycle-overlap
+counters, capture duration/clipping, route/sample-rate diagnostics, and
+CoreAudio output-unit `OSStatus` values:
 
 ```bash
 python3 scripts/summarize-runtime-c-mixer-trace.py \
@@ -302,9 +304,12 @@ scratch/capture/output hash verifier for short local diagnostics; it is off by
 default so normal experimental callback diagnostics use fixed-capacity ring
 buffers, fixed top peak/jump slots, and counters instead of growing diagnostic
 collections. The CoreAudio callback records render/copy/timing counters through
-one non-blocking render-core entry in the normal path. If the diagnostic ring
-fills, the trace summary reports `callbackDiagnosticDropCount` and continues
-without allocating more callback storage. A useful local isolation matrix is:
+one non-blocking render-core entry in the normal path. Follow-position and
+row-transition trace breadcrumbs published while the host is running use the
+callback-published sample-time frame instead of taking a render-core snapshot,
+so long-run UI/follow diagnostics do not add render-lock pressure. If the
+diagnostic ring fills, the trace summary reports `callbackDiagnosticDropCount`
+and continues without allocating more callback storage. A useful local isolation matrix is:
 trace plus capture with normal follow publication, trace/capture disabled with
 follow publication disabled, trace only, capture only, both disabled, minimal
 callback mode, and a short output-copy-verifier run when needed. Generated

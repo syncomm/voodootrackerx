@@ -3172,7 +3172,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         callbackRealtimeSafeDiagnostics=True,
                         callbackAllocationWarning=False,
                         callbackDiagnosticDropCount=0,
-                        callbackRingBufferCapacity=4096,
+                        callbackRingBufferCapacity=32768,
                         callbackLockWaitCount=0,
                         callbackLockFailureCount=0,
                         underrunCount=0,
@@ -3347,10 +3347,19 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         callbackAllocationWarning=False,
                         callbackRealtimeSafeDiagnostics=True,
                         callbackDiagnosticDropCount=2,
-                        callbackRingBufferCapacity=4096,
+                        callbackRingBufferCapacity=32768,
                         callbackLockWaitCount=0,
                         callbackLockWaitDurationMS=0.0,
                         callbackLockFailureCount=1,
+                        callbackLockAttemptCount=8,
+                        callbackTryLockFailureCount=1,
+                        callbackLockFailureAudioImpact=True,
+                        callbackRenderedFromStaleSnapshotCount=1,
+                        callbackRenderedSilenceDueToUnavailableStateCount=0,
+                        callbackSkippedDiagnosticsDueToLockCount=1,
+                        callbackSkippedAudioDueToLockCount=0,
+                        lifecycleChangeWhileRenderingCount=0,
+                        audioUnitLifecycleCallWhileCallbackActiveCount=0,
                         eventQueueProducerThreadID=100,
                         eventQueueProducerThreadIsMain=True,
                         eventQueueConsumerThreadID=1234,
@@ -3371,9 +3380,18 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertFalse(isolation["allocation_warning"])
             self.assertTrue(isolation["realtime_safe_diagnostics"])
             self.assertEqual(isolation["diagnostic_drop_count"], 2)
-            self.assertEqual(isolation["ring_buffer_capacity"], 4096)
+            self.assertEqual(isolation["ring_buffer_capacity"], 32768)
             self.assertEqual(isolation["lock_wait_count"], 0)
             self.assertEqual(isolation["lock_failure_count"], 1)
+            self.assertEqual(isolation["lock_attempt_count"], 8)
+            self.assertEqual(isolation["try_lock_failure_count"], 1)
+            self.assertTrue(isolation["lock_failure_audio_impact"])
+            self.assertEqual(isolation["rendered_from_stale_snapshot_count"], 1)
+            self.assertEqual(isolation["rendered_silence_due_to_unavailable_state_count"], 0)
+            self.assertEqual(isolation["skipped_diagnostics_due_to_lock_count"], 1)
+            self.assertEqual(isolation["skipped_audio_due_to_lock_count"], 0)
+            self.assertEqual(isolation["lifecycle_change_while_rendering_count"], 0)
+            self.assertEqual(isolation["audio_unit_lifecycle_call_while_callback_active_count"], 0)
             self.assertEqual(isolation["event_queue_producer_thread_id"], 100)
             self.assertTrue(isolation["event_queue_producer_thread_is_main"])
             self.assertEqual(isolation["event_queue_consumer_thread_id"], 1234)

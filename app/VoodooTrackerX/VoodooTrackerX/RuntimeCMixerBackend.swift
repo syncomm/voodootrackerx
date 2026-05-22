@@ -177,6 +177,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
             return status
         }
         var unit: AudioUnit?
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let newInstanceStatus = AudioComponentInstanceNew(component, &unit)
         guard newInstanceStatus == noErr else {
             lifecycle.prepare(status: newInstanceStatus)
@@ -190,6 +191,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
         outputUnit = unit
 
         var streamDescription = configuration.streamDescription
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let streamFormatStatus = withUnsafePointer(to: &streamDescription) { pointer in
             AudioUnitSetProperty(
                 unit,
@@ -210,6 +212,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
             inputProc: runtimeCMixerDefaultOutputUnitRenderCallback,
             inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let callbackStatus = withUnsafePointer(to: &callback) { pointer in
             AudioUnitSetProperty(
                 unit,
@@ -226,6 +229,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
             return callbackStatus
         }
 
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let initializeStatus = AudioUnitInitialize(unit)
         guard initializeStatus == noErr else {
             lifecycle.prepare(status: initializeStatus, initializeStatus: initializeStatus)
@@ -246,6 +250,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
               let unit = outputUnit else {
             return prepareStatus
         }
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let startStatus = AudioOutputUnitStart(unit)
         lifecycle.start(status: startStatus)
         return startStatus
@@ -258,6 +263,7 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
             lifecycle.stop(status: noErr)
             return noErr
         }
+        recordAudioUnitLifecycleCallIfCallbackActive()
         let status = isRunning ? AudioOutputUnitStop(unit) : noErr
         lifecycle.stop(status: status)
         return status
@@ -266,10 +272,13 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
     func reset() {
         if let unit = outputUnit {
             if isRunning {
+                recordAudioUnitLifecycleCallIfCallbackActive()
                 let status = AudioOutputUnitStop(unit)
                 lifecycle.stop(status: status)
             }
+            recordAudioUnitLifecycleCallIfCallbackActive()
             AudioUnitUninitialize(unit)
+            recordAudioUnitLifecycleCallIfCallbackActive()
             AudioComponentInstanceDispose(unit)
         }
         outputUnit = nil
@@ -281,6 +290,10 @@ private final class RuntimeCMixerDefaultOutputUnitHost {
         ioData: UnsafeMutablePointer<AudioBufferList>
     ) -> OSStatus {
         renderCore.render(frameCount: AVAudioFrameCount(frameCount), ioData: ioData)
+    }
+
+    private func recordAudioUnitLifecycleCallIfCallbackActive() {
+        renderCore.recordAudioUnitLifecycleCallIfCallbackActive()
     }
 }
 
@@ -414,10 +427,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
         guard adapterEventPlan.generated,
-              let cMixerPosition = resolvedSampleTimePosition(
-                context: traceContext(position: timerPosition, tickInRow: timerTickInRow),
-                snapshot: renderCore.snapshot()
-              ) else {
+             let cMixerPosition = resolvedSampleTimePosition(
+                 context: traceContext(position: timerPosition, tickInRow: timerTickInRow),
+                 currentFrame: renderCore.realtimeCurrentFrame
+             ) else {
             return nil
         }
         return PlaybackFollowPosition(
@@ -514,13 +527,25 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         context: AudioRuntimeTraceContext?,
         snapshot: RuntimeCMixerRenderSnapshot
     ) -> RuntimeCMixerEventTimingTraceFields? {
+        transitionTimingTraceFields(
+            context: context,
+            currentFrame: snapshot.currentFrame,
+            callbackEndFrame: snapshot.callbackEndFrame
+        )
+    }
+
+    private func transitionTimingTraceFields(
+        context: AudioRuntimeTraceContext?,
+        currentFrame: UInt64,
+        callbackEndFrame: UInt64? = nil
+    ) -> RuntimeCMixerEventTimingTraceFields? {
         guard let context,
               let plannedRowStartFrame = adapterEventPlan.plannedRowStartFrame(matching: context) else {
             return nil
         }
-        let offset = resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot)
+        let offset = resolvedPlannedRuntimeFrameOffset(context: context, currentFrame: currentFrame)
         let plannedRuntimeFrame = offset.flatMap { safeAdding(plannedRowStartFrame, $0) }
-        let frameDelta = plannedRuntimeFrame.flatMap { delta(runtimeFrame: snapshot.currentFrame, plannedFrame: $0) }
+        let frameDelta = plannedRuntimeFrame.flatMap { delta(runtimeFrame: currentFrame, plannedFrame: $0) }
         return RuntimeCMixerEventTimingTraceFields(
             runtimeEventCategory: "row_transition",
             plannedEventID: nil,
@@ -532,15 +557,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             plannedEventFrame: plannedRowStartFrame,
             plannedRuntimeFrame: plannedRuntimeFrame,
             plannedRuntimeFrameOffset: offset,
-            runtimeApplicationFrame: snapshot.currentFrame,
+            runtimeApplicationFrame: currentFrame,
             eventFrameDelta: frameDelta,
             eventApplicationTiming: eventApplicationTiming(
                 plannedRuntimeFrame: plannedRuntimeFrame,
-                runtimeApplicationFrame: snapshot.currentFrame,
+                runtimeApplicationFrame: currentFrame,
                 context: context,
-                snapshot: snapshot
+                callbackEndFrame: callbackEndFrame
             ),
-            eventAppliedFrame: snapshot.currentFrame,
+            eventAppliedFrame: currentFrame,
             inCallbackOffset: nil,
             plannedVsAppliedDelta: frameDelta,
             sameFrameBurstSize: nil,
@@ -562,22 +587,39 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         snapshot: RuntimeCMixerRenderSnapshot,
         isRowTransition: Bool
     ) -> RuntimeCMixerSampleTimePositionTraceFields {
-        let playbackSeconds = snapshot.sampleRate > 0
-            ? Double(snapshot.currentFrame) / snapshot.sampleRate
+        sampleTimePositionTraceFields(
+            context: context,
+            currentFrame: snapshot.currentFrame,
+            sampleRate: snapshot.sampleRate,
+            isRowTransition: isRowTransition
+        )
+    }
+
+    private func sampleTimePositionTraceFields(
+        context: AudioRuntimeTraceContext?,
+        currentFrame: UInt64,
+        sampleRate: Double,
+        isRowTransition: Bool
+    ) -> RuntimeCMixerSampleTimePositionTraceFields {
+        let playbackSeconds = sampleRate > 0
+            ? Double(currentFrame) / sampleRate
             : nil
-        let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot)
-        let cMixerSampleTimeFrame = offset.flatMap { plannedFrame(runtimeFrame: snapshot.currentFrame, runtimeFrameOffset: $0) }
+        let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(
+            context: context,
+            currentFrame: currentFrame
+        )
+        let cMixerSampleTimeFrame = offset.flatMap { plannedFrame(runtimeFrame: currentFrame, runtimeFrameOffset: $0) }
         let cMixerPosition = cMixerSampleTimeFrame.flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
         let playbackEnginePlannedFrame = adapterEventPlan.plannedFrame(matching: context)
         let playbackEngineRuntimeFrame = playbackEnginePlannedFrame.flatMap { plannedFrame in
             offset.flatMap { safeAdding(plannedFrame, $0) }
         }
         let frameDelta = playbackEngineRuntimeFrame.flatMap { plannedFrame in
-            delta(runtimeFrame: snapshot.currentFrame, plannedFrame: plannedFrame)
+            delta(runtimeFrame: currentFrame, plannedFrame: plannedFrame)
         }
         let mismatch = positionMismatch(context: context, cMixerPosition: cMixerPosition)
         return RuntimeCMixerSampleTimePositionTraceFields(
-            cMixerRenderedFrames: snapshot.currentFrame,
+            cMixerRenderedFrames: currentFrame,
             cMixerPlaybackSeconds: playbackSeconds,
             cMixerSampleTimeFrame: cMixerSampleTimeFrame,
             cMixerSampleTimePositionStatus: cMixerPosition?.status,
@@ -593,7 +635,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             playbackEngineToCMixerFrameDelta: frameDelta,
             playbackEngineToCMixerPositionMismatch: mismatch,
             rowTransitionDeltaCategory: isRowTransition
-                ? rowTransitionDeltaCategory(delta: frameDelta, context: context, cMixerPosition: cMixerPosition, sampleRate: snapshot.sampleRate)
+                ? rowTransitionDeltaCategory(delta: frameDelta, context: context, cMixerPosition: cMixerPosition, sampleRate: sampleRate)
                 : nil
         )
     }
@@ -604,6 +646,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     ) -> PlaybackSongSampleTimePosition? {
         let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot)
         let frame = offset.flatMap { plannedFrame(runtimeFrame: snapshot.currentFrame, runtimeFrameOffset: $0) }
+        return frame.flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+    }
+
+    private func resolvedSampleTimePosition(
+        context: AudioRuntimeTraceContext?,
+        currentFrame: UInt64
+    ) -> PlaybackSongSampleTimePosition? {
+        let offset = plannedRuntimeFrameOffset ?? resolvedPlannedRuntimeFrameOffset(
+            context: context,
+            currentFrame: currentFrame
+        )
+        let frame = offset.flatMap { plannedFrame(runtimeFrame: currentFrame, runtimeFrameOffset: $0) }
         return frame.flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
     }
 
@@ -698,14 +752,21 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         context: AudioRuntimeTraceContext?,
         snapshot: RuntimeCMixerRenderSnapshot
     ) -> Int? {
+        resolvedPlannedRuntimeFrameOffset(context: context, currentFrame: snapshot.currentFrame)
+    }
+
+    private func resolvedPlannedRuntimeFrameOffset(
+        context: AudioRuntimeTraceContext?,
+        currentFrame: UInt64
+    ) -> Int? {
         if let plannedRuntimeFrameOffset {
             return plannedRuntimeFrameOffset
         }
-        guard snapshot.currentFrame <= UInt64(Int.max),
+        guard currentFrame <= UInt64(Int.max),
               let plannedRowStartFrame = adapterEventPlan.plannedRowStartFrame(matching: context) else {
             return nil
         }
-        let offset = Int(snapshot.currentFrame) - plannedRowStartFrame
+        let offset = Int(currentFrame) - plannedRowStartFrame
         plannedRuntimeFrameOffset = offset
         return offset
     }
@@ -716,12 +777,26 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         context: AudioRuntimeTraceContext?,
         snapshot: RuntimeCMixerRenderSnapshot
     ) -> String {
+        eventApplicationTiming(
+            plannedRuntimeFrame: plannedRuntimeFrame,
+            runtimeApplicationFrame: runtimeApplicationFrame,
+            context: context,
+            callbackEndFrame: snapshot.callbackEndFrame
+        )
+    }
+
+    private func eventApplicationTiming(
+        plannedRuntimeFrame: Int?,
+        runtimeApplicationFrame: UInt64,
+        context: AudioRuntimeTraceContext?,
+        callbackEndFrame: UInt64?
+    ) -> String {
         if let plannedRuntimeFrame,
            let applicationFrame = intFrame(runtimeApplicationFrame),
            applicationFrame == plannedRuntimeFrame {
             return "exact_frame"
         }
-        if snapshot.callbackEndFrame == runtimeApplicationFrame {
+        if callbackEndFrame == runtimeApplicationFrame {
             return "callback_start"
         }
         if context?.tickInRow == 0 {
@@ -868,19 +943,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return lhs.isFinite && rhs.isFinite ? abs(lhs - rhs) > 0.000_001 : lhs != rhs
     }
 
-    private func drainAppliedRuntimeAdapterEvents() {
-        let diagnostics = renderCore.drainAppliedAdapterEventDiagnostics()
-        guard !diagnostics.isEmpty else {
+    private func drainAppliedRuntimeAdapterEvents(drainAllAvailable: Bool = false) {
+        guard !coreAudioOutputHost.isRunning else {
             return
         }
-        for diagnostic in diagnostics {
-            if !consumedAdapterEventIDs.contains(diagnostic.event.id) {
-                consumedAdapterEventIDs.insert(diagnostic.event.id)
-                eventCounters.consumedPlannedEventCount &+= 1
-                consumedAdapterEventCategories.formUnion(diagnostic.event.categories)
+        repeat {
+            let diagnostics = renderCore.drainAppliedAdapterEventDiagnostics()
+            guard !diagnostics.isEmpty else {
+                return
             }
-            recordAppliedRuntimeAdapterEvent(diagnostic)
-        }
+            for diagnostic in diagnostics {
+                if !consumedAdapterEventIDs.contains(diagnostic.event.id) {
+                    consumedAdapterEventIDs.insert(diagnostic.event.id)
+                    eventCounters.consumedPlannedEventCount &+= 1
+                    consumedAdapterEventCategories.formUnion(diagnostic.event.categories)
+                }
+                recordAppliedRuntimeAdapterEvent(diagnostic)
+            }
+        } while drainAllAvailable
     }
 
     private func recordAppliedRuntimeAdapterEvent(_ diagnostic: RuntimeCMixerAppliedAdapterEventDiagnostic) {
@@ -1211,8 +1291,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     }
 
     func stopAll(context: AudioRuntimeTraceContext?, reason: String) {
-        drainAppliedRuntimeAdapterEvents()
         coreAudioOutputHost.stop()
+        drainAppliedRuntimeAdapterEvents(drainAllAvailable: true)
         let result = renderCore.stopAllWithDiagnostics(reason: reason)
         eventCounters.clearAllCount &+= 1
         recordRuntimeEvent(
@@ -1239,6 +1319,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         phase: String,
         reason: String
     ) {
+        if coreAudioOutputHost.isRunning {
+            recordRunningRuntimeTransition(
+                previousContext: previousContext,
+                context: context,
+                phase: phase,
+                reason: reason
+            )
+            return
+        }
         drainAppliedRuntimeAdapterEvents()
         let snapshot = renderCore.snapshot()
         let eventTiming = transitionTimingTraceFields(context: context, snapshot: snapshot)
@@ -1320,12 +1409,22 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         publishedPosition: PlaybackFollowPosition,
         publicationDisabled: Bool
     ) {
-        drainAppliedRuntimeAdapterEvents()
         if publicationDisabled {
             playbackFollowPublicationSuppressedCount &+= 1
         } else {
             playbackFollowPublicationCount &+= 1
         }
+        if coreAudioOutputHost.isRunning {
+            recordRuntimeEventWithoutRenderSnapshot(
+                action: "playback_follow_position_published",
+                context: timerContext,
+                publishedPlaybackFollowPosition: publishedPosition,
+                playbackFollowPublicationDisabled: publicationDisabled,
+                reason: "playback_follow_position_published"
+            )
+            return
+        }
+        drainAppliedRuntimeAdapterEvents()
         recordRuntimeEvent(
             action: "playback_follow_position_published",
             context: timerContext,
@@ -1335,6 +1434,32 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             publishedPlaybackFollowPosition: publishedPosition,
             playbackFollowPublicationDisabled: publicationDisabled,
             reason: "playback_follow_position_published"
+        )
+    }
+
+    private func recordRunningRuntimeTransition(
+        previousContext: AudioRuntimeTraceContext?,
+        context: AudioRuntimeTraceContext?,
+        phase: String,
+        reason: String
+    ) {
+        let currentFrame = renderCore.realtimeCurrentFrame
+        let action = phase == "after_events" ? "row_transition_after_events" : "row_transition"
+        let eventTiming = transitionTimingTraceFields(context: context, currentFrame: currentFrame)
+        let transition = RuntimeCMixerTransitionTraceFields(
+            previousContext: previousContext,
+            nextContext: context,
+            phase: phase,
+            runtimeFrame: currentFrame,
+            replacementRampCount: nil,
+            updateCount: nil
+        )
+        recordRuntimeEventWithoutRenderSnapshot(
+            action: action,
+            context: context,
+            eventTiming: eventTiming,
+            transition: transition,
+            reason: reason
         )
     }
 
@@ -1450,6 +1575,130 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     private func simpleRuntimeEventSource() -> RuntimeCMixerAdapterEventSource {
         adapterEventPlan.generated ? .hybrid : .playbackEngineSimple
+    }
+
+    private func recordRuntimeEventWithoutRenderSnapshot(
+        action: String,
+        context: AudioRuntimeTraceContext?,
+        eventTiming: RuntimeCMixerEventTimingTraceFields? = nil,
+        transition: RuntimeCMixerTransitionTraceFields? = nil,
+        publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
+        playbackFollowPublicationDisabled: Bool? = nil,
+        reason: String?
+    ) {
+        guard traceWriter.isEnabled else {
+            return
+        }
+        let currentFrame = renderCore.realtimeCurrentFrame
+        let sampleRate = renderCore.config.sampleRate
+        let sampleTimePosition = sampleTimePositionTraceFields(
+            context: context,
+            currentFrame: currentFrame,
+            sampleRate: sampleRate,
+            isRowTransition: action.hasPrefix("row_transition") || eventTiming?.runtimeEventCategory == "row_transition"
+        )
+        let publishedPlannedFrame = publishedPlaybackFollowPosition.flatMap { plannedFrame(for: $0) }
+        let publishedPlannedPosition = publishedPlaybackFollowPosition.flatMap { plannedPosition(for: $0) }
+        let playbackEnginePlannedPosition = context.flatMap { plannedPosition(for: $0) }
+        let playbackEnginePlannedFrame = context.flatMap { adapterEventPlan.plannedFrame(matching: $0) }
+        let publishedToCMixerFrameDelta = publishedPlannedFrame.flatMap { publishedFrame in
+            sampleTimePosition.cMixerSampleTimeFrame.map { $0 - publishedFrame }
+        }
+        let publishedToCMixerRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
+            sampleTimePosition.cMixerSampleTimeSyntheticRow.map { $0 - publishedPosition.syntheticRow }
+        }
+        let playbackEngineToPublishedFrameDelta = publishedPlannedFrame.flatMap { publishedFrame in
+            playbackEnginePlannedFrame.map { publishedFrame - $0 }
+        }
+        let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
+            playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
+        }
+        let event = RuntimeCMixerTraceEvent(
+            runtimeAction: action,
+            runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
+            runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+            adapterPlanGenerated: adapterEventPlan.generated,
+            plannedEventCount: adapterEventPlan.plannedEventCount,
+            consumedPlannedEventCount: Int(min(eventCounters.consumedPlannedEventCount, UInt64(Int.max))),
+            skippedUnmatchedPlannedEventCount: Int(min(eventCounters.skippedUnmatchedPlannedEventCount, UInt64(Int.max))),
+            runtimeRowOrderMapping: runtimeRowOrderMapping(for: context),
+            adapterEventCategoriesConsumed: consumedAdapterEventCategories.sorted(),
+            runtimeEventCategory: eventTiming?.runtimeEventCategory,
+            plannedSourceOrderIndex: eventTiming?.plannedSourceOrderIndex,
+            plannedSourcePatternIndex: eventTiming?.plannedSourcePatternIndex,
+            plannedSourceRowIndex: eventTiming?.plannedSourceRowIndex,
+            plannedSourceTickInRow: eventTiming?.plannedSourceTickInRow,
+            plannedEventFrame: eventTiming?.plannedEventFrame,
+            plannedRuntimeFrame: eventTiming?.plannedRuntimeFrame,
+            plannedRuntimeFrameOffset: eventTiming?.plannedRuntimeFrameOffset,
+            runtimeApplicationFrame: eventTiming?.runtimeApplicationFrame,
+            eventFrameDelta: eventTiming?.eventFrameDelta,
+            eventApplicationTiming: eventTiming?.eventApplicationTiming,
+            eventAppliedFrame: eventTiming?.eventAppliedFrame,
+            plannedVsAppliedDelta: eventTiming?.plannedVsAppliedDelta,
+            experimentalCMixerEnabled: true,
+            alternativeRuntimeOutputHostEnabled: runtimeAudioBackend.alternativeRuntimeOutputHostEnabled,
+            runtimeOutputHostType: runtimeAudioBackend.runtimeOutputHostType,
+            runtimeOutputHostPrepareStatus: coreAudioOutputHost.lastPrepareStatus.map(Int.init),
+            runtimeOutputHostInitializeStatus: coreAudioOutputHost.lastInitializeStatus.map(Int.init),
+            runtimeOutputHostStartStatus: coreAudioOutputHost.lastStartStatus.map(Int.init),
+            runtimeOutputHostStopStatus: coreAudioOutputHost.lastStopStatus.map(Int.init),
+            runtimeOutputHostLastErrorStatus: coreAudioOutputHost.lastErrorStatus.map(Int.init),
+            sampleRate: sampleRate,
+            selectedRuntimeSampleRate: runtimeSampleRateSelection?.sampleRate ?? sampleRate,
+            cMixerRuntimeSampleRate: sampleRate,
+            runtimeSampleRatePolicy: runtimeSampleRateSelection?.policy,
+            runtimeSampleRateSource: runtimeSampleRateSelection?.source,
+            runtimeSampleRateConfigurationWarning: runtimeSampleRateSelection?.configurationWarning,
+            cMixerRenderSampleRate: sampleRate,
+            cMixerRenderChannelCount: renderCore.config.channelCount,
+            audioEngineRunning: coreAudioOutputHost.isRunning,
+            cMixerRenderedFrames: sampleTimePosition.cMixerRenderedFrames,
+            cMixerPlaybackSeconds: sampleTimePosition.cMixerPlaybackSeconds,
+            cMixerSampleTimeFrame: sampleTimePosition.cMixerSampleTimeFrame,
+            cMixerSampleTimePositionStatus: sampleTimePosition.cMixerSampleTimePositionStatus,
+            cMixerSampleTimeOrderIndex: sampleTimePosition.cMixerSampleTimeOrderIndex,
+            cMixerSampleTimePatternIndex: sampleTimePosition.cMixerSampleTimePatternIndex,
+            cMixerSampleTimeRowIndex: sampleTimePosition.cMixerSampleTimeRowIndex,
+            cMixerSampleTimeTickInRow: sampleTimePosition.cMixerSampleTimeTickInRow,
+            playbackEngineOrderIndex: sampleTimePosition.playbackEngineOrderIndex,
+            playbackEnginePatternIndex: sampleTimePosition.playbackEnginePatternIndex,
+            playbackEngineRowIndex: sampleTimePosition.playbackEngineRowIndex,
+            playbackEngineTickInRow: sampleTimePosition.playbackEngineTickInRow,
+            playbackEngineToCMixerFrameDelta: sampleTimePosition.playbackEngineToCMixerFrameDelta,
+            playbackEngineToCMixerPositionMismatch: sampleTimePosition.playbackEngineToCMixerPositionMismatch,
+            rowTransitionDeltaCategory: sampleTimePosition.rowTransitionDeltaCategory,
+            publishedPlaybackFollowPositionSource: publishedPlaybackFollowPosition?.source.rawValue,
+            publishedPlaybackFollowOrderIndex: publishedPlaybackFollowPosition?.position.orderIndex,
+            publishedPlaybackFollowPatternIndex: publishedPlaybackFollowPosition?.position.patternIndex,
+            publishedPlaybackFollowRowIndex: publishedPlaybackFollowPosition?.position.rowIndex,
+            publishedPlaybackFollowTickInRow: publishedPlaybackFollowPosition?.tickInRow,
+            publishedPlaybackFollowSampleTimeFrame: publishedPlannedFrame,
+            publishedPlaybackFollowPositionStatus: publishedPlaybackFollowPosition?.sampleTimeStatus ?? publishedPlannedPosition?.status,
+            publishedPlaybackFollowSyntheticRow: publishedPlannedPosition?.syntheticRow ?? publishedPlaybackFollowPosition?.syntheticRow,
+            publishedPlaybackFollowToCMixerFrameDelta: publishedToCMixerFrameDelta,
+            publishedPlaybackFollowToCMixerRowDelta: publishedToCMixerRowDelta,
+            playbackEngineToPublishedPlaybackFollowFrameDelta: playbackEngineToPublishedFrameDelta,
+            playbackEngineToPublishedPlaybackFollowRowDelta: playbackEngineToPublishedRowDelta,
+            playbackFollowPublicationDisabled: playbackFollowPublicationDisabled,
+            playbackFollowPublicationCount: playbackFollowPublicationCount,
+            playbackFollowPublicationSuppressedCount: playbackFollowPublicationSuppressedCount,
+            channelCount: renderCore.config.channelCount,
+            context: context,
+            currentFrame: currentFrame,
+            runtimeRenderedFrameCount: currentFrame,
+            previousOrderIndex: transition?.previousContext?.orderIndex,
+            previousPatternIndex: transition?.previousContext?.patternIndex,
+            previousRowIndex: transition?.previousContext?.rowIndex,
+            nextOrderIndex: transition?.nextContext?.orderIndex,
+            nextPatternIndex: transition?.nextContext?.patternIndex,
+            nextRowIndex: transition?.nextContext?.rowIndex,
+            transitionPhase: transition?.phase,
+            transitionRuntimeFrame: transition?.runtimeFrame,
+            cMixerCallSucceeded: nil,
+            reason: reason
+        )
+        traceWriter.record(event)
     }
 
     @discardableResult
@@ -1788,11 +2037,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackDurationMinMS: snapshot.callbackDurationMinMS,
             callbackDurationMaxMS: snapshot.callbackDurationMaxMS,
             callbackDurationAverageMS: snapshot.callbackDurationAverageMS,
+            callbackMaxDurationMS: snapshot.callbackMaxDurationMS,
+            callbackAvgDurationMS: snapshot.callbackAvgDurationMS,
             callbackDurationWarningCount: snapshot.callbackDurationWarningCount,
             callbackRenderQuantumDurationMS: snapshot.callbackRenderQuantumDurationMS,
             callbackRenderQuantumMinMS: snapshot.callbackRenderQuantumMinMS,
             callbackRenderQuantumMaxMS: snapshot.callbackRenderQuantumMaxMS,
             callbackOverRenderQuantumBudgetCount: snapshot.callbackOverRenderQuantumBudgetCount,
+            callbackNearBudgetWarningCount: snapshot.callbackNearBudgetWarningCount,
             callbackIntervalMinMS: snapshot.callbackIntervalMinMS,
             callbackIntervalMaxMS: snapshot.callbackIntervalMaxMS,
             callbackIntervalLastMS: snapshot.callbackIntervalLastMS,
@@ -1806,6 +2058,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             callbackLockWaitCount: snapshot.callbackLockWaitCount,
             callbackLockWaitDurationMS: snapshot.callbackLockWaitDurationMS,
             callbackLockFailureCount: snapshot.callbackLockFailureCount,
+            callbackLockAttemptCount: snapshot.callbackLockAttemptCount,
+            callbackTryLockFailureCount: snapshot.callbackTryLockFailureCount,
+            callbackLockFailureAudioImpact: snapshot.callbackLockFailureAudioImpact,
+            callbackRenderedFromStaleSnapshotCount: snapshot.callbackRenderedFromStaleSnapshotCount,
+            callbackRenderedSilenceDueToUnavailableStateCount: snapshot.callbackRenderedSilenceDueToUnavailableStateCount,
+            callbackSkippedDiagnosticsDueToLockCount: snapshot.callbackSkippedDiagnosticsDueToLockCount,
+            callbackSkippedAudioDueToLockCount: snapshot.callbackSkippedAudioDueToLockCount,
+            lifecycleChangeWhileRenderingCount: snapshot.lifecycleChangeWhileRenderingCount,
+            audioUnitLifecycleCallWhileCallbackActiveCount: snapshot.audioUnitLifecycleCallWhileCallbackActiveCount,
             eventQueueProducerThreadID: snapshot.eventQueueProducerThreadID,
             eventQueueProducerThreadIsMain: snapshot.eventQueueProducerThreadIsMain,
             eventQueueConsumerThreadID: snapshot.eventQueueConsumerThreadID,

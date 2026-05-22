@@ -640,6 +640,27 @@ private func renderRuntimePCM(_ core: RuntimeCMixerRenderCore, frames: Int) -> [
     return output
 }
 
+private func renderCoreAudioRuntimePCM(
+    _ core: RuntimeCMixerRenderCore,
+    frames: Int,
+    initialValue: Float = 0
+) -> [Float] {
+    var output = Array(repeating: initialValue, count: frames * core.config.channelCount)
+    output.withUnsafeMutableBufferPointer { outputBuffer in
+        let audioBuffer = AudioBuffer(
+            mNumberChannels: UInt32(core.config.channelCount),
+            mDataByteSize: UInt32(outputBuffer.count * MemoryLayout<Float>.size),
+            mData: UnsafeMutableRawPointer(outputBuffer.baseAddress)
+        )
+        var audioBufferList = AudioBufferList(mNumberBuffers: 1, mBuffers: audioBuffer)
+        let status = withUnsafeMutablePointer(to: &audioBufferList) { listPointer in
+            core.render(frameCount: UInt32(max(0, frames)), ioData: listPointer)
+        }
+        XCTAssertEqual(status, noErr)
+    }
+    return output
+}
+
 private func defaultRuntimePan(forChannel channel: Int) -> Float {
     PlaybackEffectHandler.audioPanning(forXMValue: PlaybackChannelState.defaultPanning(forChannel: channel))
 }
@@ -8991,10 +9012,19 @@ final class VoodooTrackerXTests: XCTestCase {
             callbackAllocationWarning: true,
             callbackRealtimeSafeDiagnostics: false,
             callbackDiagnosticDropCount: 7,
-            callbackRingBufferCapacity: 4_096,
+            callbackRingBufferCapacity: 32_768,
             callbackLockWaitCount: 0,
             callbackLockWaitDurationMS: 0,
             callbackLockFailureCount: 2,
+            callbackLockAttemptCount: 10,
+            callbackTryLockFailureCount: 2,
+            callbackLockFailureAudioImpact: true,
+            callbackRenderedFromStaleSnapshotCount: 2,
+            callbackRenderedSilenceDueToUnavailableStateCount: 0,
+            callbackSkippedDiagnosticsDueToLockCount: 2,
+            callbackSkippedAudioDueToLockCount: 0,
+            lifecycleChangeWhileRenderingCount: 0,
+            audioUnitLifecycleCallWhileCallbackActiveCount: 0,
             eventQueueProducerThreadID: 100,
             eventQueueProducerThreadIsMain: true,
             eventQueueConsumerThreadID: 1_234,
@@ -9028,8 +9058,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["callbackAllocationWarning"] as? Bool, true)
         XCTAssertEqual(object["callbackRealtimeSafeDiagnostics"] as? Bool, false)
         XCTAssertEqual(object["callbackDiagnosticDropCount"] as? Int, 7)
-        XCTAssertEqual(object["callbackRingBufferCapacity"] as? Int, 4_096)
+        XCTAssertEqual(object["callbackRingBufferCapacity"] as? Int, 32_768)
+        XCTAssertEqual(object["callbackLockAttemptCount"] as? Int, 10)
         XCTAssertEqual(object["callbackLockFailureCount"] as? Int, 2)
+        XCTAssertEqual(object["callbackTryLockFailureCount"] as? Int, 2)
+        XCTAssertEqual(object["callbackLockFailureAudioImpact"] as? Bool, true)
+        XCTAssertEqual(object["callbackRenderedFromStaleSnapshotCount"] as? Int, 2)
+        XCTAssertEqual(object["callbackSkippedDiagnosticsDueToLockCount"] as? Int, 2)
+        XCTAssertEqual(object["callbackSkippedAudioDueToLockCount"] as? Int, 0)
         XCTAssertEqual(object["eventQueueProducerThreadIsMain"] as? Bool, true)
         XCTAssertEqual(object["eventQueueConsumerThreadIsMain"] as? Bool, false)
     }
@@ -11183,9 +11219,12 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(snapshot.callbackDurationMinMS)
         XCTAssertNil(snapshot.callbackDurationMaxMS)
         XCTAssertNil(snapshot.callbackDurationAverageMS)
+        XCTAssertNil(snapshot.callbackMaxDurationMS)
+        XCTAssertNil(snapshot.callbackAvgDurationMS)
         XCTAssertEqual(snapshot.callbackDurationWarningCount, 0)
         XCTAssertNil(snapshot.callbackRenderQuantumDurationMS)
         XCTAssertEqual(snapshot.callbackOverRenderQuantumBudgetCount, 0)
+        XCTAssertEqual(snapshot.callbackNearBudgetWarningCount, 0)
         XCTAssertNil(snapshot.callbackIntervalMinMS)
         XCTAssertNil(snapshot.callbackIntervalMaxMS)
         XCTAssertNil(snapshot.callbackIntervalLastMS)
@@ -11194,6 +11233,15 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.callbackDiagnosticDropCount, 0)
         XCTAssertEqual(snapshot.callbackRingBufferCapacity, RuntimeCMixerRenderCore.callbackDiagnosticRingCapacity)
         XCTAssertEqual(snapshot.callbackLockFailureCount, 0)
+        XCTAssertEqual(snapshot.callbackLockAttemptCount, 0)
+        XCTAssertEqual(snapshot.callbackTryLockFailureCount, 0)
+        XCTAssertNil(snapshot.callbackLockFailureAudioImpact)
+        XCTAssertEqual(snapshot.callbackRenderedFromStaleSnapshotCount, 0)
+        XCTAssertEqual(snapshot.callbackRenderedSilenceDueToUnavailableStateCount, 0)
+        XCTAssertEqual(snapshot.callbackSkippedDiagnosticsDueToLockCount, 0)
+        XCTAssertEqual(snapshot.callbackSkippedAudioDueToLockCount, 0)
+        XCTAssertEqual(snapshot.lifecycleChangeWhileRenderingCount, 0)
+        XCTAssertEqual(snapshot.audioUnitLifecycleCallWhileCallbackActiveCount, 0)
         XCTAssertEqual(snapshot.runtimeMinimalCallbackMode, false)
         XCTAssertEqual(snapshot.outputBufferCopyAttemptCount, 0)
         XCTAssertEqual(snapshot.outputBufferCopyFailureCount, 0)
@@ -11286,6 +11334,93 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.outputBufferCopyLayout, "single_interleaved_buffer")
     }
 
+    func testRuntimeCMixerCoreAudioCallbackLockFailureReusesLastOutputWithoutSkippingAudio() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            maximumRenderFrames: 16,
+            outputPolicy: RuntimeCMixerOutputPolicy.resolve(environment: [
+                RuntimeCMixerOutputPolicy.gainEnvironmentKey: "1"
+            ])
+        )
+        let sample = makePlaybackSample(pcm: [0.25, 0.5, 0.75, 1], baseSampleRate: 1_000)
+
+        XCTAssertTrue(core.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0)))
+        XCTAssertPCMEqual(renderCoreAudioRuntimePCM(core, frames: 2), [0.25, 0.5])
+
+        var lockedOutput = [Float]()
+        core.withRenderLockHeldForTesting {
+            lockedOutput = renderCoreAudioRuntimePCM(core, frames: 2, initialValue: -1)
+        }
+
+        XCTAssertPCMEqual(lockedOutput, [0.25, 0.5])
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.callbackLockAttemptCount, 2)
+        XCTAssertEqual(snapshot.callbackTryLockFailureCount, 1)
+        XCTAssertEqual(snapshot.callbackLockFailureCount, 1)
+        XCTAssertEqual(snapshot.callbackRenderedFromStaleSnapshotCount, 1)
+        XCTAssertEqual(snapshot.callbackSkippedAudioDueToLockCount, 0)
+        XCTAssertEqual(snapshot.callbackRenderedSilenceDueToUnavailableStateCount, 0)
+        XCTAssertEqual(snapshot.callbackSkippedDiagnosticsDueToLockCount, 1)
+        XCTAssertEqual(snapshot.callbackLockFailureAudioImpact, true)
+        XCTAssertEqual(snapshot.renderCallbackCount, 1)
+        XCTAssertEqual(snapshot.successfulRenderCount, 1)
+        XCTAssertEqual(snapshot.failedRenderCount, 0)
+    }
+
+    func testRuntimeCMixerCoreAudioCallbackLockFailureCountsUnavailableStateSilence() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+
+        var lockedOutput = [Float]()
+        core.withRenderLockHeldForTesting {
+            lockedOutput = renderCoreAudioRuntimePCM(core, frames: 2, initialValue: -1)
+        }
+
+        XCTAssertPCMEqual(lockedOutput, [0, 0])
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.callbackLockAttemptCount, 1)
+        XCTAssertEqual(snapshot.callbackTryLockFailureCount, 1)
+        XCTAssertEqual(snapshot.callbackRenderedFromStaleSnapshotCount, 0)
+        XCTAssertEqual(snapshot.callbackRenderedSilenceDueToUnavailableStateCount, 1)
+        XCTAssertEqual(snapshot.callbackSkippedAudioDueToLockCount, 0)
+        XCTAssertEqual(snapshot.callbackLockFailureAudioImpact, true)
+        XCTAssertEqual(snapshot.successfulRenderCount, 0)
+        XCTAssertEqual(snapshot.failedRenderCount, 0)
+    }
+
+    func testRuntimeCMixerCallbackDiagnosticDrainSkipsInsteadOfBlockingOnRenderLock() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+
+        var drained: [RuntimeCMixerAppliedAdapterEventDiagnostic] = []
+        core.withRenderLockHeldForTesting {
+            drained = core.drainAppliedAdapterEventDiagnostics()
+        }
+
+        XCTAssertTrue(drained.isEmpty)
+        XCTAssertEqual(core.snapshot().callbackSkippedDiagnosticsDueToLockCount, 1)
+    }
+
+    func testRuntimeCMixerLifecycleCountersReportRenderActiveOverlap() {
+        let core = RuntimeCMixerRenderCore(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            maximumRenderFrames: 16
+        )
+
+        core.withRenderCallbackActiveForTesting {
+            _ = core.configureAdapterEventSchedule([], runtimeFrameOffset: 0)
+            core.recordAudioUnitLifecycleCallIfCallbackActive()
+        }
+
+        let snapshot = core.snapshot()
+        XCTAssertEqual(snapshot.lifecycleChangeWhileRenderingCount, 1)
+        XCTAssertEqual(snapshot.audioUnitLifecycleCallWhileCallbackActiveCount, 1)
+    }
+
     func testRuntimeCMixerCallbackRealtimeDiagnosticsUpdateCounters() {
         let core = RuntimeCMixerRenderCore(
             config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
@@ -11307,11 +11442,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(snapshot.callbackDurationMinMS ?? -1, 1, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackDurationMaxMS ?? -1, 12, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackDurationAverageMS ?? -1, 6.5, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackMaxDurationMS ?? -1, 12, accuracy: 0.000_001)
+        XCTAssertEqual(snapshot.callbackAvgDurationMS ?? -1, 6.5, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackDurationWarningCount, 1)
         XCTAssertEqual(snapshot.callbackRenderQuantumDurationMS ?? -1, 10, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackRenderQuantumMinMS ?? -1, 10, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackRenderQuantumMaxMS ?? -1, 10, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackOverRenderQuantumBudgetCount, 1)
+        XCTAssertEqual(snapshot.callbackNearBudgetWarningCount, 1)
         XCTAssertEqual(snapshot.callbackIntervalMinMS ?? -1, 10, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackIntervalMaxMS ?? -1, 10, accuracy: 0.000_001)
         XCTAssertEqual(snapshot.callbackIntervalLastMS ?? -1, 10, accuracy: 0.000_001)

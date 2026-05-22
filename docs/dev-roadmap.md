@@ -275,6 +275,16 @@ allocation-prone output-copy hashing is an explicit local opt-in. This keeps
 AVAudio as the default backend, keeps the C mixer opt-in only, leaves offline
 rendering and C mixer DSP unchanged, and keeps output-device/hardware
 stabilization as separate work.
+Runtime C mixer CoreAudio callback lock-contention follow-up now makes
+try-lock failures explicit as output-delivery events: the callback does not
+block, reuses the last valid callback output when available, counts stale-output
+fallbacks and any unavailable-state silence separately, and reports lock
+attempts, skipped diagnostics, skipped-audio protection, near-budget callbacks, and
+lifecycle-overlap counters. Long-run tracker-follow and row-transition trace
+breadcrumbs use callback-published sample-time frames while the host is running
+so main-thread UI/diagnostic publication does not take the render lock. The
+callback remains on the CoreAudio render thread, AVAudio remains the default
+backend, and the default-backend switch remains separate.
 Runtime/offline mismatch window correlation diagnostics are available after
 live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
@@ -387,7 +397,8 @@ Immediate audio accuracy sequence:
 79. Deprecate AVAudioSourceNode C Mixer Backend / Prefer CoreAudio Experimental Host — done
 80. Runtime C Mixer CoreAudio Render Core Slimdown / Realtime Boundary Hardening — done
 81. Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass — done
-82. Reference comparison stabilization against MikMod/OpenMPT
+82. Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up — done
+83. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

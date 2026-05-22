@@ -778,9 +778,10 @@ The summary focuses on runtime-only artifact evidence:
 
 - peak, clipping, underrun, zero-fill, unexpected-silent, failed-render, and
   adjacent-sample output discontinuity counters
-- callback timing: requested frame range, min/max/average callback duration,
-  conservative duration warnings, estimated render quantum duration, callbacks
-  over the render quantum budget, and callback-to-callback interval range
+- callback timing: requested frame-count range, callback start/end frame range,
+  min/max/average callback duration, conservative duration warnings, estimated
+  render quantum duration, callbacks over the render quantum budget, and
+  callback-to-callback interval range
 - output buffer copy verification: buffer layout, requested/copied
   frames/samples, channel-count match, partial-copy evidence, and
   scratch/capture/output hash comparison

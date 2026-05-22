@@ -3127,6 +3127,124 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(backend["runtime_output_host_initialize_status"], 0)
             self.assertEqual(backend["runtime_output_host_start_status"], 0)
 
+    def test_runtime_trace_summary_reports_coreaudio_host_health_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeAudioBackend="c_mixer",
+                        backendFlagValue="c_mixer",
+                        experimentalCMixerEnabled=True,
+                        alternativeRuntimeOutputHostEnabled=True,
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                        runtimeOutputHostPrepareStatus=0,
+                        runtimeOutputHostInitializeStatus=0,
+                        runtimeOutputHostStartStatus=0,
+                        selectedRuntimeSampleRate=48000,
+                        cMixerRuntimeSampleRate=48000,
+                        cMixerRenderSampleRate=48000,
+                        cMixerRenderChannelCount=2,
+                        audioHardwareNominalSampleRate=48000,
+                        audioHardwareIOBufferFrameSize=512,
+                        audioHardwareIOBufferDuration=0.010666667,
+                        audioHardwareLatencyFrames=128,
+                        audioHardwareSafetyOffsetFrames=64,
+                        audioHardwareTransportTypeName="built_in",
+                        audioEngineRunning=True,
+                        audioFormatConversionLikely=False,
+                        runtimeCaptureEnabled=False,
+                    ),
+                    self.event(
+                        "render_callback",
+                        runtimeAudioBackend="c_mixer",
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                        renderCallbackCount=128,
+                        callbackRequestedFrameCount=512,
+                        callbackStartFrame=1024,
+                        callbackEndFrame=1536,
+                        callbackDurationMaxMS=4.25,
+                        callbackDurationAverageMS=3.125,
+                        callbackDurationWarningCount=0,
+                        callbackRenderQuantumDurationMS=10.666667,
+                        callbackOverRenderQuantumBudgetCount=0,
+                        callbackRealtimeSafeDiagnostics=True,
+                        callbackAllocationWarning=False,
+                        callbackDiagnosticDropCount=0,
+                        callbackRingBufferCapacity=4096,
+                        callbackLockWaitCount=0,
+                        callbackLockFailureCount=0,
+                        underrunCount=0,
+                        zeroFillCount=0,
+                        failedRenderCount=0,
+                    ),
+                    self.event(
+                        "c_mixer_clear_all",
+                        reason="runtime_song_end_tail",
+                        stopReason="song_end_tail",
+                        runtimeTailSeconds=3,
+                        runtimeTailFrames=144000,
+                        songEndStopFrame=240000,
+                        songEndStopSeconds=5,
+                        runtimeFrameAtSongEndTailStop=240000,
+                    ),
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["backend"]["runtime_audio_backend"], "c_mixer")
+            self.assertEqual(summary["backend"]["runtime_output_host_type"], "coreaudio_default_output_unit")
+            self.assertEqual(summary["backend"]["runtime_output_host_start_status"], 0)
+            self.assertEqual(summary["audio_graph"]["selected_runtime_sample_rate"], 48000)
+            self.assertEqual(summary["audio_graph"]["runtime_output_host_channel_count"], 2)
+            self.assertEqual(summary["audio_graph"]["hardware_io_buffer_frame_size"], 512)
+            self.assertFalse(summary["audio_graph"]["format_conversion_likely"])
+            self.assertEqual(summary["callback_timing"]["callback_count"], 128)
+            self.assertEqual(summary["callback_timing"]["requested_frame_count_range"], {"min": 512, "max": 512})
+            self.assertEqual(summary["callback_timing"]["callback_frame_range"], {"min": 1024, "max": 1536})
+            self.assertEqual(summary["callback_timing"]["duration_max_ms"], 4.25)
+            self.assertEqual(summary["callback_timing"]["duration_average_ms"], 3.125)
+            self.assertEqual(summary["callback_timing"]["over_render_quantum_budget_count"], 0)
+            self.assertTrue(summary["callback_isolation"]["realtime_safe_diagnostics"])
+            self.assertFalse(summary["callback_isolation"]["allocation_warning"])
+            self.assertEqual(summary["callback_isolation"]["diagnostic_drop_count"], 0)
+            self.assertEqual(summary["callback_isolation"]["lock_failure_count"], 0)
+            self.assertEqual(summary["health"]["underrun_count"], 0)
+            self.assertEqual(summary["health"]["zero_fill_count"], 0)
+            self.assertEqual(summary["health"]["failed_render_count"], 0)
+            self.assertFalse(summary["capture"]["enabled"])
+            self.assertEqual(summary["lifecycle"]["runtime_playback_stop_reason"], "song_end_tail")
+
+    def test_runtime_trace_summary_handles_missing_coreaudio_optional_health_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeAudioBackend="c_mixer_coreaudio",
+                        backendFlagValue="c_mixer_coreaudio",
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
+
+            self.assertEqual(summary["backend"]["runtime_audio_backend"], "c_mixer_coreaudio")
+            self.assertEqual(summary["backend"]["runtime_output_host_type"], "coreaudio_default_output_unit")
+            self.assertEqual(summary["callback_timing"]["callback_count"], 0)
+            self.assertEqual(summary["callback_timing"]["requested_frame_count_range"], {"min": None, "max": None})
+            self.assertEqual(summary["callback_timing"]["callback_frame_range"], {"min": None, "max": None})
+            self.assertIsNone(summary["callback_timing"]["duration_max_ms"])
+            self.assertIsNone(summary["callback_isolation"]["realtime_safe_diagnostics"])
+            self.assertFalse(summary["callback_isolation"]["allocation_warning"])
+            self.assertEqual(summary["callback_isolation"]["diagnostic_drop_count"], 0)
+            self.assertEqual(summary["callback_isolation"]["lock_failure_count"], 0)
+            self.assertFalse(summary["capture"]["enabled"])
+
     def test_runtime_trace_summary_clean_source_dirty_live_flags_callback_candidate(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(
@@ -3263,6 +3381,10 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertTrue(isolation["follow_publication_disabled"])
             self.assertEqual(isolation["follow_publication_count"], 0)
             self.assertEqual(isolation["follow_publication_suppressed_count"], 3)
+            self.assertEqual(
+                summary["recommended_next_pr"],
+                "Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up",
+            )
 
     def test_synthetic_trace_with_hard_replacement_stop_reports_follow_up(self):
         with tempfile.TemporaryDirectory() as tmpdir:

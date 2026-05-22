@@ -31,9 +31,11 @@ absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
 bounded `PlaybackSong` adapter segments through the offline harness with
 source-to-synthetic diagnostics. The CoreAudio runtime C mixer render core now
 keeps the normal callback path to one non-blocking render/copy/counter entry
-with fixed-capacity callback diagnostics, while broader host hardening and
-manual corpus listening remain future work. Those bounded candidate renders can
-now be written as deterministic PCM16 WAV files for local comparison. Parsed
+with fixed-capacity callback diagnostics, and the first CoreAudio host
+hardening/corpus pass now uses summary-backed callback, route, lifecycle, and
+capture health evidence while keeping the default switch as a separate future
+decision. Those bounded candidate renders can now be written as deterministic
+PCM16 WAV files for local comparison. Parsed
 `PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
 frame-based envelope representation for those bounded offline adapted renders
 only, with first-pass sustain, envelope loop, note value `97` key-off release,
@@ -384,7 +386,7 @@ Immediate audio accuracy sequence:
 78. Runtime C Mixer Song-End Stop / Tail Handling — done
 79. Deprecate AVAudioSourceNode C Mixer Backend / Prefer CoreAudio Experimental Host — done
 80. Runtime C Mixer CoreAudio Render Core Slimdown / Realtime Boundary Hardening — done
-81. Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass — planned separate follow-up
+81. Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass — done
 82. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
@@ -464,6 +466,9 @@ Features:
 - CoreAudio runtime C mixer render-core slimdown that keeps the normal callback
   path to render, output-buffer copy, fixed counters, and fixed-capacity
   diagnostics, with no SourceNode host reintroduction
+- CoreAudio host hardening/corpus evidence that summarizes backend/host,
+  callback duration/budget, realtime safety, route/sample-rate, capture, and
+  song-end/tail health before any default-backend switch
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

@@ -247,8 +247,17 @@ preallocated counters and fixed-capacity diagnostic buffers. It does not
 perform file I/O, call AppKit, parse module data, enqueue trace writes, grow
 diagnostic arrays, or mutate diagnostic dictionaries. Shared runtime state is
 entered with a single non-blocking render-core lock attempt for the normal
-CoreAudio render/copy/counter update path; if the callback cannot enter, it
-zero-fills rather than waiting and reports the try-lock failure count later.
+CoreAudio render/copy/counter update path; the callback never waits on that
+lock. If the callback cannot enter and a previous valid callback output block
+exists, it copies that stale block to the host output buffer and reports
+`callbackRenderedFromStaleSnapshotCount`. If no previous output is available,
+it renders silence, increments
+`callbackRenderedSilenceDueToUnavailableStateCount`, leaves
+`callbackSkippedAudioDueToLockCount` at zero because the host buffer was still
+filled, and reports `callbackLockFailureAudioImpact=true`. Adapter-event diagnostics are drained
+outside the callback with a non-blocking attempt; if the drain cannot enter the
+render core, `callbackSkippedDiagnosticsDueToLockCount` is incremented instead
+of blocking the render thread.
 Adapter-event callback diagnostics are written into a fixed-capacity ring
 buffer and drained outside the callback; if the ring fills, diagnostics are
 dropped and summarized with `callbackDiagnosticDropCount` rather than allocating
@@ -346,8 +355,10 @@ callback ran on the main thread, the callback thread id,
 whether a main-thread callback dependency was detected, whether known diagnostic
 allocation risk remains in the callback, whether realtime-safe diagnostic
 buffering is active, fixed ring-buffer capacity, diagnostic drop count,
-try-lock failure count, lock-wait counters, event-queue producer/consumer
-thread ids, and playback-follow publication counts. For a local isolation run,
+lock attempt count, try-lock failure count, skipped-audio and stale-output
+fallback counts, skipped diagnostic drains, lock-wait counters, lifecycle
+overlap counters, event-queue producer/consumer thread ids, and playback-follow
+publication counts. For a local isolation run,
 set
 `VTX_C_MIXER_RUNTIME_DISABLE_FOLLOW_PUBLICATION=1` with
 either experimental C mixer backend to suppress tracker follow callbacks
@@ -474,18 +485,32 @@ behavior.
 
 Callback timing/output-copy rows can also include
 `runtimeMinimalCallbackMode`, `callbackDurationMinMS`,
-`callbackDurationMaxMS`, `callbackDurationAverageMS`,
+`callbackDurationMaxMS`, `callbackDurationAverageMS`, `callbackMaxDurationMS`,
+`callbackAvgDurationMS`,
 `callbackDurationWarningCount`, `callbackRenderQuantumDurationMS`,
-`callbackOverRenderQuantumBudgetCount`, `callbackIntervalMinMS`,
-`callbackIntervalMaxMS`, `callbackRealtimeSafeDiagnostics`,
+`callbackOverRenderQuantumBudgetCount`, `callbackNearBudgetWarningCount`,
+`callbackIntervalMinMS`, `callbackIntervalMaxMS`, `callbackRealtimeSafeDiagnostics`,
 `callbackDiagnosticDropCount`, `callbackRingBufferCapacity`,
-`callbackLockFailureCount`, `outputBufferCopyAttemptCount`,
+`callbackLockAttemptCount`, `callbackTryLockFailureCount`,
+`callbackLockFailureCount`, `callbackLockFailureAudioImpact`,
+`callbackRenderedFromStaleSnapshotCount`,
+`callbackRenderedSilenceDueToUnavailableStateCount`,
+`callbackSkippedDiagnosticsDueToLockCount`, `callbackSkippedAudioDueToLockCount`,
+`lifecycleChangeWhileRenderingCount`,
+`audioUnitLifecycleCallWhileCallbackActiveCount`, `outputBufferCopyAttemptCount`,
 `outputBufferCopyFailureCount`, `outputBufferCopyLastSucceeded`,
 `outputBufferCopyLayout`, requested/copied frame and sample counts, channel
 counts, partial-copy flags, and, when explicitly enabled, scratch/capture/output
 hashes. A matching scratch-capture hash plus matching scratch-output hash means
 the output buffer received the same samples that runtime capture recorded; any
 mismatch points past C mixer DSP and toward callback/output delivery.
+
+When the CoreAudio C mixer host is running, tracker-follow and row-transition
+trace breadcrumbs use the callback-published sample-time frame instead of taking
+a render-core snapshot. This keeps long-run follow diagnostics available without
+letting main-thread UI/trace publication contend with the render callback lock.
+The summary reports published follow event count, approximate publication rate,
+frame span, and published-follow-vs-C-mixer deltas for long-run drift checks.
 
 Supported runtime C mixer control updates now classify the remaining update
 handoff cases instead of treating no-op refreshes and missing targets as one

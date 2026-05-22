@@ -28,11 +28,14 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let callbackDurationMinMS: Double?
     let callbackDurationMaxMS: Double?
     let callbackDurationAverageMS: Double?
+    let callbackMaxDurationMS: Double?
+    let callbackAvgDurationMS: Double?
     let callbackDurationWarningCount: UInt64
     let callbackRenderQuantumDurationMS: Double?
     let callbackRenderQuantumMinMS: Double?
     let callbackRenderQuantumMaxMS: Double?
     let callbackOverRenderQuantumBudgetCount: UInt64
+    let callbackNearBudgetWarningCount: UInt64
     let callbackIntervalMinMS: Double?
     let callbackIntervalMaxMS: Double?
     let callbackIntervalLastMS: Double?
@@ -46,6 +49,15 @@ struct RuntimeCMixerRenderSnapshot: Equatable {
     let callbackLockWaitCount: UInt64
     let callbackLockWaitDurationMS: Double
     let callbackLockFailureCount: UInt64
+    let callbackLockAttemptCount: UInt64
+    let callbackTryLockFailureCount: UInt64
+    let callbackLockFailureAudioImpact: Bool?
+    let callbackRenderedFromStaleSnapshotCount: UInt64
+    let callbackRenderedSilenceDueToUnavailableStateCount: UInt64
+    let callbackSkippedDiagnosticsDueToLockCount: UInt64
+    let callbackSkippedAudioDueToLockCount: UInt64
+    let lifecycleChangeWhileRenderingCount: UInt64
+    let audioUnitLifecycleCallWhileCallbackActiveCount: UInt64
     let eventQueueProducerThreadID: UInt64?
     let eventQueueProducerThreadIsMain: Bool?
     let eventQueueConsumerThreadID: UInt64?
@@ -852,21 +864,26 @@ struct RuntimeCMixerFixedRingBuffer<Element> {
         droppedCount &+= 1
     }
 
-    mutating func drain() -> [Element] {
+    mutating func drain(limit: Int? = nil) -> [Element] {
         guard storedCount > 0 else {
             return []
         }
+        let requestedCount = limit.map { max(0, $0) } ?? storedCount
+        let drainCount = min(storedCount, requestedCount)
+        guard drainCount > 0 else {
+            return []
+        }
         var drained = [Element]()
-        drained.reserveCapacity(storedCount)
-        for offset in 0..<storedCount {
+        drained.reserveCapacity(drainCount)
+        for offset in 0..<drainCount {
             let index = (readIndex + offset) % storage.count
             if let element = storage[index] {
                 drained.append(element)
             }
             storage[index] = nil
         }
-        readIndex = 0
-        storedCount = 0
+        storedCount -= drainCount
+        readIndex = storedCount == 0 ? 0 : (readIndex + drainCount) % storage.count
         return drained
     }
 
@@ -991,11 +1008,23 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     static let outputPeakWarningThreshold = Float(0.95)
     static let transientDiagnosticTopCount = 8
     static let callbackDurationWarningThresholdSeconds = 0.002
-    static let callbackDiagnosticRingCapacity = 4_096
+    static let callbackNearBudgetWarningRatio = 0.75
+    static let callbackDiagnosticRingCapacity = 32_768
+    static let callbackDiagnosticDrainLimit = 256
     static let callbackBurstScratchCapacity = 128
 
     private let lock = NSLock()
+    private let callbackLockAttemptCounter = Atomic(UInt64(0))
     private let callbackLockFailureCounter = Atomic(UInt64(0))
+    private let callbackActiveRenderDepth = Atomic(UInt64(0))
+    private let callbackRenderedFromStaleSnapshotCounter = Atomic(UInt64(0))
+    private let callbackRenderedSilenceDueToUnavailableStateCounter = Atomic(UInt64(0))
+    private let callbackSkippedDiagnosticsDueToLockCounter = Atomic(UInt64(0))
+    private let callbackSkippedAudioDueToLockCounter = Atomic(UInt64(0))
+    private let lifecycleChangeWhileRenderingCounter = Atomic(UInt64(0))
+    private let audioUnitLifecycleCallWhileCallbackActiveCounter = Atomic(UInt64(0))
+    private let lastCallbackOutputFrameCountAtomic = Atomic(UInt64(0))
+    private let realtimeCurrentFrameCounter = Atomic(UInt64(0))
     private let mixer: CSoftwareMixer
     private let captureBuffer: RuntimeCMixerCaptureBuffer?
     private let callbackDiagnostics: RuntimeCMixerCallbackDiagnosticsConfiguration
@@ -1003,6 +1032,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private let runtimeTailFrames: Int
     private let maximumRenderFrames: Int
     private var scratchInterleavedPCM: [Float]
+    private var lastCallbackOutputInterleavedPCM: [Float]
     private var voiceStateByChannel = [Int: RuntimeCMixerChannelVoiceState]()
     private var adapterVoiceStateByEventIndex = [Int: RuntimeCMixerAdapterVoiceState]()
     private var adapterEventIndexByChannel = [Int: Int]()
@@ -1032,6 +1062,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var callbackRenderQuantumMinSeconds: Double?
     private var callbackRenderQuantumMaxSeconds: Double?
     private var callbackOverRenderQuantumBudgetCount: UInt64 = 0
+    private var callbackNearBudgetWarningCount: UInt64 = 0
     private var callbackIntervalMinSeconds: Double?
     private var callbackIntervalMaxSeconds: Double?
     private var callbackIntervalLastSeconds: Double?
@@ -1123,6 +1154,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             captureBuffer = nil
         }
         scratchInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
+        lastCallbackOutputInterleavedPCM = Array(repeating: 0, count: self.maximumRenderFrames * mixer.config.channelCount)
         burstDiagnosticScratch = Array(repeating: nil, count: Self.callbackBurstScratchCapacity)
     }
 
@@ -1132,6 +1164,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         runtimeFrameOffset: Int,
         plannedSongEndFrame: Int? = nil
     ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
+        recordLifecycleChangeIfCallbackActive()
         lock.lock()
         defer {
             lock.unlock()
@@ -1187,6 +1220,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     func clearAdapterEventSchedule() {
+        recordLifecycleChangeIfCallbackActive()
         lock.lock()
         defer {
             lock.unlock()
@@ -1227,11 +1261,14 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     func drainAppliedAdapterEventDiagnostics() -> [RuntimeCMixerAppliedAdapterEventDiagnostic] {
-        lock.lock()
+        guard lock.try() else {
+            callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
+            return []
+        }
         defer {
             lock.unlock()
         }
-        return appliedAdapterEventDiagnostics.drain()
+        return appliedAdapterEventDiagnostics.drain(limit: Self.callbackDiagnosticDrainLimit)
     }
 
     func captureBlockSnapshotForWriting() -> RuntimeCMixerCaptureBlockSnapshot? {
@@ -2503,6 +2540,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
 
     @discardableResult
     func stopAllWithDiagnostics(reason: String) -> RuntimeCMixerStopResult {
+        recordLifecycleChangeIfCallbackActive()
         lock.lock()
         defer {
             lock.unlock()
@@ -2675,6 +2713,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackRenderQuantumMaxSeconds = callbackRenderQuantumMaxSeconds.map { max($0, quantumSeconds) } ?? quantumSeconds
         if durationSeconds > quantumSeconds {
             callbackOverRenderQuantumBudgetCount &+= 1
+        }
+        if quantumSeconds > 0,
+           durationSeconds >= quantumSeconds * Self.callbackNearBudgetWarningRatio {
+            callbackNearBudgetWarningCount &+= 1
         }
 
         if let intervalSeconds,
@@ -3216,6 +3258,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     func render(frameCount: AVAudioFrameCount, ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus {
         let safeFrameCount = Int(frameCount)
         let realtimeState = RuntimeCMixerRealtimeState.begin(requestedFrameCount: safeFrameCount)
+        callbackActiveRenderDepth.wrappingAdd(1, ordering: .relaxed)
+        defer {
+            callbackActiveRenderDepth.wrappingSubtract(1, ordering: .relaxed)
+        }
 
         // Audio callback safety rules: no AppKit, no parsing, no file I/O, no diagnostics logging, and no
         // allocation-heavy work. Voice/sample preparation happens on the main side before this callback.
@@ -3234,8 +3280,13 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
 
         let sampleCount = safeFrameCount * mixer.config.channelCount
+        callbackLockAttemptCounter.wrappingAdd(1, ordering: .relaxed)
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
+            callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
+            if copyLastCallbackOutputToAudioBuffers(ioData: ioData, frameCount: safeFrameCount) {
+                callbackRenderedFromStaleSnapshotCounter.wrappingAdd(1, ordering: .relaxed)
+            }
             return noErr
         }
         defer {
@@ -3249,6 +3300,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             )
         }
         if rendered {
+            storeLastCallbackOutputLocked(frameCount: safeFrameCount, sampleCount: sampleCount)
             let copyDiagnostics = copyScratchToAudioBuffersLocked(ioData: ioData, frameCount: safeFrameCount)
             recordOutputBufferCopyDiagnosticsLocked(copyDiagnostics)
         }
@@ -3282,7 +3334,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         appliedAdapterEventDiagnostics.removeAll()
         lastCaptureSummary = nil
         lastOutputBufferCopyDiagnostics = nil
+        callbackLockAttemptCounter.store(0, ordering: .relaxed)
         callbackLockFailureCounter.store(0, ordering: .relaxed)
+        callbackRenderedFromStaleSnapshotCounter.store(0, ordering: .relaxed)
+        callbackRenderedSilenceDueToUnavailableStateCounter.store(0, ordering: .relaxed)
+        callbackSkippedDiagnosticsDueToLockCounter.store(0, ordering: .relaxed)
+        callbackSkippedAudioDueToLockCounter.store(0, ordering: .relaxed)
+        lifecycleChangeWhileRenderingCounter.store(0, ordering: .relaxed)
+        audioUnitLifecycleCallWhileCallbackActiveCounter.store(0, ordering: .relaxed)
+        lastCallbackOutputFrameCountAtomic.store(0, ordering: .relaxed)
+        realtimeCurrentFrameCounter.store(0, ordering: .relaxed)
         appliedPlannedEventCount = 0
         exactFrameAppliedEventCount = 0
         callbackBoundaryAppliedEventCount = 0
@@ -3291,8 +3352,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private func recordRealtimeCallbackSample(_ realtimeSample: RuntimeCMixerCallbackCounters.Sample) {
+        callbackLockAttemptCounter.wrappingAdd(1, ordering: .relaxed)
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
+            callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
             return
         }
         defer {
@@ -3306,8 +3369,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackThread: RuntimeCMixerThreadDiagnostics? = nil,
         realtimeSample: RuntimeCMixerCallbackCounters.Sample? = nil
     ) {
+        callbackLockAttemptCounter.wrappingAdd(1, ordering: .relaxed)
         guard lock.try() else {
             callbackLockFailureCounter.wrappingAdd(1, ordering: .relaxed)
+            callbackSkippedDiagnosticsDueToLockCounter.wrappingAdd(1, ordering: .relaxed)
             return
         }
         defer {
@@ -3467,6 +3532,44 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return snapshotLocked()
     }
 
+#if DEBUG
+    func withRenderLockHeldForTesting(_ body: () -> Void) {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        body()
+    }
+
+    func withRenderCallbackActiveForTesting(_ body: () -> Void) {
+        callbackActiveRenderDepth.wrappingAdd(1, ordering: .relaxed)
+        defer {
+            callbackActiveRenderDepth.wrappingSubtract(1, ordering: .relaxed)
+        }
+        body()
+    }
+#endif
+
+    var isRenderCallbackActive: Bool {
+        callbackActiveRenderDepth.load(ordering: .relaxed) > 0
+    }
+
+    var realtimeCurrentFrame: UInt64 {
+        realtimeCurrentFrameCounter.load(ordering: .relaxed)
+    }
+
+    func recordAudioUnitLifecycleCallIfCallbackActive() {
+        if isRenderCallbackActive {
+            audioUnitLifecycleCallWhileCallbackActiveCounter.wrappingAdd(1, ordering: .relaxed)
+        }
+    }
+
+    private func recordLifecycleChangeIfCallbackActive() {
+        if isRenderCallbackActive {
+            lifecycleChangeWhileRenderingCounter.wrappingAdd(1, ordering: .relaxed)
+        }
+    }
+
     private func snapshotLocked() -> RuntimeCMixerRenderSnapshot {
         let rms = cumulativeOutputSampleCount > 0
             ? Float(sqrt(cumulativeOutputSquareSum / Double(cumulativeOutputSampleCount)))
@@ -3484,6 +3587,21 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         let outputContinuesAfterSongEnd = activeAfterSongEnd.map { $0 > 0 || (loadedAfterSongEnd ?? 0) > 0 }
         let sustainedAfterSongEnd = outputContinuesAfterSongEnd.map { $0 && eventQueueExhausted }
+        let callbackDurationMaxMS = callbackDurationMaxSeconds.map(milliseconds)
+        let callbackDurationAverageMS = callbackDurationSampleCount > 0
+            ? milliseconds(callbackDurationTotalSeconds / Double(callbackDurationSampleCount))
+            : nil
+        let callbackLockAttemptCount = callbackLockAttemptCounter.load(ordering: .relaxed)
+        let callbackTryLockFailureCount = callbackLockFailureCounter.load(ordering: .relaxed)
+        let callbackRenderedFromStaleSnapshotCount = callbackRenderedFromStaleSnapshotCounter.load(ordering: .relaxed)
+        let callbackRenderedSilenceDueToUnavailableStateCount =
+            callbackRenderedSilenceDueToUnavailableStateCounter.load(ordering: .relaxed)
+        let callbackSkippedAudioDueToLockCount = callbackSkippedAudioDueToLockCounter.load(ordering: .relaxed)
+        let callbackLockFailureAudioImpact: Bool? = callbackTryLockFailureCount > 0
+            ? callbackSkippedAudioDueToLockCount > 0 ||
+                callbackRenderedFromStaleSnapshotCount > 0 ||
+                callbackRenderedSilenceDueToUnavailableStateCount > 0
+            : nil
         return RuntimeCMixerRenderSnapshot(
             sampleRate: mixer.config.sampleRate,
             channelCount: mixer.config.channelCount,
@@ -3506,15 +3624,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackEndFrame: lastCallbackEndFrame,
             callbackDurationWarningThresholdMS: milliseconds(Self.callbackDurationWarningThresholdSeconds),
             callbackDurationMinMS: callbackDurationMinSeconds.map(milliseconds),
-            callbackDurationMaxMS: callbackDurationMaxSeconds.map(milliseconds),
-            callbackDurationAverageMS: callbackDurationSampleCount > 0
-                ? milliseconds(callbackDurationTotalSeconds / Double(callbackDurationSampleCount))
-                : nil,
+            callbackDurationMaxMS: callbackDurationMaxMS,
+            callbackDurationAverageMS: callbackDurationAverageMS,
+            callbackMaxDurationMS: callbackDurationMaxMS,
+            callbackAvgDurationMS: callbackDurationAverageMS,
             callbackDurationWarningCount: callbackDurationWarningCount,
             callbackRenderQuantumDurationMS: callbackRenderQuantumLastSeconds.map(milliseconds),
             callbackRenderQuantumMinMS: callbackRenderQuantumMinSeconds.map(milliseconds),
             callbackRenderQuantumMaxMS: callbackRenderQuantumMaxSeconds.map(milliseconds),
             callbackOverRenderQuantumBudgetCount: callbackOverRenderQuantumBudgetCount,
+            callbackNearBudgetWarningCount: callbackNearBudgetWarningCount,
             callbackIntervalMinMS: callbackIntervalMinSeconds.map(milliseconds),
             callbackIntervalMaxMS: callbackIntervalMaxSeconds.map(milliseconds),
             callbackIntervalLastMS: callbackIntervalLastSeconds.map(milliseconds),
@@ -3527,7 +3646,16 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             callbackRingBufferCapacity: appliedAdapterEventDiagnostics.capacity,
             callbackLockWaitCount: 0,
             callbackLockWaitDurationMS: 0,
-            callbackLockFailureCount: callbackLockFailureCounter.load(ordering: .relaxed),
+            callbackLockFailureCount: callbackTryLockFailureCount,
+            callbackLockAttemptCount: callbackLockAttemptCount,
+            callbackTryLockFailureCount: callbackTryLockFailureCount,
+            callbackLockFailureAudioImpact: callbackLockFailureAudioImpact,
+            callbackRenderedFromStaleSnapshotCount: callbackRenderedFromStaleSnapshotCount,
+            callbackRenderedSilenceDueToUnavailableStateCount: callbackRenderedSilenceDueToUnavailableStateCount,
+            callbackSkippedDiagnosticsDueToLockCount: callbackSkippedDiagnosticsDueToLockCounter.load(ordering: .relaxed),
+            callbackSkippedAudioDueToLockCount: callbackSkippedAudioDueToLockCount,
+            lifecycleChangeWhileRenderingCount: lifecycleChangeWhileRenderingCounter.load(ordering: .relaxed),
+            audioUnitLifecycleCallWhileCallbackActiveCount: audioUnitLifecycleCallWhileCallbackActiveCounter.load(ordering: .relaxed),
             eventQueueProducerThreadID: eventQueueProducerThreadDiagnostics?.threadID,
             eventQueueProducerThreadIsMain: eventQueueProducerThreadDiagnostics?.isMainThread,
             eventQueueConsumerThreadID: eventQueueConsumerThreadDiagnostics?.threadID,
@@ -3660,6 +3788,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         lastCallbackRequestedFrameCount = requestedFrameCount
         lastCallbackStartFrame = callbackStartFrame
         lastCallbackEndFrame = callbackEndFrame
+        realtimeCurrentFrameCounter.store(callbackEndFrame, ordering: .relaxed)
         cumulativeRequestedFrameCount &+= UInt64(max(0, requestedFrameCount))
         minRequestedFrameCount = minRequestedFrameCount.map { min($0, requestedFrameCount) } ?? requestedFrameCount
         maxRequestedFrameCount = max(maxRequestedFrameCount ?? requestedFrameCount, requestedFrameCount)
@@ -3989,6 +4118,86 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 output[sampleIndex] = 0
             }
         }
+    }
+
+    private func storeLastCallbackOutputLocked(frameCount: Int, sampleCount: Int) {
+        let safeSampleCount = min(max(0, sampleCount), scratchInterleavedPCM.count, lastCallbackOutputInterleavedPCM.count)
+        guard safeSampleCount > 0 else {
+            lastCallbackOutputFrameCountAtomic.store(0, ordering: .relaxed)
+            return
+        }
+        for index in 0..<safeSampleCount {
+            lastCallbackOutputInterleavedPCM[index] = scratchInterleavedPCM[index]
+        }
+        let storedFrameCount = min(max(0, frameCount), safeSampleCount / max(1, mixer.config.channelCount))
+        lastCallbackOutputFrameCountAtomic.store(UInt64(storedFrameCount), ordering: .relaxed)
+    }
+
+    private func copyLastCallbackOutputToAudioBuffers(
+        ioData: UnsafeMutablePointer<AudioBufferList>,
+        frameCount: Int
+    ) -> Bool {
+        let channelCount = mixer.config.channelCount
+        let availableFrameCount = min(
+            Int(clamping: lastCallbackOutputFrameCountAtomic.load(ordering: .relaxed)),
+            maximumRenderFrames
+        )
+        guard frameCount > 0,
+              channelCount > 0,
+              availableFrameCount > 0 else {
+            clear(ioData: ioData, frameCount: frameCount)
+            callbackRenderedSilenceDueToUnavailableStateCounter.wrappingAdd(1, ordering: .relaxed)
+            return false
+        }
+
+        let buffers = UnsafeMutableAudioBufferListPointer(ioData)
+        var copiedSampleCount = 0
+        if buffers.count == 1,
+           let data = buffers[0].mData,
+           Int(buffers[0].mNumberChannels) == channelCount {
+            let availableSampleCount = Int(buffers[0].mDataByteSize) / MemoryLayout<Float>.size
+            let requestedSampleCount = max(0, frameCount) * channelCount
+            let sampleCount = min(availableSampleCount, requestedSampleCount)
+            let output = data.assumingMemoryBound(to: Float.self)
+            for frame in 0..<max(0, frameCount) {
+                let sourceFrame = frame % availableFrameCount
+                for channel in 0..<channelCount {
+                    let outputIndex = frame * channelCount + channel
+                    guard outputIndex < sampleCount else {
+                        break
+                    }
+                    output[outputIndex] = lastCallbackOutputInterleavedPCM[(sourceFrame * channelCount) + channel]
+                    copiedSampleCount += 1
+                }
+            }
+            return copiedSampleCount > 0
+        }
+
+        for (bufferIndex, buffer) in buffers.enumerated() {
+            guard let data = buffer.mData else {
+                continue
+            }
+            let bufferChannelCount = max(1, Int(buffer.mNumberChannels))
+            let availableSampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+            let output = data.assumingMemoryBound(to: Float.self)
+            for frame in 0..<max(0, frameCount) {
+                let sourceFrame = frame % availableFrameCount
+                for bufferChannel in 0..<bufferChannelCount {
+                    let outputIndex = frame * bufferChannelCount + bufferChannel
+                    guard outputIndex < availableSampleCount else {
+                        break
+                    }
+                    let sourceChannel = buffers.count == channelCount ? bufferIndex : bufferChannel
+                    output[outputIndex] = sourceChannel < channelCount
+                        ? lastCallbackOutputInterleavedPCM[(sourceFrame * channelCount) + sourceChannel]
+                        : 0
+                    if sourceChannel < channelCount {
+                        copiedSampleCount += 1
+                    }
+                }
+            }
+        }
+        return copiedSampleCount > 0
     }
 
     private func copyScratchToAudioBuffersLocked(

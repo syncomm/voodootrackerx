@@ -17,13 +17,13 @@ flow, tracker-style pattern display, static highlight row behavior, stable
 viewport navigation, first-pass XM playback, playback diagnostics, and an
 initial deterministic software mixer skeleton.
 
-Default runtime playback still uses the `AVAudioPlayerNode` /
-`AVAudioUnitVarispeed` backend. An experimental CoreAudio DefaultOutput Audio
-Unit runtime C mixer host now exists behind the developer-only
-`VTX_AUDIO_BACKEND=c_mixer` flag, with `VTX_AUDIO_BACKEND=c_mixer_coreaudio`
-accepted as an alias for the same host. It is opt-in only and does not replace
-the AVAudio backend. The retired AVAudioSourceNode C mixer host is no longer
-selectable. The software mixer path is
+Default runtime playback now uses the CoreAudio DefaultOutput Audio Unit C
+mixer backend. `VTX_AUDIO_BACKEND=c_mixer` and
+`VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted aliases for the same
+CoreAudio host, while `VTX_AUDIO_BACKEND=av_audio` selects the legacy
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` fallback. Unknown backend values
+fall back to the CoreAudio default and are reported in diagnostics. The retired
+AVAudioSourceNode C mixer host is no longer selectable. The software mixer path is
 groundwork for offline rendering and future reference comparison; it can render
 synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
@@ -134,10 +134,10 @@ with bounded adapter diagnostics such as gain/pan updates, retriggers, note
 cuts/delays, note triggers, looped/carryover/window events, and
 key-off/fadeout evidence.
 The bounded/offline C mixer now reports gain/pan ramp settings and counts in
-diagnostics. ADR 007's feature-flagged runtime C mixer plan now has an initial
-implementation skeleton: it remains developer opt-in, keeps the AVAudio backend
-as the default fallback, used an AVAudioEngine-hosted pull source initially, and keeps
-tracker viewport, parser, and broad UI work out of the backend PR. Runtime C
+diagnostics. ADR 007's feature-flagged runtime C mixer plan started as an
+opt-in implementation skeleton, kept the AVAudio backend available, used an
+AVAudioEngine-hosted pull source initially, and kept tracker viewport, parser,
+and broad UI work out of the backend PR. Runtime C
 mixer A/B listening diagnostics now add a local-only JSONL trace for backend
 selection, PlaybackEngine order/row/tick context, note/key/stop events, C mixer
 add/clear/stop calls, render-frame counters, and channel-scoped stop/replacement
@@ -155,9 +155,9 @@ and explicit runtime headroom policy reporting. The experimental runtime C
 mixer now applies a conservative runtime-only output gain/headroom policy at the
 runtime C mixer handoff, defaults to `-12 dB`, reports post-gain clipping
 diagnostics and recommendations, and accepts local-only gain/headroom
-environment overrides only when `VTX_AUDIO_BACKEND=c_mixer` is selected.
-Offline export `--auto-headroom` remains separate, and AVAudio remains the
-default runtime backend. The experimental runtime C mixer now bridges supported
+environment overrides when the runtime C mixer backend is active. Offline
+export `--auto-headroom` remains separate, and `VTX_AUDIO_BACKEND=av_audio`
+selects the legacy AVAudio fallback. The runtime C mixer now bridges supported
 runtime gain/pan/sample-step control updates to the same generic C mixer
 voice-state update primitives used by the bounded offline path, including the
 fixed gain/pan micro-ramp and channel-scoped target voice diagnostics. Missing
@@ -168,19 +168,19 @@ later note trigger, and step/pitch updates without an active sample/note target
 remain explicit no-active or missing-data deferrals. The runtime bridge also
 filters gain, pan, and sample-step update deltas at a strict `1e-5` epsilon so
 tiny floating-point discrepancies do not restart C mixer ramps or step updates.
-This keeps the runtime C mixer experimental and opt-in while reducing trace
-noise around the remaining update deferrals.
+This reduced trace noise around the remaining update deferrals without changing
+runtime adapter semantics.
 Runtime C mixer stabilization diagnostics now add a local trace summary helper
 for post-ramping A/B passes. It reports output health counters, stop/replacement
 paths, immediate hard stops, clear-all evidence, active/loaded voice ranges,
 applied/suppressed/stored/deferred update categories, and event bursts from
 runtime JSONL traces. The experimental runtime C mixer now precomputes a
 runtime adapter event plan from the bounded/offline `PlaybackSong` adapter and
-feeds supported plan events to the opt-in C mixer backend when available. Trace
+feeds supported plan events to the C mixer backend when available. Trace
 rows report the event source, plan generation, planned/consumed/skipped counts,
 adapter event categories, row/order mapping, and fallback-to-simple-runtime
-counts. This remains opt-in behind `VTX_AUDIO_BACKEND=c_mixer`; AVAudio remains
-the default backend and unsupported XM effects remain unsupported. Runtime
+counts. `c_mixer` remains an explicit CoreAudio alias, `av_audio` remains the
+legacy fallback, and unsupported XM effects remain unsupported. Runtime
 sample-time event application now queues planned adapter events by intended
 runtime frame, splits runtime host callbacks at in-buffer event offsets,
 and traces callback ranges, planned/applied frames, offsets, same-frame burst
@@ -191,17 +191,17 @@ that with the `PlaybackEngine` timer position, including row-transition delta
 categories, PlaybackEngine-vs-C-mixer frame/millisecond delta summaries,
 constant-offset versus accumulating-drift classification, first-divergence
 reporting, selected order-transition samples, and largest mismatch summaries.
-The experimental C mixer backend now uses that sample-time-derived position as
-the published playback-follow position when the planned adapter timeline is
-available, while the default AVAudio backend continues to publish the existing
-timer-based position. Runtime traces distinguish the `PlaybackEngine` timer
-position, the C mixer sample-time position, and the published follow position.
+The C mixer backend now uses that sample-time-derived position as the published
+playback-follow position when the planned adapter timeline is available, while
+the legacy AVAudio fallback continues to publish the existing timer-based
+position. Runtime traces distinguish the `PlaybackEngine` timer position, the C
+mixer sample-time position, and the published follow position.
 Runtime transient/burst diagnostics now add lower adjacent-sample thresholds,
 bounded top jumps and peaks, same-frame burst summaries with event categories and
 voice counts, replacement ramp cleanup counters, epsilon-suppression correlation,
 and a local-only update-epsilon override for diagnostics. These additions remain
-diagnostic-only; the runtime C mixer is still experimental and opt-in, AVAudio
-remains default, and broad stabilization remains separate.
+diagnostic-only; unsupported XM effects remain unsupported, and broad
+stabilization remains separate.
 Runtime C mixer peak-safe headroom stabilization now makes the fixed runtime
 default slightly more conservative at `-12 dB`, reports whether the active gain
 policy came from the default or an environment override, and keeps peak/clipping,
@@ -210,10 +210,10 @@ without altering event timing or C mixer DSP. Exact offline-style runtime
 auto-headroom remains separate future work requiring a pre-playback preflight or
 dry-render peak-analysis pass from the selected start position.
 Runtime C mixer live output capture tooling is now available for local-only
-offline-vs-live comparison: when `VTX_AUDIO_BACKEND=c_mixer` and
-`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` are set, the experimental backend captures
-the post-runtime-gain CoreAudio host output into a bounded in-memory buffer
-and writes a local WAV outside the audio callback on stop/reset. Capture
+offline-vs-live comparison: when the CoreAudio C mixer backend is active and
+`VTX_C_MIXER_RUNTIME_CAPTURE_PATH` is set, the backend captures the
+post-runtime-gain CoreAudio host output into a bounded in-memory buffer and
+writes a local WAV outside the audio callback on stop/reset. Capture
 summaries report basename-only paths, captured frames, truncation, gain policy,
 peak/RMS, and clipping counters. Broader pop mitigation remains separate future
 work.
@@ -225,9 +225,8 @@ trigger path. Runtime traces now report deterministic same-frame burst IDs,
 event ordinals, affected channels, category counters, active/loaded voice
 counts before and after, ramp-down starts/completions, new voices, sustained
 carried voices, order-start/row-transition flags, and carried-channel
-association fields for update-without-note cells. The runtime C mixer remains
-experimental and opt-in; AVAudio remains the default backend, and broader
-runtime stabilization remains separate future work.
+association fields for update-without-note cells. Broader runtime
+stabilization remains separate future work.
 Runtime C mixer event-burst mitigation follow-up is kept diagnostics-only after
 local capture comparison showed no material runtime/offline metric improvement
 from forcing same-frame state into replacement ramps. Replacement trace rows now
@@ -235,25 +234,23 @@ expose old voice state, replacement ramp start/target state, new voice id/tag
 when known, and booleans for gain/pan, sample-step, key-off, and fadeout state
 before ramp start. Runtime traces also preserve legacy AVAudioEngine graph
 fields and report hardware sample-rate/channel diagnostics for historical
-downstream output delivery investigation. This is runtime C mixer opt-in only and does not change
-offline rendering semantics, add XM effects, alter tracker viewport behavior,
-or change parser architecture.
+downstream output delivery investigation. This did not change offline rendering
+semantics, add XM effects, alter tracker viewport behavior, or change parser
+architecture.
 Runtime C mixer AVAudio source format alignment now selects the experimental
 runtime C mixer sample rate from the AVAudio output graph/device where
 practical, configures the C mixer/runtime-host/capture path with that selected
 rate, and keeps planned adapter event frames plus sample-time resolver frames on
 the same runtime timeline. The policy is traced as `graph_aligned`,
 `explicit_env`, or `fallback_44100`, with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE`
-available only for local opt-in C-mixer diagnostics. AVAudio remains the
-default runtime backend, offline rendering defaults are unchanged, and broader
-runtime stabilization remains separate.
+available only for local C-mixer diagnostics. Offline rendering defaults are
+unchanged, and broader runtime stabilization remains separate.
 Runtime C mixer AVAudio callback/output-delivery diagnostics now add local-only
 callback duration, render quantum, callback interval, output-buffer fill/copy,
 and scratch/capture/output hash evidence for the experimental backend. Local
 flags can disable trace, capture, or both for callback-overhead isolation. This
-diagnostics PR keeps AVAudio as the default, keeps the runtime C mixer opt-in,
-does not alter offline rendering or C mixer DSP, and leaves any actual AVAudio
-graph/output-device fix for a later scoped PR.
+diagnostics PR did not alter offline rendering or C mixer DSP and left any
+actual AVAudio graph/output-device fix for a later scoped PR.
 Runtime C mixer AVAudio output-device and callback-isolation diagnostics now
 extend the same trace with main-mixer input/output format, output-node latency
 and presentation latency, hashed output-device identity, optional safe route
@@ -271,9 +268,8 @@ buffers and counters for callback-side event summaries, over-budget/output
 health counters, try-lock failures, and diagnostic drops. Trace summaries report
 `callbackRealtimeSafeDiagnostics`, `callbackDiagnosticDropCount`,
 `callbackRingBufferCapacity`, and `callbackLockFailureCount`, while
-allocation-prone output-copy hashing is an explicit local opt-in. This keeps
-AVAudio as the default backend, keeps the C mixer opt-in only, leaves offline
-rendering and C mixer DSP unchanged, and keeps output-device/hardware
+allocation-prone output-copy hashing is an explicit local opt-in. This leaves
+offline rendering and C mixer DSP unchanged and keeps output-device/hardware
 stabilization as separate work.
 Runtime C mixer CoreAudio callback lock-contention follow-up now makes
 try-lock failures explicit as output-delivery events: the callback does not
@@ -283,8 +279,12 @@ attempts, skipped diagnostics, skipped-audio protection, near-budget callbacks, 
 lifecycle-overlap counters. Long-run tracker-follow and row-transition trace
 breadcrumbs use callback-published sample-time frames while the host is running
 so main-thread UI/diagnostic publication does not take the render lock. The
-callback remains on the CoreAudio render thread, AVAudio remains the default
-backend, and the default-backend switch remains separate.
+callback remains on the CoreAudio render thread.
+Runtime C mixer CoreAudio default selection now makes that CoreAudio host the
+default runtime backend. `VTX_AUDIO_BACKEND=av_audio` keeps the old
+AVAudioPlayerNode/AVAudioUnitVarispeed path available as an explicit legacy
+fallback, `c_mixer` and `c_mixer_coreaudio` remain CoreAudio aliases, and the
+retired AVAudioSourceNode C mixer path remains unavailable.
 Runtime/offline mismatch window correlation diagnostics are available after
 live capture. A local-only helper compares full
 or near-full runtime capture WAVs against offline C mixer WAVs, imports
@@ -292,9 +292,9 @@ whole-song `scripts/audio-compare.py` worst windows, adds explicit target
 windows, and correlates each window with runtime trace events, same-frame
 bursts, sustained voice association, active/loaded voice ranges, gain/headroom
 normalization, local alignment shifts, and optional offline diagnostics JSON.
-This is diagnostics-only: it does not make the C mixer default, alter offline
-rendering, change C mixer DSP, add XM effects, modify tracker viewport behavior,
-or refactor parser architecture.
+This is diagnostics-only: it does not alter offline rendering, change C mixer
+DSP, add XM effects, modify tracker viewport behavior, or refactor parser
+architecture.
 ADR 008 documents the next runtime-host decision point: clean offline C mixer
 renders, clean runtime source captures, and AVAudioSourceNode output-copy
 verification leave the experimental SourceNode delivery path suspect for
@@ -398,7 +398,8 @@ Immediate audio accuracy sequence:
 80. Runtime C Mixer CoreAudio Render Core Slimdown / Realtime Boundary Hardening — done
 81. Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass — done
 82. Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up — done
-83. Reference comparison stabilization against MikMod/OpenMPT
+83. Runtime C Mixer CoreAudio Default / AVAudio Legacy Fallback — done
+84. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -459,27 +460,28 @@ Components:
 
 Features:
 
-- first-pass XM playback through `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
-- experimental opt-in CoreAudio-hosted runtime C mixer through `VTX_AUDIO_BACKEND=c_mixer` or the `VTX_AUDIO_BACKEND=c_mixer_coreaudio` alias, with AVAudio still the default backend
+- default CoreAudio-hosted runtime C mixer playback, with
+  `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` as
+  explicit CoreAudio aliases
+- explicit legacy fallback playback through `VTX_AUDIO_BACKEND=av_audio` using
+  `AVAudioPlayerNode` / `AVAudioUnitVarispeed`
 - local-only runtime C mixer output diagnostics through `VTX_C_MIXER_RUNTIME_TRACE_PATH`, including channel-scoped stop/replacement evidence, true global clear/stop evidence, applied/deferred gain/pan/sample-step update evidence, render callback counters, callback frame ranges, planned/applied event frame deltas, deterministic same-frame burst/order diagnostics, sustained carried-voice association diagnostics, post-gain output level summaries, clipping recommendations, row-transition snapshots, and runtime gain/headroom policy breadcrumbs
 - local-only runtime C mixer sample-time position diagnostics that compare the C
   mixer frame cursor against `PlaybackEngine` order/pattern/row/tick without
   changing tracker viewport behavior
-- CoreAudio DefaultOutput Audio Unit runtime output host as the preferred
-  experimental C mixer host, with the retired SourceNode path no longer
-  selectable
+- CoreAudio DefaultOutput Audio Unit runtime output host as the default C mixer
+  host, with the retired SourceNode path no longer selectable
 - local-only output-host summaries that distinguish capture duration, debug
   stop duration, planned song end, and continued output after planned
   event-stream exhaustion
-- runtime C mixer song-end/tail handling for `c_mixer` and `c_mixer_coreaudio`,
-  with capture duration remaining capture-only and AVAudio still the default
-  runtime backend
+- runtime C mixer song-end/tail handling for the default CoreAudio host, with
+  capture duration remaining capture-only
 - CoreAudio runtime C mixer render-core slimdown that keeps the normal callback
   path to render, output-buffer copy, fixed counters, and fixed-capacity
   diagnostics, with no SourceNode host reintroduction
 - CoreAudio host hardening/corpus evidence that summarizes backend/host,
   callback duration/budget, realtime safety, route/sample-rate, capture, and
-  song-end/tail health before any default-backend switch
+  song-end/tail health
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging
@@ -555,9 +557,9 @@ Features:
   reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
   subcommands while keeping actual traversal implementation separate
 - ADR 005 documents that the current Swift software mixer remains the deterministic reference/specification harness while the eventual hot-path mixer moves toward a small C-compatible core behind a Swift wrapper
-- ADR 007 documents the feature-flagged runtime C mixer backend plan, and the
-  initial skeleton keeps the AVAudio backend default while making the C mixer
-  runtime path opt-in only
+- ADR 007 documents the feature-flagged runtime C mixer backend plan; the
+  current default has advanced to the CoreAudio C mixer, with AVAudio retained
+  as an explicit legacy fallback
 
 ---
 

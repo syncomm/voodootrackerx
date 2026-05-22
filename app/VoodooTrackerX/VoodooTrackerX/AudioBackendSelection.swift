@@ -45,6 +45,7 @@ enum RuntimeAudioBackend: Equatable {
 
 struct RuntimeAudioBackendSelection: Equatable {
     static let environmentKey = "VTX_AUDIO_BACKEND"
+    static let avAudioEnvironmentValue = "av_audio"
     static let cMixerEnvironmentValue = "c_mixer"
     static let cMixerCoreAudioEnvironmentValue = "c_mixer_coreaudio"
 
@@ -60,16 +61,18 @@ struct RuntimeAudioBackendSelection: Equatable {
         let requestedValue = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let requestedValue,
               !requestedValue.isEmpty else {
-            return RuntimeAudioBackendSelection(backend: .avAudio, requestedValue: nil, fallbackReason: nil)
+            return RuntimeAudioBackendSelection(backend: .cMixer, requestedValue: nil, fallbackReason: nil)
         }
         switch requestedValue {
+        case avAudioEnvironmentValue:
+            return RuntimeAudioBackendSelection(backend: .avAudio, requestedValue: requestedValue, fallbackReason: nil)
         case cMixerEnvironmentValue:
             return RuntimeAudioBackendSelection(backend: .cMixer, requestedValue: requestedValue, fallbackReason: nil)
         case cMixerCoreAudioEnvironmentValue:
             return RuntimeAudioBackendSelection(backend: .cMixerCoreAudio, requestedValue: requestedValue, fallbackReason: nil)
         default:
             return RuntimeAudioBackendSelection(
-                backend: .avAudio,
+                backend: .cMixer,
                 requestedValue: requestedValue,
                 fallbackReason: "unknown_backend"
             )
@@ -534,7 +537,7 @@ enum PlaybackAudioOutputFactory {
         if let requestedValue = selection.requestedValue,
            let fallbackReason = selection.fallbackReason {
             logger.warning(
-                "Unknown VTX_AUDIO_BACKEND value '\(requestedValue, privacy: .public)'; falling back to av_audio reason=\(fallbackReason, privacy: .public)"
+                "Unknown VTX_AUDIO_BACKEND value '\(requestedValue, privacy: .public)'; falling back to c_mixer reason=\(fallbackReason, privacy: .public)"
             )
         }
         if let warning = outputPolicy?.configurationWarning {

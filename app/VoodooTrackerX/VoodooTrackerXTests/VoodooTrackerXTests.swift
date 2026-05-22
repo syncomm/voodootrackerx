@@ -9129,13 +9129,28 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(configuration.stopAfterSeconds, 10.5)
     }
 
-    func testRuntimeAudioBackendSelectionDefaultsToAVAudio() {
+    func testRuntimeAudioBackendSelectionDefaultsToCoreAudioCMixer() {
         let selection = RuntimeAudioBackendSelection.resolve(environment: [:])
 
-        XCTAssertEqual(selection.backend, .avAudio)
+        XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertNil(selection.requestedValue)
         XCTAssertNil(selection.fallbackReason)
+        XCTAssertTrue(selection.experimentalCMixerEnabled)
+        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
+    }
+
+    func testRuntimeAudioBackendSelectionKeepsExplicitAVAudioLegacyFallback() {
+        let selection = RuntimeAudioBackendSelection.resolve(environment: [
+            RuntimeAudioBackendSelection.environmentKey: "av_audio"
+        ])
+
+        XCTAssertEqual(selection.backend, .avAudio)
+        XCTAssertEqual(selection.requestedValue, "av_audio")
+        XCTAssertNil(selection.fallbackReason)
         XCTAssertFalse(selection.experimentalCMixerEnabled)
+        XCTAssertFalse(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertEqual(selection.backend.runtimeOutputHostType, "av_audio_player_node_varispeed")
     }
 
     func testRuntimeAudioBackendSelectionMapsPrimaryCMixerFlagToCoreAudioHost() {
@@ -9179,21 +9194,22 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(alias.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertNotEqual(primary.backend.runtimeOutputHostType, "av_audio_source_node")
         XCTAssertNotEqual(alias.backend.runtimeOutputHostType, "av_audio_source_node")
-        XCTAssertEqual(unknown.backend, .avAudio)
+        XCTAssertEqual(unknown.backend, .cMixer)
         XCTAssertEqual(unknown.fallbackReason, "unknown_backend")
+        XCTAssertEqual(unknown.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
-    func testRuntimeAudioBackendSelectionFallsBackForUnknownValue() {
+    func testRuntimeAudioBackendSelectionFallsBackToCoreAudioDefaultForUnknownValue() {
         let selection = RuntimeAudioBackendSelection.resolve(environment: [
             RuntimeAudioBackendSelection.environmentKey: "raw_core_audio"
         ])
 
-        XCTAssertEqual(selection.backend, .avAudio)
+        XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertEqual(selection.requestedValue, "raw_core_audio")
         XCTAssertEqual(selection.fallbackReason, "unknown_backend")
-        XCTAssertFalse(selection.experimentalCMixerEnabled)
-        XCTAssertFalse(selection.backend.alternativeRuntimeOutputHostEnabled)
-        XCTAssertEqual(selection.backend.runtimeOutputHostType, "av_audio_player_node_varispeed")
+        XCTAssertTrue(selection.experimentalCMixerEnabled)
+        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
     func testRuntimeCMixerCoreAudioHostConfigurationInitializesSampleRateAndChannels() {
@@ -9481,13 +9497,38 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackAudioOutputFactoryDefaultsToAVAudioBackend() {
+    func testPlaybackAudioOutputFactoryDefaultsToCoreAudioCMixerBackend() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let output = PlaybackAudioOutputFactory.make(environment: [:], runtimeCMixerTraceWriter: traceWriter)
+        let selectedSampleRate = traceWriter.events.first?.selectedRuntimeSampleRate ?? MixerRenderConfig.defaultSampleRate
+
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAction, "backend_selected")
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
+        XCTAssertNil(traceWriter.events.first?.backendFlagValue)
+        XCTAssertNil(traceWriter.events.first?.fallbackReason)
+        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
+        XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
+        XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
+        XCTAssertEqual(traceWriter.events.first?.runtimeCaptureEnabled, false)
+        XCTAssertEqual(traceWriter.events.first?.runtimeTailSeconds, 3)
+    }
+
+    @MainActor
+    func testPlaybackAudioOutputFactoryKeepsExplicitAVAudioLegacyFallback() {
+        let traceWriter = TestRuntimeCMixerTraceWriter()
+        let output = PlaybackAudioOutputFactory.make(
+            environment: [RuntimeAudioBackendSelection.environmentKey: "av_audio"],
+            runtimeCMixerTraceWriter: traceWriter
+        )
 
         XCTAssertTrue(output is PlaybackAudioEngine)
         XCTAssertEqual(traceWriter.events.first?.runtimeAction, "backend_selected")
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
+        XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "av_audio")
+        XCTAssertNil(traceWriter.events.first?.fallbackReason)
         XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
         XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, false)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "av_audio_player_node_varispeed")
@@ -9501,6 +9542,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("ignored-capture-\(UUID().uuidString).wav")
         let output = PlaybackAudioOutputFactory.make(
             environment: [
+                RuntimeAudioBackendSelection.environmentKey: "av_audio",
                 RuntimeCMixerOutputPolicy.gainEnvironmentKey: "0.5",
                 RuntimeCMixerOutputPolicy.headroomDBEnvironmentKey: "-6",
                 RuntimeCMixerCaptureConfiguration.pathEnvironmentKey: captureURL.path
@@ -9521,7 +9563,7 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackAudioOutputFactoryUsesCMixerOnlyWhenFlagged() {
+    func testPlaybackAudioOutputFactoryUsesExplicitPrimaryCMixerAlias() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let output = PlaybackAudioOutputFactory.make(
             environment: [RuntimeAudioBackendSelection.environmentKey: "c_mixer"],
@@ -9567,7 +9609,7 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackAudioOutputFactoryUsesCoreAudioCMixerOnlyWhenFlagged() {
+    func testPlaybackAudioOutputFactoryUsesCoreAudioCMixerCompatibilityAlias() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let output = PlaybackAudioOutputFactory.make(
             environment: [RuntimeAudioBackendSelection.environmentKey: "c_mixer_coreaudio"],
@@ -9607,6 +9649,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let avTraceWriter = TestRuntimeCMixerTraceWriter()
         _ = PlaybackAudioOutputFactory.make(
             environment: [
+                RuntimeAudioBackendSelection.environmentKey: "av_audio",
                 RuntimeCMixerDiagnosticEnvironment.routeLabelEnvironmentKey: "Bluetooth Route"
             ],
             runtimeCMixerTraceWriter: avTraceWriter
@@ -9839,7 +9882,7 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackAudioOutputFactoryMinimalCallbackModeKeepsCMixerOptInAndDisablesCapture() {
+    func testPlaybackAudioOutputFactoryMinimalCallbackModeKeepsCMixerDefaultAndDisablesCapture() {
         let traceWriter = TestRuntimeCMixerTraceWriter()
         let captureURL = FileManager.default.temporaryDirectory.appendingPathComponent("minimal-engine-capture-\(UUID().uuidString).wav")
         let output = PlaybackAudioOutputFactory.make(
@@ -10975,11 +11018,13 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeCMixerTraceWriter: traceWriter
         )
 
-        XCTAssertTrue(output is PlaybackAudioEngine)
-        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "av_audio")
+        XCTAssertTrue(output is RuntimeCMixerAudioEngine)
+        XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "raw_core_audio")
         XCTAssertEqual(traceWriter.events.first?.fallbackReason, "unknown_backend")
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, false)
+        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
+        XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
     func testRuntimeCMixerRenderCoreRendersTriggeredSampleAndStops() {

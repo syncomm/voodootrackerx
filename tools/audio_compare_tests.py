@@ -3084,6 +3084,66 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(conclusion["callback_candidate_cause"], "false")
             self.assertEqual(conclusion["route_device_candidate_cause"], "true")
 
+    def test_runtime_trace_summary_reports_default_coreaudio_selection(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeAudioBackend="c_mixer",
+                        experimentalCMixerEnabled=True,
+                        alternativeRuntimeOutputHostEnabled=True,
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=None,
+            )
+            backend = summary["backend"]
+
+            self.assertEqual(backend["runtime_audio_backend"], "c_mixer")
+            self.assertIsNone(backend["requested_backend_flag_value"])
+            self.assertIsNone(backend["fallback_reason"])
+            self.assertEqual(backend["selection_mode"], "default")
+            self.assertTrue(backend["experimental_c_mixer_enabled"])
+            self.assertTrue(backend["alternative_runtime_output_host_enabled"])
+            self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
+
+    def test_runtime_trace_summary_reports_unknown_backend_fallback_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_path = self.write_trace(
+                tmpdir,
+                [
+                    self.event(
+                        "backend_selected",
+                        runtimeAudioBackend="c_mixer",
+                        backendFlagValue="raw_core_audio",
+                        fallbackReason="unknown_backend",
+                        experimentalCMixerEnabled=True,
+                        alternativeRuntimeOutputHostEnabled=True,
+                        runtimeOutputHostType="coreaudio_default_output_unit",
+                    )
+                ],
+            )
+
+            summary = runtime_trace_summary.build_summary(
+                runtime_trace_summary.load_trace(trace_path),
+                trace_path=trace_path,
+                live_artifact_reported=None,
+            )
+            backend = summary["backend"]
+
+            self.assertEqual(backend["runtime_audio_backend"], "c_mixer")
+            self.assertEqual(backend["requested_backend_flag_value"], "raw_core_audio")
+            self.assertEqual(backend["fallback_reason"], "unknown_backend")
+            self.assertEqual(backend["selection_mode"], "fallback_default")
+            self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
+
     def test_runtime_trace_summary_reports_alternative_output_host_selection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_path = self.write_trace(
@@ -3120,6 +3180,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
 
             self.assertEqual(backend["runtime_audio_backend"], "c_mixer_coreaudio")
             self.assertEqual(backend["requested_backend_flag_value"], "c_mixer_coreaudio")
+            self.assertEqual(backend["selection_mode"], "explicit")
             self.assertTrue(backend["experimental_c_mixer_enabled"])
             self.assertTrue(backend["alternative_runtime_output_host_enabled"])
             self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
@@ -3234,6 +3295,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             summary = runtime_trace_summary.build_summary(runtime_trace_summary.load_trace(trace_path), trace_path=trace_path)
 
             self.assertEqual(summary["backend"]["runtime_audio_backend"], "c_mixer_coreaudio")
+            self.assertEqual(summary["backend"]["selection_mode"], "explicit")
             self.assertEqual(summary["backend"]["runtime_output_host_type"], "coreaudio_default_output_unit")
             self.assertEqual(summary["callback_timing"]["callback_count"], 0)
             self.assertEqual(summary["callback_timing"]["requested_frame_count_range"], {"min": None, "max": None})

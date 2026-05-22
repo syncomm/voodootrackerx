@@ -470,6 +470,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):
             if not isinstance(item, dict):
@@ -510,6 +511,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):
             if not isinstance(item, dict):

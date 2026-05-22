@@ -669,6 +669,24 @@ def synthetic_effect_coverage_diagnostics():
                 "ignored_as_no_op": True,
             }
         ],
+        "vibrato_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 10},
+                "channel_index": 0,
+                "synthetic_tick": 0,
+                "effect_type": 0x04,
+                "effect_param": 0x48,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "speed": 4,
+                "depth": 8,
+                "step_update_count": 4,
+            }
+        ],
         "note_cut_effects": [
             {
                 "source": {"order": 0, "pattern": 2, "row": 8},
@@ -734,8 +752,9 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
-        self.assertEqual(summary["summary"]["detected_count"], 9)
+        self.assertEqual(summary["summary"]["detected_count"], 10)
         self.assertEqual(rows["Cxx set volume"]["applied_count"], 1)
+        self.assertEqual(rows["4xy vibrato"]["applied_count"], 1)
         self.assertEqual(rows["5xy tone portamento + volume slide"]["deferred_count"], 1)
         self.assertEqual(rows["5xy tone portamento + volume slide"]["unsupported_count"], 1)
         self.assertEqual(rows["900 sample offset / effect memory"]["no_op_effect_memory_deferred_count"], 1)
@@ -871,7 +890,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 9)
+            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 10)
             self.assertIn("XM Effect Coverage Summary", markdown_path.read_text(encoding="utf-8"))
 
 

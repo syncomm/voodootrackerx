@@ -72,6 +72,12 @@ voice without retriggering the sample before later ticks schedule deterministic
 C mixer sample-step updates toward the target. No-active, zero-parameter,
 no-target, no-speed, clamped, and non-linear pitch-table cases are diagnosed as
 applicable, while `5xy` and volume-column tone portamento remain deferred.
+Minimal `4xy` vibrato now uses the same linear-frequency sample-step update
+foundation in the runtime/offline C mixer adapter path, with deterministic
+sine-based row-tick modulation diagnostics for speed/depth, active voice
+updates, no-active-voice, and effect-memory-deferred no-ops. `6xy`,
+volume-column vibrato, vibrato waveform controls, and broad effect memory remain
+deferred.
 Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
@@ -96,9 +102,10 @@ bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column, volume-column, and
 volume/panning state-update command frequency for focused follow-up diagnosis.
 It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
-`3xx` tone-portamento diagnostics, and deferred pitch-modulation counts and
-source coordinates for arpeggio, remaining portamento-family commands, vibrato,
-tremolo, and volume-column vibrato/tone-portamento commands, with a conservative
+`3xx` tone-portamento diagnostics, applied `4xy` vibrato diagnostics, and
+deferred pitch-modulation counts and source coordinates for arpeggio, remaining
+portamento-family commands, `6xy`, tremolo, and volume-column
+vibrato/tone-portamento commands, with a conservative
 pitch-effect next-PR recommendation when one bucket dominates local evidence.
 Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
@@ -127,8 +134,8 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`
-sample-step state. Unsupported/deferred effects and full tracker voice semantics
-remain separate targeted work. Developer-only bounded
+and `4xy` sample-step state. Unsupported/deferred effects and full tracker voice
+semantics remain separate targeted work. Developer-only bounded
 candidate WAV exports now also report Float32 output headroom/clipping
 diagnostics and can apply explicit `--gain` or `--headroom-db` before PCM16
 conversion without changing runtime playback, C mixer DSP semantics, or the
@@ -402,8 +409,9 @@ Immediate audio accuracy sequence:
 84. Remove AVAudioPlayerNode Legacy Backend — done
 85. Runtime Diagnostics Cleanup / Remove Obsolete Backend Debugging — done
 86. XM Effect Coverage Audit / Local Missing-Effect Target Selection — done
-87. Minimal 4xy Vibrato Foundation — recommended next effect PR
-88. Reference comparison stabilization against MikMod/OpenMPT
+87. Minimal 4xy Vibrato Foundation — done
+88. Next effect target from corpus evidence: E5x set finetune or 6xy vibrato + volume slide — recommended next effect PR
+89. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -518,6 +526,10 @@ Features:
   support for bounded offline adapted renders, with no-retrigger 3xx target
   setting, generic C mixer sample-step updates, diagnostics, and `5xy` plus
   volume-column tone portamento still deferred
+- minimal `4xy` vibrato support through deterministic linear-period
+  sample-step updates in the runtime/offline C mixer adapter path, with `400`,
+  zero speed/depth memory, `6xy`, volume-column vibrato, waveform controls, and
+  broad effect memory still deferred
 - minimal `E9x` retrigger support for bounded offline adapted renders, with
   `E90` effect memory and retrigger volume-change variants still deferred
 - minimal `ECx` note cut and `EDx` note delay support for bounded offline
@@ -539,8 +551,8 @@ Features:
   candidate WAV exports, with aggregate/per-window capacity diagnostics and
   practical carryover of active sample position, forward/ping-pong loop state,
   volume-envelope position, key-off/release, fadeout, gain, pan, and active
-  `1xx`/`2xx`/`3xx` sample-step state across fresh C mixer windows where the bounded
-  adapter can determine it
+  `1xx`/`2xx`/`3xx`/`4xy` sample-step state across fresh C mixer windows where
+  the bounded adapter can determine it
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback

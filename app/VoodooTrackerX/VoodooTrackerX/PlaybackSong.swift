@@ -360,6 +360,33 @@ struct RuntimeCMixerAdapterEvent: Equatable {
     let scheduledFrame: Int
     let action: RuntimeCMixerAdapterEventAction
     let categories: [String]
+    let effectType: UInt8?
+    let effectParam: UInt8?
+    let volumeColumn: UInt8?
+
+    init(
+        id: Int,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticTick: Int,
+        scheduledFrame: Int,
+        action: RuntimeCMixerAdapterEventAction,
+        categories: [String],
+        effectType: UInt8? = nil,
+        effectParam: UInt8? = nil,
+        volumeColumn: UInt8? = nil
+    ) {
+        self.id = id
+        self.source = source
+        self.channelIndex = channelIndex
+        self.syntheticTick = syntheticTick
+        self.scheduledFrame = scheduledFrame
+        self.action = action
+        self.categories = categories
+        self.effectType = effectType
+        self.effectParam = effectParam
+        self.volumeColumn = volumeColumn
+    }
 
     var primaryCategory: String {
         categories.first ?? "unknown"
@@ -516,6 +543,26 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
                     categories: ["step_update", "portamento_update"]
+                ))
+                nextID += 1
+            }
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.vibratoEffects where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: ["step_update", "vibrato_update"],
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
                 ))
                 nextID += 1
             }
@@ -781,6 +828,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let retriggerEffects: [PlaybackSongSyntheticRetriggerDiagnostic]
     let tonePortamentoEffects: [PlaybackSongSyntheticTonePortamentoDiagnostic]
     let portamentoSlideEffects: [PlaybackSongSyntheticPortamentoSlideDiagnostic]
+    let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
     let ignoredCells: [PlaybackSongSyntheticIgnoredCell]
@@ -833,6 +881,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var portamentoSlideEffectCount: Int {
         portamentoSlideEffects.count
+    }
+
+    var vibratoEffectCount: Int {
+        vibratoEffects.count
     }
 
     var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
@@ -971,6 +1023,7 @@ extension PlaybackSongSyntheticDiagnostics {
             retriggerEffects: retriggerEffects,
             tonePortamentoEffects: tonePortamentoEffects,
             portamentoSlideEffects: portamentoSlideEffects,
+            vibratoEffects: vibratoEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
             ignoredCells: ignoredCells,
@@ -1511,6 +1564,44 @@ struct PlaybackSongSyntheticPortamentoSlideDiagnostic: Equatable {
     let rowBPM: Int
     let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
+    let policy: String
+}
+
+struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noActiveVoice
+        case zeroParamEffectMemoryDeferred
+        case zeroSpeedOrDepthEffectMemoryDeferred
+        case unsupportedFrequencyTable
+        case outOfRange
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let vibratoSpeed: Int
+    let vibratoDepth: Int
+    let phaseBefore: Double
+    let phaseAfter: Double
+    let currentLinearPeriodBefore: Double?
+    let currentLinearPeriodAfter: Double?
+    let currentPlaybackStepBefore: Double?
+    let currentPlaybackStepAfter: Double?
+    let rowSpeed: Int
+    let rowBPM: Int
+    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
 }
 
@@ -2239,6 +2330,7 @@ enum PlaybackSongSyntheticAdapter {
         var tonePortamentoTargetLinearPeriod: Double?
         var tonePortamentoTargetPlaybackStep: Double?
         var tonePortamentoSpeed: Int?
+        var vibratoPhase: Double = 0
 
         var pan: Float {
             PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
@@ -2485,6 +2577,7 @@ enum PlaybackSongSyntheticAdapter {
         var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
         var tonePortamentoEffects = [PlaybackSongSyntheticTonePortamentoDiagnostic]()
         var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
+        var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
         var eventMappings = [PlaybackSongSyntheticEventMapping]()
@@ -2565,6 +2658,7 @@ enum PlaybackSongSyntheticAdapter {
                     retriggerEffects: &retriggerEffects,
                     tonePortamentoEffects: &tonePortamentoEffects,
                     portamentoSlideEffects: &portamentoSlideEffects,
+                    vibratoEffects: &vibratoEffects,
                     keyOffEvents: &keyOffEvents,
                     effectCommandDiagnostics: &effectCommandDiagnostics,
                     eventMappings: &eventMappings,
@@ -2603,6 +2697,7 @@ enum PlaybackSongSyntheticAdapter {
                 retriggerEffects: retriggerEffects,
                 tonePortamentoEffects: tonePortamentoEffects,
                 portamentoSlideEffects: portamentoSlideEffects,
+                vibratoEffects: vibratoEffects,
                 keyOffEvents: keyOffEvents,
                 eventMappings: eventMappings,
                 ignoredCells: ignoredCells,
@@ -2631,6 +2726,7 @@ enum PlaybackSongSyntheticAdapter {
         retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
         tonePortamentoEffects: inout [PlaybackSongSyntheticTonePortamentoDiagnostic],
         portamentoSlideEffects: inout [PlaybackSongSyntheticPortamentoSlideDiagnostic],
+        vibratoEffects: inout [PlaybackSongSyntheticVibratoDiagnostic],
         keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
         effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
@@ -2663,6 +2759,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasRetriggerEffect = extendedSubcommand == 0x09
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
+            let hasVibrato = isVibratoEffect(cell)
             let hasDeferredEffectCell = hasDeferredEffect(cell)
             if let update = voiceStateUpdate(
                 source: source,
@@ -2740,6 +2837,19 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState
                 )
                 portamentoSlideEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
                 channelStates[channelIndex] = channelState
             }
             if hasTonePortamento, cell.note != 97 {
@@ -3158,6 +3268,19 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState
                 )
                 portamentoSlideEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibrato {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
                 channelStates[channelIndex] = channelState
             }
             if let noteDelay, noteDelay.applied {
@@ -4017,6 +4140,272 @@ enum PlaybackSongSyntheticAdapter {
             rowBPM: timingConfig.bpm,
             stepUpdates: stepUpdates,
             clamped: clamped,
+            policy: policy
+        )
+    }
+
+    private static func handleVibrato(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticVibratoDiagnostic {
+        let speed = Int((cell.effectParam & 0xF0) >> 4)
+        let depth = Int(cell.effectParam & 0x0F)
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let phaseBefore = channelState.vibratoPhase
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+
+        guard cell.effectParam != 0 else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroParamEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "400_no_effect_memory_no_op"
+            )
+        }
+
+        guard speed > 0, depth > 0 else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroSpeedOrDepthEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "zero_speed_or_depth_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let baseLinearPeriod = channelState.activeLinearPeriod,
+              let basePlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        var phase = channelState.vibratoPhase
+        var currentLinearPeriod = baseLinearPeriod
+        var currentPlaybackStep = basePlaybackStep
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        let rowSpeed = max(1, timingConfig.speed)
+        let periodDepth = Double(depth) * 4.0
+        for tick in 1..<rowSpeed {
+            let beforePeriod = currentLinearPeriod
+            let beforeStep = currentPlaybackStep
+            phase += Double(speed) * (.pi / 32.0)
+            let modulatedPeriod = clampedLinearPeriod(baseLinearPeriod - (sin(phase) * periodDepth))
+            guard let nextStep = playbackStep(
+                linearPeriod: modulatedPeriod,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                channelState.vibratoPhase = phase
+                return vibratoDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .outOfRange,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    speed: speed,
+                    depth: depth,
+                    phaseBefore: phaseBefore,
+                    phaseAfter: channelState.vibratoPhase,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    stepUpdates: stepUpdates,
+                    policy: "vibrato_pitch_out_of_range"
+                )
+            }
+            currentLinearPeriod = modulatedPeriod
+            currentPlaybackStep = nextStep
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentLinearPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: false
+            ))
+        }
+
+        if !stepUpdates.isEmpty,
+           abs(currentPlaybackStep - basePlaybackStep) > 0.000000001 {
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: rowSpeed,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
+                linearPeriodBefore: currentLinearPeriod,
+                linearPeriodAfter: baseLinearPeriod,
+                playbackStepBefore: currentPlaybackStep,
+                playbackStepAfter: basePlaybackStep,
+                reachedTarget: true
+            ))
+            currentLinearPeriod = baseLinearPeriod
+            currentPlaybackStep = basePlaybackStep
+        }
+
+        channelState.vibratoPhase = phase
+        channelState.activeLinearPeriod = currentLinearPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return vibratoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            speed: speed,
+            depth: depth,
+            phaseBefore: phaseBefore,
+            phaseAfter: channelState.vibratoPhase,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            stepUpdates: stepUpdates,
+            policy: "sine_linear_period_first_pass_waveform_controls_deferred"
+        )
+    }
+
+    private static func vibratoDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticVibratoDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        speed: Int,
+        depth: Int,
+        phaseBefore: Double,
+        phaseAfter: Double,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        policy: String
+    ) -> PlaybackSongSyntheticVibratoDiagnostic {
+        let applied = status == .applied
+        return PlaybackSongSyntheticVibratoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: status == .zeroParamEffectMemoryDeferred ||
+                status == .zeroSpeedOrDepthEffectMemoryDeferred ||
+                status == .unsupportedFrequencyTable ||
+                status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice ||
+                status == .zeroParamEffectMemoryDeferred ||
+                status == .zeroSpeedOrDepthEffectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            vibratoSpeed: speed,
+            vibratoDepth: depth,
+            phaseBefore: phaseBefore,
+            phaseAfter: phaseAfter,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
             policy: policy
         )
     }
@@ -5563,8 +5952,12 @@ enum PlaybackSongSyntheticAdapter {
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
         case 0x00 where cell.effectParam != 0,
-             0x04...0x07:
+             0x05...0x07:
             return .deferredUnsupported
+        case 0x04:
+            let speed = Int((cell.effectParam & 0xF0) >> 4)
+            let depth = Int(cell.effectParam & 0x0F)
+            return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
         case 0x01...0x02:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x03:
@@ -5698,6 +6091,7 @@ enum PlaybackSongSyntheticAdapter {
             isNonzeroSampleOffsetEffect(cell) ||
             isPortamentoSlideEffect(cell) ||
             isTonePortamentoEffect(cell) ||
+            isVibratoEffect(cell) ||
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||
@@ -5722,6 +6116,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isTonePortamentoEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x03
+    }
+
+    private static func isVibratoEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x04
     }
 
     private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
@@ -6091,7 +6489,7 @@ struct PlaybackSongWindowedRenderSummary: Equatable {
     static let firstRejectingWindowLimit = 10
     static let stateCarryoverLimitations = [
         "Windowed offline renders now carry practical active voice state across fresh C mixer windows.",
-        "Carryover is computed from the bounded adapter plan and includes sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, and active 1xx/2xx/3xx sample-step state.",
+        "Carryover is computed from the bounded adapter plan and includes sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, and active 1xx/2xx/3xx/4xy sample-step state.",
         "Unsupported/deferred XM effects and full FT2/OpenMPT parity remain out of scope, so effect-driven continuity can still be approximate.",
     ]
 
@@ -6241,6 +6639,11 @@ final class PlaybackSongOfflineRenderSession {
         )
         PlaybackSongOfflineRenderer.schedulePortamentoSlideStepUpdates(
             adaptedPlan.diagnostics.portamentoSlideEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
+        PlaybackSongOfflineRenderer.scheduleVibratoStepUpdates(
+            adaptedPlan.diagnostics.vibratoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer
         )
@@ -6399,6 +6802,13 @@ final class PlaybackSongOfflineRenderer {
             )
             Self.schedulePortamentoSlideStepUpdates(
                 adaptedPlan.diagnostics.portamentoSlideEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
+            Self.scheduleVibratoStepUpdates(
+                adaptedPlan.diagnostics.vibratoEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -6590,6 +7000,35 @@ final class PlaybackSongOfflineRenderer {
 
     fileprivate static func schedulePortamentoSlideStepUpdates(
         _ diagnostics: [PlaybackSongSyntheticPortamentoSlideDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for diagnostic in diagnostics where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                guard update.scheduledFrame >= windowStartFrame else {
+                    continue
+                }
+                if let windowEndFrame,
+                   update.scheduledFrame >= windowEndFrame {
+                    continue
+                }
+                _ = mixer.scheduleVoicePlaybackStepUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: update.scheduledFrame - windowStartFrame,
+                    playbackStep: update.playbackStepAfter
+                )
+            }
+        }
+    }
+
+    fileprivate static func scheduleVibratoStepUpdates(
+        _ diagnostics: [PlaybackSongSyntheticVibratoDiagnostic],
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
@@ -7009,7 +7448,10 @@ final class PlaybackSongOfflineRenderer {
         let slideUpdates = plan.diagnostics.portamentoSlideEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
-        return (toneUpdates + slideUpdates)
+        let vibratoUpdates = plan.diagnostics.vibratoEffects
+            .filter { $0.applied && $0.activeEventIndex == eventIndex }
+            .flatMap(\.stepUpdates)
+        return (toneUpdates + slideUpdates + vibratoUpdates)
             .sorted { lhs, rhs in
                 if lhs.scheduledFrame != rhs.scheduledFrame {
                     return lhs.scheduledFrame < rhs.scheduledFrame

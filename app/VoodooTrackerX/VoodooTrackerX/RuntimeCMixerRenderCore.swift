@@ -4068,9 +4068,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         case .gainPanUpdate, .stepUpdate, .noteCut:
             noteValue = nil
             instrumentIndex = nil
-            effectType = nil
-            effectParam = nil
-            volumeColumn = nil
+            effectType = event.effectType
+            effectParam = event.effectParam
+            volumeColumn = event.volumeColumn
         }
         return AudioRuntimeTraceContext(
             orderIndex: event.source.orderIndex,

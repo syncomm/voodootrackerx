@@ -800,7 +800,6 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         return RuntimeCMixerAudioGraphDiagnostics(
             snapshot: snapshot,
             routeLabel: routeLabel,
-            hostFormat: format,
             outputDevice: outputDevice,
             outputHostRunning: coreAudioOutputHost.isRunning
         )
@@ -839,18 +838,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 $0.outputDeviceIdentitySignature != graph.outputDeviceIdentitySignature
             } ?? false,
             outputSampleRateChanged: previousGraph.map {
-                Self.sampleRateChanged($0.outputNodeSampleRate, graph.outputNodeSampleRate) ||
-                    Self.sampleRateChanged($0.hardwareNominalSampleRate, graph.hardwareNominalSampleRate)
+                Self.sampleRateChanged($0.hardwareNominalSampleRate, graph.hardwareNominalSampleRate)
             } ?? false,
             outputChannelCountChanged: previousGraph.map {
-                $0.outputNodeChannelCount != graph.outputNodeChannelCount
+                $0.cMixerRenderChannelCount != graph.cMixerRenderChannelCount
             } ?? false,
             hardwareIOBufferDurationChanged: previousGraph.map {
                 Self.doubleChanged($0.hardwareIOBufferDuration, graph.hardwareIOBufferDuration)
             } ?? false,
-            outputNodeFormatChanged: previousGraph.map {
-                $0.outputNodeFormatSignature != graph.outputNodeFormatSignature
-            } ?? false
+            outputNodeFormatChanged: false
         )
         lastAudioGraphDiagnostics = graph
         return changes
@@ -1629,18 +1625,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeSampleRateConfigurationWarning: runtimeSampleRateSelection?.configurationWarning,
             cMixerRenderSampleRate: audioGraph.cMixerRenderSampleRate,
             cMixerRenderChannelCount: audioGraph.cMixerRenderChannelCount,
-            audioSourceNodeRenderSampleRate: audioGraph.sourceNodeRenderSampleRate,
-            audioSourceNodeChannelCount: audioGraph.sourceNodeChannelCount,
-            audioEngineMainMixerOutputSampleRate: audioGraph.mainMixerOutputSampleRate,
-            audioEngineMainMixerOutputChannelCount: audioGraph.mainMixerOutputChannelCount,
-            audioEngineMainMixerInputSampleRate: audioGraph.mainMixerInputSampleRate,
-            audioEngineMainMixerInputChannelCount: audioGraph.mainMixerInputChannelCount,
-            audioEngineMainMixerLatency: audioGraph.mainMixerLatency,
-            audioEngineMainMixerOutputPresentationLatency: audioGraph.mainMixerOutputPresentationLatency,
-            audioEngineOutputNodeSampleRate: audioGraph.outputNodeSampleRate,
-            audioEngineOutputNodeChannelCount: audioGraph.outputNodeChannelCount,
-            audioEngineOutputNodeLatency: audioGraph.outputNodeLatency,
-            audioEngineOutputNodeOutputPresentationLatency: audioGraph.outputNodeOutputPresentationLatency,
+            audioSourceNodeRenderSampleRate: nil,
+            audioSourceNodeChannelCount: nil,
+            audioEngineMainMixerOutputSampleRate: nil,
+            audioEngineMainMixerOutputChannelCount: nil,
+            audioEngineMainMixerInputSampleRate: nil,
+            audioEngineMainMixerInputChannelCount: nil,
+            audioEngineMainMixerLatency: nil,
+            audioEngineMainMixerOutputPresentationLatency: nil,
+            audioEngineOutputNodeSampleRate: nil,
+            audioEngineOutputNodeChannelCount: nil,
+            audioEngineOutputNodeLatency: nil,
+            audioEngineOutputNodeOutputPresentationLatency: nil,
             audioHardwareNominalSampleRate: audioGraph.hardwareNominalSampleRate,
             audioHardwareDeviceID: audioGraph.outputDeviceID,
             audioHardwareDeviceUIDHash: audioGraph.outputDeviceUIDHash,
@@ -1654,9 +1650,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareTransportType: audioGraph.hardwareTransportType,
             audioHardwareTransportTypeName: audioGraph.hardwareTransportTypeName,
             audioEngineRunning: audioGraph.engineRunning,
-            audioEngineSourceNodeAttached: audioGraph.sourceNodeAttached,
-            audioEngineSourceNodeConnected: audioGraph.sourceNodeConnected,
-            audioEngineMainMixerConnectedToOutput: audioGraph.mainMixerConnectedToOutput,
+            audioEngineSourceNodeAttached: false,
+            audioEngineSourceNodeConnected: false,
+            audioEngineMainMixerConnectedToOutput: false,
             audioEngineConfigurationChangeCount: engineConfigurationChangeCount,
             audioEngineRestartCount: audioEngineRestartCount,
             audioGraphFormatChangeCount: audioGraphFormatChangeCount,
@@ -1669,8 +1665,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareIOBufferDurationChanged: audioGraphChanges.hardwareIOBufferDurationChanged,
             audioEngineOutputNodeFormatChanged: audioGraphChanges.outputNodeFormatChanged,
             audioFormatConversionLikely: audioGraph.formatConversionLikely,
-            runtimeCaptureMatchesSourceNodeFormat: audioGraph.captureMatchesSourceNodeFormat,
-            runtimeCaptureMatchesEngineOutputFormat: audioGraph.captureMatchesEngineOutputFormat,
+            runtimeCaptureMatchesSourceNodeFormat: nil,
+            runtimeCaptureMatchesEngineOutputFormat: nil,
             runtimeCaptureMatchesHardwareSampleRate: audioGraph.captureMatchesHardwareSampleRate,
             cMixerRenderedFrames: sampleTimePosition.cMixerRenderedFrames,
             cMixerPlaybackSeconds: sampleTimePosition.cMixerPlaybackSeconds,
@@ -2019,18 +2015,18 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             runtimeSampleRateConfigurationWarning: runtimeSampleRateSelection?.configurationWarning,
             cMixerRenderSampleRate: graph.cMixerRenderSampleRate,
             cMixerRenderChannelCount: graph.cMixerRenderChannelCount,
-            audioSourceNodeRenderSampleRate: graph.sourceNodeRenderSampleRate,
-            audioSourceNodeChannelCount: graph.sourceNodeChannelCount,
-            audioEngineMainMixerOutputSampleRate: graph.mainMixerOutputSampleRate,
-            audioEngineMainMixerOutputChannelCount: graph.mainMixerOutputChannelCount,
-            audioEngineMainMixerInputSampleRate: graph.mainMixerInputSampleRate,
-            audioEngineMainMixerInputChannelCount: graph.mainMixerInputChannelCount,
-            audioEngineMainMixerLatency: graph.mainMixerLatency,
-            audioEngineMainMixerOutputPresentationLatency: graph.mainMixerOutputPresentationLatency,
-            audioEngineOutputNodeSampleRate: graph.outputNodeSampleRate,
-            audioEngineOutputNodeChannelCount: graph.outputNodeChannelCount,
-            audioEngineOutputNodeLatency: graph.outputNodeLatency,
-            audioEngineOutputNodeOutputPresentationLatency: graph.outputNodeOutputPresentationLatency,
+            audioSourceNodeRenderSampleRate: nil,
+            audioSourceNodeChannelCount: nil,
+            audioEngineMainMixerOutputSampleRate: nil,
+            audioEngineMainMixerOutputChannelCount: nil,
+            audioEngineMainMixerInputSampleRate: nil,
+            audioEngineMainMixerInputChannelCount: nil,
+            audioEngineMainMixerLatency: nil,
+            audioEngineMainMixerOutputPresentationLatency: nil,
+            audioEngineOutputNodeSampleRate: nil,
+            audioEngineOutputNodeChannelCount: nil,
+            audioEngineOutputNodeLatency: nil,
+            audioEngineOutputNodeOutputPresentationLatency: nil,
             audioHardwareNominalSampleRate: graph.hardwareNominalSampleRate,
             audioHardwareDeviceID: graph.outputDeviceID,
             audioHardwareDeviceUIDHash: graph.outputDeviceUIDHash,
@@ -2044,9 +2040,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareTransportType: graph.hardwareTransportType,
             audioHardwareTransportTypeName: graph.hardwareTransportTypeName,
             audioEngineRunning: graph.engineRunning,
-            audioEngineSourceNodeAttached: graph.sourceNodeAttached,
-            audioEngineSourceNodeConnected: graph.sourceNodeConnected,
-            audioEngineMainMixerConnectedToOutput: graph.mainMixerConnectedToOutput,
+            audioEngineSourceNodeAttached: false,
+            audioEngineSourceNodeConnected: false,
+            audioEngineMainMixerConnectedToOutput: false,
             audioEngineConfigurationChangeCount: engineConfigurationChangeCount,
             audioEngineRestartCount: audioEngineRestartCount,
             audioGraphFormatChangeCount: audioGraphFormatChangeCount,
@@ -2059,8 +2055,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             audioHardwareIOBufferDurationChanged: changes.hardwareIOBufferDurationChanged,
             audioEngineOutputNodeFormatChanged: changes.outputNodeFormatChanged,
             audioFormatConversionLikely: graph.formatConversionLikely,
-            runtimeCaptureMatchesSourceNodeFormat: graph.captureMatchesSourceNodeFormat,
-            runtimeCaptureMatchesEngineOutputFormat: graph.captureMatchesEngineOutputFormat,
+            runtimeCaptureMatchesSourceNodeFormat: nil,
+            runtimeCaptureMatchesEngineOutputFormat: nil,
             runtimeCaptureMatchesHardwareSampleRate: graph.captureMatchesHardwareSampleRate,
             cMixerRenderedFrames: snapshot.currentFrame,
             cMixerPlaybackSeconds: snapshot.sampleRate > 0 ? Double(snapshot.currentFrame) / snapshot.sampleRate : nil,

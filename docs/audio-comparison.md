@@ -300,7 +300,9 @@ without changing the default AVAudio backend.
 `VTX_C_MIXER_RUNTIME_VERIFY_OUTPUT_COPY=1` enables the optional
 scratch/capture/output hash verifier for short local diagnostics; it is off by
 default so normal experimental callback diagnostics use fixed-capacity ring
-buffers and counters instead of growing diagnostic collections. If that ring
+buffers, fixed top peak/jump slots, and counters instead of growing diagnostic
+collections. The CoreAudio callback records render/copy/timing counters through
+one non-blocking render-core entry in the normal path. If the diagnostic ring
 fills, the trace summary reports `callbackDiagnosticDropCount` and continues
 without allocating more callback storage. A useful local isolation matrix is:
 trace plus capture with normal follow publication, trace/capture disabled with
@@ -488,7 +490,7 @@ output-unit `OSStatus` breadcrumbs, C mixer render sample rate/channel count,
 default output device nominal sample rate, hardware buffer frame size/duration
 when accessible, `audioFormatConversionLikely`, and whether capture format
 matches the hardware sample rate. Legacy SourceNode graph fields may be absent
-in new CoreAudio-hosted traces.
+or reported as nil/false in new CoreAudio-hosted traces.
 Callback timing fields report requested frame ranges, min/max/average callback
 duration, conservative duration warning counts, estimated render quantum
 duration, callbacks over the render quantum budget, and callback-to-callback

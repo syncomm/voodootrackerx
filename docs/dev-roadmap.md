@@ -29,8 +29,11 @@ synthetic one-shot sample voices plus
 synthetic forward and ping-pong loops, volume/panning envelope foundations,
 absolute-frame, row/tick scheduled, minimal synthetic pattern voices, and tiny
 bounded `PlaybackSong` adapter segments through the offline harness with
-source-to-synthetic diagnostics. Those bounded candidate renders can now be
-written as deterministic PCM16 WAV files for local comparison. Parsed
+source-to-synthetic diagnostics. The CoreAudio runtime C mixer render core now
+keeps the normal callback path to one non-blocking render/copy/counter entry
+with fixed-capacity callback diagnostics, while broader host hardening and
+manual corpus listening remain future work. Those bounded candidate renders can
+now be written as deterministic PCM16 WAV files for local comparison. Parsed
 `PlaybackInstrument.volumeEnvelope` points can be converted into the C-backed
 frame-based envelope representation for those bounded offline adapted renders
 only, with first-pass sustain, envelope loop, note value `97` key-off release,
@@ -378,9 +381,11 @@ Immediate audio accuracy sequence:
 75. ADR: Alternative Runtime Output Host for C Mixer — done
 76. Runtime C Mixer CoreAudio/AUAudioUnit Output Host Spike — done
 77. Runtime C Mixer Output Host A/B Listening and Capture Comparison — done
-78. Runtime C Mixer Song-End Stop / Tail Handling — planned separate follow-up
-79. Runtime C Mixer CoreAudio Host Hardening — planned separate follow-up
-80. Reference comparison stabilization against MikMod/OpenMPT
+78. Runtime C Mixer Song-End Stop / Tail Handling — done
+79. Deprecate AVAudioSourceNode C Mixer Backend / Prefer CoreAudio Experimental Host — done
+80. Runtime C Mixer CoreAudio Render Core Slimdown / Realtime Boundary Hardening — done
+81. Runtime C Mixer CoreAudio Host Hardening / Manual Corpus Pass — planned separate follow-up
+82. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -456,6 +461,9 @@ Features:
 - runtime C mixer song-end/tail handling for `c_mixer` and `c_mixer_coreaudio`,
   with capture duration remaining capture-only and AVAudio still the default
   runtime backend
+- CoreAudio runtime C mixer render-core slimdown that keeps the normal callback
+  path to render, output-buffer copy, fixed counters, and fixed-capacity
+  diagnostics, with no SourceNode host reintroduction
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging

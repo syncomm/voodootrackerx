@@ -62,6 +62,21 @@ For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic
 
 Developers can opt into the experimental CoreAudio-hosted runtime C mixer with `VTX_AUDIO_BACKEND=c_mixer`; `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remains accepted as an alias. Unset or unknown values keep the default AVAudio backend.
 
+For local smoke runs that should open a private module, start playback, and then
+stop automatically after a short pattern-transition window, set the launch
+environment before opening the Debug app:
+
+```bash
+launchctl setenv VTX_OPEN_PATH /path/to/local-reference-module.xm
+launchctl setenv VTX_DEBUG_AUTOPLAY 1
+launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 10
+open build/Build/Products/Debug/VoodooTrackerX.app
+```
+
+Increase `VTX_DEBUG_STOP_AFTER_SECONDS` when the local smoke target needs more
+than 10 seconds to cross the pattern boundary you are checking. Clear the
+LaunchServices overrides with `launchctl unsetenv` after the smoke run.
+
 ## Developer Audio Comparison
 
 Detailed audio comparison guidance lives in [docs/audio-comparison.md](docs/audio-comparison.md). Local/private modules may be used for manual listening, smoke testing, bounded candidate WAV renders, and local reference comparisons, but they are not repo fixtures and must not be committed, uploaded, copied into tests, or required by CI.

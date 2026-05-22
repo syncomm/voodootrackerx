@@ -1879,10 +1879,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let volumeTonePortamento = try XCTUnwrap(coordinates.first { $0["effect_label"] as? String == "volume-column tone portamento" })
         let effectTonePortamento = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "3xx tone portamento" })
         let portamentoSlides = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
+        let vibratoEffects = try XCTUnwrap(object["vibrato_effects"] as? [[String: Any]])
 
         [
             "total_arpeggio_count",
-            "total_vibrato_count",
             "total_tone_portamento_volume_slide_count",
             "total_vibrato_volume_slide_count",
             "total_tremolo_count",
@@ -1890,11 +1890,15 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "total_volume_column_vibrato_count",
             "total_volume_column_tone_portamento_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_vibrato_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_up_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_down_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 8)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 8)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 7)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 7)
+        XCTAssertEqual(render["vibrato_4xy_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_4xy_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_4xy_scheduled_sample_step_update_count"] as? Int, 6)
         XCTAssertEqual(render["tone_portamento_3xx_effect_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_3xx_no_active_voice_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_1xx_effect_count"] as? Int, 1)
@@ -1903,10 +1907,15 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
         XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
-        XCTAssertEqual(coordinates.count, 8)
+        XCTAssertEqual(coordinates.count, 7)
         XCTAssertEqual(portamentoSlides.count, 2)
         XCTAssertEqual(portamentoSlides.map { $0["current_status"] as? String }, ["applied", "applied"])
         XCTAssertEqual(portamentoSlides.map { $0["slide_direction"] as? String }, ["up", "down"])
+        XCTAssertEqual(vibratoEffects.count, 1)
+        XCTAssertEqual(vibratoEffects.first?["current_status"] as? String, "applied")
+        XCTAssertEqual(vibratoEffects.first?["speed"] as? Int, 4)
+        XCTAssertEqual(vibratoEffects.first?["depth"] as? Int, 8)
+        XCTAssertEqual(vibratoEffects.first?["scheduled_sample_step_update_count"] as? Int, 6)
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
@@ -1922,6 +1931,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "3xx tone portamento" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "1xx portamento up" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "2xx portamento down" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "4xy vibrato" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })

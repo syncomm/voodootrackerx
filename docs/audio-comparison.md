@@ -45,7 +45,11 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
 minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento, and
-minimal `E9x` retriggers for the tracked active adapted voice.
+minimal `4xy` vibrato and `E9x` retriggers for the tracked active adapted
+voice. The `4xy` foundation uses deterministic sine-based linear-period
+sample-step updates on row ticks in the shared runtime/offline C mixer adapter
+path; `400`, zero speed/depth memory, `6xy`, volume-column vibrato, and vibrato
+waveform controls remain deferred.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
 bounded offline renders from the update frame forward. Those bounded/offline
@@ -80,6 +84,9 @@ usage, sample-map/keymap selections, fallback-after-invalid-map cases,
 skipped-no-valid-sample cases, missing/deferred keymap state, current C mixer
 scheduled/active capacity values, accepted scheduled voices, capacity reject
 counts, and rejected event coordinates.
+Diagnostics JSON also reports `vibrato_effects` plus render counters such as
+`vibrato_4xy_effect_count`, applied/no-active/effect-memory-deferred buckets,
+and scheduled sample-step update counts for first-pass `4xy` coverage.
 The helper also reports export-level headroom and clipping diagnostics for the
 Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export

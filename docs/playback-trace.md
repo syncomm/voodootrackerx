@@ -571,8 +571,12 @@ Runtime C mixer trace rows may include:
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
-retriggers, `1xx`/`2xx`/`3xx` portamento updates, sample offsets, and
-volume-column set volume/panning. Unsupported XM effects remain unsupported.
+retriggers, `1xx`/`2xx`/`3xx` portamento updates, minimal `4xy` vibrato
+sample-step updates, sample offsets, and volume-column set volume/panning.
+Adapter-sourced `4xy` rows carry the effect type/parameter on the runtime
+update row so coverage summaries can count applied vibrato. `6xy`,
+volume-column vibrato, vibrato waveform controls, and effect-memory reuse
+remain unsupported/deferred. Unsupported XM effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.
 

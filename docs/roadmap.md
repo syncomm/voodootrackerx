@@ -571,6 +571,11 @@ offline-render responsibilities separate.
 ### PR 2.7.11aj — Minimal 4xy Vibrato Foundation
 - Scope: implement only the smallest useful XM `4xy` vibrato behavior through the bounded/offline C mixer adapter and runtime C mixer adapter plan where applicable, preserving existing parser architecture, tracker viewport behavior, backend defaults, and C mixer DSP semantics unless a narrow pitch-update diagnostic/application hook is required.
 - Verification: deterministic hand-built `PlaybackSong` tests for vibrato speed/depth decoding, tick-phase pitch modulation, zero-parameter/effect-memory behavior as scoped, interaction with current linear-frequency pitch mapping, windowed carryover, runtime trace fields if bridged, and existing bounded render/audio comparison tests; no private/local module fixtures.
+- Status: done.
+
+### PR 2.7.11ak — Next Effect Target Selection: E5x or 6xy
+- Scope: use the remaining local corpus evidence after `4xy` support to choose the next narrow effect implementation. `E5x` set finetune remains the leading non-vibrato gap from the prior corpus audit, while `6xy` vibrato + volume slide remains a separate vibrato-family follow-up; do not combine them with unrelated effect work.
+- Verification: synthetic fixtures for the chosen effect, effect coverage summary before/after counts, existing runtime/offline render tests, and local-only corpus smoke artifacts kept out of git.
 - Status: recommended next effect PR.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT

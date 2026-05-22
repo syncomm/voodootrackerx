@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize local runtime C mixer JSONL traces for A/B diagnostics."""
+"""Summarize local runtime C mixer JSONL traces."""
 
 from __future__ import annotations
 
@@ -164,6 +164,15 @@ def last_exact_integer(events: list[dict[str, Any]], field: str) -> int | None:
     return None
 
 
+def last_exact_integer_any(events: list[dict[str, Any]], *fields: str) -> int | None:
+    for event in reversed(events):
+        for field in fields:
+            value = exact_integer(event.get(field))
+            if value is not None:
+                return value
+    return None
+
+
 def first_string(events: list[dict[str, Any]], field: str) -> str | None:
     for event in events:
         value = event.get(field)
@@ -193,6 +202,15 @@ def last_bool(events: list[dict[str, Any]], field: str) -> bool | None:
         value = event.get(field)
         if isinstance(value, bool):
             return value
+    return None
+
+
+def last_bool_any(events: list[dict[str, Any]], *fields: str) -> bool | None:
+    for event in reversed(events):
+        for field in fields:
+            value = event.get(field)
+            if isinstance(value, bool):
+                return value
     return None
 
 
@@ -2274,8 +2292,10 @@ def build_summary(
         ramp_down_completion_count=ramp_down_completion_count,
         abrupt_ramp_down_stop_count=abrupt_ramp_down_stop_count,
     )
-    engine_configuration_change_count = int(max_numeric(events, "audioEngineConfigurationChangeCount") or 0)
-    engine_restart_count = int(max_numeric(events, "audioEngineRestartCount") or 0)
+    output_host_configuration_change_count = int(
+        max_numeric(events, "runtimeOutputHostConfigurationChangeCount", "audioEngineConfigurationChangeCount") or 0
+    )
+    output_host_start_count = int(max_numeric(events, "runtimeOutputHostStartCount", "audioEngineRestartCount") or 0)
     graph_format_change_count = int(max_numeric(events, "audioGraphFormatChangeCount") or 0)
     output_route_change_count = int(max_numeric(events, "audioOutputRouteChangeCount") or 0)
     graph_format_changed = any(event.get("audioGraphFormatChanged") is True for event in events)
@@ -2284,7 +2304,7 @@ def build_summary(
     output_sample_rate_changed = any(event.get("audioOutputSampleRateChanged") is True for event in events)
     output_channel_count_changed = any(event.get("audioOutputChannelCountChanged") is True for event in events)
     io_buffer_duration_changed = any(event.get("audioHardwareIOBufferDurationChanged") is True for event in events)
-    output_node_format_changed = any(event.get("audioEngineOutputNodeFormatChanged") is True for event in events)
+    legacy_output_node_format_changed = any(event.get("audioEngineOutputNodeFormatChanged") is True for event in events)
     format_conversion_likely = last_bool(events, "audioFormatConversionLikely")
     source_clean_bool = source_capture_clean(capture)
     output_copy_clean_bool = output_copy_verifier_clean(output_buffer_copy)
@@ -2307,7 +2327,7 @@ def build_summary(
         callback_candidate_bool = False
     route_or_config_changed = (
         output_route_change_count > 0
-        or engine_configuration_change_count > 0
+        or output_host_configuration_change_count > 0
         or graph_format_change_count > 0
         or output_route_changed
         or graph_format_changed
@@ -2315,7 +2335,7 @@ def build_summary(
         or output_sample_rate_changed
         or output_channel_count_changed
         or io_buffer_duration_changed
-        or output_node_format_changed
+        or legacy_output_node_format_changed
     )
     route_device_candidate_bool = route_device_candidate_cause(
         source_clean=source_clean_bool,
@@ -2413,10 +2433,10 @@ def build_summary(
         suspicious_findings.append("PlaybackEngine position and C mixer sample-time position diverge over time")
     if any(published_follow_divergent(row) for row in published_position_delta_rows):
         suspicious_findings.append("Published playback-follow position and C mixer sample-time position mismatch observed")
-    if engine_configuration_change_count > 0:
-        suspicious_findings.append("AVAudioEngine configuration changes observed during playback")
+    if output_host_configuration_change_count > 0:
+        suspicious_findings.append("runtime output host configuration changes observed during playback")
     if graph_format_changed:
-        suspicious_findings.append("AVAudio graph format changes observed during playback")
+        suspicious_findings.append("CoreAudio output format changes observed during playback")
     if output_route_changed:
         suspicious_findings.append("output route/device changes observed during playback")
     if lifecycle["capture_cap_triggered_stop"] is True:
@@ -2467,7 +2487,7 @@ def build_summary(
         or output_copy_scratch_output_matches is False
     ):
         recommended_next_pr = "Runtime C Mixer CoreAudio Callback Deadline / Output Delivery Follow-Up"
-    elif engine_configuration_change_count > 0 or output_route_changed:
+    elif output_host_configuration_change_count > 0 or output_route_changed:
         recommended_next_pr = "Runtime C Mixer CoreAudio Output Device / Route Follow-Up"
     elif published_follow_has_material_drift:
         recommended_next_pr = "Runtime C Mixer Published Follow Position Bridge Follow-Up"
@@ -2501,6 +2521,10 @@ def build_summary(
         backend_selection_mode = "fallback_default"
     else:
         backend_selection_mode = "explicit"
+    runtime_c_mixer_enabled = backend_runtime_audio_backend in {"c_mixer", "c_mixer_coreaudio"}
+    legacy_experimental_flag = first_bool(events, "experimentalCMixerEnabled")
+    if not runtime_c_mixer_enabled and legacy_experimental_flag is not None:
+        runtime_c_mixer_enabled = legacy_experimental_flag
 
     return {
         "schema_version": 1,
@@ -2513,9 +2537,14 @@ def build_summary(
             "requested_backend_flag_value": backend_requested_flag_value,
             "fallback_reason": backend_fallback_reason,
             "selection_mode": backend_selection_mode,
-            "experimental_c_mixer_enabled": first_bool(events, "experimentalCMixerEnabled"),
-            "alternative_runtime_output_host_enabled": first_bool(events, "alternativeRuntimeOutputHostEnabled"),
+            "runtime_c_mixer_enabled": runtime_c_mixer_enabled,
             "runtime_output_host_type": first_string(events, "runtimeOutputHostType"),
+            "runtime_output_host_running": last_bool_any(events, "runtimeOutputHostRunning", "audioEngineRunning"),
+            "runtime_output_host_start_count": last_exact_integer_any(
+                events,
+                "runtimeOutputHostStartCount",
+                "audioEngineRestartCount",
+            ),
             "runtime_output_host_prepare_status": last_exact_integer(events, "runtimeOutputHostPrepareStatus"),
             "runtime_output_host_initialize_status": last_exact_integer(events, "runtimeOutputHostInitializeStatus"),
             "runtime_output_host_start_status": last_exact_integer(events, "runtimeOutputHostStartStatus"),
@@ -2568,18 +2597,6 @@ def build_summary(
             "runtime_output_host_channel_count": integer(last_number(events, "cMixerRenderChannelCount")),
             "c_mixer_render_sample_rate": rounded(last_number(events, "cMixerRenderSampleRate") or 0.0),
             "c_mixer_render_channel_count": integer(last_number(events, "cMixerRenderChannelCount")),
-            "source_node_render_sample_rate": rounded_optional(last_number(events, "audioSourceNodeRenderSampleRate")),
-            "source_node_channel_count": integer(last_number(events, "audioSourceNodeChannelCount")),
-            "main_mixer_output_sample_rate": rounded_optional(last_number(events, "audioEngineMainMixerOutputSampleRate")),
-            "main_mixer_output_channel_count": integer(last_number(events, "audioEngineMainMixerOutputChannelCount")),
-            "main_mixer_input_sample_rate": rounded_optional(last_number(events, "audioEngineMainMixerInputSampleRate")),
-            "main_mixer_input_channel_count": integer(last_number(events, "audioEngineMainMixerInputChannelCount")),
-            "main_mixer_latency_seconds": rounded_optional(last_number(events, "audioEngineMainMixerLatency")),
-            "main_mixer_output_presentation_latency_seconds": rounded_optional(last_number(events, "audioEngineMainMixerOutputPresentationLatency")),
-            "output_node_sample_rate": rounded_optional(last_number(events, "audioEngineOutputNodeSampleRate")),
-            "output_node_channel_count": integer(last_number(events, "audioEngineOutputNodeChannelCount")),
-            "output_node_latency_seconds": rounded_optional(last_number(events, "audioEngineOutputNodeLatency")),
-            "output_node_output_presentation_latency_seconds": rounded_optional(last_number(events, "audioEngineOutputNodeOutputPresentationLatency")),
             "hardware_nominal_sample_rate": rounded_optional(last_number(events, "audioHardwareNominalSampleRate")),
             "hardware_device_id": last_exact_integer(events, "audioHardwareDeviceID"),
             "hardware_device_uid_hash": last_string(events, "audioHardwareDeviceUIDHash"),
@@ -2592,13 +2609,9 @@ def build_summary(
             "hardware_safety_offset_duration_seconds": rounded_optional(last_number(events, "audioHardwareSafetyOffsetDuration")),
             "hardware_transport_type": last_exact_integer(events, "audioHardwareTransportType"),
             "hardware_transport_type_name": last_string(events, "audioHardwareTransportTypeName"),
-            "output_host_running": last_bool(events, "audioEngineRunning"),
-            "engine_running": last_bool(events, "audioEngineRunning"),
-            "source_node_attached": last_bool(events, "audioEngineSourceNodeAttached"),
-            "source_node_connected": last_bool(events, "audioEngineSourceNodeConnected"),
-            "main_mixer_connected_to_output": last_bool(events, "audioEngineMainMixerConnectedToOutput"),
-            "engine_configuration_change_count": engine_configuration_change_count,
-            "engine_restart_count": engine_restart_count,
+            "output_host_running": last_bool_any(events, "runtimeOutputHostRunning", "audioEngineRunning"),
+            "output_host_configuration_change_count": output_host_configuration_change_count,
+            "output_host_start_count": output_host_start_count,
             "graph_format_change_count": graph_format_change_count,
             "output_route_change_count": output_route_change_count,
             "graph_format_changed": graph_format_changed,
@@ -2607,12 +2620,8 @@ def build_summary(
             "output_sample_rate_changed": output_sample_rate_changed,
             "output_channel_count_changed": output_channel_count_changed,
             "io_buffer_duration_changed": io_buffer_duration_changed,
-            "output_node_format_changed": output_node_format_changed,
             "route_change_event_count": action_counts["audio_output_route_changed"],
-            "output_node_format_change_event_count": action_counts["audio_output_node_format_changed"],
             "format_conversion_likely": format_conversion_likely,
-            "runtime_capture_matches_source_node_format": last_bool(events, "runtimeCaptureMatchesSourceNodeFormat"),
-            "runtime_capture_matches_engine_output_format": last_bool(events, "runtimeCaptureMatchesEngineOutputFormat"),
             "runtime_capture_matches_hardware_sample_rate": last_bool(events, "runtimeCaptureMatchesHardwareSampleRate"),
             "callback_requested_frame_count_range": numeric_range(events, "callbackRequestedFrameCount", "requestedFrameCount"),
         },
@@ -2815,7 +2824,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         "# Runtime C Mixer Trace Summary",
         "",
         f"- Events: {summary['event_count']}",
-        f"- Backend: selected={backend['runtime_audio_backend']} mode={backend['selection_mode']} requested={backend['requested_backend_flag_value']} fallback={backend['fallback_reason']} experimental_c_mixer={backend['experimental_c_mixer_enabled']} alternative_host={backend['alternative_runtime_output_host_enabled']} host_type={backend['runtime_output_host_type']} prepare_status={backend['runtime_output_host_prepare_status']} initialize_status={backend['runtime_output_host_initialize_status']} start_status={backend['runtime_output_host_start_status']} stop_status={backend['runtime_output_host_stop_status']} last_error_status={backend['runtime_output_host_last_error_status']}",
+        f"- Backend: selected={backend['runtime_audio_backend']} mode={backend['selection_mode']} requested={backend['requested_backend_flag_value']} fallback={backend['fallback_reason']} c_mixer={backend['runtime_c_mixer_enabled']} host_type={backend['runtime_output_host_type']} host_running={backend['runtime_output_host_running']} host_start_count={backend['runtime_output_host_start_count']} prepare_status={backend['runtime_output_host_prepare_status']} initialize_status={backend['runtime_output_host_initialize_status']} start_status={backend['runtime_output_host_start_status']} stop_status={backend['runtime_output_host_stop_status']} last_error_status={backend['runtime_output_host_last_error_status']}",
         f"- Peak: {health['peak']}",
         f"- Clipping samples: {health['clipping_sample_count']}",
         f"- Overrange samples: {health['overrange_sample_count']}",
@@ -2835,7 +2844,7 @@ def build_markdown(summary: dict[str, Any]) -> str:
         f"- Clean source / dirty live: source_capture_clean={clean['source_capture_clean']} output_copy_verifier_clean={clean['output_copy_verifier_clean']} live_artifact_manual={clean['live_artifact_manually_reported']} route_device_candidate={clean['route_device_candidate_cause']} callback_candidate={clean['callback_candidate_cause']}",
         f"- Runtime gain policy: label={runtime_policy['gain_policy_label']} source={runtime_policy['gain_policy_source']} env_override={runtime_policy['gain_policy_is_environment_override']} output_gain={runtime_policy['output_gain']} fixed_headroom_db={runtime_policy['fixed_headroom_db']} default_headroom_db={runtime_policy['default_headroom_db']} warnings={runtime_policy['configuration_warning_counts']}",
         f"- Runtime sample-rate policy: selected={audio_graph['selected_runtime_sample_rate']}Hz c_mixer_runtime={audio_graph['c_mixer_runtime_sample_rate']}Hz policy={audio_graph['runtime_sample_rate_policy']} source={audio_graph['runtime_sample_rate_source']} warning={audio_graph['runtime_sample_rate_configuration_warning']}",
-        f"- Output host / route: running={audio_graph['output_host_running']} host={audio_graph['runtime_output_host_sample_rate']}Hz/{audio_graph['runtime_output_host_channel_count']}ch c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz route_label={audio_graph['route_label']} device_id={audio_graph['hardware_device_id']} device_uid_hash={audio_graph['hardware_device_uid_hash']} transport={audio_graph['hardware_transport_type_name']}({audio_graph['hardware_transport_type']}) io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) hardware_latency={audio_graph['hardware_latency_frames']} frames ({audio_graph['hardware_latency_duration_seconds']}s) safety_offset={audio_graph['hardware_safety_offset_frames']} frames ({audio_graph['hardware_safety_offset_duration_seconds']}s) route_changes={audio_graph['output_route_change_count']} route_change_events={audio_graph['route_change_event_count']} device_changed={audio_graph['output_device_changed']} sample_rate_changed={audio_graph['output_sample_rate_changed']} channel_count_changed={audio_graph['output_channel_count_changed']} io_buffer_changed={audio_graph['io_buffer_duration_changed']} conversion_likely={audio_graph['format_conversion_likely']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']} legacy_source_attached={audio_graph['source_node_attached']} legacy_source_connected={audio_graph['source_node_connected']}",
+        f"- Output host / route: running={audio_graph['output_host_running']} host={audio_graph['runtime_output_host_sample_rate']}Hz/{audio_graph['runtime_output_host_channel_count']}ch c_mixer={audio_graph['c_mixer_render_sample_rate']}Hz/{audio_graph['c_mixer_render_channel_count']}ch hardware={audio_graph['hardware_nominal_sample_rate']}Hz route_label={audio_graph['route_label']} device_id={audio_graph['hardware_device_id']} device_uid_hash={audio_graph['hardware_device_uid_hash']} transport={audio_graph['hardware_transport_type_name']}({audio_graph['hardware_transport_type']}) io_buffer={audio_graph['hardware_io_buffer_frame_size']} frames ({audio_graph['hardware_io_buffer_duration_seconds']}s) hardware_latency={audio_graph['hardware_latency_frames']} frames ({audio_graph['hardware_latency_duration_seconds']}s) safety_offset={audio_graph['hardware_safety_offset_frames']} frames ({audio_graph['hardware_safety_offset_duration_seconds']}s) host_config_changes={audio_graph['output_host_configuration_change_count']} host_starts={audio_graph['output_host_start_count']} route_changes={audio_graph['output_route_change_count']} route_change_events={audio_graph['route_change_event_count']} device_changed={audio_graph['output_device_changed']} sample_rate_changed={audio_graph['output_sample_rate_changed']} channel_count_changed={audio_graph['output_channel_count_changed']} io_buffer_changed={audio_graph['io_buffer_duration_changed']} conversion_likely={audio_graph['format_conversion_likely']} capture_matches_hardware_rate={audio_graph['runtime_capture_matches_hardware_sample_rate']}",
         f"- Add voice events: {stops['add_voice_events']}",
         f"- Ramped replacement stops: {stops['ramped_replacement_stop_events']} events, {stops['ramped_replacement_voice_count']} voices",
         f"- Ramped replacement overlaps: {stops['ramped_replacement_overlap_events']}",

@@ -280,9 +280,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let latePlannedEventCount: UInt64?
     let fallbackToSimpleRuntimeEventCount: UInt64?
     let runtimeEventFallbackReason: String?
-    let experimentalCMixerEnabled: Bool
-    let alternativeRuntimeOutputHostEnabled: Bool?
     let runtimeOutputHostType: String?
+    let runtimeOutputHostRunning: Bool?
+    let runtimeOutputHostStartCount: UInt64?
     let runtimeOutputHostPrepareStatus: Int?
     let runtimeOutputHostInitializeStatus: Int?
     let runtimeOutputHostStartStatus: Int?
@@ -297,18 +297,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let runtimeSampleRateConfigurationWarning: String?
     let cMixerRenderSampleRate: Double?
     let cMixerRenderChannelCount: Int?
-    let audioSourceNodeRenderSampleRate: Double?
-    let audioSourceNodeChannelCount: Int?
-    let audioEngineMainMixerOutputSampleRate: Double?
-    let audioEngineMainMixerOutputChannelCount: Int?
-    let audioEngineMainMixerInputSampleRate: Double?
-    let audioEngineMainMixerInputChannelCount: Int?
-    let audioEngineMainMixerLatency: Double?
-    let audioEngineMainMixerOutputPresentationLatency: Double?
-    let audioEngineOutputNodeSampleRate: Double?
-    let audioEngineOutputNodeChannelCount: Int?
-    let audioEngineOutputNodeLatency: Double?
-    let audioEngineOutputNodeOutputPresentationLatency: Double?
     let audioHardwareNominalSampleRate: Double?
     let audioHardwareDeviceID: UInt32?
     let audioHardwareDeviceUIDHash: String?
@@ -321,12 +309,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let audioHardwareSafetyOffsetDuration: Double?
     let audioHardwareTransportType: UInt32?
     let audioHardwareTransportTypeName: String?
-    let audioEngineRunning: Bool?
-    let audioEngineSourceNodeAttached: Bool?
-    let audioEngineSourceNodeConnected: Bool?
-    let audioEngineMainMixerConnectedToOutput: Bool?
-    let audioEngineConfigurationChangeCount: UInt64?
-    let audioEngineRestartCount: UInt64?
     let audioGraphFormatChangeCount: UInt64?
     let audioOutputRouteChangeCount: UInt64?
     let audioGraphFormatChanged: Bool?
@@ -335,10 +317,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let audioOutputSampleRateChanged: Bool?
     let audioOutputChannelCountChanged: Bool?
     let audioHardwareIOBufferDurationChanged: Bool?
-    let audioEngineOutputNodeFormatChanged: Bool?
     let audioFormatConversionLikely: Bool?
-    let runtimeCaptureMatchesSourceNodeFormat: Bool?
-    let runtimeCaptureMatchesEngineOutputFormat: Bool?
     let runtimeCaptureMatchesHardwareSampleRate: Bool?
     let cMixerRenderedFrames: UInt64?
     let cMixerPlaybackSeconds: Double?
@@ -698,9 +677,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         latePlannedEventCount: UInt64? = nil,
         fallbackToSimpleRuntimeEventCount: UInt64? = nil,
         runtimeEventFallbackReason: String? = nil,
-        experimentalCMixerEnabled: Bool,
-        alternativeRuntimeOutputHostEnabled: Bool? = nil,
         runtimeOutputHostType: String? = nil,
+        runtimeOutputHostRunning: Bool? = nil,
+        runtimeOutputHostStartCount: UInt64? = nil,
         runtimeOutputHostPrepareStatus: Int? = nil,
         runtimeOutputHostInitializeStatus: Int? = nil,
         runtimeOutputHostStartStatus: Int? = nil,
@@ -715,18 +694,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         runtimeSampleRateConfigurationWarning: String? = nil,
         cMixerRenderSampleRate: Double? = nil,
         cMixerRenderChannelCount: Int? = nil,
-        audioSourceNodeRenderSampleRate: Double? = nil,
-        audioSourceNodeChannelCount: Int? = nil,
-        audioEngineMainMixerOutputSampleRate: Double? = nil,
-        audioEngineMainMixerOutputChannelCount: Int? = nil,
-        audioEngineMainMixerInputSampleRate: Double? = nil,
-        audioEngineMainMixerInputChannelCount: Int? = nil,
-        audioEngineMainMixerLatency: Double? = nil,
-        audioEngineMainMixerOutputPresentationLatency: Double? = nil,
-        audioEngineOutputNodeSampleRate: Double? = nil,
-        audioEngineOutputNodeChannelCount: Int? = nil,
-        audioEngineOutputNodeLatency: Double? = nil,
-        audioEngineOutputNodeOutputPresentationLatency: Double? = nil,
         audioHardwareNominalSampleRate: Double? = nil,
         audioHardwareDeviceID: UInt32? = nil,
         audioHardwareDeviceUIDHash: String? = nil,
@@ -739,12 +706,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         audioHardwareSafetyOffsetDuration: Double? = nil,
         audioHardwareTransportType: UInt32? = nil,
         audioHardwareTransportTypeName: String? = nil,
-        audioEngineRunning: Bool? = nil,
-        audioEngineSourceNodeAttached: Bool? = nil,
-        audioEngineSourceNodeConnected: Bool? = nil,
-        audioEngineMainMixerConnectedToOutput: Bool? = nil,
-        audioEngineConfigurationChangeCount: UInt64? = nil,
-        audioEngineRestartCount: UInt64? = nil,
         audioGraphFormatChangeCount: UInt64? = nil,
         audioOutputRouteChangeCount: UInt64? = nil,
         audioGraphFormatChanged: Bool? = nil,
@@ -753,10 +714,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         audioOutputSampleRateChanged: Bool? = nil,
         audioOutputChannelCountChanged: Bool? = nil,
         audioHardwareIOBufferDurationChanged: Bool? = nil,
-        audioEngineOutputNodeFormatChanged: Bool? = nil,
         audioFormatConversionLikely: Bool? = nil,
-        runtimeCaptureMatchesSourceNodeFormat: Bool? = nil,
-        runtimeCaptureMatchesEngineOutputFormat: Bool? = nil,
         runtimeCaptureMatchesHardwareSampleRate: Bool? = nil,
         cMixerRenderedFrames: UInt64? = nil,
         cMixerPlaybackSeconds: Double? = nil,
@@ -1089,9 +1047,9 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.latePlannedEventCount = latePlannedEventCount
         self.fallbackToSimpleRuntimeEventCount = fallbackToSimpleRuntimeEventCount
         self.runtimeEventFallbackReason = runtimeEventFallbackReason
-        self.experimentalCMixerEnabled = experimentalCMixerEnabled
-        self.alternativeRuntimeOutputHostEnabled = alternativeRuntimeOutputHostEnabled
         self.runtimeOutputHostType = runtimeOutputHostType
+        self.runtimeOutputHostRunning = runtimeOutputHostRunning
+        self.runtimeOutputHostStartCount = runtimeOutputHostStartCount
         self.runtimeOutputHostPrepareStatus = runtimeOutputHostPrepareStatus
         self.runtimeOutputHostInitializeStatus = runtimeOutputHostInitializeStatus
         self.runtimeOutputHostStartStatus = runtimeOutputHostStartStatus
@@ -1106,18 +1064,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.runtimeSampleRateConfigurationWarning = runtimeSampleRateConfigurationWarning
         self.cMixerRenderSampleRate = cMixerRenderSampleRate
         self.cMixerRenderChannelCount = cMixerRenderChannelCount
-        self.audioSourceNodeRenderSampleRate = audioSourceNodeRenderSampleRate
-        self.audioSourceNodeChannelCount = audioSourceNodeChannelCount
-        self.audioEngineMainMixerOutputSampleRate = audioEngineMainMixerOutputSampleRate
-        self.audioEngineMainMixerOutputChannelCount = audioEngineMainMixerOutputChannelCount
-        self.audioEngineMainMixerInputSampleRate = audioEngineMainMixerInputSampleRate
-        self.audioEngineMainMixerInputChannelCount = audioEngineMainMixerInputChannelCount
-        self.audioEngineMainMixerLatency = audioEngineMainMixerLatency
-        self.audioEngineMainMixerOutputPresentationLatency = audioEngineMainMixerOutputPresentationLatency
-        self.audioEngineOutputNodeSampleRate = audioEngineOutputNodeSampleRate
-        self.audioEngineOutputNodeChannelCount = audioEngineOutputNodeChannelCount
-        self.audioEngineOutputNodeLatency = audioEngineOutputNodeLatency
-        self.audioEngineOutputNodeOutputPresentationLatency = audioEngineOutputNodeOutputPresentationLatency
         self.audioHardwareNominalSampleRate = audioHardwareNominalSampleRate
         self.audioHardwareDeviceID = audioHardwareDeviceID
         self.audioHardwareDeviceUIDHash = audioHardwareDeviceUIDHash
@@ -1130,12 +1076,6 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.audioHardwareSafetyOffsetDuration = audioHardwareSafetyOffsetDuration
         self.audioHardwareTransportType = audioHardwareTransportType
         self.audioHardwareTransportTypeName = audioHardwareTransportTypeName
-        self.audioEngineRunning = audioEngineRunning
-        self.audioEngineSourceNodeAttached = audioEngineSourceNodeAttached
-        self.audioEngineSourceNodeConnected = audioEngineSourceNodeConnected
-        self.audioEngineMainMixerConnectedToOutput = audioEngineMainMixerConnectedToOutput
-        self.audioEngineConfigurationChangeCount = audioEngineConfigurationChangeCount
-        self.audioEngineRestartCount = audioEngineRestartCount
         self.audioGraphFormatChangeCount = audioGraphFormatChangeCount
         self.audioOutputRouteChangeCount = audioOutputRouteChangeCount
         self.audioGraphFormatChanged = audioGraphFormatChanged
@@ -1144,10 +1084,7 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.audioOutputSampleRateChanged = audioOutputSampleRateChanged
         self.audioOutputChannelCountChanged = audioOutputChannelCountChanged
         self.audioHardwareIOBufferDurationChanged = audioHardwareIOBufferDurationChanged
-        self.audioEngineOutputNodeFormatChanged = audioEngineOutputNodeFormatChanged
         self.audioFormatConversionLikely = audioFormatConversionLikely
-        self.runtimeCaptureMatchesSourceNodeFormat = runtimeCaptureMatchesSourceNodeFormat
-        self.runtimeCaptureMatchesEngineOutputFormat = runtimeCaptureMatchesEngineOutputFormat
         self.runtimeCaptureMatchesHardwareSampleRate = runtimeCaptureMatchesHardwareSampleRate
         self.cMixerRenderedFrames = cMixerRenderedFrames
         self.cMixerPlaybackSeconds = cMixerPlaybackSeconds

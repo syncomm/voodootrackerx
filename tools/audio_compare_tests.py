@@ -961,7 +961,6 @@ class RuntimeOfflineWindowCorrelationTests(unittest.TestCase):
             "schemaVersion": 1,
             "runtimeAction": action,
             "runtimeAudioBackend": "c_mixer",
-            "experimentalCMixerEnabled": True,
             "sampleRate": 1000,
             "eventAppliedFrame": frame,
             "runtimeEventCategory": category,
@@ -2769,12 +2768,8 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioHardwareSafetyOffsetDuration=0.0002291667,
                         audioHardwareTransportType=1,
                         audioHardwareTransportTypeName="bluetooth",
-                        audioEngineRunning=True,
-                        audioEngineSourceNodeAttached=False,
-                        audioEngineSourceNodeConnected=False,
-                        audioEngineMainMixerConnectedToOutput=False,
-                        audioEngineConfigurationChangeCount=0,
-                        audioEngineRestartCount=2,
+                        runtimeOutputHostRunning=True,
+                        runtimeOutputHostStartCount=2,
                         audioGraphFormatChangeCount=0,
                         audioOutputRouteChangeCount=3,
                         audioGraphFormatChanged=False,
@@ -2783,7 +2778,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioOutputSampleRateChanged=True,
                         audioOutputChannelCountChanged=False,
                         audioHardwareIOBufferDurationChanged=True,
-                        audioEngineOutputNodeFormatChanged=False,
                         audioFormatConversionLikely=True,
                         runtimeCaptureMatchesHardwareSampleRate=False,
                         callbackRequestedFrameCount=470,
@@ -2801,9 +2795,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 44100)
             self.assertEqual(audio_graph["runtime_output_host_sample_rate"], 44100)
             self.assertEqual(audio_graph["runtime_output_host_channel_count"], 2)
-            self.assertIsNone(audio_graph["source_node_render_sample_rate"])
-            self.assertIsNone(audio_graph["main_mixer_input_sample_rate"])
-            self.assertIsNone(audio_graph["output_node_sample_rate"])
             self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
             self.assertEqual(audio_graph["hardware_device_id"], 51)
             self.assertEqual(audio_graph["hardware_device_uid_hash"], "abcdef0123456789")
@@ -2813,11 +2804,8 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["hardware_safety_offset_frames"], 11)
             self.assertEqual(audio_graph["hardware_transport_type_name"], "bluetooth")
             self.assertTrue(audio_graph["output_host_running"])
-            self.assertFalse(audio_graph["source_node_attached"])
-            self.assertFalse(audio_graph["source_node_connected"])
-            self.assertFalse(audio_graph["main_mixer_connected_to_output"])
-            self.assertEqual(audio_graph["engine_configuration_change_count"], 0)
-            self.assertEqual(audio_graph["engine_restart_count"], 2)
+            self.assertEqual(audio_graph["output_host_configuration_change_count"], 0)
+            self.assertEqual(audio_graph["output_host_start_count"], 2)
             self.assertEqual(audio_graph["graph_format_change_count"], 0)
             self.assertEqual(audio_graph["output_route_change_count"], 3)
             self.assertFalse(audio_graph["graph_format_changed"])
@@ -2826,10 +2814,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertTrue(audio_graph["output_sample_rate_changed"])
             self.assertFalse(audio_graph["output_channel_count_changed"])
             self.assertTrue(audio_graph["io_buffer_duration_changed"])
-            self.assertFalse(audio_graph["output_node_format_changed"])
             self.assertTrue(audio_graph["format_conversion_likely"])
-            self.assertIsNone(audio_graph["runtime_capture_matches_source_node_format"])
-            self.assertIsNone(audio_graph["runtime_capture_matches_engine_output_format"])
             self.assertFalse(audio_graph["runtime_capture_matches_hardware_sample_rate"])
 
     def test_runtime_trace_summary_reports_route_change_event_counts(self):
@@ -2843,8 +2828,8 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioOutputRouteLabel="usb-interface",
                         audioHardwareDeviceUIDHash="abcdef0123456789",
                         audioHardwareTransportTypeName="usb",
-                        audioEngineConfigurationChangeCount=1,
-                        audioEngineRestartCount=2,
+                        runtimeOutputHostConfigurationChangeCount=1,
+                        runtimeOutputHostStartCount=2,
                         audioGraphFormatChangeCount=1,
                         audioOutputRouteChangeCount=1,
                         audioGraphFormatChanged=True,
@@ -2853,18 +2838,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioOutputSampleRateChanged=True,
                         audioOutputChannelCountChanged=False,
                         audioHardwareIOBufferDurationChanged=True,
-                        audioEngineOutputNodeFormatChanged=True,
-                    ),
-                    self.event(
-                        "audio_output_node_format_changed",
-                        runtimeEventCategory="audio_graph_change",
-                        audioOutputRouteLabel="usb-interface",
-                        audioEngineRestartCount=2,
-                        audioGraphFormatChangeCount=2,
-                        audioOutputRouteChangeCount=1,
-                        audioGraphFormatChanged=True,
-                        audioOutputRouteChanged=False,
-                        audioEngineOutputNodeFormatChanged=True,
                     ),
                 ],
             )
@@ -2875,17 +2848,15 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["route_label"], "usb-interface")
             self.assertEqual(audio_graph["hardware_device_uid_hash"], "abcdef0123456789")
             self.assertEqual(audio_graph["hardware_transport_type_name"], "usb")
-            self.assertEqual(audio_graph["engine_configuration_change_count"], 1)
-            self.assertEqual(audio_graph["engine_restart_count"], 2)
-            self.assertEqual(audio_graph["graph_format_change_count"], 2)
+            self.assertEqual(audio_graph["output_host_configuration_change_count"], 1)
+            self.assertEqual(audio_graph["output_host_start_count"], 2)
+            self.assertEqual(audio_graph["graph_format_change_count"], 1)
             self.assertEqual(audio_graph["output_route_change_count"], 1)
             self.assertEqual(audio_graph["route_change_event_count"], 1)
-            self.assertEqual(audio_graph["output_node_format_change_event_count"], 1)
             self.assertTrue(audio_graph["output_device_changed"])
             self.assertTrue(audio_graph["output_sample_rate_changed"])
             self.assertFalse(audio_graph["output_channel_count_changed"])
             self.assertTrue(audio_graph["io_buffer_duration_changed"])
-            self.assertTrue(audio_graph["output_node_format_changed"])
 
     def test_runtime_trace_summary_handles_missing_route_info(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2900,12 +2871,11 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertIsNone(audio_graph["route_label"])
             self.assertIsNone(audio_graph["hardware_device_uid_hash"])
             self.assertIsNone(audio_graph["hardware_transport_type_name"])
-            self.assertEqual(audio_graph["engine_configuration_change_count"], 0)
-            self.assertEqual(audio_graph["engine_restart_count"], 0)
+            self.assertEqual(audio_graph["output_host_configuration_change_count"], 0)
+            self.assertEqual(audio_graph["output_host_start_count"], 0)
             self.assertEqual(audio_graph["graph_format_change_count"], 0)
             self.assertEqual(audio_graph["output_route_change_count"], 0)
             self.assertEqual(audio_graph["route_change_event_count"], 0)
-            self.assertEqual(audio_graph["output_node_format_change_event_count"], 0)
             self.assertFalse(audio_graph["output_route_changed"])
             self.assertFalse(audio_graph["output_device_changed"])
 
@@ -2932,10 +2902,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(audio_graph["c_mixer_render_sample_rate"], 48000)
             self.assertEqual(audio_graph["runtime_output_host_sample_rate"], 48000)
             self.assertEqual(audio_graph["runtime_output_host_channel_count"], 2)
-            self.assertIsNone(audio_graph["source_node_render_sample_rate"])
-            self.assertIsNone(audio_graph["main_mixer_input_sample_rate"])
-            self.assertIsNone(audio_graph["main_mixer_output_sample_rate"])
-            self.assertIsNone(audio_graph["output_node_sample_rate"])
             self.assertEqual(audio_graph["hardware_nominal_sample_rate"], 48000)
             self.assertFalse(audio_graph["format_conversion_likely"])
 
@@ -3092,8 +3058,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                     self.event(
                         "backend_selected",
                         runtimeAudioBackend="c_mixer",
-                        experimentalCMixerEnabled=True,
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
                     )
                 ],
@@ -3110,8 +3074,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertIsNone(backend["requested_backend_flag_value"])
             self.assertIsNone(backend["fallback_reason"])
             self.assertEqual(backend["selection_mode"], "default")
-            self.assertTrue(backend["experimental_c_mixer_enabled"])
-            self.assertTrue(backend["alternative_runtime_output_host_enabled"])
+            self.assertTrue(backend["runtime_c_mixer_enabled"])
             self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
 
     def test_runtime_trace_summary_reports_unknown_backend_fallback_default(self):
@@ -3124,8 +3087,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         runtimeAudioBackend="c_mixer",
                         backendFlagValue="raw_core_audio",
                         fallbackReason="unknown_backend",
-                        experimentalCMixerEnabled=True,
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
                     )
                 ],
@@ -3154,8 +3115,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         runtimeAudioBackend="c_mixer",
                         backendFlagValue="av_audio",
                         fallbackReason="retired_backend",
-                        experimentalCMixerEnabled=True,
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
                     )
                 ],
@@ -3183,9 +3142,9 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         "backend_selected",
                         runtimeAudioBackend="c_mixer_coreaudio",
                         backendFlagValue="c_mixer_coreaudio",
-                        experimentalCMixerEnabled=True,
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
+                        runtimeOutputHostRunning=True,
+                        runtimeOutputHostStartCount=1,
                         runtimeOutputHostPrepareStatus=0,
                         runtimeOutputHostInitializeStatus=0,
                         runtimeOutputHostStartStatus=0,
@@ -3193,7 +3152,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                     self.event(
                         "render_callback",
                         runtimeAudioBackend="c_mixer_coreaudio",
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
                         renderCallbackCount=2,
                         callbackRequestedFrameCount=512,
@@ -3211,9 +3169,10 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertEqual(backend["runtime_audio_backend"], "c_mixer_coreaudio")
             self.assertEqual(backend["requested_backend_flag_value"], "c_mixer_coreaudio")
             self.assertEqual(backend["selection_mode"], "explicit")
-            self.assertTrue(backend["experimental_c_mixer_enabled"])
-            self.assertTrue(backend["alternative_runtime_output_host_enabled"])
+            self.assertTrue(backend["runtime_c_mixer_enabled"])
             self.assertEqual(backend["runtime_output_host_type"], "coreaudio_default_output_unit")
+            self.assertTrue(backend["runtime_output_host_running"])
+            self.assertEqual(backend["runtime_output_host_start_count"], 1)
             self.assertEqual(backend["runtime_output_host_prepare_status"], 0)
             self.assertEqual(backend["runtime_output_host_initialize_status"], 0)
             self.assertEqual(backend["runtime_output_host_start_status"], 0)
@@ -3227,8 +3186,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         "backend_selected",
                         runtimeAudioBackend="c_mixer",
                         backendFlagValue="c_mixer",
-                        experimentalCMixerEnabled=True,
-                        alternativeRuntimeOutputHostEnabled=True,
                         runtimeOutputHostType="coreaudio_default_output_unit",
                         runtimeOutputHostPrepareStatus=0,
                         runtimeOutputHostInitializeStatus=0,
@@ -3243,7 +3200,7 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         audioHardwareLatencyFrames=128,
                         audioHardwareSafetyOffsetFrames=64,
                         audioHardwareTransportTypeName="built_in",
-                        audioEngineRunning=True,
+                        runtimeOutputHostRunning=True,
                         audioFormatConversionLikely=False,
                         runtimeCaptureEnabled=False,
                     ),
@@ -4566,8 +4523,6 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             "schemaVersion": 1,
             "runtimeAction": action,
             "runtimeAudioBackend": "c_mixer",
-            "experimentalCMixerEnabled": True,
-            "alternativeRuntimeOutputHostEnabled": True,
             "runtimeOutputHostType": "coreaudio_default_output_unit",
             "orderIndex": overrides.pop("orderIndex", 0),
             "patternIndex": overrides.pop("patternIndex", 2),

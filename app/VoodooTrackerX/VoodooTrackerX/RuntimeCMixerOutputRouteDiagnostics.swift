@@ -166,7 +166,7 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
     let hardwareSafetyOffsetDuration: Double?
     let hardwareTransportType: UInt32?
     let hardwareTransportTypeName: String?
-    let engineRunning: Bool
+    let outputHostRunning: Bool
     let formatConversionLikely: Bool
     let captureMatchesHardwareSampleRate: Bool?
 
@@ -190,7 +190,7 @@ struct RuntimeCMixerAudioGraphDiagnostics: Equatable {
         hardwareSafetyOffsetDuration = outputDevice.safetyOffsetDuration
         hardwareTransportType = outputDevice.transportType
         hardwareTransportTypeName = outputDevice.transportTypeName
-        engineRunning = outputHostRunning
+        self.outputHostRunning = outputHostRunning
         formatConversionLikely = RuntimeCMixerFormatDiagnostics.sampleRatesMatch(
             cMixerRenderSampleRate,
             hardwareNominalSampleRate
@@ -238,7 +238,6 @@ struct RuntimeCMixerAudioGraphChanges: Equatable {
     let outputSampleRateChanged: Bool
     let outputChannelCountChanged: Bool
     let hardwareIOBufferDurationChanged: Bool
-    let outputNodeFormatChanged: Bool
 
     static let none = RuntimeCMixerAudioGraphChanges(
         formatChanged: false,
@@ -246,7 +245,6 @@ struct RuntimeCMixerAudioGraphChanges: Equatable {
         outputDeviceChanged: false,
         outputSampleRateChanged: false,
         outputChannelCountChanged: false,
-        hardwareIOBufferDurationChanged: false,
-        outputNodeFormatChanged: false
+        hardwareIOBufferDurationChanged: false
     )
 }

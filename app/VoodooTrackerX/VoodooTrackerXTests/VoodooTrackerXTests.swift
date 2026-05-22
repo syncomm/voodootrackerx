@@ -8612,9 +8612,9 @@ final class VoodooTrackerXTests: XCTestCase {
             latePlannedEventCount: 0,
             fallbackToSimpleRuntimeEventCount: 0,
             runtimeEventFallbackReason: nil,
-            experimentalCMixerEnabled: true,
-            alternativeRuntimeOutputHostEnabled: true,
             runtimeOutputHostType: "coreaudio_default_output_unit",
+            runtimeOutputHostRunning: true,
+            runtimeOutputHostStartCount: 2,
             runtimeOutputHostPrepareStatus: 0,
             runtimeOutputHostInitializeStatus: 0,
             runtimeOutputHostStartStatus: 0,
@@ -8735,8 +8735,9 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["runtimeAction"] as? String, "c_mixer_add_voice")
         XCTAssertEqual(object["runtimeAudioBackend"] as? String, "c_mixer")
         XCTAssertEqual(object["backendFlagValue"] as? String, "c_mixer")
-        XCTAssertEqual(object["alternativeRuntimeOutputHostEnabled"] as? Bool, true)
         XCTAssertEqual(object["runtimeOutputHostType"] as? String, "coreaudio_default_output_unit")
+        XCTAssertEqual(object["runtimeOutputHostRunning"] as? Bool, true)
+        XCTAssertEqual(object["runtimeOutputHostStartCount"] as? Int, 2)
         XCTAssertEqual(object["runtimeOutputHostPrepareStatus"] as? Int, 0)
         XCTAssertEqual(object["runtimeOutputHostInitializeStatus"] as? Int, 0)
         XCTAssertEqual(object["runtimeOutputHostStartStatus"] as? Int, 0)
@@ -8798,7 +8799,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["callbackBoundaryAppliedEventCount"] as? Int, 1)
         XCTAssertEqual(object["latePlannedEventCount"] as? Int, 0)
         XCTAssertEqual(object["fallbackToSimpleRuntimeEventCount"] as? Int, 0)
-        XCTAssertEqual(object["experimentalCMixerEnabled"] as? Bool, true)
         XCTAssertEqual(object["sampleRate"] as? Double, 44_100)
         XCTAssertEqual(object["channelCount"] as? Int, 2)
         XCTAssertEqual(object["orderIndex"] as? Int, 1)
@@ -8887,7 +8887,6 @@ final class VoodooTrackerXTests: XCTestCase {
         let applied = RuntimeCMixerTraceEvent(
             runtimeAction: "c_mixer_update_gain_pan_step_applied",
             runtimeAudioBackend: "c_mixer",
-            experimentalCMixerEnabled: true,
             context: AudioRuntimeTraceContext(orderIndex: 1, patternIndex: 2, rowIndex: 3, tickInRow: 4, channelIndex: 5),
             targetScope: "channel",
             activeVoiceCountBefore: 1,
@@ -8922,7 +8921,6 @@ final class VoodooTrackerXTests: XCTestCase {
         let deferred = RuntimeCMixerTraceEvent(
             runtimeAction: "c_mixer_update_deferred_missing_data",
             runtimeAudioBackend: "c_mixer",
-            experimentalCMixerEnabled: true,
             context: AudioRuntimeTraceContext(orderIndex: 1, patternIndex: 2, rowIndex: 3, tickInRow: 4, channelIndex: 6),
             targetScope: "channel",
             updateDisposition: "update_deferred_missing_data",
@@ -8973,9 +8971,9 @@ final class VoodooTrackerXTests: XCTestCase {
         let event = RuntimeCMixerTraceEvent(
             runtimeAction: "runtime_output_host_diagnostics",
             runtimeAudioBackend: "c_mixer",
-            experimentalCMixerEnabled: true,
-            alternativeRuntimeOutputHostEnabled: true,
             runtimeOutputHostType: "coreaudio_default_output_unit",
+            runtimeOutputHostRunning: true,
+            runtimeOutputHostStartCount: 2,
             sampleRate: 48_000,
             cMixerRenderSampleRate: 48_000,
             cMixerRenderChannelCount: 2,
@@ -8991,12 +8989,6 @@ final class VoodooTrackerXTests: XCTestCase {
             audioHardwareSafetyOffsetDuration: 0.000_25,
             audioHardwareTransportType: 1_651_275_109,
             audioHardwareTransportTypeName: "bluetooth",
-            audioEngineRunning: true,
-            audioEngineSourceNodeAttached: false,
-            audioEngineSourceNodeConnected: false,
-            audioEngineMainMixerConnectedToOutput: false,
-            audioEngineConfigurationChangeCount: 0,
-            audioEngineRestartCount: 2,
             audioGraphFormatChangeCount: 0,
             audioOutputRouteChangeCount: 3,
             audioGraphFormatChanged: false,
@@ -9005,7 +8997,6 @@ final class VoodooTrackerXTests: XCTestCase {
             audioOutputSampleRateChanged: true,
             audioOutputChannelCountChanged: false,
             audioHardwareIOBufferDurationChanged: true,
-            audioEngineOutputNodeFormatChanged: false,
             callbackThreadIsMain: false,
             callbackThreadID: 1_234,
             callbackMainThreadDependencyDetected: false,
@@ -9040,10 +9031,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["audioHardwareDeviceUIDHash"] as? String, "abcdef0123456789")
         XCTAssertEqual(object["audioOutputRouteLabel"] as? String, "bluetooth-route")
         XCTAssertEqual(object["audioHardwareTransportTypeName"] as? String, "bluetooth")
-        XCTAssertEqual(object["audioEngineSourceNodeAttached"] as? Bool, false)
-        XCTAssertEqual(object["audioEngineSourceNodeConnected"] as? Bool, false)
-        XCTAssertEqual(object["audioEngineConfigurationChangeCount"] as? Int, 0)
-        XCTAssertEqual(object["audioEngineRestartCount"] as? Int, 2)
+        XCTAssertEqual(object["runtimeOutputHostRunning"] as? Bool, true)
+        XCTAssertEqual(object["runtimeOutputHostStartCount"] as? Int, 2)
         XCTAssertEqual(object["audioGraphFormatChangeCount"] as? Int, 0)
         XCTAssertEqual(object["audioOutputRouteChangeCount"] as? Int, 3)
         XCTAssertEqual(object["audioGraphFormatChanged"] as? Bool, false)
@@ -9052,7 +9041,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["audioOutputSampleRateChanged"] as? Bool, true)
         XCTAssertEqual(object["audioOutputChannelCountChanged"] as? Bool, false)
         XCTAssertEqual(object["audioHardwareIOBufferDurationChanged"] as? Bool, true)
-        XCTAssertEqual(object["audioEngineOutputNodeFormatChanged"] as? Bool, false)
         XCTAssertEqual(object["callbackThreadIsMain"] as? Bool, false)
         XCTAssertEqual(object["callbackThreadID"] as? Int, 1_234)
         XCTAssertEqual(object["callbackAllocationWarning"] as? Bool, true)
@@ -9075,9 +9063,9 @@ final class VoodooTrackerXTests: XCTestCase {
             runtimeAction: "audio_output_route_changed",
             runtimeAudioBackend: "c_mixer",
             runtimeEventCategory: "audio_graph_change",
-            experimentalCMixerEnabled: true,
-            alternativeRuntimeOutputHostEnabled: true,
             runtimeOutputHostType: "coreaudio_default_output_unit",
+            runtimeOutputHostRunning: true,
+            runtimeOutputHostStartCount: 2,
             sampleRate: 48_000,
             audioHardwareNominalSampleRate: 48_000,
             audioHardwareDeviceUIDHash: "abcdef0123456789",
@@ -9085,8 +9073,6 @@ final class VoodooTrackerXTests: XCTestCase {
             audioHardwareIOBufferFrameSize: 128,
             audioHardwareIOBufferDuration: 0.002_666_667,
             audioHardwareTransportTypeName: "usb",
-            audioEngineConfigurationChangeCount: 0,
-            audioEngineRestartCount: 2,
             audioGraphFormatChangeCount: 0,
             audioOutputRouteChangeCount: 1,
             audioGraphFormatChanged: false,
@@ -9095,7 +9081,6 @@ final class VoodooTrackerXTests: XCTestCase {
             audioOutputSampleRateChanged: true,
             audioOutputChannelCountChanged: false,
             audioHardwareIOBufferDurationChanged: true,
-            audioEngineOutputNodeFormatChanged: false,
             reason: "audio_output_route_changed"
         )
 
@@ -9110,7 +9095,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(object["audioOutputDeviceChanged"] as? Bool, true)
         XCTAssertEqual(object["audioOutputSampleRateChanged"] as? Bool, true)
         XCTAssertEqual(object["audioHardwareIOBufferDurationChanged"] as? Bool, true)
-        XCTAssertEqual(object["audioEngineOutputNodeFormatChanged"] as? Bool, false)
     }
 
     func testPlaybackDebugLaunchConfigurationParsesEnvironment() {
@@ -9135,8 +9119,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertNil(selection.requestedValue)
         XCTAssertNil(selection.fallbackReason)
-        XCTAssertTrue(selection.experimentalCMixerEnabled)
-        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
         XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
@@ -9148,8 +9131,20 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertEqual(selection.requestedValue, "av_audio")
         XCTAssertEqual(selection.fallbackReason, RuntimeAudioBackendSelection.retiredAVAudioFallbackReason)
-        XCTAssertTrue(selection.experimentalCMixerEnabled)
-        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
+        XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
+        XCTAssertNotEqual(selection.backend.runtimeOutputHostType, "av_audio_player_node_varispeed")
+    }
+
+    func testRuntimeAudioBackendSelectionHasNoSelectableAVAudioPlayerNodeHost() {
+        let selection = RuntimeAudioBackendSelection.resolve(environment: [
+            RuntimeAudioBackendSelection.environmentKey: "av_audio_player_node_varispeed"
+        ])
+
+        XCTAssertEqual(selection.backend, .cMixer)
+        XCTAssertEqual(selection.requestedValue, "av_audio_player_node_varispeed")
+        XCTAssertEqual(selection.fallbackReason, "unknown_backend")
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
         XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertNotEqual(selection.backend.runtimeOutputHostType, "av_audio_player_node_varispeed")
     }
@@ -9162,8 +9157,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertEqual(selection.requestedValue, "c_mixer")
         XCTAssertNil(selection.fallbackReason)
-        XCTAssertTrue(selection.experimentalCMixerEnabled)
-        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
         XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
@@ -9175,8 +9169,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(selection.backend, .cMixerCoreAudio)
         XCTAssertEqual(selection.requestedValue, "c_mixer_coreaudio")
         XCTAssertNil(selection.fallbackReason)
-        XCTAssertTrue(selection.experimentalCMixerEnabled)
-        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
         XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
@@ -9208,8 +9201,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(selection.backend, .cMixer)
         XCTAssertEqual(selection.requestedValue, "raw_core_audio")
         XCTAssertEqual(selection.fallbackReason, "unknown_backend")
-        XCTAssertTrue(selection.experimentalCMixerEnabled)
-        XCTAssertTrue(selection.backend.alternativeRuntimeOutputHostEnabled)
+        XCTAssertTrue(selection.backend.usesRuntimeCMixer)
         XCTAssertEqual(selection.backend.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
@@ -9508,8 +9500,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertNil(traceWriter.events.first?.backendFlagValue)
         XCTAssertNil(traceWriter.events.first?.fallbackReason)
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
         XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
@@ -9531,8 +9521,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "av_audio")
         XCTAssertEqual(traceWriter.events.first?.fallbackReason, RuntimeAudioBackendSelection.retiredAVAudioFallbackReason)
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
         XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
@@ -9581,8 +9569,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(output is RuntimeCMixerAudioEngine)
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "c_mixer")
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
         XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
@@ -9603,16 +9589,13 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeTailPolicy, "default_runtime_tail_seconds")
         let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
         XCTAssertEqual(initializedEvent?.runtimeAudioBackend, "c_mixer")
-        XCTAssertEqual(initializedEvent?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(initializedEvent?.runtimeOutputHostType, "coreaudio_default_output_unit")
+        XCTAssertEqual(initializedEvent?.runtimeOutputHostRunning, false)
+        XCTAssertEqual(initializedEvent?.runtimeOutputHostStartCount, 0)
         XCTAssertEqual(initializedEvent?.selectedRuntimeSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRuntimeSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRenderChannelCount, MixerRenderConfig.defaultChannelCount)
-        XCTAssertNil(initializedEvent?.audioSourceNodeRenderSampleRate)
-        XCTAssertNil(initializedEvent?.audioSourceNodeChannelCount)
-        XCTAssertEqual(initializedEvent?.audioEngineSourceNodeAttached, false)
-        XCTAssertEqual(initializedEvent?.audioEngineSourceNodeConnected, false)
     }
 
     @MainActor
@@ -9628,8 +9611,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual((output as? PlaybackAudioBackendProviding)?.runtimeAudioBackend, .cMixerCoreAudio)
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer_coreaudio")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "c_mixer_coreaudio")
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.first?.sampleRate, selectedSampleRate)
         XCTAssertEqual(traceWriter.events.first?.cMixerRuntimeSampleRate, selectedSampleRate)
@@ -9640,14 +9621,12 @@ final class VoodooTrackerXTests: XCTestCase {
 
         let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
         XCTAssertEqual(initializedEvent?.runtimeAudioBackend, "c_mixer_coreaudio")
-        XCTAssertEqual(initializedEvent?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(initializedEvent?.runtimeOutputHostType, "coreaudio_default_output_unit")
+        XCTAssertEqual(initializedEvent?.runtimeOutputHostRunning, false)
+        XCTAssertEqual(initializedEvent?.runtimeOutputHostStartCount, 0)
         XCTAssertEqual(initializedEvent?.selectedRuntimeSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, selectedSampleRate)
         XCTAssertEqual(initializedEvent?.cMixerRenderChannelCount, MixerRenderConfig.defaultChannelCount)
-        XCTAssertEqual(initializedEvent?.audioEngineSourceNodeAttached, false)
-        XCTAssertEqual(initializedEvent?.audioEngineSourceNodeConnected, false)
-        XCTAssertEqual(initializedEvent?.audioEngineMainMixerConnectedToOutput, false)
         XCTAssertEqual(initializedEvent?.audioFormatConversionLikely, false)
     }
 
@@ -9700,7 +9679,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertNil(traceWriter.events.first?.runtimeSampleRateConfigurationWarning)
         let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
         XCTAssertEqual(initializedEvent?.cMixerRenderSampleRate, 48_000)
-        XCTAssertNil(initializedEvent?.audioSourceNodeRenderSampleRate)
     }
 
     @MainActor
@@ -9730,8 +9708,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureFrameLimit, Int((selectedSampleRate * 0.5).rounded(.up)))
         XCTAssertEqual(traceWriter.events.first?.runtimeCapturedFrameCount, 0)
         XCTAssertEqual(traceWriter.events.first?.runtimeCaptureTruncated, false)
-        let initializedEvent = traceWriter.events.first { $0.runtimeAction == "backend_initialized" }
-        XCTAssertNil(initializedEvent?.runtimeCaptureMatchesSourceNodeFormat)
     }
 
     @MainActor
@@ -10007,7 +9983,6 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertPCMEqual(output, [0.25, 0.5, 0.75, 1.0])
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer_coreaudio")
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
         XCTAssertEqual(traceWriter.events.last?.runtimeAudioBackend, "c_mixer_coreaudio")
     }
@@ -11031,8 +11006,6 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(traceWriter.events.first?.runtimeAudioBackend, "c_mixer")
         XCTAssertEqual(traceWriter.events.first?.backendFlagValue, "raw_core_audio")
         XCTAssertEqual(traceWriter.events.first?.fallbackReason, "unknown_backend")
-        XCTAssertEqual(traceWriter.events.first?.experimentalCMixerEnabled, true)
-        XCTAssertEqual(traceWriter.events.first?.alternativeRuntimeOutputHostEnabled, true)
         XCTAssertEqual(traceWriter.events.first?.runtimeOutputHostType, "coreaudio_default_output_unit")
     }
 
@@ -12968,7 +12941,6 @@ final class VoodooTrackerXTests: XCTestCase {
 
         let event = runtimeTraceWriter.events.first { $0.runtimeAction == "note_trigger" }
         XCTAssertEqual(event?.runtimeAudioBackend, "c_mixer")
-        XCTAssertEqual(event?.experimentalCMixerEnabled, true)
         XCTAssertEqual(event?.orderIndex, 0)
         XCTAssertEqual(event?.patternIndex, 2)
         XCTAssertEqual(event?.rowIndex, 0)

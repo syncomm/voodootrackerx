@@ -1564,6 +1564,63 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(pitch["fallback_neutral_step_used"] as? Bool, false)
     }
 
+    func testDiagnosticsJSONIncludesE5xSetFinetuneFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0, 1, 2],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0x5F)
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x50)
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "e5x-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let effects = try XCTUnwrap(object["set_finetune_effects"] as? [[String: Any]])
+        let applied = try XCTUnwrap(effects.first { $0["current_status"] as? String == "applied" })
+        let deferred = try XCTUnwrap(effects.first { $0["current_status"] as? String == "no_note_deferred" })
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let pitch = try XCTUnwrap(try XCTUnwrap(events.first)["pitch"] as? [String: Any])
+
+        XCTAssertEqual(render["e5x_set_finetune_effect_count"] as? Int, 2)
+        XCTAssertEqual(render["e5x_set_finetune_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["e5x_set_finetune_no_note_deferred_count"] as? Int, 1)
+        XCTAssertEqual(applied["effect_type"] as? Int, 0x0E)
+        XCTAssertEqual(applied["effect_param"] as? Int, 0x5F)
+        XCTAssertEqual(applied["finetune_nibble"] as? Int, 15)
+        XCTAssertEqual(applied["sample_finetune"] as? Int, 0)
+        XCTAssertEqual(applied["effective_finetune"] as? Int, 112)
+        XCTAssertEqual(applied["applied"] as? Bool, true)
+        XCTAssertEqual(applied["deferred"] as? Bool, false)
+        XCTAssertEqual(deferred["finetune_nibble"] as? Int, 0)
+        XCTAssertEqual(deferred["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(pitch["sample_finetune"] as? Int, 0)
+        XCTAssertEqual(pitch["effective_finetune"] as? Int, 112)
+    }
+
     func testDiagnosticsJSONIncludesSampleOffsetFields() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

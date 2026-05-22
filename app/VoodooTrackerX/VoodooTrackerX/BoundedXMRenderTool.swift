@@ -1012,6 +1012,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let portamentoSlideNoActiveVoiceCount = diagnostics.portamentoSlideEffects.filter { $0.status == .noActiveVoice }.count
         let portamentoSlideZeroParamCount = diagnostics.portamentoSlideEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
         let portamentoSlideDeferredCount = diagnostics.portamentoSlideEffects.filter(\.deferred).count
+        let setFinetuneAppliedCount = diagnostics.setFinetuneEffects.filter(\.applied).count
+        let setFinetuneNoNoteDeferredCount = diagnostics.setFinetuneEffects.filter { $0.status == .noNoteDeferred }.count
+        let setFinetuneNoActiveVoiceCount = diagnostics.setFinetuneEffects.filter { $0.status == .noActiveVoice }.count
+        let setFinetuneDeferredCount = diagnostics.setFinetuneEffects.filter(\.deferred).count
         let vibratoAppliedCount = diagnostics.vibratoEffects.filter(\.applied).count
         let vibratoNoActiveVoiceCount = diagnostics.vibratoEffects.filter { $0.status == .noActiveVoice }.count
         let vibratoZeroParamCount = diagnostics.vibratoEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
@@ -1033,6 +1037,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
+            "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
             "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400, zero speed/depth memory, 6xy, and volume-column vibrato remain deferred.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
@@ -1088,6 +1093,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "portamento_slide_no_active_voice_count": portamentoSlideNoActiveVoiceCount,
                 "portamento_slide_zero_param_effect_memory_deferred_count": portamentoSlideZeroParamCount,
                 "portamento_slide_deferred_count": portamentoSlideDeferredCount,
+                "e5x_set_finetune_effect_count": diagnostics.setFinetuneEffectCount,
+                "e5x_set_finetune_detected_count": diagnostics.setFinetuneEffectCount,
+                "e5x_set_finetune_applied_count": setFinetuneAppliedCount,
+                "e5x_set_finetune_no_note_deferred_count": setFinetuneNoNoteDeferredCount,
+                "e5x_set_finetune_no_active_voice_count": setFinetuneNoActiveVoiceCount,
+                "e5x_set_finetune_deferred_count": setFinetuneDeferredCount,
                 "vibrato_4xy_effect_count": diagnostics.vibratoEffectCount,
                 "vibrato_4xy_applied_count": vibratoAppliedCount,
                 "vibrato_4xy_no_active_voice_count": vibratoNoActiveVoiceCount,
@@ -1151,6 +1162,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "volume_panning_state_update_summary": voiceStateUpdateSummaryJSON(diagnostics.voiceStateUpdates),
             "volume_panning_state_updates": diagnostics.voiceStateUpdates.map(voiceStateUpdateJSON),
             "sample_offset_effects": diagnostics.sampleOffsetEffects.map(sampleOffsetDiagnosticJSON),
+            "set_finetune_effects": diagnostics.setFinetuneEffects.map(setFinetuneDiagnosticJSON),
             "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
@@ -2102,6 +2114,36 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func setFinetuneDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticSetFinetuneDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": setFinetuneStatusName(diagnostic.status),
+            "current_status": setFinetuneStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "finetune_nibble": diagnostic.finetuneNibble,
+            "sample_finetune": diagnostic.sampleFinetune.map { $0 as Any } ?? NSNull(),
+            "effective_finetune": diagnostic.effectiveFinetune.map { $0 as Any } ?? NSNull(),
+            "linear_period": diagnostic.linearPeriod.map { $0 as Any } ?? NSNull(),
+            "linear_frequency": diagnostic.linearFrequency.map { $0 as Any } ?? NSNull(),
+            "playback_step": diagnostic.playbackStep.map { $0 as Any } ?? NSNull(),
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "policy": diagnostic.policy,
+        ]
+    }
+
     private static func noteCutDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticNoteCutDiagnostic,
         from result: PlaybackSongOfflineRenderResult
@@ -2504,6 +2546,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "ignored_900_no_op"
         case .outOfRangeSkipped:
             return "out_of_range_skipped"
+        }
+    }
+
+    private static func setFinetuneStatusName(_ status: PlaybackSongSyntheticSetFinetuneDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noNoteDeferred:
+            return "no_note_deferred"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
         }
     }
 

@@ -1453,6 +1453,12 @@ resampling or loop investigation, or a bounded order traversal improvement.
 Further feature-flagged runtime C mixer backend expansion should wait until
 offline confidence is strong enough to justify additional runtime risk.
 
+Bounded render diagnostics now include `set_finetune_effects` plus render-level
+`e5x_set_finetune_*` counts. Same-cell note `E5x` cases report the finetune
+nibble, effective finetune, linear period/frequency, and playback step when the
+linear-frequency path applies. No-note/effect-memory and unsupported frequency
+table cases stay visible as deferred diagnostics.
+
 ## Local-Only Artifact Rules
 
 Keep all generated files outside the repo, for example under `/tmp`:

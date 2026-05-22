@@ -467,6 +467,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                ((mapping.effectParam >> 4) & 0x0F) == 0x09 {
                 categories.append("retrigger")
             }
+            let isSetFinetune = mapping.effectType == 0x0E &&
+                ((mapping.effectParam >> 4) & 0x0F) == 0x05
+            if isSetFinetune {
+                categories.append("e5x_set_finetune")
+            }
             if syntheticEvent.keyOffFrame != nil {
                 categories.append("key_off")
             }
@@ -477,7 +482,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 syntheticTick: mapping.syntheticTick,
                 scheduledFrame: scheduler.frame(for: syntheticEvent),
                 action: .noteTrigger(eventIndex: eventIndex, event: syntheticEvent, mapping: mapping),
-                categories: categories
+                categories: categories,
+                effectType: isSetFinetune ? mapping.effectType : nil,
+                effectParam: isSetFinetune ? mapping.effectParam : nil
             ))
             nextID += 1
         }
@@ -823,6 +830,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
     let voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
+    let setFinetuneEffects: [PlaybackSongSyntheticSetFinetuneDiagnostic]
     let noteCutEffects: [PlaybackSongSyntheticNoteCutDiagnostic]
     let noteDelayEffects: [PlaybackSongSyntheticNoteDelayDiagnostic]
     let retriggerEffects: [PlaybackSongSyntheticRetriggerDiagnostic]
@@ -861,6 +869,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var sampleOffsetEffectCount: Int {
         sampleOffsetEffects.count
+    }
+
+    var setFinetuneEffectCount: Int {
+        setFinetuneEffects.count
     }
 
     var noteCutEffectCount: Int {
@@ -1018,6 +1030,7 @@ extension PlaybackSongSyntheticDiagnostics {
             volumeColumnMappings: volumeColumnMappings,
             voiceStateUpdates: voiceStateUpdates,
             sampleOffsetEffects: sampleOffsetEffects,
+            setFinetuneEffects: setFinetuneEffects,
             noteCutEffects: noteCutEffects,
             noteDelayEffects: noteDelayEffects,
             retriggerEffects: retriggerEffects,
@@ -1362,6 +1375,41 @@ struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
     let computedOffsetFrames: Int
     let appliedOffsetFrames: Int?
     let selectedSampleLength: Int?
+}
+
+struct PlaybackSongSyntheticSetFinetuneDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noNoteDeferred
+        case noActiveVoice
+        case unsupportedFrequencyTable
+        case outOfRange
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let effectMemoryDeferred: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let finetuneNibble: Int
+    let sampleFinetune: Int?
+    let effectiveFinetune: Int?
+    let linearPeriod: Double?
+    let linearFrequency: Double?
+    let playbackStep: Double?
+    let rowSpeed: Int
+    let rowBPM: Int
+    let policy: String
 }
 
 struct PlaybackSongSyntheticNoteCutDiagnostic: Equatable {
@@ -2572,6 +2620,7 @@ enum PlaybackSongSyntheticAdapter {
         var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
+        var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
         var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
         var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
         var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
@@ -2653,6 +2702,7 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumnMappings: &volumeColumnMappings,
                     voiceStateUpdates: &voiceStateUpdates,
                     sampleOffsetEffects: &sampleOffsetEffects,
+                    setFinetuneEffects: &setFinetuneEffects,
                     noteCutEffects: &noteCutEffects,
                     noteDelayEffects: &noteDelayEffects,
                     retriggerEffects: &retriggerEffects,
@@ -2692,6 +2742,7 @@ enum PlaybackSongSyntheticAdapter {
                 volumeColumnMappings: volumeColumnMappings,
                 voiceStateUpdates: voiceStateUpdates,
                 sampleOffsetEffects: sampleOffsetEffects,
+                setFinetuneEffects: setFinetuneEffects,
                 noteCutEffects: noteCutEffects,
                 noteDelayEffects: noteDelayEffects,
                 retriggerEffects: retriggerEffects,
@@ -2721,6 +2772,7 @@ enum PlaybackSongSyntheticAdapter {
         volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
         voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
         sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
+        setFinetuneEffects: inout [PlaybackSongSyntheticSetFinetuneDiagnostic],
         noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic],
         noteDelayEffects: inout [PlaybackSongSyntheticNoteDelayDiagnostic],
         retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
@@ -2757,6 +2809,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
             let hasRetriggerEffect = extendedSubcommand == 0x09
+            let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
@@ -2929,6 +2982,19 @@ enum PlaybackSongSyntheticAdapter {
                         noteCutEffects: &noteCutEffects
                     )
                 }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noNoteDeferred,
+                        activeVoiceFound: channelState.activeEventIndex != nil,
+                        activeEventIndex: channelState.activeEventIndex,
+                        activeEventMappingIndex: channelState.activeEventMappingIndex
+                    ))
+                }
                 channelStates[channelIndex] = channelState
                 continue
             }
@@ -2968,6 +3034,19 @@ enum PlaybackSongSyntheticAdapter {
                 if retrigger?.applied == true {
                     channelStates[channelIndex] = channelState
                     continue
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noNoteDeferred,
+                        activeVoiceFound: channelState.activeEventIndex != nil,
+                        activeEventIndex: channelState.activeEventIndex,
+                        activeEventMappingIndex: channelState.activeEventMappingIndex
+                    ))
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -3016,6 +3095,19 @@ enum PlaybackSongSyntheticAdapter {
                         noteCutEffects: &noteCutEffects
                     )
                 }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil
+                    ))
+                }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -3042,6 +3134,19 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState,
                         noteCutEffects: &noteCutEffects
                     )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil
+                    ))
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -3070,6 +3175,20 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState,
                         noteCutEffects: &noteCutEffects
                     )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil,
+                        sampleFinetune: sampleSelection.diagnosticSample?.finetune
+                    ))
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -3156,12 +3275,29 @@ enum PlaybackSongSyntheticAdapter {
                 from: instrument.volumeEnvelope,
                 mapping: envelopeMapping
             )
+            let setFinetuneOverride = hasSetFinetuneEffect ? setFinetuneValue(from: cell) : nil
             let pitchMapping = playbackStepMapping(
                 note: cell.note,
                 sample: sample,
                 usesLinearFrequencyTable: song.usesLinearFrequencyTable,
-                timingConfig: timingConfig
+                timingConfig: timingConfig,
+                finetuneOverride: setFinetuneOverride
             )
+            if hasSetFinetuneEffect {
+                setFinetuneEffects.append(setFinetuneDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    status: setFinetuneStatus(for: pitchMapping),
+                    activeVoiceFound: true,
+                    activeEventIndex: eventIndex,
+                    activeEventMappingIndex: eventMappings.count,
+                    sampleFinetune: sample.finetune,
+                    pitchMapping: pitchMapping
+                ))
+            }
             let gain = adaptedGain(
                 sampleVolume: sample.volume,
                 channelVolume: channelState.volumeValue,
@@ -3197,7 +3333,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
             channelState.activeSampleBaseSampleRate = sample.baseSampleRate
             channelState.activeSampleRelativeNote = sample.relativeNote
-            channelState.activeSampleFinetune = sample.finetune
+            channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
             channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
             channelState.tonePortamentoTargetNote = nil
             channelState.tonePortamentoTargetLinearPeriod = nil
@@ -5396,7 +5532,8 @@ enum PlaybackSongSyntheticAdapter {
         note: UInt8,
         sample: PlaybackSample,
         usesLinearFrequencyTable: Bool,
-        timingConfig: SyntheticTrackerTimingConfig
+        timingConfig: SyntheticTrackerTimingConfig,
+        finetuneOverride: Int? = nil
     ) -> PlaybackStepMapping {
         let outputSampleRate = timingConfig.sampleRate
         guard usesLinearFrequencyTable else {
@@ -5442,7 +5579,7 @@ enum PlaybackSongSyntheticAdapter {
         guard let target = linearPitchTarget(
             note: note,
             relativeNote: sample.relativeNote,
-            finetune: sample.finetune,
+            finetune: finetuneOverride ?? sample.finetune,
             baseSampleRate: baseSampleRate,
             outputSampleRate: outputSampleRate
         ) else {
@@ -5453,7 +5590,7 @@ enum PlaybackSongSyntheticAdapter {
                 outputSampleRate: outputSampleRate,
                 effectiveNoteValue: effectiveNoteValue,
                 effectiveNoteIndex: effectiveNoteIndex,
-                effectiveFinetune: clampedFinetune(sample.finetune),
+                effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
                 linearPeriod: nil,
                 linearFrequency: nil,
                 finetuneStatus: .deferred,
@@ -5823,6 +5960,90 @@ enum PlaybackSongSyntheticAdapter {
         extendedEffectSubcommand(cell) == 0x09
     }
 
+    private static func isSetFinetuneEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x05
+    }
+
+    private static func setFinetuneNibble(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func setFinetuneValue(from cell: PlaybackCell) -> Int {
+        (setFinetuneNibble(from: cell) * 16) - 128
+    }
+
+    private static func setFinetuneStatus(
+        for pitchMapping: PlaybackStepMapping
+    ) -> PlaybackSongSyntheticSetFinetuneDiagnostic.Status {
+        if pitchMapping.applied {
+            return .applied
+        }
+        if pitchMapping.amigaFrequencyDeferred {
+            return .unsupportedFrequencyTable
+        }
+        return .outOfRange
+    }
+
+    private static func setFinetuneDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        status: PlaybackSongSyntheticSetFinetuneDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        sampleFinetune: Int? = nil,
+        pitchMapping: PlaybackStepMapping? = nil
+    ) -> PlaybackSongSyntheticSetFinetuneDiagnostic {
+        let applied = status == .applied
+        let effectMemoryDeferred = status == .noNoteDeferred
+        let deferred = effectMemoryDeferred ||
+            status == .unsupportedFrequencyTable ||
+            status == .outOfRange
+        let ignoredAsNoOp = status == .noActiveVoice
+        let policy: String
+        switch status {
+        case .applied:
+            policy = "same_cell_note_overrides_sample_finetune_no_memory"
+        case .noNoteDeferred:
+            policy = "no_same_cell_note_effect_memory_deferred"
+        case .noActiveVoice:
+            policy = "no_playable_same_cell_note"
+        case .unsupportedFrequencyTable:
+            policy = "linear_frequency_only_first_pass"
+        case .outOfRange:
+            policy = "pitch_mapping_out_of_range"
+        }
+        return PlaybackSongSyntheticSetFinetuneDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: deferred,
+            ignoredAsNoOp: ignoredAsNoOp,
+            effectMemoryDeferred: effectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            finetuneNibble: setFinetuneNibble(from: cell),
+            sampleFinetune: sampleFinetune,
+            effectiveFinetune: pitchMapping?.effectiveFinetune,
+            linearPeriod: pitchMapping?.linearPeriod,
+            linearFrequency: pitchMapping?.linearFrequency,
+            playbackStep: pitchMapping?.playbackStep,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            policy: policy
+        )
+    }
+
     private static func sampleOffsetDiagnostic(
         from cell: PlaybackCell,
         source: PlaybackPosition,
@@ -5976,6 +6197,8 @@ enum PlaybackSongSyntheticAdapter {
                 return .ignoredNoOp
             }
             return interval < timingConfig.speed ? .applied : .ignoredNoOp
+        case 0x0E where isSetFinetuneEffect(cell):
+            return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
         case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
             guard extendedEffectTick(cell) < timingConfig.speed else {
                 return .ignoredNoOp
@@ -6092,6 +6315,7 @@ enum PlaybackSongSyntheticAdapter {
             isPortamentoSlideEffect(cell) ||
             isTonePortamentoEffect(cell) ||
             isVibratoEffect(cell) ||
+            isSetFinetuneEffect(cell) ||
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||

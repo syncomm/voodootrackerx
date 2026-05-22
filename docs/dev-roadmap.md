@@ -410,8 +410,9 @@ Immediate audio accuracy sequence:
 85. Runtime Diagnostics Cleanup / Remove Obsolete Backend Debugging — done
 86. XM Effect Coverage Audit / Local Missing-Effect Target Selection — done
 87. Minimal 4xy Vibrato Foundation — done
-88. Next effect target from corpus evidence: E5x set finetune or 6xy vibrato + volume slide — recommended next effect PR
-89. Reference comparison stabilization against MikMod/OpenMPT
+88. Minimal E5x Set Finetune Foundation — done
+89. Next effect target from remaining corpus evidence: E2x fine portamento down, EAx/EBx fine volume slides, or 6xy vibrato + volume slide — recommended next effect PR
+90. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

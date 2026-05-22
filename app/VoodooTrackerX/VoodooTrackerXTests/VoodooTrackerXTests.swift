@@ -584,6 +584,44 @@ private final class TestPlaybackAudioOutput: PlaybackAudioOutput {
 }
 
 @MainActor
+private final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput {
+    let audioBufferSampleRate = 100.0
+    let runtimeAudioBackend: RuntimeAudioBackend = .cMixer
+    var followPositions = [PlaybackFollowPosition?]()
+    private(set) var recordedFollowEvents = [(position: PlaybackFollowPosition, resolverFailureReason: String?)]()
+
+    func trigger(_ request: AudioVoiceRequest) {}
+    func update(channel: Int, controls: AudioChannelControls) {}
+    func stop(channel: Int) {}
+    func stopAll() {}
+    func reset() {}
+
+    func playbackFollowPosition(timerPosition: PlaybackPosition, timerTickInRow: Int) -> PlaybackFollowPosition? {
+        guard !followPositions.isEmpty else {
+            return nil
+        }
+        return followPositions.removeFirst()
+    }
+
+    func trigger(_ request: AudioVoiceRequest, context: AudioRuntimeTraceContext?) {}
+    func update(channel: Int, controls: AudioChannelControls, context: AudioRuntimeTraceContext?) {}
+    func stop(channel: Int, context: AudioRuntimeTraceContext?) {}
+    func stopAll(context: AudioRuntimeTraceContext?, reason: String) {}
+    func recordTransition(previousContext: AudioRuntimeTraceContext?, context: AudioRuntimeTraceContext?, phase: String, reason: String) {}
+
+    func recordPublishedPlaybackFollowPosition(
+        timerContext: AudioRuntimeTraceContext?,
+        publishedPosition: PlaybackFollowPosition,
+        publicationDisabled: Bool,
+        consumedByUI: Bool,
+        duplicateSuppressed: Bool,
+        resolverFailureReason: String?
+    ) {
+        recordedFollowEvents.append((publishedPosition, resolverFailureReason))
+    }
+}
+
+@MainActor
 private final class TestPlaybackTraceWriter: PlaybackTraceWriting {
     private(set) var events = [PlaybackTraceEvent]()
     private(set) var flushCount = 0
@@ -10614,6 +10652,99 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(position.status, "at_or_after_end")
     }
 
+    private func makeLongFollowResolverSong() -> PlaybackSong {
+        let orderPatternIndices = Array(0...36)
+        var patternRowsByIndex = [Int: [PlaybackRow]]()
+        for patternIndex in orderPatternIndices {
+            patternRowsByIndex[patternIndex] = (0..<128).map { makePlaybackRow(index: $0) }
+        }
+        patternRowsByIndex[35]?[0x4D] = makePlaybackRow(index: 0x4D)
+        patternRowsByIndex[35]?[0x4E] = makePlaybackRow(index: 0x4E, note: 64, instrument: 0, effectType: 0x03, effectParam: 0x00)
+        patternRowsByIndex[35]?[0x4F] = makePlaybackRow(index: 0x4F, volumeColumn: 0x40)
+        patternRowsByIndex[35]?[0x50] = makePlaybackRow(index: 0x50, note: 49, instrument: 1)
+        return makePlaybackSong(
+            orderPatternIndices: orderPatternIndices,
+            patternRowsByIndex: patternRowsByIndex,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+    }
+
+    private func rowTiming(
+        in plan: PlaybackSongSyntheticPlan,
+        orderIndex: Int,
+        rowIndex: Int
+    ) throws -> PlaybackSongSyntheticRowTimingDiagnostic {
+        try XCTUnwrap(plan.diagnostics.rowTiming.first {
+            $0.source.orderIndex == orderIndex && $0.source.rowIndex == rowIndex
+        })
+    }
+
+    func testSampleTimePositionResolverMapsLongTimelineAcrossMultiOrderBoundary() throws {
+        let song = makeLongFollowResolverSong()
+        let plan = PlaybackSongSyntheticAdapter.adapt(
+            song,
+            startOrderIndex: 0,
+            orderCount: song.orders.count,
+            sampleRate: 100
+        )
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+        let targetTiming = try rowTiming(in: plan, orderIndex: 35, rowIndex: 0x51)
+        let target = try XCTUnwrap(resolver.position(atFrame: targetTiming.rowStartFrame))
+
+        XCTAssertEqual(target.source, PlaybackPosition(orderIndex: 35, patternIndex: 35, rowIndex: 0x51))
+        XCTAssertEqual(target.tickInRow, 0)
+        XCTAssertEqual(target.status, "in_range")
+        XCTAssertEqual(target.frame, targetTiming.rowStartFrame)
+    }
+
+    func testSampleTimePositionResolverHandlesHighRowsAndOrderTransition() throws {
+        let song = makeLongFollowResolverSong()
+        let plan = PlaybackSongSyntheticAdapter.adapt(
+            song,
+            startOrderIndex: 0,
+            orderCount: song.orders.count,
+            sampleRate: 100
+        )
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: plan)
+        let row4E = try rowTiming(in: plan, orderIndex: 35, rowIndex: 0x4E)
+        let row4F = try rowTiming(in: plan, orderIndex: 35, rowIndex: 0x4F)
+        let row7F = try rowTiming(in: plan, orderIndex: 35, rowIndex: 0x7F)
+        let order36 = try rowTiming(in: plan, orderIndex: 36, rowIndex: 0)
+
+        XCTAssertEqual(try XCTUnwrap(resolver.position(atFrame: row4E.rowStartFrame)).source, PlaybackPosition(orderIndex: 35, patternIndex: 35, rowIndex: 0x4E))
+        XCTAssertEqual(try XCTUnwrap(resolver.position(atFrame: row4F.rowStartFrame)).source, PlaybackPosition(orderIndex: 35, patternIndex: 35, rowIndex: 0x4F))
+        XCTAssertEqual(try XCTUnwrap(resolver.position(atFrame: order36.rowStartFrame - 1)).source, PlaybackPosition(orderIndex: 35, patternIndex: 35, rowIndex: 0x7F))
+        XCTAssertEqual(try XCTUnwrap(resolver.position(atFrame: row7F.rowStartFrame)).source, PlaybackPosition(orderIndex: 35, patternIndex: 35, rowIndex: 0x7F))
+        XCTAssertEqual(try XCTUnwrap(resolver.position(atFrame: order36.rowStartFrame)).source, PlaybackPosition(orderIndex: 36, patternIndex: 36, rowIndex: 0))
+    }
+
+    func testFullRunAndDirectStartResolverMappingsAgreeAfterBaseFrameAdjustment() throws {
+        let song = makeLongFollowResolverSong()
+        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
+            song,
+            startOrderIndex: 0,
+            orderCount: song.orders.count,
+            sampleRate: 100
+        )
+        let directPlan = PlaybackSongSyntheticAdapter.adapt(
+            song,
+            startOrderIndex: 34,
+            orderCount: 3,
+            sampleRate: 100
+        )
+        let fullResolver = PlaybackSongSampleTimePositionResolver(plan: fullPlan)
+        let directResolver = PlaybackSongSampleTimePositionResolver(plan: directPlan)
+        let fullBase = try rowTiming(in: fullPlan, orderIndex: 34, rowIndex: 0)
+        let fullTarget = try rowTiming(in: fullPlan, orderIndex: 35, rowIndex: 0x51)
+        let directTarget = try rowTiming(in: directPlan, orderIndex: 35, rowIndex: 0x51)
+        let fullPosition = try XCTUnwrap(fullResolver.position(atFrame: fullTarget.rowStartFrame))
+        let directPosition = try XCTUnwrap(directResolver.position(atFrame: directTarget.rowStartFrame))
+
+        XCTAssertEqual(fullPosition.source, directPosition.source)
+        XCTAssertEqual(fullPosition.tickInRow, directPosition.tickInRow)
+        XCTAssertEqual(fullPosition.frame - fullBase.rowStartFrame, directPosition.frame)
+    }
+
     @MainActor
     private func makeRuntimeCMixerPlaybackHarness(
         backend: RuntimeAudioBackend = .cMixer,
@@ -10827,6 +10958,35 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeCMixerFollowPublicationContinuesAfterUnresolvedProviderResult() {
+        let audioEngine = TestRuntimeFollowAudioOutput()
+        let engine = PlaybackEngine(audioEngine: audioEngine, startsRealtimeTimer: false)
+        let row1 = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
+        let row2 = PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2)
+        audioEngine.followPositions = [
+            nil,
+            PlaybackFollowPosition(position: row1, tickInRow: 0, source: .cMixerSampleTime, sampleTimeFrame: 10, sampleTimeStatus: "in_range", syntheticRow: 1),
+            PlaybackFollowPosition(position: row2, tickInRow: 0, source: .cMixerSampleTime, sampleTimeFrame: 20, sampleTimeStatus: "in_range", syntheticRow: 2)
+        ]
+        engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 3],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.play(from: nil)
+        engine.advanceOneTick()
+        engine.advanceOneTick()
+
+        XCTAssertEqual(positions.last, row2)
+        XCTAssertEqual(engine.currentPublishedFollowPosition?.source, .cMixerSampleTime)
+        XCTAssertEqual(audioEngine.recordedFollowEvents.first?.resolverFailureReason, "resolver_unresolved")
+        XCTAssertNil(audioEngine.recordedFollowEvents.last?.resolverFailureReason)
+    }
+
+    @MainActor
     func testRuntimeCMixerTraceIncludesPublishedFollowPositionSource() {
         let harness = makeRuntimeCMixerPlaybackHarness()
         harness.engine.load(song: makePlaybackSong(
@@ -10834,6 +10994,8 @@ final class VoodooTrackerXTests: XCTestCase {
             patternRowCounts: [2: 3],
             initialTiming: PlaybackTiming(speed: 1, bpm: 25)
         ))
+        var consumedPositions = [PlaybackPosition]()
+        harness.engine.positionDidChange = { consumedPositions.append($0) }
 
         harness.engine.play(from: nil)
         _ = harness.audioEngine.renderForTesting(frameCount: 25)
@@ -10855,6 +11017,18 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowFrameDelta, 15)
         XCTAssertEqual(latest?.playbackEngineToPublishedPlaybackFollowRowDelta, 1)
         XCTAssertEqual(latest?.playbackEngineToCMixerFrameDelta, 15)
+        XCTAssertEqual(latest?.followPublishedCount, 2)
+        XCTAssertEqual(latest?.followConsumedCount, 2)
+        XCTAssertEqual(latest?.followDroppedCount, 0)
+        XCTAssertEqual(latest?.followSuppressedCount, 0)
+        XCTAssertEqual(latest?.followUnresolvedPositionCount, 0)
+        XCTAssertEqual(latest?.followLastPublishedOrder, 0)
+        XCTAssertEqual(latest?.followLastPublishedRow, 2)
+        XCTAssertEqual(latest?.followLastConsumedOrder, 0)
+        XCTAssertEqual(latest?.followLastConsumedRow, 2)
+        XCTAssertEqual(latest?.followSampleFrame, 25)
+        XCTAssertNil(latest?.followResolverFailureReason)
+        XCTAssertEqual(consumedPositions.last, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 2))
     }
 
     @MainActor
@@ -10881,6 +11055,38 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(latest?.playbackFollowPublicationDisabled, true)
         XCTAssertEqual(latest?.playbackFollowPublicationCount, 0)
         XCTAssertEqual(latest?.playbackFollowPublicationSuppressedCount, 2)
+        XCTAssertEqual(latest?.followPublishedCount, 0)
+        XCTAssertEqual(latest?.followConsumedCount, 0)
+        XCTAssertEqual(latest?.followSuppressedCount, 2)
+        XCTAssertEqual(latest?.followDroppedCount, 0)
+    }
+
+    @MainActor
+    func testRuntimeCMixerHeldFollowPublishesSampleTimeAfterPlaybackTimerEnd() {
+        let harness = makeRuntimeCMixerPlaybackHarness()
+        defer {
+            harness.engine.stop()
+        }
+        harness.engine.load(song: makePlaybackSong(
+            orderPatternIndices: [2, 3, 4],
+            patternRowCounts: [2: 2, 3: 2, 4: 2],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        ))
+        var positions = [PlaybackPosition]()
+        harness.engine.positionDidChange = { positions.append($0) }
+
+        harness.engine.play(from: nil)
+        _ = harness.audioEngine.renderForTesting(frameCount: 35)
+        for _ in 0..<6 {
+            harness.engine.advanceOneTick()
+        }
+        _ = harness.audioEngine.renderForTesting(frameCount: 20)
+        harness.engine.publishRuntimeCMixerHeldFollowPositionForTesting()
+
+        XCTAssertEqual(harness.engine.state.isPlaying, true)
+        XCTAssertEqual(positions.last, PlaybackPosition(orderIndex: 2, patternIndex: 4, rowIndex: 1))
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.source, .cMixerSampleTime)
+        XCTAssertEqual(harness.engine.currentPublishedFollowPosition?.sampleTimeFrame, 55)
     }
 
     @MainActor

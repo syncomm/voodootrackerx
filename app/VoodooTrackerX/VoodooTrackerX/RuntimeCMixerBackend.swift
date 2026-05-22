@@ -10,7 +10,14 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
     func stop(channel: Int, context: AudioRuntimeTraceContext?)
     func stopAll(context: AudioRuntimeTraceContext?, reason: String)
     func recordTransition(previousContext: AudioRuntimeTraceContext?, context: AudioRuntimeTraceContext?, phase: String, reason: String)
-    func recordPublishedPlaybackFollowPosition(timerContext: AudioRuntimeTraceContext?, publishedPosition: PlaybackFollowPosition, publicationDisabled: Bool)
+    func recordPublishedPlaybackFollowPosition(
+        timerContext: AudioRuntimeTraceContext?,
+        publishedPosition: PlaybackFollowPosition,
+        publicationDisabled: Bool,
+        consumedByUI: Bool,
+        duplicateSuppressed: Bool,
+        resolverFailureReason: String?
+    )
 }
 
 @MainActor
@@ -318,6 +325,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var lastAudioGraphDiagnostics: RuntimeCMixerAudioGraphDiagnostics?
     private var playbackFollowPublicationCount: UInt64 = 0
     private var playbackFollowPublicationSuppressedCount: UInt64 = 0
+    private var playbackFollowConsumedCount: UInt64 = 0
+    private var playbackFollowDroppedCount: UInt64 = 0
+    private var playbackFollowUnresolvedPositionCount: UInt64 = 0
+    private var playbackFollowLastPublishedPosition: PlaybackFollowPosition?
+    private var playbackFollowLastConsumedPosition: PlaybackFollowPosition?
+    private var playbackFollowLastResolverFailureReason: String?
     private var eventCounters = RuntimeCMixerEventCounters()
     private var adapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
     private var consumedAdapterEventIDs = Set<Int>()
@@ -466,6 +479,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         sampleTimePositionResolver = adapterEventPlan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
         adapterEventScheduleConfigured = false
         pendingTransition = nil
+        playbackFollowPublicationCount = 0
+        playbackFollowPublicationSuppressedCount = 0
+        playbackFollowConsumedCount = 0
+        playbackFollowDroppedCount = 0
+        playbackFollowUnresolvedPositionCount = 0
+        playbackFollowLastPublishedPosition = nil
+        playbackFollowLastConsumedPosition = nil
+        playbackFollowLastResolverFailureReason = nil
         renderCore.clearAdapterEventSchedule()
     }
 
@@ -680,6 +701,15 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     private func plannedPosition(for context: AudioRuntimeTraceContext) -> PlaybackSongSampleTimePosition? {
         adapterEventPlan.plannedFrame(matching: context).flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+    }
+
+    private func followFreezeDetected(sampleTimePosition: RuntimeCMixerSampleTimePositionTraceFields) -> Bool {
+        guard let cMixerSyntheticRow = sampleTimePosition.cMixerSampleTimeSyntheticRow,
+              let lastConsumedPosition = playbackFollowLastConsumedPosition,
+              let lastConsumedPlannedPosition = plannedPosition(for: lastConsumedPosition) else {
+            return false
+        }
+        return cMixerSyntheticRow - lastConsumedPlannedPosition.syntheticRow > 1
     }
 
     private func positionMismatch(
@@ -1376,12 +1406,26 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func recordPublishedPlaybackFollowPosition(
         timerContext: AudioRuntimeTraceContext?,
         publishedPosition: PlaybackFollowPosition,
-        publicationDisabled: Bool
+        publicationDisabled: Bool,
+        consumedByUI: Bool,
+        duplicateSuppressed: Bool,
+        resolverFailureReason: String?
     ) {
-        if publicationDisabled {
+        playbackFollowLastPublishedPosition = publishedPosition
+        playbackFollowLastResolverFailureReason = resolverFailureReason
+        if resolverFailureReason != nil {
+            playbackFollowUnresolvedPositionCount &+= 1
+        }
+        if publicationDisabled || duplicateSuppressed {
             playbackFollowPublicationSuppressedCount &+= 1
         } else {
             playbackFollowPublicationCount &+= 1
+        }
+        if consumedByUI {
+            playbackFollowConsumedCount &+= 1
+            playbackFollowLastConsumedPosition = publishedPosition
+        } else if duplicateSuppressed {
+            playbackFollowDroppedCount &+= 1
         }
         if coreAudioOutputHost.isRunning {
             recordRuntimeEventWithoutRenderSnapshot(
@@ -1389,6 +1433,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 context: timerContext,
                 publishedPlaybackFollowPosition: publishedPosition,
                 playbackFollowPublicationDisabled: publicationDisabled,
+                followResolverFailureReason: resolverFailureReason,
                 reason: "playback_follow_position_published"
             )
             return
@@ -1402,6 +1447,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             succeeded: nil,
             publishedPlaybackFollowPosition: publishedPosition,
             playbackFollowPublicationDisabled: publicationDisabled,
+            followResolverFailureReason: resolverFailureReason,
             reason: "playback_follow_position_published"
         )
     }
@@ -1551,6 +1597,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         transition: RuntimeCMixerTransitionTraceFields? = nil,
         publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
         playbackFollowPublicationDisabled: Bool? = nil,
+        followResolverFailureReason: String? = nil,
         reason: String?
     ) {
         guard traceWriter.isEnabled else {
@@ -1580,6 +1627,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
+        let effectiveFollowResolverFailureReason = followResolverFailureReason ?? playbackFollowLastResolverFailureReason
+        let resolverEnded = sampleTimePosition.cMixerSampleTimePositionStatus == "at_or_after_end" ||
+            publishedPlaybackFollowPosition?.sampleTimeStatus == "at_or_after_end"
         let event = RuntimeCMixerTraceEvent(
             runtimeAction: action,
             runtimeAudioBackend: runtimeAudioBackend.diagnosticName,
@@ -1649,6 +1699,25 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             playbackFollowPublicationDisabled: playbackFollowPublicationDisabled,
             playbackFollowPublicationCount: playbackFollowPublicationCount,
             playbackFollowPublicationSuppressedCount: playbackFollowPublicationSuppressedCount,
+            followPublishedCount: playbackFollowPublicationCount,
+            followConsumedCount: playbackFollowConsumedCount,
+            followDroppedCount: playbackFollowDroppedCount,
+            followSuppressedCount: playbackFollowPublicationSuppressedCount,
+            followUnresolvedPositionCount: playbackFollowUnresolvedPositionCount,
+            followLastPublishedOrder: playbackFollowLastPublishedPosition?.position.orderIndex,
+            followLastPublishedRow: playbackFollowLastPublishedPosition?.position.rowIndex,
+            followLastPublishedTick: playbackFollowLastPublishedPosition?.tickInRow,
+            followLastConsumedOrder: playbackFollowLastConsumedPosition?.position.orderIndex,
+            followLastConsumedRow: playbackFollowLastConsumedPosition?.position.rowIndex,
+            followLastConsumedTick: playbackFollowLastConsumedPosition?.tickInRow,
+            followSampleFrame: publishedPlaybackFollowPosition?.sampleTimeFrame ?? sampleTimePosition.cMixerSampleTimeFrame,
+            followResolverFailureReason: effectiveFollowResolverFailureReason,
+            followFreezeDetected: followFreezeDetected(sampleTimePosition: sampleTimePosition),
+            directStartOffsetFrame: plannedRuntimeFrameOffset,
+            resolverTimelineStartOrder: adapterEventPlan.plan?.diagnostics.requestedStartOrderIndex,
+            resolverTimelineBaseFrame: plannedRuntimeFrameOffset,
+            resolverMaxFrame: adapterEventPlan.plannedSongEndFrame,
+            resolverEndReached: resolverEnded,
             channelCount: renderCore.config.channelCount,
             context: context,
             currentFrame: currentFrame,
@@ -1724,6 +1793,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         runtimeEventFallbackReason: String? = nil,
         publishedPlaybackFollowPosition: PlaybackFollowPosition? = nil,
         playbackFollowPublicationDisabled: Bool? = nil,
+        followResolverFailureReason: String? = nil,
         captureWriteSucceeded: Bool? = nil,
         captureWriteError: String? = nil,
         reason: String?
@@ -1752,6 +1822,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         let playbackEngineToPublishedRowDelta = publishedPlannedPosition.flatMap { publishedPosition in
             playbackEnginePlannedPosition.map { publishedPosition.syntheticRow - $0.syntheticRow }
         }
+        let effectiveFollowResolverFailureReason = followResolverFailureReason ?? playbackFollowLastResolverFailureReason
+        let resolverEnded = sampleTimePosition.cMixerSampleTimePositionStatus == "at_or_after_end" ||
+            publishedPlaybackFollowPosition?.sampleTimeStatus == "at_or_after_end"
         let lifecycleSnapshot = snapshotBefore ?? snapshot
         let plannedSongEndFrame = adapterEventPlan.plannedSongEndFrame ?? lifecycleSnapshot.plannedSongEndFrame ?? snapshot.plannedSongEndFrame
         let plannedSongEndRuntimeFrame = lifecycleSnapshot.plannedSongEndRuntimeFrame ?? snapshot.plannedSongEndRuntimeFrame
@@ -1928,6 +2001,25 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             playbackFollowPublicationDisabled: playbackFollowPublicationDisabled,
             playbackFollowPublicationCount: playbackFollowPublicationCount,
             playbackFollowPublicationSuppressedCount: playbackFollowPublicationSuppressedCount,
+            followPublishedCount: playbackFollowPublicationCount,
+            followConsumedCount: playbackFollowConsumedCount,
+            followDroppedCount: playbackFollowDroppedCount,
+            followSuppressedCount: playbackFollowPublicationSuppressedCount,
+            followUnresolvedPositionCount: playbackFollowUnresolvedPositionCount,
+            followLastPublishedOrder: playbackFollowLastPublishedPosition?.position.orderIndex,
+            followLastPublishedRow: playbackFollowLastPublishedPosition?.position.rowIndex,
+            followLastPublishedTick: playbackFollowLastPublishedPosition?.tickInRow,
+            followLastConsumedOrder: playbackFollowLastConsumedPosition?.position.orderIndex,
+            followLastConsumedRow: playbackFollowLastConsumedPosition?.position.rowIndex,
+            followLastConsumedTick: playbackFollowLastConsumedPosition?.tickInRow,
+            followSampleFrame: publishedPlaybackFollowPosition?.sampleTimeFrame ?? sampleTimePosition.cMixerSampleTimeFrame,
+            followResolverFailureReason: effectiveFollowResolverFailureReason,
+            followFreezeDetected: followFreezeDetected(sampleTimePosition: sampleTimePosition),
+            directStartOffsetFrame: plannedRuntimeFrameOffset,
+            resolverTimelineStartOrder: adapterEventPlan.plan?.diagnostics.requestedStartOrderIndex,
+            resolverTimelineBaseFrame: plannedRuntimeFrameOffset,
+            resolverMaxFrame: adapterEventPlan.plannedSongEndFrame,
+            resolverEndReached: resolverEnded,
             channelCount: snapshot.channelCount,
             context: context,
             targetScope: targetScope,

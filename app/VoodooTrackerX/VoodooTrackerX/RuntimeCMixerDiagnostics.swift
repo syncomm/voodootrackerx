@@ -383,6 +383,25 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
     let playbackFollowPublicationDisabled: Bool?
     let playbackFollowPublicationCount: UInt64?
     let playbackFollowPublicationSuppressedCount: UInt64?
+    let followPublishedCount: UInt64?
+    let followConsumedCount: UInt64?
+    let followDroppedCount: UInt64?
+    let followSuppressedCount: UInt64?
+    let followUnresolvedPositionCount: UInt64?
+    let followLastPublishedOrder: Int?
+    let followLastPublishedRow: Int?
+    let followLastPublishedTick: Int?
+    let followLastConsumedOrder: Int?
+    let followLastConsumedRow: Int?
+    let followLastConsumedTick: Int?
+    let followSampleFrame: Int?
+    let followResolverFailureReason: String?
+    let followFreezeDetected: Bool?
+    let directStartOffsetFrame: Int?
+    let resolverTimelineStartOrder: Int?
+    let resolverTimelineBaseFrame: Int?
+    let resolverMaxFrame: Int?
+    let resolverEndReached: Bool?
     let channelCount: Int?
     let orderIndex: Int?
     let patternIndex: Int?
@@ -780,6 +799,25 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         playbackFollowPublicationDisabled: Bool? = nil,
         playbackFollowPublicationCount: UInt64? = nil,
         playbackFollowPublicationSuppressedCount: UInt64? = nil,
+        followPublishedCount: UInt64? = nil,
+        followConsumedCount: UInt64? = nil,
+        followDroppedCount: UInt64? = nil,
+        followSuppressedCount: UInt64? = nil,
+        followUnresolvedPositionCount: UInt64? = nil,
+        followLastPublishedOrder: Int? = nil,
+        followLastPublishedRow: Int? = nil,
+        followLastPublishedTick: Int? = nil,
+        followLastConsumedOrder: Int? = nil,
+        followLastConsumedRow: Int? = nil,
+        followLastConsumedTick: Int? = nil,
+        followSampleFrame: Int? = nil,
+        followResolverFailureReason: String? = nil,
+        followFreezeDetected: Bool? = nil,
+        directStartOffsetFrame: Int? = nil,
+        resolverTimelineStartOrder: Int? = nil,
+        resolverTimelineBaseFrame: Int? = nil,
+        resolverMaxFrame: Int? = nil,
+        resolverEndReached: Bool? = nil,
         channelCount: Int? = nil,
         context: AudioRuntimeTraceContext? = nil,
         targetScope: String = "none",
@@ -1150,6 +1188,25 @@ struct RuntimeCMixerTraceEvent: Encodable, Equatable {
         self.playbackFollowPublicationDisabled = playbackFollowPublicationDisabled
         self.playbackFollowPublicationCount = playbackFollowPublicationCount
         self.playbackFollowPublicationSuppressedCount = playbackFollowPublicationSuppressedCount
+        self.followPublishedCount = followPublishedCount
+        self.followConsumedCount = followConsumedCount
+        self.followDroppedCount = followDroppedCount
+        self.followSuppressedCount = followSuppressedCount
+        self.followUnresolvedPositionCount = followUnresolvedPositionCount
+        self.followLastPublishedOrder = followLastPublishedOrder
+        self.followLastPublishedRow = followLastPublishedRow
+        self.followLastPublishedTick = followLastPublishedTick
+        self.followLastConsumedOrder = followLastConsumedOrder
+        self.followLastConsumedRow = followLastConsumedRow
+        self.followLastConsumedTick = followLastConsumedTick
+        self.followSampleFrame = followSampleFrame
+        self.followResolverFailureReason = followResolverFailureReason
+        self.followFreezeDetected = followFreezeDetected
+        self.directStartOffsetFrame = directStartOffsetFrame
+        self.resolverTimelineStartOrder = resolverTimelineStartOrder
+        self.resolverTimelineBaseFrame = resolverTimelineBaseFrame
+        self.resolverMaxFrame = resolverMaxFrame
+        self.resolverEndReached = resolverEndReached
         self.channelCount = channelCount
         orderIndex = context?.orderIndex
         patternIndex = context?.patternIndex

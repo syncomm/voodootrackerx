@@ -3772,6 +3772,25 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
                         playbackFollowPublicationDisabled=True,
                         playbackFollowPublicationCount=0,
                         playbackFollowPublicationSuppressedCount=3,
+                        followPublishedCount=4,
+                        followConsumedCount=2,
+                        followDroppedCount=1,
+                        followSuppressedCount=3,
+                        followUnresolvedPositionCount=1,
+                        followLastPublishedOrder=35,
+                        followLastPublishedRow=0x51,
+                        followLastPublishedTick=2,
+                        followLastConsumedOrder=35,
+                        followLastConsumedRow=0x50,
+                        followLastConsumedTick=1,
+                        followSampleFrame=10583040,
+                        followResolverFailureReason="resolver_unresolved",
+                        followFreezeDetected=True,
+                        directStartOffsetFrame=-100,
+                        resolverTimelineStartOrder=34,
+                        resolverTimelineBaseFrame=-100,
+                        resolverMaxFrame=12000000,
+                        resolverEndReached=False,
                     )
                 ],
             )
@@ -3804,6 +3823,25 @@ class RuntimeCMixerTraceSummaryTests(unittest.TestCase):
             self.assertTrue(isolation["follow_publication_disabled"])
             self.assertEqual(isolation["follow_publication_count"], 0)
             self.assertEqual(isolation["follow_publication_suppressed_count"], 3)
+            self.assertEqual(isolation["follow_published_count"], 4)
+            self.assertEqual(isolation["follow_consumed_count"], 2)
+            self.assertEqual(isolation["follow_dropped_count"], 1)
+            self.assertEqual(isolation["follow_suppressed_count"], 3)
+            self.assertEqual(isolation["follow_unresolved_position_count"], 1)
+            self.assertEqual(isolation["follow_last_published_order"], 35)
+            self.assertEqual(isolation["follow_last_published_row"], 0x51)
+            self.assertEqual(isolation["follow_last_published_tick"], 2)
+            self.assertEqual(isolation["follow_last_consumed_order"], 35)
+            self.assertEqual(isolation["follow_last_consumed_row"], 0x50)
+            self.assertEqual(isolation["follow_last_consumed_tick"], 1)
+            self.assertEqual(isolation["follow_sample_frame"], 10583040)
+            self.assertEqual(isolation["follow_resolver_failure_reason"], "resolver_unresolved")
+            self.assertTrue(isolation["follow_freeze_detected"])
+            self.assertEqual(isolation["direct_start_offset_frame"], -100)
+            self.assertEqual(isolation["resolver_timeline_start_order"], 34)
+            self.assertEqual(isolation["resolver_timeline_base_frame"], -100)
+            self.assertEqual(isolation["resolver_max_frame"], 12000000)
+            self.assertFalse(isolation["resolver_end_reached"])
             self.assertEqual(
                 summary["recommended_next_pr"],
                 "Runtime C Mixer CoreAudio Callback Lock Contention / Output Delivery Follow-Up",

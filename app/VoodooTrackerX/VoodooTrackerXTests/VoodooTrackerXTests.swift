@@ -2982,7 +2982,7 @@ final class VoodooTrackerXTests: XCTestCase {
         let volumeAndEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
-                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x06, effectParam: 0x43)]
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x20, effectType: 0x07, effectParam: 0x43)]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 125)
@@ -5629,7 +5629,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vibratoUpdates.map(\.effectParam), [0x48, 0x48, 0x48, 0x48])
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlideAndVolumeColumnVibratoRemainDeferred() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlideRequiresPrior4xyStateAndVolumeColumnVibratoRemainsDeferred() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -5641,11 +5641,115 @@ final class VoodooTrackerXTests: XCTestCase {
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
         let effect = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x06 })
         let volumeColumn = try XCTUnwrap(diagnostics.volumeColumnMappings.first?.volumeColumn)
+        let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
 
-        XCTAssertEqual(diagnostics.vibratoEffects, [])
-        XCTAssertEqual(effect.status, .deferredUnsupported)
+        XCTAssertEqual(diagnostic.status, .zeroSpeedOrDepthEffectMemoryDeferred)
+        XCTAssertEqual(diagnostic.vibratoSpeedSource, "missing_4xy_channel_state")
+        XCTAssertEqual(diagnostic.volumeSlideUp, 2)
+        XCTAssertEqual(diagnostic.volumeSlideDown, 0)
+        XCTAssertEqual(effect.status, .applied)
         XCTAssertEqual(volumeColumn.command, .vibrato(amount: 4))
         XCTAssertTrue(volumeColumn.deferred)
+    }
+
+    func testPlaybackSongAdapterVibratoVolumeSlide6xySchedulesStepAndGainUpdates() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x02),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let diagnostic = try XCTUnwrap(plan.diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
+        let update = try XCTUnwrap(plan.diagnostics.voiceStateUpdates.first { update in
+            if case .effect6xyVolumeSlide = update.command {
+                return true
+            }
+            return false
+        })
+
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.vibratoSpeed, 4)
+        XCTAssertEqual(diagnostic.vibratoDepth, 8)
+        XCTAssertEqual(diagnostic.vibratoSpeedSource, "4xy_channel_state")
+        XCTAssertEqual(diagnostic.vibratoDepthSource, "4xy_channel_state")
+        XCTAssertEqual(diagnostic.volumeSlideUp, 0)
+        XCTAssertEqual(diagnostic.volumeSlideDown, 2)
+        XCTAssertEqual(diagnostic.volumeSlideAmount, 2)
+        XCTAssertEqual(diagnostic.volumeSlideDirection, "down")
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(update.status, .applied)
+        XCTAssertTrue(update.activeVoiceUpdated)
+        XCTAssertEqual(update.effectiveVolumeBefore, 32)
+        XCTAssertEqual(update.effectiveVolumeAfter, 30)
+        XCTAssertEqual(update.gainBefore, 0.5)
+        XCTAssertEqual(update.gainAfter, 30.0 / 64.0)
+    }
+
+    func testPlaybackSongAdapterVibratoVolumeSlide600IsEffectMemoryDeferredNoOp() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x06, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
+        let update = try XCTUnwrap(diagnostics.voiceStateUpdates.first { update in
+            if case .effect6xyVolumeSlide = update.command {
+                return true
+            }
+            return false
+        })
+
+        XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
+        XCTAssertTrue(diagnostic.deferred)
+        XCTAssertTrue(diagnostic.ignoredAsNoOp)
+        XCTAssertEqual(diagnostic.stepUpdates, [])
+        XCTAssertEqual(update.status, .ignoredNoOp)
+        XCTAssertTrue(update.ignoredAsNoOp)
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReportsVibratoVolumeSlide6xyMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x06, effectParam: 0x02),
+                makePlaybackRow(index: 2, effectType: 0x06, effectParam: 0x01),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first {
+            $0.categories.contains("note_trigger") && $0.categories.contains("vibrato_volume_slide_6xy")
+        })
+        let gainUpdate = try XCTUnwrap(plan.events.first {
+            $0.categories.contains("gain_pan_update") && $0.categories.contains("vibrato_volume_slide_6xy")
+        })
+        let stepUpdates = plan.events.filter {
+            $0.categories.contains("step_update") && $0.categories.contains("vibrato_volume_slide_6xy")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("vibrato_volume_slide_6xy"))
+        XCTAssertEqual(noteTrigger.effectType, 0x06)
+        XCTAssertEqual(noteTrigger.effectParam, 0x02)
+        XCTAssertEqual(gainUpdate.effectType, 0x06)
+        XCTAssertEqual(gainUpdate.effectParam, 0x01)
+        XCTAssertEqual(gainUpdate.scheduledFrame, 8)
+        XCTAssertEqual(stepUpdates.count, 8)
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == 0x06 })
     }
 
     func testPlaybackSongAdapterTonePortamentoVolumeSlideAndVolumeColumnTonePortamentoRemainDeferred() throws {
@@ -5786,7 +5890,7 @@ final class VoodooTrackerXTests: XCTestCase {
         )
         let otherEffectSong = makePlaybackSong(
             orderPatternIndices: [2],
-            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x06, effectParam: 0x42)]],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x07, effectParam: 0x42)]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
         )
         let renderer = PlaybackSongOfflineRenderer()
@@ -5800,7 +5904,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(mapping.sampleOffset.status, .notPresent)
         XCTAssertTrue(mapping.hasIgnoredEffect)
         XCTAssertEqual(other.diagnostics.deferredCellFields.map(\.field), [.effect])
-        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x06)
+        XCTAssertEqual(other.diagnostics.deferredCellFields.first?.effectType, 0x07)
     }
 
     func testPlaybackSongAdapterSampleOffset9xxSplitResetAndWAVExportRemainDeterministic() throws {

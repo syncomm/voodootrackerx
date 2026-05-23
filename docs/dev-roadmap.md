@@ -84,9 +84,11 @@ and effect-memory-deferred no-ops. Minimal `EAx`/`EBx` fine volume slides now
 apply one deterministic row-level clamped channel-volume adjustment through the
 shared runtime/offline gain-update path. Same-cell notes trigger with the
 adjusted volume, no-note rows update an active voice at row start, and
-`EA0`/`EB0` remain effect-memory-deferred no-ops. `E1x`, `6xy`,
-volume-column vibrato, vibrato waveform controls, and broad effect memory remain
-deferred.
+`EA0`/`EB0` remain effect-memory-deferred no-ops. Minimal `6xy` vibrato +
+volume slide now reuses prior nonzero `4xy` channel vibrato settings for
+sample-step updates and the existing `Axy`-style row-level gain path for volume
+slides; `600`, missing vibrato memory, volume-column vibrato, vibrato waveform
+controls, `E1x`, and broad effect memory remain deferred.
 Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
@@ -113,9 +115,9 @@ volume/panning state-update command frequency for focused follow-up diagnosis.
 It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
 `3xx` tone-portamento diagnostics, applied `E2x` fine-portamento diagnostics,
 applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
-diagnostics, and deferred pitch-modulation counts and
-source coordinates for arpeggio, remaining portamento-family commands, `6xy`,
-tremolo, and volume-column
+diagnostics, applied `6xy` vibrato + volume slide diagnostics, and deferred
+pitch-modulation counts and source coordinates for arpeggio, remaining
+portamento-family commands, tremolo, and volume-column
 vibrato/tone-portamento commands, with a conservative
 pitch-effect next-PR recommendation when one bucket dominates local evidence.
 Bounded diagnostics also count
@@ -145,7 +147,8 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E2x`,
-and `4xy` sample-step state, plus supported in-window `EAx`/`EBx` gain updates.
+`4xy`, and `6xy` sample-step state, plus supported in-window `EAx`/`EBx` and
+`6xy` gain updates.
 Unsupported/deferred effects and full tracker voice semantics remain separate
 targeted work. Developer-only bounded candidate WAV exports now also report
 Float32 output headroom/clipping diagnostics and can apply explicit `--gain` or
@@ -425,8 +428,9 @@ Immediate audio accuracy sequence:
 88. Minimal E5x Set Finetune Foundation — done
 89. Minimal E2x Fine Portamento Down — done
 90. Minimal EAx / EBx Fine Volume Slides — done
-91. Next effect target from remaining corpus evidence: 6xy vibrato + volume slide or E1x fine portamento up — recommended next effect PR
-92. Reference comparison stabilization against MikMod/OpenMPT
+91. Minimal 6xy Vibrato + Volume Slide — done
+92. Next effect target from remaining corpus evidence: E1x fine portamento up or effect memory foundation — recommended next effect PR
+93. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -547,8 +551,12 @@ Features:
   memory deferred, and no broad E-command memory
 - minimal `4xy` vibrato support through deterministic linear-period
   sample-step updates in the runtime/offline C mixer adapter path, with `400`,
-  zero speed/depth memory, `6xy`, volume-column vibrato, waveform controls, and
-  broad effect memory still deferred
+  zero speed/depth memory, volume-column vibrato, waveform controls, and broad
+  effect memory still deferred
+- minimal `6xy` vibrato + volume slide support through prior nonzero `4xy`
+  channel vibrato settings plus the existing row-level `Axy`-style
+  volume-slide/gain path, with `600`, missing vibrato memory, volume-column
+  vibrato, waveform controls, and broad effect memory still deferred
 - minimal `EAx`/`EBx` fine volume slide support through one row-level clamped
   channel-volume adjustment in the runtime/offline C mixer adapter gain path,
   with same-cell note folding, no-active-voice diagnostics, `EA0`/`EB0` effect
@@ -574,8 +582,8 @@ Features:
   candidate WAV exports, with aggregate/per-window capacity diagnostics and
   practical carryover of active sample position, forward/ping-pong loop state,
   volume-envelope position, key-off/release, fadeout, gain, pan, and active
-  `1xx`/`2xx`/`3xx`/`4xy` sample-step state across fresh C mixer windows where
-  the bounded adapter can determine it
+  `1xx`/`2xx`/`3xx`/`4xy`/`6xy` sample-step state across fresh C mixer windows
+  where the bounded adapter can determine it
 - deterministic offline active-voice gain/pan update events so supported
   bounded adapter state changes can affect carried voices after their note
   trigger without changing runtime playback

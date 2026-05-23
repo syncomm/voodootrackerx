@@ -449,6 +449,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let eventMappingsByIndex = Dictionary(
             uniqueKeysWithValues: adaptedPlan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
         )
+        let appliedVibratoVolumeSlideEventIndices = Set(
+            adaptedPlan.diagnostics.vibratoEffects
+                .filter { $0.effectType == 0x06 && $0.applied }
+                .compactMap(\.activeEventIndex)
+        )
         var events = [RuntimeCMixerAdapterEvent]()
         var nextID = 0
 
@@ -490,13 +495,20 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isFineVolumeSlideDown {
                 categories.append("ebx_fine_volume_slide_down")
             }
+            let isVibratoVolumeSlide = mapping.effectType == 0x06 &&
+                mapping.effectParam != 0 &&
+                appliedVibratoVolumeSlideEventIndices.contains(eventIndex)
+            if isVibratoVolumeSlide {
+                categories.append("vibrato_volume_slide_6xy")
+            }
             if syntheticEvent.keyOffFrame != nil {
                 categories.append("key_off")
             }
             let hasBridgedEffectMetadata = isSetFinetune ||
                 isFinePortamentoDown ||
                 isFineVolumeSlideUp ||
-                isFineVolumeSlideDown
+                isFineVolumeSlideDown ||
+                isVibratoVolumeSlide
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: mapping.source,
@@ -530,6 +542,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("eax_fine_volume_slide_up")
             case .ebxFineVolumeSlideDown:
                 categories.append("ebx_fine_volume_slide_down")
+            case .effect6xyVolumeSlide:
+                categories.append("vibrato_volume_slide_6xy")
             default:
                 break
             }
@@ -608,6 +622,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 continue
             }
             for update in diagnostic.stepUpdates {
+                var categories = ["step_update", "vibrato_update"]
+                if diagnostic.effectType == 0x06 {
+                    categories.append("vibrato_volume_slide_6xy")
+                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -615,7 +633,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "vibrato_update"],
+                    categories: categories,
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))
@@ -1275,6 +1293,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case hxyGlobalVolumeSlide(up: Int, down: Int)
     case eaxFineVolumeSlideUp(amount: Int)
     case ebxFineVolumeSlideDown(amount: Int)
+    case effect6xyVolumeSlide(up: Int, down: Int)
 
     var label: String {
         switch self {
@@ -1292,6 +1311,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "EAx fine volume slide up"
         case .ebxFineVolumeSlideDown:
             return "EBx fine volume slide down"
+        case .effect6xyVolumeSlide:
+            return "6xy vibrato + volume slide"
         }
     }
 }
@@ -1740,6 +1761,12 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let activeEventMappingIndex: Int?
     let vibratoSpeed: Int
     let vibratoDepth: Int
+    let vibratoSpeedSource: String?
+    let vibratoDepthSource: String?
+    let volumeSlideUp: Int?
+    let volumeSlideDown: Int?
+    let volumeSlideAmount: Int?
+    let volumeSlideDirection: String?
     let phaseBefore: Double
     let phaseAfter: Double
     let currentLinearPeriodBefore: Double?
@@ -2477,6 +2504,8 @@ enum PlaybackSongSyntheticAdapter {
         var tonePortamentoTargetLinearPeriod: Double?
         var tonePortamentoTargetPlaybackStep: Double?
         var tonePortamentoSpeed: Int?
+        var vibratoSpeed: Int?
+        var vibratoDepth: Int?
         var vibratoPhase: Double = 0
 
         var pan: Float {
@@ -2501,6 +2530,13 @@ enum PlaybackSongSyntheticAdapter {
         let amount: Int
         let bothNibblesNonzero: Bool
         let policy: String?
+    }
+
+    private struct VolumeSlideAmounts: Equatable {
+        let up: Int
+        let down: Int
+        let direction: String
+        let amount: Int
     }
 
     private struct SampleSelection: Equatable {
@@ -2917,6 +2953,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
+            let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasDeferredEffectCell = hasDeferredEffect(cell)
             if let update = voiceStateUpdate(
                 source: source,
@@ -3010,6 +3047,19 @@ enum PlaybackSongSyntheticAdapter {
                 channelStates[channelIndex] = channelState
             }
             if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
                     from: cell,
                     source: source,
@@ -3600,6 +3650,19 @@ enum PlaybackSongSyntheticAdapter {
                 vibratoEffects.append(diagnostic)
                 channelStates[channelIndex] = channelState
             }
+            if hasVibratoVolumeSlide {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
             if let noteDelay, noteDelay.applied {
                 noteDelayEffects.append(noteDelayDiagnostic(
                     from: cell,
@@ -3850,6 +3913,52 @@ enum PlaybackSongSyntheticAdapter {
                 globalVolumeBefore: globalVolumeValue,
                 globalVolumeAfter: globalVolumeValue
             )
+        case 0x06:
+            let before = channelState
+            let slide = volumeSlideAmounts(effectParam: cell.effectParam)
+            guard slide.up > 0 || slide.down > 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: .effect6xyVolumeSlide(up: 0, down: 0),
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
+                )
+            }
+            if slide.up > 0 {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + slide.up)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - slide.down)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
         case 0x0E where isFineVolumeSlideEffect(cell):
             let before = channelState
             let amount = fineVolumeSlideAmount(from: cell)
@@ -4082,6 +4191,18 @@ enum PlaybackSongSyntheticAdapter {
             bothNibblesNonzero: false,
             policy: "h00_no_effect_memory_no_op"
         )
+    }
+
+    private static func volumeSlideAmounts(effectParam: UInt8) -> VolumeSlideAmounts {
+        let up = Int((effectParam & 0xF0) >> 4)
+        let down = Int(effectParam & 0x0F)
+        if up > 0 {
+            return VolumeSlideAmounts(up: up, down: 0, direction: "up", amount: up)
+        }
+        if down > 0 {
+            return VolumeSlideAmounts(up: 0, down: down, direction: "down", amount: down)
+        }
+        return VolumeSlideAmounts(up: 0, down: 0, direction: "none", amount: 0)
     }
 
     private static func voiceStateUpdateDiagnostic(
@@ -4874,8 +4995,24 @@ enum PlaybackSongSyntheticAdapter {
         timingPlan: PlaybackSongFxxTimingPlan,
         channelState: inout ChannelState
     ) -> PlaybackSongSyntheticVibratoDiagnostic {
-        let speed = Int((cell.effectParam & 0xF0) >> 4)
-        let depth = Int(cell.effectParam & 0x0F)
+        let isVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
+        let paramSpeed = Int((cell.effectParam & 0xF0) >> 4)
+        let paramDepth = Int(cell.effectParam & 0x0F)
+        if !isVibratoVolumeSlide, paramSpeed > 0, paramDepth > 0 {
+            channelState.vibratoSpeed = paramSpeed
+            channelState.vibratoDepth = paramDepth
+        }
+        let rememberedSpeed = channelState.vibratoSpeed
+        let rememberedDepth = channelState.vibratoDepth
+        let speed = isVibratoVolumeSlide ? rememberedSpeed ?? 0 : paramSpeed
+        let depth = isVibratoVolumeSlide ? rememberedDepth ?? 0 : paramDepth
+        let speedSource = isVibratoVolumeSlide
+            ? (rememberedSpeed == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
+            : "effect_param"
+        let depthSource = isVibratoVolumeSlide
+            ? (rememberedDepth == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
+            : "effect_param"
+        let volumeSlide = isVibratoVolumeSlide ? volumeSlideAmounts(effectParam: cell.effectParam) : nil
         let hasActiveVoice = channelState.activeEventIndex != nil
         let phaseBefore = channelState.vibratoPhase
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
@@ -4894,6 +5031,9 @@ enum PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 speed: speed,
                 depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -4901,7 +5041,36 @@ enum PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
-                policy: "400_no_effect_memory_no_op"
+                policy: isVibratoVolumeSlide
+                    ? "600_no_effect_memory_no_op"
+                    : "400_no_effect_memory_no_op"
+            )
+        }
+
+        if isVibratoVolumeSlide, !hasActiveVoice {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "no_active_voice_no_playback_invented"
             )
         }
 
@@ -4918,6 +5087,9 @@ enum PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 speed: speed,
                 depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -4925,7 +5097,9 @@ enum PlaybackSongSyntheticAdapter {
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
-                policy: "zero_speed_or_depth_effect_memory_deferred_no_op"
+                policy: isVibratoVolumeSlide
+                    ? "6xy_missing_4xy_vibrato_memory_deferred_no_op"
+                    : "zero_speed_or_depth_effect_memory_deferred_no_op"
             )
         }
 
@@ -4942,6 +5116,9 @@ enum PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 speed: speed,
                 depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -4969,6 +5146,9 @@ enum PlaybackSongSyntheticAdapter {
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 speed: speed,
                 depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -5009,6 +5189,9 @@ enum PlaybackSongSyntheticAdapter {
                     activeEventMappingIndex: channelState.activeEventMappingIndex,
                     speed: speed,
                     depth: depth,
+                    speedSource: speedSource,
+                    depthSource: depthSource,
+                    volumeSlide: volumeSlide,
                     phaseBefore: phaseBefore,
                     phaseAfter: channelState.vibratoPhase,
                     currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -5063,6 +5246,9 @@ enum PlaybackSongSyntheticAdapter {
             activeEventMappingIndex: channelState.activeEventMappingIndex,
             speed: speed,
             depth: depth,
+            speedSource: speedSource,
+            depthSource: depthSource,
+            volumeSlide: volumeSlide,
             phaseBefore: phaseBefore,
             phaseAfter: channelState.vibratoPhase,
             currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -5070,7 +5256,9 @@ enum PlaybackSongSyntheticAdapter {
             currentPlaybackStepBefore: currentPlaybackStepBefore,
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: stepUpdates,
-            policy: "sine_linear_period_first_pass_waveform_controls_deferred"
+            policy: isVibratoVolumeSlide
+                ? "6xy_reuses_4xy_sine_linear_period_state_plus_row_level_volume_slide"
+                : "sine_linear_period_first_pass_waveform_controls_deferred"
         )
     }
 
@@ -5086,6 +5274,9 @@ enum PlaybackSongSyntheticAdapter {
         activeEventMappingIndex: Int?,
         speed: Int,
         depth: Int,
+        speedSource: String?,
+        depthSource: String?,
+        volumeSlide: VolumeSlideAmounts?,
         phaseBefore: Double,
         phaseAfter: Double,
         currentLinearPeriodBefore: Double?,
@@ -5118,6 +5309,12 @@ enum PlaybackSongSyntheticAdapter {
             activeEventMappingIndex: activeEventMappingIndex,
             vibratoSpeed: speed,
             vibratoDepth: depth,
+            vibratoSpeedSource: speedSource,
+            vibratoDepthSource: depthSource,
+            volumeSlideUp: volumeSlide?.up,
+            volumeSlideDown: volumeSlide?.down,
+            volumeSlideAmount: volumeSlide?.amount,
+            volumeSlideDirection: volumeSlide?.direction,
             phaseBefore: phaseBefore,
             phaseAfter: phaseAfter,
             currentLinearPeriodBefore: currentLinearPeriodBefore,
@@ -6782,12 +6979,15 @@ enum PlaybackSongSyntheticAdapter {
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
         case 0x00 where cell.effectParam != 0,
-             0x05...0x07:
+             0x05,
+             0x07:
             return .deferredUnsupported
         case 0x04:
             let speed = Int((cell.effectParam & 0xF0) >> 4)
             let depth = Int(cell.effectParam & 0x0F)
             return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
+        case 0x06:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x01...0x02:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x03:
@@ -6928,6 +7128,7 @@ enum PlaybackSongSyntheticAdapter {
             isPortamentoSlideEffect(cell) ||
             isTonePortamentoEffect(cell) ||
             isVibratoEffect(cell) ||
+            isVibratoVolumeSlideEffect(cell) ||
             isSetFinetuneEffect(cell) ||
             isFinePortamentoDownEffect(cell) ||
             isFineVolumeSlideEffect(cell) ||
@@ -6959,6 +7160,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isVibratoEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x04
+    }
+
+    private static func isVibratoVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x06
     }
 
     private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {

@@ -702,6 +702,24 @@ def synthetic_effect_coverage_diagnostics():
                 "status": "ignored/no-op",
                 "current_status": "ignored/no-op",
             },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 18},
+                "channel_index": 0,
+                "effect_type": 0x06,
+                "effect_param": 0x02,
+                "effect_label": "6xy vibrato + volume slide",
+                "status": "applied",
+                "current_status": "applied",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 19},
+                "channel_index": 0,
+                "effect_type": 0x06,
+                "effect_param": 0x00,
+                "effect_label": "6xy vibrato + volume slide",
+                "status": "ignored/no-op",
+                "current_status": "ignored/no-op",
+            },
         ],
         "set_finetune_effects": [
             {
@@ -801,7 +819,46 @@ def synthetic_effect_coverage_diagnostics():
                 "speed": 4,
                 "depth": 8,
                 "step_update_count": 4,
-            }
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 18},
+                "channel_index": 0,
+                "synthetic_tick": 0,
+                "effect_type": 0x06,
+                "effect_param": 0x02,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "speed": 4,
+                "depth": 8,
+                "vibrato_speed_source": "4xy_channel_state",
+                "vibrato_depth_source": "4xy_channel_state",
+                "volume_slide_down": 2,
+                "volume_slide_direction": "down",
+                "step_update_count": 4,
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 19},
+                "channel_index": 0,
+                "synthetic_tick": 0,
+                "effect_type": 0x06,
+                "effect_param": 0x00,
+                "status": "zero_param_effect_memory_deferred",
+                "current_status": "zero_param_effect_memory_deferred",
+                "detected": True,
+                "applied": False,
+                "deferred": True,
+                "ignored_as_no_op": True,
+                "speed": 4,
+                "depth": 8,
+                "vibrato_speed_source": "4xy_channel_state",
+                "vibrato_depth_source": "4xy_channel_state",
+                "volume_slide_direction": "none",
+                "step_update_count": 0,
+            },
         ],
         "note_cut_effects": [
             {
@@ -868,7 +925,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
-        self.assertEqual(summary["summary"]["detected_count"], 17)
+        self.assertEqual(summary["summary"]["detected_count"], 19)
         self.assertEqual(rows["Cxx set volume"]["applied_count"], 1)
         self.assertEqual(rows["4xy vibrato"]["applied_count"], 1)
         self.assertEqual(rows["E2x fine portamento down"]["detected_count"], 1)
@@ -882,6 +939,10 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["EBx fine volume slide down"]["applied_count"], 1)
         self.assertEqual(rows["EBx fine volume slide down"]["unsupported_count"], 0)
         self.assertEqual(rows["EBx fine volume slide down"]["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(rows["6xy vibrato + volume slide"]["detected_count"], 2)
+        self.assertEqual(rows["6xy vibrato + volume slide"]["applied_count"], 1)
+        self.assertEqual(rows["6xy vibrato + volume slide"]["unsupported_count"], 0)
+        self.assertEqual(rows["6xy vibrato + volume slide"]["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(rows["E5x set finetune"]["detected_count"], 2)
         self.assertEqual(rows["E5x set finetune"]["applied_count"], 1)
         self.assertEqual(rows["E5x set finetune"]["deferred_count"], 1)
@@ -1022,7 +1083,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 17)
+            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 19)
             self.assertIn("XM Effect Coverage Summary", markdown_path.read_text(encoding="utf-8"))
 
 

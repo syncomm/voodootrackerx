@@ -84,6 +84,11 @@ Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
 trigger with the row-level adjusted channel volume. Empty-note nonzero
 `EAx`/`EBx` rows with an active voice are emitted as row-start gain updates,
 while `EA0`/`EB0` remain effect-memory-deferred no-ops.
+Same-cell nonzero `6xy` note triggers keep effect metadata and trigger with the
+row-level volume-slide adjustment. Empty-note nonzero `6xy` rows reuse prior
+nonzero `4xy` channel vibrato settings for sample-step updates and use the
+existing row-start gain update path for the volume slide. `600` and missing
+`4xy` vibrato-memory cases remain effect-memory-deferred no-ops.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
@@ -588,11 +593,12 @@ offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
 retriggers, `1xx`/`2xx`/`3xx` portamento updates, minimal `E2x` fine
 portamento down updates, minimal `4xy` vibrato sample-step updates, sample
-offsets, minimal `EAx`/`EBx` fine volume slide gain updates, and volume-column
-set volume/panning. Adapter-sourced `E2x`, `4xy`, and `EAx`/`EBx` rows carry
+offsets, minimal `EAx`/`EBx` fine volume slide gain updates, minimal `6xy`
+vibrato + volume slide sample-step/gain updates, and volume-column set
+volume/panning. Adapter-sourced `E2x`, `4xy`, `EAx`/`EBx`, and `6xy` rows carry
 the effect type/parameter on the runtime update row so coverage summaries can
-count applied updates. `E1x`, `6xy`, volume-column vibrato, vibrato waveform
-controls, and effect-memory reuse remain unsupported/deferred. Unsupported XM
+count applied updates. `E1x`, volume-column vibrato, vibrato waveform controls,
+and broad effect-memory reuse remain unsupported/deferred. Unsupported XM
 effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.

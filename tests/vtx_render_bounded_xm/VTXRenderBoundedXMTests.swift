@@ -2105,6 +2105,76 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertLessThan(downStepAfter, downStepBefore)
     }
 
+    func testDiagnosticsJSONReportsFinePortamentoDownE2xDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: (0..<300).map { Float($0) / 1_000.0 },
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x2F),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x21),
+            ]),
+            PlaybackRow(index: 2, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x20),
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "fine-portamento-down-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 12
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let diagnostics = try XCTUnwrap(object["fine_portamento_down_effects"] as? [[String: Any]])
+        let aliasDiagnostics = try XCTUnwrap(object["e2x_fine_portamento_down_effects"] as? [[String: Any]])
+        let noActive = try XCTUnwrap(diagnostics.first { $0["current_status"] as? String == "no_active_voice" })
+        let applied = try XCTUnwrap(diagnostics.first { $0["current_status"] as? String == "applied" })
+        let zero = try XCTUnwrap(diagnostics.first { $0["current_status"] as? String == "zero_amount_effect_memory_deferred" })
+        let stepUpdates = try XCTUnwrap(applied["step_updates"] as? [[String: Any]])
+        let stepBefore = try XCTUnwrap(applied["current_step_before"] as? Double)
+        let stepAfter = try XCTUnwrap(applied["current_step_after"] as? Double)
+
+        XCTAssertEqual(render["e2x_fine_portamento_down_effect_count"] as? Int, 3)
+        XCTAssertEqual(render["e2x_fine_portamento_down_detected_count"] as? Int, 3)
+        XCTAssertEqual(render["e2x_fine_portamento_down_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["e2x_fine_portamento_down_no_active_voice_count"] as? Int, 1)
+        XCTAssertEqual(render["e2x_fine_portamento_down_zero_amount_effect_memory_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["e2x_fine_portamento_down_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["e2x_fine_portamento_down_scheduled_sample_step_update_count"] as? Int, 1)
+        XCTAssertEqual(diagnostics.count, 3)
+        XCTAssertEqual(aliasDiagnostics.count, diagnostics.count)
+        XCTAssertEqual(noActive["fine_amount"] as? Int, 15)
+        XCTAssertEqual(noActive["ignored_as_no_op"] as? Bool, true)
+        XCTAssertEqual(applied["fine_amount"] as? Int, 1)
+        XCTAssertEqual(applied["fine_amount_nibble"] as? Int, 1)
+        XCTAssertEqual(applied["scheduled_frame"] as? Int, 4)
+        XCTAssertEqual(applied["applied_to_initial_playback_step"] as? Bool, false)
+        XCTAssertEqual(stepUpdates.map { $0["scheduled_frame"] as? Int }, [4])
+        XCTAssertLessThan(stepAfter, stepBefore)
+        XCTAssertEqual(zero["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(zero["scheduled_sample_step_update_count"] as? Int, 0)
+    }
+
     func testTraversalDiagnosticsDoNotChangeRenderedAudio() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

@@ -75,6 +75,11 @@ triggers keep the original `effectCommand`/`effectParameter` metadata in the
 trace context. The applied sample-step and effective finetune are planned by the
 shared adapter diagnostics; no-note `E5x` cases remain diagnosed as deferred
 effect-memory/no-note cases instead of being treated as current-voice memory.
+Same-cell `E2x` fine portamento down note triggers also keep effect metadata;
+the deterministic first-pass policy folds the fine downward pitch adjustment
+into the new note's initial sample step. No-note `E2x` rows with an active
+voice are emitted as row-start sample-step updates, while `E20` remains an
+effect-memory-deferred no-op.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
@@ -577,10 +582,11 @@ Runtime C mixer trace rows may include:
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
-retriggers, `1xx`/`2xx`/`3xx` portamento updates, minimal `4xy` vibrato
-sample-step updates, sample offsets, and volume-column set volume/panning.
-Adapter-sourced `4xy` rows carry the effect type/parameter on the runtime
-update row so coverage summaries can count applied vibrato. `6xy`,
+retriggers, `1xx`/`2xx`/`3xx` portamento updates, minimal `E2x` fine
+portamento down updates, minimal `4xy` vibrato sample-step updates, sample
+offsets, and volume-column set volume/panning. Adapter-sourced `E2x` and `4xy`
+rows carry the effect type/parameter on the runtime update row so coverage
+summaries can count applied pitch updates. `E1x`, `6xy`, `EAx`/`EBx`,
 volume-column vibrato, vibrato waveform controls, and effect-memory reuse
 remain unsupported/deferred. Unsupported XM effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C

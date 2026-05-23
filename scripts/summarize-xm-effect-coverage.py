@@ -20,6 +20,7 @@ EFFECT_MEMORY_STATUS_MARKERS = {
     "ignored_900_no_op",
     "ignored_e90_no_effect_memory",
     "zero_param_effect_memory_deferred",
+    "zero_amount_effect_memory_deferred",
 }
 NO_OP_STATUS_MARKERS = EFFECT_MEMORY_STATUS_MARKERS | {
     "no_note_deferred",
@@ -35,6 +36,7 @@ PITCH_RECOMMENDATIONS = {
     "volume-column vibrato speed": "Volume-Column Vibrato / Vibrato Speed Split",
     "volume-column vibrato": "Volume-Column Vibrato / Vibrato Speed Split",
     "volume-column tone portamento": "Volume-Column Tone Portamento",
+    "E2x fine portamento down": "Minimal E2x Fine Portamento Down",
     "E5x set finetune": "Minimal E5x Set Finetune",
     "EAx fine volume slide up": "Minimal EAx/EBx Fine Volume Slide",
     "EBx fine volume slide down": "Minimal EAx/EBx Fine Volume Slide",
@@ -409,7 +411,12 @@ def diagnostic_status(item: dict[str, Any], default: str = "unknown") -> str:
         return "applied"
     if raw_status in {"ignored/no-op", "ignored_no_op", "out_of_row_no_op"} or bool(item.get("ignored_as_no_op")):
         return "ignored/no-op"
-    if raw_status in {"ignored_900_no_op", "ignored_e90_no_effect_memory", "zero_param_effect_memory_deferred"}:
+    if raw_status in {
+        "ignored_900_no_op",
+        "ignored_e90_no_effect_memory",
+        "zero_param_effect_memory_deferred",
+        "zero_amount_effect_memory_deferred",
+    }:
         return "deferred/no-op"
     if raw_status == "no_active_voice":
         return "ignored/no-op"
@@ -471,6 +478,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "fine_portamento_down_effects",
         "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):
@@ -513,6 +521,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "fine_portamento_down_effects",
         "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):

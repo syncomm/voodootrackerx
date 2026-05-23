@@ -657,6 +657,15 @@ def synthetic_effect_coverage_diagnostics():
                 "status": "deferred/unsupported",
                 "current_status": "deferred/unsupported",
             },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 13},
+                "channel_index": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0x2F,
+                "effect_label": "E2x fine portamento down",
+                "status": "applied",
+                "current_status": "applied",
+            },
         ],
         "set_finetune_effects": [
             {
@@ -718,6 +727,26 @@ def synthetic_effect_coverage_diagnostics():
                 "applied": False,
                 "deferred": True,
                 "ignored_as_no_op": True,
+            }
+        ],
+        "fine_portamento_down_effects": [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 13},
+                "channel_index": 0,
+                "synthetic_tick": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0x2F,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "fine_amount": 15,
+                "fine_amount_nibble": 15,
+                "current_linear_period_before": 4608,
+                "current_linear_period_after": 4623,
+                "scheduled_sample_step_update_count": 1,
             }
         ],
         "vibrato_effects": [
@@ -803,9 +832,12 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
-        self.assertEqual(summary["summary"]["detected_count"], 12)
+        self.assertEqual(summary["summary"]["detected_count"], 13)
         self.assertEqual(rows["Cxx set volume"]["applied_count"], 1)
         self.assertEqual(rows["4xy vibrato"]["applied_count"], 1)
+        self.assertEqual(rows["E2x fine portamento down"]["detected_count"], 1)
+        self.assertEqual(rows["E2x fine portamento down"]["applied_count"], 1)
+        self.assertEqual(rows["E2x fine portamento down"]["unsupported_count"], 0)
         self.assertEqual(rows["E5x set finetune"]["detected_count"], 2)
         self.assertEqual(rows["E5x set finetune"]["applied_count"], 1)
         self.assertEqual(rows["E5x set finetune"]["deferred_count"], 1)
@@ -946,7 +978,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 12)
+            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 13)
             self.assertIn("XM Effect Coverage Summary", markdown_path.read_text(encoding="utf-8"))
 
 

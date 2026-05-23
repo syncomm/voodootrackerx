@@ -46,13 +46,16 @@ row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
 minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
 minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine volume slides,
-minimal `4xy` vibrato, and `E9x`
+minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and `E9x`
 retriggers for the tracked active adapted voice. The `E2x` foundation applies
 one deterministic row-level linear-period/sample-step pitch-down adjustment;
 `E20` remains an effect-memory-deferred no-op. The `4xy` foundation uses
 deterministic sine-based linear-period sample-step updates on row ticks in the
 shared runtime/offline C mixer adapter path; `400`, zero speed/depth memory,
-`6xy`, volume-column vibrato, and vibrato waveform controls remain deferred.
+volume-column vibrato, and vibrato waveform controls remain deferred. The
+`6xy` foundation reuses prior nonzero `4xy` channel vibrato settings and the
+existing `Axy`-style row-level volume-slide/gain path; `600` and missing
+vibrato-memory cases remain effect-memory-deferred no-ops.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
@@ -62,8 +65,9 @@ bounded offline renders from the update frame forward. Those bounded/offline
 gain and pan update events are smoothed by a fixed 32-frame deterministic
 micro-ramp in the C mixer, including empty-note volume-column set-volume,
 empty-note volume-column set-panning, `Cxx`, `8xx`, and nonzero row-level
-`Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides, and minimal
-row-level `Hxy` global volume slides that actually change an active voice.
+`Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides, minimal
+`6xy` volume-slide gain updates, and minimal row-level `Hxy` global volume
+slides that actually change an active voice.
 `ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
 memory, and both-nibble `Hxy` parameters use the same safe up-nibble precedence
 policy as the current runtime effect helper.
@@ -94,6 +98,10 @@ counts, and rejected event coordinates.
 Diagnostics JSON also reports `vibrato_effects` plus render counters such as
 `vibrato_4xy_effect_count`, applied/no-active/effect-memory-deferred buckets,
 and scheduled sample-step update counts for first-pass `4xy` coverage.
+`vibrato_volume_slide_6xy_effects` and render-level
+`vibrato_volume_slide_6xy_*` counters report detected, applied,
+no-active-voice, `600`/missing-memory deferred, scheduled sample-step update,
+and scheduled gain-update counts for first-pass `6xy` coverage.
 `fine_portamento_down_effects` and render-level `e2x_fine_portamento_down_*`
 counters report detected/applied/no-active/effect-memory-deferred `E2x`
 coverage, the fine amount nibble, current period/sample-step before/after, and
@@ -747,12 +755,12 @@ recommendation. It is local diagnostics only; generated JSON/Markdown reports
 derived from private modules must stay under `/tmp` or another ignored path.
 Candidate diagnostics and the correlation report also include a focused
 pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `5xy`,
-`6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
+`7xy`, and volume-column vibrato/tone-portamento ranges. Applied
 `1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E2x`
 fine portamento down, applied `EAx`/`EBx` fine volume slides, and applied
-`4xy` vibrato are reported in the general command frequency and dedicated
-diagnostics instead of the deferred
-pitch-modulation bucket. The report groups deferred
+`4xy`/`6xy` vibrato-family effects are reported in the general command
+frequency and dedicated diagnostics instead of the deferred pitch-modulation
+bucket. The report groups deferred
 pitch-modulation counts into arpeggio, remaining portamento-family, vibrato,
 and tremolo buckets, shows whether they appear near the worst mismatch windows,
 and recommends a conservative next pitch-effect PR only when one bucket
@@ -1273,7 +1281,7 @@ diagnostics, or reference-render settings may be the better next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
 dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
 portamento-family work for `5xy` or volume-column tone portamento, vibrato for
-`6xy` or volume-column vibrato, and tremolo for `7xy`. If counts are
+volume-column vibrato, and tremolo for `7xy`. If counts are
 sparse or split, record the evidence and do not start an implementation PR from
 that signal alone. If windows line up with applied `1xx`/`2xx` or `3xx`, inspect
 their current/target step diagnostics before deciding whether a follow-up should

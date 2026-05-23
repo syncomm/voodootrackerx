@@ -1990,6 +1990,172 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "EBx fine volume slide down" && $0["status"] as? String == "ignored/no-op" })
     }
 
+    func testDiagnosticsJSONIncludes6xyVibratoVolumeSlide() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 1, count: 64),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x04, effectParam: 0x48),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x10),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x02),
+            ]),
+            PlaybackRow(index: 2, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x0F),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 3, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x00),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 4, cells: [
+                PlaybackCell(note: 52, instrument: 1, volumeColumn: 0, effectType: 0x06, effectParam: 0x02),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "vibrato-volume-slide",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 20
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let result = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [9, 11])
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let summary = try XCTUnwrap(object["volume_panning_state_update_summary"] as? [String: Any])
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
+        let vibratoEffects = try XCTUnwrap(object["vibrato_effects"] as? [[String: Any]])
+        let sixxyEffects = try XCTUnwrap(object["vibrato_volume_slide_6xy_effects"] as? [[String: Any]])
+        let sixxyUpdates = updates.filter { $0["command_name"] as? String == "effect6xyVolumeSlide" }
+        let activeUp = try XCTUnwrap(sixxyUpdates.first { $0["volume_slide_direction"] as? String == "up" && $0["active_voice_updated"] as? Bool == true })
+        let activeDown = try XCTUnwrap(sixxyUpdates.first { $0["volume_slide_down"] as? Int == 15 })
+        let noActive = try XCTUnwrap(sixxyUpdates.first { ($0["channel_index"] as? Int) == 1 })
+        let zero = try XCTUnwrap(sixxyUpdates.first { $0["volume_slide_direction"] as? String == "none" })
+        let sameCell = try XCTUnwrap(sixxyUpdates.first { $0["cell_note"] as? Int == 52 })
+        let sameCellEvent = try XCTUnwrap(events.first { $0["note"] as? Int == 52 })
+        let applied6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "applied" })
+        let zero6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "zero_param_effect_memory_deferred" })
+        let noActive6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "no_active_voice" })
+
+        XCTAssertEqual(render["vibrato_4xy_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_4xy_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_effect_count"] as? Int, 5)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_detected_count"] as? Int, 5)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_applied_count"] as? Int, 3)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_no_active_voice_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_zero_param_effect_memory_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_sample_step_update_count"] as? Int, 12)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_gain_update_count"] as? Int, 2)
+        XCTAssertEqual(split.block.interleavedPCM, result.block.interleavedPCM)
+        XCTAssertEqual(summary["vibrato_volume_slide_6xy_volume_slide_applied"] as? Int, 4)
+        XCTAssertEqual(summary["vibrato_volume_slide_6xy_no_active_voice"] as? Int, 1)
+        XCTAssertEqual(summary["vibrato_volume_slide_6xy_zero_param_effect_memory_deferred"] as? Int, 1)
+        XCTAssertEqual(summary["vibrato_volume_slide_6xy_scheduled_gain_update_count"] as? Int, 2)
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(sixxyUpdates.count, 5)
+        XCTAssertEqual(sixxyEffects.count, 5)
+        XCTAssertEqual(vibratoEffects.count, 6)
+        XCTAssertEqual(activeUp["effective_volume_before"] as? Int, 32)
+        XCTAssertEqual(activeUp["effective_volume_after"] as? Int, 33)
+        XCTAssertEqual(activeUp["gain_before"] as? Double, 0.5)
+        XCTAssertEqual(activeUp["gain_after"] as? Double, 33.0 / 64.0)
+        XCTAssertEqual(activeDown["effective_volume_before"] as? Int, 33)
+        XCTAssertEqual(activeDown["effective_volume_after"] as? Int, 18)
+        XCTAssertEqual(noActive["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(noActive["no_active_voice"] as? Bool, true)
+        XCTAssertEqual(zero["status"] as? String, "ignored/no-op")
+        XCTAssertEqual(zero["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(sameCell["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(sameCell["effective_volume_before"] as? Int, 18)
+        XCTAssertEqual(sameCell["effective_volume_after"] as? Int, 16)
+        XCTAssertEqual(sameCellEvent["gain"] as? Double, 0.25)
+        XCTAssertEqual(applied6xy["vibrato_speed_source"] as? String, "4xy_channel_state")
+        XCTAssertEqual(applied6xy["vibrato_depth_source"] as? String, "4xy_channel_state")
+        XCTAssertEqual(applied6xy["volume_slide_direction"] as? String, "up")
+        XCTAssertEqual(applied6xy["scheduled_sample_step_update_count"] as? Int, 4)
+        XCTAssertEqual(zero6xy["ignored_as_no_op"] as? Bool, true)
+        XCTAssertEqual(noActive6xy["ignored_as_no_op"] as? Bool, true)
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" && $0["status"] as? String == "ignored/no-op" })
+    }
+
+    func testWindowedRenderMatchesFor6xyVibratoVolumeSlideWithoutRetrigger() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 1, count: 96),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x04, effectParam: 0x48),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x10),
+            ]),
+            PlaybackRow(index: 2, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x02),
+            ]),
+            PlaybackRow(index: 3, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x06, effectParam: 0x01),
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "windowed-6xy",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 16
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let result = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [5, 6, 5])
+        let windowed = renderer.renderWindowed(request, windowRows: 2)
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_applied_count"] as? Int, 3)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_gain_update_count"] as? Int, 3)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_sample_step_update_count"] as? Int, 12)
+        XCTAssertEqual(split.block.interleavedPCM, result.block.interleavedPCM)
+        XCTAssertEqual(windowed.block.interleavedPCM, result.block.interleavedPCM)
+    }
+
     func testDiagnosticsJSONCountsTraversalHazardsWithCoordinatesAndStatuses() throws {
         let rows = [
             PlaybackRow(index: 0, cells: [
@@ -2079,25 +2245,30 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let effectTonePortamento = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "3xx tone portamento" })
         let portamentoSlides = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
         let vibratoEffects = try XCTUnwrap(object["vibrato_effects"] as? [[String: Any]])
+        let fourxyEffects = vibratoEffects.filter { $0["effect_type"] as? Int == 0x04 }
+        let sixxyEffects = try XCTUnwrap(object["vibrato_volume_slide_6xy_effects"] as? [[String: Any]])
 
         [
             "total_arpeggio_count",
             "total_tone_portamento_volume_slide_count",
-            "total_vibrato_volume_slide_count",
             "total_tremolo_count",
             "total_volume_column_vibrato_speed_count",
             "total_volume_column_vibrato_count",
             "total_volume_column_tone_portamento_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_vibrato_volume_slide_count"] as? Int, 0)
         XCTAssertEqual(summary["total_vibrato_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_up_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_down_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 7)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 7)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 6)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 6)
         XCTAssertEqual(render["vibrato_4xy_effect_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_4xy_applied_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_4xy_scheduled_sample_step_update_count"] as? Int, 6)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_applied_count"] as? Int, 0)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_zero_speed_or_depth_effect_memory_deferred_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_3xx_effect_count"] as? Int, 1)
         XCTAssertEqual(render["tone_portamento_3xx_no_active_voice_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_1xx_effect_count"] as? Int, 1)
@@ -2106,15 +2277,19 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
         XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
-        XCTAssertEqual(coordinates.count, 7)
+        XCTAssertEqual(coordinates.count, 6)
         XCTAssertEqual(portamentoSlides.count, 2)
         XCTAssertEqual(portamentoSlides.map { $0["current_status"] as? String }, ["applied", "applied"])
         XCTAssertEqual(portamentoSlides.map { $0["slide_direction"] as? String }, ["up", "down"])
-        XCTAssertEqual(vibratoEffects.count, 1)
-        XCTAssertEqual(vibratoEffects.first?["current_status"] as? String, "applied")
-        XCTAssertEqual(vibratoEffects.first?["speed"] as? Int, 4)
-        XCTAssertEqual(vibratoEffects.first?["depth"] as? Int, 8)
-        XCTAssertEqual(vibratoEffects.first?["scheduled_sample_step_update_count"] as? Int, 6)
+        XCTAssertEqual(vibratoEffects.count, 2)
+        XCTAssertEqual(fourxyEffects.count, 1)
+        XCTAssertEqual(fourxyEffects.first?["current_status"] as? String, "applied")
+        XCTAssertEqual(fourxyEffects.first?["speed"] as? Int, 4)
+        XCTAssertEqual(fourxyEffects.first?["depth"] as? Int, 8)
+        XCTAssertEqual(fourxyEffects.first?["scheduled_sample_step_update_count"] as? Int, 6)
+        XCTAssertEqual(sixxyEffects.count, 1)
+        XCTAssertEqual(sixxyEffects.first?["current_status"] as? String, "zero_speed_or_depth_effect_memory_deferred")
+        XCTAssertEqual(sixxyEffects.first?["vibrato_speed_source"] as? String, "missing_4xy_channel_state")
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
@@ -2132,7 +2307,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "2xx portamento down" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "4xy vibrato" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
-        XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
     }
 

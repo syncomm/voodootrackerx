@@ -1021,14 +1021,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let setFinetuneNoNoteDeferredCount = diagnostics.setFinetuneEffects.filter { $0.status == .noNoteDeferred }.count
         let setFinetuneNoActiveVoiceCount = diagnostics.setFinetuneEffects.filter { $0.status == .noActiveVoice }.count
         let setFinetuneDeferredCount = diagnostics.setFinetuneEffects.filter(\.deferred).count
-        let vibratoAppliedCount = diagnostics.vibratoEffects.filter(\.applied).count
-        let vibratoNoActiveVoiceCount = diagnostics.vibratoEffects.filter { $0.status == .noActiveVoice }.count
-        let vibratoZeroParamCount = diagnostics.vibratoEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
-        let vibratoZeroNibbleCount = diagnostics.vibratoEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
-        let vibratoDeferredCount = diagnostics.vibratoEffects.filter(\.deferred).count
-        let vibratoScheduledStepUpdateCount = diagnostics.vibratoEffects.map(\.stepUpdates.count).reduce(0, +)
+        let vibrato4xyEffects = diagnostics.vibratoEffects.filter { $0.effectType == 0x04 }
+        let vibrato6xyEffects = diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }
+        let vibratoAppliedCount = vibrato4xyEffects.filter(\.applied).count
+        let vibratoNoActiveVoiceCount = vibrato4xyEffects.filter { $0.status == .noActiveVoice }.count
+        let vibratoZeroParamCount = vibrato4xyEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
+        let vibratoZeroNibbleCount = vibrato4xyEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
+        let vibratoDeferredCount = vibrato4xyEffects.filter(\.deferred).count
+        let vibratoScheduledStepUpdateCount = vibrato4xyEffects.map(\.stepUpdates.count).reduce(0, +)
+        let vibrato6xyAppliedCount = vibrato6xyEffects.filter(\.applied).count
+        let vibrato6xyNoActiveVoiceCount = vibrato6xyEffects.filter { $0.status == .noActiveVoice }.count
+        let vibrato6xyZeroParamCount = vibrato6xyEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
+        let vibrato6xyZeroSpeedDepthCount = vibrato6xyEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
+        let vibrato6xyDeferredCount = vibrato6xyEffects.filter(\.deferred).count
+        let vibrato6xyScheduledStepUpdateCount = vibrato6xyEffects.map(\.stepUpdates.count).reduce(0, +)
         let eaxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEaxFineVolumeSlideUpdate)
         let ebxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEbxFineVolumeSlideUpdate)
+        let vibrato6xyVolumeSlides = diagnostics.voiceStateUpdates.filter(is6xyVolumeSlideUpdate)
         let eaxFineVolumeSlideAppliedCount = eaxFineVolumeSlides.filter(\.applied).count
         let ebxFineVolumeSlideAppliedCount = ebxFineVolumeSlides.filter(\.applied).count
         let eaxFineVolumeSlideNoActiveVoiceCount = eaxFineVolumeSlides.filter(isFineVolumeSlideNoActiveVoice).count
@@ -1039,6 +1048,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let ebxFineVolumeSlideDeferredCount = ebxFineVolumeSlides.filter(\.deferred).count
         let eaxFineVolumeSlideScheduledGainUpdateCount = eaxFineVolumeSlides.filter(isChangedGainStateUpdate).count
         let ebxFineVolumeSlideScheduledGainUpdateCount = ebxFineVolumeSlides.filter(isChangedGainStateUpdate).count
+        let vibrato6xyScheduledGainUpdateCount = vibrato6xyVolumeSlides.filter(isChangedGainStateUpdate).count
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
@@ -1056,7 +1066,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
-            "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400, zero speed/depth memory, 6xy, and volume-column vibrato remain deferred.",
+            "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400, zero speed/depth memory, volume-column vibrato, and waveform controls remain deferred.",
+            "Minimal 6xy vibrato + volume slide reuses prior nonzero 4xy channel vibrato settings plus the existing row-level Axy-style volume slide/gain path; 600 and missing vibrato-memory cases remain effect-memory-deferred/no-op.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
@@ -1125,13 +1136,22 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "e5x_set_finetune_no_note_deferred_count": setFinetuneNoNoteDeferredCount,
                 "e5x_set_finetune_no_active_voice_count": setFinetuneNoActiveVoiceCount,
                 "e5x_set_finetune_deferred_count": setFinetuneDeferredCount,
-                "vibrato_4xy_effect_count": diagnostics.vibratoEffectCount,
+                "vibrato_4xy_effect_count": vibrato4xyEffects.count,
                 "vibrato_4xy_applied_count": vibratoAppliedCount,
                 "vibrato_4xy_no_active_voice_count": vibratoNoActiveVoiceCount,
                 "vibrato_4xy_zero_param_effect_memory_deferred_count": vibratoZeroParamCount,
                 "vibrato_4xy_zero_speed_or_depth_effect_memory_deferred_count": vibratoZeroNibbleCount,
                 "vibrato_4xy_deferred_count": vibratoDeferredCount,
                 "vibrato_4xy_scheduled_sample_step_update_count": vibratoScheduledStepUpdateCount,
+                "vibrato_volume_slide_6xy_effect_count": vibrato6xyEffects.count,
+                "vibrato_volume_slide_6xy_detected_count": vibrato6xyEffects.count,
+                "vibrato_volume_slide_6xy_applied_count": vibrato6xyAppliedCount,
+                "vibrato_volume_slide_6xy_no_active_voice_count": vibrato6xyNoActiveVoiceCount,
+                "vibrato_volume_slide_6xy_zero_param_effect_memory_deferred_count": vibrato6xyZeroParamCount,
+                "vibrato_volume_slide_6xy_zero_speed_or_depth_effect_memory_deferred_count": vibrato6xyZeroSpeedDepthCount,
+                "vibrato_volume_slide_6xy_deferred_count": vibrato6xyDeferredCount,
+                "vibrato_volume_slide_6xy_scheduled_sample_step_update_count": vibrato6xyScheduledStepUpdateCount,
+                "vibrato_volume_slide_6xy_scheduled_gain_update_count": vibrato6xyScheduledGainUpdateCount,
                 "eax_fine_volume_slide_up_effect_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_detected_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_applied_count": eaxFineVolumeSlideAppliedCount,
@@ -1211,6 +1231,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "e2x_fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
+            "vibrato_volume_slide_6xy_effects": diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }.map(vibratoDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -1965,6 +1986,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "ebx_fine_volume_slide_down_scheduled_gain_update_count": count {
                 isEbxFineVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
             },
+            "vibrato_volume_slide_6xy_volume_slide_applied": count {
+                $0.applied && is6xyVolumeSlideUpdate($0)
+            },
+            "vibrato_volume_slide_6xy_volume_slide_deferred": count {
+                $0.deferred && is6xyVolumeSlideUpdate($0)
+            },
+            "vibrato_volume_slide_6xy_no_active_voice": count {
+                is6xyVolumeSlideUpdate($0) && is6xyVolumeSlideNoActiveVoice($0)
+            },
+            "vibrato_volume_slide_6xy_zero_param_effect_memory_deferred": count {
+                is6xyVolumeSlideUpdate($0) && is6xyVolumeSlideZeroParamNoOp($0)
+            },
+            "vibrato_volume_slide_6xy_scheduled_gain_update_count": count {
+                is6xyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
+            },
             "hxy_global_volume_slide_applied": count {
                 $0.applied && isHxyGlobalVolumeSlideUpdate($0)
             },
@@ -2068,6 +2104,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return false
     }
 
+    private static func is6xyVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .effect6xyVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }
+
     private static func isFineVolumeSlideNoActiveVoice(
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Bool {
@@ -2090,6 +2135,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         default:
             return false
         }
+    }
+
+    private static func is6xyVolumeSlideNoActiveVoice(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        is6xyVolumeSlideUpdate(update) &&
+            update.applied &&
+            update.cellNote == 0 &&
+            !update.activeVoiceUpdated
+    }
+
+    private static func is6xyVolumeSlideZeroParamNoOp(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        guard update.ignoredAsNoOp else {
+            return false
+        }
+        if case let .effect6xyVolumeSlide(up, down) = update.command {
+            return up == 0 && down == 0
+        }
+        return false
     }
 
     private static func isChangedGainStateUpdate(
@@ -2157,6 +2223,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["fine_amount_nibble"] = amount
             object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
             object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
+        case let .effect6xyVolumeSlide(up, down):
+            object["volume_slide_up"] = up
+            object["volume_slide_down"] = down
+            object["volume_slide_amount"] = max(up, down)
+            object["volume_slide_direction"] = up > 0 ? "up" : (down > 0 ? "down" : "none")
+            object["effect_memory_deferred"] = update.ignoredAsNoOp && up == 0 && down == 0
+            object["no_active_voice"] = is6xyVolumeSlideNoActiveVoice(update)
         default:
             break
         }
@@ -2502,6 +2575,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
+            "effect_label": diagnostic.effectType == 0x06 ? "6xy vibrato + volume slide" : "4xy vibrato",
+            "decoded_label": diagnostic.effectType == 0x06 ? "6xy vibrato + volume slide" : "4xy vibrato",
             "status": vibratoStatusName(diagnostic.status),
             "current_status": vibratoStatusName(diagnostic.status),
             "detected": diagnostic.detected,
@@ -2515,6 +2590,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "speed": diagnostic.vibratoSpeed,
             "vibrato_depth": diagnostic.vibratoDepth,
             "depth": diagnostic.vibratoDepth,
+            "vibrato_speed_source": diagnostic.vibratoSpeedSource.map { $0 as Any } ?? NSNull(),
+            "vibrato_depth_source": diagnostic.vibratoDepthSource.map { $0 as Any } ?? NSNull(),
+            "volume_slide_up": diagnostic.volumeSlideUp.map { $0 as Any } ?? NSNull(),
+            "volume_slide_down": diagnostic.volumeSlideDown.map { $0 as Any } ?? NSNull(),
+            "volume_slide_amount": diagnostic.volumeSlideAmount.map { $0 as Any } ?? NSNull(),
+            "volume_slide_direction": diagnostic.volumeSlideDirection.map { $0 as Any } ?? NSNull(),
             "phase_before": diagnostic.phaseBefore,
             "phase_after": diagnostic.phaseAfter,
             "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
@@ -2637,6 +2718,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "amount": amount,
                 "fine_amount_nibble": amount,
             ]
+        case let .effect6xyVolumeSlide(up, down):
+            return [
+                "name": "effect6xyVolumeSlide",
+                "label": command.label,
+                "up": up,
+                "down": down,
+                "amount": max(up, down),
+            ]
         }
     }
 
@@ -2658,6 +2747,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "eaxFineVolumeSlideUp"
         case .ebxFineVolumeSlideDown:
             return "ebxFineVolumeSlideDown"
+        case .effect6xyVolumeSlide:
+            return "effect6xyVolumeSlide"
         }
     }
 

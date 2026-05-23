@@ -467,6 +467,31 @@ enum PlaybackSongSyntheticAdapter {
         }
     }
 
+    private struct AdapterRowContext {
+        var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
+        var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
+        var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
+        var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
+        var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
+        var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
+        var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
+        var tonePortamentoEffects = [PlaybackSongSyntheticTonePortamentoDiagnostic]()
+        var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
+        var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
+        var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
+        var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
+        var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
+        var eventMappings = [PlaybackSongSyntheticEventMapping]()
+        var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
+        var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
+        var eventCoverage = EventCoverageBuilder()
+        var events = [SyntheticTrackerEvent]()
+        var channelStates = [Int: ChannelState]()
+        var mixerSampleBuffers = [MixerSampleBufferCacheKey: MixerSampleBuffer]()
+        var globalVolumeState = GlobalVolumeState()
+    }
+
     static func adapt(
         _ song: PlaybackSong,
         orderIndex: Int,
@@ -508,37 +533,16 @@ enum PlaybackSongSyntheticAdapter {
         let safeOrderCount = max(0, orderCount)
         var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
         var rowMappings = [PlaybackSongSyntheticRowMapping]()
-        var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
-        var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
-        var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
-        var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
-        var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
-        var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
-        var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
-        var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
-        var tonePortamentoEffects = [PlaybackSongSyntheticTonePortamentoDiagnostic]()
-        var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
-        var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
-        var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
-        var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
-        var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
-        var eventMappings = [PlaybackSongSyntheticEventMapping]()
-        var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
-        var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
-        var eventCoverage = EventCoverageBuilder()
-        var events = [SyntheticTrackerEvent]()
-        var channelStates = [Int: ChannelState]()
-        var mixerSampleBuffers = [MixerSampleBufferCacheKey: MixerSampleBuffer]()
-        var globalVolumeState = GlobalVolumeState()
+        var context = AdapterRowContext()
         var nextSyntheticRow = 0
         let estimatedRows = timingPlan.rowTimings.count
 
         adaptedOrders.reserveCapacity(safeOrderCount)
         rowMappings.reserveCapacity(estimatedRows)
-        rowDiagnostics.reserveCapacity(estimatedRows)
-        events.reserveCapacity(min(estimatedRows * 4, 65_536))
-        eventMappings.reserveCapacity(min(estimatedRows * 4, 65_536))
-        mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
+        context.rowDiagnostics.reserveCapacity(estimatedRows)
+        context.events.reserveCapacity(min(estimatedRows * 4, 65_536))
+        context.eventMappings.reserveCapacity(min(estimatedRows * 4, 65_536))
+        context.mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
 
         for orderOffset in 0..<safeOrderCount {
             let orderIndex = startOrderIndex + orderOffset
@@ -581,7 +585,7 @@ enum PlaybackSongSyntheticAdapter {
                     rowIndex: row.index
                 )
                 rowMappings.append(PlaybackSongSyntheticRowMapping(source: source, syntheticRow: syntheticRow))
-                rowDiagnostics.append(appendEvents(
+                let rowDiagnostic = appendEvents(
                     from: row,
                     source: source,
                     syntheticRow: syntheticRow,
@@ -589,28 +593,9 @@ enum PlaybackSongSyntheticAdapter {
                     timingConfig: timingPlan.timingConfig(forSyntheticRow: syntheticRow),
                     timingPlan: timingPlan,
                     scheduledStartFrame: timingPlan.frameFor(row: syntheticRow, tick: 0),
-                    channelStates: &channelStates,
-                    events: &events,
-                    mixerSampleBuffers: &mixerSampleBuffers,
-                    volumeColumnMappings: &volumeColumnMappings,
-                    voiceStateUpdates: &voiceStateUpdates,
-                    sampleOffsetEffects: &sampleOffsetEffects,
-                    setFinetuneEffects: &setFinetuneEffects,
-                    noteCutEffects: &noteCutEffects,
-                    noteDelayEffects: &noteDelayEffects,
-                    retriggerEffects: &retriggerEffects,
-                    tonePortamentoEffects: &tonePortamentoEffects,
-                    portamentoSlideEffects: &portamentoSlideEffects,
-                    finePortamentoDownEffects: &finePortamentoDownEffects,
-                    vibratoEffects: &vibratoEffects,
-                    keyOffEvents: &keyOffEvents,
-                    effectCommandDiagnostics: &effectCommandDiagnostics,
-                    eventMappings: &eventMappings,
-                    ignoredCells: &ignoredCells,
-                    deferredCellFields: &deferredCellFields,
-                    eventCoverage: &eventCoverage,
-                    globalVolumeState: &globalVolumeState
-                ))
+                    context: &context
+                )
+                context.rowDiagnostics.append(rowDiagnostic)
             }
 
             nextSyntheticRow += pattern.rowCount
@@ -618,7 +603,7 @@ enum PlaybackSongSyntheticAdapter {
 
         return PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
-            pattern: SyntheticPattern(rowCount: nextSyntheticRow, events: events),
+            pattern: SyntheticPattern(rowCount: nextSyntheticRow, events: context.events),
             diagnostics: PlaybackSongSyntheticDiagnostics(
                 requestedStartOrderIndex: startOrderIndex,
                 requestedOrderCount: safeOrderCount,
@@ -631,24 +616,24 @@ enum PlaybackSongSyntheticAdapter {
                 rowMappings: rowMappings,
                 rowTiming: timingPlan.rowTimingDiagnostics,
                 timingChanges: timingPlan.timingChanges,
-                effectCommandDiagnostics: effectCommandDiagnostics,
-                rowDiagnostics: rowDiagnostics,
-                volumeColumnMappings: volumeColumnMappings,
-                voiceStateUpdates: voiceStateUpdates,
-                sampleOffsetEffects: sampleOffsetEffects,
-                setFinetuneEffects: setFinetuneEffects,
-                noteCutEffects: noteCutEffects,
-                noteDelayEffects: noteDelayEffects,
-                retriggerEffects: retriggerEffects,
-                tonePortamentoEffects: tonePortamentoEffects,
-                portamentoSlideEffects: portamentoSlideEffects,
-                finePortamentoDownEffects: finePortamentoDownEffects,
-                vibratoEffects: vibratoEffects,
-                keyOffEvents: keyOffEvents,
-                eventMappings: eventMappings,
-                ignoredCells: ignoredCells,
-                deferredCellFields: deferredCellFields,
-                eventCoverage: eventCoverage.summary
+                effectCommandDiagnostics: context.effectCommandDiagnostics,
+                rowDiagnostics: context.rowDiagnostics,
+                volumeColumnMappings: context.volumeColumnMappings,
+                voiceStateUpdates: context.voiceStateUpdates,
+                sampleOffsetEffects: context.sampleOffsetEffects,
+                setFinetuneEffects: context.setFinetuneEffects,
+                noteCutEffects: context.noteCutEffects,
+                noteDelayEffects: context.noteDelayEffects,
+                retriggerEffects: context.retriggerEffects,
+                tonePortamentoEffects: context.tonePortamentoEffects,
+                portamentoSlideEffects: context.portamentoSlideEffects,
+                finePortamentoDownEffects: context.finePortamentoDownEffects,
+                vibratoEffects: context.vibratoEffects,
+                keyOffEvents: context.keyOffEvents,
+                eventMappings: context.eventMappings,
+                ignoredCells: context.ignoredCells,
+                deferredCellFields: context.deferredCellFields,
+                eventCoverage: context.eventCoverage.summary
             )
         )
     }
@@ -661,41 +646,21 @@ enum PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
         scheduledStartFrame: Int,
-        channelStates: inout [Int: ChannelState],
-        events: inout [SyntheticTrackerEvent],
-        mixerSampleBuffers: inout [MixerSampleBufferCacheKey: MixerSampleBuffer],
-        volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
-        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
-        sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
-        setFinetuneEffects: inout [PlaybackSongSyntheticSetFinetuneDiagnostic],
-        noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic],
-        noteDelayEffects: inout [PlaybackSongSyntheticNoteDelayDiagnostic],
-        retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
-        tonePortamentoEffects: inout [PlaybackSongSyntheticTonePortamentoDiagnostic],
-        portamentoSlideEffects: inout [PlaybackSongSyntheticPortamentoSlideDiagnostic],
-        finePortamentoDownEffects: inout [PlaybackSongSyntheticFinePortamentoDownDiagnostic],
-        vibratoEffects: inout [PlaybackSongSyntheticVibratoDiagnostic],
-        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
-        effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
-        eventMappings: inout [PlaybackSongSyntheticEventMapping],
-        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
-        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
-        eventCoverage: inout EventCoverageBuilder,
-        globalVolumeState: inout GlobalVolumeState
+        context: inout AdapterRowContext
     ) -> PlaybackSongSyntheticRowDiagnostic {
-        let eventStartCount = events.count
-        let ignoredStartCount = ignoredCells.count
+        let eventStartCount = context.events.count
+        let ignoredStartCount = context.ignoredCells.count
         for (channelIndex, cell) in row.cells.enumerated() {
-            eventCoverage.visit(cell)
+            context.eventCoverage.visit(cell)
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
                 source: source,
                 channelIndex: channelIndex,
                 timingConfig: timingConfig
             ) {
-                effectCommandDiagnostics.append(effectCommandDiagnostic)
+                context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
-            var channelState = channelStates[channelIndex] ?? ChannelState()
+            var channelState = context.channelStates[channelIndex] ?? ChannelState()
             let channelStateBeforeVolumeColumn = channelState
             let volumeColumn = applyVolumeColumn(
                 PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
@@ -721,9 +686,9 @@ enum PlaybackSongSyntheticAdapter {
                 volumeColumn: volumeColumn,
                 channelStateBefore: channelStateBeforeVolumeColumn,
                 channelStateAfter: channelState,
-                globalVolumeValue: globalVolumeState.volumeValue
+                globalVolumeValue: context.globalVolumeState.volumeValue
             ) {
-                voiceStateUpdates.append(update)
+                context.voiceStateUpdates.append(update)
             }
             if let update = applyEffectColumnState(
                 from: cell,
@@ -732,24 +697,24 @@ enum PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 scheduledFrame: scheduledStartFrame,
                 channelState: &channelState,
-                globalVolumeValue: globalVolumeState.volumeValue
+                globalVolumeValue: context.globalVolumeState.volumeValue
             ) {
-                voiceStateUpdates.append(update)
+                context.voiceStateUpdates.append(update)
             }
-            channelStates[channelIndex] = channelState
+            context.channelStates[channelIndex] = channelState
             if cell.effectType == 0x11 {
-                voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
+                context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
                     from: cell,
                     source: source,
                     sourceChannelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     scheduledFrame: scheduledStartFrame,
-                    channelStates: channelStates,
-                    globalVolumeState: &globalVolumeState
+                    channelStates: context.channelStates,
+                    globalVolumeState: &context.globalVolumeState
                 ))
             }
             if cell.volumeColumn != 0 {
-                volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
+                context.volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
                     source: source,
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
@@ -763,7 +728,7 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 volumeColumn: volumeColumn,
                 includeKeyOff: false,
-                deferredCellFields: &deferredCellFields
+                deferredCellFields: &context.deferredCellFields
             )
             let noteDelay = hasNoteDelayEffect
                 ? noteDelayDiagnostic(
@@ -787,8 +752,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                portamentoSlideEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.portamentoSlideEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasFinePortamentoDownEffect, !(1...96).contains(cell.note) {
                 let diagnostic = handleFinePortamentoDown(
@@ -800,8 +765,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                finePortamentoDownEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.finePortamentoDownEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
@@ -813,8 +778,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                vibratoEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.vibratoEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handleVibrato(
@@ -826,8 +791,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                vibratoEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.vibratoEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasTonePortamento, cell.note != 97 {
                 let diagnostic = handleTonePortamento(
@@ -839,9 +804,9 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                tonePortamentoEffects.append(diagnostic)
+                context.tonePortamentoEffects.append(diagnostic)
                 if let noteDelay {
-                    noteDelayEffects.append(noteDelay)
+                    context.noteDelayEffects.append(noteDelay)
                 }
                 if hasNoteCutEffect {
                     handleNoteCut(
@@ -852,10 +817,10 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
-                channelStates[channelIndex] = channelState
+                context.channelStates[channelIndex] = channelState
                 continue
             }
             if cell.note == 97 {
@@ -867,12 +832,12 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: volumeColumn,
                     cell: cell,
                     channelState: &channelState,
-                    events: &events,
-                    keyOffEvents: &keyOffEvents,
-                    eventMappings: &eventMappings,
-                    ignoredCells: &ignoredCells,
-                    deferredCellFields: &deferredCellFields,
-                    eventCoverage: &eventCoverage
+                    events: &context.events,
+                    keyOffEvents: &context.keyOffEvents,
+                    eventMappings: &context.eventMappings,
+                    ignoredCells: &context.ignoredCells,
+                    deferredCellFields: &context.deferredCellFields,
+                    eventCoverage: &context.eventCoverage
                 )
                 if hasRetriggerEffect {
                     _ = handleRetrigger(
@@ -883,16 +848,16 @@ enum PlaybackSongSyntheticAdapter {
                         volumeColumn: volumeColumn,
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
-                        globalVolumeState: globalVolumeState,
+                        globalVolumeState: context.globalVolumeState,
                         channelState: &channelState,
-                        events: &events,
-                        eventMappings: &eventMappings,
-                        retriggerEffects: &retriggerEffects,
-                        eventCoverage: &eventCoverage
+                        events: &context.events,
+                        eventMappings: &context.eventMappings,
+                        retriggerEffects: &context.retriggerEffects,
+                        eventCoverage: &context.eventCoverage
                     )
                 }
                 if let noteDelay {
-                    noteDelayEffects.append(noteDelay)
+                    context.noteDelayEffects.append(noteDelay)
                 }
                 if hasNoteCutEffect {
                     handleNoteCut(
@@ -903,11 +868,11 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 if hasSetFinetuneEffect {
-                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                    context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
                         channelIndex: channelIndex,
@@ -919,12 +884,12 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventMappingIndex: channelState.activeEventMappingIndex
                     ))
                 }
-                channelStates[channelIndex] = channelState
+                context.channelStates[channelIndex] = channelState
                 continue
             }
             guard (1...96).contains(cell.note) else {
                 if let noteDelay {
-                    noteDelayEffects.append(noteDelay)
+                    context.noteDelayEffects.append(noteDelay)
                 }
                 if hasNoteCutEffect {
                     handleNoteCut(
@@ -935,7 +900,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 let retrigger = hasRetriggerEffect
@@ -947,20 +912,20 @@ enum PlaybackSongSyntheticAdapter {
                         volumeColumn: volumeColumn,
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
-                        globalVolumeState: globalVolumeState,
+                        globalVolumeState: context.globalVolumeState,
                         channelState: &channelState,
-                        events: &events,
-                        eventMappings: &eventMappings,
-                        retriggerEffects: &retriggerEffects,
-                        eventCoverage: &eventCoverage
+                        events: &context.events,
+                        eventMappings: &context.eventMappings,
+                        retriggerEffects: &context.retriggerEffects,
+                        eventCoverage: &context.eventCoverage
                     )
                     : nil
                 if retrigger?.applied == true {
-                    channelStates[channelIndex] = channelState
+                    context.channelStates[channelIndex] = channelState
                     continue
                 }
                 if hasSetFinetuneEffect {
-                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                    context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
                         channelIndex: channelIndex,
@@ -983,13 +948,13 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: noteDelay != nil || hasDeferredEffectCell
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: false)
-                channelStates[channelIndex] = channelState
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: false)
+                context.channelStates[channelIndex] = channelState
                 continue
             }
             if let noteDelay, noteDelay.outOfRow {
-                noteDelayEffects.append(noteDelay)
+                context.noteDelayEffects.append(noteDelay)
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -999,9 +964,9 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: true
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-                channelStates[channelIndex] = channelState
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.channelStates[channelIndex] = channelState
                 continue
             }
 
@@ -1016,11 +981,11 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 if hasSetFinetuneEffect {
-                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                    context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
                         channelIndex: channelIndex,
@@ -1042,7 +1007,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    finePortamentoDownEffects.append(diagnostic)
+                    context.finePortamentoDownEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1053,9 +1018,9 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffectCell
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-                channelStates[channelIndex] = channelState
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.channelStates[channelIndex] = channelState
                 continue
             }
             guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
@@ -1068,11 +1033,11 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 if hasSetFinetuneEffect {
-                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                    context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
                         channelIndex: channelIndex,
@@ -1094,7 +1059,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    finePortamentoDownEffects.append(diagnostic)
+                    context.finePortamentoDownEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1105,9 +1070,9 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffectCell
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-                channelStates[channelIndex] = channelState
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.channelStates[channelIndex] = channelState
                 continue
             }
             let sampleSelection = selectSample(forNote: cell.note, from: instrument)
@@ -1121,11 +1086,11 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 if hasSetFinetuneEffect {
-                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                    context.setFinetuneEffects.append(setFinetuneDiagnostic(
                         from: cell,
                         source: source,
                         channelIndex: channelIndex,
@@ -1148,7 +1113,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    finePortamentoDownEffects.append(diagnostic)
+                    context.finePortamentoDownEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1167,13 +1132,13 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffectCell
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-                eventCoverage.recordSkippedSampleSelection(
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.eventCoverage.recordSkippedSampleSelection(
                     method: sampleSelection.method,
                     sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
                 )
-                channelStates[channelIndex] = channelState
+                context.channelStates[channelIndex] = channelState
                 continue
             }
 
@@ -1186,7 +1151,7 @@ enum PlaybackSongSyntheticAdapter {
                 selectedSampleLength: sampleLength
             )
             if sampleOffset.detected {
-                sampleOffsetEffects.append(sampleOffset)
+                context.sampleOffsetEffects.append(sampleOffset)
             }
             if sampleOffset.skipped {
                 if hasNoteCutEffect {
@@ -1198,7 +1163,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingConfig: timingConfig,
                         timingPlan: timingPlan,
                         channelState: &channelState,
-                        noteCutEffects: &noteCutEffects
+                        noteCutEffects: &context.noteCutEffects
                     )
                 }
                 if hasFinePortamentoDownEffect {
@@ -1211,7 +1176,7 @@ enum PlaybackSongSyntheticAdapter {
                         timingPlan: timingPlan,
                         channelState: &channelState
                     )
-                    finePortamentoDownEffects.append(diagnostic)
+                    context.finePortamentoDownEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1231,13 +1196,13 @@ enum PlaybackSongSyntheticAdapter {
                     hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                     hasIgnoredEffect: hasDeferredEffectCell
                 )
-                ignoredCells.append(ignored)
-                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
-                channelStates[channelIndex] = channelState
+                context.ignoredCells.append(ignored)
+                context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.channelStates[channelIndex] = channelState
                 continue
             }
 
-            let eventIndex = events.count
+            let eventIndex = context.events.count
             let loop = mixerLoop(from: sample)
             let envelopeMapping = mixerVolumeEnvelope(
                 from: instrument.volumeEnvelope,
@@ -1258,7 +1223,7 @@ enum PlaybackSongSyntheticAdapter {
                 finetuneOverride: setFinetuneOverride
             )
             if hasSetFinetuneEffect {
-                setFinetuneEffects.append(setFinetuneDiagnostic(
+                context.setFinetuneEffects.append(setFinetuneDiagnostic(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,
@@ -1267,7 +1232,7 @@ enum PlaybackSongSyntheticAdapter {
                     status: setFinetuneStatus(for: pitchMapping),
                     activeVoiceFound: true,
                     activeEventIndex: eventIndex,
-                    activeEventMappingIndex: eventMappings.count,
+                    activeEventMappingIndex: context.eventMappings.count,
                     sampleFinetune: sample.finetune,
                     pitchMapping: pitchMapping
                 ))
@@ -1282,23 +1247,23 @@ enum PlaybackSongSyntheticAdapter {
                     basePitchMapping: pitchMapping,
                     baseSampleRate: sample.baseSampleRate,
                     activeEventIndex: eventIndex,
-                    activeEventMappingIndex: eventMappings.count,
+                    activeEventMappingIndex: context.eventMappings.count,
                     scheduledFrame: scheduledNoteFrame
                 )
                 pitchMapping = result.pitchMapping
-                finePortamentoDownEffects.append(result.diagnostic)
+                context.finePortamentoDownEffects.append(result.diagnostic)
             }
             let gain = adaptedGain(
                 sampleVolume: sample.volume,
                 channelVolume: channelState.volumeValue,
-                globalVolume: globalVolumeState.volumeValue
+                globalVolume: context.globalVolumeState.volumeValue
             )
             let pan = channelState.pan
-            events.append(SyntheticTrackerEvent(
+            context.events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
                 tick: scheduledNoteTick,
                 scheduledStartFrame: scheduledNoteFrame,
-                sample: mixerSampleBuffer(for: sample, cache: &mixerSampleBuffers),
+                sample: mixerSampleBuffer(for: sample, cache: &context.mixerSampleBuffers),
                 gain: gain,
                 pan: pan,
                 playbackStep: pitchMapping.playbackStep,
@@ -1306,16 +1271,16 @@ enum PlaybackSongSyntheticAdapter {
                 initialSourceFrame: sampleOffset.appliedOffsetFrames ?? 0,
                 volumeEnvelope: envelopeMapping.envelope
             ))
-            eventCoverage.recordScheduledNote(
+            context.eventCoverage.recordScheduledNote(
                 method: sampleSelection.method,
                 firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
                 sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
             )
             if hasDeferredEffectCell || volumeColumn.deferred {
-                eventCoverage.recordDeferredCellWithoutSkip()
+                context.eventCoverage.recordDeferredCellWithoutSkip()
             }
             channelState.activeEventIndex = eventIndex
-            channelState.activeEventMappingIndex = eventMappings.count
+            channelState.activeEventMappingIndex = context.eventMappings.count
             channelState.activeSampleVolume = sample.volume
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
@@ -1326,8 +1291,8 @@ enum PlaybackSongSyntheticAdapter {
             channelState.tonePortamentoTargetNote = nil
             channelState.tonePortamentoTargetLinearPeriod = nil
             channelState.tonePortamentoTargetPlaybackStep = nil
-            channelStates[channelIndex] = channelState
-            eventMappings.append(PlaybackSongSyntheticEventMapping(
+            context.channelStates[channelIndex] = channelState
+            context.eventMappings.append(PlaybackSongSyntheticEventMapping(
                 source: source,
                 channelIndex: channelIndex,
                 note: cell.note,
@@ -1353,8 +1318,8 @@ enum PlaybackSongSyntheticAdapter {
                 hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
                 hasIgnoredEffect: hasDeferredEffectCell,
                 effectiveVolumeValue: channelState.volumeValue,
-                effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
-                effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
+                effectiveGlobalVolumeValue: context.globalVolumeState.volumeValue,
+                effectiveGlobalVolumeMultiplier: context.globalVolumeState.multiplier,
                 effectivePan: pan,
                 volumeEnvelopeStatus: envelopeMapping.status,
                 sourceVolumeEnvelopePointCount: envelopeMapping.sourcePointCount,
@@ -1391,8 +1356,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                portamentoSlideEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.portamentoSlideEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasVibrato {
                 let diagnostic = handleVibrato(
@@ -1404,8 +1369,8 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                vibratoEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.vibratoEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if hasVibratoVolumeSlide {
                 let diagnostic = handleVibrato(
@@ -1417,11 +1382,11 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState
                 )
-                vibratoEffects.append(diagnostic)
-                channelStates[channelIndex] = channelState
+                context.vibratoEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
             }
             if let noteDelay, noteDelay.applied {
-                noteDelayEffects.append(noteDelayDiagnostic(
+                context.noteDelayEffects.append(noteDelayDiagnostic(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,
@@ -1441,12 +1406,12 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: volumeColumn,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
-                    globalVolumeState: globalVolumeState,
+                    globalVolumeState: context.globalVolumeState,
                     channelState: &channelState,
-                    events: &events,
-                    eventMappings: &eventMappings,
-                    retriggerEffects: &retriggerEffects,
-                    eventCoverage: &eventCoverage
+                    events: &context.events,
+                    eventMappings: &context.eventMappings,
+                    retriggerEffects: &context.retriggerEffects,
+                    eventCoverage: &context.eventCoverage
                 )
             }
             if hasNoteCutEffect {
@@ -1458,17 +1423,17 @@ enum PlaybackSongSyntheticAdapter {
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
                     channelState: &channelState,
-                    noteCutEffects: &noteCutEffects
+                    noteCutEffects: &context.noteCutEffects
                 )
             }
-            channelStates[channelIndex] = channelState
+            context.channelStates[channelIndex] = channelState
         }
         return PlaybackSongSyntheticRowDiagnostic(
             source: source,
             syntheticRow: syntheticRow,
             cellCount: row.cells.count,
-            emittedEventCount: events.count - eventStartCount,
-            ignoredCellCount: ignoredCells.count - ignoredStartCount
+            emittedEventCount: context.events.count - eventStartCount,
+            ignoredCellCount: context.ignoredCells.count - ignoredStartCount
         )
     }
 

@@ -1,0 +1,5150 @@
+import Foundation
+
+struct PlaybackSongSyntheticPlan: Equatable {
+    let timingConfig: SyntheticTrackerTimingConfig
+    let pattern: SyntheticPattern
+    let diagnostics: PlaybackSongSyntheticDiagnostics
+}
+
+struct PlaybackSongFxxRowTiming: Equatable {
+    let source: PlaybackPosition
+    let syntheticRow: Int
+    let rowStartExactFrame: Double
+    let rowEndExactFrame: Double
+    let effectiveSpeed: Int
+    let effectiveBPM: Int
+
+    var rowStartFrame: Int {
+        Self.floorFrame(rowStartExactFrame)
+    }
+
+    var rowEndFrame: Int {
+        Self.floorFrame(rowEndExactFrame)
+    }
+
+    var rowDurationFrames: Int {
+        max(0, rowEndFrame - rowStartFrame)
+    }
+
+    var diagnostic: PlaybackSongSyntheticRowTimingDiagnostic {
+        PlaybackSongSyntheticRowTimingDiagnostic(
+            source: source,
+            syntheticRow: syntheticRow,
+            rowStartFrame: rowStartFrame,
+            rowDurationFrames: rowDurationFrames,
+            effectiveSpeed: effectiveSpeed,
+            effectiveBPM: effectiveBPM
+        )
+    }
+
+    private static func floorFrame(_ exactFrame: Double) -> Int {
+        guard exactFrame.isFinite,
+              exactFrame > 0 else {
+            return 0
+        }
+        guard exactFrame < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(exactFrame.rounded(.down))
+    }
+}
+
+struct PlaybackSongFxxTimingPlan: Equatable {
+    let sampleRate: Double
+    let initialSpeed: Int
+    let initialBPM: Int
+    let rowTimings: [PlaybackSongFxxRowTiming]
+    let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
+    let finalSpeed: Int
+    let finalBPM: Int
+    let endExactFrame: Double
+
+    var rowTimingDiagnostics: [PlaybackSongSyntheticRowTimingDiagnostic] {
+        rowTimings.map(\.diagnostic)
+    }
+
+    func timingConfig(forSyntheticRow syntheticRow: Int) -> SyntheticTrackerTimingConfig {
+        let timing = timingFor(syntheticRow: syntheticRow)
+        return SyntheticTrackerTimingConfig(
+            speed: timing.speed,
+            bpm: timing.bpm,
+            sampleRate: sampleRate
+        )
+    }
+
+    func frameFor(row: Int, tick: Int = 0) -> Int {
+        let safeRow = max(0, row)
+        let timing = timingFor(syntheticRow: safeRow)
+        let safeTick = min(max(0, tick), timing.speed - 1)
+        let exactFrame = timing.rowStartExactFrame + (Double(safeTick) * framesPerTick(bpm: timing.bpm))
+        return floorFrame(exactFrame)
+    }
+
+    private func timingFor(syntheticRow: Int) -> (rowStartExactFrame: Double, speed: Int, bpm: Int) {
+        if rowTimings.indices.contains(syntheticRow),
+           rowTimings[syntheticRow].syntheticRow == syntheticRow {
+            let rowTiming = rowTimings[syntheticRow]
+            return (
+                rowStartExactFrame: rowTiming.rowStartExactFrame,
+                speed: rowTiming.effectiveSpeed,
+                bpm: rowTiming.effectiveBPM
+            )
+        }
+
+        let extraRows = max(0, syntheticRow - rowTimings.count)
+        let rowStart = endExactFrame + (Double(extraRows) * rowDuration(speed: finalSpeed, bpm: finalBPM))
+        return (rowStartExactFrame: rowStart, speed: finalSpeed, bpm: finalBPM)
+    }
+
+    private func framesPerTick(bpm: Int) -> Double {
+        sampleRate * 2.5 / Double(max(1, bpm))
+    }
+
+    private func rowDuration(speed: Int, bpm: Int) -> Double {
+        framesPerTick(bpm: bpm) * Double(max(1, speed))
+    }
+
+    private func floorFrame(_ exactFrame: Double) -> Int {
+        guard exactFrame.isFinite,
+              exactFrame > 0 else {
+            return 0
+        }
+        guard exactFrame < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(exactFrame.rounded(.down))
+    }
+}
+
+enum PlaybackSongFxxTimingPlanner {
+    static func plan(
+        _ song: PlaybackSong,
+        startOrderIndex: Int,
+        orderCount: Int,
+        sampleRate: Double
+    ) -> PlaybackSongFxxTimingPlan {
+        let initialConfig = SyntheticTrackerTimingConfig(
+            speed: song.initialTiming.speed,
+            bpm: song.initialTiming.bpm,
+            sampleRate: sampleRate
+        )
+        let safeOrderCount = max(0, orderCount)
+        var currentSpeed = initialConfig.speed
+        var currentBPM = initialConfig.bpm
+        var currentExactFrame = 0.0
+        var nextSyntheticRow = 0
+        var rowTimings = [PlaybackSongFxxRowTiming]()
+        var timingChanges = [PlaybackSongSyntheticTimingChangeDiagnostic]()
+
+        for orderOffset in 0..<safeOrderCount {
+            let orderIndex = startOrderIndex + orderOffset
+            guard song.orders.indices.contains(orderIndex) else {
+                continue
+            }
+            let order = song.orders[orderIndex]
+            guard let pattern = song.patternsByIndex[order.patternIndex] else {
+                continue
+            }
+
+            for (rowOffset, row) in pattern.rows.enumerated() {
+                let syntheticRow = nextSyntheticRow + rowOffset
+                let source = PlaybackPosition(
+                    orderIndex: orderIndex,
+                    patternIndex: pattern.index,
+                    rowIndex: row.index
+                )
+                let rowStartExactFrame = currentExactFrame
+                let rowEndExactFrame = currentExactFrame + rowDuration(
+                    speed: currentSpeed,
+                    bpm: currentBPM,
+                    sampleRate: initialConfig.sampleRate
+                )
+                let rowTiming = PlaybackSongFxxRowTiming(
+                    source: source,
+                    syntheticRow: syntheticRow,
+                    rowStartExactFrame: rowStartExactFrame,
+                    rowEndExactFrame: rowEndExactFrame,
+                    effectiveSpeed: currentSpeed,
+                    effectiveBPM: currentBPM
+                )
+                rowTimings.append(rowTiming)
+
+                var nextSpeed = currentSpeed
+                var nextBPM = currentBPM
+                for (channelIndex, cell) in row.cells.enumerated() where isFxxTimingEffect(cell) {
+                    let speedBefore = nextSpeed
+                    let bpmBefore = nextBPM
+                    let kind: PlaybackSongSyntheticTimingChangeDiagnostic.Kind
+                    let applied: Bool
+                    switch cell.effectParam {
+                    case 0:
+                        kind = .ignoredF00
+                        applied = false
+                    case 0x01...0x1F:
+                        kind = .speed
+                        applied = true
+                        nextSpeed = Int(cell.effectParam)
+                    default:
+                        kind = .bpm
+                        applied = true
+                        nextBPM = Int(cell.effectParam)
+                    }
+                    timingChanges.append(PlaybackSongSyntheticTimingChangeDiagnostic(
+                        source: source,
+                        channelIndex: channelIndex,
+                        effectType: cell.effectType,
+                        effectParam: cell.effectParam,
+                        rowStartFrame: rowTiming.rowStartFrame,
+                        appliesToSyntheticRowAfter: syntheticRow + 1,
+                        kind: kind,
+                        applied: applied,
+                        speedBefore: speedBefore,
+                        bpmBefore: bpmBefore,
+                        speedAfter: nextSpeed,
+                        bpmAfter: nextBPM
+                    ))
+                }
+
+                currentExactFrame = rowEndExactFrame
+                currentSpeed = nextSpeed
+                currentBPM = nextBPM
+            }
+
+            nextSyntheticRow += pattern.rowCount
+        }
+
+        return PlaybackSongFxxTimingPlan(
+            sampleRate: initialConfig.sampleRate,
+            initialSpeed: initialConfig.speed,
+            initialBPM: initialConfig.bpm,
+            rowTimings: rowTimings,
+            timingChanges: timingChanges,
+            finalSpeed: currentSpeed,
+            finalBPM: currentBPM,
+            endExactFrame: currentExactFrame
+        )
+    }
+
+    static func isFxxTimingEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x0F
+    }
+
+    private static func rowDuration(speed: Int, bpm: Int, sampleRate: Double) -> Double {
+        sampleRate * 2.5 / Double(max(1, bpm)) * Double(max(1, speed))
+    }
+}
+
+enum PlaybackSongSyntheticAdapter {
+    private static let maxMixerEnvelopePointCount = 12
+    private static let xmLinearPeriodBase = 7_680.0
+    private static let xmLinearC4Period = 4_608.0
+    private static let xmLinearPeriodUnitsPerSemitone = 64.0
+    private static let xmLinearPeriodUnitsPerOctave = 768.0
+    private static let xmLinearMinimumSafePeriod = xmLinearPeriodBase
+        - (95.0 * xmLinearPeriodUnitsPerSemitone)
+        - (127.0 / 2.0)
+    private static let xmLinearMaximumSafePeriod = xmLinearPeriodBase + 64.0
+
+    private struct ChannelState: Equatable {
+        var volumeValue = 64
+        var panningValue = 127.5
+        var activeEventIndex: Int?
+        var activeEventMappingIndex: Int?
+        var activeSampleVolume: Float?
+        var activePlaybackStep: Double?
+        var activeLinearPeriod: Double?
+        var activeSampleBaseSampleRate: Double?
+        var activeSampleRelativeNote: Int?
+        var activeSampleFinetune: Int?
+        var activeUsesLinearFrequencyTable: Bool?
+        var tonePortamentoTargetNote: UInt8?
+        var tonePortamentoTargetLinearPeriod: Double?
+        var tonePortamentoTargetPlaybackStep: Double?
+        var tonePortamentoSpeed: Int?
+        var vibratoSpeed: Int?
+        var vibratoDepth: Int?
+        var vibratoPhase: Double = 0
+
+        var pan: Float {
+            PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
+        }
+    }
+
+    private struct GlobalVolumeState: Equatable {
+        static let defaultValue = 64
+
+        var volumeValue = defaultValue
+
+        var multiplier: Float {
+            globalVolumeMultiplier(for: volumeValue)
+        }
+    }
+
+    private struct GlobalVolumeSlidePlan: Equatable {
+        let up: Int
+        let down: Int
+        let direction: PlaybackSongSyntheticGlobalVolumeSlideDirection
+        let amount: Int
+        let bothNibblesNonzero: Bool
+        let policy: String?
+    }
+
+    private struct VolumeSlideAmounts: Equatable {
+        let up: Int
+        let down: Int
+        let direction: String
+        let amount: Int
+    }
+
+    private struct SampleSelection: Equatable {
+        let sample: PlaybackSample?
+        let diagnosticSample: PlaybackSample?
+        let skippedReason: PlaybackSongSyntheticIgnoredCell.Reason?
+        let sampleMapKeymapPresent: Bool
+        let mappedSampleIndex: Int?
+        let mappedSampleValid: Bool
+        let method: PlaybackSongSyntheticSampleSelectionMethod
+        let firstPlayableSampleFallbackUsed: Bool
+        let sampleMapKeymapBehaviorDeferred: Bool
+        let sampleMapKeymapMissingOrDeferred: Bool
+    }
+
+    private struct MixerSampleBufferCacheKey: Hashable {
+        let storageAddress: UInt
+        let frameCount: Int
+    }
+
+    private static func clearActiveVoiceState(_ state: inout ChannelState) {
+        state.activeEventIndex = nil
+        state.activeEventMappingIndex = nil
+        state.activeSampleVolume = nil
+        state.activePlaybackStep = nil
+        state.activeLinearPeriod = nil
+        state.activeSampleBaseSampleRate = nil
+        state.activeSampleRelativeNote = nil
+        state.activeSampleFinetune = nil
+        state.activeUsesLinearFrequencyTable = nil
+        state.tonePortamentoTargetNote = nil
+        state.tonePortamentoTargetLinearPeriod = nil
+        state.tonePortamentoTargetPlaybackStep = nil
+    }
+
+    private struct EventCoverageBuilder: Equatable {
+        var totalCellsVisited = 0
+        var emptyCells = 0
+        var normalNoteCells = 0
+        var noteOffCells = 0
+        var invalidNoteCells = 0
+        var instrumentOnlyCells = 0
+        var noteWithInstrumentCells = 0
+        var noteWithMissingOrZeroInstrumentCells = 0
+        var scheduledNoteEvents = 0
+        var skippedNoteEvents = 0
+        var skippedNoteOffEventsNoActiveVoice = 0
+        var ignoredOrDeferredCells = 0
+        var sampleMapSelectionEvents = 0
+        var firstPlayableSampleFallbackEvents = 0
+        var fallbackAfterInvalidSampleMapEvents = 0
+        var skippedNoValidSampleEvents = 0
+        var sampleMapKeymapDeferredEvents = 0
+        var eventOutsideBoundedRowRangeCount = 0
+        var eventCapacityLimitCount = 0
+        var cMixerVoiceCapacityLimitCount = 0
+        var skipReasonCounts = [PlaybackSongSyntheticSkipReason: Int]()
+
+        mutating func visit(_ cell: PlaybackCell) {
+            totalCellsVisited += 1
+            if isCompletelyEmpty(cell) {
+                emptyCells += 1
+            }
+            if (1...96).contains(cell.note) {
+                normalNoteCells += 1
+                if cell.instrument > 0 {
+                    noteWithInstrumentCells += 1
+                } else {
+                    noteWithMissingOrZeroInstrumentCells += 1
+                }
+            } else if cell.note == 97 {
+                noteOffCells += 1
+            } else if cell.note > 97 {
+                invalidNoteCells += 1
+            } else if cell.note == 0, cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
+                instrumentOnlyCells += 1
+            }
+        }
+
+        mutating func recordScheduledNote(
+            method: PlaybackSongSyntheticSampleSelectionMethod,
+            firstPlayableSampleFallbackUsed: Bool,
+            sampleMapKeymapBehaviorDeferred: Bool
+        ) {
+            scheduledNoteEvents += 1
+            if method == .sampleMap {
+                sampleMapSelectionEvents += 1
+            }
+            if firstPlayableSampleFallbackUsed {
+                firstPlayableSampleFallbackEvents += 1
+            }
+            if method == .fallbackAfterInvalidMap {
+                fallbackAfterInvalidSampleMapEvents += 1
+            }
+            if sampleMapKeymapBehaviorDeferred {
+                sampleMapKeymapDeferredEvents += 1
+            }
+        }
+
+        mutating func recordSkippedSampleSelection(
+            method: PlaybackSongSyntheticSampleSelectionMethod,
+            sampleMapKeymapBehaviorDeferred: Bool
+        ) {
+            if method == .skippedNoValidSample {
+                skippedNoValidSampleEvents += 1
+            }
+            if sampleMapKeymapBehaviorDeferred {
+                sampleMapKeymapDeferredEvents += 1
+            }
+        }
+
+        mutating func recordIgnoredCell(
+            reason: PlaybackSongSyntheticSkipReason,
+            isNormalNote: Bool,
+            isNoteOffWithoutActiveVoice: Bool = false
+        ) {
+            ignoredOrDeferredCells += 1
+            skipReasonCounts[reason, default: 0] += 1
+            if isNormalNote {
+                skippedNoteEvents += 1
+            }
+            if isNoteOffWithoutActiveVoice {
+                skippedNoteOffEventsNoActiveVoice += 1
+            }
+        }
+
+        mutating func recordDeferredCellWithoutSkip() {
+            ignoredOrDeferredCells += 1
+            skipReasonCounts[.unsupportedDeferredEffectInteraction, default: 0] += 1
+        }
+
+        var summary: PlaybackSongSyntheticEventCoverageSummary {
+            PlaybackSongSyntheticEventCoverageSummary(
+                totalCellsVisited: totalCellsVisited,
+                emptyCells: emptyCells,
+                normalNoteCells: normalNoteCells,
+                noteOffCells: noteOffCells,
+                invalidNoteCells: invalidNoteCells,
+                instrumentOnlyCells: instrumentOnlyCells,
+                noteWithInstrumentCells: noteWithInstrumentCells,
+                noteWithMissingOrZeroInstrumentCells: noteWithMissingOrZeroInstrumentCells,
+                scheduledNoteEvents: scheduledNoteEvents,
+                skippedNoteEvents: skippedNoteEvents,
+                skippedNoteOffEventsNoActiveVoice: skippedNoteOffEventsNoActiveVoice,
+                ignoredOrDeferredCells: ignoredOrDeferredCells,
+                sampleMapSelectionEvents: sampleMapSelectionEvents,
+                firstPlayableSampleFallbackEvents: firstPlayableSampleFallbackEvents,
+                fallbackAfterInvalidSampleMapEvents: fallbackAfterInvalidSampleMapEvents,
+                skippedNoValidSampleEvents: skippedNoValidSampleEvents,
+                sampleMapKeymapDeferredEvents: sampleMapKeymapDeferredEvents,
+                eventOutsideBoundedRowRangeCount: eventOutsideBoundedRowRangeCount,
+                eventCapacityLimitCount: eventCapacityLimitCount,
+                cMixerVoiceCapacityLimitCount: cMixerVoiceCapacityLimitCount,
+                skipReasonCounts: skipReasonCounts
+                    .map { PlaybackSongSyntheticSkipReasonCount(reason: $0.key, count: $0.value) }
+                    .sorted { lhs, rhs in
+                        if lhs.count != rhs.count {
+                            return lhs.count > rhs.count
+                        }
+                        return lhs.reason.rawValue < rhs.reason.rawValue
+                    }
+            )
+        }
+
+        private func isCompletelyEmpty(_ cell: PlaybackCell) -> Bool {
+            cell.note == 0 &&
+                cell.instrument == 0 &&
+                cell.volumeColumn == 0 &&
+                cell.effectType == 0 &&
+                cell.effectParam == 0
+        }
+    }
+
+    static func adapt(
+        _ song: PlaybackSong,
+        orderIndex: Int,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        adapt(song, startOrderIndex: orderIndex, orderCount: 1, sampleRate: sampleRate)
+    }
+
+    static func adapt(
+        _ song: PlaybackSong,
+        orderRange: Range<Int>,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        adapt(
+            song,
+            startOrderIndex: orderRange.lowerBound,
+            orderCount: max(0, orderRange.count),
+            sampleRate: sampleRate
+        )
+    }
+
+    static func adapt(
+        _ song: PlaybackSong,
+        startOrderIndex: Int,
+        orderCount: Int,
+        sampleRate: Double
+    ) -> PlaybackSongSyntheticPlan {
+        let timingPlan = PlaybackSongFxxTimingPlanner.plan(
+            song,
+            startOrderIndex: startOrderIndex,
+            orderCount: orderCount,
+            sampleRate: sampleRate
+        )
+        let timingConfig = SyntheticTrackerTimingConfig(
+            speed: timingPlan.initialSpeed,
+            bpm: timingPlan.initialBPM,
+            sampleRate: timingPlan.sampleRate
+        )
+        let safeOrderCount = max(0, orderCount)
+        var adaptedOrders = [PlaybackSongSyntheticOrderDiagnostic]()
+        var rowMappings = [PlaybackSongSyntheticRowMapping]()
+        var rowDiagnostics = [PlaybackSongSyntheticRowDiagnostic]()
+        var volumeColumnMappings = [PlaybackSongSyntheticVolumeColumnMapping]()
+        var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
+        var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
+        var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
+        var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
+        var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
+        var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
+        var tonePortamentoEffects = [PlaybackSongSyntheticTonePortamentoDiagnostic]()
+        var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
+        var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
+        var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
+        var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
+        var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
+        var eventMappings = [PlaybackSongSyntheticEventMapping]()
+        var ignoredCells = [PlaybackSongSyntheticIgnoredCell]()
+        var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
+        var eventCoverage = EventCoverageBuilder()
+        var events = [SyntheticTrackerEvent]()
+        var channelStates = [Int: ChannelState]()
+        var mixerSampleBuffers = [MixerSampleBufferCacheKey: MixerSampleBuffer]()
+        var globalVolumeState = GlobalVolumeState()
+        var nextSyntheticRow = 0
+        let estimatedRows = timingPlan.rowTimings.count
+
+        adaptedOrders.reserveCapacity(safeOrderCount)
+        rowMappings.reserveCapacity(estimatedRows)
+        rowDiagnostics.reserveCapacity(estimatedRows)
+        events.reserveCapacity(min(estimatedRows * 4, 65_536))
+        eventMappings.reserveCapacity(min(estimatedRows * 4, 65_536))
+        mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
+
+        for orderOffset in 0..<safeOrderCount {
+            let orderIndex = startOrderIndex + orderOffset
+            guard song.orders.indices.contains(orderIndex) else {
+                adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                    requestedOrderIndex: orderIndex,
+                    patternIndex: nil,
+                    syntheticStartRow: nextSyntheticRow,
+                    rowCount: 0,
+                    status: .invalidOrder
+                ))
+                continue
+            }
+
+            let order = song.orders[orderIndex]
+            guard let pattern = song.patternsByIndex[order.patternIndex] else {
+                adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                    requestedOrderIndex: orderIndex,
+                    patternIndex: order.patternIndex,
+                    syntheticStartRow: nextSyntheticRow,
+                    rowCount: 0,
+                    status: .missingPattern
+                ))
+                continue
+            }
+
+            adaptedOrders.append(PlaybackSongSyntheticOrderDiagnostic(
+                requestedOrderIndex: orderIndex,
+                patternIndex: pattern.index,
+                syntheticStartRow: nextSyntheticRow,
+                rowCount: pattern.rowCount,
+                status: .adapted
+            ))
+
+            for (rowOffset, row) in pattern.rows.enumerated() {
+                let syntheticRow = nextSyntheticRow + rowOffset
+                let source = PlaybackPosition(
+                    orderIndex: orderIndex,
+                    patternIndex: pattern.index,
+                    rowIndex: row.index
+                )
+                rowMappings.append(PlaybackSongSyntheticRowMapping(source: source, syntheticRow: syntheticRow))
+                rowDiagnostics.append(appendEvents(
+                    from: row,
+                    source: source,
+                    syntheticRow: syntheticRow,
+                    song: song,
+                    timingConfig: timingPlan.timingConfig(forSyntheticRow: syntheticRow),
+                    timingPlan: timingPlan,
+                    scheduledStartFrame: timingPlan.frameFor(row: syntheticRow, tick: 0),
+                    channelStates: &channelStates,
+                    events: &events,
+                    mixerSampleBuffers: &mixerSampleBuffers,
+                    volumeColumnMappings: &volumeColumnMappings,
+                    voiceStateUpdates: &voiceStateUpdates,
+                    sampleOffsetEffects: &sampleOffsetEffects,
+                    setFinetuneEffects: &setFinetuneEffects,
+                    noteCutEffects: &noteCutEffects,
+                    noteDelayEffects: &noteDelayEffects,
+                    retriggerEffects: &retriggerEffects,
+                    tonePortamentoEffects: &tonePortamentoEffects,
+                    portamentoSlideEffects: &portamentoSlideEffects,
+                    finePortamentoDownEffects: &finePortamentoDownEffects,
+                    vibratoEffects: &vibratoEffects,
+                    keyOffEvents: &keyOffEvents,
+                    effectCommandDiagnostics: &effectCommandDiagnostics,
+                    eventMappings: &eventMappings,
+                    ignoredCells: &ignoredCells,
+                    deferredCellFields: &deferredCellFields,
+                    eventCoverage: &eventCoverage,
+                    globalVolumeState: &globalVolumeState
+                ))
+            }
+
+            nextSyntheticRow += pattern.rowCount
+        }
+
+        return PlaybackSongSyntheticPlan(
+            timingConfig: timingConfig,
+            pattern: SyntheticPattern(rowCount: nextSyntheticRow, events: events),
+            diagnostics: PlaybackSongSyntheticDiagnostics(
+                requestedStartOrderIndex: startOrderIndex,
+                requestedOrderCount: safeOrderCount,
+                sampleRate: timingConfig.sampleRate,
+                initialSpeed: timingConfig.speed,
+                initialBPM: timingConfig.bpm,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                syntheticRowCount: nextSyntheticRow,
+                adaptedOrders: adaptedOrders,
+                rowMappings: rowMappings,
+                rowTiming: timingPlan.rowTimingDiagnostics,
+                timingChanges: timingPlan.timingChanges,
+                effectCommandDiagnostics: effectCommandDiagnostics,
+                rowDiagnostics: rowDiagnostics,
+                volumeColumnMappings: volumeColumnMappings,
+                voiceStateUpdates: voiceStateUpdates,
+                sampleOffsetEffects: sampleOffsetEffects,
+                setFinetuneEffects: setFinetuneEffects,
+                noteCutEffects: noteCutEffects,
+                noteDelayEffects: noteDelayEffects,
+                retriggerEffects: retriggerEffects,
+                tonePortamentoEffects: tonePortamentoEffects,
+                portamentoSlideEffects: portamentoSlideEffects,
+                finePortamentoDownEffects: finePortamentoDownEffects,
+                vibratoEffects: vibratoEffects,
+                keyOffEvents: keyOffEvents,
+                eventMappings: eventMappings,
+                ignoredCells: ignoredCells,
+                deferredCellFields: deferredCellFields,
+                eventCoverage: eventCoverage.summary
+            )
+        )
+    }
+
+    private static func appendEvents(
+        from row: PlaybackRow,
+        source: PlaybackPosition,
+        syntheticRow: Int,
+        song: PlaybackSong,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        scheduledStartFrame: Int,
+        channelStates: inout [Int: ChannelState],
+        events: inout [SyntheticTrackerEvent],
+        mixerSampleBuffers: inout [MixerSampleBufferCacheKey: MixerSampleBuffer],
+        volumeColumnMappings: inout [PlaybackSongSyntheticVolumeColumnMapping],
+        voiceStateUpdates: inout [PlaybackSongSyntheticVoiceStateUpdateDiagnostic],
+        sampleOffsetEffects: inout [PlaybackSongSyntheticSampleOffsetDiagnostic],
+        setFinetuneEffects: inout [PlaybackSongSyntheticSetFinetuneDiagnostic],
+        noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic],
+        noteDelayEffects: inout [PlaybackSongSyntheticNoteDelayDiagnostic],
+        retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
+        tonePortamentoEffects: inout [PlaybackSongSyntheticTonePortamentoDiagnostic],
+        portamentoSlideEffects: inout [PlaybackSongSyntheticPortamentoSlideDiagnostic],
+        finePortamentoDownEffects: inout [PlaybackSongSyntheticFinePortamentoDownDiagnostic],
+        vibratoEffects: inout [PlaybackSongSyntheticVibratoDiagnostic],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        effectCommandDiagnostics: inout [PlaybackSongSyntheticEffectCommandDiagnostic],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
+        eventCoverage: inout EventCoverageBuilder,
+        globalVolumeState: inout GlobalVolumeState
+    ) -> PlaybackSongSyntheticRowDiagnostic {
+        let eventStartCount = events.count
+        let ignoredStartCount = ignoredCells.count
+        for (channelIndex, cell) in row.cells.enumerated() {
+            eventCoverage.visit(cell)
+            if let effectCommandDiagnostic = effectCommandDiagnostic(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                timingConfig: timingConfig
+            ) {
+                effectCommandDiagnostics.append(effectCommandDiagnostic)
+            }
+            var channelState = channelStates[channelIndex] ?? ChannelState()
+            let channelStateBeforeVolumeColumn = channelState
+            let volumeColumn = applyVolumeColumn(
+                PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
+                to: &channelState
+            )
+            let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
+            let hasNoteCutEffect = extendedSubcommand == 0x0C
+            let hasNoteDelayEffect = extendedSubcommand == 0x0D
+            let hasRetriggerEffect = extendedSubcommand == 0x09
+            let hasSetFinetuneEffect = extendedSubcommand == 0x05
+            let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
+            let hasPortamentoSlide = isPortamentoSlideEffect(cell)
+            let hasTonePortamento = isTonePortamentoEffect(cell)
+            let hasVibrato = isVibratoEffect(cell)
+            let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
+            let hasDeferredEffectCell = hasDeferredEffect(cell)
+            if let update = voiceStateUpdate(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledStartFrame,
+                cell: cell,
+                volumeColumn: volumeColumn,
+                channelStateBefore: channelStateBeforeVolumeColumn,
+                channelStateAfter: channelState,
+                globalVolumeValue: globalVolumeState.volumeValue
+            ) {
+                voiceStateUpdates.append(update)
+            }
+            if let update = applyEffectColumnState(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledStartFrame,
+                channelState: &channelState,
+                globalVolumeValue: globalVolumeState.volumeValue
+            ) {
+                voiceStateUpdates.append(update)
+            }
+            channelStates[channelIndex] = channelState
+            if cell.effectType == 0x11 {
+                voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
+                    from: cell,
+                    source: source,
+                    sourceChannelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledStartFrame,
+                    channelStates: channelStates,
+                    globalVolumeState: &globalVolumeState
+                ))
+            }
+            if cell.volumeColumn != 0 {
+                volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    syntheticTick: 0,
+                    volumeColumn: volumeColumn
+                ))
+            }
+            appendDeferredFields(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                volumeColumn: volumeColumn,
+                includeKeyOff: false,
+                deferredCellFields: &deferredCellFields
+            )
+            let noteDelay = hasNoteDelayEffect
+                ? noteDelayDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    originalFrame: scheduledStartFrame,
+                    eventIndex: nil
+                )
+                : nil
+            if hasPortamentoSlide, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handlePortamentoSlide(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                portamentoSlideEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasFinePortamentoDownEffect, !(1...96).contains(cell.note) {
+                let diagnostic = handleFinePortamentoDown(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                finePortamentoDownEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibratoVolumeSlide, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasTonePortamento, cell.note != 97 {
+                let diagnostic = handleTonePortamento(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                tonePortamentoEffects.append(diagnostic)
+                if let noteDelay {
+                    noteDelayEffects.append(noteDelay)
+                }
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            if cell.note == 97 {
+                handleKeyOff(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledStartFrame: scheduledStartFrame,
+                    volumeColumn: volumeColumn,
+                    cell: cell,
+                    channelState: &channelState,
+                    events: &events,
+                    keyOffEvents: &keyOffEvents,
+                    eventMappings: &eventMappings,
+                    ignoredCells: &ignoredCells,
+                    deferredCellFields: &deferredCellFields,
+                    eventCoverage: &eventCoverage
+                )
+                if hasRetriggerEffect {
+                    _ = handleRetrigger(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        volumeColumn: volumeColumn,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        globalVolumeState: globalVolumeState,
+                        channelState: &channelState,
+                        events: &events,
+                        eventMappings: &eventMappings,
+                        retriggerEffects: &retriggerEffects,
+                        eventCoverage: &eventCoverage
+                    )
+                }
+                if let noteDelay {
+                    noteDelayEffects.append(noteDelay)
+                }
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noNoteDeferred,
+                        activeVoiceFound: channelState.activeEventIndex != nil,
+                        activeEventIndex: channelState.activeEventIndex,
+                        activeEventMappingIndex: channelState.activeEventMappingIndex
+                    ))
+                }
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            guard (1...96).contains(cell.note) else {
+                if let noteDelay {
+                    noteDelayEffects.append(noteDelay)
+                }
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                let retrigger = hasRetriggerEffect
+                    ? handleRetrigger(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        volumeColumn: volumeColumn,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        globalVolumeState: globalVolumeState,
+                        channelState: &channelState,
+                        events: &events,
+                        eventMappings: &eventMappings,
+                        retriggerEffects: &retriggerEffects,
+                        eventCoverage: &eventCoverage
+                    )
+                    : nil
+                if retrigger?.applied == true {
+                    channelStates[channelIndex] = channelState
+                    continue
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noNoteDeferred,
+                        activeVoiceFound: channelState.activeEventIndex != nil,
+                        activeEventIndex: channelState.activeEventIndex,
+                        activeEventMappingIndex: channelState.activeEventMappingIndex
+                    ))
+                }
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: noteDelay?.status == .noNoteDeferred
+                        ? .noteDelayWithoutNote
+                        : ignoredNoteReason(cell, volumeColumn: volumeColumn),
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: noteDelay != nil || hasDeferredEffectCell
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: false)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            if let noteDelay, noteDelay.outOfRow {
+                noteDelayEffects.append(noteDelay)
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: .noteDelayOutOfRow,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: true
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+
+            let instrumentIndex = Int(cell.instrument)
+            guard instrumentIndex > 0 else {
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil
+                    ))
+                }
+                if hasFinePortamentoDownEffect {
+                    let diagnostic = handleFinePortamentoDown(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    finePortamentoDownEffects.append(diagnostic)
+                }
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: .missingInstrument,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffectCell
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            guard let instrument = song.instrument(forInstrument: instrumentIndex) else {
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil
+                    ))
+                }
+                if hasFinePortamentoDownEffect {
+                    let diagnostic = handleFinePortamentoDown(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    finePortamentoDownEffects.append(diagnostic)
+                }
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: .unknownInstrument,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffectCell
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+            let sampleSelection = selectSample(forNote: cell.note, from: instrument)
+            guard let sample = sampleSelection.sample else {
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                if hasSetFinetuneEffect {
+                    setFinetuneEffects.append(setFinetuneDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        status: .noActiveVoice,
+                        activeVoiceFound: false,
+                        activeEventIndex: nil,
+                        activeEventMappingIndex: nil,
+                        sampleFinetune: sampleSelection.diagnosticSample?.finetune
+                    ))
+                }
+                if hasFinePortamentoDownEffect {
+                    let diagnostic = handleFinePortamentoDown(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    finePortamentoDownEffects.append(diagnostic)
+                }
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: sampleSelection.skippedReason ?? .unknown,
+                    diagnosticSample: sampleSelection.diagnosticSample,
+                    sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                    mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                    mappedSampleValid: sampleSelection.mappedSampleValid,
+                    sampleSelectionMethod: sampleSelection.method,
+                    firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                    sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffectCell
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                eventCoverage.recordSkippedSampleSelection(
+                    method: sampleSelection.method,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
+                )
+                channelStates[channelIndex] = channelState
+                continue
+            }
+
+            let sampleLength = selectedSampleLength(sample)
+            let sampleOffset = sampleOffsetDiagnostic(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                selectedSampleLength: sampleLength
+            )
+            if sampleOffset.detected {
+                sampleOffsetEffects.append(sampleOffset)
+            }
+            if sampleOffset.skipped {
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &noteCutEffects
+                    )
+                }
+                if hasFinePortamentoDownEffect {
+                    let diagnostic = handleFinePortamentoDown(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    finePortamentoDownEffects.append(diagnostic)
+                }
+                let ignored = ignoredCell(
+                    source: source,
+                    channelIndex: channelIndex,
+                    cell: cell,
+                    reason: .sampleOffsetOutOfRange,
+                    diagnosticSample: sample,
+                    sampleOffsetFrames: sampleOffset.computedOffsetFrames,
+                    sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                    mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                    mappedSampleValid: sampleSelection.mappedSampleValid,
+                    sampleSelectionMethod: sampleSelection.method,
+                    firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                    sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                    sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
+                    volumeColumn: volumeColumn,
+                    hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                    hasIgnoredEffect: hasDeferredEffectCell
+                )
+                ignoredCells.append(ignored)
+                eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                channelStates[channelIndex] = channelState
+                continue
+            }
+
+            let eventIndex = events.count
+            let loop = mixerLoop(from: sample)
+            let envelopeMapping = mixerVolumeEnvelope(
+                from: instrument.volumeEnvelope,
+                timingConfig: timingConfig
+            )
+            let envelopeSemantics = volumeEnvelopeSemantics(
+                from: instrument.volumeEnvelope,
+                mapping: envelopeMapping
+            )
+            let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
+            let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
+            let setFinetuneOverride = hasSetFinetuneEffect ? setFinetuneValue(from: cell) : nil
+            var pitchMapping = playbackStepMapping(
+                note: cell.note,
+                sample: sample,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                timingConfig: timingConfig,
+                finetuneOverride: setFinetuneOverride
+            )
+            if hasSetFinetuneEffect {
+                setFinetuneEffects.append(setFinetuneDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    status: setFinetuneStatus(for: pitchMapping),
+                    activeVoiceFound: true,
+                    activeEventIndex: eventIndex,
+                    activeEventMappingIndex: eventMappings.count,
+                    sampleFinetune: sample.finetune,
+                    pitchMapping: pitchMapping
+                ))
+            }
+            if hasFinePortamentoDownEffect {
+                let result = finePortamentoDownAdjustedPitchMapping(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    basePitchMapping: pitchMapping,
+                    baseSampleRate: sample.baseSampleRate,
+                    activeEventIndex: eventIndex,
+                    activeEventMappingIndex: eventMappings.count,
+                    scheduledFrame: scheduledNoteFrame
+                )
+                pitchMapping = result.pitchMapping
+                finePortamentoDownEffects.append(result.diagnostic)
+            }
+            let gain = adaptedGain(
+                sampleVolume: sample.volume,
+                channelVolume: channelState.volumeValue,
+                globalVolume: globalVolumeState.volumeValue
+            )
+            let pan = channelState.pan
+            events.append(SyntheticTrackerEvent(
+                row: syntheticRow,
+                tick: scheduledNoteTick,
+                scheduledStartFrame: scheduledNoteFrame,
+                sample: mixerSampleBuffer(for: sample, cache: &mixerSampleBuffers),
+                gain: gain,
+                pan: pan,
+                playbackStep: pitchMapping.playbackStep,
+                loop: loop,
+                initialSourceFrame: sampleOffset.appliedOffsetFrames ?? 0,
+                volumeEnvelope: envelopeMapping.envelope
+            ))
+            eventCoverage.recordScheduledNote(
+                method: sampleSelection.method,
+                firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred
+            )
+            if hasDeferredEffectCell || volumeColumn.deferred {
+                eventCoverage.recordDeferredCellWithoutSkip()
+            }
+            channelState.activeEventIndex = eventIndex
+            channelState.activeEventMappingIndex = eventMappings.count
+            channelState.activeSampleVolume = sample.volume
+            channelState.activePlaybackStep = pitchMapping.playbackStep
+            channelState.activeLinearPeriod = pitchMapping.linearPeriod
+            channelState.activeSampleBaseSampleRate = sample.baseSampleRate
+            channelState.activeSampleRelativeNote = sample.relativeNote
+            channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
+            channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
+            channelState.tonePortamentoTargetNote = nil
+            channelState.tonePortamentoTargetLinearPeriod = nil
+            channelState.tonePortamentoTargetPlaybackStep = nil
+            channelStates[channelIndex] = channelState
+            eventMappings.append(PlaybackSongSyntheticEventMapping(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: instrumentIndex,
+                sampleIndex: sample.sampleIndex,
+                selectedSampleLength: sampleLength,
+                sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
+                mappedSampleIndex: sampleSelection.mappedSampleIndex,
+                mappedSampleValid: sampleSelection.mappedSampleValid,
+                sampleSelectionMethod: sampleSelection.method,
+                sampleSelectionStrategy: sampleSelection.method.rawValue,
+                firstPlayableSampleFallbackUsed: sampleSelection.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sampleSelection.sampleMapKeymapBehaviorDeferred,
+                sampleMapKeymapMissingOrDeferred: sampleSelection.sampleMapKeymapMissingOrDeferred,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                syntheticRow: syntheticRow,
+                syntheticTick: scheduledNoteTick,
+                eventIndex: eventIndex,
+                loopMode: loop.mode,
+                volumeColumn: volumeColumn,
+                sampleOffset: sampleOffset,
+                hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                hasIgnoredEffect: hasDeferredEffectCell,
+                effectiveVolumeValue: channelState.volumeValue,
+                effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
+                effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
+                effectivePan: pan,
+                volumeEnvelopeStatus: envelopeMapping.status,
+                sourceVolumeEnvelopePointCount: envelopeMapping.sourcePointCount,
+                mappedVolumeEnvelopePointCount: envelopeMapping.mappedPointCount,
+                hasDeferredVolumeEnvelopeSustain: envelopeSemantics.sustainDeferred,
+                hasDeferredVolumeEnvelopeLoop: envelopeSemantics.loopDeferred,
+                hasDeferredVolumeEnvelopeFadeout: envelopeSemantics.fadeoutDeferred,
+                volumeEnvelopeSemantics: envelopeSemantics,
+                sampleBaseSampleRate: sample.baseSampleRate,
+                sampleRelativeNote: sample.relativeNote,
+                sampleFinetune: sample.finetune,
+                outputSampleRate: pitchMapping.outputSampleRate,
+                effectiveNoteValue: pitchMapping.effectiveNoteValue,
+                effectiveNoteIndex: pitchMapping.effectiveNoteIndex,
+                effectiveFinetune: pitchMapping.effectiveFinetune,
+                linearPeriod: pitchMapping.linearPeriod,
+                linearFrequency: pitchMapping.linearFrequency,
+                finetuneStatus: pitchMapping.finetuneStatus,
+                usesLinearFrequencyTable: song.usesLinearFrequencyTable,
+                frequencyTableStatus: pitchMapping.frequencyTableStatus,
+                linearFrequencyApplied: pitchMapping.linearFrequencyApplied,
+                amigaFrequencyDeferred: pitchMapping.amigaFrequencyDeferred,
+                playbackStep: pitchMapping.playbackStep,
+                pitchMappingApplied: pitchMapping.applied,
+                pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
+            ))
+            if hasPortamentoSlide {
+                let diagnostic = handlePortamentoSlide(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                portamentoSlideEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibrato {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if hasVibratoVolumeSlide {
+                let diagnostic = handleVibrato(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                vibratoEffects.append(diagnostic)
+                channelStates[channelIndex] = channelState
+            }
+            if let noteDelay, noteDelay.applied {
+                noteDelayEffects.append(noteDelayDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    originalFrame: scheduledStartFrame,
+                    eventIndex: eventIndex
+                ) ?? noteDelay)
+            }
+            if hasRetriggerEffect {
+                _ = handleRetrigger(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    volumeColumn: volumeColumn,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    globalVolumeState: globalVolumeState,
+                    channelState: &channelState,
+                    events: &events,
+                    eventMappings: &eventMappings,
+                    retriggerEffects: &retriggerEffects,
+                    eventCoverage: &eventCoverage
+                )
+            }
+            if hasNoteCutEffect {
+                handleNoteCut(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    noteCutEffects: &noteCutEffects
+                )
+            }
+            channelStates[channelIndex] = channelState
+        }
+        return PlaybackSongSyntheticRowDiagnostic(
+            source: source,
+            syntheticRow: syntheticRow,
+            cellCount: row.cells.count,
+            emittedEventCount: events.count - eventStartCount,
+            ignoredCellCount: ignoredCells.count - ignoredStartCount
+        )
+    }
+
+    private static func mixerSampleBuffer(
+        for sample: PlaybackSample,
+        cache: inout [MixerSampleBufferCacheKey: MixerSampleBuffer]
+    ) -> MixerSampleBuffer {
+        let key = sample.pcm.withUnsafeBufferPointer { buffer in
+            MixerSampleBufferCacheKey(
+                storageAddress: UInt(bitPattern: buffer.baseAddress),
+                frameCount: buffer.count
+            )
+        }
+        if let cached = cache[key] {
+            return cached
+        }
+        let buffer = MixerSampleBuffer(monoPCM: sample.pcm)
+        cache[key] = buffer
+        return buffer
+    }
+
+    private static func voiceStateUpdate(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        channelStateBefore: ChannelState,
+        channelStateAfter: ChannelState,
+        globalVolumeValue: Int
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
+        guard cell.volumeColumn != 0 else {
+            return nil
+        }
+        if volumeColumn.deferred {
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .volumeColumn,
+                command: .volumeColumn(volumeColumn.command),
+                rawVolumeColumn: cell.volumeColumn,
+                effectType: nil,
+                effectParam: nil,
+                status: .deferredUnsupported,
+                behavior: volumeColumn.behavior,
+                channelStateBefore: channelStateBefore,
+                channelStateAfter: channelStateBefore,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        }
+        guard volumeColumn.applied,
+              reportsVolumeColumnStateUpdate(volumeColumn.command) else {
+            return nil
+        }
+        return voiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame,
+            cell: cell,
+            commandSource: .volumeColumn,
+            command: .volumeColumn(volumeColumn.command),
+            rawVolumeColumn: cell.volumeColumn,
+            effectType: nil,
+            effectParam: nil,
+            status: .applied,
+            behavior: volumeColumn.behavior,
+            channelStateBefore: channelStateBefore,
+            channelStateAfter: channelStateAfter,
+            globalVolumeBefore: globalVolumeValue,
+            globalVolumeAfter: globalVolumeValue
+        )
+    }
+
+    private static func reportsVolumeColumnStateUpdate(
+        _ command: PlaybackSongSyntheticVolumeColumnCommand
+    ) -> Bool {
+        switch command {
+        case .setVolume,
+             .volumeSlideDown,
+             .volumeSlideUp,
+             .fineVolumeSlideDown,
+             .fineVolumeSlideUp,
+             .setPanning,
+             .panningSlideLeft,
+             .panningSlideRight:
+            return true
+        case .none,
+             .setVibratoSpeed,
+             .vibrato,
+             .tonePortamento,
+             .unsupported:
+            return false
+        }
+    }
+
+    private static func applyEffectColumnState(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        channelState: inout ChannelState,
+        globalVolumeValue: Int
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? {
+        switch cell.effectType {
+        case 0x0C:
+            let before = channelState
+            channelState.volumeValue = clampedVolumeValue(Int(cell.effectParam))
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .cxxSetVolume(value: channelState.volumeValue),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: nil,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        case 0x08:
+            let before = channelState
+            let panningValue = clampedPanningValue(Double(Int(cell.effectParam)))
+            channelState.panningValue = panningValue
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .effect8xxSetPanning(value: Int(panningValue.rounded())),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: nil,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        case 0x0A:
+            let before = channelState
+            guard cell.effectParam != 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: .axyVolumeSlide(up: 0, down: 0),
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
+                )
+            }
+            let up = Int((cell.effectParam & 0xF0) >> 4)
+            let down = Int(cell.effectParam & 0x0F)
+            if up > 0 {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + up)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - down)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .axyVolumeSlide(up: up, down: up > 0 ? 0 : down),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        case 0x06:
+            let before = channelState
+            let slide = volumeSlideAmounts(effectParam: cell.effectParam)
+            guard slide.up > 0 || slide.down > 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: .effect6xyVolumeSlide(up: 0, down: 0),
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
+                )
+            }
+            if slide.up > 0 {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + slide.up)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - slide.down)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: .effect6xyVolumeSlide(up: slide.up, down: slide.down),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        case 0x0E where isFineVolumeSlideEffect(cell):
+            let before = channelState
+            let amount = fineVolumeSlideAmount(from: cell)
+            let isSlideUp = isFineVolumeSlideUpEffect(cell)
+            let command: PlaybackSongSyntheticVoiceStateUpdateCommand = isSlideUp
+                ? .eaxFineVolumeSlideUp(amount: amount)
+                : .ebxFineVolumeSlideDown(amount: amount)
+            guard amount > 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: command,
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
+                )
+            }
+            if isSlideUp {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + amount)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - amount)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: command,
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func applyGlobalVolumeSlide(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        channelStates: [Int: ChannelState],
+        globalVolumeState: inout GlobalVolumeState
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        guard cell.effectType == 0x11 else {
+            return []
+        }
+
+        let beforeGlobalVolume = globalVolumeState.volumeValue
+        let slide = globalVolumeSlidePlan(effectParam: cell.effectParam)
+        guard slide.amount > 0 else {
+            return [
+                globalVolumeSlideDiagnostic(
+                    source: source,
+                    sourceChannelIndex: sourceChannelIndex,
+                    targetChannelIndex: nil,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    status: .ignoredNoOp,
+                    slide: slide,
+                    channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                    globalVolumeBefore: beforeGlobalVolume,
+                    globalVolumeAfter: beforeGlobalVolume,
+                    clamped: false,
+                    activeVoiceUpdatedOverride: false
+                ),
+            ]
+        }
+
+        let unclampedAfter = beforeGlobalVolume + slide.up - slide.down
+        let afterGlobalVolume = clampedGlobalVolumeValue(unclampedAfter)
+        globalVolumeState.volumeValue = afterGlobalVolume
+        let clamped = unclampedAfter != afterGlobalVolume
+        let diagnostics = channelStates.keys.sorted().compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
+            guard let targetState = channelStates[targetChannelIndex],
+                  targetState.activeEventIndex != nil,
+                  targetState.activeSampleVolume != nil else {
+                return nil
+            }
+            let gainBefore = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: beforeGlobalVolume
+                )
+            }
+            let gainAfter = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: afterGlobalVolume
+                )
+            }
+            let changed = gainBefore != gainAfter
+            guard changed else {
+                return nil
+            }
+            return globalVolumeSlideDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: targetChannelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                slide: slide,
+                channelState: targetState,
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                clamped: clamped,
+                activeVoiceUpdatedOverride: true
+            )
+        }
+        if !diagnostics.isEmpty {
+            return diagnostics
+        }
+
+        return [
+            globalVolumeSlideDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: nil,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                slide: slide,
+                channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                clamped: clamped,
+                activeVoiceUpdatedOverride: false
+            ),
+        ]
+    }
+
+    private static func globalVolumeSlideDiagnostic(
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        targetChannelIndex: Int?,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticVoiceStateUpdateStatus,
+        slide: GlobalVolumeSlidePlan,
+        channelState: ChannelState,
+        globalVolumeBefore: Int,
+        globalVolumeAfter: Int,
+        clamped: Bool,
+        activeVoiceUpdatedOverride: Bool
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+        voiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: sourceChannelIndex,
+            syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame,
+            cell: cell,
+            commandSource: .effectColumn,
+            command: .hxyGlobalVolumeSlide(up: slide.up, down: slide.down),
+            rawVolumeColumn: nil,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            behavior: .rowLevelApproximation,
+            channelStateBefore: channelState,
+            channelStateAfter: channelState,
+            globalVolumeBefore: globalVolumeBefore,
+            globalVolumeAfter: globalVolumeAfter,
+            includeGlobalVolumeFields: true,
+            targetChannelIndex: targetChannelIndex,
+            globalVolumeSlideDirection: slide.direction,
+            globalVolumeSlideAmount: slide.amount,
+            globalVolumeSlideClamped: clamped,
+            globalVolumeSlideBothNibblesNonzero: slide.bothNibblesNonzero,
+            globalVolumeSlidePolicy: slide.policy,
+            activeVoiceUpdatedOverride: activeVoiceUpdatedOverride
+        )
+    }
+
+    private static func globalVolumeSlidePlan(effectParam: UInt8) -> GlobalVolumeSlidePlan {
+        let upNibble = Int((effectParam & 0xF0) >> 4)
+        let downNibble = Int(effectParam & 0x0F)
+        let bothNibblesNonzero = upNibble > 0 && downNibble > 0
+        if upNibble > 0 {
+            return GlobalVolumeSlidePlan(
+                up: upNibble,
+                down: 0,
+                direction: .up,
+                amount: upNibble,
+                bothNibblesNonzero: bothNibblesNonzero,
+                policy: bothNibblesNonzero ? "up_nibble_precedence_matches_runtime" : nil
+            )
+        }
+        if downNibble > 0 {
+            return GlobalVolumeSlidePlan(
+                up: 0,
+                down: downNibble,
+                direction: .down,
+                amount: downNibble,
+                bothNibblesNonzero: false,
+                policy: nil
+            )
+        }
+        return GlobalVolumeSlidePlan(
+            up: 0,
+            down: 0,
+            direction: .none,
+            amount: 0,
+            bothNibblesNonzero: false,
+            policy: "h00_no_effect_memory_no_op"
+        )
+    }
+
+    private static func volumeSlideAmounts(effectParam: UInt8) -> VolumeSlideAmounts {
+        let up = Int((effectParam & 0xF0) >> 4)
+        let down = Int(effectParam & 0x0F)
+        if up > 0 {
+            return VolumeSlideAmounts(up: up, down: 0, direction: "up", amount: up)
+        }
+        if down > 0 {
+            return VolumeSlideAmounts(up: 0, down: down, direction: "down", amount: down)
+        }
+        return VolumeSlideAmounts(up: 0, down: 0, direction: "none", amount: 0)
+    }
+
+    private static func voiceStateUpdateDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        commandSource: PlaybackSongSyntheticVoiceStateUpdateSource,
+        command: PlaybackSongSyntheticVoiceStateUpdateCommand,
+        rawVolumeColumn: UInt8?,
+        effectType: UInt8?,
+        effectParam: UInt8?,
+        status: PlaybackSongSyntheticVoiceStateUpdateStatus,
+        behavior: PlaybackSongSyntheticVolumeColumnBehavior?,
+        channelStateBefore: ChannelState,
+        channelStateAfter: ChannelState,
+        globalVolumeBefore: Int,
+        globalVolumeAfter: Int,
+        includeGlobalVolumeFields: Bool = false,
+        targetChannelIndex: Int? = nil,
+        globalVolumeSlideDirection: PlaybackSongSyntheticGlobalVolumeSlideDirection? = nil,
+        globalVolumeSlideAmount: Int? = nil,
+        globalVolumeSlideClamped: Bool? = nil,
+        globalVolumeSlideBothNibblesNonzero: Bool? = nil,
+        globalVolumeSlidePolicy: String? = nil,
+        activeVoiceUpdatedOverride: Bool? = nil
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+        let activeSampleVolume = channelStateBefore.activeSampleVolume
+        let gainBefore = activeSampleVolume.map {
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: channelStateBefore.volumeValue,
+                globalVolume: globalVolumeBefore
+            )
+        }
+        let gainAfter = activeSampleVolume.map {
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: channelStateAfter.volumeValue,
+                globalVolume: globalVolumeAfter
+            )
+        }
+        let canUpdateActiveVoice = activeVoiceUpdatedOverride ?? (
+            status == .applied &&
+                cell.note == 0 &&
+                channelStateBefore.activeEventIndex != nil &&
+                activeSampleVolume != nil
+        )
+        return PlaybackSongSyntheticVoiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            cellNote: cell.note,
+            instrumentIndex: Int(cell.instrument),
+            commandSource: commandSource,
+            command: command,
+            rawVolumeColumn: rawVolumeColumn,
+            effectType: effectType,
+            effectParam: effectParam,
+            status: status,
+            behavior: behavior,
+            targetChannelIndex: targetChannelIndex,
+            activeVoiceUpdated: canUpdateActiveVoice,
+            activeEventIndex: canUpdateActiveVoice ? channelStateBefore.activeEventIndex : nil,
+            effectiveVolumeBefore: channelStateBefore.volumeValue,
+            effectiveVolumeAfter: channelStateAfter.volumeValue,
+            effectivePanBefore: channelStateBefore.pan,
+            effectivePanAfter: channelStateAfter.pan,
+            globalVolumeBefore: includeGlobalVolumeFields ? globalVolumeBefore : nil,
+            globalVolumeAfter: includeGlobalVolumeFields ? globalVolumeAfter : nil,
+            globalVolumeMultiplierBefore: includeGlobalVolumeFields ? globalVolumeMultiplier(for: globalVolumeBefore) : nil,
+            globalVolumeMultiplierAfter: includeGlobalVolumeFields ? globalVolumeMultiplier(for: globalVolumeAfter) : nil,
+            globalVolumeSlideDirection: globalVolumeSlideDirection,
+            globalVolumeSlideAmount: globalVolumeSlideAmount,
+            globalVolumeSlideClamped: globalVolumeSlideClamped,
+            globalVolumeSlideBothNibblesNonzero: globalVolumeSlideBothNibblesNonzero,
+            globalVolumeSlidePolicy: globalVolumeSlidePolicy,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            panBefore: channelStateBefore.pan,
+            panAfter: channelStateAfter.pan
+        )
+    }
+
+    private static func applyVolumeColumn(
+        _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        to state: inout ChannelState
+    ) -> PlaybackSongSyntheticVolumeColumnDiagnostic {
+        switch volumeColumn.command {
+        case let .setVolume(value):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(value)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .volumeSlideDown(amount),
+             let .fineVolumeSlideDown(amount):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(before - amount)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .volumeSlideUp(amount),
+             let .fineVolumeSlideUp(amount):
+            let before = state.volumeValue
+            state.volumeValue = clampedVolumeValue(before + amount)
+            return volumeColumn.withAppliedState(
+                appliedVolumeValue: state.volumeValue,
+                appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
+                effectiveVolumeBefore: before,
+                effectiveVolumeAfter: state.volumeValue,
+                behavior: .rowLevelApproximation
+            )
+        case let .setPanning(value):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(Double(value))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case let .panningSlideLeft(amount):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(state.panningValue - Double(amount))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case let .panningSlideRight(amount):
+            let before = state.pan
+            state.panningValue = clampedPanningValue(state.panningValue + Double(amount))
+            return volumeColumn.withAppliedState(
+                appliedPanningValue: Int(state.panningValue.rounded()),
+                appliedPan: state.pan,
+                effectivePanBefore: before,
+                effectivePanAfter: state.pan,
+                behavior: .rowLevelApproximation
+            )
+        case .none,
+             .setVibratoSpeed,
+             .vibrato,
+             .tonePortamento,
+             .unsupported:
+            return volumeColumn
+        }
+    }
+
+    private static func appendDeferredFields(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        includeKeyOff: Bool,
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
+    ) {
+        if volumeColumn.deferred {
+            deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                volumeColumn: cell.volumeColumn,
+                volumeColumnDiagnostic: volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                field: .volumeColumn
+            ))
+        }
+        if hasDeferredEffect(cell) {
+            deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                volumeColumn: cell.volumeColumn,
+                volumeColumnDiagnostic: volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                field: .effect
+            ))
+        }
+        if includeKeyOff, cell.note == 97 {
+            deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
+                source: source,
+                channelIndex: channelIndex,
+                note: cell.note,
+                instrumentIndex: Int(cell.instrument),
+                volumeColumn: cell.volumeColumn,
+                volumeColumnDiagnostic: volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                field: .keyOff
+            ))
+        }
+    }
+
+    private static func handlePortamentoSlide(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticPortamentoSlideDiagnostic {
+        let direction: PlaybackSongSyntheticPortamentoSlideDirection = cell.effectType == 0x01 ? .up : .down
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let slideAmount = Int(cell.effectParam)
+
+        guard slideAmount > 0 else {
+            return portamentoSlideDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroParamEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                direction: direction,
+                slideAmount: slideAmount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                clamped: false,
+                policy: "zero_param_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return portamentoSlideDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                direction: direction,
+                slideAmount: slideAmount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                clamped: false,
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              var currentLinearPeriod = channelState.activeLinearPeriod,
+              var currentPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return portamentoSlideDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                direction: direction,
+                slideAmount: slideAmount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                clamped: false,
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        var clamped = false
+        let rowSpeed = max(1, timingConfig.speed)
+        for tick in 1..<rowSpeed {
+            let beforePeriod = currentLinearPeriod
+            let beforeStep = currentPlaybackStep
+            let rawAfter = direction == .up
+                ? currentLinearPeriod - Double(slideAmount)
+                : currentLinearPeriod + Double(slideAmount)
+            let afterPeriod = clampedLinearPeriod(rawAfter)
+            let didClamp = abs(afterPeriod - rawAfter) > 0.000000001
+            clamped = clamped || didClamp
+            guard let nextStep = playbackStep(
+                linearPeriod: afterPeriod,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                return portamentoSlideDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .outOfRange,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    direction: direction,
+                    slideAmount: slideAmount,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    stepUpdates: stepUpdates,
+                    clamped: clamped,
+                    policy: "slide_pitch_out_of_range"
+                )
+            }
+            currentLinearPeriod = afterPeriod
+            currentPlaybackStep = nextStep
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentLinearPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: false,
+                clamped: didClamp
+            ))
+            if didClamp {
+                break
+            }
+        }
+
+        channelState.activeLinearPeriod = currentLinearPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return portamentoSlideDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            direction: direction,
+            slideAmount: slideAmount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            stepUpdates: stepUpdates,
+            clamped: clamped,
+            policy: "linear_period_units_per_tick_first_pass"
+        )
+    }
+
+    private static func portamentoSlideDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticPortamentoSlideDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        direction: PlaybackSongSyntheticPortamentoSlideDirection,
+        slideAmount: Int,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        clamped: Bool,
+        policy: String
+    ) -> PlaybackSongSyntheticPortamentoSlideDiagnostic {
+        let applied = status == .applied
+        return PlaybackSongSyntheticPortamentoSlideDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: status == .zeroParamEffectMemoryDeferred || status == .unsupportedFrequencyTable,
+            ignoredAsNoOp: !applied && status != .unsupportedFrequencyTable,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            direction: direction,
+            slideAmount: slideAmount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
+            clamped: clamped,
+            policy: policy
+        )
+    }
+
+    private static func handleFinePortamentoDown(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticFinePortamentoDownDiagnostic {
+        let amount = finePortamentoDownAmount(from: cell)
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let scheduledFrame = timingPlan.frameFor(row: syntheticRow, tick: 0)
+
+        guard amount > 0 else {
+            return finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "e20_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let currentLinearPeriod = channelState.activeLinearPeriod,
+              let currentPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        let rawAfter = currentLinearPeriod + Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "fine_portamento_down_pitch_out_of_range"
+            )
+        }
+
+        let update = PlaybackSongSyntheticTonePortamentoStepUpdate(
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            linearPeriodBefore: currentLinearPeriod,
+            linearPeriodAfter: afterPeriod,
+            playbackStepBefore: currentPlaybackStep,
+            playbackStepAfter: nextStep,
+            reachedTarget: false,
+            clamped: clamped
+        )
+        channelState.activeLinearPeriod = afterPeriod
+        channelState.activePlaybackStep = nextStep
+
+        return finePortamentoDownDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            fineAmount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: false,
+            stepUpdates: [update],
+            clamped: clamped,
+            policy: "row_start_fine_linear_period_down_first_pass"
+        )
+    }
+
+    private static func finePortamentoDownAdjustedPitchMapping(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        basePitchMapping: PlaybackStepMapping,
+        baseSampleRate: Double,
+        activeEventIndex: Int,
+        activeEventMappingIndex: Int,
+        scheduledFrame: Int
+    ) -> (pitchMapping: PlaybackStepMapping, diagnostic: PlaybackSongSyntheticFinePortamentoDownDiagnostic) {
+        let amount = finePortamentoDownAmount(from: cell)
+        let currentLinearPeriodBefore = basePitchMapping.linearPeriod
+        let currentPlaybackStepBefore = basePitchMapping.applied ? basePitchMapping.playbackStep : nil
+
+        guard amount > 0 else {
+            return (basePitchMapping, finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "e20_effect_memory_deferred_no_op"
+            ))
+        }
+
+        guard basePitchMapping.applied,
+              let linearPeriod = basePitchMapping.linearPeriod,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            let status: PlaybackSongSyntheticFinePortamentoDownDiagnostic.Status =
+                basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
+            return (basePitchMapping, finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: status,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: status == .unsupportedFrequencyTable
+                    ? "linear_frequency_only_first_pass"
+                    : "fine_portamento_down_pitch_out_of_range"
+            ))
+        }
+
+        let rawAfter = linearPeriod + Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return (basePitchMapping, finePortamentoDownDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "fine_portamento_down_pitch_out_of_range"
+            ))
+        }
+
+        let adjustedMapping = PlaybackStepMapping(
+            playbackStep: nextStep,
+            outputSampleRate: basePitchMapping.outputSampleRate,
+            effectiveNoteValue: basePitchMapping.effectiveNoteValue,
+            effectiveNoteIndex: basePitchMapping.effectiveNoteIndex,
+            effectiveFinetune: basePitchMapping.effectiveFinetune,
+            linearPeriod: afterPeriod,
+            linearFrequency: nextStep * basePitchMapping.outputSampleRate,
+            finetuneStatus: basePitchMapping.finetuneStatus,
+            frequencyTableStatus: basePitchMapping.frequencyTableStatus,
+            linearFrequencyApplied: true,
+            amigaFrequencyDeferred: false,
+            applied: true,
+            usedNeutralStep: abs(nextStep - 1.0) <= 0.000000001
+        )
+        return (adjustedMapping, finePortamentoDownDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            fineAmount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: afterPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: nextStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: true,
+            stepUpdates: [],
+            clamped: clamped,
+            policy: "same_cell_note_initial_playback_step_fine_linear_period_down_first_pass"
+        ))
+    }
+
+    private static func finePortamentoDownDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticFinePortamentoDownDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        fineAmount: Int,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        scheduledFrame: Int?,
+        appliedToInitialPlaybackStep: Bool,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        clamped: Bool,
+        policy: String
+    ) -> PlaybackSongSyntheticFinePortamentoDownDiagnostic {
+        let applied = status == .applied
+        let effectMemoryDeferred = status == .zeroAmountEffectMemoryDeferred
+        return PlaybackSongSyntheticFinePortamentoDownDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: effectMemoryDeferred ||
+                status == .unsupportedFrequencyTable ||
+                status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice || effectMemoryDeferred,
+            effectMemoryDeferred: effectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            fineAmount: fineAmount,
+            fineAmountNibble: fineAmount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
+            stepUpdates: stepUpdates,
+            clamped: clamped,
+            policy: policy
+        )
+    }
+
+    private static func handleVibrato(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticVibratoDiagnostic {
+        let isVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
+        let paramSpeed = Int((cell.effectParam & 0xF0) >> 4)
+        let paramDepth = Int(cell.effectParam & 0x0F)
+        if !isVibratoVolumeSlide, paramSpeed > 0, paramDepth > 0 {
+            channelState.vibratoSpeed = paramSpeed
+            channelState.vibratoDepth = paramDepth
+        }
+        let rememberedSpeed = channelState.vibratoSpeed
+        let rememberedDepth = channelState.vibratoDepth
+        let speed = isVibratoVolumeSlide ? rememberedSpeed ?? 0 : paramSpeed
+        let depth = isVibratoVolumeSlide ? rememberedDepth ?? 0 : paramDepth
+        let speedSource = isVibratoVolumeSlide
+            ? (rememberedSpeed == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
+            : "effect_param"
+        let depthSource = isVibratoVolumeSlide
+            ? (rememberedDepth == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
+            : "effect_param"
+        let volumeSlide = isVibratoVolumeSlide ? volumeSlideAmounts(effectParam: cell.effectParam) : nil
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let phaseBefore = channelState.vibratoPhase
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+
+        guard cell.effectParam != 0 else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroParamEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: isVibratoVolumeSlide
+                    ? "600_no_effect_memory_no_op"
+                    : "400_no_effect_memory_no_op"
+            )
+        }
+
+        if isVibratoVolumeSlide, !hasActiveVoice {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard speed > 0, depth > 0 else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroSpeedOrDepthEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: isVibratoVolumeSlide
+                    ? "6xy_missing_4xy_vibrato_memory_deferred_no_op"
+                    : "zero_speed_or_depth_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let baseLinearPeriod = channelState.activeLinearPeriod,
+              let basePlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return vibratoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                speed: speed,
+                depth: depth,
+                speedSource: speedSource,
+                depthSource: depthSource,
+                volumeSlide: volumeSlide,
+                phaseBefore: phaseBefore,
+                phaseAfter: channelState.vibratoPhase,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        var phase = channelState.vibratoPhase
+        var currentLinearPeriod = baseLinearPeriod
+        var currentPlaybackStep = basePlaybackStep
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        let rowSpeed = max(1, timingConfig.speed)
+        let periodDepth = Double(depth) * 4.0
+        for tick in 1..<rowSpeed {
+            let beforePeriod = currentLinearPeriod
+            let beforeStep = currentPlaybackStep
+            phase += Double(speed) * (.pi / 32.0)
+            let modulatedPeriod = clampedLinearPeriod(baseLinearPeriod - (sin(phase) * periodDepth))
+            guard let nextStep = playbackStep(
+                linearPeriod: modulatedPeriod,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                channelState.vibratoPhase = phase
+                return vibratoDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .outOfRange,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    speed: speed,
+                    depth: depth,
+                    speedSource: speedSource,
+                    depthSource: depthSource,
+                    volumeSlide: volumeSlide,
+                    phaseBefore: phaseBefore,
+                    phaseAfter: channelState.vibratoPhase,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    stepUpdates: stepUpdates,
+                    policy: "vibrato_pitch_out_of_range"
+                )
+            }
+            currentLinearPeriod = modulatedPeriod
+            currentPlaybackStep = nextStep
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentLinearPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: false
+            ))
+        }
+
+        if !stepUpdates.isEmpty,
+           abs(currentPlaybackStep - basePlaybackStep) > 0.000000001 {
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: rowSpeed,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
+                linearPeriodBefore: currentLinearPeriod,
+                linearPeriodAfter: baseLinearPeriod,
+                playbackStepBefore: currentPlaybackStep,
+                playbackStepAfter: basePlaybackStep,
+                reachedTarget: true
+            ))
+            currentLinearPeriod = baseLinearPeriod
+            currentPlaybackStep = basePlaybackStep
+        }
+
+        channelState.vibratoPhase = phase
+        channelState.activeLinearPeriod = currentLinearPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return vibratoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            speed: speed,
+            depth: depth,
+            speedSource: speedSource,
+            depthSource: depthSource,
+            volumeSlide: volumeSlide,
+            phaseBefore: phaseBefore,
+            phaseAfter: channelState.vibratoPhase,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            stepUpdates: stepUpdates,
+            policy: isVibratoVolumeSlide
+                ? "6xy_reuses_4xy_sine_linear_period_state_plus_row_level_volume_slide"
+                : "sine_linear_period_first_pass_waveform_controls_deferred"
+        )
+    }
+
+    private static func vibratoDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticVibratoDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        speed: Int,
+        depth: Int,
+        speedSource: String?,
+        depthSource: String?,
+        volumeSlide: VolumeSlideAmounts?,
+        phaseBefore: Double,
+        phaseAfter: Double,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        policy: String
+    ) -> PlaybackSongSyntheticVibratoDiagnostic {
+        let applied = status == .applied
+        return PlaybackSongSyntheticVibratoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: status == .zeroParamEffectMemoryDeferred ||
+                status == .zeroSpeedOrDepthEffectMemoryDeferred ||
+                status == .unsupportedFrequencyTable ||
+                status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice ||
+                status == .zeroParamEffectMemoryDeferred ||
+                status == .zeroSpeedOrDepthEffectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            vibratoSpeed: speed,
+            vibratoDepth: depth,
+            vibratoSpeedSource: speedSource,
+            vibratoDepthSource: depthSource,
+            volumeSlideUp: volumeSlide?.up,
+            volumeSlideDown: volumeSlide?.down,
+            volumeSlideAmount: volumeSlide?.amount,
+            volumeSlideDirection: volumeSlide?.direction,
+            phaseBefore: phaseBefore,
+            phaseAfter: phaseAfter,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
+            policy: policy
+        )
+    }
+
+    private static func handleTonePortamento(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let targetExistsBefore = channelState.tonePortamentoTargetPlaybackStep != nil &&
+            channelState.tonePortamentoTargetLinearPeriod != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let targetNoteFromCell = (1...96).contains(cell.note) ? cell.note : nil
+
+        if cell.effectParam > 0 {
+            channelState.tonePortamentoSpeed = Int(cell.effectParam)
+        }
+
+        guard hasActiveVoice else {
+            return tonePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                targetExistsBefore: targetExistsBefore,
+                targetExistsAfter: targetExistsBefore,
+                targetNote: targetNoteFromCell ?? channelState.tonePortamentoTargetNote,
+                targetLinearPeriod: channelState.tonePortamentoTargetLinearPeriod,
+                targetPlaybackStep: channelState.tonePortamentoTargetPlaybackStep,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                stepUpdates: [],
+                policy: "no_active_voice_no_retrigger"
+            )
+        }
+
+        if let targetNote = targetNoteFromCell {
+            guard channelState.activeUsesLinearFrequencyTable == true,
+                  let baseSampleRate = channelState.activeSampleBaseSampleRate,
+                  let relativeNote = channelState.activeSampleRelativeNote,
+                  let finetune = channelState.activeSampleFinetune else {
+                return tonePortamentoDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .unsupportedFrequencyTable,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    targetExistsBefore: targetExistsBefore,
+                    targetExistsAfter: targetExistsBefore,
+                    targetNote: targetNote,
+                    targetLinearPeriod: channelState.tonePortamentoTargetLinearPeriod,
+                    targetPlaybackStep: channelState.tonePortamentoTargetPlaybackStep,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                    stepUpdates: [],
+                    policy: "linear_frequency_only_first_pass"
+                )
+            }
+            guard let target = linearPitchTarget(
+                note: targetNote,
+                relativeNote: relativeNote,
+                finetune: finetune,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                return tonePortamentoDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .outOfRange,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    targetExistsBefore: targetExistsBefore,
+                    targetExistsAfter: targetExistsBefore,
+                    targetNote: targetNote,
+                    targetLinearPeriod: nil,
+                    targetPlaybackStep: nil,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                    stepUpdates: [],
+                    policy: "target_pitch_out_of_range"
+                )
+            }
+            channelState.tonePortamentoTargetNote = targetNote
+            channelState.tonePortamentoTargetLinearPeriod = target.linearPeriod
+            channelState.tonePortamentoTargetPlaybackStep = target.playbackStep
+        }
+
+        let targetExistsAfter = channelState.tonePortamentoTargetPlaybackStep != nil &&
+            channelState.tonePortamentoTargetLinearPeriod != nil
+        guard targetExistsAfter,
+              let targetLinearPeriod = channelState.tonePortamentoTargetLinearPeriod,
+              let targetPlaybackStep = channelState.tonePortamentoTargetPlaybackStep else {
+            return tonePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noTarget,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                targetExistsBefore: targetExistsBefore,
+                targetExistsAfter: false,
+                targetNote: targetNoteFromCell,
+                targetLinearPeriod: nil,
+                targetPlaybackStep: nil,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                stepUpdates: [],
+                policy: "no_existing_target"
+            )
+        }
+        guard let speed = channelState.tonePortamentoSpeed,
+              speed > 0 else {
+            return tonePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noSpeed,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                targetExistsBefore: targetExistsBefore,
+                targetExistsAfter: targetExistsAfter,
+                targetNote: channelState.tonePortamentoTargetNote,
+                targetLinearPeriod: targetLinearPeriod,
+                targetPlaybackStep: targetPlaybackStep,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
+                stepUpdates: [],
+                policy: "no_3xx_speed_memory"
+            )
+        }
+        guard var currentLinearPeriod = channelState.activeLinearPeriod,
+              var currentPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return tonePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                targetExistsBefore: targetExistsBefore,
+                targetExistsAfter: targetExistsAfter,
+                targetNote: channelState.tonePortamentoTargetNote,
+                targetLinearPeriod: targetLinearPeriod,
+                targetPlaybackStep: targetPlaybackStep,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                portamentoSpeed: speed,
+                stepUpdates: [],
+                policy: "missing_active_linear_pitch_state"
+            )
+        }
+
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        let rowSpeed = max(1, timingConfig.speed)
+        for tick in 1..<rowSpeed {
+            if abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001 {
+                currentLinearPeriod = targetLinearPeriod
+                currentPlaybackStep = targetPlaybackStep
+                break
+            }
+            let beforePeriod = currentLinearPeriod
+            let beforeStep = currentPlaybackStep
+            if targetLinearPeriod < currentLinearPeriod {
+                currentLinearPeriod = max(targetLinearPeriod, currentLinearPeriod - Double(speed))
+            } else {
+                currentLinearPeriod = min(targetLinearPeriod, currentLinearPeriod + Double(speed))
+            }
+            guard let nextStep = playbackStep(
+                linearPeriod: currentLinearPeriod,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                break
+            }
+            currentPlaybackStep = nextStep
+            let reachedTarget = abs(currentLinearPeriod - targetLinearPeriod) <= 0.000000001
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentLinearPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: reachedTarget
+            ))
+            if reachedTarget {
+                currentLinearPeriod = targetLinearPeriod
+                currentPlaybackStep = targetPlaybackStep
+                break
+            }
+        }
+        channelState.activeLinearPeriod = currentLinearPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return tonePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            targetExistsBefore: targetExistsBefore,
+            targetExistsAfter: targetExistsAfter,
+            targetNote: channelState.tonePortamentoTargetNote,
+            targetLinearPeriod: targetLinearPeriod,
+            targetPlaybackStep: targetPlaybackStep,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            portamentoSpeed: speed,
+            stepUpdates: stepUpdates,
+            policy: "linear_period_units_per_tick_row_level_first_pass"
+        )
+    }
+
+    private static func tonePortamentoDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticTonePortamentoDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        targetExistsBefore: Bool,
+        targetExistsAfter: Bool,
+        targetNote: UInt8?,
+        targetLinearPeriod: Double?,
+        targetPlaybackStep: Double?,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        portamentoSpeed: Int,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        policy: String
+    ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        let applied = status == .applied
+        return PlaybackSongSyntheticTonePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: status == .unsupportedFrequencyTable,
+            ignoredAsNoOp: !applied && status != .unsupportedFrequencyTable,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            targetExistsBefore: targetExistsBefore,
+            targetExistsAfter: targetExistsAfter,
+            targetNote: targetNote,
+            targetLinearPeriod: targetLinearPeriod,
+            targetPlaybackStep: targetPlaybackStep,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            portamentoSpeed: portamentoSpeed,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
+            policy: policy
+        )
+    }
+
+    private static func handleKeyOff(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledStartFrame: Int,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        cell: PlaybackCell,
+        channelState: inout ChannelState,
+        events: inout [SyntheticTrackerEvent],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
+        eventCoverage: inout EventCoverageBuilder
+    ) {
+        guard let activeEventIndex = channelState.activeEventIndex,
+              let activeEventMappingIndex = channelState.activeEventMappingIndex,
+              events.indices.contains(activeEventIndex),
+              eventMappings.indices.contains(activeEventMappingIndex),
+              scheduledStartFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
+            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                releaseFrame: nil,
+                applied: false,
+                deferred: true,
+                reason: .noActiveVoice,
+                activeEventIndex: nil
+            ))
+            let ignored = ignoredCell(
+                source: source,
+                channelIndex: channelIndex,
+                cell: cell,
+                reason: .keyOff,
+                volumeColumn: volumeColumn,
+                hasIgnoredVolumeColumn: cell.volumeColumn != 0 && !volumeColumn.applied,
+                hasIgnoredEffect: hasDeferredEffect(cell)
+            )
+            ignoredCells.append(ignored)
+            eventCoverage.recordIgnoredCell(
+                reason: ignored.skipReason,
+                isNormalNote: false,
+                isNoteOffWithoutActiveVoice: true
+            )
+            appendDeferredFields(
+                from: cell,
+                source: source,
+                channelIndex: channelIndex,
+                volumeColumn: volumeColumn,
+                includeKeyOff: true,
+                deferredCellFields: &deferredCellFields
+            )
+            return
+        }
+
+        let previousMapping = eventMappings[activeEventMappingIndex]
+        let fadeoutDecrement = fadeoutFrameDecrement(
+            fadeoutValue: previousMapping.volumeEnvelopeSemantics.fadeoutValue,
+            sampleRate: previousMapping.outputSampleRate
+        )
+        events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
+            scheduledStartFrame,
+            fadeoutFrameDecrement: fadeoutDecrement
+        )
+        eventMappings[activeEventMappingIndex] = eventMapping(
+            previousMapping,
+            applying: previousMapping.volumeEnvelopeSemantics.applyingKeyOff(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                releaseFrame: scheduledStartFrame
+            )
+        )
+        keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            releaseFrame: scheduledStartFrame,
+            applied: true,
+            deferred: false,
+            reason: .releasedActiveVoice,
+            activeEventIndex: activeEventIndex
+        ))
+        if hasDeferredEffect(cell) || volumeColumn.deferred {
+            eventCoverage.recordDeferredCellWithoutSkip()
+        }
+        clearActiveVoiceState(&channelState)
+    }
+
+    @discardableResult
+    private static func handleRetrigger(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        globalVolumeState: GlobalVolumeState,
+        channelState: inout ChannelState,
+        events: inout [SyntheticTrackerEvent],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        retriggerEffects: inout [PlaybackSongSyntheticRetriggerDiagnostic],
+        eventCoverage: inout EventCoverageBuilder
+    ) -> PlaybackSongSyntheticRetriggerDiagnostic? {
+        guard isRetriggerEffect(cell) else {
+            return nil
+        }
+
+        let interval = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        let activeEventIndexBefore = channelState.activeEventIndex
+        let activeMappingIndexBefore = channelState.activeEventMappingIndex
+        let activeVoiceFound = activeEventIndexBefore.map { events.indices.contains($0) } == true &&
+            activeMappingIndexBefore.map { eventMappings.indices.contains($0) } == true &&
+            channelState.activeSampleVolume != nil
+
+        func diagnostic(
+            status: PlaybackSongSyntheticRetriggerDiagnostic.Status,
+            ticks: [Int] = [],
+            frames: [Int] = [],
+            eventIndices: [Int] = [],
+            replacedEventIndices: [Int] = []
+        ) -> PlaybackSongSyntheticRetriggerDiagnostic {
+            let applied = status == .applied
+            let deferred = status == .ignoredE90NoEffectMemory
+            let ignoredAsNoOp = status == .ignoredE90NoEffectMemory ||
+                status == .noActiveVoice ||
+                status == .outOfRowNoOp
+            let outOfRow = status == .outOfRowNoOp
+            let activeMapping = activeMappingIndexBefore.flatMap {
+                eventMappings.indices.contains($0) ? eventMappings[$0] : nil
+            }
+            let activeEvent = activeEventIndexBefore.flatMap {
+                events.indices.contains($0) ? events[$0] : nil
+            }
+            return PlaybackSongSyntheticRetriggerDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: status,
+                detected: true,
+                applied: applied,
+                deferred: deferred,
+                ignoredAsNoOp: ignoredAsNoOp,
+                outOfRow: outOfRow,
+                activeVoiceFound: activeVoiceFound,
+                retriggerIntervalTicks: interval,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                retriggerTicks: ticks,
+                retriggerFrames: frames,
+                retriggerEventIndices: eventIndices,
+                replacedEventIndices: replacedEventIndices,
+                activeEventIndexBefore: activeEventIndexBefore,
+                selectedSampleIndex: activeMapping?.sampleIndex,
+                selectedSampleLength: activeMapping?.selectedSampleLength,
+                initialSourceFrame: activeEvent?.initialSourceFrame,
+                playbackStep: activeEvent?.playbackStep,
+                gain: activeEvent?.gain,
+                pan: activeEvent?.pan,
+                envelopePolicy: "fresh_event_restarts_envelope"
+            )
+        }
+
+        guard interval > 0 else {
+            let result = diagnostic(status: .ignoredE90NoEffectMemory)
+            retriggerEffects.append(result)
+            return result
+        }
+        guard interval < rowSpeed else {
+            let result = diagnostic(status: .outOfRowNoOp)
+            retriggerEffects.append(result)
+            return result
+        }
+        guard let activeEventIndex = activeEventIndexBefore,
+              let activeMappingIndex = activeMappingIndexBefore,
+              events.indices.contains(activeEventIndex),
+              eventMappings.indices.contains(activeMappingIndex),
+              let activeSampleVolume = channelState.activeSampleVolume else {
+            let result = diagnostic(status: .noActiveVoice)
+            retriggerEffects.append(result)
+            return result
+        }
+
+        let sourceEvent = events[activeEventIndex]
+        let sourceMapping = eventMappings[activeMappingIndex]
+        let gain = adaptedGain(
+            sampleVolume: activeSampleVolume,
+            channelVolume: channelState.volumeValue,
+            globalVolume: globalVolumeState.volumeValue
+        )
+        let pan = channelState.pan
+        var ticks = [Int]()
+        var frames = [Int]()
+        var eventIndices = [Int]()
+        var replacedEventIndices = [Int]()
+        var previousEventIndex = activeEventIndex
+
+        var tick = interval
+        while tick < rowSpeed {
+            let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            let eventIndex = events.count
+            events.append(SyntheticTrackerEvent(
+                row: syntheticRow,
+                tick: tick,
+                scheduledStartFrame: frame,
+                sample: sourceEvent.sample,
+                gain: gain,
+                pan: pan,
+                playbackStep: sourceEvent.playbackStep,
+                loop: sourceEvent.loop,
+                initialSourceFrame: sourceEvent.initialSourceFrame,
+                volumeEnvelope: sourceEvent.volumeEnvelope,
+                panEnvelope: sourceEvent.panEnvelope
+            ))
+            eventMappings.append(retriggeredEventMapping(
+                from: sourceMapping,
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                eventIndex: eventIndex,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                volumeColumn: volumeColumn,
+                effectiveVolumeValue: channelState.volumeValue,
+                effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
+                effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
+                effectivePan: pan
+            ))
+            eventCoverage.recordScheduledNote(
+                method: sourceMapping.sampleSelectionMethod,
+                firstPlayableSampleFallbackUsed: sourceMapping.firstPlayableSampleFallbackUsed,
+                sampleMapKeymapBehaviorDeferred: sourceMapping.sampleMapKeymapBehaviorDeferred
+            )
+            ticks.append(tick)
+            frames.append(frame)
+            eventIndices.append(eventIndex)
+            replacedEventIndices.append(previousEventIndex)
+            previousEventIndex = eventIndex
+            tick += interval
+        }
+
+        channelState.activeEventIndex = previousEventIndex
+        channelState.activeEventMappingIndex = eventMappings.count - 1
+        channelState.activeSampleVolume = activeSampleVolume
+
+        let result = diagnostic(
+            status: .applied,
+            ticks: ticks,
+            frames: frames,
+            eventIndices: eventIndices,
+            replacedEventIndices: replacedEventIndices
+        )
+        retriggerEffects.append(result)
+        return result
+    }
+
+    private static func handleNoteCut(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState,
+        noteCutEffects: inout [PlaybackSongSyntheticNoteCutDiagnostic]
+    ) {
+        guard let diagnostic = noteCutDiagnostic(
+            from: cell,
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            timingPlan: timingPlan,
+            activeEventIndex: channelState.activeEventIndex
+        ) else {
+            return
+        }
+        noteCutEffects.append(diagnostic)
+        guard diagnostic.applied else {
+            return
+        }
+        clearActiveVoiceState(&channelState)
+    }
+
+    private static func noteCutDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        activeEventIndex: Int?
+    ) -> PlaybackSongSyntheticNoteCutDiagnostic? {
+        guard isNoteCutEffect(cell) else {
+            return nil
+        }
+        let tick = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        guard tick < rowSpeed else {
+            return PlaybackSongSyntheticNoteCutDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRowNoOp,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: true,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                scheduledFrame: nil,
+                activeEventIndex: activeEventIndex
+            )
+        }
+        let cutFrame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+        guard let activeEventIndex else {
+            return PlaybackSongSyntheticNoteCutDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .noActiveVoice,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: false,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                scheduledFrame: cutFrame,
+                activeEventIndex: nil
+            )
+        }
+        return PlaybackSongSyntheticNoteCutDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: tick,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            outOfRow: false,
+            requestedTick: tick,
+            rowSpeed: rowSpeed,
+            rowBPM: rowBPM,
+            scheduledFrame: cutFrame,
+            activeEventIndex: activeEventIndex
+        )
+    }
+
+    private static func noteDelayDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        originalFrame: Int,
+        eventIndex: Int?
+    ) -> PlaybackSongSyntheticNoteDelayDiagnostic? {
+        guard isNoteDelayEffect(cell) else {
+            return nil
+        }
+        let tick = extendedEffectTick(cell)
+        let rowSpeed = timingConfig.speed
+        let rowBPM = timingConfig.bpm
+        guard tick < rowSpeed else {
+            return PlaybackSongSyntheticNoteDelayDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRowNoOp,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: true,
+                outOfRow: true,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                originalFrame: originalFrame,
+                delayedFrame: nil,
+                eventIndex: eventIndex
+            )
+        }
+        let delayedFrame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+        guard (1...96).contains(cell.note) else {
+            return PlaybackSongSyntheticNoteDelayDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: tick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .noNoteDeferred,
+                detected: true,
+                applied: false,
+                deferred: true,
+                ignoredAsNoOp: false,
+                outOfRow: false,
+                requestedTick: tick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                originalFrame: originalFrame,
+                delayedFrame: nil,
+                eventIndex: eventIndex
+            )
+        }
+        return PlaybackSongSyntheticNoteDelayDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: tick,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            outOfRow: false,
+            requestedTick: tick,
+            rowSpeed: rowSpeed,
+            rowBPM: rowBPM,
+            originalFrame: originalFrame,
+            delayedFrame: delayedFrame,
+            eventIndex: eventIndex
+        )
+    }
+
+    private static func eventMapping(
+        _ mapping: PlaybackSongSyntheticEventMapping,
+        applying semantics: PlaybackSongSyntheticEnvelopeSemanticsDiagnostic
+    ) -> PlaybackSongSyntheticEventMapping {
+        PlaybackSongSyntheticEventMapping(
+            source: mapping.source,
+            channelIndex: mapping.channelIndex,
+            note: mapping.note,
+            instrumentIndex: mapping.instrumentIndex,
+            sampleIndex: mapping.sampleIndex,
+            selectedSampleLength: mapping.selectedSampleLength,
+            sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
+            mappedSampleIndex: mapping.mappedSampleIndex,
+            mappedSampleValid: mapping.mappedSampleValid,
+            sampleSelectionMethod: mapping.sampleSelectionMethod,
+            sampleSelectionStrategy: mapping.sampleSelectionStrategy,
+            firstPlayableSampleFallbackUsed: mapping.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: mapping.sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: mapping.sampleMapKeymapMissingOrDeferred,
+            effectType: mapping.effectType,
+            effectParam: mapping.effectParam,
+            syntheticRow: mapping.syntheticRow,
+            syntheticTick: mapping.syntheticTick,
+            eventIndex: mapping.eventIndex,
+            loopMode: mapping.loopMode,
+            volumeColumn: mapping.volumeColumn,
+            sampleOffset: mapping.sampleOffset,
+            hasIgnoredVolumeColumn: mapping.hasIgnoredVolumeColumn,
+            hasIgnoredEffect: mapping.hasIgnoredEffect,
+            effectiveVolumeValue: mapping.effectiveVolumeValue,
+            effectiveGlobalVolumeValue: mapping.effectiveGlobalVolumeValue,
+            effectiveGlobalVolumeMultiplier: mapping.effectiveGlobalVolumeMultiplier,
+            effectivePan: mapping.effectivePan,
+            volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
+            sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
+            mappedVolumeEnvelopePointCount: mapping.mappedVolumeEnvelopePointCount,
+            hasDeferredVolumeEnvelopeSustain: semantics.sustainDeferred,
+            hasDeferredVolumeEnvelopeLoop: semantics.loopDeferred,
+            hasDeferredVolumeEnvelopeFadeout: semantics.fadeoutDeferred,
+            volumeEnvelopeSemantics: semantics,
+            sampleBaseSampleRate: mapping.sampleBaseSampleRate,
+            sampleRelativeNote: mapping.sampleRelativeNote,
+            sampleFinetune: mapping.sampleFinetune,
+            outputSampleRate: mapping.outputSampleRate,
+            effectiveNoteValue: mapping.effectiveNoteValue,
+            effectiveNoteIndex: mapping.effectiveNoteIndex,
+            effectiveFinetune: mapping.effectiveFinetune,
+            linearPeriod: mapping.linearPeriod,
+            linearFrequency: mapping.linearFrequency,
+            finetuneStatus: mapping.finetuneStatus,
+            usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
+            frequencyTableStatus: mapping.frequencyTableStatus,
+            linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
+            playbackStep: mapping.playbackStep,
+            pitchMappingApplied: mapping.pitchMappingApplied,
+            pitchMappingUsedNeutralStep: mapping.pitchMappingUsedNeutralStep
+        )
+    }
+
+    private static func retriggeredEventMapping(
+        from mapping: PlaybackSongSyntheticEventMapping,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        syntheticTick: Int,
+        eventIndex: Int,
+        effectType: UInt8,
+        effectParam: UInt8,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        effectiveVolumeValue: Int,
+        effectiveGlobalVolumeValue: Int,
+        effectiveGlobalVolumeMultiplier: Float,
+        effectivePan: Float
+    ) -> PlaybackSongSyntheticEventMapping {
+        PlaybackSongSyntheticEventMapping(
+            source: source,
+            channelIndex: channelIndex,
+            note: mapping.note,
+            instrumentIndex: mapping.instrumentIndex,
+            sampleIndex: mapping.sampleIndex,
+            selectedSampleLength: mapping.selectedSampleLength,
+            sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
+            mappedSampleIndex: mapping.mappedSampleIndex,
+            mappedSampleValid: mapping.mappedSampleValid,
+            sampleSelectionMethod: mapping.sampleSelectionMethod,
+            sampleSelectionStrategy: mapping.sampleSelectionStrategy,
+            firstPlayableSampleFallbackUsed: mapping.firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: mapping.sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: mapping.sampleMapKeymapMissingOrDeferred,
+            effectType: effectType,
+            effectParam: effectParam,
+            syntheticRow: syntheticRow,
+            syntheticTick: syntheticTick,
+            eventIndex: eventIndex,
+            loopMode: mapping.loopMode,
+            volumeColumn: volumeColumn,
+            sampleOffset: mapping.sampleOffset,
+            hasIgnoredVolumeColumn: volumeColumn.rawValue != 0 && !volumeColumn.applied,
+            hasIgnoredEffect: false,
+            effectiveVolumeValue: effectiveVolumeValue,
+            effectiveGlobalVolumeValue: effectiveGlobalVolumeValue,
+            effectiveGlobalVolumeMultiplier: effectiveGlobalVolumeMultiplier,
+            effectivePan: effectivePan,
+            volumeEnvelopeStatus: mapping.volumeEnvelopeStatus,
+            sourceVolumeEnvelopePointCount: mapping.sourceVolumeEnvelopePointCount,
+            mappedVolumeEnvelopePointCount: mapping.mappedVolumeEnvelopePointCount,
+            hasDeferredVolumeEnvelopeSustain: mapping.hasDeferredVolumeEnvelopeSustain,
+            hasDeferredVolumeEnvelopeLoop: mapping.hasDeferredVolumeEnvelopeLoop,
+            hasDeferredVolumeEnvelopeFadeout: mapping.hasDeferredVolumeEnvelopeFadeout,
+            volumeEnvelopeSemantics: mapping.volumeEnvelopeSemantics,
+            sampleBaseSampleRate: mapping.sampleBaseSampleRate,
+            sampleRelativeNote: mapping.sampleRelativeNote,
+            sampleFinetune: mapping.sampleFinetune,
+            outputSampleRate: mapping.outputSampleRate,
+            effectiveNoteValue: mapping.effectiveNoteValue,
+            effectiveNoteIndex: mapping.effectiveNoteIndex,
+            effectiveFinetune: mapping.effectiveFinetune,
+            linearPeriod: mapping.linearPeriod,
+            linearFrequency: mapping.linearFrequency,
+            finetuneStatus: mapping.finetuneStatus,
+            usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
+            frequencyTableStatus: mapping.frequencyTableStatus,
+            linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
+            playbackStep: mapping.playbackStep,
+            pitchMappingApplied: mapping.pitchMappingApplied,
+            pitchMappingUsedNeutralStep: mapping.pitchMappingUsedNeutralStep
+        )
+    }
+
+    private struct VolumeEnvelopeMapping: Equatable {
+        let envelope: MixerEnvelope?
+        let status: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus
+        let sourcePointCount: Int
+        let mappedPointCount: Int
+        let sustainFrame: Int?
+        let loopStartFrame: Int?
+        let loopEndFrame: Int?
+    }
+
+    private struct PlaybackStepMapping: Equatable {
+        let playbackStep: Double
+        let outputSampleRate: Double
+        let effectiveNoteValue: Int?
+        let effectiveNoteIndex: Int?
+        let effectiveFinetune: Int?
+        let linearPeriod: Double?
+        let linearFrequency: Double?
+        let finetuneStatus: PlaybackSongSyntheticEventMapping.FinetuneStatus
+        let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
+        let linearFrequencyApplied: Bool
+        let amigaFrequencyDeferred: Bool
+        let applied: Bool
+        let usedNeutralStep: Bool
+    }
+
+    private struct LinearPitchTarget: Equatable {
+        let linearPeriod: Double
+        let playbackStep: Double
+        let linearFrequency: Double
+        let effectiveNoteValue: Int
+        let effectiveNoteIndex: Int
+        let effectiveFinetune: Int
+    }
+
+    private static func adaptedGain(
+        sampleVolume: Float,
+        channelVolume: Int,
+        globalVolume: Int = GlobalVolumeState.defaultValue
+    ) -> Float {
+        let baseGain = sampleVolume.isFinite ? sampleVolume : 0
+        let volumeMultiplier = volumeMultiplier(for: channelVolume)
+        let globalMultiplier = globalVolumeMultiplier(for: globalVolume)
+        // The bounded adapter treats supported XM volume-column volume commands as row-level
+        // channel-volume updates: final event gain = sample volume * (channel volume / 64).
+        // Hxy global-volume slides are another Swift-side row-level multiplier.
+        // Parsed volume envelopes remain separate C mixer envelopes and multiply this gain at render time.
+        return clampedGain(baseGain * volumeMultiplier * globalMultiplier)
+    }
+
+    private static func volumeMultiplier(for volumeValue: Int) -> Float {
+        Float(clampedVolumeValue(volumeValue)) / 64.0
+    }
+
+    private static func clampedVolumeValue(_ value: Int) -> Int {
+        min(64, max(0, value))
+    }
+
+    private static func clampedGlobalVolumeValue(_ value: Int) -> Int {
+        min(64, max(0, value))
+    }
+
+    private static func globalVolumeMultiplier(for volumeValue: Int) -> Float {
+        Float(clampedGlobalVolumeValue(volumeValue)) / 64.0
+    }
+
+    private static func clampedPanningValue(_ value: Double) -> Double {
+        min(255.0, max(0.0, value.isFinite ? value : 127.5))
+    }
+
+    private static func clampedGain(_ value: Float) -> Float {
+        guard value.isFinite else {
+            return 0
+        }
+        return min(1, max(0, value))
+    }
+
+    private static func playbackStepMapping(
+        note: UInt8,
+        sample: PlaybackSample,
+        usesLinearFrequencyTable: Bool,
+        timingConfig: SyntheticTrackerTimingConfig,
+        finetuneOverride: Int? = nil
+    ) -> PlaybackStepMapping {
+        let outputSampleRate = timingConfig.sampleRate
+        guard usesLinearFrequencyTable else {
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: nil,
+                effectiveNoteIndex: nil,
+                effectiveFinetune: nil,
+                linearPeriod: nil,
+                linearFrequency: nil,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: .amigaTableDeferredNeutralFallback,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: true,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
+        let baseSampleRate = sample.baseSampleRate
+        guard outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: nil,
+                effectiveNoteIndex: nil,
+                effectiveFinetune: nil,
+                linearPeriod: nil,
+                linearFrequency: nil,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: .linearApplied,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: false,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
+        guard let target = linearPitchTarget(
+            note: note,
+            relativeNote: sample.relativeNote,
+            finetune: finetuneOverride ?? sample.finetune,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: outputSampleRate
+        ) else {
+            let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: sample.relativeNote)
+            let effectiveNoteIndex = effectiveNoteValue - 1
+            return PlaybackStepMapping(
+                playbackStep: 1,
+                outputSampleRate: outputSampleRate,
+                effectiveNoteValue: effectiveNoteValue,
+                effectiveNoteIndex: effectiveNoteIndex,
+                effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
+                linearPeriod: nil,
+                linearFrequency: nil,
+                finetuneStatus: .deferred,
+                frequencyTableStatus: .linearApplied,
+                linearFrequencyApplied: false,
+                amigaFrequencyDeferred: false,
+                applied: false,
+                usedNeutralStep: true
+            )
+        }
+
+        return PlaybackStepMapping(
+            playbackStep: target.playbackStep,
+            outputSampleRate: outputSampleRate,
+            effectiveNoteValue: target.effectiveNoteValue,
+            effectiveNoteIndex: target.effectiveNoteIndex,
+            effectiveFinetune: target.effectiveFinetune,
+            linearPeriod: target.linearPeriod,
+            linearFrequency: target.linearFrequency,
+            finetuneStatus: .applied,
+            frequencyTableStatus: .linearApplied,
+            linearFrequencyApplied: true,
+            amigaFrequencyDeferred: false,
+            applied: true,
+            usedNeutralStep: abs(target.playbackStep - 1.0) <= 0.000000001
+        )
+    }
+
+    private static func linearPitchTarget(
+        note: UInt8,
+        relativeNote: Int,
+        finetune: Int,
+        baseSampleRate: Double,
+        outputSampleRate: Double
+    ) -> LinearPitchTarget? {
+        guard outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return nil
+        }
+        let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: relativeNote)
+        let effectiveNoteIndex = effectiveNoteValue - 1
+        let effectiveFinetune = clampedFinetune(finetune)
+
+        // XM linear frequency mode is period based even though the C mixer consumes a source-sample step.
+        // FT2's linear period formula is:
+        // period = 7680 - (zeroBasedNote * 64) - (finetune / 2)
+        // C-4 is note value 49, zero-based note 48, period 4608, so it maps to the sample base rate.
+        let linearPeriod = xmLinearPeriodBase
+            - (Double(effectiveNoteIndex) * xmLinearPeriodUnitsPerSemitone)
+            - (Double(effectiveFinetune) / 2.0)
+        guard let step = playbackStep(
+            linearPeriod: linearPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: outputSampleRate
+        ) else {
+            return nil
+        }
+        let linearFrequency = step * outputSampleRate
+        guard linearPeriod.isFinite,
+              linearFrequency.isFinite,
+              linearFrequency > 0 else {
+            return nil
+        }
+        return LinearPitchTarget(
+            linearPeriod: linearPeriod,
+            playbackStep: step,
+            linearFrequency: linearFrequency,
+            effectiveNoteValue: effectiveNoteValue,
+            effectiveNoteIndex: effectiveNoteIndex,
+            effectiveFinetune: effectiveFinetune
+        )
+    }
+
+    private static func playbackStep(
+        linearPeriod: Double,
+        baseSampleRate: Double,
+        outputSampleRate: Double
+    ) -> Double? {
+        guard linearPeriod.isFinite,
+              outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return nil
+        }
+        let linearFrequency = baseSampleRate * pow(
+            2.0,
+            (xmLinearC4Period - linearPeriod) / xmLinearPeriodUnitsPerOctave
+        )
+        let step = linearFrequency / outputSampleRate
+        guard linearFrequency.isFinite,
+              linearFrequency > 0,
+              step.isFinite,
+              step > 0,
+              step <= Double(UInt32.max) else {
+            return nil
+        }
+        return step
+    }
+
+    private static func clampedLinearPeriod(_ linearPeriod: Double) -> Double {
+        guard linearPeriod.isFinite else {
+            return xmLinearC4Period
+        }
+        return min(xmLinearMaximumSafePeriod, max(xmLinearMinimumSafePeriod, linearPeriod))
+    }
+
+    private static func clampedEffectiveNoteValue(note: UInt8, relativeNote: Int) -> Int {
+        min(96, max(1, Int(note) + relativeNote))
+    }
+
+    private static func clampedFinetune(_ finetune: Int) -> Int {
+        min(127, max(-128, finetune))
+    }
+
+    private static func mixerVolumeEnvelope(
+        from envelope: PlaybackVolumeEnvelope,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> VolumeEnvelopeMapping {
+        guard hasVolumeEnvelopeMetadata(envelope) else {
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .absent,
+                sourcePointCount: 0,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
+        }
+        guard envelope.enabled else {
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .disabled,
+                sourcePointCount: envelope.points.count,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
+        }
+
+        let sourcePoints = Array(envelope.points.prefix(maxMixerEnvelopePointCount))
+        guard !sourcePoints.isEmpty else {
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .invalidOrEmptyIgnored,
+                sourcePointCount: 0,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
+        }
+
+        let timing = SyntheticTrackerTiming(config: timingConfig)
+        guard timing.framesPerTick.isFinite, timing.framesPerTick > 0 else {
+            return VolumeEnvelopeMapping(
+                envelope: nil,
+                status: .invalidOrEmptyIgnored,
+                sourcePointCount: envelope.points.count,
+                mappedPointCount: 0,
+                sustainFrame: nil,
+                loopStartFrame: nil,
+                loopEndFrame: nil
+            )
+        }
+
+        var mappedPoints = [MixerEnvelopePoint]()
+        mappedPoints.reserveCapacity(sourcePoints.count)
+        for point in sourcePoints {
+            let exactFrame = Double(point.tick) * timing.framesPerTick
+            guard exactFrame.isFinite, exactFrame >= 0, exactFrame < Double(Int.max) else {
+                return VolumeEnvelopeMapping(
+                    envelope: nil,
+                    status: .invalidOrEmptyIgnored,
+                    sourcePointCount: envelope.points.count,
+                    mappedPointCount: 0,
+                    sustainFrame: nil,
+                    loopStartFrame: nil,
+                    loopEndFrame: nil
+                )
+            }
+            let frame = Int(exactFrame.rounded(.down))
+            if let previous = mappedPoints.last, frame <= previous.positionFrame {
+                return VolumeEnvelopeMapping(
+                    envelope: nil,
+                    status: .invalidOrEmptyIgnored,
+                    sourcePointCount: envelope.points.count,
+                    mappedPointCount: 0,
+                    sustainFrame: nil,
+                    loopStartFrame: nil,
+                    loopEndFrame: nil
+                )
+            }
+            mappedPoints.append(MixerEnvelopePoint(positionFrame: frame, value: point.normalizedValue))
+        }
+        let sustainFrame = mappedFrame(
+            forSourcePointIndex: envelope.sustainPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let loopStartFrame = mappedFrame(
+            forSourcePointIndex: envelope.loopStartPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let loopEndFrame = mappedFrame(
+            forSourcePointIndex: envelope.loopEndPointIndex,
+            sourcePoints: sourcePoints,
+            mappedPoints: mappedPoints
+        )
+        let appliedSustainFrame = envelopeSustainFlagSet(envelope) ? sustainFrame : nil
+        let appliedLoopStartFrame: Int?
+        let appliedLoopEndFrame: Int?
+        if envelopeLoopFlagSet(envelope),
+           let loopStartFrame,
+           let loopEndFrame,
+           loopEndFrame >= loopStartFrame {
+            appliedLoopStartFrame = loopStartFrame
+            appliedLoopEndFrame = loopEndFrame
+        } else {
+            appliedLoopStartFrame = nil
+            appliedLoopEndFrame = nil
+        }
+
+        return VolumeEnvelopeMapping(
+            envelope: MixerEnvelope(
+                points: mappedPoints,
+                sustainFrame: appliedSustainFrame,
+                loopStartFrame: appliedLoopStartFrame,
+                loopEndFrame: appliedLoopEndFrame
+            ),
+            status: .mapped,
+            sourcePointCount: envelope.points.count,
+            mappedPointCount: mappedPoints.count,
+            sustainFrame: appliedSustainFrame,
+            loopStartFrame: appliedLoopStartFrame,
+            loopEndFrame: appliedLoopEndFrame
+        )
+    }
+
+    private static func mappedFrame(
+        forSourcePointIndex pointIndex: Int?,
+        sourcePoints: [PlaybackEnvelopePoint],
+        mappedPoints: [MixerEnvelopePoint]
+    ) -> Int? {
+        guard let pointIndex,
+              sourcePoints.indices.contains(pointIndex),
+              mappedPoints.indices.contains(pointIndex) else {
+            return nil
+        }
+        return mappedPoints[pointIndex].positionFrame
+    }
+
+    private static func hasVolumeEnvelopeMetadata(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        envelope.enabled ||
+            !envelope.points.isEmpty ||
+            envelope.typeFlags != 0 ||
+            envelope.sustainPointIndex != nil ||
+            envelope.loopStartPointIndex != nil ||
+            envelope.loopEndPointIndex != nil ||
+            envelope.fadeout > 0
+    }
+
+    private static func volumeEnvelopeSemantics(
+        from envelope: PlaybackVolumeEnvelope,
+        mapping: VolumeEnvelopeMapping
+    ) -> PlaybackSongSyntheticEnvelopeSemanticsDiagnostic {
+        let sustainEnabled = envelopeSustainFlagSet(envelope)
+        let loopEnabled = envelopeLoopFlagSet(envelope)
+        let sustainApplied = mapping.status == .mapped && sustainEnabled && mapping.sustainFrame != nil
+        let loopApplied = mapping.status == .mapped && loopEnabled && mapping.loopStartFrame != nil && mapping.loopEndFrame != nil
+        var limitations = [String]()
+        if sustainApplied || loopApplied || envelope.fadeout > 0 {
+            limitations.append("first_pass_bounded_offline_envelope_approximation")
+        }
+        if sustainApplied {
+            limitations.append("sustain_holds_at_mapped_frame_while_keyed_on")
+        }
+        if loopApplied {
+            limitations.append("envelope_loop_is_frame_based_while_keyed_on")
+        }
+        if envelope.fadeout > 0 {
+            limitations.append("fadeout_uses_linear_per_frame_decrement_after_key_off")
+        }
+
+        return PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
+            envelopeEnabled: envelope.enabled,
+            sourcePointCount: envelope.points.count,
+            mappedPointCount: mapping.mappedPointCount,
+            sustainEnabled: sustainEnabled,
+            sustainApplied: sustainApplied,
+            sustainDeferred: sustainEnabled && !sustainApplied,
+            sustainPointIndex: envelope.sustainPointIndex,
+            sustainTick: envelope.sustainPoint?.tick,
+            sustainFrame: mapping.sustainFrame,
+            loopEnabled: loopEnabled,
+            loopApplied: loopApplied,
+            loopDeferred: loopEnabled && !loopApplied,
+            loopStartPointIndex: envelope.loopStartPointIndex,
+            loopEndPointIndex: envelope.loopEndPointIndex,
+            loopStartTick: envelope.loopStartPoint?.tick,
+            loopEndTick: envelope.loopEndPoint?.tick,
+            loopStartFrame: mapping.loopStartFrame,
+            loopEndFrame: mapping.loopEndFrame,
+            keyOffEncountered: false,
+            keyOffApplied: false,
+            keyOffDeferred: false,
+            keyOffSource: nil,
+            keyOffChannelIndex: nil,
+            keyOffSyntheticRow: nil,
+            keyOffSyntheticTick: nil,
+            releaseFrame: nil,
+            fadeoutValue: envelope.fadeout,
+            fadeoutApplied: false,
+            fadeoutDeferred: envelope.fadeout > 0,
+            limitations: limitations
+        )
+    }
+
+    private static func envelopeSustainFlagSet(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        (envelope.typeFlags & 0x02) != 0
+    }
+
+    private static func envelopeLoopFlagSet(_ envelope: PlaybackVolumeEnvelope) -> Bool {
+        (envelope.typeFlags & 0x04) != 0
+    }
+
+    private static func fadeoutFrameDecrement(fadeoutValue: Int, sampleRate: Double) -> Float {
+        guard fadeoutValue > 0,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return 0
+        }
+        // First-pass offline approximation: spread the XM tick-domain fadeout decrement
+        // smoothly across one default-speed tick worth of output frames.
+        let framesPerDefaultTick = sampleRate * PlaybackTiming.xmDefault.tickDuration
+        guard framesPerDefaultTick.isFinite, framesPerDefaultTick > 0 else {
+            return 0
+        }
+        return Float((Double(fadeoutValue) / 65_536.0) / framesPerDefaultTick)
+    }
+
+    private static func extendedEffectSubcommand(_ cell: PlaybackCell) -> UInt8? {
+        guard cell.effectType == 0x0E else {
+            return nil
+        }
+        return (cell.effectParam >> 4) & 0x0F
+    }
+
+    private static func extendedEffectTick(_ cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func isNoteCutEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0C
+    }
+
+    private static func isNoteDelayEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0D
+    }
+
+    private static func isRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x09
+    }
+
+    private static func isSetFinetuneEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x05
+    }
+
+    private static func isFinePortamentoDownEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x02
+    }
+
+    private static func finePortamentoDownAmount(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func isFineVolumeSlideUpEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0A
+    }
+
+    private static func isFineVolumeSlideDownEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0B
+    }
+
+    private static func isFineVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        isFineVolumeSlideUpEffect(cell) || isFineVolumeSlideDownEffect(cell)
+    }
+
+    private static func fineVolumeSlideAmount(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func setFinetuneNibble(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    private static func setFinetuneValue(from cell: PlaybackCell) -> Int {
+        (setFinetuneNibble(from: cell) * 16) - 128
+    }
+
+    private static func setFinetuneStatus(
+        for pitchMapping: PlaybackStepMapping
+    ) -> PlaybackSongSyntheticSetFinetuneDiagnostic.Status {
+        if pitchMapping.applied {
+            return .applied
+        }
+        if pitchMapping.amigaFrequencyDeferred {
+            return .unsupportedFrequencyTable
+        }
+        return .outOfRange
+    }
+
+    private static func setFinetuneDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        status: PlaybackSongSyntheticSetFinetuneDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        sampleFinetune: Int? = nil,
+        pitchMapping: PlaybackStepMapping? = nil
+    ) -> PlaybackSongSyntheticSetFinetuneDiagnostic {
+        let applied = status == .applied
+        let effectMemoryDeferred = status == .noNoteDeferred
+        let deferred = effectMemoryDeferred ||
+            status == .unsupportedFrequencyTable ||
+            status == .outOfRange
+        let ignoredAsNoOp = status == .noActiveVoice
+        let policy: String
+        switch status {
+        case .applied:
+            policy = "same_cell_note_overrides_sample_finetune_no_memory"
+        case .noNoteDeferred:
+            policy = "no_same_cell_note_effect_memory_deferred"
+        case .noActiveVoice:
+            policy = "no_playable_same_cell_note"
+        case .unsupportedFrequencyTable:
+            policy = "linear_frequency_only_first_pass"
+        case .outOfRange:
+            policy = "pitch_mapping_out_of_range"
+        }
+        return PlaybackSongSyntheticSetFinetuneDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: deferred,
+            ignoredAsNoOp: ignoredAsNoOp,
+            effectMemoryDeferred: effectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            finetuneNibble: setFinetuneNibble(from: cell),
+            sampleFinetune: sampleFinetune,
+            effectiveFinetune: pitchMapping?.effectiveFinetune,
+            linearPeriod: pitchMapping?.linearPeriod,
+            linearFrequency: pitchMapping?.linearFrequency,
+            playbackStep: pitchMapping?.playbackStep,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            policy: policy
+        )
+    }
+
+    private static func sampleOffsetDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        selectedSampleLength: Int?
+    ) -> PlaybackSongSyntheticSampleOffsetDiagnostic {
+        let sampleLength = selectedSampleLength.map { max(0, $0) }
+        guard cell.effectType == 0x09 else {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .notPresent,
+                detected: false,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: false,
+                skipped: false,
+                outOfRange: false,
+                computedOffsetFrames: 0,
+                appliedOffsetFrames: 0,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        let computedOffsetFrames = Int(cell.effectParam) * 256
+        guard cell.effectParam != 0 else {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .ignored900NoOp,
+                detected: true,
+                applied: false,
+                deferred: true,
+                ignoredAsNoOp: true,
+                skipped: false,
+                outOfRange: false,
+                computedOffsetFrames: computedOffsetFrames,
+                appliedOffsetFrames: 0,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        if let sampleLength, computedOffsetFrames >= sampleLength {
+            return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .outOfRangeSkipped,
+                detected: true,
+                applied: false,
+                deferred: false,
+                ignoredAsNoOp: false,
+                skipped: true,
+                outOfRange: true,
+                computedOffsetFrames: computedOffsetFrames,
+                appliedOffsetFrames: nil,
+                selectedSampleLength: sampleLength
+            )
+        }
+
+        return PlaybackSongSyntheticSampleOffsetDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .applied,
+            detected: true,
+            applied: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            skipped: false,
+            outOfRange: false,
+            computedOffsetFrames: computedOffsetFrames,
+            appliedOffsetFrames: computedOffsetFrames,
+            selectedSampleLength: sampleLength
+        )
+    }
+
+    private static func effectCommandDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> PlaybackSongSyntheticEffectCommandDiagnostic? {
+        guard shouldReportEffectCommand(cell) else {
+            return nil
+        }
+        return PlaybackSongSyntheticEffectCommandDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            decodedLabel: effectCommandLabel(effectType: cell.effectType, effectParam: cell.effectParam),
+            status: effectCommandStatus(cell, timingConfig: timingConfig),
+            isTraversalHazard: isTraversalHazard(cell)
+        )
+    }
+
+    private static func shouldReportEffectCommand(_ cell: PlaybackCell) -> Bool {
+        switch cell.effectType {
+        case 0x00:
+            return cell.effectParam != 0
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func effectCommandStatus(
+        _ cell: PlaybackCell,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
+        switch cell.effectType {
+        case 0x00 where cell.effectParam != 0,
+             0x05,
+             0x07:
+            return .deferredUnsupported
+        case 0x04:
+            let speed = Int((cell.effectParam & 0xF0) >> 4)
+            let depth = Int(cell.effectParam & 0x0F)
+            return cell.effectParam == 0 || speed == 0 || depth == 0 ? .ignoredNoOp : .applied
+        case 0x06:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x01...0x02:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x03:
+            return .applied
+        case 0x08, 0x0C:
+            return .applied
+        case 0x0A:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x0F:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x11:
+            return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x0E where isRetriggerEffect(cell):
+            let interval = extendedEffectTick(cell)
+            guard interval > 0 else {
+                return .ignoredNoOp
+            }
+            return interval < timingConfig.speed ? .applied : .ignoredNoOp
+        case 0x0E where isSetFinetuneEffect(cell):
+            return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
+        case 0x0E where isFinePortamentoDownEffect(cell):
+            return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+        case 0x0E where isFineVolumeSlideEffect(cell):
+            return fineVolumeSlideAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+        case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
+            guard extendedEffectTick(cell) < timingConfig.speed else {
+                return .ignoredNoOp
+            }
+            if isNoteDelayEffect(cell), !(1...96).contains(cell.note) {
+                return .deferredUnsupported
+            }
+            return .applied
+        case 0x0B, 0x0D, 0x0E:
+            return .deferredUnsupported
+        default:
+            return .unknown
+        }
+    }
+
+    private static func isTraversalHazard(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x0B ||
+            cell.effectType == 0x0D ||
+            (cell.effectType == 0x0E && ((cell.effectParam >> 4) & 0x0F) == 0x0E)
+    }
+
+    private static func effectCommandLabel(effectType: UInt8, effectParam: UInt8) -> String {
+        switch effectType {
+        case 0x00:
+            return effectParam != 0 ? "0xy arpeggio" : "none"
+        case 0x01:
+            return "1xx portamento up"
+        case 0x02:
+            return "2xx portamento down"
+        case 0x03:
+            return "3xx tone portamento"
+        case 0x04:
+            return "4xy vibrato"
+        case 0x05:
+            return "5xy tone portamento + volume slide"
+        case 0x06:
+            return "6xy vibrato + volume slide"
+        case 0x07:
+            return "7xy tremolo"
+        case 0x08:
+            return "8xx set panning"
+        case 0x0A:
+            return "Axy volume slide"
+        case 0x0B:
+            return "Bxx position jump"
+        case 0x0C:
+            return "Cxx set volume"
+        case 0x0D:
+            return "Dxx pattern break"
+        case 0x0E:
+            return extendedEffectCommandLabel(effectParam: effectParam)
+        case 0x0F:
+            return "Fxx speed/BPM"
+        case 0x11:
+            return "Hxy global volume slide"
+        default:
+            return "unknown/unsupported"
+        }
+    }
+
+    private static func extendedEffectCommandLabel(effectParam: UInt8) -> String {
+        switch (effectParam >> 4) & 0x0F {
+        case 0x00:
+            return "E0x filter toggle"
+        case 0x01:
+            return "E1x fine portamento up"
+        case 0x02:
+            return "E2x fine portamento down"
+        case 0x03:
+            return "E3x glissando control"
+        case 0x04:
+            return "E4x vibrato control"
+        case 0x05:
+            return "E5x set finetune"
+        case 0x06:
+            return "E6x pattern loop"
+        case 0x07:
+            return "E7x tremolo control"
+        case 0x08:
+            return "E8x set panning"
+        case 0x09:
+            return "E9x retrigger"
+        case 0x0A:
+            return "EAx fine volume slide up"
+        case 0x0B:
+            return "EBx fine volume slide down"
+        case 0x0C:
+            return "ECx note cut"
+        case 0x0D:
+            return "EDx note delay"
+        case 0x0E:
+            return "EEx pattern delay"
+        case 0x0F:
+            return "EFx invert loop"
+        default:
+            return "unknown/unsupported"
+        }
+    }
+
+    private static func selectedSampleLength(_ sample: PlaybackSample) -> Int {
+        min(max(0, sample.sampleLength), sample.pcm.count)
+    }
+
+    private static func hasEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType != 0 || cell.effectParam != 0
+    }
+
+    private static func hasDeferredEffect(_ cell: PlaybackCell) -> Bool {
+        guard hasEffect(cell) else {
+            return false
+        }
+        if PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) ||
+            isNonzeroSampleOffsetEffect(cell) ||
+            isPortamentoSlideEffect(cell) ||
+            isTonePortamentoEffect(cell) ||
+            isVibratoEffect(cell) ||
+            isVibratoVolumeSlideEffect(cell) ||
+            isSetFinetuneEffect(cell) ||
+            isFinePortamentoDownEffect(cell) ||
+            isFineVolumeSlideEffect(cell) ||
+            isSupportedRetriggerEffect(cell) ||
+            isNoteCutEffect(cell) ||
+            isNoteDelayEffect(cell) ||
+            isGlobalVolumeSlideEffect(cell) {
+            return false
+        }
+        switch cell.effectType {
+        case 0x08, 0x0A, 0x0C:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x09 && cell.effectParam != 0
+    }
+
+    private static func isPortamentoSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x01 || cell.effectType == 0x02
+    }
+
+    private static func isTonePortamentoEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x03
+    }
+
+    private static func isVibratoEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x04
+    }
+
+    private static func isVibratoVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x06
+    }
+
+    private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        isRetriggerEffect(cell) && extendedEffectTick(cell) > 0
+    }
+
+    private static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x11
+    }
+
+    private static func selectSample(forNote note: UInt8, from instrument: PlaybackInstrument) -> SampleSelection {
+        let mapPresent = instrument.hasNoteSampleMap
+        let mappedSampleIndex = instrument.mappedSampleIndex(forNote: note)
+        let mappedSample = mappedSampleIndex.flatMap { instrument.sample(mappedSampleIndex: $0) }
+        let mappedSampleValid = mappedSample?.isPlayable == true
+        let shouldUseMap = mapPresent && instrument.samples.count > 1
+        let mapMissingOrDeferred = !mapPresent && instrument.samples.count > 1
+
+        if shouldUseMap {
+            if let mappedSample, mappedSample.isPlayable {
+                return SampleSelection(
+                    sample: mappedSample,
+                    diagnosticSample: mappedSample,
+                    skippedReason: nil,
+                    sampleMapKeymapPresent: true,
+                    mappedSampleIndex: mappedSampleIndex,
+                    mappedSampleValid: true,
+                    method: .sampleMap,
+                    firstPlayableSampleFallbackUsed: false,
+                    sampleMapKeymapBehaviorDeferred: false,
+                    sampleMapKeymapMissingOrDeferred: false
+                )
+            }
+            if let fallback = instrument.firstPlayableSample {
+                return SampleSelection(
+                    sample: fallback,
+                    diagnosticSample: mappedSample ?? fallback,
+                    skippedReason: nil,
+                    sampleMapKeymapPresent: true,
+                    mappedSampleIndex: mappedSampleIndex,
+                    mappedSampleValid: mappedSampleValid,
+                    method: .fallbackAfterInvalidMap,
+                    firstPlayableSampleFallbackUsed: true,
+                    sampleMapKeymapBehaviorDeferred: false,
+                    sampleMapKeymapMissingOrDeferred: false
+                )
+            }
+            return SampleSelection(
+                sample: nil,
+                diagnosticSample: mappedSample ?? instrument.samples.first,
+                skippedReason: skippedReasonForInvalidMappedSample(mappedSample),
+                sampleMapKeymapPresent: true,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: false,
+                method: .skippedNoValidSample,
+                firstPlayableSampleFallbackUsed: false,
+                sampleMapKeymapBehaviorDeferred: false,
+                sampleMapKeymapMissingOrDeferred: false
+            )
+        }
+
+        if let sample = instrument.firstPlayableSample {
+            return SampleSelection(
+                sample: sample,
+                diagnosticSample: sample,
+                skippedReason: nil,
+                sampleMapKeymapPresent: mapPresent,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: mappedSampleValid,
+                method: .firstPlayableFallback,
+                firstPlayableSampleFallbackUsed: true,
+                sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+                sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
+            )
+        }
+        if let emptySample = instrument.samples.first(where: { $0.pcm.isEmpty }) {
+            return SampleSelection(
+                sample: nil,
+                diagnosticSample: emptySample,
+                skippedReason: .samplePCMEmpty,
+                sampleMapKeymapPresent: mapPresent,
+                mappedSampleIndex: mappedSampleIndex,
+                mappedSampleValid: mappedSampleValid,
+                method: .skippedNoValidSample,
+                firstPlayableSampleFallbackUsed: false,
+                sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+                sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
+            )
+        }
+        return SampleSelection(
+            sample: nil,
+            diagnosticSample: instrument.samples.first,
+            skippedReason: .instrumentHasNoPlayableSample,
+            sampleMapKeymapPresent: mapPresent,
+            mappedSampleIndex: mappedSampleIndex,
+            mappedSampleValid: mappedSampleValid,
+            method: .skippedNoValidSample,
+            firstPlayableSampleFallbackUsed: false,
+            sampleMapKeymapBehaviorDeferred: mapMissingOrDeferred,
+            sampleMapKeymapMissingOrDeferred: mapMissingOrDeferred
+        )
+    }
+
+    private static func skippedReasonForInvalidMappedSample(
+        _ sample: PlaybackSample?
+    ) -> PlaybackSongSyntheticIgnoredCell.Reason {
+        guard let sample else {
+            return .noSelectedSampleForNote
+        }
+        if sample.pcm.isEmpty {
+            return .samplePCMEmpty
+        }
+        return .instrumentHasNoPlayableSample
+    }
+
+    private static func ignoredCell(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        cell: PlaybackCell,
+        reason: PlaybackSongSyntheticIgnoredCell.Reason,
+        diagnosticSample: PlaybackSample? = nil,
+        sampleOffsetFrames: Int? = nil,
+        sampleMapKeymapPresent: Bool = false,
+        mappedSampleIndex: Int? = nil,
+        mappedSampleValid: Bool = false,
+        sampleSelectionMethod: PlaybackSongSyntheticSampleSelectionMethod = .skippedNoValidSample,
+        firstPlayableSampleFallbackUsed: Bool = false,
+        sampleMapKeymapBehaviorDeferred: Bool = false,
+        sampleMapKeymapMissingOrDeferred: Bool = false,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        hasIgnoredVolumeColumn: Bool,
+        hasIgnoredEffect: Bool
+    ) -> PlaybackSongSyntheticIgnoredCell {
+        PlaybackSongSyntheticIgnoredCell(
+            source: source,
+            channelIndex: channelIndex,
+            note: cell.note,
+            instrumentIndex: Int(cell.instrument),
+            reason: reason,
+            skipReason: skipReason(for: reason),
+            selectedSampleIndex: diagnosticSample?.sampleIndex,
+            selectedSampleLength: diagnosticSample.map(selectedSampleLength),
+            selectedSampleLoopMode: diagnosticSample.map { mixerLoop(from: $0).mode },
+            sampleMapKeymapPresent: sampleMapKeymapPresent,
+            mappedSampleIndex: mappedSampleIndex,
+            mappedSampleValid: mappedSampleValid,
+            sampleSelectionMethod: sampleSelectionMethod,
+            firstPlayableSampleFallbackUsed: firstPlayableSampleFallbackUsed,
+            sampleMapKeymapBehaviorDeferred: sampleMapKeymapBehaviorDeferred,
+            sampleMapKeymapMissingOrDeferred: sampleMapKeymapMissingOrDeferred,
+            sampleRelativeNote: diagnosticSample?.relativeNote,
+            sampleFinetune: diagnosticSample?.finetune,
+            sampleBaseSampleRate: diagnosticSample?.baseSampleRate,
+            sampleOffsetFrames: sampleOffsetFrames,
+            volumeColumn: volumeColumn,
+            hasIgnoredVolumeColumn: hasIgnoredVolumeColumn,
+            hasIgnoredEffect: hasIgnoredEffect
+        )
+    }
+
+    private static func ignoredNoteReason(
+        _ cell: PlaybackCell,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+    ) -> PlaybackSongSyntheticIgnoredCell.Reason {
+        switch cell.note {
+        case 0:
+            if cell.instrument > 0, cell.volumeColumn == 0, cell.effectType == 0, cell.effectParam == 0 {
+                return .instrumentOnly
+            }
+            if hasDeferredEffect(cell) || volumeColumn.deferred {
+                return .unsupportedDeferredEffectInteraction
+            }
+            return .emptyNote
+        case 97:
+            return .keyOff
+        default:
+            return .invalidNote
+        }
+    }
+
+    private static func skipReason(for reason: PlaybackSongSyntheticIgnoredCell.Reason) -> PlaybackSongSyntheticSkipReason {
+        switch reason {
+        case .emptyNote:
+            return .emptyCell
+        case .instrumentOnly:
+            return .instrumentOnly
+        case .keyOff:
+            return .noteOffKeyOffOnly
+        case .invalidNote:
+            return .invalidNote
+        case .missingInstrument:
+            return .missingInstrument
+        case .unknownInstrument:
+            return .unknownInstrument
+        case .instrumentHasNoPlayableSample:
+            return .instrumentHasNoPlayableSample
+        case .samplePCMEmpty:
+            return .samplePCMEmpty
+        case .sampleOffsetOutOfRange:
+            return .sampleOffsetOutOfRange
+        case .noteDelayOutOfRow,
+             .noteDelayWithoutNote:
+            return .unsupportedDeferredEffectInteraction
+        case .noSelectedSampleForNote:
+            return .noSelectedSampleForNote
+        case .unsupportedDeferredEffectInteraction:
+            return .unsupportedDeferredEffectInteraction
+        case .unknown:
+            return .unknown
+        }
+    }
+
+    private static func mixerLoop(from sample: PlaybackSample) -> MixerSampleLoop {
+        let region = sample.loopRegion
+        guard region.isEnabled else {
+            return .none
+        }
+        switch region.loopType {
+        case 1:
+            return MixerSampleLoop(mode: .forward, startFrame: region.startFrame, endFrame: region.endFrame)
+        case 2:
+            return MixerSampleLoop(mode: .pingPong, startFrame: region.startFrame, endFrame: region.endFrame)
+        default:
+            return .none
+        }
+    }
+}

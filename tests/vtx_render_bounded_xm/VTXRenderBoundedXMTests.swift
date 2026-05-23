@@ -1848,6 +1848,148 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "Hxy global volume slide" && $0["status"] as? String == "applied" })
     }
 
+    func testDiagnosticsJSONIncludesEAxAndEBxFineVolumeSlides() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 1, count: 32),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xAF),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xA1),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xBF),
+            ]),
+            PlaybackRow(index: 2, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xAF),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 3, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xB1),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 4, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xBF),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 5, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xA0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 6, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0xB0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 7, cells: [
+                PlaybackCell(note: 52, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xA2),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 8, cells: [
+                PlaybackCell(note: 53, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xB2),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "fine-volume-slides",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
+            frames: 9
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let result = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 3)
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let summary = try XCTUnwrap(object["volume_panning_state_update_summary"] as? [String: Any])
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let effects = try XCTUnwrap(object["pattern_traversal_timing_effects"] as? [[String: Any]])
+        let eaxUpdates = updates.filter { $0["command_name"] as? String == "eaxFineVolumeSlideUp" }
+        let ebxUpdates = updates.filter { $0["command_name"] as? String == "ebxFineVolumeSlideDown" }
+        let ea1 = try XCTUnwrap(eaxUpdates.first { $0["fine_amount_nibble"] as? Int == 1 })
+        let eaf = try XCTUnwrap(eaxUpdates.first { ($0["fine_amount_nibble"] as? Int) == 15 && ($0["active_voice_updated"] as? Bool) == true })
+        let eb1 = try XCTUnwrap(ebxUpdates.first { $0["fine_amount_nibble"] as? Int == 1 })
+        let ebf = try XCTUnwrap(ebxUpdates.first { ($0["fine_amount_nibble"] as? Int) == 15 && ($0["active_voice_updated"] as? Bool) == true })
+        let ea0 = try XCTUnwrap(eaxUpdates.first { $0["fine_amount_nibble"] as? Int == 0 })
+        let eb0 = try XCTUnwrap(ebxUpdates.first { $0["fine_amount_nibble"] as? Int == 0 })
+        let noActiveEAx = try XCTUnwrap(eaxUpdates.first { ($0["channel_index"] as? Int) == 1 })
+        let noActiveEBx = try XCTUnwrap(ebxUpdates.first { ($0["channel_index"] as? Int) == 1 })
+        let sameCellEAx = try XCTUnwrap(eaxUpdates.first { $0["cell_note"] as? Int == 52 })
+        let sameCellEBx = try XCTUnwrap(ebxUpdates.first { $0["cell_note"] as? Int == 53 })
+        let sameCellEAxEvent = try XCTUnwrap(events.first { $0["effect_param"] as? Int == 0xA2 })
+        let sameCellEBxEvent = try XCTUnwrap(events.first { $0["effect_param"] as? Int == 0xB2 })
+
+        XCTAssertEqual(render["eax_fine_volume_slide_up_effect_count"] as? Int, 5)
+        XCTAssertEqual(render["eax_fine_volume_slide_up_detected_count"] as? Int, 5)
+        XCTAssertEqual(render["eax_fine_volume_slide_up_applied_count"] as? Int, 4)
+        XCTAssertEqual(render["eax_fine_volume_slide_up_no_active_voice_count"] as? Int, 1)
+        XCTAssertEqual(render["eax_fine_volume_slide_up_zero_amount_effect_memory_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["eax_fine_volume_slide_up_scheduled_gain_update_count"] as? Int, 2)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_effect_count"] as? Int, 5)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_detected_count"] as? Int, 5)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_applied_count"] as? Int, 4)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_no_active_voice_count"] as? Int, 1)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_zero_amount_effect_memory_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["ebx_fine_volume_slide_down_scheduled_gain_update_count"] as? Int, 2)
+        XCTAssertEqual(windowed.block.interleavedPCM, result.block.interleavedPCM)
+        XCTAssertEqual(summary["eax_fine_volume_slide_up_applied"] as? Int, 4)
+        XCTAssertEqual(summary["eax_fine_volume_slide_up_zero_amount_effect_memory_deferred"] as? Int, 1)
+        XCTAssertEqual(summary["ebx_fine_volume_slide_down_applied"] as? Int, 4)
+        XCTAssertEqual(summary["ebx_fine_volume_slide_down_zero_amount_effect_memory_deferred"] as? Int, 1)
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(eaxUpdates.count, 5)
+        XCTAssertEqual(ebxUpdates.count, 5)
+        XCTAssertEqual(ea1["effective_volume_before"] as? Int, 32)
+        XCTAssertEqual(ea1["effective_volume_after"] as? Int, 33)
+        XCTAssertEqual(ea1["gain_before"] as? Double, 0.5)
+        XCTAssertEqual(ea1["gain_after"] as? Double, 33.0 / 64.0)
+        XCTAssertEqual(eaf["effective_volume_before"] as? Int, 33)
+        XCTAssertEqual(eaf["effective_volume_after"] as? Int, 48)
+        XCTAssertEqual(eb1["effective_volume_before"] as? Int, 48)
+        XCTAssertEqual(eb1["effective_volume_after"] as? Int, 47)
+        XCTAssertEqual(ebf["effective_volume_before"] as? Int, 47)
+        XCTAssertEqual(ebf["effective_volume_after"] as? Int, 32)
+        XCTAssertEqual(ea0["status"] as? String, "ignored/no-op")
+        XCTAssertEqual(ea0["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(eb0["status"] as? String, "ignored/no-op")
+        XCTAssertEqual(eb0["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(noActiveEAx["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(noActiveEAx["no_active_voice"] as? Bool, true)
+        XCTAssertEqual(noActiveEAx["cell_note"] as? Int, 0)
+        XCTAssertEqual(noActiveEBx["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(noActiveEBx["no_active_voice"] as? Bool, true)
+        XCTAssertEqual(noActiveEBx["cell_note"] as? Int, 0)
+        XCTAssertEqual(sameCellEAx["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(sameCellEAx["effective_volume_before"] as? Int, 32)
+        XCTAssertEqual(sameCellEAx["effective_volume_after"] as? Int, 34)
+        XCTAssertEqual(sameCellEBx["active_voice_updated"] as? Bool, false)
+        XCTAssertEqual(sameCellEBx["effective_volume_before"] as? Int, 34)
+        XCTAssertEqual(sameCellEBx["effective_volume_after"] as? Int, 32)
+        XCTAssertEqual(sameCellEAxEvent["gain"] as? Double, 34.0 / 64.0)
+        XCTAssertEqual(sameCellEBxEvent["gain"] as? Double, 0.5)
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "EAx fine volume slide up" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "EBx fine volume slide down" && $0["status"] as? String == "applied" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "EAx fine volume slide up" && $0["status"] as? String == "ignored/no-op" })
+        XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "EBx fine volume slide down" && $0["status"] as? String == "ignored/no-op" })
+    }
+
     func testDiagnosticsJSONCountsTraversalHazardsWithCoordinatesAndStatuses() throws {
         let rows = [
             PlaybackRow(index: 0, cells: [

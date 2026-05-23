@@ -1027,6 +1027,18 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let vibratoZeroNibbleCount = diagnostics.vibratoEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
         let vibratoDeferredCount = diagnostics.vibratoEffects.filter(\.deferred).count
         let vibratoScheduledStepUpdateCount = diagnostics.vibratoEffects.map(\.stepUpdates.count).reduce(0, +)
+        let eaxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEaxFineVolumeSlideUpdate)
+        let ebxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEbxFineVolumeSlideUpdate)
+        let eaxFineVolumeSlideAppliedCount = eaxFineVolumeSlides.filter(\.applied).count
+        let ebxFineVolumeSlideAppliedCount = ebxFineVolumeSlides.filter(\.applied).count
+        let eaxFineVolumeSlideNoActiveVoiceCount = eaxFineVolumeSlides.filter(isFineVolumeSlideNoActiveVoice).count
+        let ebxFineVolumeSlideNoActiveVoiceCount = ebxFineVolumeSlides.filter(isFineVolumeSlideNoActiveVoice).count
+        let eaxFineVolumeSlideZeroAmountCount = eaxFineVolumeSlides.filter(isFineVolumeSlideZeroAmountNoOp).count
+        let ebxFineVolumeSlideZeroAmountCount = ebxFineVolumeSlides.filter(isFineVolumeSlideZeroAmountNoOp).count
+        let eaxFineVolumeSlideDeferredCount = eaxFineVolumeSlides.filter(\.deferred).count
+        let ebxFineVolumeSlideDeferredCount = ebxFineVolumeSlides.filter(\.deferred).count
+        let eaxFineVolumeSlideScheduledGainUpdateCount = eaxFineVolumeSlides.filter(isChangedGainStateUpdate).count
+        let ebxFineVolumeSlideScheduledGainUpdateCount = ebxFineVolumeSlides.filter(isChangedGainStateUpdate).count
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
@@ -1047,6 +1059,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400, zero speed/depth memory, 6xy, and volume-column vibrato remain deferred.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
+            "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
             "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
             "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
@@ -1119,6 +1132,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "vibrato_4xy_zero_speed_or_depth_effect_memory_deferred_count": vibratoZeroNibbleCount,
                 "vibrato_4xy_deferred_count": vibratoDeferredCount,
                 "vibrato_4xy_scheduled_sample_step_update_count": vibratoScheduledStepUpdateCount,
+                "eax_fine_volume_slide_up_effect_count": eaxFineVolumeSlides.count,
+                "eax_fine_volume_slide_up_detected_count": eaxFineVolumeSlides.count,
+                "eax_fine_volume_slide_up_applied_count": eaxFineVolumeSlideAppliedCount,
+                "eax_fine_volume_slide_up_no_active_voice_count": eaxFineVolumeSlideNoActiveVoiceCount,
+                "eax_fine_volume_slide_up_zero_amount_effect_memory_deferred_count": eaxFineVolumeSlideZeroAmountCount,
+                "eax_fine_volume_slide_up_deferred_count": eaxFineVolumeSlideDeferredCount,
+                "eax_fine_volume_slide_up_scheduled_gain_update_count": eaxFineVolumeSlideScheduledGainUpdateCount,
+                "ebx_fine_volume_slide_down_effect_count": ebxFineVolumeSlides.count,
+                "ebx_fine_volume_slide_down_detected_count": ebxFineVolumeSlides.count,
+                "ebx_fine_volume_slide_down_applied_count": ebxFineVolumeSlideAppliedCount,
+                "ebx_fine_volume_slide_down_no_active_voice_count": ebxFineVolumeSlideNoActiveVoiceCount,
+                "ebx_fine_volume_slide_down_zero_amount_effect_memory_deferred_count": ebxFineVolumeSlideZeroAmountCount,
+                "ebx_fine_volume_slide_down_deferred_count": ebxFineVolumeSlideDeferredCount,
+                "ebx_fine_volume_slide_down_scheduled_gain_update_count": ebxFineVolumeSlideScheduledGainUpdateCount,
                 "volume_panning_state_update_count": diagnostics.voiceStateUpdates.count,
                 "active_voice_state_update_count": activeVoiceStateUpdateCount,
                 "gain_pan_ramp_enabled": true,
@@ -1908,6 +1935,36 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "axy_volume_slide_deferred": count {
                 $0.deferred && isAxyVolumeSlideUpdate($0)
             },
+            "eax_fine_volume_slide_up_applied": count {
+                $0.applied && isEaxFineVolumeSlideUpdate($0)
+            },
+            "eax_fine_volume_slide_up_deferred": count {
+                $0.deferred && isEaxFineVolumeSlideUpdate($0)
+            },
+            "eax_fine_volume_slide_up_no_active_voice": count {
+                isEaxFineVolumeSlideUpdate($0) && isFineVolumeSlideNoActiveVoice($0)
+            },
+            "eax_fine_volume_slide_up_zero_amount_effect_memory_deferred": count {
+                isEaxFineVolumeSlideUpdate($0) && isFineVolumeSlideZeroAmountNoOp($0)
+            },
+            "eax_fine_volume_slide_up_scheduled_gain_update_count": count {
+                isEaxFineVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
+            },
+            "ebx_fine_volume_slide_down_applied": count {
+                $0.applied && isEbxFineVolumeSlideUpdate($0)
+            },
+            "ebx_fine_volume_slide_down_deferred": count {
+                $0.deferred && isEbxFineVolumeSlideUpdate($0)
+            },
+            "ebx_fine_volume_slide_down_no_active_voice": count {
+                isEbxFineVolumeSlideUpdate($0) && isFineVolumeSlideNoActiveVoice($0)
+            },
+            "ebx_fine_volume_slide_down_zero_amount_effect_memory_deferred": count {
+                isEbxFineVolumeSlideUpdate($0) && isFineVolumeSlideZeroAmountNoOp($0)
+            },
+            "ebx_fine_volume_slide_down_scheduled_gain_update_count": count {
+                isEbxFineVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
+            },
             "hxy_global_volume_slide_applied": count {
                 $0.applied && isHxyGlobalVolumeSlideUpdate($0)
             },
@@ -1993,6 +2050,54 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return false
     }
 
+    private static func isEaxFineVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .eaxFineVolumeSlideUp = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func isEbxFineVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .ebxFineVolumeSlideDown = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func isFineVolumeSlideNoActiveVoice(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        (isEaxFineVolumeSlideUpdate(update) || isEbxFineVolumeSlideUpdate(update)) &&
+            update.applied &&
+            update.cellNote == 0 &&
+            !update.activeVoiceUpdated
+    }
+
+    private static func isFineVolumeSlideZeroAmountNoOp(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        guard update.ignoredAsNoOp else {
+            return false
+        }
+        switch update.command {
+        case let .eaxFineVolumeSlideUp(amount),
+             let .ebxFineVolumeSlideDown(amount):
+            return amount == 0
+        default:
+            return false
+        }
+    }
+
+    private static func isChangedGainStateUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        update.activeVoiceUpdated && update.gainBefore != update.gainAfter
+    }
+
     private static func voiceStateUpdateJSON(
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> [String: Any] {
@@ -2039,6 +2144,22 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.gainAfter.map { Double($0) }, forKey: "gain_after", into: &object)
         put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)
         put(update.panAfter.map { Double($0) }, forKey: "pan_after", into: &object)
+        switch update.command {
+        case let .eaxFineVolumeSlideUp(amount):
+            object["fine_volume_slide_direction"] = "up"
+            object["fine_amount"] = amount
+            object["fine_amount_nibble"] = amount
+            object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
+            object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
+        case let .ebxFineVolumeSlideDown(amount):
+            object["fine_volume_slide_direction"] = "down"
+            object["fine_amount"] = amount
+            object["fine_amount_nibble"] = amount
+            object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
+            object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
+        default:
+            break
+        }
         return object
     }
 
@@ -2502,6 +2623,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
         case let .hxyGlobalVolumeSlide(up, down):
             return ["name": "hxyGlobalVolumeSlide", "label": command.label, "up": up, "down": down]
+        case let .eaxFineVolumeSlideUp(amount):
+            return [
+                "name": "eaxFineVolumeSlideUp",
+                "label": command.label,
+                "amount": amount,
+                "fine_amount_nibble": amount,
+            ]
+        case let .ebxFineVolumeSlideDown(amount):
+            return [
+                "name": "ebxFineVolumeSlideDown",
+                "label": command.label,
+                "amount": amount,
+                "fine_amount_nibble": amount,
+            ]
         }
     }
 
@@ -2519,6 +2654,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "axyVolumeSlide"
         case .hxyGlobalVolumeSlide:
             return "hxyGlobalVolumeSlide"
+        case .eaxFineVolumeSlideUp:
+            return "eaxFineVolumeSlideUp"
+        case .ebxFineVolumeSlideDown:
+            return "ebxFineVolumeSlideDown"
         }
     }
 

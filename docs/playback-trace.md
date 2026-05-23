@@ -80,6 +80,10 @@ the deterministic first-pass policy folds the fine downward pitch adjustment
 into the new note's initial sample step. No-note `E2x` rows with an active
 voice are emitted as row-start sample-step updates, while `E20` remains an
 effect-memory-deferred no-op.
+Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
+trigger with the row-level adjusted channel volume. Empty-note nonzero
+`EAx`/`EBx` rows with an active voice are emitted as row-start gain updates,
+while `EA0`/`EB0` remain effect-memory-deferred no-ops.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
@@ -584,11 +588,12 @@ offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
 retriggers, `1xx`/`2xx`/`3xx` portamento updates, minimal `E2x` fine
 portamento down updates, minimal `4xy` vibrato sample-step updates, sample
-offsets, and volume-column set volume/panning. Adapter-sourced `E2x` and `4xy`
-rows carry the effect type/parameter on the runtime update row so coverage
-summaries can count applied pitch updates. `E1x`, `6xy`, `EAx`/`EBx`,
-volume-column vibrato, vibrato waveform controls, and effect-memory reuse
-remain unsupported/deferred. Unsupported XM effects remain unsupported.
+offsets, minimal `EAx`/`EBx` fine volume slide gain updates, and volume-column
+set volume/panning. Adapter-sourced `E2x`, `4xy`, and `EAx`/`EBx` rows carry
+the effect type/parameter on the runtime update row so coverage summaries can
+count applied updates. `E1x`, `6xy`, volume-column vibrato, vibrato waveform
+controls, and effect-memory reuse remain unsupported/deferred. Unsupported XM
+effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.
 

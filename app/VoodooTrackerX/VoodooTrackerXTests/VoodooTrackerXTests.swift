@@ -3577,7 +3577,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(diagnostic.status, .applied)
     }
 
-    func testPlaybackSongSyntheticAdapterE1xEAxAndEBxRemainDeferredUnsupported() throws {
+    func testPlaybackSongSyntheticAdapterE1xRemainsDeferredWhileEAxAndEBxApply() throws {
         let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
         let row = PlaybackRow(index: 0, cells: [
             PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0x11),
@@ -3597,8 +3597,14 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(diagnostics.portamentoSlideEffects, [])
         XCTAssertEqual(diagnostics.finePortamentoDownEffects, [])
         XCTAssertEqual(statuses["E1x fine portamento up"], .deferredUnsupported)
-        XCTAssertEqual(statuses["EAx fine volume slide up"], .deferredUnsupported)
-        XCTAssertEqual(statuses["EBx fine volume slide down"], .deferredUnsupported)
+        XCTAssertEqual(statuses["EAx fine volume slide up"], .applied)
+        XCTAssertEqual(statuses["EBx fine volume slide down"], .applied)
+        XCTAssertTrue(diagnostics.voiceStateUpdates.contains { update in
+            update.command == .eaxFineVolumeSlideUp(amount: 1)
+        })
+        XCTAssertTrue(diagnostics.voiceStateUpdates.contains { update in
+            update.command == .ebxFineVolumeSlideDown(amount: 1)
+        })
     }
 
     func testPlaybackSongSyntheticAdapterSampleAndOutputRatesAffectPlaybackStep() throws {
@@ -5421,6 +5427,37 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(update.effectType, 0x0E)
         XCTAssertEqual(update.effectParam, 0x21)
         XCTAssertEqual(update.scheduledFrame, 4)
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReportsFineVolumeSlideMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0E, effectParam: 0xAF),
+                makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0xA1),
+                makePlaybackRow(index: 2, effectType: 0x0E, effectParam: 0xB1),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first { $0.categories.contains("note_trigger") })
+        let eaxUpdate = try XCTUnwrap(plan.events.first { $0.categories.contains("eax_fine_volume_slide_up") && $0.categories.contains("gain_pan_update") })
+        let ebxUpdate = try XCTUnwrap(plan.events.first { $0.categories.contains("ebx_fine_volume_slide_down") && $0.categories.contains("gain_pan_update") })
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("eax_fine_volume_slide_up"))
+        XCTAssertTrue(plan.categories.contains("ebx_fine_volume_slide_down"))
+        XCTAssertTrue(noteTrigger.categories.contains("eax_fine_volume_slide_up"))
+        XCTAssertEqual(noteTrigger.effectType, 0x0E)
+        XCTAssertEqual(noteTrigger.effectParam, 0xAF)
+        XCTAssertEqual(eaxUpdate.effectType, 0x0E)
+        XCTAssertEqual(eaxUpdate.effectParam, 0xA1)
+        XCTAssertEqual(eaxUpdate.scheduledFrame, 1)
+        XCTAssertEqual(ebxUpdate.effectType, 0x0E)
+        XCTAssertEqual(ebxUpdate.effectParam, 0xB1)
+        XCTAssertEqual(ebxUpdate.scheduledFrame, 2)
     }
 
     func testPlaybackSongAdapterVibrato4xySchedulesSampleStepUpdates() throws {

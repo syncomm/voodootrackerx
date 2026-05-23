@@ -666,6 +666,42 @@ def synthetic_effect_coverage_diagnostics():
                 "status": "applied",
                 "current_status": "applied",
             },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 14},
+                "channel_index": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0xA1,
+                "effect_label": "EAx fine volume slide up",
+                "status": "applied",
+                "current_status": "applied",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 15},
+                "channel_index": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0xB1,
+                "effect_label": "EBx fine volume slide down",
+                "status": "applied",
+                "current_status": "applied",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 16},
+                "channel_index": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0xA0,
+                "effect_label": "EAx fine volume slide up",
+                "status": "ignored/no-op",
+                "current_status": "ignored/no-op",
+            },
+            {
+                "source": {"order": 0, "pattern": 2, "row": 17},
+                "channel_index": 0,
+                "effect_type": 0x0E,
+                "effect_param": 0xB0,
+                "effect_label": "EBx fine volume slide down",
+                "status": "ignored/no-op",
+                "current_status": "ignored/no-op",
+            },
         ],
         "set_finetune_effects": [
             {
@@ -832,12 +868,20 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
-        self.assertEqual(summary["summary"]["detected_count"], 13)
+        self.assertEqual(summary["summary"]["detected_count"], 17)
         self.assertEqual(rows["Cxx set volume"]["applied_count"], 1)
         self.assertEqual(rows["4xy vibrato"]["applied_count"], 1)
         self.assertEqual(rows["E2x fine portamento down"]["detected_count"], 1)
         self.assertEqual(rows["E2x fine portamento down"]["applied_count"], 1)
         self.assertEqual(rows["E2x fine portamento down"]["unsupported_count"], 0)
+        self.assertEqual(rows["EAx fine volume slide up"]["detected_count"], 2)
+        self.assertEqual(rows["EAx fine volume slide up"]["applied_count"], 1)
+        self.assertEqual(rows["EAx fine volume slide up"]["unsupported_count"], 0)
+        self.assertEqual(rows["EAx fine volume slide up"]["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(rows["EBx fine volume slide down"]["detected_count"], 2)
+        self.assertEqual(rows["EBx fine volume slide down"]["applied_count"], 1)
+        self.assertEqual(rows["EBx fine volume slide down"]["unsupported_count"], 0)
+        self.assertEqual(rows["EBx fine volume slide down"]["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(rows["E5x set finetune"]["detected_count"], 2)
         self.assertEqual(rows["E5x set finetune"]["applied_count"], 1)
         self.assertEqual(rows["E5x set finetune"]["deferred_count"], 1)
@@ -978,7 +1022,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 13)
+            self.assertEqual(json.loads(json_path.read_text(encoding="utf-8"))["summary"]["detected_count"], 17)
             self.assertIn("XM Effect Coverage Summary", markdown_path.read_text(encoding="utf-8"))
 
 

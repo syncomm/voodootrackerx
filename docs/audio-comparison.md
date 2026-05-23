@@ -19,6 +19,13 @@ workstation for manual smoke testing, listening checks, candidate WAV renders,
 and local comparisons, but do not commit them, upload them, copy them into
 fixtures, or require them from automated tests.
 
+For local private XM corpus scans, use a stable local-only JSON label map
+outside the repository. Reuse existing `xm-corpus-###` labels when the map is
+present, append labels for newly discovered XM files, and never renumber
+existing labels. Keep the map out of git and fixtures because it may contain
+private filenames or paths. Public reports should use anonymized labels only;
+local-only notes for the maintainer may refer back to the private mapping.
+
 ## Current State
 
 Default runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer

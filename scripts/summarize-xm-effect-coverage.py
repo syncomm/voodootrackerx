@@ -29,6 +29,7 @@ NO_OP_STATUS_MARKERS = EFFECT_MEMORY_STATUS_MARKERS | {
 
 PITCH_RECOMMENDATIONS = {
     "0xy arpeggio": "Minimal 0xy Arpeggio",
+    "E1x fine portamento up": "Minimal E1x Fine Portamento Up",
     "5xy tone portamento + volume slide": "Minimal 5xy Tone Portamento + Volume Slide",
     "6xy vibrato + volume slide": "Minimal 6xy Vibrato + Volume Slide",
     "4xy vibrato": "Minimal Vibrato Foundation",
@@ -217,6 +218,14 @@ def load_input(path: Path) -> tuple[str, Any]:
     if isinstance(payload, dict):
         return ("offline_diagnostics", payload)
     raise EffectCoverageError(f"input must be a JSON object or JSONL trace: {path}")
+
+
+def input_label(input_name: str) -> str:
+    name = Path(input_name).name
+    for suffix in (".diagnostics.json", ".jsonl", ".json"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
 
 
 def source_coordinate(
@@ -712,6 +721,16 @@ def has_effect_memory_gap(command: str, reason_counts: Counter | dict[str, Any] 
     return "effect memory" in command_text or "effect_memory" in reason_text or "ignored_900" in reason_text
 
 
+def explicit_effect_memory_count(row: dict[str, Any]) -> int:
+    reason_counts = nested_dict(row.get("reason_counts"))
+    total = 0
+    for reason, count in reason_counts.items():
+        reason_text = str(reason).lower()
+        if "effect_memory" in reason_text or "ignored_900" in reason_text or "ignored_e90" in reason_text:
+            total += int(count or 0)
+    return total
+
+
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
     unresolved = counters["unsupported_count"] + counters["no_op_effect_memory_deferred_count"]
     if unresolved <= 0:
@@ -782,11 +801,20 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
         first_effect_type = None
         first_effect_param = None
         first_volume_column = None
+        first_input_label = None
+        input_labels = []
+        seen_inputs = set()
         seen_coordinates = set()
         for occurrence in values:
             counters["detected_count"] += 1
             status_counter[occurrence.status] += 1
             reason_counter[occurrence.reason] += 1
+            occurrence_input_label = input_label(occurrence.input_name)
+            if first_input_label is None:
+                first_input_label = occurrence_input_label
+            if occurrence_input_label not in seen_inputs:
+                input_labels.append(occurrence_input_label)
+                seen_inputs.add(occurrence_input_label)
             if first_effect_type is None and occurrence.effect_type is not None:
                 first_effect_type = occurrence.effect_type
             if first_effect_param is None and occurrence.effect_param is not None:
@@ -817,6 +845,9 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
             "first_effect_param_hex": byte_hex(first_effect_param),
             "first_volume_column": first_volume_column,
             "first_volume_column_hex": byte_hex(first_volume_column),
+            "first_input_label": first_input_label or "none",
+            "input_labels": input_labels,
+            "input_count": len(input_labels),
             "first_coordinates": [coord.to_json() for coord in first_coordinates],
             "first_coordinate": first_coordinates[0].label() if first_coordinates else "none",
             "status_counts": dict(sorted(status_counter.items())),
@@ -919,6 +950,15 @@ def recommend_next_pr(
         and "no_active_voice" not in json.dumps(row.get("reason_counts", {}))
     ]
     unsupported_rows = [row for row in unresolved_rows if int(row["unsupported_count"]) > 0]
+    effect_memory_marker_rows = [
+        row for row in unresolved_rows
+        if explicit_effect_memory_count(row) > 0
+    ]
+    effect_memory_marker_total = sum(explicit_effect_memory_count(row) for row in effect_memory_marker_rows)
+    top_unsupported_count = max((int(row["unsupported_count"]) for row in unsupported_rows), default=0)
+    if len(effect_memory_marker_rows) >= 2 and effect_memory_marker_total > top_unsupported_count:
+        return "Effect Memory Foundation"
+
     candidate_rows = unsupported_rows or effect_memory_rows or unresolved_rows
     candidate_rows.sort(key=lambda row: (
         -int(row["unsupported_count"]),
@@ -973,20 +1013,21 @@ def build_markdown_report(summary: dict[str, Any], *, top: int | None = None) ->
         f"- Recommended next PR: {totals.get('recommended_next_pr', 'No clear missing-effect implementation target')}",
         "",
         "## Coverage Table",
-        "| Command | Source | Runtime/offline | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | First coordinates | Recommended priority |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| Command | Source | Runtime/offline | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | First input | First coordinates | Recommended priority |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     rows = nested_list(summary.get("effect_coverage"))
     if top is not None and top > 0:
         rows = rows[:top]
     if not rows:
-        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | none | No clear missing-effect implementation target |")
+        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | none | none | No clear missing-effect implementation target |")
     for row in rows:
         lines.append(
             f"| {row.get('command')} | {row.get('command_source')} | {row.get('runtime_offline_category')} | "
             f"{row.get('detected_count', 0)} | {row.get('applied_count', 0)} | {row.get('deferred_count', 0)} | "
             f"{row.get('unsupported_count', 0)} | {row.get('no_op_effect_memory_deferred_count', 0)} | "
-            f"{row.get('first_coordinate', 'none')} | {row.get('recommended_implementation_priority')} |"
+            f"{row.get('first_input_label', 'none')} | {row.get('first_coordinate', 'none')} | "
+            f"{row.get('recommended_implementation_priority')} |"
         )
 
     lines.extend([

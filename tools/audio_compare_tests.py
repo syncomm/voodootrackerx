@@ -964,6 +964,70 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         )
         self.assertEqual(rows["5xy tone portamento + volume slide"]["first_effect_type_hex"], "05")
         self.assertEqual(rows["5xy tone portamento + volume slide"]["first_effect_param_hex"], "34")
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["first_input_label"], "synthetic-diagnostics")
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["input_labels"], ["synthetic-diagnostics"])
+
+    def test_effect_coverage_summary_records_anonymized_input_labels(self):
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", synthetic_effect_coverage_diagnostics()),
+            ("offline_diagnostics", "xm-corpus-002.diagnostics.json", synthetic_effect_coverage_diagnostics()),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["4xy vibrato"]["first_input_label"], "xm-corpus-001")
+        self.assertEqual(rows["4xy vibrato"]["input_labels"], ["xm-corpus-001", "xm-corpus-002"])
+        self.assertEqual(rows["4xy vibrato"]["input_count"], 2)
+
+    def test_effect_coverage_summary_recommends_minimal_e1x(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x0E, 0x11, "E1x fine portamento up"),
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        row = summary["effect_coverage"][0]
+
+        self.assertEqual(row["command"], "E1x fine portamento up")
+        self.assertEqual(row["recommended_implementation_priority"], "Minimal E1x Fine Portamento Up")
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "Minimal E1x Fine Portamento Up")
+
+    def test_effect_coverage_summary_recommends_effect_memory_when_markers_dominate(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x0E, 0x11, "E1x fine portamento up"),
+            ],
+            "sample_offset_effects": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 0},
+                    "channel_index": 1,
+                    "effect_type": 0x09,
+                    "effect_param": 0x00,
+                    "status": "ignored_900_no_op",
+                    "applied": False,
+                    "deferred": True,
+                },
+            ],
+            "vibrato_effects": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 1},
+                    "channel_index": 1,
+                    "effect_type": 0x04,
+                    "effect_param": 0x00,
+                    "status": "zero_param_effect_memory_deferred",
+                    "applied": False,
+                    "deferred": True,
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "Effect Memory Foundation")
 
     def test_effect_coverage_summary_handles_empty_diagnostics(self):
         summary = effect_coverage.build_summary_from_payloads([

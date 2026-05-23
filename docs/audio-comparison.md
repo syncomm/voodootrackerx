@@ -45,23 +45,28 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
 minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
-minimal `E2x` fine portamento down, minimal `4xy` vibrato, and `E9x`
+minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine volume slides,
+minimal `4xy` vibrato, and `E9x`
 retriggers for the tracked active adapted voice. The `E2x` foundation applies
 one deterministic row-level linear-period/sample-step pitch-down adjustment;
 `E20` remains an effect-memory-deferred no-op. The `4xy` foundation uses
 deterministic sine-based linear-period sample-step updates on row ticks in the
 shared runtime/offline C mixer adapter path; `400`, zero speed/depth memory,
 `6xy`, volume-column vibrato, and vibrato waveform controls remain deferred.
+The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
+change through the shared gain-update path, clamps to the XM `0...64` channel
+volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
 bounded offline renders from the update frame forward. Those bounded/offline
 gain and pan update events are smoothed by a fixed 32-frame deterministic
 micro-ramp in the C mixer, including empty-note volume-column set-volume,
 empty-note volume-column set-panning, `Cxx`, `8xx`, and nonzero row-level
-`Axy` updates and minimal row-level `Hxy` global volume slides that actually
-change an active voice. `ECx` note cuts remain hard cuts. `H00` is diagnosed as
-a no-op without effect memory, and both-nibble `Hxy` parameters use the same
-safe up-nibble precedence policy as the current runtime effect helper.
+`Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides, and minimal
+row-level `Hxy` global volume slides that actually change an active voice.
+`ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
+memory, and both-nibble `Hxy` parameters use the same safe up-nibble precedence
+policy as the current runtime effect helper.
 Normal note triggers also use
 parsed XM instrument note-sample maps/keymaps when a valid bounded offline
 mapping exists, with deterministic first-playable fallback or skip diagnostics
@@ -93,6 +98,11 @@ and scheduled sample-step update counts for first-pass `4xy` coverage.
 counters report detected/applied/no-active/effect-memory-deferred `E2x`
 coverage, the fine amount nibble, current period/sample-step before/after, and
 scheduled sample-step update counts where the row-level update is emitted.
+Render-level `eax_fine_volume_slide_up_*` and
+`ebx_fine_volume_slide_down_*` counters report detected, applied,
+no-active-voice, zero-amount/effect-memory-deferred, and scheduled gain-update
+counts; the generic `volume_panning_state_updates` entries include the fine
+amount nibble plus channel volume and gain before/after.
 The helper also reports export-level headroom and clipping diagnostics for the
 Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export
@@ -739,8 +749,9 @@ Candidate diagnostics and the correlation report also include a focused
 pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `5xy`,
 `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
 `1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E2x`
-fine portamento down, and applied `4xy` vibrato are reported in the general
-command frequency and dedicated diagnostics instead of the deferred
+fine portamento down, applied `EAx`/`EBx` fine volume slides, and applied
+`4xy` vibrato are reported in the general command frequency and dedicated
+diagnostics instead of the deferred
 pitch-modulation bucket. The report groups deferred
 pitch-modulation counts into arpeggio, remaining portamento-family, vibrato,
 and tremolo buckets, shows whether they appear near the worst mismatch windows,
@@ -748,9 +759,10 @@ and recommends a conservative next pitch-effect PR only when one bucket
 dominates.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
-`Cxx`, `8xx`, `Axy`, and `Hxy` applied/deferred/no-op counts, whether an active
-voice was updated, effective channel volume/pan and global volume before and
-after, global-volume slide direction/amount/clamping, and the source
+`Cxx`, `8xx`, `Axy`, `EAx`/`EBx`, and `Hxy` applied/deferred/no-op counts,
+whether an active voice was updated, effective channel volume/pan and global
+volume before and after, fine slide amount, global-volume slide
+direction/amount/clamping, and the source
 order/pattern/row/channel plus synthetic frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
@@ -1470,6 +1482,12 @@ render-level `e2x_fine_portamento_down_*` counts. Same-cell note `E2x` cases
 fold the fine period increase into the note's initial playback step; no-note
 rows with an active voice schedule a row-start sample-step update. `E20`,
 no-active-voice, and unsupported frequency-table cases stay visible.
+Bounded render diagnostics also include render-level
+`eax_fine_volume_slide_up_*` and `ebx_fine_volume_slide_down_*` counts. Nonzero
+`EAx`/`EBx` rows apply one clamped row-level channel-volume adjustment; same-cell
+notes trigger with the adjusted volume, empty-note rows update an active voice
+through the gain path, and `EA0`/`EB0` remain visible as no-op/effect-memory
+deferred diagnostics.
 
 ## Local-Only Artifact Rules
 

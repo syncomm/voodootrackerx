@@ -477,9 +477,26 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isFinePortamentoDown {
                 categories.append("e2x_fine_portamento_down")
             }
+            let fineVolumeSlideAmount = mapping.effectParam & 0x0F
+            let isFineVolumeSlideUp = mapping.effectType == 0x0E &&
+                ((mapping.effectParam >> 4) & 0x0F) == 0x0A &&
+                fineVolumeSlideAmount > 0
+            let isFineVolumeSlideDown = mapping.effectType == 0x0E &&
+                ((mapping.effectParam >> 4) & 0x0F) == 0x0B &&
+                fineVolumeSlideAmount > 0
+            if isFineVolumeSlideUp {
+                categories.append("eax_fine_volume_slide_up")
+            }
+            if isFineVolumeSlideDown {
+                categories.append("ebx_fine_volume_slide_down")
+            }
             if syntheticEvent.keyOffFrame != nil {
                 categories.append("key_off")
             }
+            let hasBridgedEffectMetadata = isSetFinetune ||
+                isFinePortamentoDown ||
+                isFineVolumeSlideUp ||
+                isFineVolumeSlideDown
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: mapping.source,
@@ -488,8 +505,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 scheduledFrame: scheduler.frame(for: syntheticEvent),
                 action: .noteTrigger(eventIndex: eventIndex, event: syntheticEvent, mapping: mapping),
                 categories: categories,
-                effectType: (isSetFinetune || isFinePortamentoDown) ? mapping.effectType : nil,
-                effectParam: (isSetFinetune || isFinePortamentoDown) ? mapping.effectParam : nil
+                effectType: hasBridgedEffectMetadata ? mapping.effectType : nil,
+                effectParam: hasBridgedEffectMetadata ? mapping.effectParam : nil
             ))
             nextID += 1
         }
@@ -509,6 +526,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("hxy_global_volume_update")
             case .volumeColumn:
                 categories.append("volume_column_update")
+            case .eaxFineVolumeSlideUp:
+                categories.append("eax_fine_volume_slide_up")
+            case .ebxFineVolumeSlideDown:
+                categories.append("ebx_fine_volume_slide_down")
             default:
                 break
             }
@@ -519,7 +540,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 syntheticTick: update.syntheticTick,
                 scheduledFrame: update.scheduledFrame,
                 action: .gainPanUpdate(activeEventIndex: activeEventIndex, gain: gain, pan: pan),
-                categories: categories
+                categories: categories,
+                effectType: update.effectType,
+                effectParam: update.effectParam
             ))
             nextID += 1
         }
@@ -1250,6 +1273,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
     case hxyGlobalVolumeSlide(up: Int, down: Int)
+    case eaxFineVolumeSlideUp(amount: Int)
+    case ebxFineVolumeSlideDown(amount: Int)
 
     var label: String {
         switch self {
@@ -1263,6 +1288,10 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "Axy volume slide"
         case .hxyGlobalVolumeSlide:
             return "Hxy global volume slide"
+        case .eaxFineVolumeSlideUp:
+            return "EAx fine volume slide up"
+        case .ebxFineVolumeSlideDown:
+            return "EBx fine volume slide down"
         }
     }
 }
@@ -3811,6 +3840,56 @@ enum PlaybackSongSyntheticAdapter {
                 cell: cell,
                 commandSource: .effectColumn,
                 command: .axyVolumeSlide(up: up, down: up > 0 ? 0 : down),
+                rawVolumeColumn: nil,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .applied,
+                behavior: .rowLevelApproximation,
+                channelStateBefore: before,
+                channelStateAfter: channelState,
+                globalVolumeBefore: globalVolumeValue,
+                globalVolumeAfter: globalVolumeValue
+            )
+        case 0x0E where isFineVolumeSlideEffect(cell):
+            let before = channelState
+            let amount = fineVolumeSlideAmount(from: cell)
+            let isSlideUp = isFineVolumeSlideUpEffect(cell)
+            let command: PlaybackSongSyntheticVoiceStateUpdateCommand = isSlideUp
+                ? .eaxFineVolumeSlideUp(amount: amount)
+                : .ebxFineVolumeSlideDown(amount: amount)
+            guard amount > 0 else {
+                return voiceStateUpdateDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledFrame,
+                    cell: cell,
+                    commandSource: .effectColumn,
+                    command: command,
+                    rawVolumeColumn: nil,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignoredNoOp,
+                    behavior: .rowLevelApproximation,
+                    channelStateBefore: before,
+                    channelStateAfter: before,
+                    globalVolumeBefore: globalVolumeValue,
+                    globalVolumeAfter: globalVolumeValue
+                )
+            }
+            if isSlideUp {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue + amount)
+            } else {
+                channelState.volumeValue = clampedVolumeValue(before.volumeValue - amount)
+            }
+            return voiceStateUpdateDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                commandSource: .effectColumn,
+                command: command,
                 rawVolumeColumn: nil,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
@@ -6478,6 +6557,22 @@ enum PlaybackSongSyntheticAdapter {
         Int(cell.effectParam & 0x0F)
     }
 
+    private static func isFineVolumeSlideUpEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0A
+    }
+
+    private static func isFineVolumeSlideDownEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x0B
+    }
+
+    private static func isFineVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        isFineVolumeSlideUpEffect(cell) || isFineVolumeSlideDownEffect(cell)
+    }
+
+    private static func fineVolumeSlideAmount(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
     private static func setFinetuneNibble(from cell: PlaybackCell) -> Int {
         Int(cell.effectParam & 0x0F)
     }
@@ -6715,6 +6810,8 @@ enum PlaybackSongSyntheticAdapter {
             return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
         case 0x0E where isFinePortamentoDownEffect(cell):
             return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+        case 0x0E where isFineVolumeSlideEffect(cell):
+            return fineVolumeSlideAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
             guard extendedEffectTick(cell) < timingConfig.speed else {
                 return .ignoredNoOp
@@ -6833,6 +6930,7 @@ enum PlaybackSongSyntheticAdapter {
             isVibratoEffect(cell) ||
             isSetFinetuneEffect(cell) ||
             isFinePortamentoDownEffect(cell) ||
+            isFineVolumeSlideEffect(cell) ||
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||

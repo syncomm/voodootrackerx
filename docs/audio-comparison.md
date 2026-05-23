@@ -44,12 +44,14 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
-minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento, and
-minimal `4xy` vibrato and `E9x` retriggers for the tracked active adapted
-voice. The `4xy` foundation uses deterministic sine-based linear-period
-sample-step updates on row ticks in the shared runtime/offline C mixer adapter
-path; `400`, zero speed/depth memory, `6xy`, volume-column vibrato, and vibrato
-waveform controls remain deferred.
+minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
+minimal `E2x` fine portamento down, minimal `4xy` vibrato, and `E9x`
+retriggers for the tracked active adapted voice. The `E2x` foundation applies
+one deterministic row-level linear-period/sample-step pitch-down adjustment;
+`E20` remains an effect-memory-deferred no-op. The `4xy` foundation uses
+deterministic sine-based linear-period sample-step updates on row ticks in the
+shared runtime/offline C mixer adapter path; `400`, zero speed/depth memory,
+`6xy`, volume-column vibrato, and vibrato waveform controls remain deferred.
 Empty-note volume-column set-volume/set-panning cells and supported
 effect-column state commands can update the currently tracked active voice in
 bounded offline renders from the update frame forward. Those bounded/offline
@@ -87,6 +89,10 @@ counts, and rejected event coordinates.
 Diagnostics JSON also reports `vibrato_effects` plus render counters such as
 `vibrato_4xy_effect_count`, applied/no-active/effect-memory-deferred buckets,
 and scheduled sample-step update counts for first-pass `4xy` coverage.
+`fine_portamento_down_effects` and render-level `e2x_fine_portamento_down_*`
+counters report detected/applied/no-active/effect-memory-deferred `E2x`
+coverage, the fine amount nibble, current period/sample-step before/after, and
+scheduled sample-step update counts where the row-level update is emitted.
 The helper also reports export-level headroom and clipping diagnostics for the
 Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export
@@ -730,11 +736,12 @@ counts, unresolved key-off/no-active buckets, and a conservative next-effect
 recommendation. It is local diagnostics only; generated JSON/Markdown reports
 derived from private modules must stay under `/tmp` or another ignored path.
 Candidate diagnostics and the correlation report also include a focused
-pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `4xy`,
-`5xy`, `6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
-`1xx`/`2xx` portamento slides and applied `3xx` tone portamento are reported in
-the general command frequency and dedicated portamento diagnostics instead of
-the deferred pitch-modulation bucket. The report groups deferred
+pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `5xy`,
+`6xy`, `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
+`1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E2x`
+fine portamento down, and applied `4xy` vibrato are reported in the general
+command frequency and dedicated diagnostics instead of the deferred
+pitch-modulation bucket. The report groups deferred
 pitch-modulation counts into arpeggio, remaining portamento-family, vibrato,
 and tremolo buckets, shows whether they appear near the worst mismatch windows,
 and recommends a conservative next pitch-effect PR only when one bucket
@@ -1246,7 +1253,7 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
 portamento, vibrato, arpeggio, or a focused follow-up to
-minimal `E9x`/`ECx`/`EDx`. If mismatch windows repeatedly line up with
+minimal `E2x`/`E9x`/`ECx`/`EDx`. If mismatch windows repeatedly line up with
 diagnosed `900` or `E90` no-ops, decide separately whether effect memory is
 worth a narrow PR. If mismatch windows are broad and steady while events look
 plausible, remaining resampling details, loop details, headroom/clipping
@@ -1254,7 +1261,7 @@ diagnostics, or reference-render settings may be the better next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
 dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
 portamento-family work for `5xy` or volume-column tone portamento, vibrato for
-`4xy`/`6xy` or volume-column vibrato, and tremolo for `7xy`. If counts are
+`6xy` or volume-column vibrato, and tremolo for `7xy`. If counts are
 sparse or split, record the evidence and do not start an implementation PR from
 that signal alone. If windows line up with applied `1xx`/`2xx` or `3xx`, inspect
 their current/target step diagnostics before deciding whether a follow-up should
@@ -1458,6 +1465,11 @@ Bounded render diagnostics now include `set_finetune_effects` plus render-level
 nibble, effective finetune, linear period/frequency, and playback step when the
 linear-frequency path applies. No-note/effect-memory and unsupported frequency
 table cases stay visible as deferred diagnostics.
+Bounded render diagnostics also include `fine_portamento_down_effects` plus
+render-level `e2x_fine_portamento_down_*` counts. Same-cell note `E2x` cases
+fold the fine period increase into the note's initial playback step; no-note
+rows with an active voice schedule a row-start sample-step update. `E20`,
+no-active-voice, and unsupported frequency-table cases stay visible.
 
 ## Local-Only Artifact Rules
 

@@ -24,6 +24,7 @@ PITCH_LABEL_TO_CATEGORY = {
     "3xx tone portamento": "portamento",
     "5xy tone portamento + volume slide": "portamento",
     "tone portamento": "portamento",
+    "E2x fine portamento down": "portamento",
     "volume-column tone portamento": "portamento",
     "4xy vibrato": "vibrato",
     "6xy vibrato + volume slide": "vibrato",
@@ -323,6 +324,8 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "Dxx pattern break"
     if effect_type == 0x0E:
         subcommand = (effect_param >> 4) & 0x0F
+        if subcommand == 0x02:
+            return "E2x fine portamento down"
         if subcommand == 0x09:
             return "E9x retrigger"
         if subcommand == 0x0C:
@@ -442,6 +445,17 @@ def portamento_slide_status(portamento: dict[str, Any]) -> str:
     if bool(portamento.get("applied")) or status == "applied":
         return "applied"
     if status == "zero_param_effect_memory_deferred" or bool(portamento.get("deferred")):
+        return "deferred/no-op"
+    if status in {"no_active_voice", "out_of_range"} or bool(portamento.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    return "unknown"
+
+
+def fine_portamento_down_status(portamento: dict[str, Any]) -> str:
+    status = str(portamento.get("status", ""))
+    if bool(portamento.get("applied")) or status == "applied":
+        return "applied"
+    if status == "zero_amount_effect_memory_deferred" or bool(portamento.get("deferred")):
         return "deferred/no-op"
     if status in {"no_active_voice", "out_of_range"} or bool(portamento.get("ignored_as_no_op")):
         return "ignored/no-op"
@@ -641,6 +655,32 @@ def extract_command_occurrences(
             domain="effect",
             label=effect_command_label(portamento.get("effect_type"), portamento.get("effect_param")),
             status=portamento_slide_status(portamento),
+            source=nested_dict(portamento.get("source")),
+            channel=portamento.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+            parameter=portamento.get("effect_param"),
+        ))
+
+    for portamento in nested_list(diagnostics.get("fine_portamento_down_effects")):
+        if not isinstance(portamento, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(portamento, rows_by_source, rows_by_synthetic)
+        frames = [
+            value for value in (
+                integer(update.get("scheduled_frame"))
+                for update in nested_list(portamento.get("step_updates"))
+                if isinstance(update, dict)
+            )
+            if value is not None
+        ]
+        if frames:
+            start_frame = min(frames)
+            end_frame = max(frames) + 1
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(portamento.get("effect_type"), portamento.get("effect_param")),
+            status=fine_portamento_down_status(portamento),
             source=nested_dict(portamento.get("source")),
             channel=portamento.get("channel_index"),
             start_frame=start_frame,

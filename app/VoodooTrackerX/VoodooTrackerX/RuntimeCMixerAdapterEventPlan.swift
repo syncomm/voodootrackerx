@@ -125,6 +125,13 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             var categories = ["note_trigger"]
             if mapping.sampleOffset.applied {
                 categories.append("sample_offset")
+                if mapping.sampleOffset.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    if mapping.sampleOffset.effectType == 0x09,
+                       mapping.sampleOffset.effectParam == 0 {
+                        categories.append("900_sample_offset_memory_applied")
+                    }
+                }
             }
             if mapping.syntheticTick > 0 {
                 categories.append("note_delay")
@@ -157,7 +164,6 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("ebx_fine_volume_slide_down")
             }
             let isVibratoVolumeSlide = mapping.effectType == 0x06 &&
-                mapping.effectParam != 0 &&
                 appliedVibratoVolumeSlideEventIndices.contains(eventIndex)
             if isVibratoVolumeSlide {
                 categories.append("vibrato_volume_slide_6xy")
@@ -169,7 +175,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isFinePortamentoDown ||
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
-                isVibratoVolumeSlide
+                isVibratoVolumeSlide ||
+                mapping.sampleOffset.applied
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: mapping.source,
@@ -284,6 +291,15 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             for update in diagnostic.stepUpdates {
                 var categories = ["step_update", "vibrato_update"]
+                if diagnostic.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    if diagnostic.effectType == 0x04 {
+                        categories.append("4xy_vibrato_memory_applied")
+                    }
+                    if diagnostic.effectType == 0x06 {
+                        categories.append("6xy_vibrato_memory_applied")
+                    }
+                }
                 if diagnostic.effectType == 0x06 {
                     categories.append("vibrato_volume_slide_6xy")
                 }

@@ -59,8 +59,9 @@ diagnosed as a no-op without effect memory, and both-nibble Hxy parameters use a
 diagnosed up-nibble-precedence policy. The bounded adapter also applies
 minimal `Fxx` timing changes for offline renders only: `F01...F1F` updates
 speed, `F20...FFF` as byte parameters updates BPM, and `F00` is diagnosed as an
-ignored no-op. It also applies minimal nonzero `9xx` sample offsets to same-cell
-note/sample triggers in bounded offline renders only, diagnoses `900` as
+ignored no-op. It also applies minimal `9xx` sample offsets to same-cell
+note/sample triggers, replays per-channel `900` memory when prior nonzero
+`9xx` memory exists, diagnoses unavailable `900` memory as
 ignored/deferred/no-op, and skips out-of-range offsets safely. Minimal `ECx`
 note cut and `EDx` note delay are supported in bounded offline renders only;
 `ECx` hard-cuts the active adapted voice at the requested tick and `EDx` delays
@@ -80,15 +81,17 @@ and `E20` remains an effect-memory-deferred no-op. Minimal `4xy` vibrato now
 uses the same linear-frequency sample-step update foundation in the
 runtime/offline C mixer adapter path, with deterministic sine-based row-tick
 modulation diagnostics for speed/depth, active voice updates, no-active-voice,
-and effect-memory-deferred no-ops. Minimal `EAx`/`EBx` fine volume slides now
+`400`/single-zero-nibble memory replay, and effect-memory-deferred no-ops when
+required memory is unavailable. Minimal `EAx`/`EBx` fine volume slides now
 apply one deterministic row-level clamped channel-volume adjustment through the
 shared runtime/offline gain-update path. Same-cell notes trigger with the
 adjusted volume, no-note rows update an active voice at row start, and
 `EA0`/`EB0` remain effect-memory-deferred no-ops. Minimal `6xy` vibrato +
-volume slide now reuses prior nonzero `4xy` channel vibrato settings for
-sample-step updates and the existing `Axy`-style row-level gain path for volume
-slides; `600`, missing vibrato memory, volume-column vibrato, vibrato waveform
-controls, `E1x`, and broad effect memory remain deferred.
+volume slide now reuses prior channel vibrato memory for sample-step updates and
+the existing `Axy`-style row-level gain path for nonzero volume slides; `600`
+can replay vibrato memory without broad volume-slide memory, while missing
+vibrato memory, volume-column vibrato, vibrato waveform controls, `E1x`, and
+unrelated effect-memory families remain deferred.
 Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
@@ -115,8 +118,9 @@ volume/panning state-update command frequency for focused follow-up diagnosis.
 It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
 `3xx` tone-portamento diagnostics, applied `E2x` fine-portamento diagnostics,
 applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
-diagnostics, applied `6xy` vibrato + volume slide diagnostics, and deferred
-pitch-modulation counts and source coordinates for arpeggio, remaining
+diagnostics, applied `6xy` vibrato + volume slide diagnostics, explicit
+effect-memory reused/missing counts and source metadata for `900`/`4xy`/`6xy`,
+and deferred pitch-modulation counts and source coordinates for arpeggio, remaining
 portamento-family commands, tremolo, and volume-column
 vibrato/tone-portamento commands, with a conservative
 pitch-effect next-PR recommendation when one bucket dominates local evidence.
@@ -128,7 +132,9 @@ coverage summary helper can now aggregate bounded offline diagnostics JSON and
 runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
 effect tables, first source coordinates, unresolved key-off/no-active buckets,
 and a conservative next-effect recommendation; filled reports and generated
-audio artifacts stay outside git. The developer-only helper keeps its default
+audio artifacts stay outside git. After the effect-memory foundation, the next
+recommended narrow effect target is `E1x` fine portamento up unless fresh local
+coverage points to traversal or volume-column gaps instead. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. It can also render with `--until-song-end` plus optional
@@ -147,8 +153,8 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E2x`,
-`4xy`, and `6xy` sample-step state, plus supported in-window `EAx`/`EBx` and
-`6xy` gain updates.
+`4xy`, `6xy`, and supported sample-offset memory state, plus supported in-window
+`EAx`/`EBx` and `6xy` gain updates.
 Unsupported/deferred effects and full tracker voice semantics remain separate
 targeted work. Developer-only bounded candidate WAV exports now also report
 Float32 output headroom/clipping diagnostics and can apply explicit `--gain` or
@@ -429,8 +435,9 @@ Immediate audio accuracy sequence:
 89. Minimal E2x Fine Portamento Down — done
 90. Minimal EAx / EBx Fine Volume Slides — done
 91. Minimal 6xy Vibrato + Volume Slide — done
-92. Next effect target from remaining corpus evidence: E1x fine portamento up or effect memory foundation — recommended next effect PR
-93. Reference comparison stabilization against MikMod/OpenMPT
+92. XM Effect Memory Foundation — done
+93. Next effect target from remaining corpus evidence: E1x fine portamento up or traversal/volume-column gaps — recommended next effect PR
+94. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -539,8 +546,9 @@ Features:
   future trigger gain mapping, and diagnostics for no-op/clamped/both-nibble
   cases
 - minimal `Fxx` speed/BPM timing changes for bounded offline adapted renders, without full effect parity
-- minimal nonzero `9xx` sample offset starts for same-cell bounded offline
-  adapted note/sample triggers, with `900` and effect memory still deferred
+- minimal `9xx` sample offset starts for same-cell bounded offline adapted
+  note/sample triggers, with per-channel `900` memory replay and deterministic
+  missing-memory diagnostics
 - minimal `1xx`/`2xx` portamento up/down and minimal `3xx` tone portamento
   support for bounded offline adapted renders, with no-retrigger 3xx target
   setting, generic C mixer sample-step updates, diagnostics, and `5xy` plus
@@ -550,13 +558,15 @@ Features:
   path, with same-cell note folding, no-active-voice diagnostics, `E20` effect
   memory deferred, and no broad E-command memory
 - minimal `4xy` vibrato support through deterministic linear-period
-  sample-step updates in the runtime/offline C mixer adapter path, with `400`,
-  zero speed/depth memory, volume-column vibrato, waveform controls, and broad
-  effect memory still deferred
-- minimal `6xy` vibrato + volume slide support through prior nonzero `4xy`
-  channel vibrato settings plus the existing row-level `Axy`-style
-  volume-slide/gain path, with `600`, missing vibrato memory, volume-column
-  vibrato, waveform controls, and broad effect memory still deferred
+  sample-step updates in the runtime/offline C mixer adapter path, with `400`
+  and single-zero nibbles replaying available per-channel vibrato memory while
+  missing memory, volume-column vibrato, waveform controls, and unrelated effect
+  memory remain deferred
+- minimal `6xy` vibrato + volume slide support through prior channel vibrato
+  memory plus the existing row-level `Axy`-style volume-slide/gain path, with
+  `600` replaying available vibrato memory and missing vibrato memory,
+  volume-column vibrato, waveform controls, and unrelated effect memory still
+  deferred
 - minimal `EAx`/`EBx` fine volume slide support through one row-level clamped
   channel-volume adjustment in the runtime/offline C mixer adapter gain path,
   with same-cell note folding, no-active-voice diagnostics, `EA0`/`EB0` effect

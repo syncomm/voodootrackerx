@@ -436,6 +436,14 @@ def diagnostic_status(item: dict[str, Any], default: str = "unknown") -> str:
     return raw_status or default
 
 
+def diagnostic_reason(item: dict[str, Any], status: str) -> str:
+    if bool(item.get("effect_memory_reused")) and status == "applied":
+        return "effect_memory_reused"
+    if bool(item.get("effect_memory_missing")):
+        return str(item.get("memory_unavailable_reason") or "effect_memory_missing")
+    return str(item.get("status") or status)
+
+
 def runtime_status(event: dict[str, Any]) -> str:
     decision = str(event.get("decision") or "")
     if decision in {"triggered", "delayed", "cut", "retriggered", "updated"}:
@@ -495,7 +503,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
                 continue
             key = effect_status_key(item)
             status = diagnostic_status(item)
-            reason = str(item.get("status") or status)
+            reason = diagnostic_reason(item, status)
             specialized[key] = (status, reason)
 
     for item in nested_list(payload.get("pattern_traversal_timing_effects")):
@@ -549,7 +557,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
                 command_source="effect_column",
                 category="offline_bounded_render",
                 status=diagnostic_status(item),
-                reason=str(item.get("status") or diagnostic_status(item)),
+                reason=diagnostic_reason(item, diagnostic_status(item)),
                 source=source_coordinate(nested_dict(item.get("source")), channel=item.get("channel_index"), tick=item.get("synthetic_tick"), fallback=item),
                 effect_type=effect_type,
                 effect_param=effect_param,
@@ -664,6 +672,11 @@ def runtime_occurrences(events: list[Any], input_name: str) -> list[CoverageOccu
 def status_flags(occurrence: CoverageOccurrence) -> dict[str, bool]:
     status = occurrence.status.lower()
     reason = occurrence.reason.lower()
+    effect_memory_reused = "effect_memory_reused" in reason
+    effect_memory_missing = (
+        "effect_memory_missing" in reason
+        or ("missing_" in reason and "memory" in reason)
+    )
     no_op = (
         "ignored" in status
         or "no-op" in status
@@ -671,7 +684,7 @@ def status_flags(occurrence: CoverageOccurrence) -> dict[str, bool]:
         or "no_active_voice" in status
         or "no_active_voice" in reason
         or any(marker in status or marker in reason for marker in NO_OP_STATUS_MARKERS)
-    )
+    ) and not effect_memory_reused
     unsupported = "unsupported" in status or "unknown/unsupported" in occurrence.command or "unknown" == status
     deferred = "deferred" in status or unsupported
     return {
@@ -679,6 +692,8 @@ def status_flags(occurrence: CoverageOccurrence) -> dict[str, bool]:
         "deferred": deferred,
         "unsupported": unsupported,
         "no_op_effect_memory_deferred": no_op,
+        "effect_memory_reused": effect_memory_reused,
+        "effect_memory_missing": effect_memory_missing,
         "unknown": status == "unknown" or occurrence.command.endswith("unknown/unsupported"),
     }
 
@@ -716,7 +731,11 @@ def effect_family(command: str, command_source: str) -> str:
 
 
 def has_effect_memory_gap(command: str, reason_counts: Counter | dict[str, Any] | None) -> bool:
-    reason_text = json.dumps(dict(reason_counts or {}), sort_keys=True).lower()
+    filtered_reasons = {
+        reason: count for reason, count in dict(reason_counts or {}).items()
+        if "effect_memory_reused" not in str(reason).lower()
+    }
+    reason_text = json.dumps(filtered_reasons, sort_keys=True).lower()
     command_text = command.lower()
     return "effect memory" in command_text or "effect_memory" in reason_text or "ignored_900" in reason_text
 
@@ -726,6 +745,8 @@ def explicit_effect_memory_count(row: dict[str, Any]) -> int:
     total = 0
     for reason, count in reason_counts.items():
         reason_text = str(reason).lower()
+        if "effect_memory_reused" in reason_text:
+            continue
         if "effect_memory" in reason_text or "ignored_900" in reason_text or "ignored_e90" in reason_text:
             total += int(count or 0)
     return total
@@ -838,6 +859,8 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
             "deferred_count": counters["deferred_count"],
             "unsupported_count": counters["unsupported_count"],
             "no_op_effect_memory_deferred_count": counters["no_op_effect_memory_deferred_count"],
+            "effect_memory_reused_count": counters["effect_memory_reused_count"],
+            "effect_memory_missing_count": counters["effect_memory_missing_count"],
             "unknown_count": counters["unknown_count"],
             "first_effect_type": first_effect_type,
             "first_effect_param": first_effect_param,
@@ -876,6 +899,8 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
             "deferred_count": counts["deferred_count"],
             "unsupported_count": counts["unsupported_count"],
             "no_op_effect_memory_deferred_count": counts["no_op_effect_memory_deferred_count"],
+            "effect_memory_reused_count": counts["effect_memory_reused_count"],
+            "effect_memory_missing_count": counts["effect_memory_missing_count"],
         })
 
     recommended_next_pr = recommend_next_pr(rows, unsupported_deferred, no_active, key_off)
@@ -891,6 +916,8 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
             "deferred_count": totals["deferred_count"],
             "unsupported_count": totals["unsupported_count"],
             "no_op_effect_memory_deferred_count": totals["no_op_effect_memory_deferred_count"],
+            "effect_memory_reused_count": totals["effect_memory_reused_count"],
+            "effect_memory_missing_count": totals["effect_memory_missing_count"],
             "unknown_count": totals["unknown_count"],
             "recommended_next_pr": recommended_next_pr,
         },
@@ -1010,22 +1037,25 @@ def build_markdown_report(summary: dict[str, Any], *, top: int | None = None) ->
         f"- Deferred: {totals.get('deferred_count', 0)}",
         f"- Unsupported: {totals.get('unsupported_count', 0)}",
         f"- No-op/effect-memory deferred: {totals.get('no_op_effect_memory_deferred_count', 0)}",
+        f"- Effect memory reused: {totals.get('effect_memory_reused_count', 0)}",
+        f"- Effect memory missing: {totals.get('effect_memory_missing_count', 0)}",
         f"- Recommended next PR: {totals.get('recommended_next_pr', 'No clear missing-effect implementation target')}",
         "",
         "## Coverage Table",
-        "| Command | Source | Runtime/offline | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | First input | First coordinates | Recommended priority |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        "| Command | Source | Runtime/offline | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | Memory reused | Memory missing | First input | First coordinates | Recommended priority |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     rows = nested_list(summary.get("effect_coverage"))
     if top is not None and top > 0:
         rows = rows[:top]
     if not rows:
-        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | none | none | No clear missing-effect implementation target |")
+        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | none | none | No clear missing-effect implementation target |")
     for row in rows:
         lines.append(
             f"| {row.get('command')} | {row.get('command_source')} | {row.get('runtime_offline_category')} | "
             f"{row.get('detected_count', 0)} | {row.get('applied_count', 0)} | {row.get('deferred_count', 0)} | "
             f"{row.get('unsupported_count', 0)} | {row.get('no_op_effect_memory_deferred_count', 0)} | "
+            f"{row.get('effect_memory_reused_count', 0)} | {row.get('effect_memory_missing_count', 0)} | "
             f"{row.get('first_input_label', 'none')} | {row.get('first_coordinate', 'none')} | "
             f"{row.get('recommended_implementation_priority')} |"
         )
@@ -1033,17 +1063,18 @@ def build_markdown_report(summary: dict[str, Any], *, top: int | None = None) ->
     lines.extend([
         "",
         "## Effect Family Counts",
-        "| Family | Detected | Applied | Deferred | Unsupported | No-op/effect-memory |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Family | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | Memory reused | Memory missing |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ])
     family_rows = nested_list(summary.get("effect_family_counts"))
     if not family_rows:
-        lines.append("| none | 0 | 0 | 0 | 0 | 0 |")
+        lines.append("| none | 0 | 0 | 0 | 0 | 0 | 0 | 0 |")
     for row in family_rows:
         lines.append(
             f"| {row.get('family')} | {row.get('detected_count', 0)} | {row.get('applied_count', 0)} | "
             f"{row.get('deferred_count', 0)} | {row.get('unsupported_count', 0)} | "
-            f"{row.get('no_op_effect_memory_deferred_count', 0)} |"
+            f"{row.get('no_op_effect_memory_deferred_count', 0)} | "
+            f"{row.get('effect_memory_reused_count', 0)} | {row.get('effect_memory_missing_count', 0)} |"
         )
 
     unresolved = nested_dict(summary.get("unresolved_breakdown"))

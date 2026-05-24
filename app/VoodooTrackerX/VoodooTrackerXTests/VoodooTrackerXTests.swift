@@ -737,7 +737,12 @@ private func makeSyntheticEventMapping(
         outOfRange: false,
         computedOffsetFrames: 0,
         appliedOffsetFrames: nil,
-        selectedSampleLength: selectedSampleLength
+        selectedSampleLength: selectedSampleLength,
+        effectMemoryReused: false,
+        effectMemoryMissing: false,
+        effectMemoryDeferred: false,
+        memorySource: nil,
+        memoryUnavailableReason: nil
     )
     let envelopeSemantics = PlaybackSongSyntheticEnvelopeSemanticsDiagnostic(
         envelopeEnabled: false,
@@ -4559,6 +4564,137 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(offset, mapping.sampleOffset)
     }
 
+    func testPlaybackSongAdapterSampleOffset900ReusesPrior9xxMemory() throws {
+        let sample = makeRampPlaybackSample(frameCount: 300)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
+                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let mappings = plan.diagnostics.eventMappings
+        let offsetEffects = plan.diagnostics.sampleOffsetEffects
+        let memoryOffset = try XCTUnwrap(offsetEffects.last)
+
+        XCTAssertEqual(plan.pattern.events.map(\.initialSourceFrame), [256, 256])
+        XCTAssertEqual(mappings.map(\.sampleOffset.appliedOffsetFrames), [256, 256])
+        XCTAssertFalse(try XCTUnwrap(offsetEffects.first).effectMemoryReused)
+        XCTAssertTrue(memoryOffset.effectMemoryReused)
+        XCTAssertFalse(memoryOffset.effectMemoryMissing)
+        XCTAssertEqual(memoryOffset.memorySource?.source.rowIndex, 0)
+        XCTAssertEqual(memoryOffset.memorySource?.channelIndex, 0)
+        XCTAssertEqual(memoryOffset.memorySource?.effectType, 0x09)
+        XCTAssertEqual(memoryOffset.memorySource?.effectParam, 0x01)
+        XCTAssertFalse(try XCTUnwrap(mappings.last).hasIgnoredEffect)
+    }
+
+    func testPlaybackSongAdapterSampleOffset9xxMemoryIsPerChannel() throws {
+        let sample = makeRampPlaybackSample(frameCount: 700)
+        let row0 = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x01),
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x02),
+        ])
+        let row1 = PlaybackRow(index: 1, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x00),
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x00),
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [row0, row1]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let mappings = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings
+        let row1Offsets = mappings
+            .filter { $0.source.rowIndex == 1 }
+            .sorted { $0.channelIndex < $1.channelIndex }
+            .map(\.sampleOffset)
+
+        XCTAssertEqual(row1Offsets.map(\.appliedOffsetFrames), [256, 512])
+        XCTAssertTrue(row1Offsets.allSatisfy(\.effectMemoryReused))
+        XCTAssertEqual(row1Offsets.map { $0.memorySource?.channelIndex }, [0, 1])
+        XCTAssertEqual(row1Offsets.map { $0.memorySource?.effectParam }, [0x01, 0x02])
+    }
+
+    func testPlaybackSongAdapterSampleOffset900MemoryCarriesAcrossWindowedRenderBoundaries() throws {
+        let sample = makeRampPlaybackSample(frameCount: 260)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
+                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 30
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let memoryOffset = try XCTUnwrap(windowed.diagnostics.sampleOffsetEffects.last)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertEqual(windowed.diagnostics.eventMappings.map(\.sampleOffset.appliedOffsetFrames), [256, 256])
+        XCTAssertTrue(memoryOffset.effectMemoryReused)
+        XCTAssertEqual(memoryOffset.memorySource?.source.rowIndex, 0)
+    }
+
+    func testPlaybackSongAdapterSampleOffset900DirectStartWithoutPriorMemoryIsDeferredNoOp() throws {
+        let sample = makeRampPlaybackSample(frameCount: 300)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01)],
+                3: [makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00)],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: 100)
+        let mapping = try XCTUnwrap(plan.diagnostics.eventMappings.first)
+        let diagnostic = try XCTUnwrap(plan.diagnostics.sampleOffsetEffects.first)
+
+        XCTAssertEqual(plan.pattern.events.first?.initialSourceFrame, 0)
+        XCTAssertEqual(mapping.sampleOffset.status, .ignored900NoOp)
+        XCTAssertTrue(mapping.hasIgnoredEffect)
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_9xx_sample_offset_memory")
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReportsSampleOffset900MemoryMetadata() throws {
+        let sample = makeRampPlaybackSample(frameCount: 300)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x01),
+                makePlaybackRow(index: 1, note: 49, instrument: 1, effectType: 0x09, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let memoryTrigger = try XCTUnwrap(plan.events.first {
+            $0.categories.contains("note_trigger") &&
+                $0.categories.contains("900_sample_offset_memory_applied")
+        })
+
+        XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
+        XCTAssertTrue(memoryTrigger.categories.contains("sample_offset"))
+        XCTAssertTrue(memoryTrigger.categories.contains("effect_memory_reused"))
+        XCTAssertEqual(memoryTrigger.effectType, 0x09)
+        XCTAssertEqual(memoryTrigger.effectParam, 0x00)
+    }
+
     func testPlaybackSongAdapterSampleOffset9xxUsesMappedSample() throws {
         let fallbackSample = makePlaybackSample(sampleIndex: 0, pcm: Array(repeating: Float(9), count: 300), baseSampleRate: 100)
         let mappedSample = makeRampPlaybackSample(frameCount: 300, sampleIndex: 1, baseSampleRate: 100)
@@ -4794,6 +4930,11 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertFalse(diagnostic.applied)
         XCTAssertTrue(diagnostic.deferred)
         XCTAssertTrue(diagnostic.ignoredAsNoOp)
+        XCTAssertFalse(diagnostic.effectMemoryReused)
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertNil(diagnostic.memorySource)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_9xx_sample_offset_memory")
         XCTAssertEqual(diagnostic.computedOffsetFrames, 0)
         XCTAssertEqual(diagnostic.appliedOffsetFrames, 0)
         XCTAssertTrue(mapping.hasIgnoredEffect)
@@ -5557,8 +5698,39 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(diagnostic.activeVoiceFound)
         XCTAssertEqual(diagnostic.vibratoSpeed, 0)
         XCTAssertEqual(diagnostic.vibratoDepth, 0)
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
         XCTAssertEqual(diagnostic.stepUpdates, [])
         XCTAssertEqual(command.status, .ignoredNoOp)
+    }
+
+    func testPlaybackSongAdapterVibrato400ReusesPrior4xyMemory() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let memoryDiagnostic = try XCTUnwrap(diagnostics.vibratoEffects.last)
+
+        XCTAssertEqual(memoryDiagnostic.status, .applied)
+        XCTAssertTrue(memoryDiagnostic.applied)
+        XCTAssertTrue(memoryDiagnostic.effectMemoryReused)
+        XCTAssertFalse(memoryDiagnostic.effectMemoryMissing)
+        XCTAssertEqual(memoryDiagnostic.vibratoSpeed, 4)
+        XCTAssertEqual(memoryDiagnostic.vibratoDepth, 8)
+        XCTAssertEqual(memoryDiagnostic.vibratoSpeedSource, "4xy_channel_state")
+        XCTAssertEqual(memoryDiagnostic.vibratoDepthSource, "4xy_channel_state")
+        XCTAssertEqual(memoryDiagnostic.vibratoSpeedMemorySource?.source.rowIndex, 0)
+        XCTAssertEqual(memoryDiagnostic.vibratoDepthMemorySource?.source.rowIndex, 0)
+        XCTAssertEqual(memoryDiagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(diagnostics.deferredCellFields.map(\.effectType), [])
     }
 
     func testPlaybackSongAdapterVibrato4xyZeroNibbleIsEffectMemoryDeferredNoOp() throws {
@@ -5579,7 +5751,56 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertTrue(diagnostic.deferred)
         XCTAssertEqual(diagnostic.vibratoSpeed, 4)
         XCTAssertEqual(diagnostic.vibratoDepth, 0)
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_depth_memory")
         XCTAssertEqual(diagnostic.stepUpdates, [])
+    }
+
+    func testPlaybackSongAdapterVibrato4x0ReusesPriorDepthMemory() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x60),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.vibratoEffects.last)
+
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.vibratoSpeed, 6)
+        XCTAssertEqual(diagnostic.vibratoDepth, 8)
+        XCTAssertEqual(diagnostic.vibratoSpeedSource, "effect_param")
+        XCTAssertEqual(diagnostic.vibratoDepthSource, "4xy_channel_state")
+        XCTAssertTrue(diagnostic.effectMemoryReused)
+        XCTAssertNil(diagnostic.vibratoSpeedMemorySource)
+        XCTAssertEqual(diagnostic.vibratoDepthMemorySource?.source.rowIndex, 0)
+    }
+
+    func testPlaybackSongAdapterVibrato40yReusesPriorSpeedMemory() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x05),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.vibratoEffects.last)
+
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.vibratoSpeed, 4)
+        XCTAssertEqual(diagnostic.vibratoDepth, 5)
+        XCTAssertEqual(diagnostic.vibratoSpeedSource, "4xy_channel_state")
+        XCTAssertEqual(diagnostic.vibratoDepthSource, "effect_param")
+        XCTAssertTrue(diagnostic.effectMemoryReused)
+        XCTAssertEqual(diagnostic.vibratoSpeedMemorySource?.source.rowIndex, 0)
+        XCTAssertNil(diagnostic.vibratoDepthMemorySource)
     }
 
     func testPlaybackSongAdapterVibrato4xyWindowedCarryoverMatchesDefaultRender() throws {
@@ -5629,6 +5850,30 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(vibratoUpdates.map(\.effectParam), [0x48, 0x48, 0x48, 0x48])
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsVibrato4xyMemoryMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let memoryUpdates = plan.events.filter {
+            $0.categories.contains("step_update") &&
+                $0.categories.contains("4xy_vibrato_memory_applied")
+        }
+
+        XCTAssertEqual(memoryUpdates.count, 4)
+        XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.categories.contains("effect_memory_reused") })
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.effectType == 0x04 })
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.effectParam == 0x00 })
+    }
+
     func testPlaybackSongAdapterVibratoVolumeSlideRequiresPrior4xyStateAndVolumeColumnVibratoRemainsDeferred() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -5645,6 +5890,9 @@ final class VoodooTrackerXTests: XCTestCase {
 
         XCTAssertEqual(diagnostic.status, .zeroSpeedOrDepthEffectMemoryDeferred)
         XCTAssertEqual(diagnostic.vibratoSpeedSource, "missing_4xy_channel_state")
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
         XCTAssertEqual(diagnostic.volumeSlideUp, 2)
         XCTAssertEqual(diagnostic.volumeSlideDown, 0)
         XCTAssertEqual(effect.status, .applied)
@@ -5677,6 +5925,10 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(diagnostic.vibratoDepth, 8)
         XCTAssertEqual(diagnostic.vibratoSpeedSource, "4xy_channel_state")
         XCTAssertEqual(diagnostic.vibratoDepthSource, "4xy_channel_state")
+        XCTAssertTrue(diagnostic.effectMemoryReused)
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertEqual(diagnostic.vibratoSpeedMemorySource?.source.rowIndex, 0)
+        XCTAssertEqual(diagnostic.vibratoDepthMemorySource?.source.rowIndex, 0)
         XCTAssertEqual(diagnostic.volumeSlideUp, 0)
         XCTAssertEqual(diagnostic.volumeSlideDown, 2)
         XCTAssertEqual(diagnostic.volumeSlideAmount, 2)
@@ -5690,7 +5942,7 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(update.gainAfter, 30.0 / 64.0)
     }
 
-    func testPlaybackSongAdapterVibratoVolumeSlide600IsEffectMemoryDeferredNoOp() throws {
+    func testPlaybackSongAdapterVibratoVolumeSlide600ReusesPriorVibratoMemoryWithoutVolumeSlideMemory() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
@@ -5710,12 +5962,41 @@ final class VoodooTrackerXTests: XCTestCase {
             return false
         })
 
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertFalse(diagnostic.deferred)
+        XCTAssertFalse(diagnostic.ignoredAsNoOp)
+        XCTAssertTrue(diagnostic.effectMemoryReused)
+        XCTAssertFalse(diagnostic.effectMemoryMissing)
+        XCTAssertEqual(diagnostic.vibratoSpeed, 4)
+        XCTAssertEqual(diagnostic.vibratoDepth, 8)
+        XCTAssertEqual(diagnostic.volumeSlideAmount, 0)
+        XCTAssertEqual(diagnostic.volumeSlideDirection, "none")
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
+        XCTAssertEqual(update.status, .ignoredNoOp)
+        XCTAssertTrue(update.ignoredAsNoOp)
+    }
+
+    func testPlaybackSongAdapterVibratoVolumeSlide600WithoutPriorVibratoMemoryIsDeferredNoOp() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x06, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let diagnostic = try XCTUnwrap(diagnostics.vibratoEffects.first { $0.effectType == 0x06 })
+
         XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
         XCTAssertTrue(diagnostic.deferred)
         XCTAssertTrue(diagnostic.ignoredAsNoOp)
+        XCTAssertTrue(diagnostic.effectMemoryMissing)
+        XCTAssertTrue(diagnostic.effectMemoryDeferred)
+        XCTAssertEqual(diagnostic.memoryUnavailableReason, "missing_vibrato_speed_depth_memory")
         XCTAssertEqual(diagnostic.stepUpdates, [])
-        XCTAssertEqual(update.status, .ignoredNoOp)
-        XCTAssertTrue(update.ignoredAsNoOp)
     }
 
     func testRuntimeCMixerAdapterEventPlanReportsVibratoVolumeSlide6xyMetadata() throws {
@@ -5750,6 +6031,8 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(gainUpdate.scheduledFrame, 8)
         XCTAssertEqual(stepUpdates.count, 8)
         XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == 0x06 })
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("effect_memory_reused") })
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("6xy_vibrato_memory_applied") })
     }
 
     func testPlaybackSongAdapterTonePortamentoVolumeSlideAndVolumeColumnTonePortamentoRemainDeferred() throws {

@@ -1662,8 +1662,61 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(sampleOffset["applied_offset_frames"] as? Int, 256)
         XCTAssertEqual(sampleOffset["selected_sample_length"] as? Int, 300)
         XCTAssertEqual(sampleOffset["out_of_range"] as? Bool, false)
+        XCTAssertEqual(sampleOffset["effect_memory_reused"] as? Bool, false)
+        XCTAssertEqual(sampleOffset["effect_memory_missing"] as? Bool, false)
+        XCTAssertEqual(sampleOffset["900_sample_offset_memory_applied"] as? Bool, false)
         XCTAssertEqual(sampleOffsetEffects.count, 1)
         XCTAssertEqual(sampleOffsetEffects.first?["status"] as? String, "applied")
+    }
+
+    func testDiagnosticsJSONIncludesSampleOffset900MemoryFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 300),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x01)
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x09, effectParam: 0x00)
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "diagnostics-sample-offset-memory",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 20
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let sampleOffsetEffects = try XCTUnwrap(object["sample_offset_effects"] as? [[String: Any]])
+        let memoryEffect: [String: Any] = try XCTUnwrap(sampleOffsetEffects.first { ($0["effect_param"] as? Int) == 0 })
+        let memorySource = try XCTUnwrap(memoryEffect["memory_source"] as? [String: Any])
+        let sourcePosition = try XCTUnwrap(memorySource["source"] as? [String: Any])
+
+        XCTAssertEqual(render["sample_offset_900_memory_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["sample_offset_900_memory_missing_count"] as? Int, 0)
+        XCTAssertEqual(memoryEffect["status"] as? String, "applied")
+        XCTAssertEqual(memoryEffect["effect_memory_reused"] as? Bool, true)
+        XCTAssertEqual(memoryEffect["900_sample_offset_memory_applied"] as? Bool, true)
+        XCTAssertEqual(memoryEffect["memory_source_effect_type"] as? Int, 0x09)
+        XCTAssertEqual(memoryEffect["memory_source_effect_param"] as? Int, 0x01)
+        XCTAssertEqual(sourcePosition["row"] as? Int, 0)
     }
 
     func testDiagnosticsJSONIncludesNoteCutAndDelayFields() throws {
@@ -2057,18 +2110,25 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let sameCell = try XCTUnwrap(sixxyUpdates.first { $0["cell_note"] as? Int == 52 })
         let sameCellEvent = try XCTUnwrap(events.first { $0["note"] as? Int == 52 })
         let applied6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "applied" })
-        let zero6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "zero_param_effect_memory_deferred" })
-        let noActive6xy = try XCTUnwrap(sixxyEffects.first { $0["current_status"] as? String == "no_active_voice" })
+        let memory600 = try XCTUnwrap(sixxyEffects.first {
+            ($0["effect_param"] as? Int) == 0 && $0["current_status"] as? String == "applied"
+        })
+        let missingMemory6xy = try XCTUnwrap(sixxyEffects.first {
+            $0["current_status"] as? String == "zero_speed_or_depth_effect_memory_deferred"
+        })
 
         XCTAssertEqual(render["vibrato_4xy_effect_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_4xy_applied_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_volume_slide_6xy_effect_count"] as? Int, 5)
         XCTAssertEqual(render["vibrato_volume_slide_6xy_detected_count"] as? Int, 5)
-        XCTAssertEqual(render["vibrato_volume_slide_6xy_applied_count"] as? Int, 3)
-        XCTAssertEqual(render["vibrato_volume_slide_6xy_no_active_voice_count"] as? Int, 1)
-        XCTAssertEqual(render["vibrato_volume_slide_6xy_zero_param_effect_memory_deferred_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_applied_count"] as? Int, 4)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_zero_param_effect_memory_deferred_count"] as? Int, 0)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_zero_speed_or_depth_effect_memory_deferred_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_volume_slide_6xy_deferred_count"] as? Int, 1)
-        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_sample_step_update_count"] as? Int, 12)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_memory_applied_count"] as? Int, 4)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_memory_missing_count"] as? Int, 1)
+        XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_sample_step_update_count"] as? Int, 16)
         XCTAssertEqual(render["vibrato_volume_slide_6xy_scheduled_gain_update_count"] as? Int, 2)
         XCTAssertEqual(split.block.interleavedPCM, result.block.interleavedPCM)
         XCTAssertEqual(summary["vibrato_volume_slide_6xy_volume_slide_applied"] as? Int, 4)
@@ -2097,8 +2157,13 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(applied6xy["vibrato_depth_source"] as? String, "4xy_channel_state")
         XCTAssertEqual(applied6xy["volume_slide_direction"] as? String, "up")
         XCTAssertEqual(applied6xy["scheduled_sample_step_update_count"] as? Int, 4)
-        XCTAssertEqual(zero6xy["ignored_as_no_op"] as? Bool, true)
-        XCTAssertEqual(noActive6xy["ignored_as_no_op"] as? Bool, true)
+        XCTAssertEqual(memory600["ignored_as_no_op"] as? Bool, false)
+        XCTAssertEqual(memory600["effect_memory_reused"] as? Bool, true)
+        XCTAssertEqual(memory600["6xy_vibrato_memory_applied"] as? Bool, true)
+        XCTAssertEqual(memory600["scheduled_sample_step_update_count"] as? Int, 4)
+        XCTAssertEqual(missingMemory6xy["ignored_as_no_op"] as? Bool, true)
+        XCTAssertEqual(missingMemory6xy["effect_memory_missing"] as? Bool, true)
+        XCTAssertEqual(missingMemory6xy["memory_unavailable_reason"] as? String, "missing_vibrato_speed_depth_memory")
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" && $0["status"] as? String == "applied" })
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" && $0["status"] as? String == "ignored/no-op" })
     }

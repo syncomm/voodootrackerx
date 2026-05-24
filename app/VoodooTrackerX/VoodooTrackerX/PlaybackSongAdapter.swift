@@ -261,13 +261,21 @@ enum PlaybackSongSyntheticAdapter {
         var tonePortamentoTargetLinearPeriod: Double?
         var tonePortamentoTargetPlaybackStep: Double?
         var tonePortamentoSpeed: Int?
+        var sampleOffsetMemory: SampleOffsetMemory?
         var vibratoSpeed: Int?
         var vibratoDepth: Int?
+        var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
+        var vibratoDepthMemorySource: PlaybackSongSyntheticEffectMemorySource?
         var vibratoPhase: Double = 0
 
         var pan: Float {
             PlaybackSongVolumeColumnDecoder.audioPan(forXMValue: panningValue)
         }
+    }
+
+    private struct SampleOffsetMemory: Equatable {
+        let offsetFrames: Int
+        let source: PlaybackSongSyntheticEffectMemorySource
     }
 
     private struct GlobalVolumeState: Equatable {
@@ -327,6 +335,28 @@ enum PlaybackSongSyntheticAdapter {
         state.tonePortamentoTargetNote = nil
         state.tonePortamentoTargetLinearPeriod = nil
         state.tonePortamentoTargetPlaybackStep = nil
+    }
+
+    private static func effectMemorySource(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        cell: PlaybackCell
+    ) -> PlaybackSongSyntheticEffectMemorySource {
+        PlaybackSongSyntheticEffectMemorySource(
+            source: source,
+            channelIndex: channelIndex,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam
+        )
+    }
+
+    private static func memoryUnavailableReason(from reasons: [String]) -> String? {
+        let uniqueReasons = Set(reasons)
+        if uniqueReasons.contains("missing_vibrato_speed_memory"),
+           uniqueReasons.contains("missing_vibrato_depth_memory") {
+            return "missing_vibrato_speed_depth_memory"
+        }
+        return reasons.first
     }
 
     private struct EventCoverageBuilder: Equatable {
@@ -676,7 +706,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
-            let hasDeferredEffectCell = hasDeferredEffect(cell)
+            let hasDeferredEffectCell = hasDeferredEffect(cell, channelState: channelState)
             if let update = voiceStateUpdate(
                 source: source,
                 channelIndex: channelIndex,
@@ -728,6 +758,7 @@ enum PlaybackSongSyntheticAdapter {
                 channelIndex: channelIndex,
                 volumeColumn: volumeColumn,
                 includeKeyOff: false,
+                hasDeferredEffectOverride: hasDeferredEffectCell,
                 deferredCellFields: &context.deferredCellFields
             )
             let noteDelay = hasNoteDelayEffect
@@ -1148,7 +1179,8 @@ enum PlaybackSongSyntheticAdapter {
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
-                selectedSampleLength: sampleLength
+                selectedSampleLength: sampleLength,
+                channelState: &channelState
             )
             if sampleOffset.detected {
                 context.sampleOffsetEffects.append(sampleOffset)
@@ -2094,6 +2126,7 @@ enum PlaybackSongSyntheticAdapter {
         channelIndex: Int,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         includeKeyOff: Bool,
+        hasDeferredEffectOverride: Bool? = nil,
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField]
     ) {
         if volumeColumn.deferred {
@@ -2109,7 +2142,7 @@ enum PlaybackSongSyntheticAdapter {
                 field: .volumeColumn
             ))
         }
-        if hasDeferredEffect(cell) {
+        if hasDeferredEffectOverride ?? hasDeferredEffect(cell) {
             deferredCellFields.append(PlaybackSongSyntheticDeferredCellField(
                 source: source,
                 channelIndex: channelIndex,
@@ -2720,34 +2753,93 @@ enum PlaybackSongSyntheticAdapter {
         let isVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
         let paramSpeed = Int((cell.effectParam & 0xF0) >> 4)
         let paramDepth = Int(cell.effectParam & 0x0F)
-        if !isVibratoVolumeSlide, paramSpeed > 0, paramDepth > 0 {
-            channelState.vibratoSpeed = paramSpeed
-            channelState.vibratoDepth = paramDepth
-        }
+        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
         let rememberedSpeed = channelState.vibratoSpeed
         let rememberedDepth = channelState.vibratoDepth
-        let speed = isVibratoVolumeSlide ? rememberedSpeed ?? 0 : paramSpeed
-        let depth = isVibratoVolumeSlide ? rememberedDepth ?? 0 : paramDepth
-        let speedSource = isVibratoVolumeSlide
-            ? (rememberedSpeed == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
-            : "effect_param"
-        let depthSource = isVibratoVolumeSlide
-            ? (rememberedDepth == nil ? "missing_4xy_channel_state" : "4xy_channel_state")
-            : "effect_param"
+        let rememberedSpeedSource = channelState.vibratoSpeedMemorySource
+        let rememberedDepthSource = channelState.vibratoDepthMemorySource
+        let speed: Int
+        let depth: Int
+        let speedSource: String?
+        let depthSource: String?
+        let speedMemorySource: PlaybackSongSyntheticEffectMemorySource?
+        let depthMemorySource: PlaybackSongSyntheticEffectMemorySource?
+        var missingMemoryReasons = [String]()
+
+        if isVibratoVolumeSlide {
+            if let rememberedSpeed {
+                speed = rememberedSpeed
+                speedSource = "4xy_channel_state"
+                speedMemorySource = rememberedSpeedSource
+            } else {
+                speed = 0
+                speedSource = "missing_4xy_channel_state"
+                speedMemorySource = nil
+                missingMemoryReasons.append("missing_vibrato_speed_memory")
+            }
+            if let rememberedDepth {
+                depth = rememberedDepth
+                depthSource = "4xy_channel_state"
+                depthMemorySource = rememberedDepthSource
+            } else {
+                depth = 0
+                depthSource = "missing_4xy_channel_state"
+                depthMemorySource = nil
+                missingMemoryReasons.append("missing_vibrato_depth_memory")
+            }
+        } else {
+            if paramSpeed > 0 {
+                speed = paramSpeed
+                speedSource = "effect_param"
+                speedMemorySource = nil
+                channelState.vibratoSpeed = paramSpeed
+                channelState.vibratoSpeedMemorySource = targetMemorySource
+            } else if let rememberedSpeed {
+                speed = rememberedSpeed
+                speedSource = "4xy_channel_state"
+                speedMemorySource = rememberedSpeedSource
+            } else {
+                speed = 0
+                speedSource = "missing_4xy_channel_state"
+                speedMemorySource = nil
+                missingMemoryReasons.append("missing_vibrato_speed_memory")
+            }
+
+            if paramDepth > 0 {
+                depth = paramDepth
+                depthSource = "effect_param"
+                depthMemorySource = nil
+                channelState.vibratoDepth = paramDepth
+                channelState.vibratoDepthMemorySource = targetMemorySource
+            } else if let rememberedDepth {
+                depth = rememberedDepth
+                depthSource = "4xy_channel_state"
+                depthMemorySource = rememberedDepthSource
+            } else {
+                depth = 0
+                depthSource = "missing_4xy_channel_state"
+                depthMemorySource = nil
+                missingMemoryReasons.append("missing_vibrato_depth_memory")
+            }
+        }
+
+        let effectMemoryReused = speedMemorySource != nil || depthMemorySource != nil
+        let effectMemoryMissing = !missingMemoryReasons.isEmpty
+        let memoryUnavailableReason = memoryUnavailableReason(from: missingMemoryReasons)
         let volumeSlide = isVibratoVolumeSlide ? volumeSlideAmounts(effectParam: cell.effectParam) : nil
         let hasActiveVoice = channelState.activeEventIndex != nil
         let phaseBefore = channelState.vibratoPhase
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
 
-        guard cell.effectParam != 0 else {
+        guard !effectMemoryMissing else {
             return vibratoDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
-                status: .zeroParamEffectMemoryDeferred,
+                status: cell.effectParam == 0 ? .zeroParamEffectMemoryDeferred : .zeroSpeedOrDepthEffectMemoryDeferred,
                 activeVoiceFound: hasActiveVoice,
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
@@ -2755,6 +2847,12 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: true,
+                effectMemoryDeferred: true,
+                speedMemorySource: speedMemorySource,
+                depthMemorySource: depthMemorySource,
+                memoryUnavailableReason: memoryUnavailableReason,
                 volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
@@ -2764,8 +2862,8 @@ enum PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
                 policy: isVibratoVolumeSlide
-                    ? "600_no_effect_memory_no_op"
-                    : "400_no_effect_memory_no_op"
+                    ? "6xy_missing_vibrato_memory_deferred_no_op"
+                    : "4xy_missing_vibrato_memory_deferred_no_op"
             )
         }
 
@@ -2784,6 +2882,12 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: false,
+                speedMemorySource: speedMemorySource,
+                depthMemorySource: depthMemorySource,
+                memoryUnavailableReason: nil,
                 volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
@@ -2811,6 +2915,12 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: true,
+                speedMemorySource: speedMemorySource,
+                depthMemorySource: depthMemorySource,
+                memoryUnavailableReason: nil,
                 volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
@@ -2840,6 +2950,12 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: false,
+                speedMemorySource: speedMemorySource,
+                depthMemorySource: depthMemorySource,
+                memoryUnavailableReason: nil,
                 volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
@@ -2870,6 +2986,12 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: false,
+                speedMemorySource: speedMemorySource,
+                depthMemorySource: depthMemorySource,
+                memoryUnavailableReason: nil,
                 volumeSlide: volumeSlide,
                 phaseBefore: phaseBefore,
                 phaseAfter: channelState.vibratoPhase,
@@ -2913,6 +3035,12 @@ enum PlaybackSongSyntheticAdapter {
                     depth: depth,
                     speedSource: speedSource,
                     depthSource: depthSource,
+                    effectMemoryReused: effectMemoryReused,
+                    effectMemoryMissing: false,
+                    effectMemoryDeferred: false,
+                    speedMemorySource: speedMemorySource,
+                    depthMemorySource: depthMemorySource,
+                    memoryUnavailableReason: nil,
                     volumeSlide: volumeSlide,
                     phaseBefore: phaseBefore,
                     phaseAfter: channelState.vibratoPhase,
@@ -2970,6 +3098,12 @@ enum PlaybackSongSyntheticAdapter {
             depth: depth,
             speedSource: speedSource,
             depthSource: depthSource,
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: false,
+            effectMemoryDeferred: false,
+            speedMemorySource: speedMemorySource,
+            depthMemorySource: depthMemorySource,
+            memoryUnavailableReason: nil,
             volumeSlide: volumeSlide,
             phaseBefore: phaseBefore,
             phaseAfter: channelState.vibratoPhase,
@@ -2998,6 +3132,12 @@ enum PlaybackSongSyntheticAdapter {
         depth: Int,
         speedSource: String?,
         depthSource: String?,
+        effectMemoryReused: Bool,
+        effectMemoryMissing: Bool,
+        effectMemoryDeferred: Bool,
+        speedMemorySource: PlaybackSongSyntheticEffectMemorySource?,
+        depthMemorySource: PlaybackSongSyntheticEffectMemorySource?,
+        memoryUnavailableReason: String?,
         volumeSlide: VolumeSlideAmounts?,
         phaseBefore: Double,
         phaseAfter: Double,
@@ -3033,6 +3173,12 @@ enum PlaybackSongSyntheticAdapter {
             vibratoDepth: depth,
             vibratoSpeedSource: speedSource,
             vibratoDepthSource: depthSource,
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: effectMemoryMissing,
+            effectMemoryDeferred: effectMemoryDeferred,
+            vibratoSpeedMemorySource: speedMemorySource,
+            vibratoDepthMemorySource: depthMemorySource,
+            memoryUnavailableReason: memoryUnavailableReason,
             volumeSlideUp: volumeSlide?.up,
             volumeSlideDown: volumeSlide?.down,
             volumeSlideAmount: volumeSlide?.amount,
@@ -4577,7 +4723,8 @@ enum PlaybackSongSyntheticAdapter {
         source: PlaybackPosition,
         channelIndex: Int,
         syntheticRow: Int,
-        selectedSampleLength: Int?
+        selectedSampleLength: Int?,
+        channelState: inout ChannelState
     ) -> PlaybackSongSyntheticSampleOffsetDiagnostic {
         let sampleLength = selectedSampleLength.map { max(0, $0) }
         guard cell.effectType == 0x09 else {
@@ -4597,30 +4744,57 @@ enum PlaybackSongSyntheticAdapter {
                 outOfRange: false,
                 computedOffsetFrames: 0,
                 appliedOffsetFrames: 0,
-                selectedSampleLength: sampleLength
+                selectedSampleLength: sampleLength,
+                effectMemoryReused: false,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: false,
+                memorySource: nil,
+                memoryUnavailableReason: nil
             )
         }
 
-        let computedOffsetFrames = Int(cell.effectParam) * 256
-        guard cell.effectParam != 0 else {
-            return PlaybackSongSyntheticSampleOffsetDiagnostic(
-                source: source,
-                channelIndex: channelIndex,
-                syntheticRow: syntheticRow,
-                syntheticTick: 0,
-                effectType: cell.effectType,
-                effectParam: cell.effectParam,
-                status: .ignored900NoOp,
-                detected: true,
-                applied: false,
-                deferred: true,
-                ignoredAsNoOp: true,
-                skipped: false,
-                outOfRange: false,
-                computedOffsetFrames: computedOffsetFrames,
-                appliedOffsetFrames: 0,
-                selectedSampleLength: sampleLength
+        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        let computedOffsetFrames: Int
+        let memorySource: PlaybackSongSyntheticEffectMemorySource?
+        let effectMemoryReused: Bool
+        if cell.effectParam == 0 {
+            if let memory = channelState.sampleOffsetMemory {
+                computedOffsetFrames = memory.offsetFrames
+                memorySource = memory.source
+                effectMemoryReused = true
+            } else {
+                return PlaybackSongSyntheticSampleOffsetDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    syntheticTick: 0,
+                    effectType: cell.effectType,
+                    effectParam: cell.effectParam,
+                    status: .ignored900NoOp,
+                    detected: true,
+                    applied: false,
+                    deferred: true,
+                    ignoredAsNoOp: true,
+                    skipped: false,
+                    outOfRange: false,
+                    computedOffsetFrames: 0,
+                    appliedOffsetFrames: 0,
+                    selectedSampleLength: sampleLength,
+                    effectMemoryReused: false,
+                    effectMemoryMissing: true,
+                    effectMemoryDeferred: true,
+                    memorySource: nil,
+                    memoryUnavailableReason: "missing_9xx_sample_offset_memory"
+                )
+            }
+        } else {
+            computedOffsetFrames = Int(cell.effectParam) * 256
+            channelState.sampleOffsetMemory = SampleOffsetMemory(
+                offsetFrames: computedOffsetFrames,
+                source: targetMemorySource
             )
+            memorySource = nil
+            effectMemoryReused = false
         }
 
         if let sampleLength, computedOffsetFrames >= sampleLength {
@@ -4640,7 +4814,12 @@ enum PlaybackSongSyntheticAdapter {
                 outOfRange: true,
                 computedOffsetFrames: computedOffsetFrames,
                 appliedOffsetFrames: nil,
-                selectedSampleLength: sampleLength
+                selectedSampleLength: sampleLength,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: false,
+                effectMemoryDeferred: false,
+                memorySource: memorySource,
+                memoryUnavailableReason: nil
             )
         }
 
@@ -4660,7 +4839,12 @@ enum PlaybackSongSyntheticAdapter {
             outOfRange: false,
             computedOffsetFrames: computedOffsetFrames,
             appliedOffsetFrames: computedOffsetFrames,
-            selectedSampleLength: sampleLength
+            selectedSampleLength: sampleLength,
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: false,
+            effectMemoryDeferred: false,
+            memorySource: memorySource,
+            memoryUnavailableReason: nil
         )
     }
 
@@ -4866,6 +5050,22 @@ enum PlaybackSongSyntheticAdapter {
         default:
             return true
         }
+    }
+
+    private static func hasDeferredEffect(_ cell: PlaybackCell, channelState: ChannelState) -> Bool {
+        if cell.effectType == 0x09, cell.effectParam == 0 {
+            return channelState.sampleOffsetMemory == nil
+        }
+        if cell.effectType == 0x04 {
+            let speed = Int((cell.effectParam & 0xF0) >> 4)
+            let depth = Int(cell.effectParam & 0x0F)
+            return (speed == 0 && channelState.vibratoSpeed == nil) ||
+                (depth == 0 && channelState.vibratoDepth == nil)
+        }
+        if cell.effectType == 0x06 {
+            return channelState.vibratoSpeed == nil || channelState.vibratoDepth == nil
+        }
+        return hasDeferredEffect(cell)
     }
 
     private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {

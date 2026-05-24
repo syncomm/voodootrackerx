@@ -1037,7 +1037,50 @@ class EffectCoverageSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["summary"]["detected_count"], 0)
         self.assertEqual(summary["effect_coverage"], [])
-        self.assertIn("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | none |", markdown)
+        self.assertIn("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | none |", markdown)
+
+    def test_effect_coverage_summary_counts_reused_memory_as_applied(self):
+        diagnostics = {
+            "sample_offset_effects": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 1},
+                    "channel_index": 0,
+                    "effect_type": 0x09,
+                    "effect_param": 0x00,
+                    "status": "applied",
+                    "applied": True,
+                    "deferred": False,
+                    "effect_memory_reused": True,
+                    "effect_memory_missing": False,
+                }
+            ],
+            "vibrato_effects": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 2},
+                    "channel_index": 0,
+                    "effect_type": 0x04,
+                    "effect_param": 0x00,
+                    "status": "zero_param_effect_memory_deferred",
+                    "applied": False,
+                    "deferred": True,
+                    "effect_memory_reused": False,
+                    "effect_memory_missing": True,
+                    "memory_unavailable_reason": "missing_vibrato_speed_depth_memory",
+                }
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["900 sample offset / effect memory"]["applied_count"], 1)
+        self.assertEqual(rows["900 sample offset / effect memory"]["no_op_effect_memory_deferred_count"], 0)
+        self.assertEqual(rows["900 sample offset / effect memory"]["effect_memory_reused_count"], 1)
+        self.assertEqual(rows["4xy vibrato"]["effect_memory_missing_count"], 1)
+        self.assertEqual(summary["summary"]["effect_memory_reused_count"], 1)
+        self.assertEqual(summary["summary"]["effect_memory_missing_count"], 1)
 
     def test_effect_coverage_summary_handles_unknown_high_effect_bytes_safely(self):
         summary = effect_coverage.build_summary_from_payloads([

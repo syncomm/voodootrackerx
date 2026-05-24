@@ -1028,13 +1028,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let vibratoZeroParamCount = vibrato4xyEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
         let vibratoZeroNibbleCount = vibrato4xyEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
         let vibratoDeferredCount = vibrato4xyEffects.filter(\.deferred).count
+        let vibratoMemoryAppliedCount = vibrato4xyEffects.filter { $0.applied && $0.effectMemoryReused }.count
+        let vibratoMemoryMissingCount = vibrato4xyEffects.filter(\.effectMemoryMissing).count
         let vibratoScheduledStepUpdateCount = vibrato4xyEffects.map(\.stepUpdates.count).reduce(0, +)
         let vibrato6xyAppliedCount = vibrato6xyEffects.filter(\.applied).count
         let vibrato6xyNoActiveVoiceCount = vibrato6xyEffects.filter { $0.status == .noActiveVoice }.count
         let vibrato6xyZeroParamCount = vibrato6xyEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
         let vibrato6xyZeroSpeedDepthCount = vibrato6xyEffects.filter { $0.status == .zeroSpeedOrDepthEffectMemoryDeferred }.count
         let vibrato6xyDeferredCount = vibrato6xyEffects.filter(\.deferred).count
+        let vibrato6xyMemoryAppliedCount = vibrato6xyEffects.filter { $0.applied && $0.effectMemoryReused }.count
+        let vibrato6xyMemoryMissingCount = vibrato6xyEffects.filter(\.effectMemoryMissing).count
         let vibrato6xyScheduledStepUpdateCount = vibrato6xyEffects.map(\.stepUpdates.count).reduce(0, +)
+        let sampleOffset900MemoryAppliedCount = diagnostics.sampleOffsetEffects.filter {
+            $0.effectType == 0x09 && $0.effectParam == 0 && $0.applied && $0.effectMemoryReused
+        }.count
+        let sampleOffset900MemoryMissingCount = diagnostics.sampleOffsetEffects.filter {
+            $0.effectType == 0x09 && $0.effectParam == 0 && $0.effectMemoryMissing
+        }.count
         let eaxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEaxFineVolumeSlideUpdate)
         let ebxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEbxFineVolumeSlideUpdate)
         let vibrato6xyVolumeSlides = diagnostics.voiceStateUpdates.filter(is6xyVolumeSlideUpdate)
@@ -1059,15 +1069,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Offline C mixer rendering/export remains separate from CoreAudio runtime playback.",
             "C-backed offline sample stepping uses simple deterministic linear interpolation.",
             "Envelope sustain, loop, key-off, and fadeout are first-pass bounded offline approximations.",
-            "Minimal nonzero 9xx sample offset is applied only in bounded offline adapter renders; 900 is a diagnosed no-op.",
+            "Minimal 9xx sample offset is applied only in bounded offline adapter renders; 900 reuses prior nonzero 9xx per-channel memory when available and remains diagnosed as effect-memory-deferred/no-op when unavailable.",
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
-            "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400, zero speed/depth memory, volume-column vibrato, and waveform controls remain deferred.",
-            "Minimal 6xy vibrato + volume slide reuses prior nonzero 4xy channel vibrato settings plus the existing row-level Axy-style volume slide/gain path; 600 and missing vibrato-memory cases remain effect-memory-deferred/no-op.",
+            "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory, volume-column vibrato, and waveform controls remain deferred.",
+            "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus the existing row-level Axy-style volume slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
@@ -1102,6 +1112,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
+                "sample_offset_900_memory_applied_count": sampleOffset900MemoryAppliedCount,
+                "sample_offset_900_memory_missing_count": sampleOffset900MemoryMissingCount,
                 "note_cut_effect_count": diagnostics.noteCutEffectCount,
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "retrigger_effect_count": diagnostics.retriggerEffectCount,
@@ -1142,6 +1154,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "vibrato_4xy_zero_param_effect_memory_deferred_count": vibratoZeroParamCount,
                 "vibrato_4xy_zero_speed_or_depth_effect_memory_deferred_count": vibratoZeroNibbleCount,
                 "vibrato_4xy_deferred_count": vibratoDeferredCount,
+                "vibrato_4xy_memory_applied_count": vibratoMemoryAppliedCount,
+                "vibrato_4xy_memory_missing_count": vibratoMemoryMissingCount,
                 "vibrato_4xy_scheduled_sample_step_update_count": vibratoScheduledStepUpdateCount,
                 "vibrato_volume_slide_6xy_effect_count": vibrato6xyEffects.count,
                 "vibrato_volume_slide_6xy_detected_count": vibrato6xyEffects.count,
@@ -1150,6 +1164,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "vibrato_volume_slide_6xy_zero_param_effect_memory_deferred_count": vibrato6xyZeroParamCount,
                 "vibrato_volume_slide_6xy_zero_speed_or_depth_effect_memory_deferred_count": vibrato6xyZeroSpeedDepthCount,
                 "vibrato_volume_slide_6xy_deferred_count": vibrato6xyDeferredCount,
+                "vibrato_volume_slide_6xy_memory_applied_count": vibrato6xyMemoryAppliedCount,
+                "vibrato_volume_slide_6xy_memory_missing_count": vibrato6xyMemoryMissingCount,
                 "vibrato_volume_slide_6xy_scheduled_sample_step_update_count": vibrato6xyScheduledStepUpdateCount,
                 "vibrato_volume_slide_6xy_scheduled_gain_update_count": vibrato6xyScheduledGainUpdateCount,
                 "eax_fine_volume_slide_up_effect_count": eaxFineVolumeSlides.count,
@@ -2320,6 +2336,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "computed_offset_frames": diagnostic.computedOffsetFrames,
             "applied_offset_frames": diagnostic.appliedOffsetFrames.map { $0 as Any } ?? NSNull(),
             "selected_sample_length": diagnostic.selectedSampleLength.map { $0 as Any } ?? NSNull(),
+            "effect_memory_reused": diagnostic.effectMemoryReused,
+            "effect_memory_missing": diagnostic.effectMemoryMissing,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "memory_source": diagnostic.memorySource.map(effectMemorySourceJSON) ?? NSNull(),
+            "memory_source_effect_type": diagnostic.memorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "memory_source_effect_param": diagnostic.memorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "memory_target_effect_type": Int(diagnostic.effectType),
+            "memory_target_effect_param": Int(diagnostic.effectParam),
+            "memory_unavailable_reason": diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull(),
+            "900_sample_offset_memory_applied": diagnostic.effectType == 0x09 &&
+                diagnostic.effectParam == 0 &&
+                diagnostic.applied &&
+                diagnostic.effectMemoryReused,
         ]
     }
 
@@ -2568,7 +2597,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
     private static func vibratoDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticVibratoDiagnostic
     ) -> [String: Any] {
-        [
+        let memorySource = diagnostic.vibratoSpeedMemorySource ?? diagnostic.vibratoDepthMemorySource
+        return [
             "source": positionJSON(diagnostic.source),
             "channel_index": diagnostic.channelIndex,
             "synthetic_row": diagnostic.syntheticRow,
@@ -2592,6 +2622,26 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "depth": diagnostic.vibratoDepth,
             "vibrato_speed_source": diagnostic.vibratoSpeedSource.map { $0 as Any } ?? NSNull(),
             "vibrato_depth_source": diagnostic.vibratoDepthSource.map { $0 as Any } ?? NSNull(),
+            "effect_memory_reused": diagnostic.effectMemoryReused,
+            "effect_memory_missing": diagnostic.effectMemoryMissing,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "vibrato_speed_memory_source": diagnostic.vibratoSpeedMemorySource.map(effectMemorySourceJSON) ?? NSNull(),
+            "vibrato_depth_memory_source": diagnostic.vibratoDepthMemorySource.map(effectMemorySourceJSON) ?? NSNull(),
+            "vibrato_speed_memory_source_effect_type": diagnostic.vibratoSpeedMemorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "vibrato_speed_memory_source_effect_param": diagnostic.vibratoSpeedMemorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "vibrato_depth_memory_source_effect_type": diagnostic.vibratoDepthMemorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "vibrato_depth_memory_source_effect_param": diagnostic.vibratoDepthMemorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "memory_source_effect_type": memorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "memory_source_effect_param": memorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "memory_target_effect_type": Int(diagnostic.effectType),
+            "memory_target_effect_param": Int(diagnostic.effectParam),
+            "memory_unavailable_reason": diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull(),
+            "4xy_vibrato_memory_applied": diagnostic.effectType == 0x04 &&
+                diagnostic.applied &&
+                diagnostic.effectMemoryReused,
+            "6xy_vibrato_memory_applied": diagnostic.effectType == 0x06 &&
+                diagnostic.applied &&
+                diagnostic.effectMemoryReused,
             "volume_slide_up": diagnostic.volumeSlideUp.map { $0 as Any } ?? NSNull(),
             "volume_slide_down": diagnostic.volumeSlideDown.map { $0 as Any } ?? NSNull(),
             "volume_slide_amount": diagnostic.volumeSlideAmount.map { $0 as Any } ?? NSNull(),
@@ -2652,6 +2702,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "order": position.orderIndex,
             "pattern": position.patternIndex,
             "row": position.rowIndex,
+        ]
+    }
+
+    private static func effectMemorySourceJSON(_ source: PlaybackSongSyntheticEffectMemorySource) -> [String: Any] {
+        [
+            "source": positionJSON(source.source),
+            "channel_index": source.channelIndex,
+            "effect_type": Int(source.effectType),
+            "effect_param": Int(source.effectParam),
         ]
     }
 

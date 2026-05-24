@@ -553,6 +553,13 @@ struct PlaybackSongSyntheticECommandSubtypeCount: Equatable {
     let count: Int
 }
 
+struct PlaybackSongSyntheticEffectMemorySource: Equatable {
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+}
+
 struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
     enum Status: Equatable {
         case notPresent
@@ -577,6 +584,11 @@ struct PlaybackSongSyntheticSampleOffsetDiagnostic: Equatable {
     let computedOffsetFrames: Int
     let appliedOffsetFrames: Int?
     let selectedSampleLength: Int?
+    let effectMemoryReused: Bool
+    let effectMemoryMissing: Bool
+    let effectMemoryDeferred: Bool
+    let memorySource: PlaybackSongSyntheticEffectMemorySource?
+    let memoryUnavailableReason: String?
 }
 
 struct PlaybackSongSyntheticSetFinetuneDiagnostic: Equatable {
@@ -884,6 +896,12 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let vibratoDepth: Int
     let vibratoSpeedSource: String?
     let vibratoDepthSource: String?
+    let effectMemoryReused: Bool
+    let effectMemoryMissing: Bool
+    let effectMemoryDeferred: Bool
+    let vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
+    let vibratoDepthMemorySource: PlaybackSongSyntheticEffectMemorySource?
+    let memoryUnavailableReason: String?
     let volumeSlideUp: Int?
     let volumeSlideDown: Int?
     let volumeSlideAmount: Int?

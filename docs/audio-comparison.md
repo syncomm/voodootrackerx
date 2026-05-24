@@ -50,7 +50,8 @@ volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
-changes, minimal nonzero `9xx` sample offsets on same-cell note triggers, and
+changes, minimal `9xx` sample offsets on same-cell note triggers including
+per-channel `900` memory replay, and
 minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
 minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine volume slides,
 minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and `E9x`
@@ -58,11 +59,13 @@ retriggers for the tracked active adapted voice. The `E2x` foundation applies
 one deterministic row-level linear-period/sample-step pitch-down adjustment;
 `E20` remains an effect-memory-deferred no-op. The `4xy` foundation uses
 deterministic sine-based linear-period sample-step updates on row ticks in the
-shared runtime/offline C mixer adapter path; `400`, zero speed/depth memory,
+shared runtime/offline C mixer adapter path; `400` and single-zero nibbles
+reuse available per-channel speed/depth memory, while unavailable memory,
 volume-column vibrato, and vibrato waveform controls remain deferred. The
-`6xy` foundation reuses prior nonzero `4xy` channel vibrato settings and the
-existing `Axy`-style row-level volume-slide/gain path; `600` and missing
-vibrato-memory cases remain effect-memory-deferred no-ops.
+`6xy` foundation reuses prior channel vibrato memory and the existing
+`Axy`-style row-level volume-slide/gain path; `600` can replay vibrato memory
+without volume-slide memory, while unavailable vibrato memory remains an
+effect-memory-deferred no-op.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
@@ -84,8 +87,8 @@ mapping exists, with deterministic first-playable fallback or skip diagnostics
 when it does not. Local comparisons are therefore more meaningful for simple
 volume, stereo placement, timing-alignment, obvious sample-start checks, and
 mapped-sample selection in bounded segments. `900` remains a diagnosed no-op
-rather than effect memory, and out-of-range `9xx` offsets are reported as
-skipped voices. Linear-frequency songs also carry
+when no prior same-channel nonzero `9xx` memory exists, and out-of-range `9xx`
+offsets are reported as skipped voices. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
 events. Fractional C-backed offline sample steps use simple deterministic
 linear interpolation; diagnostics JSON reports this as `sample_interpolation`
@@ -104,11 +107,15 @@ scheduled/active capacity values, accepted scheduled voices, capacity reject
 counts, and rejected event coordinates.
 Diagnostics JSON also reports `vibrato_effects` plus render counters such as
 `vibrato_4xy_effect_count`, applied/no-active/effect-memory-deferred buckets,
-and scheduled sample-step update counts for first-pass `4xy` coverage.
+`vibrato_4xy_memory_applied_count`, `vibrato_4xy_memory_missing_count`, and
+scheduled sample-step update counts for first-pass `4xy` coverage.
 `vibrato_volume_slide_6xy_effects` and render-level
 `vibrato_volume_slide_6xy_*` counters report detected, applied,
-no-active-voice, `600`/missing-memory deferred, scheduled sample-step update,
-and scheduled gain-update counts for first-pass `6xy` coverage.
+no-active-voice, missing-memory deferred, memory-applied/missing counts,
+scheduled sample-step updates, and scheduled gain-update counts for first-pass
+`6xy` coverage. Sample-offset diagnostics include
+`effect_memory_reused`, `effect_memory_missing`, memory source/target metadata,
+and `900_sample_offset_memory_applied` for `900` replays.
 `fine_portamento_down_effects` and render-level `e2x_fine_portamento_down_*`
 counters report detected/applied/no-active/effect-memory-deferred `E2x`
 coverage, the fine amount nibble, current period/sample-step before/after, and
@@ -1280,11 +1287,13 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
 portamento, vibrato, arpeggio, or a focused follow-up to
-minimal `E2x`/`E9x`/`ECx`/`EDx`. If mismatch windows repeatedly line up with
-diagnosed `900` or `E90` no-ops, decide separately whether effect memory is
-worth a narrow PR. If mismatch windows are broad and steady while events look
-plausible, remaining resampling details, loop details, headroom/clipping
-diagnostics, or reference-render settings may be the better next investigation.
+minimal `E2x`/`E9x`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
+foundation. If mismatch windows repeatedly line up with diagnosed `E90` no-ops
+or effect-memory families not covered by the foundation, decide separately
+whether another narrow memory PR is justified. If mismatch windows are broad and
+steady while events look plausible, remaining resampling details, loop details,
+headroom/clipping diagnostics, or reference-render settings may be the better
+next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
 dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
 portamento-family work for `5xy` or volume-column tone portamento, vibrato for

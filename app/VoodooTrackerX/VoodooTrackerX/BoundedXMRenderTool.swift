@@ -1890,6 +1890,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["source"] = positionJSON(mapping.source)
         object["channel_index"] = mapping.channelIndex
         object["note"] = Int(mapping.note)
+        object["note_text"] = noteText(mapping.note)
         object["instrument_index"] = mapping.instrumentIndex
         object["sample_index"] = mapping.sampleIndex
         object["selected_sample_length"] = mapping.selectedSampleLength
@@ -2373,6 +2374,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "synthetic_tick": update.syntheticTick,
             "scheduled_frame": update.scheduledFrame,
             "cell_note": Int(update.cellNote),
+            "cell_note_text": noteText(update.cellNote),
             "instrument_index": update.instrumentIndex,
             "command_source": voiceStateUpdateSourceName(update.commandSource),
             "command_label": update.command.label,
@@ -2410,6 +2412,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.panBefore.map { Double($0) }, forKey: "pan_before", into: &object)
         put(update.panAfter.map { Double($0) }, forKey: "pan_after", into: &object)
         switch update.command {
+        case let .axyVolumeSlide(up, down):
+            let rawUp = update.effectParam.map { Int(($0 & 0xF0) >> 4) }
+            let rawDown = update.effectParam.map { Int($0 & 0x0F) }
+            object["volume_slide_up"] = up
+            object["volume_slide_down"] = down
+            object["volume_slide_amount"] = max(up, down)
+            object["volume_slide_direction"] = up > 0 ? "up" : (down > 0 ? "down" : "none")
+            object["volume_slide_raw_up_nibble"] = rawUp.map { $0 as Any } ?? NSNull()
+            object["volume_slide_raw_down_nibble"] = rawDown.map { $0 as Any } ?? NSNull()
+            object["volume_slide_both_nibbles_nonzero"] = (rawUp ?? 0) > 0 && (rawDown ?? 0) > 0
+            object["volume_slide_policy"] = (rawUp ?? 0) > 0 && (rawDown ?? 0) > 0
+                ? "up_nibble_precedence_current_policy"
+                : "single_nonzero_nibble"
         case let .eaxFineVolumeSlideUp(amount):
             object["fine_volume_slide_direction"] = "up"
             object["fine_amount"] = amount
@@ -2440,6 +2455,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "source": positionJSON(cell.source),
             "channel_index": cell.channelIndex,
             "note": Int(cell.note),
+            "note_text": noteText(cell.note),
             "instrument_index": cell.instrumentIndex,
             "reason": ignoredCellReasonName(cell.reason),
             "skip_reason": cell.skipReason.rawValue,
@@ -2469,6 +2485,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "source": positionJSON(field.source),
             "channel_index": field.channelIndex,
             "note": Int(field.note),
+            "note_text": noteText(field.note),
             "instrument_index": field.instrumentIndex,
             "volume_column_raw": Int(field.volumeColumn),
             "volume_column": volumeColumnDiagnosticJSON(field.volumeColumnDiagnostic),
@@ -2682,6 +2699,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "target_exists_before": diagnostic.targetExistsBefore,
             "target_exists_after": diagnostic.targetExistsAfter,
             "target_note": diagnostic.targetNote.map { Int($0) as Any } ?? NSNull(),
+            "target_note_text": diagnostic.targetNote.map(noteText) ?? NSNull(),
             "target_linear_period": diagnostic.targetLinearPeriod.map { $0 as Any } ?? NSNull(),
             "target_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
             "target_playback_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
@@ -2953,6 +2971,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "effect_type": Int(source.effectType),
             "effect_param": Int(source.effectParam),
         ]
+    }
+
+    private static func noteText(_ note: UInt8) -> String {
+        ModuleMetadataLoader.formatXMNote(note)
     }
 
     private static func volumeCommandJSON(_ command: PlaybackSongSyntheticVolumeColumnCommand) -> [String: Any] {

@@ -2389,6 +2389,74 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })
     }
 
+    func testDiagnosticsJSONUsesTrackerNoteTextAndClassifiesAxyMixedNibble() throws {
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(1), "C-0")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(54), "F-4")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(56), "G-4")
+        for rawVolumeColumn in [UInt8(0x20), UInt8(0x24), UInt8(0x40), UInt8(0x42)] {
+            let offlineDiagnostic = PlaybackSongVolumeColumnDecoder.decode(rawVolumeColumn)
+            guard case let .setVolume(offlineValue) = offlineDiagnostic.command else {
+                return XCTFail("Focused volume column \(rawVolumeColumn) should decode as setVolume")
+            }
+            XCTAssertEqual(offlineValue, Int(rawVolumeColumn - 0x10))
+            XCTAssertEqual(offlineDiagnostic.classification, .supported)
+            XCTAssertEqual(offlineDiagnostic.appliedVolumeValue, offlineValue)
+            XCTAssertEqual(offlineDiagnostic.appliedGainMultiplier, Float(offlineValue) / 64.0)
+        }
+
+        let sample = PlaybackSample(
+            instrumentIndex: 23,
+            sampleIndex: 0,
+            pcm: (0..<300).map { Float($0) / 1_000.0 },
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [PlaybackCell(note: 56, instrument: 23, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 1, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x0F)]),
+            PlaybackRow(index: 2, cells: [PlaybackCell(note: 56, instrument: 23, volumeColumn: 0, effectType: 0x03, effectParam: 0xFF)]),
+            PlaybackRow(index: 3, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x0F)]),
+            PlaybackRow(index: 4, cells: [PlaybackCell(note: 56, instrument: 23, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 5, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 6, cells: [PlaybackCell(note: 54, instrument: 23, volumeColumn: 0x20, effectType: 0x03, effectParam: 0xFF)]),
+            PlaybackRow(index: 7, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x2F)]),
+            PlaybackRow(index: 8, cells: [PlaybackCell(note: 54, instrument: 23, volumeColumn: 0x20, effectType: 0x03, effectParam: 0xFF)]),
+        ]
+        let song = PlaybackSong(
+            title: "focused-channel-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 7)],
+            patternsByIndex: [7: PlaybackPattern(index: 7, rows: rows)],
+            instrumentsByIndex: [23: PlaybackInstrument(index: 23, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 36
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let events = try XCTUnwrap(object["events"] as? [[String: Any]])
+        let tonePortamento = try XCTUnwrap(object["tone_portamento_effects"] as? [[String: Any]])
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let row7Axy = try XCTUnwrap(updates.first { ($0["effect_param"] as? Int) == 0x2F })
+
+        XCTAssertEqual(events.map { $0["note_text"] as? String }, ["G-4", "G-4"])
+        XCTAssertEqual(tonePortamento.map { $0["target_note_text"] as? String }, ["G-4", "F-4", "F-4"])
+        XCTAssertEqual(row7Axy["command_name"] as? String, "axyVolumeSlide")
+        XCTAssertEqual(row7Axy["volume_slide_direction"] as? String, "up")
+        XCTAssertEqual(row7Axy["volume_slide_amount"] as? Int, 2)
+        XCTAssertEqual(row7Axy["volume_slide_raw_up_nibble"] as? Int, 2)
+        XCTAssertEqual(row7Axy["volume_slide_raw_down_nibble"] as? Int, 15)
+        XCTAssertEqual(row7Axy["volume_slide_both_nibbles_nonzero"] as? Bool, true)
+        XCTAssertEqual(row7Axy["volume_slide_policy"] as? String, "up_nibble_precedence_current_policy")
+    }
+
     func testDiagnosticsJSONReportsAppliedTonePortamento3xxDetails() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

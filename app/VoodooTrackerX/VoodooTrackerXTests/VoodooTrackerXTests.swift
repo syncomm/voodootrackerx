@@ -3582,6 +3582,131 @@ final class VoodooTrackerXTests: XCTestCase {
         XCTAssertEqual(diagnostic.status, .applied)
     }
 
+    func testPlaybackSongSyntheticAdapterArpeggioSchedulesDeterministicCycle() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x00, effectParam: 0x37),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let diagnostic = try XCTUnwrap(plan.diagnostics.arpeggioEffects.first)
+        let baseStep = try XCTUnwrap(plan.diagnostics.eventMappings.first?.playbackStep)
+        let effectCommand = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.decodedLabel == "0xy arpeggio" })
+
+        XCTAssertEqual(plan.diagnostics.arpeggioEffectCount, 1)
+        XCTAssertEqual(effectCommand.status, .applied)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.activeVoiceFound)
+        XCTAssertEqual(diagnostic.xSemitoneOffset, 3)
+        XCTAssertEqual(diagnostic.ySemitoneOffset, 7)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.syntheticTick), [0, 1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [6, 7, 8, 9, 10, 11, 12])
+        XCTAssertEqual(diagnostic.stepUpdates[0].playbackStepAfter, baseStep, accuracy: 0.000000001)
+        XCTAssertGreaterThan(diagnostic.stepUpdates[1].playbackStepAfter, diagnostic.stepUpdates[0].playbackStepAfter)
+        XCTAssertGreaterThan(diagnostic.stepUpdates[2].playbackStepAfter, diagnostic.stepUpdates[1].playbackStepAfter)
+        XCTAssertEqual(diagnostic.stepUpdates[3].playbackStepAfter, baseStep, accuracy: 0.000000001)
+        XCTAssertEqual(diagnostic.stepUpdates[4].playbackStepAfter, diagnostic.stepUpdates[1].playbackStepAfter, accuracy: 0.000000001)
+        XCTAssertEqual(diagnostic.stepUpdates[5].playbackStepAfter, diagnostic.stepUpdates[2].playbackStepAfter, accuracy: 0.000000001)
+        XCTAssertEqual(diagnostic.stepUpdates[6].playbackStepAfter, baseStep, accuracy: 0.000000001)
+        XCTAssertTrue(diagnostic.stepUpdates[6].reachedTarget)
+    }
+
+    func testPlaybackSongSyntheticAdapterArpeggioNoOpAndNoActiveVoiceDiagnostics() throws {
+        let noOpSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x00, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+        )
+        let noActiveSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x00, effectParam: 0x37),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
+        )
+
+        let noOpDiagnostics = PlaybackSongSyntheticAdapter.adapt(noOpSong, orderIndex: 0, sampleRate: 100).diagnostics
+        let noActiveDiagnostics = PlaybackSongSyntheticAdapter.adapt(noActiveSong, orderIndex: 0, sampleRate: 100).diagnostics
+        let noActive = try XCTUnwrap(noActiveDiagnostics.arpeggioEffects.first)
+
+        XCTAssertEqual(noOpDiagnostics.arpeggioEffects, [])
+        XCTAssertFalse(noOpDiagnostics.effectCommandDiagnostics.contains { $0.decodedLabel == "0xy arpeggio" })
+        XCTAssertEqual(noOpDiagnostics.deferredCellFields, [])
+        XCTAssertEqual(noOpDiagnostics.eventMappings.count, 1)
+        XCTAssertEqual(noActiveDiagnostics.arpeggioEffectCount, 1)
+        XCTAssertEqual(noActive.status, .noActiveVoice)
+        XCTAssertFalse(noActive.applied)
+        XCTAssertFalse(noActive.activeVoiceFound)
+        XCTAssertEqual(noActive.stepUpdates, [])
+        XCTAssertEqual(noActive.xSemitoneOffset, 3)
+        XCTAssertEqual(noActive.ySemitoneOffset, 7)
+    }
+
+    func testPlaybackSongSyntheticAdapterSameCellArpeggioTriggersOnceAndBridgesRuntimeMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x00, effectParam: 0x37),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let adaptedPlan = try XCTUnwrap(plan.plan)
+        let diagnostic = try XCTUnwrap(adaptedPlan.diagnostics.arpeggioEffects.first)
+        let noteTrigger = try XCTUnwrap(plan.events.first { $0.categories.contains("note_trigger") })
+        let stepUpdates = plan.events.filter { $0.categories.contains("arpeggio_0xy") && $0.categories.contains("step_update") }
+
+        XCTAssertEqual(adaptedPlan.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(adaptedPlan.pattern.events.count, 1)
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.activeEventIndex, 0)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.syntheticTick), [1, 2, 3, 4, 5, 6])
+        XCTAssertTrue(plan.categories.contains("arpeggio_0xy"))
+        XCTAssertTrue(noteTrigger.categories.contains("arpeggio_0xy"))
+        XCTAssertEqual(noteTrigger.effectType, 0x00)
+        XCTAssertEqual(noteTrigger.effectParam, 0x37)
+        XCTAssertEqual(stepUpdates.map(\.syntheticTick), [1, 2, 3, 4, 5, 6])
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == 0x00 && $0.effectParam == 0x37 })
+    }
+
+    func testPlaybackSongOfflineRendererArpeggioWindowedRenderRemainsDeterministic() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x00, effectParam: 0x37),
+                makePlaybackRow(index: 2),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 18
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let single = renderer.render(request)
+        let firstWindowed = renderer.renderWindowed(request, windowRows: 1)
+        let secondWindowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(firstWindowed.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertEqual(secondWindowed.block, firstWindowed.block)
+        XCTAssertEqual(firstWindowed.diagnostics.arpeggioEffectCount, 1)
+        XCTAssertEqual(firstWindowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 2)
+    }
+
     func testPlaybackSongSyntheticAdapterE1xEAxAndEBxApply() throws {
         let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
         let row = PlaybackRow(index: 0, cells: [

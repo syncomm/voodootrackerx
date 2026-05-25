@@ -41,7 +41,7 @@ PITCH_CATEGORY_DISPLAY = {
     "tremolo": "Tremolo",
 }
 PITCH_CATEGORY_RECOMMENDATIONS = {
-    "arpeggio": "Minimal Arpeggio 0xy for Bounded Offline Renders",
+    "arpeggio": "Minimal 0xy Arpeggio Foundation",
     "portamento": "Minimal Portamento Foundation",
     "vibrato": "Minimal Vibrato Foundation",
     "tremolo": "Minimal Tremolo 7xy",
@@ -466,6 +466,17 @@ def fine_portamento_up_status(portamento: dict[str, Any]) -> str:
     return fine_portamento_down_status(portamento)
 
 
+def arpeggio_status(arpeggio: dict[str, Any]) -> str:
+    status = str(arpeggio.get("status", ""))
+    if bool(arpeggio.get("applied")) or status == "applied":
+        return "applied"
+    if bool(arpeggio.get("deferred")) or status.startswith("deferred"):
+        return "deferred/unsupported"
+    if status in {"no_active_voice", "out_of_range"} or bool(arpeggio.get("ignored_as_no_op")):
+        return "ignored/no-op"
+    return "unknown"
+
+
 def timing_change_status(change: dict[str, Any]) -> str:
     if bool(change.get("applied")):
         return "applied"
@@ -612,6 +623,32 @@ def extract_command_occurrences(
             start_frame=start_frame,
             end_frame=end_frame,
             parameter=retrigger.get("effect_param"),
+        ))
+
+    for arpeggio in nested_list(diagnostics.get("arpeggio_effects")):
+        if not isinstance(arpeggio, dict):
+            continue
+        start_frame, end_frame = frame_range_for_diagnostic(arpeggio, rows_by_source, rows_by_synthetic)
+        frames = [
+            value for value in (
+                integer(update.get("scheduled_frame"))
+                for update in nested_list(arpeggio.get("step_updates"))
+                if isinstance(update, dict)
+            )
+            if value is not None
+        ]
+        if frames:
+            start_frame = min(frames)
+            end_frame = max(frames) + 1
+        occurrences.append(CommandOccurrence(
+            domain="effect",
+            label=effect_command_label(arpeggio.get("effect_type"), arpeggio.get("effect_param")),
+            status=arpeggio_status(arpeggio),
+            source=nested_dict(arpeggio.get("source")),
+            channel=arpeggio.get("channel_index"),
+            start_frame=start_frame,
+            end_frame=end_frame,
+            parameter=arpeggio.get("effect_param"),
         ))
 
     for tone_portamento in nested_list(diagnostics.get("tone_portamento_effects")):

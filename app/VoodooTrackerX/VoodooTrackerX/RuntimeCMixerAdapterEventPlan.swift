@@ -115,6 +115,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter { $0.effectType == 0x06 && $0.applied }
                 .compactMap(\.activeEventIndex)
         )
+        let appliedArpeggioEventIndices = Set(
+            adaptedPlan.diagnostics.arpeggioEffects
+                .filter(\.applied)
+                .compactMap(\.activeEventIndex)
+        )
         func portamentoSlideTriggerKey(
             eventIndex: Int,
             source: PlaybackPosition,
@@ -200,6 +205,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isVibratoVolumeSlide {
                 categories.append("vibrato_volume_slide_6xy")
             }
+            let isArpeggio = mapping.effectType == 0x00 &&
+                mapping.effectParam != 0 &&
+                appliedArpeggioEventIndices.contains(eventIndex)
+            if isArpeggio {
+                categories.append("arpeggio_0xy")
+            }
             if let bridgedPortamentoSlide {
                 categories.append("portamento_update")
                 categories.append(bridgedPortamentoSlide.direction == .up ? "portamento_1xx" : "portamento_2xx")
@@ -221,6 +232,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
                 isVibratoVolumeSlide ||
+                isArpeggio ||
                 bridgedPortamentoSlide != nil ||
                 mapping.sampleOffset.applied
             events.append(RuntimeCMixerAdapterEvent(
@@ -359,6 +371,26 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
                     categories: ["step_update", "e2x_fine_portamento_down"],
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
+                ))
+                nextID += 1
+            }
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.arpeggioEffects where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: ["step_update", "arpeggio_0xy"],
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))

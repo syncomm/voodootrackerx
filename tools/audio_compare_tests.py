@@ -984,6 +984,43 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["5xy tone portamento + volume slide"]["unsupported_count"], 1)
         self.assertEqual(rows["900 sample offset / effect memory"]["no_op_effect_memory_deferred_count"], 1)
 
+    def test_effect_coverage_summary_counts_applied_0xy_arpeggio(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x00, 0x37, "0xy arpeggio", status="applied"),
+            ],
+            "arpeggio_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x00,
+                    "effect_param": 0x37,
+                    "status": "applied",
+                    "current_status": "applied",
+                    "detected": True,
+                    "applied": True,
+                    "deferred": False,
+                    "ignored_as_no_op": False,
+                    "x_semitone_offset": 3,
+                    "y_semitone_offset": 7,
+                    "scheduled_sample_step_update_count": 6,
+                    "step_updates": [{"scheduled_frame": 110}],
+                }
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["0xy arpeggio"]["detected_count"], 1)
+        self.assertEqual(rows["0xy arpeggio"]["applied_count"], 1)
+        self.assertEqual(rows["0xy arpeggio"]["deferred_count"], 0)
+        self.assertEqual(rows["0xy arpeggio"]["unsupported_count"], 0)
+        self.assertEqual(rows["0xy arpeggio"]["recommended_implementation_priority"], "covered/low")
+
     def test_effect_coverage_summary_records_first_coordinates(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())
@@ -2570,6 +2607,38 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| 1xx portamento up | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
             self.assertIn("| 2xx portamento down | applied | 1 | 1 | order 0 pattern 2 row 5 ch 2 |", markdown)
 
+    def test_correlation_report_counts_applied_0xy_arpeggio(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x00, 0x37, "0xy arpeggio", status="applied"),
+        ]
+        diagnostics["arpeggio_effects"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x00,
+                "effect_param": 0x37,
+                "status": "applied",
+                "current_status": "applied",
+                "detected": True,
+                "applied": True,
+                "deferred": False,
+                "ignored_as_no_op": False,
+                "x_semitone_offset": 3,
+                "y_semitone_offset": 7,
+                "step_updates": [{"scheduled_frame": 110, "current_step_before": 1.0, "current_step_after": 1.25}],
+            }
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| 0xy arpeggio | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
     def test_recommendation_heuristic_selects_dominant_pitch_bucket(self):
         cases = [
             (
@@ -2578,7 +2647,7 @@ class AudioCorrelationTests(unittest.TestCase):
                  deferred_effect_field(0x00, 0x47, channel=2),
                  deferred_effect_field(0x00, 0x57, channel=3)],
                 [],
-                "Minimal Arpeggio 0xy for Bounded Offline Renders",
+                "Minimal 0xy Arpeggio Foundation",
                 "- Arpeggio: 3 overall, 3 near top mismatch windows",
             ),
             (

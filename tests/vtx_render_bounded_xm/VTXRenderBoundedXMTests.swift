@@ -2308,26 +2308,32 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let first = try XCTUnwrap(coordinates.first)
         let volumeTonePortamento = try XCTUnwrap(coordinates.first { $0["effect_label"] as? String == "volume-column tone portamento" })
         let effectTonePortamento = try XCTUnwrap(effects.first { $0["effect_label"] as? String == "3xx tone portamento" })
+        let arpeggioEffects = try XCTUnwrap(object["arpeggio_effects"] as? [[String: Any]])
         let portamentoSlides = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
         let vibratoEffects = try XCTUnwrap(object["vibrato_effects"] as? [[String: Any]])
         let fourxyEffects = vibratoEffects.filter { $0["effect_type"] as? Int == 0x04 }
         let sixxyEffects = try XCTUnwrap(object["vibrato_volume_slide_6xy_effects"] as? [[String: Any]])
 
         [
-            "total_arpeggio_count",
             "total_tone_portamento_volume_slide_count",
             "total_tremolo_count",
             "total_volume_column_vibrato_speed_count",
             "total_volume_column_vibrato_count",
             "total_volume_column_tone_portamento_count",
         ].forEach { XCTAssertEqual(summary[$0] as? Int, 1) }
+        XCTAssertEqual(summary["total_arpeggio_count"] as? Int, 0)
         XCTAssertEqual(summary["total_vibrato_volume_slide_count"] as? Int, 0)
         XCTAssertEqual(summary["total_vibrato_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_up_count"] as? Int, 0)
         XCTAssertEqual(summary["total_portamento_down_count"] as? Int, 0)
         XCTAssertEqual(summary["total_tone_portamento_count"] as? Int, 0)
-        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 6)
-        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 6)
+        XCTAssertEqual(summary["total_deferred_pitch_modulation_effect_count"] as? Int, 5)
+        XCTAssertEqual(render["pitch_modulation_deferred_effect_count"] as? Int, 5)
+        XCTAssertEqual(render["arpeggio_0xy_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["arpeggio_0xy_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["arpeggio_0xy_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(render["arpeggio_0xy_deferred_count"] as? Int, 0)
+        XCTAssertEqual(render["arpeggio_0xy_scheduled_sample_step_update_count"] as? Int, 6)
         XCTAssertEqual(render["vibrato_4xy_effect_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_4xy_applied_count"] as? Int, 1)
         XCTAssertEqual(render["vibrato_4xy_scheduled_sample_step_update_count"] as? Int, 6)
@@ -2342,7 +2348,12 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 1)
         XCTAssertEqual(render["portamento_slide_effect_count"] as? Int, 2)
         XCTAssertEqual(render["portamento_slide_applied_count"] as? Int, 2)
-        XCTAssertEqual(coordinates.count, 6)
+        XCTAssertEqual(coordinates.count, 5)
+        XCTAssertEqual(arpeggioEffects.count, 1)
+        XCTAssertEqual(arpeggioEffects.first?["current_status"] as? String, "applied")
+        XCTAssertEqual(arpeggioEffects.first?["x_semitone_offset"] as? Int, 3)
+        XCTAssertEqual(arpeggioEffects.first?["y_semitone_offset"] as? Int, 7)
+        XCTAssertEqual(arpeggioEffects.first?["scheduled_sample_step_update_count"] as? Int, 6)
         XCTAssertEqual(portamentoSlides.count, 2)
         XCTAssertEqual(portamentoSlides.map { $0["current_status"] as? String }, ["applied", "applied"])
         XCTAssertEqual(portamentoSlides.map { $0["slide_direction"] as? String }, ["up", "down"])
@@ -2358,10 +2369,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual((first["source"] as? [String: Any])?["order"] as? Int, 0)
         XCTAssertEqual((first["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((first["source"] as? [String: Any])?["row"] as? Int, 0)
-        XCTAssertEqual(first["channel_index"] as? Int, 0)
-        XCTAssertEqual(first["effect_type"] as? Int, 0)
-        XCTAssertEqual(first["effect_param"] as? Int, 0x37)
-        XCTAssertEqual(first["effect_label"] as? String, "0xy arpeggio")
+        XCTAssertEqual(first["channel_index"] as? Int, 5)
+        XCTAssertEqual(first["effect_type"] as? Int, 5)
+        XCTAssertEqual(first["effect_param"] as? Int, 0x20)
+        XCTAssertEqual(first["effect_label"] as? String, "5xy tone portamento + volume slide")
         XCTAssertEqual(first["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(volumeTonePortamento["command_source"] as? String, "volume_column")
         XCTAssertEqual(volumeTonePortamento["effect_param"] as? Int, 0xF6)
@@ -2371,6 +2382,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "1xx portamento up" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "2xx portamento down" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "4xy vibrato" })
+        XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "0xy arpeggio" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "5xy tone portamento + volume slide" })
         XCTAssertFalse(coordinates.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" })
         XCTAssertTrue(coordinates.contains { $0["effect_label"] as? String == "7xy tremolo" })

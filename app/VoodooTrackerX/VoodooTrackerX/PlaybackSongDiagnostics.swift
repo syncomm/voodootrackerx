@@ -25,6 +25,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let portamentoSlideEffects: [PlaybackSongSyntheticPortamentoSlideDiagnostic]
     let finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
     let finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
+    let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
     let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
@@ -90,6 +91,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var finePortamentoDownEffectCount: Int {
         finePortamentoDownEffects.count
+    }
+
+    var arpeggioEffectCount: Int {
+        arpeggioEffects.count
     }
 
     var vibratoEffectCount: Int {
@@ -235,6 +240,7 @@ extension PlaybackSongSyntheticDiagnostics {
             portamentoSlideEffects: portamentoSlideEffects,
             finePortamentoUpEffects: finePortamentoUpEffects,
             finePortamentoDownEffects: finePortamentoDownEffects,
+            arpeggioEffects: arpeggioEffects,
             vibratoEffects: vibratoEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
@@ -915,6 +921,41 @@ struct PlaybackSongSyntheticFinePortamentoDownDiagnostic: Equatable {
     let appliedToInitialPlaybackStep: Bool
     let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let clamped: Bool
+    let policy: String
+}
+
+struct PlaybackSongSyntheticArpeggioDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noActiveVoice
+        case unsupportedFrequencyTable
+        case outOfRange
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let effectMemoryDeferred: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let xSemitoneOffset: Int
+    let ySemitoneOffset: Int
+    let currentLinearPeriodBefore: Double?
+    let currentLinearPeriodAfter: Double?
+    let currentPlaybackStepBefore: Double?
+    let currentPlaybackStepAfter: Double?
+    let rowSpeed: Int
+    let rowBPM: Int
+    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
     let policy: String
 }
 

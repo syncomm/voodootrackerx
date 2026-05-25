@@ -1001,6 +1001,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let hxyIgnoredNoOpCount = hxyEffectDiagnostics.filter { $0.status == .ignoredNoOp }.count
         let hxyDeferredCount = hxyEffectDiagnostics.filter { $0.status == .deferredUnsupported }.count
         let pitchModulationSummary = pitchModulationDeferredEffectSummaryJSON(diagnostics)
+        let arpeggioAppliedCount = diagnostics.arpeggioEffects.filter(\.applied).count
+        let arpeggioNoActiveVoiceCount = diagnostics.arpeggioEffects.filter { $0.status == .noActiveVoice }.count
+        let arpeggioDeferredCount = diagnostics.arpeggioEffects.filter(\.deferred).count
+        let arpeggioScheduledStepUpdateCount = diagnostics.arpeggioEffects.map(\.stepUpdates.count).reduce(0, +)
         let tonePortamento3xxEffectCount = diagnostics.tonePortamentoEffectCount
         let tonePortamento3xxAppliedCount = diagnostics.tonePortamentoEffects.filter(\.applied).count
         let tonePortamento3xxNoActiveVoiceCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noActiveVoice }.count
@@ -1085,6 +1089,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy and volume-column tone portamento remain deferred.",
+            "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
@@ -1129,6 +1134,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "note_cut_effect_count": diagnostics.noteCutEffectCount,
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "retrigger_effect_count": diagnostics.retriggerEffectCount,
+                "arpeggio_0xy_effect_count": diagnostics.arpeggioEffectCount,
+                "arpeggio_0xy_detected_count": diagnostics.arpeggioEffectCount,
+                "arpeggio_0xy_applied_count": arpeggioAppliedCount,
+                "arpeggio_0xy_no_active_voice_count": arpeggioNoActiveVoiceCount,
+                "arpeggio_0xy_deferred_count": arpeggioDeferredCount,
+                "arpeggio_0xy_effect_memory_deferred_count": 0,
+                "arpeggio_0xy_scheduled_sample_step_update_count": arpeggioScheduledStepUpdateCount,
                 "tone_portamento_3xx_effect_count": tonePortamento3xxEffectCount,
                 "tone_portamento_3xx_applied_count": tonePortamento3xxAppliedCount,
                 "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
@@ -1269,6 +1281,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "note_cut_effects": diagnostics.noteCutEffects.map { noteCutDiagnosticJSON($0, from: result) },
             "note_delay_effects": diagnostics.noteDelayEffects.map(noteDelayDiagnosticJSON),
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
+            "arpeggio_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
+            "arpeggio_0xy_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
             "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
             "portamento_slide_effects": diagnostics.portamentoSlideEffects.map(portamentoSlideDiagnosticJSON),
             "fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
@@ -1600,6 +1614,46 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "ignored/no-op"
         }
         return "unknown"
+    }
+
+    private static func arpeggioDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "effect_label": "0xy arpeggio",
+            "decoded_label": "0xy arpeggio",
+            "status": arpeggioStatusName(diagnostic.status),
+            "current_status": arpeggioStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "x_semitone_offset": diagnostic.xSemitoneOffset,
+            "y_semitone_offset": diagnostic.ySemitoneOffset,
+            "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "active_voice_update_count": diagnostic.applied ? diagnostic.stepUpdates.count : 0,
+            "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            "step_update_count": diagnostic.stepUpdates.count,
+            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "policy": diagnostic.policy,
+        ]
     }
 
     private static func scheduledVoiceRejectedCount(from result: PlaybackSongOfflineRenderResult) -> Int {
@@ -3084,6 +3138,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func arpeggioStatusName(
+        _ status: PlaybackSongSyntheticArpeggioDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
+        }
+    }
+
     private static func finePortamentoUpStatusName(
         _ status: PlaybackSongSyntheticFinePortamentoUpDiagnostic.Status
     ) -> String {
@@ -3515,6 +3584,9 @@ private func appendEventCoverageSummary(
     )
     lines.append(
         "Retrigger: E9x \(appliedRetriggers) applied, \(deferredRetriggers) deferred, \(noActiveRetriggers) no-active, \(outOfRowRetriggers) out-of-row/no-op."
+    )
+    lines.append(
+        "Arpeggio 0xy: \(result.diagnostics.arpeggioEffects.filter(\.applied).count) applied, \(result.diagnostics.arpeggioEffects.filter(\.deferred).count) deferred, \(result.diagnostics.arpeggioEffects.filter { $0.status == .noActiveVoice }.count) no-active, \(result.diagnostics.arpeggioEffects.map(\.stepUpdates.count).reduce(0, +)) sample-step updates."
     )
     let portamentoUp = result.diagnostics.portamentoSlideEffects.filter { $0.direction == .up }
     let portamentoDown = result.diagnostics.portamentoSlideEffects.filter { $0.direction == .down }

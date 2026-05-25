@@ -51,11 +51,11 @@ row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
 row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal `9xx` sample offsets on same-cell note triggers including
-per-channel `900` memory replay, and
-minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
-minimal `E1x` fine portamento up, minimal `E2x` fine portamento down, minimal
-`EAx`/`EBx` fine volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato +
-volume slide, and `E9x` retriggers for the tracked active adapted voice. The
+per-channel `900` memory replay, minimal `0xy` arpeggio, minimal `1xx`/`2xx`
+portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
+portamento up, minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine
+volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and
+`E9x` retriggers for the tracked active adapted voice. The
 `1xx`/`2xx` foundation replays per-channel `100`/`200` memory from the prior
 nonzero same-family slide amount when available; unavailable memory remains a
 diagnosed effect-memory-deferred no-op. The `E1x` foundation applies one
@@ -780,18 +780,16 @@ counts, unresolved key-off/no-active buckets, and a conservative next-effect
 recommendation. It is local diagnostics only; generated JSON/Markdown reports
 derived from private modules must stay under `/tmp` or another ignored path.
 Candidate diagnostics and the correlation report also include a focused
-pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `5xy`,
-`7xy`, and volume-column vibrato/tone-portamento ranges. Applied
-`1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E1x`
-fine portamento up, applied `E2x` fine portamento down, applied `EAx`/`EBx`
-fine volume slides, and applied
-`4xy`/`6xy` vibrato-family effects are reported in the general command
-frequency and dedicated diagnostics instead of the deferred pitch-modulation
-bucket. The report groups deferred
-pitch-modulation counts into arpeggio, remaining portamento-family, vibrato,
-and tremolo buckets, shows whether they appear near the worst mismatch windows,
-and recommends a conservative next pitch-effect PR only when one bucket
-dominates.
+pitch-modulation/deferred-effect summary for remaining deferred `5xy`, `7xy`,
+and volume-column vibrato/tone-portamento ranges. Applied `0xy` arpeggio,
+applied `1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied
+`E1x` fine portamento up, applied `E2x` fine portamento down, applied
+`EAx`/`EBx` fine volume slides, and applied `4xy`/`6xy` vibrato-family effects
+are reported in the general command frequency and dedicated diagnostics instead
+of the deferred pitch-modulation bucket. The report groups remaining deferred
+pitch-modulation counts into portamento-family, vibrato, and tremolo buckets,
+shows whether they appear near the worst mismatch windows, and recommends a
+conservative next pitch-effect PR only when one bucket dominates.
 For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, `EAx`/`EBx`, and `Hxy` applied/deferred/no-op counts,
@@ -1245,8 +1243,10 @@ ranges, then lists:
   `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands when
   diagnostics JSON contains them
 - pitch-modulation/deferred-effect counts near the worst windows and overall,
-  including arpeggio, remaining deferred portamento-family commands, vibrato,
-  tremolo, and deferred volume-column vibrato/tone-portamento commands
+  including remaining deferred portamento-family commands, vibrato, tremolo,
+  and deferred volume-column vibrato/tone-portamento commands; applied `0xy`
+  arpeggio appears in applied command frequency and `arpeggio_effects`
+  diagnostics instead
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as

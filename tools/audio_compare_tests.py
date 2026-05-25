@@ -23,6 +23,9 @@ RUNTIME_OFFLINE_WINDOW_SCRIPT_PATH = (
 EFFECT_COVERAGE_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "summarize-xm-effect-coverage.py"
 )
+FOCUSED_XM_CHANNEL_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "focused-xm-channel-diagnostics.py"
+)
 
 
 def load_audio_compare_module():
@@ -70,11 +73,21 @@ def load_effect_coverage_module():
     return module
 
 
+def load_focused_xm_channel_module():
+    spec = importlib.util.spec_from_file_location("focused_xm_channel", FOCUSED_XM_CHANNEL_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 runtime_trace_summary = load_runtime_trace_summary_module()
 runtime_offline_window = load_runtime_offline_window_module()
 effect_coverage = load_effect_coverage_module()
+focused_xm_channel = load_focused_xm_channel_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -945,6 +958,281 @@ def synthetic_effect_coverage_diagnostics():
             }
         ],
     }
+
+
+def synthetic_focused_channel_mc_dump():
+    return {
+        "ok": True,
+        "type": "XM",
+        "channels": 8,
+        "patterns": 8,
+        "order_table": [0, 7],
+        "pattern_row_counts": [64] * 8,
+        "xm_events": [
+            {"pattern": 7, "row": 0, "channel": 4, "note": 56, "instrument": 23, "volume": 0, "effect_type": 0, "effect_param": 0},
+            {"pattern": 7, "row": 1, "channel": 4, "note": 0, "instrument": 0, "volume": 0, "effect_type": 0x0A, "effect_param": 0x0F},
+            {"pattern": 7, "row": 2, "channel": 4, "note": 56, "instrument": 23, "volume": 0, "effect_type": 0x03, "effect_param": 0xFF},
+            {"pattern": 7, "row": 3, "channel": 4, "note": 0, "instrument": 0, "volume": 0, "effect_type": 0x0A, "effect_param": 0x0F},
+            {"pattern": 7, "row": 4, "channel": 4, "note": 56, "instrument": 23, "volume": 0, "effect_type": 0, "effect_param": 0},
+            {"pattern": 7, "row": 6, "channel": 4, "note": 54, "instrument": 23, "volume": 0x20, "effect_type": 0x03, "effect_param": 0xFF},
+            {"pattern": 7, "row": 7, "channel": 4, "note": 0, "instrument": 0, "volume": 0, "effect_type": 0x0A, "effect_param": 0x2F},
+            {"pattern": 7, "row": 8, "channel": 4, "note": 54, "instrument": 23, "volume": 0x20, "effect_type": 0x03, "effect_param": 0xFF},
+        ],
+    }
+
+
+def synthetic_focused_channel_diagnostics():
+    def source(row):
+        return {"order": 1, "pattern": 7, "row": row}
+
+    return {
+        "schema_version": 1,
+        "tool": "vtx_render_bounded_xm",
+        "events": [
+            {
+                "source": source(0),
+                "channel_index": 4,
+                "note": 56,
+                "note_text": "G-4",
+                "instrument_index": 23,
+                "sample_index": 0,
+                "sample_selection_method": "first_playable_fallback",
+                "effect_type": 0,
+                "effect_param": 0,
+                "event_index": 0,
+                "gain": 1.0,
+                "effective_volume_value": 64,
+                "initial_source_frame": 0,
+            },
+            {
+                "source": source(4),
+                "channel_index": 4,
+                "note": 56,
+                "note_text": "G-4",
+                "instrument_index": 23,
+                "sample_index": 0,
+                "sample_selection_method": "first_playable_fallback",
+                "effect_type": 0,
+                "effect_param": 0,
+                "event_index": 1,
+                "gain": 34.0 / 64.0,
+                "effective_volume_value": 34,
+                "initial_source_frame": 0,
+            },
+        ],
+        "tone_portamento_effects": [
+            {
+                "source": source(2),
+                "channel_index": 4,
+                "target_exists_after": True,
+                "target_note": 56,
+                "target_note_text": "G-4",
+                "active_voice_found": True,
+            },
+            {
+                "source": source(6),
+                "channel_index": 4,
+                "target_exists_after": True,
+                "target_note": 54,
+                "target_note_text": "F-4",
+                "active_voice_found": True,
+            },
+            {
+                "source": source(8),
+                "channel_index": 4,
+                "target_exists_after": True,
+                "target_note": 54,
+                "target_note_text": "F-4",
+                "active_voice_found": True,
+            },
+        ],
+        "volume_panning_state_updates": [
+            {
+                "source": source(1),
+                "channel_index": 4,
+                "cell_note": 0,
+                "cell_note_text": "...",
+                "command_label": "Axy volume slide",
+                "command_name": "axyVolumeSlide",
+                "effect_type": 0x0A,
+                "effect_param": 0x0F,
+                "effective_volume_before": 64,
+                "effective_volume_after": 49,
+                "gain_before": 1.0,
+                "gain_after": 49.0 / 64.0,
+                "active_voice_updated": True,
+                "volume_slide_direction": "down",
+                "volume_slide_amount": 15,
+                "volume_slide_up": 0,
+                "volume_slide_down": 15,
+                "volume_slide_raw_up_nibble": 0,
+                "volume_slide_raw_down_nibble": 15,
+                "volume_slide_both_nibbles_nonzero": False,
+                "volume_slide_policy": "single_nonzero_nibble",
+            },
+            {
+                "source": source(3),
+                "channel_index": 4,
+                "cell_note": 0,
+                "cell_note_text": "...",
+                "command_label": "Axy volume slide",
+                "command_name": "axyVolumeSlide",
+                "effect_type": 0x0A,
+                "effect_param": 0x0F,
+                "effective_volume_before": 49,
+                "effective_volume_after": 34,
+                "gain_before": 49.0 / 64.0,
+                "gain_after": 34.0 / 64.0,
+                "active_voice_updated": True,
+                "volume_slide_direction": "down",
+                "volume_slide_amount": 15,
+                "volume_slide_up": 0,
+                "volume_slide_down": 15,
+                "volume_slide_raw_up_nibble": 0,
+                "volume_slide_raw_down_nibble": 15,
+                "volume_slide_both_nibbles_nonzero": False,
+                "volume_slide_policy": "single_nonzero_nibble",
+            },
+            {
+                "source": source(6),
+                "channel_index": 4,
+                "cell_note": 54,
+                "cell_note_text": "F-4",
+                "command_label": "setVolume",
+                "command_name": "setVolume",
+                "raw_volume_column": 0x20,
+                "effective_volume_before": 34,
+                "effective_volume_after": 16,
+                "gain_before": 34.0 / 64.0,
+                "gain_after": 0.25,
+                "active_voice_updated": True,
+            },
+            {
+                "source": source(7),
+                "channel_index": 4,
+                "cell_note": 0,
+                "cell_note_text": "...",
+                "command_label": "Axy volume slide",
+                "command_name": "axyVolumeSlide",
+                "effect_type": 0x0A,
+                "effect_param": 0x2F,
+                "effective_volume_before": 16,
+                "effective_volume_after": 18,
+                "gain_before": 0.25,
+                "gain_after": 18.0 / 64.0,
+                "active_voice_updated": True,
+                "volume_slide_direction": "up",
+                "volume_slide_amount": 2,
+                "volume_slide_up": 2,
+                "volume_slide_down": 0,
+                "volume_slide_raw_up_nibble": 2,
+                "volume_slide_raw_down_nibble": 15,
+                "volume_slide_both_nibbles_nonzero": True,
+                "volume_slide_policy": "up_nibble_precedence_current_policy",
+            },
+            {
+                "source": source(8),
+                "channel_index": 4,
+                "cell_note": 54,
+                "cell_note_text": "F-4",
+                "command_label": "setVolume",
+                "command_name": "setVolume",
+                "raw_volume_column": 0x20,
+                "effective_volume_before": 18,
+                "effective_volume_after": 16,
+                "gain_before": 18.0 / 64.0,
+                "gain_after": 0.25,
+                "active_voice_updated": True,
+            },
+        ],
+        "volume_column_mappings": [
+            {
+                "source": source(6),
+                "channel_index": 4,
+                "volume_column": {
+                    "raw_value": 0x20,
+                    "command": {"name": "setVolume", "value": 16},
+                    "classification": "supported",
+                    "applied": True,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": False,
+                    "effective_volume_before": 34,
+                    "effective_volume_after": 16,
+                },
+            },
+            {
+                "source": source(8),
+                "channel_index": 4,
+                "volume_column": {
+                    "raw_value": 0x20,
+                    "command": {"name": "setVolume", "value": 16},
+                    "classification": "supported",
+                    "applied": True,
+                    "ignored_as_empty_or_no_op": False,
+                    "deferred": False,
+                    "effective_volume_before": 18,
+                    "effective_volume_after": 16,
+                },
+            },
+        ],
+        "ignored_cells": [],
+        "sample_offset_effects": [],
+    }
+
+
+class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
+    def test_note_text_mapping_matches_tracker_display_policy(self):
+        self.assertEqual(focused_xm_channel.note_text(1), "C-0")
+        self.assertEqual(focused_xm_channel.note_text(54), "F-4")
+        self.assertEqual(focused_xm_channel.note_text(56), "G-4")
+        self.assertEqual(focused_xm_channel.note_text(97), "===")
+
+    def test_summary_classifies_same_cell_3xx_and_mixed_axy(self):
+        summary = focused_xm_channel.build_summary(
+            synthetic_focused_channel_mc_dump(),
+            synthetic_focused_channel_diagnostics(),
+            label="xm-corpus-synthetic",
+            order=1,
+            pattern=7,
+            channel_index=4,
+            row_start=0,
+            row_end=8,
+        )
+        rows = {row["row_hex"]: row for row in summary["rows"]}
+
+        self.assertTrue(summary["focus"]["order_maps_to_pattern"])
+        self.assertEqual(rows["00"]["decoded_cell"]["note_text"], "G-4")
+        self.assertEqual(rows["06"]["decoded_cell"]["note_text"], "F-4")
+        self.assertEqual(summary["note_display_verification"]["diagnostics_note_text_mismatch_count"], 0)
+        self.assertTrue(rows["00"]["note_trigger_event_created"])
+        self.assertFalse(rows["02"]["note_trigger_event_created"])
+        self.assertTrue(rows["02"]["tone_portamento_target_set"])
+        self.assertTrue(rows["02"]["tone_portamento_suppressed_retrigger"])
+        self.assertTrue(rows["04"]["voice_replacement_happened"])
+        self.assertEqual(rows["07"]["volume_slide"]["direction"], "up")
+        self.assertEqual(rows["07"]["volume_slide"]["amount"], 2)
+        self.assertTrue(rows["07"]["volume_slide"]["both_nibbles_nonzero"])
+        self.assertEqual(rows["07"]["volume_slide"]["policy"], "up_nibble_precedence_current_policy")
+        self.assertEqual(rows["08"]["channel_volume_before"], 18)
+        self.assertEqual(rows["08"]["channel_volume_after"], 16)
+
+    def test_markdown_report_uses_correct_focused_note_names(self):
+        summary = focused_xm_channel.build_summary(
+            synthetic_focused_channel_mc_dump(),
+            synthetic_focused_channel_diagnostics(),
+            label="xm-corpus-synthetic",
+            order=1,
+            pattern=7,
+            channel_index=4,
+            row_start=0,
+            row_end=8,
+        )
+        markdown = focused_xm_channel.render_markdown(summary)
+
+        self.assertIn("G-4 17 .. ...", markdown)
+        self.assertIn("F-4 17 20 3FF", markdown)
+        self.assertNotIn("F#4", markdown)
+        self.assertNotIn("E-4", markdown)
 
 
 class EffectCoverageSummaryTests(unittest.TestCase):

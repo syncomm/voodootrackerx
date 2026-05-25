@@ -33,6 +33,23 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertTrue(unsupported.deferred)
     }
 
+    func testFocusedVolumeColumnValuesMatchRuntimeDecoder() {
+        for rawVolumeColumn in [UInt8(0x20), UInt8(0x24), UInt8(0x40), UInt8(0x42)] {
+            let runtimeCommand = PlaybackEffectHandler.volumeColumnCommand(rawVolumeColumn)
+            let offlineDiagnostic = PlaybackSongVolumeColumnDecoder.decode(rawVolumeColumn)
+            guard case let .setVolume(runtimeValue) = runtimeCommand,
+                  case let .setVolume(offlineValue) = offlineDiagnostic.command else {
+                return XCTFail("Focused volume column \(rawVolumeColumn) should decode as setVolume")
+            }
+
+            XCTAssertEqual(runtimeValue, offlineValue)
+            XCTAssertEqual(offlineValue, Int(rawVolumeColumn - 0x10))
+            XCTAssertEqual(offlineDiagnostic.classification, .supported)
+            XCTAssertEqual(offlineDiagnostic.appliedVolumeValue, offlineValue)
+            XCTAssertEqual(offlineDiagnostic.appliedGainMultiplier, Float(offlineValue) / 64.0)
+        }
+    }
+
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
         let event = PlaybackTraceEvent(
             tickIndex: 12,

@@ -5337,4 +5337,223 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.effectiveGlobalVolumeMultiplier, 0.9375)
         XCTAssertEqual(windowed.windowedRenderSummary?.windowRows, 1)
     }
+
+    func testTraversalD00BreaksToRowZeroOfNextOrder() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0D, effectParam: 0x00)],
+                3: [makePlaybackRow(index: 0), makePlaybackRow(index: 1)]
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: 2, sampleRate: 100)
+
+        XCTAssertEqual(plan.diagnostics.rowMappings.map(\.source), [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+            PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0),
+            PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 1),
+        ])
+        XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.status, .applied)
+        XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.targetRowIndex, 0)
+    }
+
+    func testTraversalDxxUsesXMBCDRowTargetAndDiagnosesInvalidBCD() throws {
+        let nextRows = (0..<40).map { makePlaybackRow(index: $0) }
+        let validSong = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0D, effectParam: 0x31)],
+                3: nextRows
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let invalidSong = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0D, effectParam: 0xFA)],
+                3: nextRows
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let valid = PlaybackSongSyntheticAdapter.adapt(validSong, startOrderIndex: 0, orderCount: 2, sampleRate: 100)
+        let invalid = PlaybackSongSyntheticAdapter.adapt(invalidSong, startOrderIndex: 0, orderCount: 2, sampleRate: 100)
+        let invalidTraversal = try XCTUnwrap(invalid.diagnostics.traversalDiagnostics.first)
+
+        XCTAssertEqual(valid.diagnostics.rowMappings[1].source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 31))
+        XCTAssertEqual(valid.diagnostics.traversalDiagnostics.first?.targetRowIndex, 31)
+        XCTAssertEqual(invalidTraversal.status, .invalidTarget)
+        XCTAssertEqual(invalidTraversal.policy, "invalid_bcd_clamped_to_row_zero")
+        XCTAssertEqual(invalid.diagnostics.rowMappings[1].source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0))
+    }
+
+    func testTraversalBxxJumpsToTargetOrderRowZeroAndOutOfRangeStopsSafely() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let jumpSong = makePlaybackSong(
+            orderPatternIndices: [2, 3, 4],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x02)],
+                3: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+                4: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let outOfRangeSong = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x7F)],
+                3: [makePlaybackRow(index: 0, note: 49, instrument: 1)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let jump = PlaybackSongSyntheticAdapter.adapt(jumpSong, startOrderIndex: 0, orderCount: 3, sampleRate: 100)
+        let outOfRange = PlaybackSongSyntheticAdapter.adapt(outOfRangeSong, startOrderIndex: 0, orderCount: 2, sampleRate: 100)
+        let outOfRangeTraversal = try XCTUnwrap(outOfRange.diagnostics.traversalDiagnostics.first)
+
+        XCTAssertEqual(jump.diagnostics.rowMappings.map(\.source), [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+            PlaybackPosition(orderIndex: 2, patternIndex: 4, rowIndex: 0),
+        ])
+        XCTAssertEqual(jump.diagnostics.traversalDiagnostics.first?.status, .applied)
+        XCTAssertEqual(jump.diagnostics.traversalDiagnostics.first?.targetOrderIndex, 2)
+        XCTAssertEqual(jump.diagnostics.traversalDiagnostics.first?.targetRowIndex, 0)
+        XCTAssertEqual(outOfRangeTraversal.status, .outOfRange)
+        XCTAssertEqual(outOfRange.diagnostics.traversalStopReason, .outOfRange)
+        XCTAssertEqual(outOfRange.diagnostics.rowMappings.map(\.source), [
+            PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
+        ])
+    }
+
+    func testTraversalCombinedBxxDxxUsesJumpOrderAndBreakRow() throws {
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0B, effectParam: 0x02),
+            PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0D, effectParam: 0x02),
+        ])
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3, 4],
+            patternRowsByIndex: [
+                2: [row],
+                3: [makePlaybackRow(index: 0)],
+                4: (0..<4).map { makePlaybackRow(index: $0) }
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 0, orderCount: 3, sampleRate: 100)
+        let bxx = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first { $0.kind == .bxxPositionJump })
+        let dxx = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first { $0.kind == .dxxPatternBreak })
+
+        XCTAssertEqual(plan.diagnostics.rowMappings[1].source, PlaybackPosition(orderIndex: 2, patternIndex: 4, rowIndex: 2))
+        XCTAssertEqual(bxx.status, .applied)
+        XCTAssertTrue(bxx.combinedWithDxx)
+        XCTAssertEqual(bxx.policy, "bxx_uses_dxx_row_target_when_same_row")
+        XCTAssertTrue(dxx.combinedWithBxx)
+        XCTAssertEqual(dxx.targetOrderIndex, 2)
+        XCTAssertEqual(dxx.targetRowIndex, 2)
+    }
+
+    func testTraversalE6xMarksLoopStartAndRepeatsRequestedCount() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x60),
+                    makePlaybackRow(index: 2, effectType: 0x0E, effectParam: 0x62),
+                    makePlaybackRow(index: 3)
+                ]
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let summary = plan.diagnostics.traversalSummary
+
+        XCTAssertEqual(plan.diagnostics.rowMappings.map { $0.source.rowIndex }, [0, 1, 2, 1, 2, 1, 2, 3])
+        XCTAssertEqual(summary.e6xLoopStartCount, 3)
+        XCTAssertEqual(summary.e6xLoopTakenCount, 2)
+        XCTAssertEqual(plan.diagnostics.traversalDiagnostics.filter(\.loopTaken).map(\.loopRemaining), [1, 0])
+    }
+
+    func testTraversalE6xMissingLoopStartIsDiagnosedWithoutInventingLoop() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x61),
+                    makePlaybackRow(index: 1)
+                ]
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let traversal = try XCTUnwrap(plan.diagnostics.traversalDiagnostics.first)
+
+        XCTAssertEqual(plan.diagnostics.rowMappings.map { $0.source.rowIndex }, [0, 1])
+        XCTAssertEqual(traversal.status, .missingLoopStart)
+        XCTAssertTrue(traversal.missingLoopStart)
+        XCTAssertEqual(traversal.policy, "missing_e60_loop_start_diagnosed_no_loop")
+    }
+
+    func testTraversalGuardStopsInfinitePositionJumpLoop() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x00)]
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+
+        XCTAssertTrue(plan.diagnostics.traversalGuardHit)
+        XCTAssertEqual(plan.diagnostics.traversalStopReason, .traversalGuardHit)
+        XCTAssertEqual(plan.diagnostics.traversalPathLength, 1_040)
+        XCTAssertEqual(plan.diagnostics.traversalSummary.e6xLoopLimitHitCount, 1)
+    }
+
+    func testTraversalOfflineRenderRuntimePlanAndDirectStartRemainDeterministic() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, effectType: 0x0D, effectParam: 0x01)],
+                3: [
+                    makePlaybackRow(index: 0),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            startOrderIndex: 0,
+            orderCount: 2,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let first = renderer.render(request)
+        let second = renderer.render(request)
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let direct = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: 100)
+
+        XCTAssertEqual(first.block.interleavedPCM, [0, 1])
+        XCTAssertEqual(first.block.interleavedPCM, second.block.interleavedPCM)
+        XCTAssertEqual(first.diagnostics.eventMappings.first?.source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 1))
+        XCTAssertEqual(runtimePlan.events.first?.source, PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 1))
+        XCTAssertEqual(runtimePlan.plan?.diagnostics.rowMappings.map(\.source), first.diagnostics.rowMappings.map(\.source))
+        XCTAssertEqual(direct.diagnostics.rowMappings.map(\.source), [
+            PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 0),
+            PlaybackPosition(orderIndex: 1, patternIndex: 3, rowIndex: 1),
+        ])
+    }
 }

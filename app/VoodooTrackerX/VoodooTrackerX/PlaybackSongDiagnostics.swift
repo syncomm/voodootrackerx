@@ -12,6 +12,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let rowMappings: [PlaybackSongSyntheticRowMapping]
     let rowTiming: [PlaybackSongSyntheticRowTimingDiagnostic]
     let timingChanges: [PlaybackSongSyntheticTimingChangeDiagnostic]
+    let traversalDiagnostics: [PlaybackSongSyntheticTraversalDiagnostic]
+    let traversalPathLength: Int
+    let traversalStopReason: PlaybackSongSyntheticTraversalStopReason
+    let traversalGuardHit: Bool
     let effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]
     let rowDiagnostics: [PlaybackSongSyntheticRowDiagnostic]
     let volumeColumnMappings: [PlaybackSongSyntheticVolumeColumnMapping]
@@ -103,6 +107,15 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
         PlaybackSongSyntheticTraversalHazardSummary(effectCommandDiagnostics: effectCommandDiagnostics)
+    }
+
+    var traversalSummary: PlaybackSongSyntheticTraversalSummary {
+        PlaybackSongSyntheticTraversalSummary(
+            pathLength: traversalPathLength,
+            stopReason: traversalStopReason,
+            guardHit: traversalGuardHit,
+            diagnostics: traversalDiagnostics
+        )
     }
 }
 
@@ -227,6 +240,10 @@ extension PlaybackSongSyntheticDiagnostics {
             rowMappings: rowMappings,
             rowTiming: rowTiming,
             timingChanges: timingChanges,
+            traversalDiagnostics: traversalDiagnostics,
+            traversalPathLength: traversalPathLength,
+            traversalStopReason: traversalStopReason,
+            traversalGuardHit: traversalGuardHit,
             effectCommandDiagnostics: effectCommandDiagnostics,
             rowDiagnostics: rowDiagnostics,
             volumeColumnMappings: volumeColumnMappings,
@@ -335,11 +352,146 @@ struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {
     let bpmAfter: Int
 }
 
+enum PlaybackSongSyntheticTraversalStopReason: String, Equatable {
+    case notStarted = "not_started"
+    case selectedRangeEnd = "selected_range_end"
+    case songEnd = "song_end"
+    case invalidOrder = "invalid_order"
+    case missingPattern = "missing_pattern"
+    case outOfRange = "out_of_range"
+    case traversalGuardHit = "traversal_guard_hit"
+}
+
+struct PlaybackSongSyntheticTraversalDiagnostic: Equatable {
+    enum Kind: String, Equatable {
+        case dxxPatternBreak = "traversal_dxx"
+        case bxxPositionJump = "traversal_bxx"
+        case e6xPatternLoop = "traversal_e6x"
+    }
+
+    enum Status: String, Equatable {
+        case applied
+        case deferred
+        case invalidTarget = "invalid_target"
+        case outOfRange = "out_of_range"
+        case loopStartMarked = "loop_start_marked"
+        case loopTaken = "loop_taken"
+        case missingLoopStart = "missing_loop_start"
+        case loopLimitHit = "loop_limit_hit"
+    }
+
+    let kind: Kind
+    let status: Status
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let targetOrderIndex: Int?
+    let targetPatternIndex: Int?
+    let targetRowIndex: Int?
+    let nextOrderIndex: Int?
+    let loopStartRowIndex: Int?
+    let loopRemaining: Int?
+    let loopLimit: Int?
+    let combinedWithBxx: Bool
+    let combinedWithDxx: Bool
+    let policy: String
+
+    var detected: Bool {
+        true
+    }
+
+    var applied: Bool {
+        switch status {
+        case .applied, .loopStartMarked, .loopTaken:
+            return true
+        case .deferred, .invalidTarget, .outOfRange, .missingLoopStart, .loopLimitHit:
+            return false
+        }
+    }
+
+    var invalidTarget: Bool {
+        status == .invalidTarget
+    }
+
+    var outOfRange: Bool {
+        status == .outOfRange
+    }
+
+    var loopStartMarked: Bool {
+        status == .loopStartMarked
+    }
+
+    var loopTaken: Bool {
+        status == .loopTaken
+    }
+
+    var missingLoopStart: Bool {
+        status == .missingLoopStart
+    }
+
+    var loopLimitHit: Bool {
+        status == .loopLimitHit
+    }
+}
+
+struct PlaybackSongSyntheticTraversalSummary: Equatable {
+    static let firstDiagnosticLimit = 10
+
+    let pathLength: Int
+    let stopReason: PlaybackSongSyntheticTraversalStopReason
+    let guardHit: Bool
+    let appliedTraversalCount: Int
+    let dxxDetectedCount: Int
+    let dxxAppliedCount: Int
+    let dxxInvalidTargetCount: Int
+    let dxxOutOfRangeCount: Int
+    let bxxDetectedCount: Int
+    let bxxAppliedCount: Int
+    let bxxOutOfRangeCount: Int
+    let e6xDetectedCount: Int
+    let e6xLoopStartCount: Int
+    let e6xLoopTakenCount: Int
+    let e6xMissingStartCount: Int
+    let e6xLoopLimitHitCount: Int
+    let firstDiagnostics: [PlaybackSongSyntheticTraversalDiagnostic]
+
+    init(
+        pathLength: Int,
+        stopReason: PlaybackSongSyntheticTraversalStopReason,
+        guardHit: Bool,
+        diagnostics: [PlaybackSongSyntheticTraversalDiagnostic]
+    ) {
+        self.pathLength = pathLength
+        self.stopReason = stopReason
+        self.guardHit = guardHit
+        appliedTraversalCount = diagnostics.filter(\.applied).count
+        dxxDetectedCount = diagnostics.filter { $0.kind == .dxxPatternBreak }.count
+        dxxAppliedCount = diagnostics.filter { $0.kind == .dxxPatternBreak && $0.applied }.count
+        dxxInvalidTargetCount = diagnostics.filter { $0.kind == .dxxPatternBreak && $0.invalidTarget }.count
+        dxxOutOfRangeCount = diagnostics.filter { $0.kind == .dxxPatternBreak && $0.outOfRange }.count
+        bxxDetectedCount = diagnostics.filter { $0.kind == .bxxPositionJump }.count
+        bxxAppliedCount = diagnostics.filter { $0.kind == .bxxPositionJump && $0.applied }.count
+        bxxOutOfRangeCount = diagnostics.filter { $0.kind == .bxxPositionJump && $0.outOfRange }.count
+        e6xDetectedCount = diagnostics.filter { $0.kind == .e6xPatternLoop }.count
+        e6xLoopStartCount = diagnostics.filter { $0.kind == .e6xPatternLoop && $0.loopStartMarked }.count
+        e6xLoopTakenCount = diagnostics.filter { $0.kind == .e6xPatternLoop && $0.loopTaken }.count
+        e6xMissingStartCount = diagnostics.filter { $0.kind == .e6xPatternLoop && $0.missingLoopStart }.count
+        e6xLoopLimitHitCount = diagnostics.filter { $0.kind == .e6xPatternLoop && $0.loopLimitHit }.count
+        firstDiagnostics = Array(diagnostics.prefix(Self.firstDiagnosticLimit))
+    }
+}
+
 struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
         case ignoredNoOp
         case deferredUnsupported
+        case invalidTarget
+        case outOfRange
+        case missingLoopStart
+        case loopLimitHit
         case unknown
     }
 
@@ -361,6 +513,10 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
 
     var isEExPatternDelay: Bool {
         effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x0E
+    }
+
+    var isE6xPatternLoop: Bool {
+        effectType == 0x0E && ((effectParam >> 4) & 0x0F) == 0x06
     }
 
     var isE9xRetrigger: Bool {
@@ -514,6 +670,7 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
 
     let totalBxxPositionJump: Int
     let totalDxxPatternBreak: Int
+    let totalE6xPatternLoop: Int
     let totalEExPatternDelay: Int
     let totalFxxSpeedBPM: Int
     let totalE9xRetrigger: Int
@@ -528,16 +685,19 @@ struct PlaybackSongSyntheticTraversalHazardSummary: Equatable {
     init(effectCommandDiagnostics: [PlaybackSongSyntheticEffectCommandDiagnostic]) {
         totalBxxPositionJump = effectCommandDiagnostics.filter { $0.isBxxPositionJump }.count
         totalDxxPatternBreak = effectCommandDiagnostics.filter { $0.isDxxPatternBreak }.count
+        totalE6xPatternLoop = effectCommandDiagnostics.filter { $0.isE6xPatternLoop }.count
         totalEExPatternDelay = effectCommandDiagnostics.filter { $0.isEExPatternDelay }.count
         totalFxxSpeedBPM = effectCommandDiagnostics.filter { $0.isFxxTimingChange }.count
         totalE9xRetrigger = effectCommandDiagnostics.filter { $0.isE9xRetrigger }.count
         totalECxNoteCut = effectCommandDiagnostics.filter { $0.isECxNoteCut }.count
         totalEDxNoteDelay = effectCommandDiagnostics.filter { $0.isEDxNoteDelay }.count
         totalOtherECommands = effectCommandDiagnostics.filter {
-            $0.effectType == 0x0E && !$0.isE9xRetrigger && !$0.isEExPatternDelay && !$0.isECxNoteCut && !$0.isEDxNoteDelay
+            $0.effectType == 0x0E && !$0.isE6xPatternLoop && !$0.isE9xRetrigger && !$0.isEExPatternDelay && !$0.isECxNoteCut && !$0.isEDxNoteDelay
         }.count
-        totalTraversalHazards = totalBxxPositionJump + totalDxxPatternBreak + totalEExPatternDelay
-        likelyIgnoresStructureChangingBehavior = totalTraversalHazards > 0
+        totalTraversalHazards = totalBxxPositionJump + totalDxxPatternBreak + totalE6xPatternLoop + totalEExPatternDelay
+        likelyIgnoresStructureChangingBehavior = effectCommandDiagnostics.contains {
+            $0.isTraversalHazard && $0.status == .deferredUnsupported
+        }
         firstTraversalHazards = Array(effectCommandDiagnostics.filter { $0.isTraversalHazard }.prefix(Self.firstHazardLimit))
         eCommandSubtypeCounts = Self.eCommandSubtypeCounts(from: effectCommandDiagnostics)
     }

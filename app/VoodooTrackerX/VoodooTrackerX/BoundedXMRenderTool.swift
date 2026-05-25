@@ -1078,6 +1078,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
+        let traversalSummary = diagnostics.traversalSummary
         let notes = [
             "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
             "Generated diagnostics are local artifacts and must not be committed.",
@@ -1099,7 +1100,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
-            "Bxx position jump, Dxx pattern break, and EEx pattern delay are diagnostic/deferred only in bounded offline renders.",
+            "Focused traversal planning applies Dxx pattern break, Bxx position jump, and E6x pattern loop in the Swift adapter path; EEx pattern delay remains deferred.",
+            "Dxx row targets use XM BCD decoding; invalid BCD targets are diagnosed and clamped safely.",
+            "When Bxx and Dxx share a row, Bxx selects the target order and Dxx supplies the target row.",
+            "E6x loop starts and loop counts are scoped per channel/order/pattern; missing loop starts are diagnosed without inventing a row-0 loop.",
             "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
             "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before PCM16 conversion.",
             "Until-song-end duration is the bounded selected order-range end from the adapter timing model, not full FT2/OpenMPT song loop/restart parity.",
@@ -1234,6 +1238,22 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "hxy_global_volume_slide_deferred_count": hxyDeferredCount,
                 "pitch_modulation_deferred_effect_count": pitchModulationDeferredEffectCount,
                 "traversal_hazard_count": diagnostics.traversalHazardSummary.totalTraversalHazards,
+                "traversal_path_length": traversalSummary.pathLength,
+                "traversal_stop_reason": traversalSummary.stopReason.rawValue,
+                "traversal_guard_hit": traversalSummary.guardHit,
+                "traversal_applied_count": traversalSummary.appliedTraversalCount,
+                "traversal_dxx_detected_count": traversalSummary.dxxDetectedCount,
+                "traversal_dxx_applied_count": traversalSummary.dxxAppliedCount,
+                "traversal_dxx_invalid_target_count": traversalSummary.dxxInvalidTargetCount,
+                "traversal_dxx_out_of_range_count": traversalSummary.dxxOutOfRangeCount,
+                "traversal_bxx_detected_count": traversalSummary.bxxDetectedCount,
+                "traversal_bxx_applied_count": traversalSummary.bxxAppliedCount,
+                "traversal_bxx_out_of_range_count": traversalSummary.bxxOutOfRangeCount,
+                "traversal_e6x_detected_count": traversalSummary.e6xDetectedCount,
+                "traversal_e6x_loop_start_count": traversalSummary.e6xLoopStartCount,
+                "traversal_e6x_loop_taken_count": traversalSummary.e6xLoopTakenCount,
+                "traversal_e6x_missing_start_count": traversalSummary.e6xMissingStartCount,
+                "traversal_e6x_loop_limit_hit_count": traversalSummary.e6xLoopLimitHitCount,
                 "windowed_render_enabled": result.windowedRenderSummary != nil,
                 "window_rows": nullableJSONValue(result.windowedRenderSummary?.windowRows),
                 "window_count": result.windowedRenderSummary?.windowCount ?? 0,
@@ -1265,6 +1285,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "windowed_render": windowedRenderJSON(from: result),
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
+            "traversal_summary": traversalSummaryJSON(traversalSummary),
+            "traversal_effects": diagnostics.traversalDiagnostics.map(traversalDiagnosticJSON),
             "pattern_traversal_timing_effects": diagnostics.effectCommandDiagnostics.map(effectCommandDiagnosticJSON),
             "pitch_modulation_deferred_effect_summary": pitchModulationSummary,
             "pitch_modulation_deferred_effects": pitchModulationDeferredEffectsJSON(diagnostics),
@@ -1465,6 +1487,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         [
             "total_bxx_position_jump": summary.totalBxxPositionJump,
             "total_dxx_pattern_break": summary.totalDxxPatternBreak,
+            "total_e6x_pattern_loop": summary.totalE6xPatternLoop,
             "total_eex_pattern_delay": summary.totalEExPatternDelay,
             "total_fxx_speed_bpm": summary.totalFxxSpeedBPM,
             "total_e9x_retrigger": summary.totalE9xRetrigger,
@@ -1476,6 +1499,83 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "first_traversal_hazard_coordinates": summary.firstTraversalHazards.map(effectCommandDiagnosticJSON),
             "e_command_subtype_counts": summary.eCommandSubtypeCounts.map(eCommandSubtypeCountJSON),
         ]
+    }
+
+    private static func traversalSummaryJSON(
+        _ summary: PlaybackSongSyntheticTraversalSummary
+    ) -> [String: Any] {
+        [
+            "path_length": summary.pathLength,
+            "traversal_path_length": summary.pathLength,
+            "stop_reason": summary.stopReason.rawValue,
+            "traversal_stop_reason": summary.stopReason.rawValue,
+            "guard_hit": summary.guardHit,
+            "traversal_guard_hit": summary.guardHit,
+            "applied_traversal_count": summary.appliedTraversalCount,
+            "traversal_applied_count": summary.appliedTraversalCount,
+            "dxx_detected_count": summary.dxxDetectedCount,
+            "dxx_applied_count": summary.dxxAppliedCount,
+            "dxx_invalid_target_count": summary.dxxInvalidTargetCount,
+            "dxx_out_of_range_count": summary.dxxOutOfRangeCount,
+            "bxx_detected_count": summary.bxxDetectedCount,
+            "bxx_applied_count": summary.bxxAppliedCount,
+            "bxx_out_of_range_count": summary.bxxOutOfRangeCount,
+            "e6x_detected_count": summary.e6xDetectedCount,
+            "e6x_loop_start_count": summary.e6xLoopStartCount,
+            "e6x_loop_taken_count": summary.e6xLoopTakenCount,
+            "e6x_missing_start_count": summary.e6xMissingStartCount,
+            "e6x_loop_limit_hit_count": summary.e6xLoopLimitHitCount,
+            "first_coordinates": summary.firstDiagnostics.map(traversalDiagnosticJSON),
+            "first_traversal_coordinates": summary.firstDiagnostics.map(traversalDiagnosticJSON),
+        ]
+    }
+
+    private static func traversalDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticTraversalDiagnostic
+    ) -> [String: Any] {
+        [
+            "kind": diagnostic.kind.rawValue,
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "effect_label": traversalEffectLabel(diagnostic.kind),
+            "decoded_label": traversalEffectLabel(diagnostic.kind),
+            "status": diagnostic.status.rawValue,
+            "current_status": diagnostic.status.rawValue,
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "invalid_target": diagnostic.invalidTarget,
+            "out_of_range": diagnostic.outOfRange,
+            "loop_start_marked": diagnostic.loopStartMarked,
+            "loop_taken": diagnostic.loopTaken,
+            "loop_remaining": nullableJSONValue(diagnostic.loopRemaining),
+            "missing_loop_start": diagnostic.missingLoopStart,
+            "loop_limit_hit": diagnostic.loopLimitHit,
+            "loop_limit": nullableJSONValue(diagnostic.loopLimit),
+            "next_order": nullableJSONValue(diagnostic.nextOrderIndex),
+            "target_order": nullableJSONValue(diagnostic.targetOrderIndex),
+            "target_pattern": nullableJSONValue(diagnostic.targetPatternIndex),
+            "target_row": nullableJSONValue(diagnostic.targetRowIndex),
+            "loop_start_row": nullableJSONValue(diagnostic.loopStartRowIndex),
+            "combined_with_bxx": diagnostic.combinedWithBxx,
+            "combined_with_dxx": diagnostic.combinedWithDxx,
+            "policy": diagnostic.policy,
+        ]
+    }
+
+    private static func traversalEffectLabel(
+        _ kind: PlaybackSongSyntheticTraversalDiagnostic.Kind
+    ) -> String {
+        switch kind {
+        case .dxxPatternBreak:
+            return "Dxx pattern break"
+        case .bxxPositionJump:
+            return "Bxx position jump"
+        case .e6xPatternLoop:
+            return "E6x pattern loop"
+        }
     }
 
     private static func effectCommandDiagnosticJSON(
@@ -3197,6 +3297,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "ignored/no-op"
         case .deferredUnsupported:
             return "deferred/unsupported"
+        case .invalidTarget:
+            return "invalid_target"
+        case .outOfRange:
+            return "out_of_range"
+        case .missingLoopStart:
+            return "missing_loop_start"
+        case .loopLimitHit:
+            return "loop_limit_hit"
         case .unknown:
             return "unknown"
         }
@@ -3377,7 +3485,7 @@ func renderToolUsage() -> String {
     --gain, --headroom-db, and --auto-headroom are mutually exclusive and do not change mixer math or runtime playback.
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --until-song-end, --seconds, --max-frames, and --rows are mutually exclusive duration modes.
-    --until-song-end uses the bounded adapter's selected order-range timing, including supported Fxx changes; it is not full FT2/OpenMPT song loop/restart parity.
+    --until-song-end uses the bounded adapter's selected order-range timing, including supported Fxx changes and focused Dxx/Bxx/E6x traversal; it is not full FT2/OpenMPT song loop/restart parity.
     Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
     This helper uses the offline C-backed PlaybackSongOfflineRenderer.exportWAV path only.

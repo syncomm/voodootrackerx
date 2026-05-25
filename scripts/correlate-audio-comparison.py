@@ -16,7 +16,7 @@ from typing import Any
 DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
-TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "EEx pattern delay"}
+TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
 PITCH_LABEL_TO_CATEGORY = {
     "0xy arpeggio": "arpeggio",
     "1xx portamento up": "portamento",

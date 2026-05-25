@@ -130,8 +130,11 @@ vibrato/tone-portamento commands, with a conservative
 pitch-effect next-PR recommendation when one bucket dominates local evidence.
 Bounded diagnostics also count
 pattern traversal and timing hazards such as `Bxx` position jump, `Dxx` pattern
-break, `EEx` pattern delay, contextual `Fxx`, and other observed `E`
-subcommands without implementing traversal behavior. A local-only XM effect
+break, `E6x` pattern loop, `EEx` pattern delay, contextual `Fxx`, and other
+observed `E` subcommands. The focused traversal foundation now applies
+deterministic first-pass `Dxx`/`Bxx`/`E6x` planning in the Swift adapter/runtime
+planning layer while keeping `EEx` and broader tracker traversal quirks
+deferred. A local-only XM effect
 coverage summary helper can now aggregate bounded offline diagnostics JSON and
 runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
 effect tables, first source coordinates, unresolved key-off/no-active buckets,
@@ -142,10 +145,11 @@ refresh covered 26 anonymized inputs and reported 222,402 detected commands,
 deferred, 3,316 effect-memory reuses, and one missing effect-memory case. The
 largest remaining unsupported buckets after the portamento-memory refresh were
 `E0x` filter toggle (limited usefulness), `0xy` arpeggio (strong), and smaller
-`Dxx`/`Bxx`/`E6x` traversal cases. The current 0xy arpeggio foundation moves
-that concrete pitch bucket into the applied diagnostics path; the next effect
-target should likely be a focused traversal pass for `Dxx`/`Bxx`/`E6x`, while
-`E0x` remains a deferred limited-usefulness diagnostic bucket. The
+`Dxx`/`Bxx`/`E6x` traversal cases. The current 0xy arpeggio and focused
+`Dxx`/`Bxx`/`E6x` traversal foundations move those concrete buckets into the
+applied or explicit safe-diagnostic path; the next effect target should likely
+refresh residual corpus classification and clean up `E0x` deferral reporting
+unless local evidence points at a higher-value remaining bucket. The
 developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
@@ -393,7 +397,7 @@ Immediate audio accuracy sequence:
 35. PlaybackSong adapter instrument sample-map/keymap support — done
 36. C mixer scheduled voice capacity / diagnostics hardening — done
 37. Pattern traversal / Bxx-Dxx-EEx diagnostics for bounded offline renders — done
-38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`EEx` — separate later PR
+38. Minimal bounded traversal behavior for `Bxx`/`Dxx`/`E6x` — done
 39. Chunked/windowed offline render scheduling for long candidate WAV exports — done
 40. Window state carryover refinement for windowed offline candidate renders — done
 41. Minimal volume/panning state effects for bounded offline renders — done
@@ -454,7 +458,8 @@ Immediate audio accuracy sequence:
 96. Bounded XM diagnostics playable-order count alignment — testing/tooling follow-up
 97. Minimal 0xy Arpeggio Foundation — done
 98. Reference comparison stabilization against MikMod/OpenMPT
-99. Focused Dxx/Bxx/E6x traversal foundation — recommended next effect PR
+99. Focused Dxx/Bxx/E6x traversal foundation — done
+100. Residual effect classification / E0x deferral cleanup — recommended next effect PR
 
 ---
 
@@ -635,9 +640,9 @@ Features:
 - minimal bounded/offline `E9x` retrigger, `ECx` note-cut, and `EDx`
   note-delay diagnostics, including applied, no-active/no-note, E90 no-op, and
   out-of-row cases
-- pattern traversal/timing hazard diagnostics for bounded offline renders,
-  reporting `Bxx`, `Dxx`, `EEx`, contextual `Fxx`, and other observed `E`
-  subcommands while keeping actual traversal implementation separate
+- pattern traversal/timing diagnostics for bounded offline renders, reporting
+  applied/safe-diagnostic `Bxx`, `Dxx`, and `E6x` traversal plus deferred
+  `EEx`, contextual `Fxx`, and other observed `E` subcommands
 - local-only XM effect coverage summaries for bounded offline diagnostics JSON
   and runtime C mixer traces, with detected/applied/deferred/unsupported/no-op
   command counts, first source coordinates, unresolved key-off/no-active

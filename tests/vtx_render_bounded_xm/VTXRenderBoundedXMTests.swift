@@ -2258,6 +2258,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
 
         XCTAssertEqual(summary["total_bxx_position_jump"] as? Int, 1)
         XCTAssertEqual(summary["total_dxx_pattern_break"] as? Int, 1)
+        XCTAssertEqual(summary["total_e6x_pattern_loop"] as? Int, 0)
         XCTAssertEqual(summary["total_eex_pattern_delay"] as? Int, 1)
         XCTAssertEqual(summary["total_fxx_speed_bpm"] as? Int, 1)
         XCTAssertEqual(summary["total_e9x_retrigger"] as? Int, 1)
@@ -2269,8 +2270,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["pattern"] as? Int, 2)
         XCTAssertEqual((firstHazards.first?["source"] as? [String: Any])?["row"] as? Int, 0)
         XCTAssertEqual(firstHazards.first?["channel_index"] as? Int, 0)
-        XCTAssertEqual(bxx["current_status"] as? String, "deferred/unsupported")
-        XCTAssertEqual(dxx["current_status"] as? String, "deferred/unsupported")
+        XCTAssertEqual(bxx["current_status"] as? String, "out_of_range")
+        XCTAssertEqual(dxx["current_status"] as? String, "out_of_range")
         XCTAssertEqual(eex["current_status"] as? String, "deferred/unsupported")
         XCTAssertEqual(e9x["current_status"] as? String, "applied")
         XCTAssertEqual(fxx["current_status"] as? String, "applied")

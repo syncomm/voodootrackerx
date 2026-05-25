@@ -808,8 +808,12 @@ python3 scripts/summarize-xm-effect-coverage.py \
 The effect coverage summary reports detected, applied, deferred, unsupported,
 and no-op/effect-memory command counts, first source coordinates, runtime versus
 offline category, unresolved key-off/no-active buckets, and a conservative
-next-effect recommendation. It does not change runtime playback or offline
-rendering behavior.
+next-effect recommendation. Bounded offline diagnostics also include
+`traversal_summary` and `traversal_effects` for focused `Dxx` pattern break,
+`Bxx` position jump, and `E6x` pattern loop planning. Those records report
+source coordinates, target order/pattern/row, stop reason, guard hits, applied
+counts, invalid/out-of-range targets, missing loop starts, and loop-limit hits.
+It does not change runtime playback or offline rendering behavior.
 
 When a full or near-full runtime live-output capture is compared with a full
 offline C mixer WAV, use the window correlation helper to connect the

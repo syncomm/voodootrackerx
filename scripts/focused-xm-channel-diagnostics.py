@@ -461,6 +461,38 @@ def volume_slide_summary(updates: list[dict[str, Any]], mappings: list[dict[str,
     return None
 
 
+def same_cell_3xx_detail(tone_updates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for diagnostic in tone_updates:
+        if diagnostic.get("same_cell_note") is not True:
+            continue
+        return {
+            "status": diagnostic.get("current_status") or diagnostic.get("status"),
+            "sample_position_reset": diagnostic.get("sample_position_reset"),
+            "instrument_state_updated": diagnostic.get("instrument_state_updated"),
+            "instrument_index_before": diagnostic.get("instrument_index_before"),
+            "instrument_index_after": diagnostic.get("instrument_index_after"),
+            "sample_selected_before": diagnostic.get("sample_selected_before"),
+            "sample_selected_after": diagnostic.get("sample_selected_after"),
+            "instrument_default_volume_applied": diagnostic.get("instrument_default_volume_applied"),
+            "envelope_reset": diagnostic.get("envelope_reset"),
+            "envelope_reset_modeled": diagnostic.get("envelope_reset_modeled"),
+            "channel_volume_before": diagnostic.get("channel_volume_before"),
+            "channel_volume_after": diagnostic.get("channel_volume_after"),
+            "gain_before": diagnostic.get("gain_before"),
+            "gain_after": diagnostic.get("gain_after"),
+            "note_target_before": diagnostic.get("note_target_before"),
+            "note_target_before_text": diagnostic.get("note_target_before_text"),
+            "note_target_after": diagnostic.get("note_target_after"),
+            "note_target_after_text": diagnostic.get("note_target_after_text"),
+            "sample_step_before": diagnostic.get("current_step_before") or diagnostic.get("current_playback_step_before"),
+            "sample_step_after": diagnostic.get("current_step_after") or diagnostic.get("current_playback_step_after"),
+            "audible_transient_expected": diagnostic.get("audible_transient_expected"),
+            "c_mixer_received_new_voice": diagnostic.get("c_mixer_received_new_voice"),
+            "c_mixer_received_only_state_updates": diagnostic.get("c_mixer_received_only_state_updates"),
+        }
+    return None
+
+
 def build_summary(
     mc_dump: dict[str, Any],
     diagnostics: dict[str, Any],
@@ -545,6 +577,7 @@ def build_summary(
             and bool(row_tone)
             and not note_trigger_event_created
         )
+        same_cell_detail = same_cell_3xx_detail(row_tone)
         set_volume_value = volume_column_set_volume_value(row_mappings)
         scheduled_gain = effective_gain_scheduled_to_c_mixer(event, row_updates)
         tick_timeline = build_tick_timeline(
@@ -576,6 +609,12 @@ def build_summary(
             "voice_replacement_happened": voice_replacement_happened,
             "tone_portamento_target_set": tone_target_set,
             "tone_portamento_suppressed_retrigger": tone_suppressed,
+            "same_cell_3xx_detail": same_cell_detail,
+            "sample_position_reset": same_cell_detail.get("sample_position_reset") if same_cell_detail else event is not None,
+            "instrument_state_updated": same_cell_detail.get("instrument_state_updated") if same_cell_detail else event is not None,
+            "instrument_default_volume_applied": same_cell_detail.get("instrument_default_volume_applied") if same_cell_detail else event is not None,
+            "envelope_reset": same_cell_detail.get("envelope_reset") if same_cell_detail else event is not None,
+            "envelope_reset_modeled": same_cell_detail.get("envelope_reset_modeled") if same_cell_detail else event is not None,
             "channel_volume_before": channel_volume_before,
             "channel_volume_after": channel_volume_after,
             "channel_volume_after_tick0": tick_timeline[0]["channel_volume_after_tick"] if tick_timeline else channel_volume_after,
@@ -658,9 +697,29 @@ def build_summary(
         if item["volume_column_set_volume_value"] is not None
         and item["active_voice_gain_update_scheduled"]
     ]
+    same_cell_instrument_update_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["same_cell_3xx_detail"] and item["same_cell_3xx_detail"].get("instrument_state_updated") is True
+    ]
+    same_cell_default_volume_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["same_cell_3xx_detail"] and item["same_cell_3xx_detail"].get("instrument_default_volume_applied") is True
+    ]
+    same_cell_sample_reset_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["same_cell_3xx_detail"] and item["same_cell_3xx_detail"].get("sample_position_reset") is True
+    ]
+    same_cell_state_update_only_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["same_cell_3xx_detail"] and item["same_cell_3xx_detail"].get("c_mixer_received_only_state_updates") is True
+    ]
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "tool": "scripts/focused-xm-channel-diagnostics.py",
         "local_only": True,
         "label": label,
@@ -692,6 +751,10 @@ def build_summary(
             "zero_or_near_zero_gain_rows": zero_or_near_zero_gain_rows,
             "volume_column_set_volume_with_active_voice_update_rows": set_volume_with_active_update_rows,
             "volume_column_set_volume_without_active_voice_update_rows": set_volume_without_active_update_rows,
+            "same_cell_3xx_instrument_state_update_rows": same_cell_instrument_update_rows,
+            "same_cell_3xx_instrument_default_volume_rows": same_cell_default_volume_rows,
+            "same_cell_3xx_sample_position_reset_rows": same_cell_sample_reset_rows,
+            "same_cell_3xx_c_mixer_state_update_only_rows": same_cell_state_update_only_rows,
             "rows_with_note_triggers": [item["row_hex"] for item in rows if item["note_trigger_event_created"]],
             "rows_with_voice_replacement": [item["row_hex"] for item in rows if item["voice_replacement_happened"]],
             "rows_with_no_active_tone_portamento": [
@@ -752,6 +815,22 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "- Volume-column set-volume rows without active voice gain updates: "
             f"{', '.join(summary['summary']['volume_column_set_volume_without_active_voice_update_rows']) or 'none'}"
         ),
+        (
+            "- Same-cell 3xx rows with instrument state updates: "
+            f"{', '.join(summary['summary']['same_cell_3xx_instrument_state_update_rows']) or 'none'}"
+        ),
+        (
+            "- Same-cell 3xx rows with instrument default-volume restoration: "
+            f"{', '.join(summary['summary']['same_cell_3xx_instrument_default_volume_rows']) or 'none'}"
+        ),
+        (
+            "- Same-cell 3xx rows with sample-position reset: "
+            f"{', '.join(summary['summary']['same_cell_3xx_sample_position_reset_rows']) or 'none'}"
+        ),
+        (
+            "- Same-cell 3xx rows where C mixer receives only state updates: "
+            f"{', '.join(summary['summary']['same_cell_3xx_c_mixer_state_update_only_rows']) or 'none'}"
+        ),
         f"- Voice replacement rows: {', '.join(summary['summary']['rows_with_voice_replacement']) or 'none'}",
         f"- Interpretation: {summary['summary']['candidate_interpretation']}",
         "",
@@ -805,6 +884,64 @@ def render_markdown(summary: dict[str, Any]) -> str:
             ])
             + " |"
         )
+    same_cell_rows = [row for row in summary["rows"] if row.get("same_cell_3xx_detail")]
+    if same_cell_rows:
+        lines.extend([
+            "",
+            "## Same-Cell 3xx Details",
+            "",
+            "| Row | Status | Pos reset | Instr update | Instr | Sample | Default vol | Envelope reset | Volume | Gain | Target | Step | Onset expected | C mixer |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ])
+        for row in same_cell_rows:
+            detail = row["same_cell_3xx_detail"]
+            instrument = (
+                f"{compact_value(detail.get('instrument_index_before'))}"
+                f"->{compact_value(detail.get('instrument_index_after'))}"
+            )
+            sample = (
+                f"{compact_value(detail.get('sample_selected_before'))}"
+                f"->{compact_value(detail.get('sample_selected_after'))}"
+            )
+            volume = (
+                f"{compact_value(detail.get('channel_volume_before'))}"
+                f"->{compact_value(detail.get('channel_volume_after'))}"
+            )
+            gain = (
+                f"{compact_value(detail.get('gain_before'))}"
+                f"->{compact_value(detail.get('gain_after'))}"
+            )
+            target_before = detail.get("note_target_before_text") or compact_value(detail.get("note_target_before"))
+            target_after = detail.get("note_target_after_text") or compact_value(detail.get("note_target_after"))
+            target = f"{target_before}->{target_after}"
+            step = (
+                f"{compact_value(detail.get('sample_step_before'))}"
+                f"->{compact_value(detail.get('sample_step_after'))}"
+            )
+            c_mixer = (
+                "new voice" if detail.get("c_mixer_received_new_voice") is True
+                else ("state updates" if detail.get("c_mixer_received_only_state_updates") is True else "-")
+            )
+            lines.append(
+                "| "
+                + " | ".join([
+                    row["row_hex"],
+                    compact_value(detail.get("status")),
+                    format_bool(detail.get("sample_position_reset")),
+                    format_bool(detail.get("instrument_state_updated")),
+                    instrument,
+                    sample,
+                    format_bool(detail.get("instrument_default_volume_applied")),
+                    f"{format_bool(detail.get('envelope_reset'))}/{format_bool(detail.get('envelope_reset_modeled'))}",
+                    volume,
+                    gain,
+                    target,
+                    step,
+                    format_bool(detail.get("audible_transient_expected")),
+                    c_mixer,
+                ])
+                + " |"
+            )
     lines.extend([
         "",
         "## Tick Timeline",

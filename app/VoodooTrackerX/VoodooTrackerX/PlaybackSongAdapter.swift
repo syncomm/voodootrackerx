@@ -852,9 +852,12 @@ enum PlaybackSongSyntheticAdapter {
 
     private struct ChannelState: Equatable {
         var volumeValue = 64
+        var volumeValueZeroedByAxy = false
         var panningValue = 127.5
         var activeEventIndex: Int?
         var activeEventMappingIndex: Int?
+        var activeInstrumentIndex: Int?
+        var activeSampleIndex: Int?
         var activeSampleVolume: Float?
         var activePlaybackStep: Double?
         var activeLinearPeriod: Double?
@@ -941,6 +944,8 @@ enum PlaybackSongSyntheticAdapter {
     private static func clearActiveVoiceState(_ state: inout ChannelState) {
         state.activeEventIndex = nil
         state.activeEventMappingIndex = nil
+        state.activeInstrumentIndex = nil
+        state.activeSampleIndex = nil
         state.activeSampleVolume = nil
         state.activePlaybackStep = nil
         state.activeLinearPeriod = nil
@@ -1343,11 +1348,6 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 context.channelStates[channelIndex] = channelState
             }
-            let channelStateBeforeVolumeColumn = channelState
-            let volumeColumn = applyVolumeColumn(
-                PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn),
-                to: &channelState
-            )
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
@@ -1360,8 +1360,27 @@ enum PlaybackSongSyntheticAdapter {
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
+            let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
+                cell.instrument > 0 &&
+                !hasNoteDelayEffect
+            let resetsInstrumentVolumeBeforeTrigger = hasValidImmediateNoteInstrument &&
+                !hasTonePortamento &&
+                cell.effectType == 0 &&
+                cell.effectParam == 0 &&
+                cell.volumeColumn == 0 &&
+                channelState.volumeValueZeroedByAxy
+            if resetsInstrumentVolumeBeforeTrigger {
+                channelState.volumeValue = 64
+                channelState.volumeValueZeroedByAxy = false
+            }
+            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && hasTonePortamento
+            let channelStateBeforeVolumeColumn = channelState
+            var volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+            if !delaysInstrumentVolumeState {
+                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
+            }
             let hasDeferredEffectCell = hasDeferredEffect(cell, channelState: channelState)
-            if let update = voiceStateUpdate(
+            if !delaysInstrumentVolumeState, let update = voiceStateUpdate(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
@@ -1397,7 +1416,7 @@ enum PlaybackSongSyntheticAdapter {
                     globalVolumeState: &context.globalVolumeState
                 ))
             }
-            if cell.volumeColumn != 0 {
+            if !delaysInstrumentVolumeState, cell.volumeColumn != 0 {
                 context.volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
                     source: source,
                     channelIndex: channelIndex,
@@ -1406,15 +1425,17 @@ enum PlaybackSongSyntheticAdapter {
                     volumeColumn: volumeColumn
                 ))
             }
-            appendDeferredFields(
-                from: cell,
-                source: source,
-                channelIndex: channelIndex,
-                volumeColumn: volumeColumn,
-                includeKeyOff: false,
-                hasDeferredEffectOverride: hasDeferredEffectCell,
-                deferredCellFields: &context.deferredCellFields
-            )
+            if !delaysInstrumentVolumeState {
+                appendDeferredFields(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    volumeColumn: volumeColumn,
+                    includeKeyOff: false,
+                    hasDeferredEffectOverride: hasDeferredEffectCell,
+                    deferredCellFields: &context.deferredCellFields
+                )
+            }
             let noteDelay = hasNoteDelayEffect
                 ? noteDelayDiagnostic(
                     from: cell,
@@ -1505,7 +1526,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.vibratoEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasTonePortamento, cell.note != 97 {
+            if hasTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -1890,6 +1911,92 @@ enum PlaybackSongSyntheticAdapter {
             }
 
             let sampleLength = selectedSampleLength(sample)
+            var tonePortamentoInstrumentStateBefore: ChannelState?
+            var tonePortamentoInstrumentStateAfter: ChannelState?
+            var tonePortamentoInstrumentDefaultVolumeApplied = false
+            if delaysInstrumentVolumeState {
+                let instrumentStateBefore = channelState
+                channelState.volumeValue = 64
+                channelState.volumeValueZeroedByAxy = false
+                if hasTonePortamento {
+                    channelState.activeInstrumentIndex = instrumentIndex
+                    channelState.activeSampleIndex = sample.sampleIndex
+                    channelState.activeSampleVolume = sample.volume
+                    channelState.activeSampleBaseSampleRate = sample.baseSampleRate
+                    channelState.activeSampleRelativeNote = sample.relativeNote
+                    channelState.activeSampleFinetune = sample.finetune
+                    channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
+                }
+                tonePortamentoInstrumentStateBefore = instrumentStateBefore
+                tonePortamentoInstrumentStateAfter = channelState
+                let instrumentGainBefore = instrumentStateBefore.activeSampleVolume.map {
+                    adaptedGain(sampleVolume: $0, channelVolume: instrumentStateBefore.volumeValue)
+                }
+                let instrumentGainAfter = channelState.activeSampleVolume.map {
+                    adaptedGain(sampleVolume: $0, channelVolume: channelState.volumeValue)
+                }
+                tonePortamentoInstrumentDefaultVolumeApplied = instrumentStateBefore.volumeValue != channelState.volumeValue ||
+                    instrumentStateBefore.activeSampleVolume != channelState.activeSampleVolume
+                if hasTonePortamento {
+                    context.voiceStateUpdates.append(voiceStateUpdateDiagnostic(
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        cell: cell,
+                        commandSource: .instrumentState,
+                        command: .instrumentDefaultVolume(value: channelState.volumeValue),
+                        rawVolumeColumn: nil,
+                        effectType: cell.effectType,
+                        effectParam: cell.effectParam,
+                        status: .applied,
+                        behavior: nil,
+                        channelStateBefore: instrumentStateBefore,
+                        channelStateAfter: channelState,
+                        globalVolumeBefore: context.globalVolumeState.volumeValue,
+                        globalVolumeAfter: context.globalVolumeState.volumeValue,
+                        activeVoiceUpdatedOverride: instrumentStateBefore.activeEventIndex != nil &&
+                            instrumentStateBefore.activeSampleVolume != nil &&
+                            instrumentGainBefore != instrumentGainAfter
+                    ))
+                }
+                let beforeVolumeColumn = channelState
+                volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
+                if hasTonePortamento {
+                    tonePortamentoInstrumentStateAfter = channelState
+                }
+                if let update = voiceStateUpdate(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledStartFrame,
+                    cell: cell,
+                    volumeColumn: volumeColumn,
+                    channelStateBefore: beforeVolumeColumn,
+                    channelStateAfter: channelState,
+                    globalVolumeValue: context.globalVolumeState.volumeValue
+                ) {
+                    context.voiceStateUpdates.append(update)
+                }
+                if cell.volumeColumn != 0 {
+                    context.volumeColumnMappings.append(PlaybackSongSyntheticVolumeColumnMapping(
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        syntheticTick: 0,
+                        volumeColumn: volumeColumn
+                    ))
+                }
+                appendDeferredFields(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    volumeColumn: volumeColumn,
+                    includeKeyOff: false,
+                    hasDeferredEffectOverride: hasDeferredEffectCell,
+                    deferredCellFields: &context.deferredCellFields
+                )
+            }
             let sampleOffset = sampleOffsetDiagnostic(
                 from: cell,
                 source: source,
@@ -1958,6 +2065,41 @@ enum PlaybackSongSyntheticAdapter {
                 )
                 context.ignoredCells.append(ignored)
                 context.eventCoverage.recordIgnoredCell(reason: ignored.skipReason, isNormalNote: true)
+                context.channelStates[channelIndex] = channelState
+                continue
+            }
+
+            if hasTonePortamento {
+                let diagnostic = handleTonePortamento(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    instrumentStateBefore: tonePortamentoInstrumentStateBefore,
+                    instrumentStateAfter: tonePortamentoInstrumentStateAfter,
+                    instrumentDefaultVolumeApplied: tonePortamentoInstrumentDefaultVolumeApplied,
+                    sampleSelectedBefore: tonePortamentoInstrumentStateBefore?.activeSampleIndex,
+                    sampleSelectedAfter: sample.sampleIndex
+                )
+                context.tonePortamentoEffects.append(diagnostic)
+                if let noteDelay {
+                    context.noteDelayEffects.append(noteDelay)
+                }
+                if hasNoteCutEffect {
+                    handleNoteCut(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState,
+                        noteCutEffects: &context.noteCutEffects
+                    )
+                }
                 context.channelStates[channelIndex] = channelState
                 continue
             }
@@ -2057,6 +2199,8 @@ enum PlaybackSongSyntheticAdapter {
             }
             channelState.activeEventIndex = eventIndex
             channelState.activeEventMappingIndex = context.eventMappings.count
+            channelState.activeInstrumentIndex = instrumentIndex
+            channelState.activeSampleIndex = sample.sampleIndex
             channelState.activeSampleVolume = sample.volume
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
@@ -2067,6 +2211,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.tonePortamentoTargetNote = nil
             channelState.tonePortamentoTargetLinearPeriod = nil
             channelState.tonePortamentoTargetPlaybackStep = nil
+            channelState.volumeValueZeroedByAxy = false
             context.channelStates[channelIndex] = channelState
             context.eventMappings.append(PlaybackSongSyntheticEventMapping(
                 source: source,
@@ -2338,6 +2483,7 @@ enum PlaybackSongSyntheticAdapter {
         case 0x0C:
             let before = channelState
             channelState.volumeValue = clampedVolumeValue(Int(cell.effectParam))
+            channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2406,6 +2552,7 @@ enum PlaybackSongSyntheticAdapter {
             } else {
                 channelState.volumeValue = clampedVolumeValue(before.volumeValue - slide.down)
             }
+            channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2456,6 +2603,7 @@ enum PlaybackSongSyntheticAdapter {
             } else {
                 channelState.volumeValue = clampedVolumeValue(before.volumeValue - amount)
             }
+            channelState.volumeValueZeroedByAxy = false
             return voiceStateUpdateDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2535,6 +2683,7 @@ enum PlaybackSongSyntheticAdapter {
             let before = channelState
             let unclampedAfter = before.volumeValue + slide.up - slide.down
             channelState.volumeValue = clampedVolumeValue(unclampedAfter)
+            channelState.volumeValueZeroedByAxy = channelState.volumeValue == 0
             let clamped = channelState.volumeValue != unclampedAfter
             let activeVoiceAvailable = before.activeEventIndex != nil && before.activeSampleVolume != nil
             updates.append(voiceStateUpdateDiagnostic(
@@ -2835,15 +2984,16 @@ enum PlaybackSongSyntheticAdapter {
         volumeSlideRowSpeed: Int? = nil,
         activeVoiceUpdatedOverride: Bool? = nil
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
-        let activeSampleVolume = channelStateBefore.activeSampleVolume
-        let gainBefore = activeSampleVolume.map {
+        let activeSampleVolumeBefore = channelStateBefore.activeSampleVolume
+        let activeSampleVolumeAfter = channelStateAfter.activeSampleVolume ?? activeSampleVolumeBefore
+        let gainBefore = activeSampleVolumeBefore.map {
             adaptedGain(
                 sampleVolume: $0,
                 channelVolume: channelStateBefore.volumeValue,
                 globalVolume: globalVolumeBefore
             )
         }
-        let gainAfter = activeSampleVolume.map {
+        let gainAfter = activeSampleVolumeAfter.map {
             adaptedGain(
                 sampleVolume: $0,
                 channelVolume: channelStateAfter.volumeValue,
@@ -2858,7 +3008,7 @@ enum PlaybackSongSyntheticAdapter {
             status == .applied &&
                 (cell.note == 0 || sameCellTonePortamentoNoRetrigger) &&
                 channelStateBefore.activeEventIndex != nil &&
-                activeSampleVolume != nil
+                activeSampleVolumeBefore != nil
         )
         return PlaybackSongSyntheticVoiceStateUpdateDiagnostic(
             source: source,
@@ -2913,6 +3063,7 @@ enum PlaybackSongSyntheticAdapter {
         case let .setVolume(value):
             let before = state.volumeValue
             state.volumeValue = clampedVolumeValue(value)
+            state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
                 appliedVolumeValue: state.volumeValue,
                 appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
@@ -2924,6 +3075,7 @@ enum PlaybackSongSyntheticAdapter {
              let .fineVolumeSlideDown(amount):
             let before = state.volumeValue
             state.volumeValue = clampedVolumeValue(before - amount)
+            state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
                 appliedVolumeValue: state.volumeValue,
                 appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
@@ -2935,6 +3087,7 @@ enum PlaybackSongSyntheticAdapter {
              let .fineVolumeSlideUp(amount):
             let before = state.volumeValue
             state.volumeValue = clampedVolumeValue(before + amount)
+            state.volumeValueZeroedByAxy = false
             return volumeColumn.withAppliedState(
                 appliedVolumeValue: state.volumeValue,
                 appliedGainMultiplier: volumeMultiplier(for: state.volumeValue),
@@ -4683,14 +4836,36 @@ enum PlaybackSongSyntheticAdapter {
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
         timingPlan: PlaybackSongFxxTimingPlan,
-        channelState: inout ChannelState
+        channelState: inout ChannelState,
+        instrumentStateBefore: ChannelState? = nil,
+        instrumentStateAfter: ChannelState? = nil,
+        instrumentDefaultVolumeApplied: Bool = false,
+        sampleSelectedBefore: Int? = nil,
+        sampleSelectedAfter: Int? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
         let hasActiveVoice = channelState.activeEventIndex != nil
         let targetExistsBefore = channelState.tonePortamentoTargetPlaybackStep != nil &&
             channelState.tonePortamentoTargetLinearPeriod != nil
+        let noteTargetBefore = channelState.tonePortamentoTargetNote
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
         let targetNoteFromCell = (1...96).contains(cell.note) ? cell.note : nil
+        let sameCellNote = targetNoteFromCell != nil
+        let instrumentStateUpdated = instrumentStateAfter != nil
+        let channelVolumeBefore = instrumentStateBefore?.volumeValue
+        let channelVolumeAfter = instrumentStateAfter?.volumeValue
+        let gainBefore = instrumentStateBefore?.activeSampleVolume.map {
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: instrumentStateBefore?.volumeValue ?? 64
+            )
+        }
+        let gainAfter = instrumentStateAfter?.activeSampleVolume.map {
+            adaptedGain(
+                sampleVolume: $0,
+                channelVolume: instrumentStateAfter?.volumeValue ?? 64
+            )
+        }
 
         if cell.effectParam > 0 {
             channelState.tonePortamentoSpeed = Int(cell.effectParam)
@@ -4922,6 +5097,28 @@ enum PlaybackSongSyntheticAdapter {
             activeVoiceFound: true,
             activeEventIndex: channelState.activeEventIndex,
             activeEventMappingIndex: channelState.activeEventMappingIndex,
+            sameCellNote: sameCellNote,
+            noteTriggerEventCreated: false,
+            voiceReplacement: false,
+            samplePositionReset: false,
+            instrumentStateUpdated: instrumentStateUpdated,
+            instrumentIndexBefore: instrumentStateBefore?.activeInstrumentIndex,
+            instrumentIndexAfter: instrumentStateAfter?.activeInstrumentIndex,
+            sampleSelectedBefore: sampleSelectedBefore,
+            sampleSelectedAfter: sampleSelectedAfter,
+            instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+            envelopeReset: false,
+            envelopeResetModeled: false,
+            channelVolumeBefore: channelVolumeBefore,
+            channelVolumeAfter: channelVolumeAfter,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            noteTargetBefore: noteTargetBefore,
+            noteTargetAfter: channelState.tonePortamentoTargetNote,
+            audibleTransientExpected: instrumentDefaultVolumeApplied &&
+                ((gainBefore ?? 0) < (gainAfter ?? 0)),
+            cMixerReceivesNewVoice: false,
+            cMixerReceivesOnlyStateUpdates: sameCellNote,
             targetExistsBefore: targetExistsBefore,
             targetExistsAfter: targetExistsAfter,
             targetNote: channelState.tonePortamentoTargetNote,
@@ -4947,6 +5144,27 @@ enum PlaybackSongSyntheticAdapter {
         activeVoiceFound: Bool,
         activeEventIndex: Int?,
         activeEventMappingIndex: Int?,
+        sameCellNote: Bool = false,
+        noteTriggerEventCreated: Bool = false,
+        voiceReplacement: Bool = false,
+        samplePositionReset: Bool = false,
+        instrumentStateUpdated: Bool = false,
+        instrumentIndexBefore: Int? = nil,
+        instrumentIndexAfter: Int? = nil,
+        sampleSelectedBefore: Int? = nil,
+        sampleSelectedAfter: Int? = nil,
+        instrumentDefaultVolumeApplied: Bool = false,
+        envelopeReset: Bool = false,
+        envelopeResetModeled: Bool = false,
+        channelVolumeBefore: Int? = nil,
+        channelVolumeAfter: Int? = nil,
+        gainBefore: Float? = nil,
+        gainAfter: Float? = nil,
+        noteTargetBefore: UInt8? = nil,
+        noteTargetAfter: UInt8? = nil,
+        audibleTransientExpected: Bool = false,
+        cMixerReceivesNewVoice: Bool = false,
+        cMixerReceivesOnlyStateUpdates: Bool = false,
         targetExistsBefore: Bool,
         targetExistsAfter: Bool,
         targetNote: UInt8?,
@@ -4976,6 +5194,27 @@ enum PlaybackSongSyntheticAdapter {
             activeVoiceFound: activeVoiceFound,
             activeEventIndex: activeEventIndex,
             activeEventMappingIndex: activeEventMappingIndex,
+            sameCellNote: sameCellNote,
+            noteTriggerEventCreated: noteTriggerEventCreated,
+            voiceReplacement: voiceReplacement,
+            samplePositionReset: samplePositionReset,
+            instrumentStateUpdated: instrumentStateUpdated,
+            instrumentIndexBefore: instrumentIndexBefore,
+            instrumentIndexAfter: instrumentIndexAfter,
+            sampleSelectedBefore: sampleSelectedBefore,
+            sampleSelectedAfter: sampleSelectedAfter,
+            instrumentDefaultVolumeApplied: instrumentDefaultVolumeApplied,
+            envelopeReset: envelopeReset,
+            envelopeResetModeled: envelopeResetModeled,
+            channelVolumeBefore: channelVolumeBefore,
+            channelVolumeAfter: channelVolumeAfter,
+            gainBefore: gainBefore,
+            gainAfter: gainAfter,
+            noteTargetBefore: noteTargetBefore,
+            noteTargetAfter: noteTargetAfter,
+            audibleTransientExpected: audibleTransientExpected,
+            cMixerReceivesNewVoice: cMixerReceivesNewVoice,
+            cMixerReceivesOnlyStateUpdates: cMixerReceivesOnlyStateUpdates,
             targetExistsBefore: targetExistsBefore,
             targetExistsAfter: targetExistsAfter,
             targetNote: targetNote,

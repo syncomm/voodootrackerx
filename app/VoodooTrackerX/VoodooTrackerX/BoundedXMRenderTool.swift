@@ -2771,6 +2771,29 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_voice_found": diagnostic.activeVoiceFound,
             "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
             "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "same_cell_note": diagnostic.sameCellNote,
+            "note_trigger_event_created": diagnostic.noteTriggerEventCreated,
+            "voice_replacement": diagnostic.voiceReplacement,
+            "sample_position_reset": diagnostic.samplePositionReset,
+            "instrument_state_updated": diagnostic.instrumentStateUpdated,
+            "instrument_index_before": diagnostic.instrumentIndexBefore.map { $0 as Any } ?? NSNull(),
+            "instrument_index_after": diagnostic.instrumentIndexAfter.map { $0 as Any } ?? NSNull(),
+            "sample_selected_before": diagnostic.sampleSelectedBefore.map { $0 as Any } ?? NSNull(),
+            "sample_selected_after": diagnostic.sampleSelectedAfter.map { $0 as Any } ?? NSNull(),
+            "instrument_default_volume_applied": diagnostic.instrumentDefaultVolumeApplied,
+            "envelope_reset": diagnostic.envelopeReset,
+            "envelope_reset_modeled": diagnostic.envelopeResetModeled,
+            "channel_volume_before": diagnostic.channelVolumeBefore.map { $0 as Any } ?? NSNull(),
+            "channel_volume_after": diagnostic.channelVolumeAfter.map { $0 as Any } ?? NSNull(),
+            "gain_before": diagnostic.gainBefore.map { Double($0) as Any } ?? NSNull(),
+            "gain_after": diagnostic.gainAfter.map { Double($0) as Any } ?? NSNull(),
+            "note_target_before": diagnostic.noteTargetBefore.map { Int($0) as Any } ?? NSNull(),
+            "note_target_after": diagnostic.noteTargetAfter.map { Int($0) as Any } ?? NSNull(),
+            "note_target_before_text": diagnostic.noteTargetBefore.map(noteText) ?? NSNull(),
+            "note_target_after_text": diagnostic.noteTargetAfter.map(noteText) ?? NSNull(),
+            "audible_transient_expected": diagnostic.audibleTransientExpected,
+            "c_mixer_received_new_voice": diagnostic.cMixerReceivesNewVoice,
+            "c_mixer_received_only_state_updates": diagnostic.cMixerReceivesOnlyStateUpdates,
             "target_exists_before": diagnostic.targetExistsBefore,
             "target_exists_after": diagnostic.targetExistsAfter,
             "target_note": diagnostic.targetNote.map { Int($0) as Any } ?? NSNull(),
@@ -3093,6 +3116,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "label": command.name,
                 "volume_column": volumeCommandJSON(command),
             ]
+        case let .instrumentDefaultVolume(value):
+            return ["name": "instrumentDefaultVolume", "label": command.label, "value": value]
         case let .cxxSetVolume(value):
             return ["name": "cxxSetVolume", "label": command.label, "value": value]
         case let .effect8xxSetPanning(value):
@@ -3132,6 +3157,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch command {
         case let .volumeColumn(command):
             return command.name
+        case .instrumentDefaultVolume:
+            return "instrumentDefaultVolume"
         case .cxxSetVolume:
             return "cxxSetVolume"
         case .effect8xxSetPanning:
@@ -3417,6 +3444,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "volume_column"
         case .effectColumn:
             return "effect_column"
+        case .instrumentState:
+            return "instrument_state"
         }
     }
 

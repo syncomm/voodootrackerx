@@ -566,6 +566,7 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
 enum PlaybackSongSyntheticVoiceStateUpdateSource: Equatable {
     case volumeColumn
     case effectColumn
+    case instrumentState
 }
 
 enum PlaybackSongSyntheticVoiceStateUpdateStatus: Equatable {
@@ -576,6 +577,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateStatus: Equatable {
 
 enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case volumeColumn(PlaybackSongSyntheticVolumeColumnCommand)
+    case instrumentDefaultVolume(value: Int)
     case cxxSetVolume(value: Int)
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
@@ -588,6 +590,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
         switch self {
         case let .volumeColumn(command):
             return command.name
+        case .instrumentDefaultVolume:
+            return "instrument default volume"
         case .cxxSetVolume:
             return "Cxx set volume"
         case .effect8xxSetPanning:
@@ -951,6 +955,27 @@ struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     let activeVoiceFound: Bool
     let activeEventIndex: Int?
     let activeEventMappingIndex: Int?
+    let sameCellNote: Bool
+    let noteTriggerEventCreated: Bool
+    let voiceReplacement: Bool
+    let samplePositionReset: Bool
+    let instrumentStateUpdated: Bool
+    let instrumentIndexBefore: Int?
+    let instrumentIndexAfter: Int?
+    let sampleSelectedBefore: Int?
+    let sampleSelectedAfter: Int?
+    let instrumentDefaultVolumeApplied: Bool
+    let envelopeReset: Bool
+    let envelopeResetModeled: Bool
+    let channelVolumeBefore: Int?
+    let channelVolumeAfter: Int?
+    let gainBefore: Float?
+    let gainAfter: Float?
+    let noteTargetBefore: UInt8?
+    let noteTargetAfter: UInt8?
+    let audibleTransientExpected: Bool
+    let cMixerReceivesNewVoice: Bool
+    let cMixerReceivesOnlyStateUpdates: Bool
     let targetExistsBefore: Bool
     let targetExistsAfter: Bool
     let targetNote: UInt8?

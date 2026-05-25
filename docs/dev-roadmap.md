@@ -72,8 +72,10 @@ minimal `3xx` tone portamento are supported in bounded offline renders only:
 `1xx`/`2xx` slide the tracked active voice's linear-period/sample-step on later
 row ticks, and `100`/`200` replay prior nonzero same-family per-channel memory
 when available. A normal-note `3xx` sets a linear-frequency target for the
-active voice without retriggering the sample before later ticks schedule
-deterministic C mixer sample-step updates toward the target. No-active,
+active voice without retriggering the sample; when the same cell also carries
+an instrument, the bounded/runtime adapter updates instrument/sample/default
+volume state and active-voice gain before later ticks schedule deterministic C
+mixer sample-step updates toward the target. No-active,
 missing-memory, no-target, no-speed, clamped, and non-linear pitch-table cases
 are diagnosed as applicable, while `5xy` and volume-column tone portamento
 remain deferred.

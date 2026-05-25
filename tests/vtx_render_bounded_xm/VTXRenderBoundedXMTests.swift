@@ -2518,6 +2518,71 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(firstStepBefore, 1, accuracy: 0.000_001)
     }
 
+    func testDiagnosticsJSONReportsSameCell3xxInstrumentStateDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 1, 1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F)
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 53, instrument: 1, volumeColumn: 0, effectType: 0x03, effectParam: 0xFF)
+            ]),
+            PlaybackRow(index: 2, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+        ]
+        let song = PlaybackSong(
+            title: "same-cell-3xx-instrument-state",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let tonePortamento = try XCTUnwrap(object["tone_portamento_effects"] as? [[String: Any]])
+        let diagnostic: [String: Any] = try XCTUnwrap(tonePortamento.first)
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let instrumentUpdate = try XCTUnwrap(updates.first { $0["command_source"] as? String == "instrument_state" })
+
+        XCTAssertEqual(diagnostic["same_cell_note"] as? Bool, true)
+        XCTAssertEqual(diagnostic["note_trigger_event_created"] as? Bool, false)
+        XCTAssertEqual(diagnostic["voice_replacement"] as? Bool, false)
+        XCTAssertEqual(diagnostic["sample_position_reset"] as? Bool, false)
+        XCTAssertEqual(diagnostic["instrument_state_updated"] as? Bool, true)
+        XCTAssertEqual(diagnostic["instrument_default_volume_applied"] as? Bool, true)
+        XCTAssertEqual(diagnostic["envelope_reset"] as? Bool, false)
+        XCTAssertEqual(diagnostic["envelope_reset_modeled"] as? Bool, false)
+        XCTAssertEqual(diagnostic["channel_volume_before"] as? Int, 0)
+        XCTAssertEqual(diagnostic["channel_volume_after"] as? Int, 64)
+        XCTAssertEqual(diagnostic["gain_before"] as? Double, 0)
+        XCTAssertEqual(diagnostic["gain_after"] as? Double, 1)
+        XCTAssertEqual(diagnostic["note_target_after"] as? Int, 53)
+        XCTAssertEqual(diagnostic["note_target_after_text"] as? String, "E-4")
+        XCTAssertEqual(diagnostic["audible_transient_expected"] as? Bool, true)
+        XCTAssertEqual(diagnostic["c_mixer_received_new_voice"] as? Bool, false)
+        XCTAssertEqual(diagnostic["c_mixer_received_only_state_updates"] as? Bool, true)
+        XCTAssertEqual(instrumentUpdate["command_name"] as? String, "instrumentDefaultVolume")
+        XCTAssertEqual(instrumentUpdate["command_label"] as? String, "instrument default volume")
+        XCTAssertEqual(instrumentUpdate["active_voice_updated"] as? Bool, true)
+        XCTAssertEqual(instrumentUpdate["effective_volume_before"] as? Int, 0)
+        XCTAssertEqual(instrumentUpdate["effective_volume_after"] as? Int, 64)
+    }
+
     func testDiagnosticsJSONReportsAppliedPortamentoSlideDetails() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

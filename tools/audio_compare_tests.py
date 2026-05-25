@@ -1061,6 +1061,53 @@ class EffectCoverageSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["summary"]["recommended_next_pr"], "Effect Memory Foundation")
 
+    def test_effect_coverage_summary_recommends_portamento_memory_when_zero_param_portamento_dominates(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x00, 0x12, "0xy arpeggio"),
+            ],
+            "portamento_slide_effects": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 0},
+                    "channel_index": 0,
+                    "effect_type": 0x01,
+                    "effect_param": 0x00,
+                    "status": "zero_param_effect_memory_deferred",
+                    "current_status": "zero_param_effect_memory_deferred",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": True,
+                    "ignored_as_no_op": True,
+                },
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 1},
+                    "channel_index": 1,
+                    "effect_type": 0x02,
+                    "effect_param": 0x00,
+                    "status": "zero_param_effect_memory_deferred",
+                    "current_status": "zero_param_effect_memory_deferred",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": True,
+                    "ignored_as_no_op": True,
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(
+            rows["1xx portamento up"]["recommended_implementation_priority"],
+            "1xx/2xx Portamento Effect Memory Expansion",
+        )
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            "1xx/2xx Portamento Effect Memory Expansion",
+        )
+
     def test_effect_coverage_summary_handles_empty_diagnostics(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "empty.json", {})

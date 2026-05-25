@@ -43,6 +43,13 @@ PITCH_RECOMMENDATIONS = {
     "EBx fine volume slide down": "Minimal EAx/EBx Fine Volume Slide",
 }
 
+PORTAMENTO_MEMORY_COMMANDS = {
+    "1xx portamento up",
+    "2xx portamento down",
+}
+
+PORTAMENTO_MEMORY_RECOMMENDATION = "1xx/2xx Portamento Effect Memory Expansion"
+
 EFFECT_FAMILY_ORDER = (
     "arpeggio",
     "portamento_up_down_tone",
@@ -754,6 +761,12 @@ def explicit_effect_memory_count(row: dict[str, Any]) -> int:
     return total
 
 
+def effect_memory_priority_for_command(command: str) -> str:
+    if command in PORTAMENTO_MEMORY_COMMANDS:
+        return PORTAMENTO_MEMORY_RECOMMENDATION
+    return "Effect Memory Foundation"
+
+
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
     unresolved = counters["unsupported_count"] + counters["no_op_effect_memory_deferred_count"]
     if unresolved <= 0:
@@ -769,7 +782,7 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
     if command == "note off / key off":
         return "Key-Off / Fadeout Edge Case Follow-Up"
     if has_effect_memory_gap(command, reason_counts):
-        return "Effect Memory Foundation"
+        return effect_memory_priority_for_command(command)
     if counters["unsupported_count"] == 0 and counters["no_op_effect_memory_deferred_count"] > 0:
         return "observed no-op/low"
     if command.endswith("unknown/unsupported"):
@@ -986,6 +999,13 @@ def recommend_next_pr(
     effect_memory_marker_total = sum(explicit_effect_memory_count(row) for row in effect_memory_marker_rows)
     top_unsupported_count = max((int(row["unsupported_count"]) for row in unsupported_rows), default=0)
     if len(effect_memory_marker_rows) >= 2 and effect_memory_marker_total > top_unsupported_count:
+        portamento_memory_total = sum(
+            explicit_effect_memory_count(row)
+            for row in effect_memory_marker_rows
+            if str(row.get("command") or "") in PORTAMENTO_MEMORY_COMMANDS
+        )
+        if portamento_memory_total > top_unsupported_count and portamento_memory_total * 2 >= effect_memory_marker_total:
+            return PORTAMENTO_MEMORY_RECOMMENDATION
         return "Effect Memory Foundation"
 
     candidate_rows = unsupported_rows or effect_memory_rows or unresolved_rows

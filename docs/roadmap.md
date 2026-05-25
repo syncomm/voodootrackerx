@@ -603,10 +603,16 @@ offline-render responsibilities separate.
 - Verification: synthetic fixtures for detection/counting, active-voice sample-step changes, distinct `E11`/`E1F` behavior, `E10` no-op diagnostics, no-active-voice diagnostics, no retriggering, same-cell note policy, runtime adapter metadata, windowed render determinism, existing render/effect-coverage tests, and local-only corpus smoke artifacts kept out of git.
 - Status: done.
 
-### PR 2.7.11aq — Next Focused Effect Target From Remaining Corpus Evidence
-- Scope: choose the next narrow implementation from fresh coverage evidence after the `E1x` pass. Likely candidates are `E0x`, `0xy`, focused `Bxx`/`Dxx`/`EEx` traversal diagnostics or behavior, or remaining volume-column gaps.
-- Verification: synthetic fixtures for the chosen behavior, effect coverage summary before/after counts, existing runtime/offline render tests, and local-only corpus smoke artifacts kept out of git.
-- Status: recommended next effect PR.
+### PR 2.7.11aq — XM Effect Coverage Refresh After E1x
+- Scope: diagnostics-only refresh of the full mapped local XM corpus after the `4xy`, `E5x`, `E2x`, `EAx`/`EBx`, `6xy`, targeted effect-memory, and `E1x` passes. This updates the local summary helper recommendation only; it does not add XM effect behavior, parser changes, tracker viewport changes, backend changes, or committed private artifacts.
+- Findings: the post-`E1x` local-only pass covered 26 anonymized inputs and reported 222,402 detected commands, 214,105 applied, 187 deferred, 172 unsupported, 8,125 no-op/effect-memory deferred, 3,316 effect-memory reuses, and 1 missing effect-memory case. Remaining unsupported concrete buckets were `E0x` filter toggle (72, limited usefulness), `0xy` arpeggio (53, strong), `Dxx` pattern break (31, moderate traversal), `E4x` vibrato control (9, limited), `E6x` pattern loop (6, moderate traversal), and `Bxx` position jump (1, moderate traversal). The dominant implemented-effect memory buckets were zero-parameter `2xx` (653) and `1xx` (268), while `900` sample-offset memory had only one missing case.
+- Verification: full local diagnostics and public-safe summaries were generated under `/tmp`; generated WAV/JSON/Markdown artifacts and private modules stayed out of git. `python3 -m unittest tools/audio_compare_tests.py`, `./scripts/check-files.sh`, `git diff --check`, and the private-path hygiene scan passed.
+- Status: done.
+
+### PR 2.7.11ar — 1xx/2xx Portamento Effect Memory Expansion
+- Scope: recommended next narrow implementation from the post-`E1x` coverage evidence. Add only zero-parameter memory replay for already-supported `1xx`/`2xx` portamento slides if synthetic tests confirm the intended semantics. Keep `E0x`, `0xy`, traversal behavior, broad effect memory, parser changes, tracker viewport changes, and backend changes out of scope.
+- Verification: synthetic fixtures for per-channel memory store/reuse/missing cases, direct-start determinism, windowed render carryover, runtime adapter metadata, diagnostics/effect-coverage counts, existing render/effect-coverage tests, and local-only corpus smoke artifacts kept out of git.
+- Status: recommended next effect-memory PR.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

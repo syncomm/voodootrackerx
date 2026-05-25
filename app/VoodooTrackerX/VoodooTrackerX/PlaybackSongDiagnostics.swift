@@ -819,6 +819,11 @@ struct PlaybackSongSyntheticPortamentoSlideDiagnostic: Equatable {
     let applied: Bool
     let deferred: Bool
     let ignoredAsNoOp: Bool
+    let effectMemoryReused: Bool
+    let effectMemoryMissing: Bool
+    let effectMemoryDeferred: Bool
+    let memorySource: PlaybackSongSyntheticEffectMemorySource?
+    let memoryUnavailableReason: String?
     let activeVoiceFound: Bool
     let activeEventIndex: Int?
     let activeEventMappingIndex: Int?

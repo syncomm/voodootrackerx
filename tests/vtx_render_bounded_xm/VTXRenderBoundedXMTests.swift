@@ -2487,6 +2487,81 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertLessThan(downStepAfter, downStepBefore)
     }
 
+    func testDiagnosticsJSONReportsPortamentoSlideMemoryDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: (0..<700).map { Float($0) / 1_000.0 },
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+            PlaybackRow(index: 1, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x01, effectParam: 0x00)]),
+            PlaybackRow(index: 2, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x01, effectParam: 0x20)]),
+            PlaybackRow(index: 3, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x01, effectParam: 0x00)]),
+            PlaybackRow(index: 4, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x02, effectParam: 0x00)]),
+            PlaybackRow(index: 5, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x02, effectParam: 0x10)]),
+            PlaybackRow(index: 6, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x02, effectParam: 0x00)]),
+        ]
+        let song = PlaybackSong(
+            title: "portamento-slide-memory-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 28
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let diagnostics = try XCTUnwrap(object["portamento_slide_effects"] as? [[String: Any]])
+        let reused1xx = try XCTUnwrap(diagnostics.first { $0["portamento_1xx_memory_reused"] as? Bool == true })
+        let reused2xx = try XCTUnwrap(diagnostics.first { $0["portamento_2xx_memory_reused"] as? Bool == true })
+        let missing = diagnostics.filter { $0["portamento_memory_missing"] as? Bool == true }
+        let source1xx = try XCTUnwrap(reused1xx["memory_source"] as? [String: Any])
+        let source2xx = try XCTUnwrap(reused2xx["memory_source"] as? [String: Any])
+
+        XCTAssertEqual(render["portamento_1xx_effect_count"] as? Int, 3)
+        XCTAssertEqual(render["portamento_1xx_applied_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_1xx_memory_reused_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_1xx_memory_missing_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_effect_count"] as? Int, 3)
+        XCTAssertEqual(render["portamento_2xx_applied_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_2xx_memory_reused_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_2xx_memory_missing_count"] as? Int, 1)
+        XCTAssertEqual(render["portamento_memory_missing_count"] as? Int, 2)
+        XCTAssertEqual(render["portamento_slide_scheduled_sample_step_update_count"] as? Int, 12)
+        XCTAssertEqual(reused1xx["effect_memory_reused"] as? Bool, true)
+        XCTAssertEqual(reused1xx["effect_memory_missing"] as? Bool, false)
+        XCTAssertEqual(reused1xx["effect_memory_deferred"] as? Bool, false)
+        XCTAssertEqual(reused1xx["effect_param"] as? Int, 0)
+        XCTAssertEqual(reused1xx["slide_amount"] as? Int, 0x20)
+        XCTAssertEqual(source1xx["effect_type"] as? Int, 0x01)
+        XCTAssertEqual(source1xx["effect_param"] as? Int, 0x20)
+        XCTAssertEqual(reused1xx["memory_source_effect_type"] as? Int, 0x01)
+        XCTAssertEqual(reused1xx["memory_source_effect_param"] as? Int, 0x20)
+        XCTAssertEqual(reused1xx["memory_target_effect_type"] as? Int, 0x01)
+        XCTAssertEqual(reused1xx["memory_target_effect_param"] as? Int, 0)
+        XCTAssertEqual(reused1xx["scheduled_sample_step_update_count"] as? Int, 3)
+        XCTAssertEqual(reused2xx["slide_amount"] as? Int, 0x10)
+        XCTAssertEqual(source2xx["effect_type"] as? Int, 0x02)
+        XCTAssertEqual(source2xx["effect_param"] as? Int, 0x10)
+        XCTAssertEqual(missing.map { $0["memory_unavailable_reason"] as? String }, [
+            "missing_1xx_portamento_memory",
+            "missing_2xx_portamento_memory",
+        ])
+    }
+
     func testDiagnosticsJSONReportsFinePortamentoDownE2xDetails() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

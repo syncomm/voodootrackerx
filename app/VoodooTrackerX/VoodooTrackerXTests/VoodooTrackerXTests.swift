@@ -5227,27 +5227,245 @@ final class VoodooTrackerXTests: XCTestCase {
     }
 
     func testPlaybackSongAdapterPortamentoSlideZeroParamIsEffectMemoryDeferred() throws {
+        func assertMissing(
+            effectType: UInt8,
+            direction: PlaybackSongSyntheticPortamentoSlideDirection,
+            reason: String
+        ) throws {
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: effectType, effectParam: 0x00),
+                ]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+            )
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            let diagnostic = try XCTUnwrap(plan.diagnostics.portamentoSlideEffects.first)
+            let command = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.effectType == effectType })
+
+            XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
+            XCTAssertFalse(diagnostic.applied)
+            XCTAssertTrue(diagnostic.deferred)
+            XCTAssertTrue(diagnostic.ignoredAsNoOp)
+            XCTAssertEqual(diagnostic.direction, direction)
+            XCTAssertTrue(diagnostic.effectMemoryMissing)
+            XCTAssertTrue(diagnostic.effectMemoryDeferred)
+            XCTAssertEqual(diagnostic.memoryUnavailableReason, reason)
+            XCTAssertTrue(diagnostic.activeVoiceFound)
+            XCTAssertEqual(diagnostic.slideAmount, 0)
+            XCTAssertEqual(diagnostic.stepUpdates, [])
+            XCTAssertEqual(command.status, .ignoredNoOp)
+        }
+
+        try assertMissing(effectType: 0x01, direction: .up, reason: "missing_1xx_portamento_memory")
+        try assertMissing(effectType: 0x02, direction: .down, reason: "missing_2xx_portamento_memory")
+    }
+
+    func testPlaybackSongAdapterPortamentoMemoryReusesPriorSameChannelAmount() throws {
+        let cases: [(effectType: UInt8, amount: UInt8, direction: PlaybackSongSyntheticPortamentoSlideDirection)] = [
+            (0x01, 0x20, .up),
+            (0x02, 0x18, .down),
+        ]
+
+        for item in cases {
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: item.effectType, effectParam: item.amount),
+                    makePlaybackRow(index: 2, effectType: item.effectType, effectParam: 0x00),
+                ]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+                initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+            )
+            let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+                .diagnostics.portamentoSlideEffects
+            let stored = try XCTUnwrap(diagnostics.first)
+            let replayed = try XCTUnwrap(diagnostics.last)
+
+            XCTAssertEqual(stored.direction, item.direction)
+            XCTAssertFalse(stored.effectMemoryReused)
+            XCTAssertEqual(stored.slideAmount, Int(item.amount))
+            XCTAssertEqual(replayed.status, .applied)
+            XCTAssertEqual(replayed.direction, item.direction)
+            XCTAssertTrue(replayed.effectMemoryReused)
+            XCTAssertFalse(replayed.effectMemoryMissing)
+            XCTAssertEqual(replayed.effectParam, 0)
+            XCTAssertEqual(replayed.slideAmount, Int(item.amount))
+            XCTAssertEqual(replayed.memorySource?.source.rowIndex, 1)
+            XCTAssertEqual(replayed.memorySource?.channelIndex, 0)
+            XCTAssertEqual(replayed.memorySource?.effectType, item.effectType)
+            XCTAssertEqual(replayed.memorySource?.effectParam, item.amount)
+            XCTAssertEqual(replayed.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
+        }
+    }
+
+    func testPlaybackSongAdapterPortamentoMemoryIsPerChannel() throws {
+        func assertPerChannel(effectType: UInt8, amount: UInt8, reason: String) {
+            let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+            let rows = [
+                PlaybackRow(index: 0, cells: [
+                    PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                    PlaybackCell(note: 52, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                ]),
+                PlaybackRow(index: 1, cells: [
+                    PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: effectType, effectParam: amount),
+                    PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+                ]),
+                PlaybackRow(index: 2, cells: [
+                    PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: effectType, effectParam: 0x00),
+                    PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: effectType, effectParam: 0x00),
+                ]),
+            ]
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: rows],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+                initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+            )
+            let row2Diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+                .diagnostics.portamentoSlideEffects
+                .filter { $0.source.rowIndex == 2 }
+                .sorted { $0.channelIndex < $1.channelIndex }
+
+            XCTAssertEqual(row2Diagnostics.map(\.channelIndex), [0, 1])
+            XCTAssertEqual(row2Diagnostics[0].status, .applied)
+            XCTAssertTrue(row2Diagnostics[0].effectMemoryReused)
+            XCTAssertEqual(row2Diagnostics[0].memorySource?.channelIndex, 0)
+            XCTAssertEqual(row2Diagnostics[0].slideAmount, Int(amount))
+            XCTAssertEqual(row2Diagnostics[1].status, .zeroParamEffectMemoryDeferred)
+            XCTAssertTrue(row2Diagnostics[1].effectMemoryMissing)
+            XCTAssertEqual(row2Diagnostics[1].memoryUnavailableReason, reason)
+        }
+
+        assertPerChannel(effectType: 0x01, amount: 0x20, reason: "missing_1xx_portamento_memory")
+        assertPerChannel(effectType: 0x02, amount: 0x24, reason: "missing_2xx_portamento_memory")
+    }
+
+    func testPlaybackSongAdapterPortamento1xxAnd2xxMemoryRemainDistinct() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
                 makePlaybackRow(index: 0, note: 49, instrument: 1),
-                makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x00),
+                makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x10),
+                makePlaybackRow(index: 2, effectType: 0x02, effectParam: 0x30),
+                makePlaybackRow(index: 3, effectType: 0x01, effectParam: 0x00),
+                makePlaybackRow(index: 4, effectType: 0x02, effectParam: 0x00),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
-        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
-        let diagnostic = try XCTUnwrap(plan.diagnostics.portamentoSlideEffects.first)
-        let command = try XCTUnwrap(plan.diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x01 })
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects
+        let replayedUp = try XCTUnwrap(diagnostics.first { $0.source.rowIndex == 3 })
+        let replayedDown = try XCTUnwrap(diagnostics.first { $0.source.rowIndex == 4 })
 
-        XCTAssertEqual(diagnostic.status, .zeroParamEffectMemoryDeferred)
-        XCTAssertFalse(diagnostic.applied)
-        XCTAssertTrue(diagnostic.deferred)
-        XCTAssertTrue(diagnostic.ignoredAsNoOp)
-        XCTAssertTrue(diagnostic.activeVoiceFound)
-        XCTAssertEqual(diagnostic.stepUpdates, [])
-        XCTAssertEqual(command.status, .ignoredNoOp)
+        XCTAssertEqual(replayedUp.direction, .up)
+        XCTAssertTrue(replayedUp.effectMemoryReused)
+        XCTAssertEqual(replayedUp.slideAmount, 0x10)
+        XCTAssertEqual(replayedUp.memorySource?.effectType, 0x01)
+        XCTAssertEqual(replayedUp.memorySource?.effectParam, 0x10)
+        XCTAssertEqual(replayedDown.direction, .down)
+        XCTAssertTrue(replayedDown.effectMemoryReused)
+        XCTAssertEqual(replayedDown.slideAmount, 0x30)
+        XCTAssertEqual(replayedDown.memorySource?.effectType, 0x02)
+        XCTAssertEqual(replayedDown.memorySource?.effectParam, 0x30)
+    }
+
+    func testPlaybackSongAdapterPortamentoMemoryWindowedCarryoverMatchesDefaultRender() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x20),
+                makePlaybackRow(index: 2, effectType: 0x01, effectParam: 0x00),
+                makePlaybackRow(index: 3, effectType: 0x02, effectParam: 0x10),
+                makePlaybackRow(index: 4, effectType: 0x02, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 20
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let memoryReplayed = windowed.diagnostics.portamentoSlideEffects.filter { $0.applied && $0.effectMemoryReused }
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertEqual(memoryReplayed.map(\.source.rowIndex), [2, 4])
+        XCTAssertTrue(memoryReplayed.allSatisfy { !$0.stepUpdates.isEmpty })
+    }
+
+    func testPlaybackSongAdapterPortamentoDirectStartWithoutPriorMemoryIsDeterministic() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2, 3],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x20),
+                ],
+                3: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x01, effectParam: 0x00),
+                    makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x00),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            startOrderIndex: 1,
+            orderCount: 1,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let firstRender = renderer.render(request)
+        let secondRender = renderer.render(request)
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, startOrderIndex: 1, orderCount: 1, sampleRate: 100)
+            .diagnostics.portamentoSlideEffects
+
+        XCTAssertFloatArrayEqual(secondRender.block.interleavedPCM, firstRender.block.interleavedPCM)
+        XCTAssertEqual(diagnostics.map(\.status), [.zeroParamEffectMemoryDeferred, .zeroParamEffectMemoryDeferred])
+        XCTAssertEqual(diagnostics[0].memoryUnavailableReason, "missing_1xx_portamento_memory")
+        XCTAssertEqual(diagnostics[1].memoryUnavailableReason, "missing_2xx_portamento_memory")
+        XCTAssertTrue(diagnostics.allSatisfy(\.effectMemoryMissing))
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReportsPortamentoSlideMemoryMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0x20),
+                makePlaybackRow(index: 2, effectType: 0x01, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let memoryUpdates = plan.events.filter {
+            $0.categories.contains("step_update") &&
+                $0.categories.contains("portamento_1xx_memory_reused")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("portamento_1xx_memory_reused"))
+        XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
+        XCTAssertEqual(memoryUpdates.count, 3)
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.categories.contains("portamento_update") })
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.effectType == 0x01 })
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.effectParam == 0x00 })
     }
 
     func testPlaybackSongAdapterPortamentoSlideNoActiveVoiceIsDiagnosed() throws {

@@ -262,6 +262,8 @@ enum PlaybackSongSyntheticAdapter {
         var tonePortamentoTargetPlaybackStep: Double?
         var tonePortamentoSpeed: Int?
         var sampleOffsetMemory: SampleOffsetMemory?
+        var portamentoUpMemory: PortamentoSlideMemory?
+        var portamentoDownMemory: PortamentoSlideMemory?
         var vibratoSpeed: Int?
         var vibratoDepth: Int?
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
@@ -275,6 +277,11 @@ enum PlaybackSongSyntheticAdapter {
 
     private struct SampleOffsetMemory: Equatable {
         let offsetFrames: Int
+        let source: PlaybackSongSyntheticEffectMemorySource
+    }
+
+    private struct PortamentoSlideMemory: Equatable {
+        let amount: Int
         let source: PlaybackSongSyntheticEffectMemorySource
     }
 
@@ -2263,9 +2270,31 @@ enum PlaybackSongSyntheticAdapter {
         let hasActiveVoice = channelState.activeEventIndex != nil
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
-        let slideAmount = Int(cell.effectParam)
+        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        let requestedSlideAmount = Int(cell.effectParam)
+        let rememberedMemory = direction == .up ? channelState.portamentoUpMemory : channelState.portamentoDownMemory
+        let slideAmount: Int
+        let memorySource: PlaybackSongSyntheticEffectMemorySource?
+        let effectMemoryReused: Bool
+        let effectMemoryMissing: Bool
 
-        guard slideAmount > 0 else {
+        if requestedSlideAmount > 0 {
+            slideAmount = requestedSlideAmount
+            let memory = PortamentoSlideMemory(amount: requestedSlideAmount, source: targetMemorySource)
+            if direction == .up {
+                channelState.portamentoUpMemory = memory
+            } else {
+                channelState.portamentoDownMemory = memory
+            }
+            memorySource = nil
+            effectMemoryReused = false
+            effectMemoryMissing = false
+        } else if let rememberedMemory {
+            slideAmount = rememberedMemory.amount
+            memorySource = rememberedMemory.source
+            effectMemoryReused = true
+            effectMemoryMissing = false
+        } else {
             return portamentoSlideDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
@@ -2277,13 +2306,19 @@ enum PlaybackSongSyntheticAdapter {
                 activeEventIndex: channelState.activeEventIndex,
                 activeEventMappingIndex: channelState.activeEventMappingIndex,
                 direction: direction,
-                slideAmount: slideAmount,
+                slideAmount: 0,
                 currentLinearPeriodBefore: currentLinearPeriodBefore,
                 currentLinearPeriodAfter: channelState.activeLinearPeriod,
                 currentPlaybackStepBefore: currentPlaybackStepBefore,
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
                 clamped: false,
+                effectMemoryReused: false,
+                effectMemoryMissing: true,
+                memorySource: nil,
+                memoryUnavailableReason: direction == .up
+                    ? "missing_1xx_portamento_memory"
+                    : "missing_2xx_portamento_memory",
                 policy: "zero_param_effect_memory_deferred_no_op"
             )
         }
@@ -2307,6 +2342,10 @@ enum PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
                 clamped: false,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: effectMemoryMissing,
+                memorySource: memorySource,
+                memoryUnavailableReason: nil,
                 policy: "no_active_voice_no_playback_invented"
             )
         }
@@ -2333,6 +2372,10 @@ enum PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 stepUpdates: [],
                 clamped: false,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: effectMemoryMissing,
+                memorySource: memorySource,
+                memoryUnavailableReason: nil,
                 policy: "linear_frequency_only_first_pass"
             )
         }
@@ -2372,6 +2415,10 @@ enum PlaybackSongSyntheticAdapter {
                     currentPlaybackStepAfter: channelState.activePlaybackStep,
                     stepUpdates: stepUpdates,
                     clamped: clamped,
+                    effectMemoryReused: effectMemoryReused,
+                    effectMemoryMissing: effectMemoryMissing,
+                    memorySource: memorySource,
+                    memoryUnavailableReason: nil,
                     policy: "slide_pitch_out_of_range"
                 )
             }
@@ -2413,7 +2460,13 @@ enum PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: stepUpdates,
             clamped: clamped,
-            policy: "linear_period_units_per_tick_first_pass"
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: effectMemoryMissing,
+            memorySource: memorySource,
+            memoryUnavailableReason: nil,
+            policy: effectMemoryReused
+                ? "zero_param_reuses_prior_portamento_slide_memory"
+                : "linear_period_units_per_tick_first_pass"
         )
     }
 
@@ -2435,9 +2488,14 @@ enum PlaybackSongSyntheticAdapter {
         currentPlaybackStepAfter: Double?,
         stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
         clamped: Bool,
+        effectMemoryReused: Bool,
+        effectMemoryMissing: Bool,
+        memorySource: PlaybackSongSyntheticEffectMemorySource?,
+        memoryUnavailableReason: String?,
         policy: String
     ) -> PlaybackSongSyntheticPortamentoSlideDiagnostic {
         let applied = status == .applied
+        let effectMemoryDeferred = effectMemoryMissing || status == .zeroParamEffectMemoryDeferred
         return PlaybackSongSyntheticPortamentoSlideDiagnostic(
             source: source,
             channelIndex: channelIndex,
@@ -2450,6 +2508,11 @@ enum PlaybackSongSyntheticAdapter {
             applied: applied,
             deferred: status == .zeroParamEffectMemoryDeferred || status == .unsupportedFrequencyTable,
             ignoredAsNoOp: !applied && status != .unsupportedFrequencyTable,
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: effectMemoryMissing,
+            effectMemoryDeferred: effectMemoryDeferred,
+            memorySource: memorySource,
+            memoryUnavailableReason: memoryUnavailableReason,
             activeVoiceFound: activeVoiceFound,
             activeEventIndex: activeEventIndex,
             activeEventMappingIndex: activeEventMappingIndex,
@@ -5500,6 +5563,12 @@ enum PlaybackSongSyntheticAdapter {
     private static func hasDeferredEffect(_ cell: PlaybackCell, channelState: ChannelState) -> Bool {
         if cell.effectType == 0x09, cell.effectParam == 0 {
             return channelState.sampleOffsetMemory == nil
+        }
+        if cell.effectType == 0x01, cell.effectParam == 0 {
+            return channelState.portamentoUpMemory == nil
+        }
+        if cell.effectType == 0x02, cell.effectParam == 0 {
+            return channelState.portamentoDownMemory == nil
         }
         if cell.effectType == 0x04 {
             let speed = Int((cell.effectParam & 0xF0) >> 4)

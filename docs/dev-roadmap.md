@@ -68,11 +68,13 @@ note cut and `EDx` note delay are supported in bounded offline renders only;
 only normal same-cell note triggers. Minimal `1xx`/`2xx` portamento up/down and
 minimal `3xx` tone portamento are supported in bounded offline renders only:
 `1xx`/`2xx` slide the tracked active voice's linear-period/sample-step on later
-row ticks, and a normal-note `3xx` sets a linear-frequency target for the active
-voice without retriggering the sample before later ticks schedule deterministic
-C mixer sample-step updates toward the target. No-active, zero-parameter,
-no-target, no-speed, clamped, and non-linear pitch-table cases are diagnosed as
-applicable, while `5xy` and volume-column tone portamento remain deferred.
+row ticks, and `100`/`200` replay prior nonzero same-family per-channel memory
+when available. A normal-note `3xx` sets a linear-frequency target for the
+active voice without retriggering the sample before later ticks schedule
+deterministic C mixer sample-step updates toward the target. No-active,
+missing-memory, no-target, no-speed, clamped, and non-linear pitch-table cases
+are diagnosed as applicable, while `5xy` and volume-column tone portamento
+remain deferred.
 Minimal `E1x` fine portamento up and `E2x` fine portamento down now use the
 same runtime/offline linear-frequency sample-step update path for one
 deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
@@ -119,7 +121,8 @@ It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
 `3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento
 diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
 diagnostics, applied `6xy` vibrato + volume slide diagnostics, explicit
-effect-memory reused/missing counts and source metadata for `900`/`4xy`/`6xy`,
+effect-memory reused/missing counts and source metadata for
+`900`/`1xx`/`2xx`/`4xy`/`6xy`,
 and deferred pitch-modulation counts and source coordinates for arpeggio, remaining
 portamento-family commands, tremolo, and volume-column
 vibrato/tone-portamento commands, with a conservative
@@ -138,11 +141,10 @@ refresh covered 26 anonymized inputs and reported 222,402 detected commands,
 deferred, 3,316 effect-memory reuses, and one missing effect-memory case. The
 largest remaining unsupported buckets are `E0x` filter toggle (limited
 usefulness), `0xy` arpeggio (strong), and smaller `Dxx`/`Bxx`/`E6x` traversal
-cases, but zero-parameter `1xx`/`2xx` memory for already-supported portamento
-slides now dominates the implemented-effect memory evidence. The next
-recommended narrow PR is `1xx`/`2xx` portamento effect-memory expansion; if that
-is intentionally deferred, `0xy` arpeggio is the strongest concrete unsupported
-effect target. The developer-only helper keeps its default
+cases. The `1xx`/`2xx` portamento effect-memory expansion is the current narrow
+effect-memory pass; after it, `0xy` arpeggio is the strongest concrete
+unsupported effect target, with traversal commands remaining separate. The
+developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. It can also render with `--until-song-end` plus optional
@@ -445,8 +447,9 @@ Immediate audio accuracy sequence:
 91. Minimal 6xy Vibrato + Volume Slide — done
 92. XM Effect Memory Foundation — done
 93. Minimal E1x Fine Portamento Up — done
-94. Next effect target from remaining corpus evidence: E0x/0xy/Dxx/Bxx/EEx or focused volume-column gaps — recommended next effect PR
-95. Reference comparison stabilization against MikMod/OpenMPT
+94. 1xx / 2xx Portamento Effect Memory Expansion — done
+95. Next effect target from remaining corpus evidence: 0xy arpeggio or focused traversal diagnostics/behavior — recommended next effect PR
+96. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -560,8 +563,9 @@ Features:
   missing-memory diagnostics
 - minimal `1xx`/`2xx` portamento up/down and minimal `3xx` tone portamento
   support for bounded offline adapted renders, with no-retrigger 3xx target
-  setting, generic C mixer sample-step updates, diagnostics, and `5xy` plus
-  volume-column tone portamento still deferred
+  setting, per-channel `100`/`200` memory replay, generic C mixer sample-step
+  updates, diagnostics, and `5xy` plus volume-column tone portamento still
+  deferred
 - minimal `E2x` fine portamento down support through one row-level
   linear-period/sample-step adjustment in the runtime/offline C mixer adapter
   path, with same-cell note folding, no-active-voice diagnostics, `E20` effect

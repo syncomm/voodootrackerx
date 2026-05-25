@@ -1012,6 +1012,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let portamentoSlideNoActiveVoiceCount = diagnostics.portamentoSlideEffects.filter { $0.status == .noActiveVoice }.count
         let portamentoSlideZeroParamCount = diagnostics.portamentoSlideEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
         let portamentoSlideDeferredCount = diagnostics.portamentoSlideEffects.filter(\.deferred).count
+        let portamentoUpMemoryReusedCount = portamentoUpEffects.filter { $0.applied && $0.effectMemoryReused }.count
+        let portamentoDownMemoryReusedCount = portamentoDownEffects.filter { $0.applied && $0.effectMemoryReused }.count
+        let portamentoUpMemoryMissingCount = portamentoUpEffects.filter(\.effectMemoryMissing).count
+        let portamentoDownMemoryMissingCount = portamentoDownEffects.filter(\.effectMemoryMissing).count
+        let portamentoSlideMemoryMissingCount = diagnostics.portamentoSlideEffects.filter(\.effectMemoryMissing).count
+        let portamentoSlideScheduledStepUpdateCount = diagnostics.portamentoSlideEffects.map(\.stepUpdates.count).reduce(0, +)
         let finePortamentoUpAppliedCount = diagnostics.finePortamentoUpEffects.filter(\.applied).count
         let finePortamentoUpNoActiveVoiceCount = diagnostics.finePortamentoUpEffects.filter { $0.status == .noActiveVoice }.count
         let finePortamentoUpZeroAmountCount = diagnostics.finePortamentoUpEffects.filter { $0.status == .zeroAmountEffectMemoryDeferred }.count
@@ -1078,7 +1084,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
-            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
+            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy and volume-column tone portamento remain deferred.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
@@ -1132,15 +1138,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "portamento_1xx_applied_count": portamentoUpEffects.filter(\.applied).count,
                 "portamento_1xx_no_active_voice_count": portamentoUpEffects.filter { $0.status == .noActiveVoice }.count,
                 "portamento_1xx_zero_param_effect_memory_deferred_count": portamentoUpEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_1xx_memory_reused_count": portamentoUpMemoryReusedCount,
+                "portamento_1xx_memory_missing_count": portamentoUpMemoryMissingCount,
+                "portamento_1xx_scheduled_sample_step_update_count": portamentoUpEffects.map(\.stepUpdates.count).reduce(0, +),
                 "portamento_2xx_effect_count": portamentoDownEffects.count,
                 "portamento_2xx_applied_count": portamentoDownEffects.filter(\.applied).count,
                 "portamento_2xx_no_active_voice_count": portamentoDownEffects.filter { $0.status == .noActiveVoice }.count,
                 "portamento_2xx_zero_param_effect_memory_deferred_count": portamentoDownEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_2xx_memory_reused_count": portamentoDownMemoryReusedCount,
+                "portamento_2xx_memory_missing_count": portamentoDownMemoryMissingCount,
+                "portamento_2xx_scheduled_sample_step_update_count": portamentoDownEffects.map(\.stepUpdates.count).reduce(0, +),
                 "portamento_slide_effect_count": diagnostics.portamentoSlideEffectCount,
                 "portamento_slide_applied_count": portamentoSlideAppliedCount,
                 "portamento_slide_no_active_voice_count": portamentoSlideNoActiveVoiceCount,
                 "portamento_slide_zero_param_effect_memory_deferred_count": portamentoSlideZeroParamCount,
                 "portamento_slide_deferred_count": portamentoSlideDeferredCount,
+                "portamento_memory_missing_count": portamentoSlideMemoryMissingCount,
+                "portamento_slide_scheduled_sample_step_update_count": portamentoSlideScheduledStepUpdateCount,
                 "e1x_fine_portamento_up_effect_count": diagnostics.finePortamentoUpEffectCount,
                 "e1x_fine_portamento_up_detected_count": diagnostics.finePortamentoUpEffectCount,
                 "e1x_fine_portamento_up_applied_count": finePortamentoUpAppliedCount,
@@ -2548,6 +2562,22 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "applied": diagnostic.applied,
             "deferred": diagnostic.deferred,
             "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "effect_memory_reused": diagnostic.effectMemoryReused,
+            "effect_memory_missing": diagnostic.effectMemoryMissing,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "memory_source": diagnostic.memorySource.map(effectMemorySourceJSON) ?? NSNull(),
+            "memory_source_effect_type": diagnostic.memorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "memory_source_effect_param": diagnostic.memorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "memory_target_effect_type": Int(diagnostic.effectType),
+            "memory_target_effect_param": Int(diagnostic.effectParam),
+            "memory_unavailable_reason": diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull(),
+            "portamento_1xx_memory_reused": diagnostic.direction == .up &&
+                diagnostic.applied &&
+                diagnostic.effectMemoryReused,
+            "portamento_2xx_memory_reused": diagnostic.direction == .down &&
+                diagnostic.applied &&
+                diagnostic.effectMemoryReused,
+            "portamento_memory_missing": diagnostic.effectMemoryMissing,
             "active_voice_found": diagnostic.activeVoiceFound,
             "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
             "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
@@ -2562,6 +2592,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "row_speed": diagnostic.rowSpeed,
             "row_bpm": diagnostic.rowBPM,
             "step_update_count": diagnostic.stepUpdates.count,
+            "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
             "clamped": diagnostic.clamped,
             "policy": diagnostic.policy,

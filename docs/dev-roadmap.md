@@ -132,9 +132,17 @@ coverage summary helper can now aggregate bounded offline diagnostics JSON and
 runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
 effect tables, first source coordinates, unresolved key-off/no-active buckets,
 and a conservative next-effect recommendation; filled reports and generated
-audio artifacts stay outside git. After the effect-memory foundation, the next
-recommended narrow effect targets are traversal, `0xy` arpeggio, or remaining
-volume-column gaps depending on fresh local coverage. The developer-only helper keeps its default
+audio artifacts stay outside git. A post-`E1x` local-only full mapped-corpus
+refresh covered 26 anonymized inputs and reported 222,402 detected commands,
+214,105 applied, 187 deferred, 172 unsupported, 8,125 no-op/effect-memory
+deferred, 3,316 effect-memory reuses, and one missing effect-memory case. The
+largest remaining unsupported buckets are `E0x` filter toggle (limited
+usefulness), `0xy` arpeggio (strong), and smaller `Dxx`/`Bxx`/`E6x` traversal
+cases, but zero-parameter `1xx`/`2xx` memory for already-supported portamento
+slides now dominates the implemented-effect memory evidence. The next
+recommended narrow PR is `1xx`/`2xx` portamento effect-memory expansion; if that
+is intentionally deferred, `0xy` arpeggio is the strongest concrete unsupported
+effect target. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. It can also render with `--until-song-end` plus optional

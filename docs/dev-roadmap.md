@@ -73,12 +73,12 @@ voice without retriggering the sample before later ticks schedule deterministic
 C mixer sample-step updates toward the target. No-active, zero-parameter,
 no-target, no-speed, clamped, and non-linear pitch-table cases are diagnosed as
 applicable, while `5xy` and volume-column tone portamento remain deferred.
-Minimal `E2x` fine portamento down now uses the same runtime/offline
-linear-frequency sample-step update path for one deterministic row-level
-pitch-down adjustment. Same-cell note `E2x` folds the adjustment into the
-note's initial playback step, no-note rows update the active voice at row start,
-and `E20` remains an effect-memory-deferred no-op. Minimal `4xy` vibrato now
-uses the same linear-frequency sample-step update foundation in the
+Minimal `E1x` fine portamento up and `E2x` fine portamento down now use the
+same runtime/offline linear-frequency sample-step update path for one
+deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
+into the note's initial playback step, no-note rows update the active voice at
+row start, and `E10`/`E20` remain effect-memory-deferred no-ops. Minimal `4xy`
+vibrato now uses the same linear-frequency sample-step update foundation in the
 runtime/offline C mixer adapter path, with deterministic sine-based row-tick
 modulation diagnostics for speed/depth, active voice updates, no-active-voice,
 `400`/single-zero-nibble memory replay, and effect-memory-deferred no-ops when
@@ -90,8 +90,8 @@ adjusted volume, no-note rows update an active voice at row start, and
 volume slide now reuses prior channel vibrato memory for sample-step updates and
 the existing `Axy`-style row-level gain path for nonzero volume slides; `600`
 can replay vibrato memory without broad volume-slide memory, while missing
-vibrato memory, volume-column vibrato, vibrato waveform controls, `E1x`, and
-unrelated effect-memory families remain deferred.
+vibrato memory, volume-column vibrato, vibrato waveform controls, and unrelated
+effect-memory families remain deferred.
 Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
@@ -116,8 +116,8 @@ bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column, volume-column, and
 volume/panning state-update command frequency for focused follow-up diagnosis.
 It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
-`3xx` tone-portamento diagnostics, applied `E2x` fine-portamento diagnostics,
-applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
+`3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento
+diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
 diagnostics, applied `6xy` vibrato + volume slide diagnostics, explicit
 effect-memory reused/missing counts and source metadata for `900`/`4xy`/`6xy`,
 and deferred pitch-modulation counts and source coordinates for arpeggio, remaining
@@ -133,8 +133,8 @@ runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
 effect tables, first source coordinates, unresolved key-off/no-active buckets,
 and a conservative next-effect recommendation; filled reports and generated
 audio artifacts stay outside git. After the effect-memory foundation, the next
-recommended narrow effect target is `E1x` fine portamento up unless fresh local
-coverage points to traversal or volume-column gaps instead. The developer-only helper keeps its default
+recommended narrow effect targets are traversal, `0xy` arpeggio, or remaining
+volume-column gaps depending on fresh local coverage. The developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
 `--allow-long-render`. It can also render with `--until-song-end` plus optional
@@ -152,8 +152,8 @@ render windows, with aggregate/per-window capacity and carryover diagnostics.
 Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
-key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E2x`,
-`4xy`, `6xy`, and supported sample-offset memory state, plus supported in-window
+key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E1x`,
+`E2x`, `4xy`, `6xy`, and supported sample-offset memory state, plus supported in-window
 `EAx`/`EBx` and `6xy` gain updates.
 Unsupported/deferred effects and full tracker voice semantics remain separate
 targeted work. Developer-only bounded candidate WAV exports now also report
@@ -436,8 +436,9 @@ Immediate audio accuracy sequence:
 90. Minimal EAx / EBx Fine Volume Slides — done
 91. Minimal 6xy Vibrato + Volume Slide — done
 92. XM Effect Memory Foundation — done
-93. Next effect target from remaining corpus evidence: E1x fine portamento up or traversal/volume-column gaps — recommended next effect PR
-94. Reference comparison stabilization against MikMod/OpenMPT
+93. Minimal E1x Fine Portamento Up — done
+94. Next effect target from remaining corpus evidence: E0x/0xy/Dxx/Bxx/EEx or focused volume-column gaps — recommended next effect PR
+95. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 
@@ -556,6 +557,10 @@ Features:
 - minimal `E2x` fine portamento down support through one row-level
   linear-period/sample-step adjustment in the runtime/offline C mixer adapter
   path, with same-cell note folding, no-active-voice diagnostics, `E20` effect
+  memory deferred, and no broad E-command memory
+- minimal `E1x` fine portamento up support through one row-level
+  linear-period/sample-step adjustment in the runtime/offline C mixer adapter
+  path, with same-cell note folding, no-active-voice diagnostics, `E10` effect
   memory deferred, and no broad E-command memory
 - minimal `4xy` vibrato support through deterministic linear-period
   sample-step updates in the runtime/offline C mixer adapter path, with `400`

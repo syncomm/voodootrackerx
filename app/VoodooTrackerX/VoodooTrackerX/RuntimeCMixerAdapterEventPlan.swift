@@ -145,6 +145,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isSetFinetune {
                 categories.append("e5x_set_finetune")
             }
+            let isFinePortamentoUp = mapping.effectType == 0x0E &&
+                ((mapping.effectParam >> 4) & 0x0F) == 0x01
+            if isFinePortamentoUp {
+                categories.append("e1x_fine_portamento_up")
+            }
             let isFinePortamentoDown = mapping.effectType == 0x0E &&
                 ((mapping.effectParam >> 4) & 0x0F) == 0x02
             if isFinePortamentoDown {
@@ -172,6 +177,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("key_off")
             }
             let hasBridgedEffectMetadata = isSetFinetune ||
+                isFinePortamentoUp ||
                 isFinePortamentoDown ||
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
@@ -260,6 +266,26 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
                     categories: ["step_update", "portamento_update"]
+                ))
+                nextID += 1
+            }
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.finePortamentoUpEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: ["step_update", "e1x_fine_portamento_up"],
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
                 ))
                 nextID += 1
             }

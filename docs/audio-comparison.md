@@ -53,11 +53,14 @@ row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
 changes, minimal `9xx` sample offsets on same-cell note triggers including
 per-channel `900` memory replay, and
 minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
-minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine volume slides,
-minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and `E9x`
-retriggers for the tracked active adapted voice. The `E2x` foundation applies
-one deterministic row-level linear-period/sample-step pitch-down adjustment;
-`E20` remains an effect-memory-deferred no-op. The `4xy` foundation uses
+minimal `E1x` fine portamento up, minimal `E2x` fine portamento down, minimal
+`EAx`/`EBx` fine volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato +
+volume slide, and `E9x` retriggers for the tracked active adapted voice. The
+`E1x` foundation applies one deterministic row-level linear-period/sample-step
+pitch-up adjustment; `E10` remains an effect-memory-deferred no-op. The `E2x`
+foundation applies one deterministic row-level linear-period/sample-step
+pitch-down adjustment; `E20` remains an effect-memory-deferred no-op. The
+`4xy` foundation uses
 deterministic sine-based linear-period sample-step updates on row ticks in the
 shared runtime/offline C mixer adapter path; `400` and single-zero nibbles
 reuse available per-channel speed/depth memory, while unavailable memory,
@@ -116,10 +119,11 @@ scheduled sample-step updates, and scheduled gain-update counts for first-pass
 `6xy` coverage. Sample-offset diagnostics include
 `effect_memory_reused`, `effect_memory_missing`, memory source/target metadata,
 and `900_sample_offset_memory_applied` for `900` replays.
-`fine_portamento_down_effects` and render-level `e2x_fine_portamento_down_*`
-counters report detected/applied/no-active/effect-memory-deferred `E2x`
-coverage, the fine amount nibble, current period/sample-step before/after, and
-scheduled sample-step update counts where the row-level update is emitted.
+`fine_portamento_up_effects` / `fine_portamento_down_effects` and render-level
+`e1x_fine_portamento_up_*` / `e2x_fine_portamento_down_*` counters report
+detected/applied/no-active/effect-memory-deferred `E1x` and `E2x` coverage, the
+fine amount nibble, current period/sample-step before/after, and scheduled
+sample-step update counts where a row-level update is emitted.
 Render-level `eax_fine_volume_slide_up_*` and
 `ebx_fine_volume_slide_down_*` counters report detected, applied,
 no-active-voice, zero-amount/effect-memory-deferred, and scheduled gain-update
@@ -770,8 +774,9 @@ derived from private modules must stay under `/tmp` or another ignored path.
 Candidate diagnostics and the correlation report also include a focused
 pitch-modulation/deferred-effect summary for remaining deferred `0xy`, `5xy`,
 `7xy`, and volume-column vibrato/tone-portamento ranges. Applied
-`1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E2x`
-fine portamento down, applied `EAx`/`EBx` fine volume slides, and applied
+`1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied `E1x`
+fine portamento up, applied `E2x` fine portamento down, applied `EAx`/`EBx`
+fine volume slides, and applied
 `4xy`/`6xy` vibrato-family effects are reported in the general command
 frequency and dedicated diagnostics instead of the deferred pitch-modulation
 bucket. The report groups deferred
@@ -1287,7 +1292,7 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
 portamento, vibrato, arpeggio, or a focused follow-up to
-minimal `E2x`/`E9x`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
+minimal `E1x`/`E2x`/`E9x`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
 foundation. If mismatch windows repeatedly line up with diagnosed `E90` no-ops
 or effect-memory families not covered by the foundation, decide separately
 whether another narrow memory PR is justified. If mismatch windows are broad and
@@ -1505,6 +1510,11 @@ Bounded render diagnostics also include `fine_portamento_down_effects` plus
 render-level `e2x_fine_portamento_down_*` counts. Same-cell note `E2x` cases
 fold the fine period increase into the note's initial playback step; no-note
 rows with an active voice schedule a row-start sample-step update. `E20`,
+no-active-voice, and unsupported frequency-table cases stay visible.
+Bounded render diagnostics also include `fine_portamento_up_effects` plus
+render-level `e1x_fine_portamento_up_*` counts. Same-cell note `E1x` cases fold
+the fine period decrease into the note's initial playback step; no-note rows
+with an active voice schedule a row-start sample-step update. `E10`,
 no-active-voice, and unsupported frequency-table cases stay visible.
 Bounded render diagnostics also include render-level
 `eax_fine_volume_slide_up_*` and `ebx_fine_volume_slide_down_*` counts. Nonzero

@@ -44,14 +44,15 @@ note triggers carry explicit XM linear-frequency period/frequency
 sample-step mapping where `PlaybackSong.usesLinearFrequencyTable` is true, and
 the adapter applies volume-column set-volume/set-panning plus a conservative
 row-level subset of volume-column volume and panning slides to event gain/pan.
-It also applies minimal bounded/offline state updates for empty-note
-volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
-volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
-volume slides; where a carried voice is active, deterministic gain/pan update
-events can update that voice after its original note trigger, and changed
-active-voice gain/pan updates are smoothed by a fixed 32-frame C mixer
-micro-ramp in the bounded/offline path. Minimal row-level `Hxy` global volume
-slide is also applied in the bounded/offline adapter: the adapter carries a
+It also applies minimal bounded/offline state updates for empty-note and
+same-cell `3xx` no-retrigger volume-column set-volume/set-panning cells,
+regular effect-column `Cxx` set volume, regular effect-column `8xx` set
+panning, and nonzero row-level `Axy` volume slides; where a carried voice is
+active, deterministic gain/pan update events can update that voice after its
+original note trigger, and changed active-voice gain/pan updates are smoothed
+by a fixed 32-frame C mixer micro-ramp in the bounded/offline path. Minimal
+row-level `Hxy` global volume slide is also applied in the bounded/offline
+adapter: the adapter carries a
 clamped `0...64` global-volume value, defaults to `64`, applies up/down Hxy
 slides once at the source row, updates active voices through the same generic
 gain-update path, and uses that multiplier for later note triggers. `H00` is

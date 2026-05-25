@@ -988,6 +988,18 @@ def synthetic_focused_channel_diagnostics():
     return {
         "schema_version": 1,
         "tool": "vtx_render_bounded_xm",
+        "row_timing": [
+            {
+                "source": source(row),
+                "synthetic_row": row,
+                "effective_speed": 6,
+                "effective_bpm": 125,
+                "row_start_frame": row * 600,
+                "row_end_frame": (row + 1) * 600,
+                "row_duration_frames": 600,
+            }
+            for row in range(9)
+        ],
         "events": [
             {
                 "source": source(0),
@@ -1036,6 +1048,14 @@ def synthetic_focused_channel_diagnostics():
                 "target_note": 54,
                 "target_note_text": "F-4",
                 "active_voice_found": True,
+                "step_updates": [
+                    {
+                        "synthetic_tick": 1,
+                        "scheduled_frame": 3700,
+                        "current_step_before": 1.0,
+                        "current_step_after": 0.875,
+                    }
+                ],
             },
             {
                 "source": source(8),
@@ -1215,6 +1235,20 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows["07"]["volume_slide"]["policy"], "up_nibble_precedence_current_policy")
         self.assertEqual(rows["08"]["channel_volume_before"], 18)
         self.assertEqual(rows["08"]["channel_volume_after"], 16)
+        self.assertEqual(summary["schema_version"], 2)
+        self.assertEqual(rows["06"]["volume_column_set_volume_value"], 16)
+        self.assertTrue(rows["06"]["active_voice_gain_update_scheduled"])
+        self.assertEqual(rows["06"]["effective_gain_scheduled_to_c_mixer"], 0.25)
+        self.assertEqual(rows["06"]["channel_volume_after_tick0"], 16)
+        self.assertEqual(rows["06"]["channel_volume_after_nonzero_ticks"][0], {
+            "tick": 1,
+            "channel_volume": 16,
+            "gain": 0.25,
+        })
+        self.assertEqual(rows["06"]["tick_timeline"][0]["active_voice_gain_update_scheduled"], True)
+        self.assertEqual(rows["06"]["tick_timeline"][1]["tone_portamento_sample_step_update_count"], 1)
+        self.assertEqual(rows["06"]["tick_timeline"][1]["channel_volume_after_tick"], 16)
+        self.assertEqual(summary["summary"]["volume_column_set_volume_without_active_voice_update_rows"], [])
 
     def test_markdown_report_uses_correct_focused_note_names(self):
         summary = focused_xm_channel.build_summary(
@@ -1231,6 +1265,9 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
 
         self.assertIn("G-4 17 .. ...", markdown)
         self.assertIn("F-4 17 20 3FF", markdown)
+        self.assertIn("Volume-column set-volume rows with active voice gain updates: 06, 08", markdown)
+        self.assertIn("| 06 | 0 | 3600 | 34->16 | 0.53125->0.25 | yes | 0.25 | 0 | no |", markdown)
+        self.assertIn("| 06 | 1 | 3700 | 16->16 | 0.25->0.25 | no | - | 1 | no |", markdown)
         self.assertNotIn("F#4", markdown)
         self.assertNotIn("E-4", markdown)
 

@@ -1096,7 +1096,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
             "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory, volume-column vibrato, and waveform controls remain deferred.",
             "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus the existing row-level Axy-style volume slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
-            "Minimal volume/panning state updates are applied for bounded offline empty-note volume-column state commands and Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
+            "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",

@@ -28,7 +28,7 @@ NO_OP_STATUS_MARKERS = EFFECT_MEMORY_STATUS_MARKERS | {
 }
 
 PITCH_RECOMMENDATIONS = {
-    "0xy arpeggio": "Minimal 0xy Arpeggio",
+    "0xy arpeggio": "Minimal 0xy Arpeggio Foundation",
     "E1x fine portamento up": "Minimal E1x Fine Portamento Up",
     "5xy tone portamento + volume slide": "Minimal 5xy Tone Portamento + Volume Slide",
     "6xy vibrato + volume slide": "Minimal 6xy Vibrato + Volume Slide",
@@ -49,6 +49,16 @@ PORTAMENTO_MEMORY_COMMANDS = {
 }
 
 PORTAMENTO_MEMORY_RECOMMENDATION = "1xx/2xx Portamento Effect Memory Expansion"
+
+LIMITED_USEFULNESS_COMMANDS = {
+    "E0x filter toggle",
+}
+
+NON_IMPLEMENTATION_PRIORITIES = {
+    "covered/low",
+    "deferred/limited",
+    "observed no-op/low",
+}
 
 EFFECT_FAMILY_ORDER = (
     "arpeggio",
@@ -771,6 +781,8 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
     unresolved = counters["unsupported_count"] + counters["no_op_effect_memory_deferred_count"]
     if unresolved <= 0:
         return "covered/low"
+    if command in LIMITED_USEFULNESS_COMMANDS:
+        return "deferred/limited"
     if command in PITCH_RECOMMENDATIONS:
         return PITCH_RECOMMENDATIONS[command]
     if command.startswith("Pxy"):
@@ -1008,7 +1020,11 @@ def recommend_next_pr(
             return PORTAMENTO_MEMORY_RECOMMENDATION
         return "Effect Memory Foundation"
 
-    candidate_rows = unsupported_rows or effect_memory_rows or unresolved_rows
+    useful_unsupported_rows = [
+        row for row in unsupported_rows
+        if str(row.get("recommended_implementation_priority")) not in NON_IMPLEMENTATION_PRIORITIES
+    ]
+    candidate_rows = useful_unsupported_rows or unsupported_rows or effect_memory_rows or unresolved_rows
     candidate_rows.sort(key=lambda row: (
         -int(row["unsupported_count"]),
         -int(row["no_op_effect_memory_deferred_count"]),
@@ -1016,7 +1032,7 @@ def recommend_next_pr(
         str(row["command"]),
     ))
     priority = str(candidate_rows[0]["recommended_implementation_priority"])
-    if priority != "covered/low":
+    if priority not in NON_IMPLEMENTATION_PRIORITIES:
         return priority
     if key_off and not unsupported_deferred:
         return "Key-Off / Fadeout Edge Case Follow-Up"

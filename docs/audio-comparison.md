@@ -799,11 +799,14 @@ direction/amount/clamping, and the source
 order/pattern/row/channel plus synthetic frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
-pattern break, `EEx` pattern delay, contextual `Fxx` timing changes, minimal
-`E9x` retriggers, and other observed `E` subcommands while keeping `Bxx`,
-`Dxx`, and `EEx` diagnostic/deferred only. The correlation report includes
-these hazards near worst mismatch windows and can conservatively recommend a
-traversal-focused PR when those hazards dominate the local evidence.
+pattern break, `E6x` pattern loop, `EEx` pattern delay, contextual `Fxx`
+timing changes, minimal `E9x` retriggers, and other observed `E` subcommands.
+The bounded/offline and CoreAudio C mixer adapter paths now apply a focused
+first-pass traversal model for `Dxx`, `Bxx`, and `E6x`: `Dxx` uses XM-style BCD
+row targets, same-row `Bxx` + `Dxx` jumps to the `Bxx` order using the `Dxx`
+row target, and `E6x` uses per-channel order/pattern loop markers while missing
+`E60` starts are diagnosed without inventing a loop. `EEx` pattern delay and
+broader FT2/OpenMPT traversal quirks remain deferred.
 This is still diagnostic evidence only; it does not prove correctness or choose
 fixes automatically.
 
@@ -820,8 +823,8 @@ volume-column vibrato/tone-portamento and other unsupported volume-column
 semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
 minimal bounded `Fxx`, `Gxx` set-global-volume behavior,
 tick-accurate volume and pitch-slide behavior, `5xy` tone portamento plus
-volume slide, full song traversal, and full reference resampler parity remain
-deferred.
+volume slide, full FT2/OpenMPT traversal parity, and full reference resampler
+parity remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -872,8 +875,9 @@ For local listening where the selected order range ends before a large hard
 duration cap, use `--until-song-end` instead. This computes the bounded
 selected order-range end from the same adapter timing model used by
 `vtx_render_bounded_xm`, including the minimal supported `Fxx` speed/BPM timing
-changes. It does not implement full FT2/OpenMPT song duration parity, song
-loop/restart behavior, `Bxx`/`Dxx` traversal, or `EEx` pattern delay traversal.
+changes and focused `Dxx`/`Bxx`/`E6x` traversal. It does not implement full
+FT2/OpenMPT song duration parity, song loop/restart behavior, or `EEx` pattern
+delay traversal.
 Treat it as a practical bounded adapter duration helper.
 
 `--tail-seconds N` may be used with `--until-song-end` to add a short local
@@ -1149,8 +1153,9 @@ automatic fix.
    rejected coordinates, and deferred effect interactions should each guide a
    separate targeted follow-up PR.
    When the problem sounds like wrong song structure or groove, inspect the
-   pattern traversal/timing hazard section for `Bxx`, `Dxx`, `EEx`, contextual
-   `Fxx`, and nearby `E` subcommands before choosing an implementation PR.
+   pattern traversal/timing section for focused `Bxx`, `Dxx`, `E6x`, deferred
+   `EEx`, contextual `Fxx`, and nearby `E` subcommands before choosing an
+   implementation PR.
 6. If clipping is eliminated but crackle/static remains audible, run
    `scripts/analyze-audio-discontinuities.py` on the candidate WAV and optional
    candidate diagnostics JSON. Keep the click/discontinuity reports local.
@@ -1184,8 +1189,8 @@ swift run vtx_render_bounded_xm \
 The command validates that the input exists, refuses ordinary tracked repo
 output paths, prints render details, and writes a local PCM16 WAV through the
 existing bounded offline C-backed export path. It does not bypass
-`CSoftwareMixer`, duplicate parser logic, implement full song traversal, change
-mixer DSP behavior, or affect runtime playback.
+`CSoftwareMixer`, duplicate parser logic, implement full FT2/OpenMPT traversal
+parity, change mixer DSP behavior, or affect runtime playback.
 
 Local/private module example with an explicit longer duration:
 

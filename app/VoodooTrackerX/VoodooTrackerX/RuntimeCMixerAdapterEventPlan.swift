@@ -445,11 +445,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
 
         let sortedEvents = events.sorted { lhs, rhs in
-            if lhs.source.orderIndex != rhs.source.orderIndex {
-                return lhs.source.orderIndex < rhs.source.orderIndex
-            }
-            if lhs.source.rowIndex != rhs.source.rowIndex {
-                return lhs.source.rowIndex < rhs.source.rowIndex
+            if lhs.scheduledFrame != rhs.scheduledFrame {
+                return lhs.scheduledFrame < rhs.scheduledFrame
             }
             if lhs.syntheticTick != rhs.syntheticTick {
                 return lhs.syntheticTick < rhs.syntheticTick
@@ -457,8 +454,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if priority(lhs.action) != priority(rhs.action) {
                 return priority(lhs.action) < priority(rhs.action)
             }
-            if lhs.scheduledFrame != rhs.scheduledFrame {
-                return lhs.scheduledFrame < rhs.scheduledFrame
+            if lhs.source.orderIndex != rhs.source.orderIndex {
+                return lhs.source.orderIndex < rhs.source.orderIndex
+            }
+            if lhs.source.rowIndex != rhs.source.rowIndex {
+                return lhs.source.rowIndex < rhs.source.rowIndex
             }
             return lhs.id < rhs.id
         }

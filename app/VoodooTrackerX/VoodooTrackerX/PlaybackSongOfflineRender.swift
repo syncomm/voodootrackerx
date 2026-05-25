@@ -1610,7 +1610,7 @@ final class PlaybackSongOfflineRenderer {
         if plan.diagnostics.deferredCellFields.contains(where: { $0.field == .volumeColumn }) {
             reasons.append("deferred_volume_column_commands_not_interpreted_for_window_carryover")
         }
-        if plan.diagnostics.traversalHazardSummary.totalTraversalHazards > 0 {
+        if plan.diagnostics.traversalHazardSummary.likelyIgnoresStructureChangingBehavior {
             reasons.append("deferred_pattern_traversal_effects_not_applied")
         }
         return reasons

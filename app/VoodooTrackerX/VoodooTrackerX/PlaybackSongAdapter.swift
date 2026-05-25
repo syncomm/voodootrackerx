@@ -2738,9 +2738,13 @@ enum PlaybackSongSyntheticAdapter {
                 globalVolume: globalVolumeAfter
             )
         }
+        let sameCellTonePortamentoNoRetrigger =
+            (1...96).contains(cell.note) &&
+            isTonePortamentoEffect(cell) &&
+            channelStateBefore.activeEventIndex != nil
         let canUpdateActiveVoice = activeVoiceUpdatedOverride ?? (
             status == .applied &&
-                cell.note == 0 &&
+                (cell.note == 0 || sameCellTonePortamentoNoRetrigger) &&
                 channelStateBefore.activeEventIndex != nil &&
                 activeSampleVolume != nil
         )

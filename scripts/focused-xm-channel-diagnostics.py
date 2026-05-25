@@ -18,6 +18,7 @@ from typing import Any
 
 
 NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
+NEAR_ZERO_GAIN_THRESHOLD = 1.0 / 64.0
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -167,6 +168,28 @@ def items_by_key(items: list[Any]) -> dict[tuple[int, int, int, int], list[dict[
     return result
 
 
+def timing_source_key(item: dict[str, Any]) -> tuple[int, int, int] | None:
+    source = item.get("source")
+    if not isinstance(source, dict):
+        return None
+    return (
+        int(source.get("order", -1)),
+        int(source.get("pattern", -1)),
+        int(source.get("row", -1)),
+    )
+
+
+def row_timing_by_key(items: list[Any]) -> dict[tuple[int, int, int], dict[str, Any]]:
+    result: dict[tuple[int, int, int], dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = timing_source_key(item)
+        if key is not None:
+            result[key] = item
+    return result
+
+
 def cell_from_mc_dump(
     mc_dump: dict[str, Any],
     pattern: int,
@@ -209,6 +232,173 @@ def first_number(items: list[dict[str, Any]], key: str) -> int | float | None:
         if isinstance(value, (int, float)):
             return value
     return None
+
+
+def last_number(items: list[dict[str, Any]], key: str) -> int | float | None:
+    return first_number(list(reversed(items)), key)
+
+
+def is_near_zero_gain(value: Any) -> bool:
+    return isinstance(value, (int, float)) and abs(float(value)) <= NEAR_ZERO_GAIN_THRESHOLD
+
+
+def volume_column_set_volume_value(mappings: list[dict[str, Any]]) -> int | None:
+    for mapping in mappings:
+        volume_column = mapping.get("volume_column")
+        if not isinstance(volume_column, dict):
+            continue
+        command = volume_column.get("command")
+        if not isinstance(command, dict):
+            continue
+        if command.get("name") != "setVolume":
+            continue
+        value = command.get("value")
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def gain_update_scheduled(update: dict[str, Any]) -> bool:
+    if update.get("active_voice_updated") is not True:
+        return False
+    gain_after = update.get("gain_after")
+    if not isinstance(gain_after, (int, float)):
+        return False
+    gain_before = update.get("gain_before")
+    return not isinstance(gain_before, (int, float)) or float(gain_before) != float(gain_after)
+
+
+def active_voice_gain_update_scheduled(updates: list[dict[str, Any]]) -> bool:
+    return any(gain_update_scheduled(update) for update in updates)
+
+
+def effective_gain_scheduled_to_c_mixer(
+    event: dict[str, Any] | None,
+    updates: list[dict[str, Any]],
+) -> float | None:
+    scheduled_update_gains = [
+        float(update["gain_after"])
+        for update in updates
+        if gain_update_scheduled(update)
+    ]
+    if scheduled_update_gains:
+        return scheduled_update_gains[-1]
+    if event and isinstance(event.get("gain"), (int, float)):
+        return float(event["gain"])
+    return None
+
+
+def tick_frame_count(row_timing: dict[str, Any] | None) -> int | None:
+    if not row_timing:
+        return None
+    speed = row_timing.get("effective_speed")
+    duration = row_timing.get("row_duration_frames")
+    if not isinstance(speed, int) or speed <= 0 or not isinstance(duration, int):
+        return None
+    return max(1, round(duration / speed))
+
+
+def maximum_synthetic_tick(
+    row_timing: dict[str, Any] | None,
+    updates: list[dict[str, Any]],
+    tone_updates: list[dict[str, Any]],
+) -> int:
+    if row_timing and isinstance(row_timing.get("effective_speed"), int) and row_timing["effective_speed"] > 0:
+        return int(row_timing["effective_speed"]) - 1
+    max_tick = 0
+    for update in updates:
+        tick = update.get("synthetic_tick")
+        if isinstance(tick, int):
+            max_tick = max(max_tick, tick)
+    for tone in tone_updates:
+        for step in tone.get("step_updates", []):
+            if not isinstance(step, dict):
+                continue
+            tick = step.get("synthetic_tick")
+            if isinstance(tick, int):
+                max_tick = max(max_tick, tick)
+    return max_tick
+
+
+def build_tick_timeline(
+    *,
+    row_timing: dict[str, Any] | None,
+    event: dict[str, Any] | None,
+    updates: list[dict[str, Any]],
+    tone_updates: list[dict[str, Any]],
+    channel_volume_before: int | float | None,
+    channel_volume_after: int | float | None,
+    gain_before: int | float | None,
+    gain_after: int | float | None,
+) -> list[dict[str, Any]]:
+    updates_by_tick: dict[int, list[dict[str, Any]]] = {}
+    for update in updates:
+        tick = update.get("synthetic_tick")
+        updates_by_tick.setdefault(tick if isinstance(tick, int) else 0, []).append(update)
+
+    step_updates_by_tick: dict[int, list[dict[str, Any]]] = {}
+    for tone in tone_updates:
+        for step_update in tone.get("step_updates", []):
+            if not isinstance(step_update, dict):
+                continue
+            tick = step_update.get("synthetic_tick")
+            step_updates_by_tick.setdefault(tick if isinstance(tick, int) else 0, []).append(step_update)
+
+    tick_frames = tick_frame_count(row_timing)
+    row_start_frame = row_timing.get("row_start_frame") if row_timing else None
+    if not isinstance(row_start_frame, int):
+        row_start_frame = None
+
+    current_volume = channel_volume_before
+    current_gain = gain_before
+    timeline = []
+    max_tick = maximum_synthetic_tick(row_timing, updates, tone_updates)
+    for tick in range(max_tick + 1):
+        tick_updates = updates_by_tick.get(tick, [])
+        step_updates = step_updates_by_tick.get(tick, [])
+        volume_before_tick = current_volume
+        gain_before_tick = current_gain
+
+        if tick == 0:
+            current_volume = channel_volume_after
+            current_gain = gain_after
+        else:
+            volume_after_tick = last_number(tick_updates, "effective_volume_after")
+            gain_after_tick = last_number(tick_updates, "gain_after")
+            if volume_after_tick is not None:
+                current_volume = volume_after_tick
+            if gain_after_tick is not None:
+                current_gain = gain_after_tick
+
+        scheduled_frame = None
+        if row_start_frame is not None and tick_frames is not None:
+            scheduled_frame = row_start_frame + tick * tick_frames
+        if step_updates:
+            step_frame = step_updates[-1].get("scheduled_frame")
+            if isinstance(step_frame, int):
+                scheduled_frame = step_frame
+        update_frame = last_number(tick_updates, "scheduled_frame")
+        if isinstance(update_frame, int):
+            scheduled_frame = update_frame
+
+        scheduled_gain = effective_gain_scheduled_to_c_mixer(
+            event if tick == 0 else None,
+            tick_updates,
+        )
+        timeline.append({
+            "tick": tick,
+            "scheduled_frame": scheduled_frame,
+            "channel_volume_before_tick": volume_before_tick,
+            "channel_volume_after_tick": current_volume,
+            "gain_before_tick": gain_before_tick,
+            "gain_after_tick": current_gain,
+            "gain_reached_zero_or_near_zero": is_near_zero_gain(current_gain),
+            "active_voice_gain_update_scheduled": active_voice_gain_update_scheduled(tick_updates),
+            "effective_gain_scheduled_to_c_mixer": scheduled_gain,
+            "tone_portamento_sample_step_update_count": len(step_updates),
+            "tone_portamento_sample_step_after": last_number(step_updates, "current_step_after"),
+        })
+    return timeline
 
 
 def event_sample_offset(event: dict[str, Any] | None) -> int | None:
@@ -284,6 +474,7 @@ def build_summary(
     tone_by_key = items_by_key(list(diagnostics.get("tone_portamento_effects", [])))
     ignored_by_key = items_by_key(list(diagnostics.get("ignored_cells", [])))
     offsets_by_key = items_by_key(list(diagnostics.get("sample_offset_effects", [])))
+    timing_by_key = row_timing_by_key(list(diagnostics.get("row_timing", [])))
 
     order_table = mc_dump.get("order_table", [])
     order_maps_to_pattern = isinstance(order_table, list) and order < len(order_table) and order_table[order] == pattern
@@ -304,6 +495,7 @@ def build_summary(
         row_tone = tone_by_key.get(key, [])
         row_ignored = ignored_by_key.get(key, [])
         row_offsets = offsets_by_key.get(key, [])
+        row_timing = timing_by_key.get((order, pattern, row))
         event = row_events[0] if row_events else None
         active_before = active
         active_sample_before = active_sample_index
@@ -349,6 +541,27 @@ def build_summary(
             and bool(row_tone)
             and not note_trigger_event_created
         )
+        set_volume_value = volume_column_set_volume_value(row_mappings)
+        scheduled_gain = effective_gain_scheduled_to_c_mixer(event, row_updates)
+        tick_timeline = build_tick_timeline(
+            row_timing=row_timing,
+            event=event,
+            updates=row_updates,
+            tone_updates=row_tone,
+            channel_volume_before=channel_volume_before,
+            channel_volume_after=channel_volume_after,
+            gain_before=gain_before,
+            gain_after=gain_after,
+        )
+        channel_volume_after_nonzero_ticks = [
+            {
+                "tick": item["tick"],
+                "channel_volume": item["channel_volume_after_tick"],
+                "gain": item["gain_after_tick"],
+            }
+            for item in tick_timeline
+            if item["tick"] > 0
+        ]
 
         rows.append({
             "row": row,
@@ -361,8 +574,14 @@ def build_summary(
             "tone_portamento_suppressed_retrigger": tone_suppressed,
             "channel_volume_before": channel_volume_before,
             "channel_volume_after": channel_volume_after,
+            "channel_volume_after_tick0": tick_timeline[0]["channel_volume_after_tick"] if tick_timeline else channel_volume_after,
+            "channel_volume_after_nonzero_ticks": channel_volume_after_nonzero_ticks,
             "gain_before": gain_before,
             "gain_after": gain_after,
+            "gain_reached_zero_or_near_zero": is_near_zero_gain(gain_after),
+            "effective_gain_scheduled_to_c_mixer": scheduled_gain,
+            "active_voice_gain_update_scheduled": active_voice_gain_update_scheduled(row_updates),
+            "volume_column_set_volume_value": set_volume_value,
             "volume_slide": volume_slide_summary(row_updates, row_mappings),
             "sample_selected": event.get("sample_index") if event else None,
             "sample_selection_method": event.get("sample_selection_method") if event else None,
@@ -378,6 +597,7 @@ def build_summary(
             "events": row_events,
             "voice_state_updates": row_updates,
             "volume_column_mappings": row_mappings,
+            "tick_timeline": tick_timeline,
         })
 
     note_text_mismatches = []
@@ -419,9 +639,24 @@ def build_summary(
         for item in rows
         if item["volume_slide"] and item["volume_slide"].get("both_nibbles_nonzero") is True
     ]
+    zero_or_near_zero_gain_rows = [
+        item["row_hex"] for item in rows if item["gain_reached_zero_or_near_zero"]
+    ]
+    set_volume_without_active_update_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["volume_column_set_volume_value"] is not None
+        and not item["active_voice_gain_update_scheduled"]
+    ]
+    set_volume_with_active_update_rows = [
+        item["row_hex"]
+        for item in rows
+        if item["volume_column_set_volume_value"] is not None
+        and item["active_voice_gain_update_scheduled"]
+    ]
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "tool": "scripts/focused-xm-channel-diagnostics.py",
         "local_only": True,
         "label": label,
@@ -450,6 +685,9 @@ def build_summary(
             "normal_note_trigger_rows": normal_trigger_rows,
             "tone_portamento_suppressed_retrigger_rows": suppressed_3xx_rows,
             "mixed_nibble_axy_rows": mixed_axy_rows,
+            "zero_or_near_zero_gain_rows": zero_or_near_zero_gain_rows,
+            "volume_column_set_volume_with_active_voice_update_rows": set_volume_with_active_update_rows,
+            "volume_column_set_volume_without_active_voice_update_rows": set_volume_without_active_update_rows,
             "rows_with_note_triggers": [item["row_hex"] for item in rows if item["note_trigger_event_created"]],
             "rows_with_voice_replacement": [item["row_hex"] for item in rows if item["voice_replacement_happened"]],
             "rows_with_no_active_tone_portamento": [
@@ -501,13 +739,22 @@ def render_markdown(summary: dict[str, Any]) -> str:
         f"- Normal trigger rows: {', '.join(summary['summary']['normal_note_trigger_rows']) or 'none'}",
         f"- Same-cell 3xx suppressed-retrigger rows: {', '.join(summary['summary']['tone_portamento_suppressed_retrigger_rows']) or 'none'}",
         f"- Mixed-nibble Axy rows: {', '.join(summary['summary']['mixed_nibble_axy_rows']) or 'none'}",
+        f"- Zero/near-zero gain rows: {', '.join(summary['summary']['zero_or_near_zero_gain_rows']) or 'none'}",
+        (
+            "- Volume-column set-volume rows with active voice gain updates: "
+            f"{', '.join(summary['summary']['volume_column_set_volume_with_active_voice_update_rows']) or 'none'}"
+        ),
+        (
+            "- Volume-column set-volume rows without active voice gain updates: "
+            f"{', '.join(summary['summary']['volume_column_set_volume_without_active_voice_update_rows']) or 'none'}"
+        ),
         f"- Voice replacement rows: {', '.join(summary['summary']['rows_with_voice_replacement']) or 'none'}",
         f"- Interpretation: {summary['summary']['candidate_interpretation']}",
         "",
         "## Rows",
         "",
-        "| Row | Cell | Category | Trigger | Replace | 3xx target/suppress | Volume | Gain | Slide | Sample | Offset | Active |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Row | Cell | Category | Trigger | Replace | 3xx target/suppress | Volume | Gain | SetVol | Slide | C mix gain | Near0 | Sample | Offset | Active |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in summary["rows"]:
         cell = row["decoded_cell"]
@@ -531,6 +778,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             )
         else:
             slide_text = "-"
+        c_mixer_gain = compact_value(row.get("effective_gain_scheduled_to_c_mixer"))
         active = f"{format_bool(row['active_voice_present_before'])}->{format_bool(row['active_voice_present_after'])}"
         lines.append(
             "| "
@@ -543,13 +791,48 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 tone,
                 volume,
                 gain,
+                compact_value(row.get("volume_column_set_volume_value")),
                 slide_text,
+                c_mixer_gain,
+                format_bool(row.get("gain_reached_zero_or_near_zero")),
                 compact_value(row["sample_selected"]),
                 compact_value(row["sample_offset"]),
                 active,
             ])
             + " |"
         )
+    lines.extend([
+        "",
+        "## Tick Timeline",
+        "",
+        "| Row | Tick | Frame | Volume | Gain | Active gain update | C mix gain | Tone step updates | Near0 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ])
+    for row in summary["rows"]:
+        for tick in row["tick_timeline"]:
+            volume = (
+                f"{compact_value(tick['channel_volume_before_tick'])}"
+                f"->{compact_value(tick['channel_volume_after_tick'])}"
+            )
+            gain = (
+                f"{compact_value(tick['gain_before_tick'])}"
+                f"->{compact_value(tick['gain_after_tick'])}"
+            )
+            lines.append(
+                "| "
+                + " | ".join([
+                    row["row_hex"],
+                    str(tick["tick"]),
+                    compact_value(tick.get("scheduled_frame")),
+                    volume,
+                    gain,
+                    format_bool(tick.get("active_voice_gain_update_scheduled")),
+                    compact_value(tick.get("effective_gain_scheduled_to_c_mixer")),
+                    compact_value(tick.get("tone_portamento_sample_step_update_count")),
+                    format_bool(tick.get("gain_reached_zero_or_near_zero")),
+                ])
+                + " |"
+            )
     lines.append("")
     return "\n".join(lines)
 

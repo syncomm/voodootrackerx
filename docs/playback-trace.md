@@ -613,7 +613,9 @@ portamento up updates, minimal `E2x` fine portamento down updates, minimal
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `6xy`
 vibrato + volume slide sample-step/gain updates, and volume-column set
-volume/panning. Adapter-sourced `0xy`, `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
+volume/panning for empty-note rows and same-cell valid-note `3xx`
+no-retrigger rows that keep the carried voice active. Adapter-sourced `0xy`,
+`1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
 `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the runtime
 update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry

@@ -75,15 +75,16 @@ effect-memory-deferred no-op.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
-Empty-note volume-column set-volume/set-panning cells and supported
+Empty-note volume-column set-volume/set-panning cells, same-cell valid-note
+`3xx` tone-portamento cells that suppress retriggering, and supported
 effect-column state commands can update the currently tracked active voice in
 bounded offline renders from the update frame forward. Those bounded/offline
 gain and pan update events are smoothed by a fixed 32-frame deterministic
-micro-ramp in the C mixer, including empty-note volume-column set-volume,
-empty-note volume-column set-panning, `Cxx`, `8xx`, and nonzero row-level
-`Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides, minimal
-`6xy` volume-slide gain updates, and minimal row-level `Hxy` global volume
-slides that actually change an active voice.
+micro-ramp in the C mixer, including empty-note and same-cell `3xx`
+no-retrigger volume-column set-volume/set-panning, `Cxx`, `8xx`, and nonzero
+row-level `Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides,
+minimal `6xy` volume-slide gain updates, and minimal row-level `Hxy` global
+volume slides that actually change an active voice.
 `ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
 memory, and both-nibble `Hxy` parameters use the same safe up-nibble precedence
 policy as the current runtime effect helper.
@@ -137,6 +138,14 @@ Render-level `eax_fine_volume_slide_up_*` and
 no-active-voice, zero-amount/effect-memory-deferred, and scheduled gain-update
 counts; the generic `volume_panning_state_updates` entries include the fine
 amount nibble plus channel volume and gain before/after.
+For narrow channel investigations, `scripts/focused-xm-channel-diagnostics.py`
+can combine a local `mc_dump --json --pattern N` artifact with a bounded render
+diagnostics JSON artifact. Its schema 2 output includes per-row decoded cell
+data, trigger/replacement and same-cell `3xx` suppress-retrigger flags, channel
+volume/gain before and after tick 0, nonzero tick carry-forward state, active
+voice gain-update scheduling, effective gain sent to the C mixer, and
+zero/near-zero gain rows. Keep those focused reports under `/tmp` or another
+untracked local path.
 The helper also reports export-level headroom and clipping diagnostics for the
 Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export

@@ -62,6 +62,7 @@ enum PlaybackSongSyntheticVolumeColumnSlideDirection: Equatable {
 
 enum PlaybackSongSyntheticVolumeColumnBehavior: Equatable {
     case rowLevelApproximation
+    case tickLevelAfterTick0
 }
 
 struct PlaybackSongSyntheticVolumeColumnDiagnostic: Equatable {

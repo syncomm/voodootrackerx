@@ -1063,6 +1063,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let eaxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEaxFineVolumeSlideUpdate)
         let ebxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEbxFineVolumeSlideUpdate)
         let vibrato6xyVolumeSlides = diagnostics.voiceStateUpdates.filter(is6xyVolumeSlideUpdate)
+        let axyEffectDiagnostics = diagnostics.effectCommandDiagnostics.filter(\.isAxyVolumeSlide)
+        let axyVolumeSlides = diagnostics.voiceStateUpdates.filter(isAxyVolumeSlideUpdate)
+        let axyAppliedCount = axyVolumeSlides.filter(\.applied).count
+        let axyIgnoredNoOpCount = axyVolumeSlides.filter(\.ignoredAsNoOp).count
+        let axyDeferredCount = axyVolumeSlides.filter(\.deferred).count
+        let axyNoActiveVoiceCount = axyVolumeSlides.filter(isAxyVolumeSlideNoActiveVoice).count
+        let axyScheduledGainUpdateCount = axyVolumeSlides.filter(isChangedGainStateUpdate).count
+        let axyTickLevelUpdateCount = axyVolumeSlides.filter { $0.applied && $0.syntheticTick > 0 }.count
+        let axyTick0SuppressedCount = axyEffectDiagnostics.filter {
+            $0.status == .applied && $0.effectParam != 0
+        }.count
+        let axyMixedNibblePolicy = axyVolumeSlides.first {
+            $0.volumeSlideBothNibblesNonzero == true
+        }?.volumeSlidePolicy ?? "up_nibble_precedence_mikmod_observed"
         let eaxFineVolumeSlideAppliedCount = eaxFineVolumeSlides.filter(\.applied).count
         let ebxFineVolumeSlideAppliedCount = ebxFineVolumeSlides.filter(\.applied).count
         let eaxFineVolumeSlideNoActiveVoiceCount = eaxFineVolumeSlides.filter(isFineVolumeSlideNoActiveVoice).count
@@ -1095,8 +1109,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
             "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory, volume-column vibrato, and waveform controls remain deferred.",
-            "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus the existing row-level Axy-style volume slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
-            "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx/Axy effect-column commands where diagnosed as applied.",
+            "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus its existing row-level volume-slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
+            "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx and tick-level Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
             "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
@@ -1211,6 +1225,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "vibrato_volume_slide_6xy_memory_missing_count": vibrato6xyMemoryMissingCount,
                 "vibrato_volume_slide_6xy_scheduled_sample_step_update_count": vibrato6xyScheduledStepUpdateCount,
                 "vibrato_volume_slide_6xy_scheduled_gain_update_count": vibrato6xyScheduledGainUpdateCount,
+                "axy_volume_slide_effect_count": axyEffectDiagnostics.count,
+                "axy_volume_slide_detected_count": axyEffectDiagnostics.count,
+                "axy_volume_slide_applied_count": axyAppliedCount,
+                "axy_volume_slide_ignored_no_op_count": axyIgnoredNoOpCount,
+                "axy_volume_slide_no_active_voice_count": axyNoActiveVoiceCount,
+                "axy_volume_slide_deferred_count": axyDeferredCount,
+                "axy_volume_slide_scheduled_gain_update_count": axyScheduledGainUpdateCount,
+                "axy_tick_level_updates": axyTickLevelUpdateCount,
+                "axy_tick0_suppressed": axyTick0SuppressedCount,
+                "axy_tick0_suppressed_count": axyTick0SuppressedCount,
+                "axy_mixed_nibble_policy": axyMixedNibblePolicy,
                 "eax_fine_volume_slide_up_effect_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_detected_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_applied_count": eaxFineVolumeSlideAppliedCount,
@@ -2114,6 +2139,24 @@ enum PlaybackSongDiagnosticsJSONExporter {
         func count(_ predicate: (PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> Bool) -> Int {
             updates.filter(predicate).count
         }
+        let axyUpdates = updates.filter(isAxyVolumeSlideUpdate)
+        let firstAxyCoordinates: [String: Any]? = axyUpdates.first.map { update in
+            [
+                "source": positionJSON(update.source),
+                "channel_index": update.channelIndex,
+                "synthetic_row": update.syntheticRow,
+                "synthetic_tick": update.syntheticTick,
+                "scheduled_frame": update.scheduledFrame,
+            ]
+        }
+        let axyMixedNibblePolicy = axyUpdates.first {
+            $0.volumeSlideBothNibblesNonzero == true
+        }?.volumeSlidePolicy ?? "up_nibble_precedence_mikmod_observed"
+        let axyTick0SuppressedCoordinateCount = Set(axyUpdates.filter {
+            $0.volumeSlideTick0Suppressed == true
+        }.map {
+            "\($0.source.orderIndex):\($0.source.patternIndex):\($0.source.rowIndex):\($0.channelIndex)"
+        }).count
         return [
             "total_state_updates": updates.count,
             "applied_count": count(\.applied),
@@ -2156,6 +2199,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "axy_volume_slide_deferred": count {
                 $0.deferred && isAxyVolumeSlideUpdate($0)
             },
+            "axy_volume_slide_no_active_voice": count {
+                isAxyVolumeSlideUpdate($0) && isAxyVolumeSlideNoActiveVoice($0)
+            },
+            "axy_volume_slide_ignored_no_op": count {
+                $0.ignoredAsNoOp && isAxyVolumeSlideUpdate($0)
+            },
+            "axy_volume_slide_scheduled_gain_update_count": count {
+                isAxyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
+            },
+            "axy_tick_level_updates": count {
+                $0.applied && isAxyVolumeSlideUpdate($0) && $0.syntheticTick > 0
+            },
+            "axy_tick0_suppressed": axyTick0SuppressedCoordinateCount,
+            "axy_mixed_nibble_policy": axyMixedNibblePolicy,
+            "first_axy_coordinates": firstAxyCoordinates.map { $0 as Any } ?? NSNull(),
             "eax_fine_volume_slide_up_applied": count {
                 $0.applied && isEaxFineVolumeSlideUpdate($0)
             },
@@ -2322,6 +2380,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
             !update.activeVoiceUpdated
     }
 
+    private static func isAxyVolumeSlideNoActiveVoice(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        isAxyVolumeSlideUpdate(update) &&
+            update.applied &&
+            !update.activeVoiceUpdated
+    }
+
     private static func isFineVolumeSlideZeroAmountNoOp(
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Bool {
@@ -2413,18 +2479,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         put(update.panAfter.map { Double($0) }, forKey: "pan_after", into: &object)
         switch update.command {
         case let .axyVolumeSlide(up, down):
-            let rawUp = update.effectParam.map { Int(($0 & 0xF0) >> 4) }
-            let rawDown = update.effectParam.map { Int($0 & 0x0F) }
+            let rawUp = update.volumeSlideRawUpNibble ?? update.effectParam.map { Int(($0 & 0xF0) >> 4) }
+            let rawDown = update.volumeSlideRawDownNibble ?? update.effectParam.map { Int($0 & 0x0F) }
+            let bothNibblesNonzero = update.volumeSlideBothNibblesNonzero ?? ((rawUp ?? 0) > 0 && (rawDown ?? 0) > 0)
+            let policy = update.volumeSlidePolicy ?? (bothNibblesNonzero ? "up_nibble_precedence_mikmod_observed" : "single_nonzero_nibble")
             object["volume_slide_up"] = up
             object["volume_slide_down"] = down
             object["volume_slide_amount"] = max(up, down)
             object["volume_slide_direction"] = up > 0 ? "up" : (down > 0 ? "down" : "none")
             object["volume_slide_raw_up_nibble"] = rawUp.map { $0 as Any } ?? NSNull()
             object["volume_slide_raw_down_nibble"] = rawDown.map { $0 as Any } ?? NSNull()
-            object["volume_slide_both_nibbles_nonzero"] = (rawUp ?? 0) > 0 && (rawDown ?? 0) > 0
-            object["volume_slide_policy"] = (rawUp ?? 0) > 0 && (rawDown ?? 0) > 0
-                ? "up_nibble_precedence_current_policy"
-                : "single_nonzero_nibble"
+            object["volume_slide_both_nibbles_nonzero"] = bothNibblesNonzero
+            object["volume_slide_policy"] = policy
+            object["volume_slide_clamped"] = update.volumeSlideClamped.map { $0 as Any } ?? NSNull()
+            object["volume_slide_tick0_suppressed"] = update.volumeSlideTick0Suppressed.map { $0 as Any } ?? NSNull()
+            object["volume_slide_row_speed"] = update.volumeSlideRowSpeed.map { $0 as Any } ?? NSNull()
+            object["axy_tick_level_update"] = update.applied && update.syntheticTick > 0
+            object["axy_tick0_suppressed"] = update.volumeSlideTick0Suppressed.map { $0 as Any } ?? NSNull()
+            object["axy_mixed_nibble_policy"] = policy
+            object["axy_volume_before_tick"] = update.effectiveVolumeBefore.map { $0 as Any } ?? NSNull()
+            object["axy_volume_after_tick"] = update.effectiveVolumeAfter.map { $0 as Any } ?? NSNull()
+            object["scheduled_gain_update_count"] = isChangedGainStateUpdate(update) ? 1 : 0
         case let .eaxFineVolumeSlideUp(amount):
             object["fine_volume_slide_direction"] = "up"
             object["fine_amount"] = amount
@@ -3141,6 +3216,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch behavior {
         case .rowLevelApproximation:
             return "row_level_approximation"
+        case .tickLevelAfterTick0:
+            return "tick_level_after_tick0"
         }
     }
 

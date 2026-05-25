@@ -49,8 +49,8 @@ renders only. Candidate renders now include conservative adapter support for
 volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
-row-level `Axy` volume slide state updates, minimal `Fxx` speed/BPM timing
-changes, minimal `9xx` sample offsets on same-cell note triggers including
+tick-level `Axy` volume slide updates after tick 0, minimal `Fxx` speed/BPM
+timing changes, minimal `9xx` sample offsets on same-cell note triggers including
 per-channel `900` memory replay, minimal `0xy` arpeggio, minimal `1xx`/`2xx`
 portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
 portamento up, minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine
@@ -68,10 +68,10 @@ deterministic sine-based linear-period sample-step updates on row ticks in the
 shared runtime/offline C mixer adapter path; `400` and single-zero nibbles
 reuse available per-channel speed/depth memory, while unavailable memory,
 volume-column vibrato, and vibrato waveform controls remain deferred. The
-`6xy` foundation reuses prior channel vibrato memory and the existing
-`Axy`-style row-level volume-slide/gain path; `600` can replay vibrato memory
-without volume-slide memory, while unavailable vibrato memory remains an
-effect-memory-deferred no-op.
+`6xy` foundation reuses prior channel vibrato memory and its existing row-level
+volume-slide/gain path; `600` can replay vibrato memory without volume-slide
+memory, while unavailable vibrato memory remains an effect-memory-deferred
+no-op.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
@@ -82,7 +82,7 @@ bounded offline renders from the update frame forward. Those bounded/offline
 gain and pan update events are smoothed by a fixed 32-frame deterministic
 micro-ramp in the C mixer, including empty-note and same-cell `3xx`
 no-retrigger volume-column set-volume/set-panning, `Cxx`, `8xx`, and nonzero
-row-level `Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides,
+tick-level `Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides,
 minimal `6xy` volume-slide gain updates, and minimal row-level `Hxy` global
 volume slides that actually change an active voice.
 `ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
@@ -803,9 +803,10 @@ For stuck or repeating carried voices, inspect the volume/panning state-update
 summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, `EAx`/`EBx`, and `Hxy` applied/deferred/no-op counts,
 whether an active voice was updated, effective channel volume/pan and global
-volume before and after, fine slide amount, global-volume slide
-direction/amount/clamping, and the source
-order/pattern/row/channel plus synthetic frame.
+volume before and after, `Axy` tick-level update counts, tick-0 suppression,
+mixed-nibble policy, scheduled gain-update counts, fine slide amount,
+global-volume slide direction/amount/clamping, and the source
+order/pattern/row/channel plus synthetic tick/frame.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
 pattern break, `E6x` pattern loop, `EEx` pattern delay, contextual `Fxx`

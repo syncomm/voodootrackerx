@@ -47,10 +47,11 @@ row-level subset of volume-column volume and panning slides to event gain/pan.
 It also applies minimal bounded/offline state updates for empty-note and
 same-cell `3xx` no-retrigger volume-column set-volume/set-panning cells,
 regular effect-column `Cxx` set volume, regular effect-column `8xx` set
-panning, and nonzero row-level `Axy` volume slides; where a carried voice is
-active, deterministic gain/pan update events can update that voice after its
-original note trigger, and changed active-voice gain/pan updates are smoothed
-by a fixed 32-frame C mixer micro-ramp in the bounded/offline path. Minimal
+panning, and nonzero tick-level `Axy` volume slides after tick 0; where a
+carried voice is active, deterministic gain/pan update events can update that
+voice after its original note trigger, and changed active-voice gain/pan
+updates are smoothed by a fixed 32-frame C mixer micro-ramp in the
+bounded/offline path. Minimal
 row-level `Hxy` global volume slide is also applied in the bounded/offline
 adapter: the adapter carries a
 clamped `0...64` global-volume value, defaults to `64`, applies up/down Hxy
@@ -91,7 +92,7 @@ shared runtime/offline gain-update path. Same-cell notes trigger with the
 adjusted volume, no-note rows update an active voice at row start, and
 `EA0`/`EB0` remain effect-memory-deferred no-ops. Minimal `6xy` vibrato +
 volume slide now reuses prior channel vibrato memory for sample-step updates and
-the existing `Axy`-style row-level gain path for nonzero volume slides; `600`
+the existing row-level gain path for nonzero volume slides; `600`
 can replay vibrato memory without broad volume-slide memory, while missing
 vibrato memory, volume-column vibrato, vibrato waveform controls, and unrelated
 effect-memory families remain deferred.
@@ -562,8 +563,8 @@ Features:
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal bounded/offline volume/panning state updates for empty-note
   volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
-  volume, regular effect-column `8xx` set panning, and nonzero row-level `Axy`
-  volume slides
+  volume, regular effect-column `8xx` set panning, and nonzero tick-level
+  `Axy` volume slides after tick 0
 - minimal row-level `Hxy` global volume slides for bounded offline adapted
   renders, with clamped adapter global-volume state, active voice updates,
   future trigger gain mapping, and diagnostics for no-op/clamped/both-nibble
@@ -595,7 +596,7 @@ Features:
   missing memory, volume-column vibrato, waveform controls, and unrelated effect
   memory remain deferred
 - minimal `6xy` vibrato + volume slide support through prior channel vibrato
-  memory plus the existing row-level `Axy`-style volume-slide/gain path, with
+  memory plus the existing row-level volume-slide/gain path, with
   `600` replaying available vibrato memory and missing vibrato memory,
   volume-column vibrato, waveform controls, and unrelated effect memory still
   deferred

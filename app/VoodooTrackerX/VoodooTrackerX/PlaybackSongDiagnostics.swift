@@ -643,6 +643,13 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let globalVolumeSlideClamped: Bool?
     let globalVolumeSlideBothNibblesNonzero: Bool?
     let globalVolumeSlidePolicy: String?
+    let volumeSlideRawUpNibble: Int?
+    let volumeSlideRawDownNibble: Int?
+    let volumeSlideBothNibblesNonzero: Bool?
+    let volumeSlidePolicy: String?
+    let volumeSlideClamped: Bool?
+    let volumeSlideTick0Suppressed: Bool?
+    let volumeSlideRowSpeed: Int?
     let gainBefore: Float?
     let gainAfter: Float?
     let panBefore: Float?

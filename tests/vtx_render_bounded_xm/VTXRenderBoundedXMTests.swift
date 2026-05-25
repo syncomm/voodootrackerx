@@ -1840,13 +1840,13 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
-            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
         )
         let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 2),
-            frames: 7
+            frames: 14
         ))
 
         let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
@@ -1865,6 +1865,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["gain_pan_update_count"] as? Int, 3)
         XCTAssertEqual(render["gain_pan_ramped_update_count"] as? Int, 3)
         XCTAssertEqual(render["gain_pan_interrupted_ramp_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_scheduled_gain_update_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_tick_level_updates"] as? Int, 1)
+        XCTAssertEqual(render["axy_tick0_suppressed"] as? Int, 1)
+        XCTAssertEqual(render["axy_mixed_nibble_policy"] as? String, "up_nibble_precedence_mikmod_observed")
         XCTAssertEqual(capacity["c_mixer_voice_state_event_capacity"] as? Int, CSoftwareMixer.maximumVoiceStateEventCount)
         XCTAssertEqual(summary["total_state_updates"] as? Int, 6)
         XCTAssertEqual(summary["active_voice_updated_count"] as? Int, 5)
@@ -1878,10 +1883,13 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(summary["cxx_set_volume_applied"] as? Int, 1)
         XCTAssertEqual(summary["effect_8xx_set_panning_applied"] as? Int, 1)
         XCTAssertEqual(summary["axy_volume_slide_applied"] as? Int, 1)
+        XCTAssertEqual(summary["axy_volume_slide_scheduled_gain_update_count"] as? Int, 1)
+        XCTAssertEqual(summary["axy_tick_level_updates"] as? Int, 1)
+        XCTAssertEqual(summary["axy_tick0_suppressed"] as? Int, 1)
         XCTAssertEqual(summary["hxy_global_volume_slide_applied"] as? Int, 1)
         XCTAssertEqual(summary["hxy_global_volume_slide_deferred"] as? Int, 0)
         XCTAssertEqual(summary["hxy_global_volume_slide_clamped_count"] as? Int, 1)
-        XCTAssertEqual(firstVolumeUpdate["scheduled_frame"] as? Int, 1)
+        XCTAssertEqual(firstVolumeUpdate["scheduled_frame"] as? Int, 2)
         XCTAssertEqual(firstVolumeUpdate["active_voice_updated"] as? Bool, true)
         XCTAssertEqual(firstVolumeUpdate["gain_pan_ramp_enabled"] as? Bool, true)
         XCTAssertEqual(firstVolumeUpdate["gain_pan_ramp_frame_count"] as? Int, CSoftwareMixer.gainPanUpdateRampFrameCount)
@@ -2454,7 +2462,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(row7Axy["volume_slide_raw_up_nibble"] as? Int, 2)
         XCTAssertEqual(row7Axy["volume_slide_raw_down_nibble"] as? Int, 15)
         XCTAssertEqual(row7Axy["volume_slide_both_nibbles_nonzero"] as? Bool, true)
-        XCTAssertEqual(row7Axy["volume_slide_policy"] as? String, "up_nibble_precedence_current_policy")
+        XCTAssertEqual(row7Axy["volume_slide_policy"] as? String, "up_nibble_precedence_mikmod_observed")
+        XCTAssertEqual(row7Axy["axy_mixed_nibble_policy"] as? String, "up_nibble_precedence_mikmod_observed")
+        XCTAssertEqual(row7Axy["behavior"] as? String, "tick_level_after_tick0")
+        XCTAssertEqual(row7Axy["synthetic_tick"] as? Int, 1)
     }
 
     func testDiagnosticsJSONReportsAppliedTonePortamento3xxDetails() throws {

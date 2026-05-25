@@ -115,6 +115,17 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter { $0.effectType == 0x06 && $0.applied }
                 .compactMap(\.activeEventIndex)
         )
+        let appliedAxyVolumeSlideEventIndices = Set(
+            adaptedPlan.diagnostics.voiceStateUpdates
+                .filter { update in
+                    guard update.applied,
+                          case .axyVolumeSlide = update.command else {
+                        return false
+                    }
+                    return true
+                }
+                .compactMap(\.activeEventIndex)
+        )
         let appliedArpeggioEventIndices = Set(
             adaptedPlan.diagnostics.arpeggioEffects
                 .filter(\.applied)
@@ -205,6 +216,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isVibratoVolumeSlide {
                 categories.append("vibrato_volume_slide_6xy")
             }
+            let isAxyVolumeSlide = mapping.effectType == 0x0A &&
+                appliedAxyVolumeSlideEventIndices.contains(eventIndex)
+            if isAxyVolumeSlide {
+                categories.append("axy_volume_slide")
+            }
             let isArpeggio = mapping.effectType == 0x00 &&
                 mapping.effectParam != 0 &&
                 appliedArpeggioEventIndices.contains(eventIndex)
@@ -232,6 +248,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
                 isVibratoVolumeSlide ||
+                isAxyVolumeSlide ||
                 isArpeggio ||
                 bridgedPortamentoSlide != nil ||
                 mapping.sampleOffset.applied
@@ -262,6 +279,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             switch update.command {
             case .hxyGlobalVolumeSlide:
                 categories.append("hxy_global_volume_update")
+            case .axyVolumeSlide:
+                categories.append("axy_volume_slide")
             case .volumeColumn:
                 categories.append("volume_column_update")
             case .eaxFineVolumeSlideUp:

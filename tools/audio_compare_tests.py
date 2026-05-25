@@ -1127,29 +1127,39 @@ def synthetic_focused_channel_diagnostics():
                 "gain_after": 0.25,
                 "active_voice_updated": True,
             },
-            {
-                "source": source(7),
-                "channel_index": 4,
-                "cell_note": 0,
-                "cell_note_text": "...",
-                "command_label": "Axy volume slide",
-                "command_name": "axyVolumeSlide",
-                "effect_type": 0x0A,
-                "effect_param": 0x2F,
-                "effective_volume_before": 16,
-                "effective_volume_after": 18,
-                "gain_before": 0.25,
-                "gain_after": 18.0 / 64.0,
-                "active_voice_updated": True,
-                "volume_slide_direction": "up",
-                "volume_slide_amount": 2,
-                "volume_slide_up": 2,
-                "volume_slide_down": 0,
-                "volume_slide_raw_up_nibble": 2,
-                "volume_slide_raw_down_nibble": 15,
-                "volume_slide_both_nibbles_nonzero": True,
-                "volume_slide_policy": "up_nibble_precedence_current_policy",
-            },
+            *[
+                {
+                    "source": source(7),
+                    "channel_index": 4,
+                    "cell_note": 0,
+                    "cell_note_text": "...",
+                    "command_label": "Axy volume slide",
+                    "command_name": "axyVolumeSlide",
+                    "synthetic_tick": tick,
+                    "effect_type": 0x0A,
+                    "effect_param": 0x2F,
+                    "effective_volume_before": before,
+                    "effective_volume_after": after,
+                    "gain_before": before / 64.0,
+                    "gain_after": after / 64.0,
+                    "active_voice_updated": True,
+                    "volume_slide_direction": "up",
+                    "volume_slide_amount": 2,
+                    "volume_slide_up": 2,
+                    "volume_slide_down": 0,
+                    "volume_slide_raw_up_nibble": 2,
+                    "volume_slide_raw_down_nibble": 15,
+                    "volume_slide_both_nibbles_nonzero": True,
+                    "volume_slide_policy": "up_nibble_precedence_mikmod_observed",
+                }
+                for tick, before, after in [
+                    (1, 16, 18),
+                    (2, 18, 20),
+                    (3, 20, 22),
+                    (4, 22, 24),
+                    (5, 24, 26),
+                ]
+            ],
             {
                 "source": source(8),
                 "channel_index": 4,
@@ -1158,9 +1168,9 @@ def synthetic_focused_channel_diagnostics():
                 "command_label": "setVolume",
                 "command_name": "setVolume",
                 "raw_volume_column": 0x20,
-                "effective_volume_before": 18,
+                "effective_volume_before": 26,
                 "effective_volume_after": 16,
-                "gain_before": 18.0 / 64.0,
+                "gain_before": 26.0 / 64.0,
                 "gain_after": 0.25,
                 "active_voice_updated": True,
             },
@@ -1190,7 +1200,7 @@ def synthetic_focused_channel_diagnostics():
                     "applied": True,
                     "ignored_as_empty_or_no_op": False,
                     "deferred": False,
-                    "effective_volume_before": 18,
+                    "effective_volume_before": 26,
                     "effective_volume_after": 16,
                 },
             },
@@ -1232,8 +1242,10 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows["07"]["volume_slide"]["direction"], "up")
         self.assertEqual(rows["07"]["volume_slide"]["amount"], 2)
         self.assertTrue(rows["07"]["volume_slide"]["both_nibbles_nonzero"])
-        self.assertEqual(rows["07"]["volume_slide"]["policy"], "up_nibble_precedence_current_policy")
-        self.assertEqual(rows["08"]["channel_volume_before"], 18)
+        self.assertEqual(rows["07"]["volume_slide"]["policy"], "up_nibble_precedence_mikmod_observed")
+        self.assertEqual(rows["07"]["channel_volume_after_tick0"], 16)
+        self.assertEqual(rows["07"]["tick_timeline"][1]["channel_volume_after_tick"], 18)
+        self.assertEqual(rows["08"]["channel_volume_before"], 26)
         self.assertEqual(rows["08"]["channel_volume_after"], 16)
         self.assertEqual(summary["schema_version"], 2)
         self.assertEqual(rows["06"]["volume_column_set_volume_value"], 16)

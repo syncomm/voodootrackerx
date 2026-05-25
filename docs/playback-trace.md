@@ -89,6 +89,10 @@ Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
 trigger with the row-level adjusted channel volume. Empty-note nonzero
 `EAx`/`EBx` rows with an active voice are emitted as row-start gain updates,
 while `EA0`/`EB0` remain effect-memory-deferred no-ops.
+Same-cell nonzero `Axy` note triggers keep effect metadata and trigger once at
+the tick-0 channel volume. The Swift adapter then emits `Axy` gain updates on
+ticks `1...(speed - 1)` for the row, with `A00` remaining a no-op and mixed
+nibbles using the MikMod-observed up-nibble precedence policy.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger

@@ -161,6 +161,34 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(ebxUpdate.scheduledFrame, 2)
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsAxyTickLevelGainUpdateMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first {
+            $0.categories.contains("note_trigger") && $0.categories.contains("axy_volume_slide")
+        })
+        let gainUpdates = plan.events.filter {
+            $0.categories.contains("gain_pan_update") && $0.categories.contains("axy_volume_slide")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("axy_volume_slide"))
+        XCTAssertEqual(noteTrigger.effectType, 0x0A)
+        XCTAssertEqual(noteTrigger.effectParam, 0x0F)
+        XCTAssertEqual(gainUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(gainUpdates.map(\.scheduledFrame), [1, 2])
+        XCTAssertTrue(gainUpdates.allSatisfy { $0.effectType == 0x0A })
+        XCTAssertTrue(gainUpdates.allSatisfy { $0.effectParam == 0x0F })
+    }
+
     func testRuntimeCMixerAdapterEventPlanIncludesVibrato4xyStepUpdates() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

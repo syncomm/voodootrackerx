@@ -115,6 +115,28 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter { $0.effectType == 0x06 && $0.applied }
                 .compactMap(\.activeEventIndex)
         )
+        func portamentoSlideTriggerKey(
+            eventIndex: Int,
+            source: PlaybackPosition,
+            channelIndex: Int
+        ) -> String {
+            "\(eventIndex):\(source.orderIndex):\(source.patternIndex):\(source.rowIndex):\(channelIndex)"
+        }
+        let appliedPortamentoSlidesByTriggerKey = adaptedPlan.diagnostics.portamentoSlideEffects
+            .filter(\.applied)
+            .reduce(into: [String: PlaybackSongSyntheticPortamentoSlideDiagnostic]()) { result, diagnostic in
+                guard let activeEventIndex = diagnostic.activeEventIndex else {
+                    return
+                }
+                let key = portamentoSlideTriggerKey(
+                    eventIndex: activeEventIndex,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex
+                )
+                if result[key] == nil {
+                    result[key] = diagnostic
+                }
+            }
         var events = [RuntimeCMixerAdapterEvent]()
         var nextID = 0
 
@@ -123,6 +145,11 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 continue
             }
             var categories = ["note_trigger"]
+            let bridgedPortamentoSlide = appliedPortamentoSlidesByTriggerKey[portamentoSlideTriggerKey(
+                eventIndex: eventIndex,
+                source: mapping.source,
+                channelIndex: mapping.channelIndex
+            )]
             if mapping.sampleOffset.applied {
                 categories.append("sample_offset")
                 if mapping.sampleOffset.effectMemoryReused {
@@ -173,6 +200,18 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isVibratoVolumeSlide {
                 categories.append("vibrato_volume_slide_6xy")
             }
+            if let bridgedPortamentoSlide {
+                categories.append("portamento_update")
+                categories.append(bridgedPortamentoSlide.direction == .up ? "portamento_1xx" : "portamento_2xx")
+                if bridgedPortamentoSlide.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    categories.append(
+                        bridgedPortamentoSlide.direction == .up
+                            ? "portamento_1xx_memory_reused"
+                            : "portamento_2xx_memory_reused"
+                    )
+                }
+            }
             if syntheticEvent.keyOffFrame != nil {
                 categories.append("key_off")
             }
@@ -182,6 +221,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
                 isVibratoVolumeSlide ||
+                bridgedPortamentoSlide != nil ||
                 mapping.sampleOffset.applied
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
@@ -258,6 +298,19 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 continue
             }
             for update in diagnostic.stepUpdates {
+                var categories = [
+                    "step_update",
+                    "portamento_update",
+                    diagnostic.direction == .up ? "portamento_1xx" : "portamento_2xx",
+                ]
+                if diagnostic.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    categories.append(
+                        diagnostic.direction == .up
+                            ? "portamento_1xx_memory_reused"
+                            : "portamento_2xx_memory_reused"
+                    )
+                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -265,7 +318,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "portamento_update"]
+                    categories: categories,
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
                 ))
                 nextID += 1
             }

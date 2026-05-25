@@ -56,7 +56,10 @@ minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento,
 minimal `E1x` fine portamento up, minimal `E2x` fine portamento down, minimal
 `EAx`/`EBx` fine volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato +
 volume slide, and `E9x` retriggers for the tracked active adapted voice. The
-`E1x` foundation applies one deterministic row-level linear-period/sample-step
+`1xx`/`2xx` foundation replays per-channel `100`/`200` memory from the prior
+nonzero same-family slide amount when available; unavailable memory remains a
+diagnosed effect-memory-deferred no-op. The `E1x` foundation applies one
+deterministic row-level linear-period/sample-step
 pitch-up adjustment; `E10` remains an effect-memory-deferred no-op. The `E2x`
 foundation applies one deterministic row-level linear-period/sample-step
 pitch-down adjustment; `E20` remains an effect-memory-deferred no-op. The
@@ -119,6 +122,11 @@ scheduled sample-step updates, and scheduled gain-update counts for first-pass
 `6xy` coverage. Sample-offset diagnostics include
 `effect_memory_reused`, `effect_memory_missing`, memory source/target metadata,
 and `900_sample_offset_memory_applied` for `900` replays.
+`portamento_slide_effects` and render-level `portamento_1xx_*`,
+`portamento_2xx_*`, and `portamento_memory_missing_count` counters report
+detected/applied/no-active/missing-memory `1xx`/`2xx` coverage, per-channel
+`100`/`200` memory reuse, memory source/target metadata, and scheduled
+sample-step update counts.
 `fine_portamento_up_effects` / `fine_portamento_down_effects` and render-level
 `e1x_fine_portamento_up_*` / `e2x_fine_portamento_down_*` counters report
 detected/applied/no-active/effect-memory-deferred `E1x` and `E2x` coverage, the

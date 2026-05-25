@@ -91,6 +91,11 @@ trigger with the row-level adjusted channel volume. Empty-note nonzero
 while `EA0`/`EB0` remain effect-memory-deferred no-ops.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
+Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
+once at the base note pitch; subsequent arpeggio ticks are emitted as planned
+sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the
+deterministic base/x/y tick-cycle sample-step updates at row tick frames. `000`
+remains a no-op, and arpeggio effect memory is intentionally not replayed.
 `100` and `200` portamento rows replay prior same-channel nonzero `1xx` or
 `2xx` slide memory through the shared sample-step update path when available;
 missing portamento memory remains diagnosed as effect-memory-deferred/no-op.
@@ -601,14 +606,14 @@ Runtime C mixer trace rows may include:
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
-retriggers, `1xx`/`2xx`/`3xx` portamento updates, including `100`/`200`
-memory-replayed sample-step updates, minimal `E1x` fine
+retriggers, `0xy` arpeggio updates, `1xx`/`2xx`/`3xx` portamento updates,
+including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
 portamento up updates, minimal `E2x` fine portamento down updates, minimal
 `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `6xy`
 vibrato + volume slide sample-step/gain updates, and volume-column set
-volume/panning. Adapter-sourced `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
+volume/panning. Adapter-sourced `0xy`, `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
 `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the runtime
 update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
@@ -886,7 +891,7 @@ The summary focuses on runtime-only artifact evidence:
   and the C mixer sample-time-derived position
 - runtime evidence for categories that the richer offline adapter can emit:
   gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
-  `1xx`/`2xx`/`3xx` updates
+  `0xy`/`1xx`/`2xx`/`3xx` updates
 
 The helper also records the current architectural interpretation: live runtime
 C mixer traces should now show whether events came from the precomputed

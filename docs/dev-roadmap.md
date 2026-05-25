@@ -117,13 +117,14 @@ correlation script can map audio comparison mismatch windows to approximate
 bounded adapter rows/events and summarize applied, ignored/no-op,
 deferred/unsupported, and unknown effect-column, volume-column, and
 volume/panning state-update command frequency for focused follow-up diagnosis.
-It now also reports applied `1xx`/`2xx` portamento-slide diagnostics, applied
-`3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento
-diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, applied `4xy` vibrato
-diagnostics, applied `6xy` vibrato + volume slide diagnostics, explicit
+It now also reports applied `0xy` arpeggio diagnostics, applied `1xx`/`2xx`
+portamento-slide diagnostics, applied `3xx` tone-portamento diagnostics,
+applied `E1x`/`E2x` fine-portamento diagnostics, applied `EAx`/`EBx`
+fine-volume-slide diagnostics, applied `4xy` vibrato diagnostics, applied
+`6xy` vibrato + volume slide diagnostics, explicit
 effect-memory reused/missing counts and source metadata for
 `900`/`1xx`/`2xx`/`4xy`/`6xy`,
-and deferred pitch-modulation counts and source coordinates for arpeggio, remaining
+and deferred pitch-modulation counts and source coordinates for remaining
 portamento-family commands, tremolo, and volume-column
 vibrato/tone-portamento commands, with a conservative
 pitch-effect next-PR recommendation when one bucket dominates local evidence.
@@ -139,11 +140,12 @@ audio artifacts stay outside git. A post-`E1x` local-only full mapped-corpus
 refresh covered 26 anonymized inputs and reported 222,402 detected commands,
 214,105 applied, 187 deferred, 172 unsupported, 8,125 no-op/effect-memory
 deferred, 3,316 effect-memory reuses, and one missing effect-memory case. The
-largest remaining unsupported buckets are `E0x` filter toggle (limited
-usefulness), `0xy` arpeggio (strong), and smaller `Dxx`/`Bxx`/`E6x` traversal
-cases. The `1xx`/`2xx` portamento effect-memory expansion is the current narrow
-effect-memory pass; after it, `0xy` arpeggio is the strongest concrete
-unsupported effect target, with traversal commands remaining separate. The
+largest remaining unsupported buckets after the portamento-memory refresh were
+`E0x` filter toggle (limited usefulness), `0xy` arpeggio (strong), and smaller
+`Dxx`/`Bxx`/`E6x` traversal cases. The current 0xy arpeggio foundation moves
+that concrete pitch bucket into the applied diagnostics path; the next effect
+target should likely be a focused traversal pass for `Dxx`/`Bxx`/`E6x`, while
+`E0x` remains a deferred limited-usefulness diagnostic bucket. The
 developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
@@ -450,8 +452,9 @@ Immediate audio accuracy sequence:
 94. 1xx / 2xx Portamento Effect Memory Expansion — done
 95. XM Effect Coverage Refresh After Portamento Memory — done
 96. Bounded XM diagnostics playable-order count alignment — testing/tooling follow-up
-97. Minimal 0xy Arpeggio Foundation — recommended next effect PR
+97. Minimal 0xy Arpeggio Foundation — done
 98. Reference comparison stabilization against MikMod/OpenMPT
+99. Focused Dxx/Bxx/E6x traversal foundation — recommended next effect PR
 
 ---
 
@@ -563,6 +566,10 @@ Features:
 - minimal `9xx` sample offset starts for same-cell bounded offline adapted
   note/sample triggers, with per-channel `900` memory replay and deterministic
   missing-memory diagnostics
+- minimal `0xy` arpeggio support for bounded offline and CoreAudio C mixer
+  runtime adapter paths, with deterministic base/x/y sample-step updates,
+  same-cell note folding, no-active-voice diagnostics, `000` no-op behavior,
+  and no broad arpeggio memory
 - minimal `1xx`/`2xx` portamento up/down and minimal `3xx` tone portamento
   support for bounded offline adapted renders, with no-retrigger 3xx target
   setting, per-channel `100`/`200` memory replay, generic C mixer sample-step

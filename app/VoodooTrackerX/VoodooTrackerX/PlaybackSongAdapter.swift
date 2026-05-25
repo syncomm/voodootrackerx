@@ -517,6 +517,7 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
         var finePortamentoUpEffects = [PlaybackSongSyntheticFinePortamentoUpDiagnostic]()
         var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
+        var arpeggioEffects = [PlaybackSongSyntheticArpeggioDiagnostic]()
         var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
@@ -667,6 +668,7 @@ enum PlaybackSongSyntheticAdapter {
                 portamentoSlideEffects: context.portamentoSlideEffects,
                 finePortamentoUpEffects: context.finePortamentoUpEffects,
                 finePortamentoDownEffects: context.finePortamentoDownEffects,
+                arpeggioEffects: context.arpeggioEffects,
                 vibratoEffects: context.vibratoEffects,
                 keyOffEvents: context.keyOffEvents,
                 eventMappings: context.eventMappings,
@@ -712,6 +714,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
+            let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
@@ -783,6 +786,19 @@ enum PlaybackSongSyntheticAdapter {
                     eventIndex: nil
                 )
                 : nil
+            if hasArpeggio, !(1...96).contains(cell.note), cell.note != 97 {
+                let diagnostic = handleArpeggio(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                context.arpeggioEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
+            }
             if hasPortamentoSlide, !(1...96).contains(cell.note), cell.note != 97 {
                 let diagnostic = handlePortamentoSlide(
                     from: cell,
@@ -1465,6 +1481,20 @@ enum PlaybackSongSyntheticAdapter {
                 pitchMappingApplied: pitchMapping.applied,
                 pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
             ))
+            if hasArpeggio {
+                let diagnostic = handleArpeggio(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState,
+                    includeTickZeroUpdate: false
+                )
+                context.arpeggioEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
+            }
             if hasPortamentoSlide {
                 let diagnostic = handlePortamentoSlide(
                     from: cell,
@@ -3234,6 +3264,215 @@ enum PlaybackSongSyntheticAdapter {
             appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
             stepUpdates: stepUpdates,
             clamped: clamped,
+            policy: policy
+        )
+    }
+
+    private static func handleArpeggio(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState,
+        includeTickZeroUpdate: Bool = true
+    ) -> PlaybackSongSyntheticArpeggioDiagnostic {
+        let xSemitoneOffset = Int((cell.effectParam & 0xF0) >> 4)
+        let ySemitoneOffset = Int(cell.effectParam & 0x0F)
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+
+        guard hasActiveVoice else {
+            return arpeggioDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                xSemitoneOffset: xSemitoneOffset,
+                ySemitoneOffset: ySemitoneOffset,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let baseLinearPeriod = channelState.activeLinearPeriod,
+              let basePlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return arpeggioDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                xSemitoneOffset: xSemitoneOffset,
+                ySemitoneOffset: ySemitoneOffset,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                stepUpdates: [],
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        var currentLinearPeriod = baseLinearPeriod
+        var currentPlaybackStep = basePlaybackStep
+        var stepUpdates = [PlaybackSongSyntheticTonePortamentoStepUpdate]()
+        let rowSpeed = max(1, timingConfig.speed)
+        let firstTick = includeTickZeroUpdate ? 0 : 1
+        for tick in firstTick..<rowSpeed {
+            let beforePeriod = currentLinearPeriod
+            let beforeStep = currentPlaybackStep
+            let semitoneOffset: Int
+            switch tick % 3 {
+            case 1:
+                semitoneOffset = xSemitoneOffset
+            case 2:
+                semitoneOffset = ySemitoneOffset
+            default:
+                semitoneOffset = 0
+            }
+            let modulatedPeriod = clampedLinearPeriod(
+                baseLinearPeriod - (Double(semitoneOffset) * xmLinearPeriodUnitsPerSemitone)
+            )
+            guard let nextStep = playbackStep(
+                linearPeriod: modulatedPeriod,
+                baseSampleRate: baseSampleRate,
+                outputSampleRate: timingConfig.sampleRate
+            ) else {
+                return arpeggioDiagnostic(
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    cell: cell,
+                    status: .outOfRange,
+                    activeVoiceFound: true,
+                    activeEventIndex: channelState.activeEventIndex,
+                    activeEventMappingIndex: channelState.activeEventMappingIndex,
+                    xSemitoneOffset: xSemitoneOffset,
+                    ySemitoneOffset: ySemitoneOffset,
+                    currentLinearPeriodBefore: currentLinearPeriodBefore,
+                    currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                    currentPlaybackStepBefore: currentPlaybackStepBefore,
+                    currentPlaybackStepAfter: channelState.activePlaybackStep,
+                    stepUpdates: stepUpdates,
+                    policy: "arpeggio_pitch_out_of_range"
+                )
+            }
+            currentLinearPeriod = modulatedPeriod
+            currentPlaybackStep = nextStep
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: tick,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
+                linearPeriodBefore: beforePeriod,
+                linearPeriodAfter: currentLinearPeriod,
+                playbackStepBefore: beforeStep,
+                playbackStepAfter: currentPlaybackStep,
+                reachedTarget: semitoneOffset == 0
+            ))
+        }
+
+        if !stepUpdates.isEmpty,
+           abs(currentPlaybackStep - basePlaybackStep) > 0.000000001 {
+            stepUpdates.append(PlaybackSongSyntheticTonePortamentoStepUpdate(
+                syntheticTick: rowSpeed,
+                scheduledFrame: timingPlan.frameFor(row: syntheticRow + 1, tick: 0),
+                linearPeriodBefore: currentLinearPeriod,
+                linearPeriodAfter: baseLinearPeriod,
+                playbackStepBefore: currentPlaybackStep,
+                playbackStepAfter: basePlaybackStep,
+                reachedTarget: true
+            ))
+            currentLinearPeriod = baseLinearPeriod
+            currentPlaybackStep = basePlaybackStep
+        }
+
+        channelState.activeLinearPeriod = currentLinearPeriod
+        channelState.activePlaybackStep = currentPlaybackStep
+
+        return arpeggioDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            xSemitoneOffset: xSemitoneOffset,
+            ySemitoneOffset: ySemitoneOffset,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            stepUpdates: stepUpdates,
+            policy: "deterministic_0xy_tick_cycle_no_effect_memory"
+        )
+    }
+
+    private static func arpeggioDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticArpeggioDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        xSemitoneOffset: Int,
+        ySemitoneOffset: Int,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        policy: String
+    ) -> PlaybackSongSyntheticArpeggioDiagnostic {
+        let applied = status == .applied
+        return PlaybackSongSyntheticArpeggioDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: status == .unsupportedFrequencyTable || status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice,
+            effectMemoryDeferred: false,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            xSemitoneOffset: xSemitoneOffset,
+            ySemitoneOffset: ySemitoneOffset,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
             policy: policy
         )
     }
@@ -5389,8 +5628,9 @@ enum PlaybackSongSyntheticAdapter {
         timingConfig: SyntheticTrackerTimingConfig
     ) -> PlaybackSongSyntheticEffectCommandDiagnostic.Status {
         switch cell.effectType {
-        case 0x00 where cell.effectParam != 0,
-             0x05,
+        case 0x00 where cell.effectParam != 0:
+            return .applied
+        case 0x05,
              0x07:
             return .deferredUnsupported
         case 0x04:
@@ -5538,6 +5778,7 @@ enum PlaybackSongSyntheticAdapter {
         }
         if PlaybackSongFxxTimingPlanner.isFxxTimingEffect(cell) ||
             isNonzeroSampleOffsetEffect(cell) ||
+            isArpeggioEffect(cell) ||
             isPortamentoSlideEffect(cell) ||
             isTonePortamentoEffect(cell) ||
             isVibratoEffect(cell) ||
@@ -5584,6 +5825,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isNonzeroSampleOffsetEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x09 && cell.effectParam != 0
+    }
+
+    private static func isArpeggioEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x00 && cell.effectParam != 0
     }
 
     private static func isPortamentoSlideEffect(_ cell: PlaybackCell) -> Bool {

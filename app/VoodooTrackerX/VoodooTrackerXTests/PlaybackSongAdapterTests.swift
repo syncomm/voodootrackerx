@@ -5066,6 +5066,188 @@ final class PlaybackSongAdapterTests: XCTestCase {
         }
     }
 
+    func testPlaybackSongAdapterNoteTriggerRestoresInstrumentDefaultVolumeAfterAxySlide() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        ))
+        let axyUpdate = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
+        let secondMapping = try XCTUnwrap(result.diagnostics.eventMappings.last)
+        let secondEvent = try XCTUnwrap(result.plan.pattern.events.last)
+
+        XCTAssertEqual(result.diagnostics.eventMappings.count, 2)
+        XCTAssertEqual(result.plan.pattern.events.count, 2)
+        XCTAssertEqual(axyUpdate.effectiveVolumeBefore, 1)
+        XCTAssertEqual(axyUpdate.effectiveVolumeAfter, 0)
+        XCTAssertEqual(secondMapping.source.rowIndex, 1)
+        XCTAssertEqual(secondMapping.effectiveVolumeValue, 64)
+        XCTAssertEqual(secondEvent.gain, 1)
+    }
+
+    func testPlaybackSongAdapterSameCell3xxRestoresInstrumentDefaultVolumeWithoutRetrigger() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1, effectType: 0x03, effectParam: 0xFF),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+        let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.commandSource == .instrumentState })
+        let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(result.plan.pattern.events.count, 1)
+        XCTAssertEqual(tonePortamento.status, .applied)
+        XCTAssertEqual(tonePortamento.targetNote, 53)
+        XCTAssertEqual(tonePortamento.sameCellNote, true)
+        XCTAssertEqual(tonePortamento.noteTriggerEventCreated, false)
+        XCTAssertEqual(tonePortamento.voiceReplacement, false)
+        XCTAssertEqual(tonePortamento.samplePositionReset, false)
+        XCTAssertEqual(tonePortamento.instrumentStateUpdated, true)
+        XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, true)
+        XCTAssertEqual(tonePortamento.envelopeReset, false)
+        XCTAssertEqual(tonePortamento.channelVolumeBefore, 0)
+        XCTAssertEqual(tonePortamento.channelVolumeAfter, 64)
+        XCTAssertEqual(tonePortamento.gainBefore, 0)
+        XCTAssertEqual(tonePortamento.gainAfter, 1)
+        XCTAssertEqual(tonePortamento.sampleSelectedBefore, 0)
+        XCTAssertEqual(tonePortamento.sampleSelectedAfter, 0)
+        XCTAssertEqual(tonePortamento.audibleTransientExpected, true)
+        XCTAssertEqual(tonePortamento.cMixerReceivesNewVoice, false)
+        XCTAssertEqual(tonePortamento.cMixerReceivesOnlyStateUpdates, true)
+        XCTAssertEqual(update.command, .instrumentDefaultVolume(value: 64))
+        XCTAssertEqual(update.scheduledFrame, 2)
+        XCTAssertEqual(update.activeVoiceUpdated, true)
+        XCTAssertEqual(update.activeEventIndex, 0)
+        XCTAssertEqual(update.effectiveVolumeBefore, 0)
+        XCTAssertEqual(update.effectiveVolumeAfter, 64)
+        XCTAssertEqual(update.gainBefore, 0)
+        XCTAssertEqual(update.gainAfter, 1)
+    }
+
+    func testPlaybackSongAdapterSameCell3xxVolumeColumnSetVolumeOverridesRestoredInstrumentDefault() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0xFF),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+        let instrumentUpdate = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.commandSource == .instrumentState })
+        let volumeColumnUpdate = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.rawVolumeColumn == 0x30 })
+        let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(result.plan.pattern.events.count, 1)
+        XCTAssertEqual(instrumentUpdate.effectiveVolumeBefore, 0)
+        XCTAssertEqual(instrumentUpdate.effectiveVolumeAfter, 64)
+        XCTAssertEqual(volumeColumnUpdate.effectiveVolumeBefore, 64)
+        XCTAssertEqual(volumeColumnUpdate.effectiveVolumeAfter, 32)
+        XCTAssertEqual(volumeColumnUpdate.gainBefore, 1)
+        XCTAssertEqual(volumeColumnUpdate.gainAfter, 0.5)
+        XCTAssertEqual(tonePortamento.channelVolumeBefore, 0)
+        XCTAssertEqual(tonePortamento.channelVolumeAfter, 32)
+        XCTAssertEqual(tonePortamento.gainBefore, 0)
+        XCTAssertEqual(tonePortamento.gainAfter, 0.5)
+        XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, true)
+        XCTAssertEqual(tonePortamento.noteTriggerEventCreated, false)
+        XCTAssertEqual(tonePortamento.samplePositionReset, false)
+        if case .volumeColumn(.setVolume(value: 32)) = volumeColumnUpdate.command {
+            XCTAssertTrue(volumeColumnUpdate.applied)
+        } else {
+            XCTFail("expected same-cell 3xx volume-column set-volume override")
+        }
+    }
+
+    func testPlaybackSongAdapterSameCell3xxInstrumentSelectionUpdatesDefaultGainWithoutRetrigger() throws {
+        let firstSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1, 1], volume: 0.25, baseSampleRate: 100)
+        let secondSample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 1, pcm: [0.5, 0.5, 0.5], volume: 0.5, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 53, instrument: 2, effectType: 0x03, effectParam: 0xFF),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [firstSample]),
+                2: PlaybackInstrument(index: 2, samples: [secondSample]),
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let update = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.commandSource == .instrumentState })
+        let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(result.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(result.plan.pattern.events.count, 1)
+        XCTAssertEqual(tonePortamento.instrumentIndexBefore, 1)
+        XCTAssertEqual(tonePortamento.instrumentIndexAfter, 2)
+        XCTAssertEqual(tonePortamento.sampleSelectedBefore, 0)
+        XCTAssertEqual(tonePortamento.sampleSelectedAfter, 1)
+        XCTAssertEqual(tonePortamento.instrumentDefaultVolumeApplied, true)
+        XCTAssertEqual(tonePortamento.channelVolumeBefore, 64)
+        XCTAssertEqual(tonePortamento.channelVolumeAfter, 64)
+        XCTAssertEqual(tonePortamento.gainBefore, 0.25)
+        XCTAssertEqual(tonePortamento.gainAfter, 0.5)
+        XCTAssertEqual(tonePortamento.noteTriggerEventCreated, false)
+        XCTAssertEqual(tonePortamento.samplePositionReset, false)
+        XCTAssertEqual(update.activeVoiceUpdated, true)
+        XCTAssertEqual(update.effectiveVolumeBefore, 64)
+        XCTAssertEqual(update.effectiveVolumeAfter, 64)
+        XCTAssertEqual(update.gainBefore, 0.25)
+        XCTAssertEqual(update.gainAfter, 0.5)
+    }
+
     func testPlaybackSongAdapterA0FSpeed3AppliesOnTicksAfterTick0() throws {
         let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(

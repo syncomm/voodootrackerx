@@ -140,12 +140,16 @@ counts; the generic `volume_panning_state_updates` entries include the fine
 amount nibble plus channel volume and gain before/after.
 For narrow channel investigations, `scripts/focused-xm-channel-diagnostics.py`
 can combine a local `mc_dump --json --pattern N` artifact with a bounded render
-diagnostics JSON artifact. Its schema 2 output includes per-row decoded cell
+diagnostics JSON artifact. Its schema 3 output includes per-row decoded cell
 data, trigger/replacement and same-cell `3xx` suppress-retrigger flags, channel
 volume/gain before and after tick 0, nonzero tick carry-forward state, active
 voice gain-update scheduling, effective gain sent to the C mixer, and
-zero/near-zero gain rows. Keep those focused reports under `/tmp` or another
-untracked local path.
+zero/near-zero gain rows. Same-cell `3xx` detail rows also report sample
+position reset, instrument/sample state before/after, instrument default-volume
+restoration, envelope-reset modeling status, tone target/sample-step before and
+after, expected audible onset, and whether the C mixer received a new voice or
+only gain/step state updates. Keep those focused reports under `/tmp` or
+another untracked local path.
 The helper also reports export-level headroom and clipping diagnostics for the
 Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export

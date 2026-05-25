@@ -283,6 +283,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("axy_volume_slide")
             case .volumeColumn:
                 categories.append("volume_column_update")
+            case .instrumentDefaultVolume:
+                categories.append("instrument_default_volume_update")
             case .eaxFineVolumeSlideUp:
                 categories.append("eax_fine_volume_slide_up")
             case .ebxFineVolumeSlideDown:

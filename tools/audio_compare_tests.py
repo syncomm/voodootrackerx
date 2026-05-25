@@ -1036,6 +1036,26 @@ def synthetic_focused_channel_diagnostics():
             {
                 "source": source(2),
                 "channel_index": 4,
+                "status": "applied",
+                "same_cell_note": True,
+                "sample_position_reset": False,
+                "instrument_state_updated": True,
+                "instrument_index_before": 23,
+                "instrument_index_after": 23,
+                "sample_selected_before": 0,
+                "sample_selected_after": 0,
+                "instrument_default_volume_applied": True,
+                "envelope_reset": False,
+                "envelope_reset_modeled": False,
+                "channel_volume_before": 49,
+                "channel_volume_after": 64,
+                "gain_before": 49.0 / 64.0,
+                "gain_after": 1.0,
+                "note_target_before_text": None,
+                "note_target_after_text": "G-4",
+                "audible_transient_expected": True,
+                "c_mixer_received_new_voice": False,
+                "c_mixer_received_only_state_updates": True,
                 "target_exists_after": True,
                 "target_note": 56,
                 "target_note_text": "G-4",
@@ -1044,6 +1064,28 @@ def synthetic_focused_channel_diagnostics():
             {
                 "source": source(6),
                 "channel_index": 4,
+                "status": "applied",
+                "same_cell_note": True,
+                "sample_position_reset": False,
+                "instrument_state_updated": True,
+                "instrument_index_before": 23,
+                "instrument_index_after": 23,
+                "sample_selected_before": 0,
+                "sample_selected_after": 0,
+                "instrument_default_volume_applied": False,
+                "envelope_reset": False,
+                "envelope_reset_modeled": False,
+                "channel_volume_before": 34,
+                "channel_volume_after": 16,
+                "gain_before": 34.0 / 64.0,
+                "gain_after": 0.25,
+                "note_target_before_text": None,
+                "note_target_after_text": "F-4",
+                "current_step_before": 1.0,
+                "current_step_after": 0.875,
+                "audible_transient_expected": False,
+                "c_mixer_received_new_voice": False,
+                "c_mixer_received_only_state_updates": True,
                 "target_exists_after": True,
                 "target_note": 54,
                 "target_note_text": "F-4",
@@ -1060,6 +1102,26 @@ def synthetic_focused_channel_diagnostics():
             {
                 "source": source(8),
                 "channel_index": 4,
+                "status": "applied",
+                "same_cell_note": True,
+                "sample_position_reset": False,
+                "instrument_state_updated": True,
+                "instrument_index_before": 23,
+                "instrument_index_after": 23,
+                "sample_selected_before": 0,
+                "sample_selected_after": 0,
+                "instrument_default_volume_applied": True,
+                "envelope_reset": False,
+                "envelope_reset_modeled": False,
+                "channel_volume_before": 26,
+                "channel_volume_after": 16,
+                "gain_before": 26.0 / 64.0,
+                "gain_after": 0.25,
+                "note_target_before_text": "F-4",
+                "note_target_after_text": "F-4",
+                "audible_transient_expected": False,
+                "c_mixer_received_new_voice": False,
+                "c_mixer_received_only_state_updates": True,
                 "target_exists_after": True,
                 "target_note": 54,
                 "target_note_text": "F-4",
@@ -1247,10 +1309,13 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows["07"]["tick_timeline"][1]["channel_volume_after_tick"], 18)
         self.assertEqual(rows["08"]["channel_volume_before"], 26)
         self.assertEqual(rows["08"]["channel_volume_after"], 16)
-        self.assertEqual(summary["schema_version"], 2)
+        self.assertEqual(summary["schema_version"], 3)
         self.assertEqual(rows["06"]["volume_column_set_volume_value"], 16)
         self.assertTrue(rows["06"]["active_voice_gain_update_scheduled"])
         self.assertEqual(rows["06"]["effective_gain_scheduled_to_c_mixer"], 0.25)
+        self.assertEqual(rows["06"]["same_cell_3xx_detail"]["sample_position_reset"], False)
+        self.assertEqual(rows["06"]["same_cell_3xx_detail"]["instrument_state_updated"], True)
+        self.assertEqual(rows["06"]["same_cell_3xx_detail"]["c_mixer_received_only_state_updates"], True)
         self.assertEqual(rows["06"]["channel_volume_after_tick0"], 16)
         self.assertEqual(rows["06"]["channel_volume_after_nonzero_ticks"][0], {
             "tick": 1,
@@ -1261,6 +1326,10 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows["06"]["tick_timeline"][1]["tone_portamento_sample_step_update_count"], 1)
         self.assertEqual(rows["06"]["tick_timeline"][1]["channel_volume_after_tick"], 16)
         self.assertEqual(summary["summary"]["volume_column_set_volume_without_active_voice_update_rows"], [])
+        self.assertEqual(summary["summary"]["same_cell_3xx_instrument_state_update_rows"], ["02", "06", "08"])
+        self.assertEqual(summary["summary"]["same_cell_3xx_instrument_default_volume_rows"], ["02", "08"])
+        self.assertEqual(summary["summary"]["same_cell_3xx_sample_position_reset_rows"], [])
+        self.assertEqual(summary["summary"]["same_cell_3xx_c_mixer_state_update_only_rows"], ["02", "06", "08"])
 
     def test_markdown_report_uses_correct_focused_note_names(self):
         summary = focused_xm_channel.build_summary(
@@ -1278,6 +1347,9 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertIn("G-4 17 .. ...", markdown)
         self.assertIn("F-4 17 20 3FF", markdown)
         self.assertIn("Volume-column set-volume rows with active voice gain updates: 06, 08", markdown)
+        self.assertIn("Same-cell 3xx rows with instrument state updates: 02, 06, 08", markdown)
+        self.assertIn("Same-cell 3xx rows with sample-position reset: none", markdown)
+        self.assertIn("| 06 | applied | no | yes | 23->23 | 0->0 | no | no/no | 34->16 | 0.53125->0.25 | -->F-4 | 1->0.875 | no | state updates |", markdown)
         self.assertIn("| 06 | 0 | 3600 | 34->16 | 0.53125->0.25 | yes | 0.25 | 0 | no |", markdown)
         self.assertIn("| 06 | 1 | 3700 | 16->16 | 0.25->0.25 | no | - | 1 | no |", markdown)
         self.assertNotIn("F#4", markdown)

@@ -369,7 +369,7 @@ offline-render responsibilities separate.
 - Status: done.
 
 ### PR 2.7.10ah — Minimal Tone Portamento 3xx For Bounded Offline Renders
-- Scope: apply only minimal XM `3xx` tone portamento in bounded/offline `PlaybackSong`-to-C-mixer renders by retaining the active voice, setting a linear-frequency target from normal-note `3xx` cells without retriggering the sample, and scheduling deterministic sample-step updates toward the target. Diagnose no-active/no-target/no-speed and keep `1xx`, `2xx`, `5xy`, and volume-column tone portamento deferred.
+- Scope: apply only minimal XM `3xx` tone portamento in bounded/offline `PlaybackSong`-to-C-mixer renders by retaining the active voice, setting a linear-frequency target from normal-note `3xx` cells without retriggering the sample, applying same-cell instrument/sample/default-volume state to the carried voice's gain, and scheduling deterministic sample-step updates toward the target. Diagnose no-active/no-target/no-speed and keep `1xx`, `2xx`, `5xy`, and volume-column tone portamento deferred.
 - Verification: deterministic hand-built `PlaybackSong` and C mixer tests for no-retrigger target setting, speed-dependent step movement, clamping, no-target/no-active diagnostics, linear-frequency relative-note/finetune targets, Fxx timing, windowed carryover, diagnostics JSON/correlation summaries, existing bounded render helper/WAV/comparison tooling, and no runtime backend switching, parser refactor, tracker viewport changes, or private/local module fixtures.
 - Status: done.
 

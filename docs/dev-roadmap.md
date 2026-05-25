@@ -448,8 +448,10 @@ Immediate audio accuracy sequence:
 92. XM Effect Memory Foundation — done
 93. Minimal E1x Fine Portamento Up — done
 94. 1xx / 2xx Portamento Effect Memory Expansion — done
-95. Next effect target from remaining corpus evidence: 0xy arpeggio or focused traversal diagnostics/behavior — recommended next effect PR
-96. Reference comparison stabilization against MikMod/OpenMPT
+95. XM Effect Coverage Refresh After Portamento Memory — done
+96. Bounded XM diagnostics playable-order count alignment — testing/tooling follow-up
+97. Minimal 0xy Arpeggio Foundation — recommended next effect PR
+98. Reference comparison stabilization against MikMod/OpenMPT
 
 ---
 

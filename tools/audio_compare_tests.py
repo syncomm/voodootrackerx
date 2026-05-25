@@ -1108,6 +1108,32 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             "1xx/2xx Portamento Effect Memory Expansion",
         )
 
+    def test_effect_coverage_summary_defers_e0x_when_arpeggio_is_largest_useful_target(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                *[
+                    traversal_effect(0x0E, 0x00, "E0x filter toggle", row=row)
+                    for row in range(5)
+                ],
+                *[
+                    traversal_effect(0x00, 0x12, "0xy arpeggio", row=16 + row)
+                    for row in range(3)
+                ],
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["E0x filter toggle"]["recommended_implementation_priority"], "deferred/limited")
+        self.assertEqual(
+            rows["0xy arpeggio"]["recommended_implementation_priority"],
+            "Minimal 0xy Arpeggio Foundation",
+        )
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "Minimal 0xy Arpeggio Foundation")
+
     def test_effect_coverage_summary_handles_empty_diagnostics(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "empty.json", {})

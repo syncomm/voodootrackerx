@@ -614,6 +614,17 @@ offline-render responsibilities separate.
 - Verification: synthetic fixtures for per-channel memory store/reuse/missing cases, direct-start determinism, windowed render carryover, runtime adapter metadata, diagnostics/effect-coverage counts, existing render/effect-coverage tests, and local-only corpus smoke artifacts kept out of git.
 - Status: done. Recommended next effect PR: `0xy` arpeggio unless refreshed local evidence points more strongly at traversal.
 
+### PR 2.7.11as — XM Effect Coverage Refresh After Portamento Memory
+- Scope: diagnostics-only refresh of the full mapped local XM corpus after the `1xx`/`2xx` portamento memory expansion. This updates the summary recommendation heuristic so limited-usefulness `E0x` filter-toggle evidence does not crowd out the largest useful concrete unsupported effect; it does not add XM effect behavior, parser changes, tracker viewport changes, backend changes, or committed private artifacts.
+- Findings: the post-portamento-memory local-only pass covered 26 anonymized inputs and reported 222,402 detected commands, 214,963 applied, 187 deferred, 172 unsupported, 7,267 no-op/effect-memory deferred, 4,174 effect-memory reuses, and 1 missing effect-memory case. Remaining unsupported concrete buckets were `E0x` filter toggle (72, limited usefulness), `0xy` arpeggio (53, strong), `Dxx` pattern break (31, moderate traversal), `E4x` vibrato control (9, limited), `E6x` pattern loop (6, moderate traversal), and `Bxx` position jump (1, moderate traversal). The post-`1xx`/`2xx` memory residuals are no longer implementation recommendations: zero-parameter `2xx` has 609 memory reuses and 44 no-active/no-op cases, zero-parameter `1xx` has 249 memory reuses and 19 no-active/no-op cases, `4xy` has 595 memory reuses with no missing cases, `6xy` has 36 memory reuses with no missing cases, and `900` sample-offset memory still has one missing/no-op case.
+- Verification: full local diagnostics and public-safe summaries were generated under `/tmp`; generated WAV/JSON/Markdown artifacts and private modules stayed out of git. Three anonymized inputs needed the renderer's playable order count rather than raw `mc_dump` order-table length, which is tracked as a separate testing/tooling follow-up below.
+- Status: done. Recommended next effect PR: `Minimal 0xy Arpeggio Foundation`.
+
+### PR 2.7.11at — Bounded XM Diagnostics Playable-Order Count Alignment
+- Scope: surgically align local corpus diagnostics tooling around the renderer/playback builder's playable order count so full-corpus test runs do not have to manually adjust modules where raw order-table length exceeds the playable order range. Keep this diagnostics/testing-only: no XM effect implementation, no parser compatibility claim, no tracker viewport changes, and no private module fixtures.
+- Verification: synthetic metadata/playback-builder fixtures for trailing or otherwise non-playable order entries, `vtx_render_bounded_xm` order-range validation coverage, and a local-only anonymized corpus smoke confirming the previously affected labels can run without manual order-count subtraction.
+- Status: queued testing/tooling follow-up.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

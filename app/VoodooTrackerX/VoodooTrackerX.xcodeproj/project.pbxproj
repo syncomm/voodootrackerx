@@ -50,6 +50,15 @@
 		C00000000000000000000011 /* SoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* SoftwareMixer.swift */; };
 		C00000000000000000000012 /* SoftwareMixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000021 /* SoftwareMixer.swift */; };
 		A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000022 /* VoodooTrackerXTests.swift */; };
+		T00000000000000000000101 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000001 /* TestSupport.swift */; };
+		T00000000000000000000102 /* CSoftwareMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000002 /* CSoftwareMixerTests.swift */; };
+		T00000000000000000000103 /* OfflineRenderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000003 /* OfflineRenderTests.swift */; };
+		T00000000000000000000104 /* PlaybackEffectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000004 /* PlaybackEffectTests.swift */; };
+		T00000000000000000000105 /* PlaybackEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000005 /* PlaybackEngineTests.swift */; };
+		T00000000000000000000106 /* PlaybackModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000006 /* PlaybackModelTests.swift */; };
+		T00000000000000000000107 /* PlaybackSongAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000007 /* PlaybackSongAdapterTests.swift */; };
+		T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000008 /* RuntimeCMixerTests.swift */; };
+		T00000000000000000000109 /* TrackerViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T00000000000000000000009 /* TrackerViewportTests.swift */; };
 		A00000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000031 /* AppKit.framework */; };
 		A00000000000000000000014 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032 /* XCTest.framework */; };
 		A00000000000000000000015 /* ModuleMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000023 /* ModuleMetadataLoader.swift */; };
@@ -103,6 +112,15 @@
 		D00000000000000000000023 /* MixerCoreHeaders */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MixerCoreHeaders; path = ../../core/MixerCore/include; sourceTree = "<group>"; };
 		C00000000000000000000021 /* SoftwareMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareMixer.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000001 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		T00000000000000000000002 /* CSoftwareMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSoftwareMixerTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000003 /* OfflineRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRenderTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000004 /* PlaybackEffectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEffectTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000005 /* PlaybackEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngineTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000006 /* PlaybackModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModelTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000007 /* PlaybackSongAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongAdapterTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000008 /* RuntimeCMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeCMixerTests.swift; sourceTree = "<group>"; };
+		T00000000000000000000009 /* TrackerViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerViewportTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000023 /* ModuleMetadataLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleMetadataLoader.swift; sourceTree = "<group>"; };
 		A00000000000000000000024 /* TrackerTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackerTheme.swift; sourceTree = "<group>"; };
 		A0000000000000000000002A /* vtx-logo.svg */ = {isa = PBXFileReference; lastKnownFileType = image.svg; name = "vtx-logo.svg"; path = ../../../assets/logo/vtx-logo.svg; sourceTree = "<group>"; };
@@ -210,6 +228,15 @@
 			path = VoodooTrackerXTests;
 			sourceTree = "<group>";
 			children = (
+				T00000000000000000000001 /* TestSupport.swift */,
+				T00000000000000000000002 /* CSoftwareMixerTests.swift */,
+				T00000000000000000000003 /* OfflineRenderTests.swift */,
+				T00000000000000000000004 /* PlaybackEffectTests.swift */,
+				T00000000000000000000005 /* PlaybackEngineTests.swift */,
+				T00000000000000000000006 /* PlaybackModelTests.swift */,
+				T00000000000000000000007 /* PlaybackSongAdapterTests.swift */,
+				T00000000000000000000008 /* RuntimeCMixerTests.swift */,
+				T00000000000000000000009 /* TrackerViewportTests.swift */,
 				A00000000000000000000022 /* VoodooTrackerXTests.swift */,
 			);
 		};
@@ -419,6 +446,15 @@
 				F0000000000000000000003C /* RuntimeCMixerRenderCore.swift in Sources */,
 				F0000000000000000000003E /* RuntimeCMixerBackend.swift in Sources */,
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
+				T00000000000000000000101 /* TestSupport.swift in Sources */,
+				T00000000000000000000102 /* CSoftwareMixerTests.swift in Sources */,
+				T00000000000000000000103 /* OfflineRenderTests.swift in Sources */,
+				T00000000000000000000104 /* PlaybackEffectTests.swift in Sources */,
+				T00000000000000000000105 /* PlaybackEngineTests.swift in Sources */,
+				T00000000000000000000106 /* PlaybackModelTests.swift in Sources */,
+				T00000000000000000000107 /* PlaybackSongAdapterTests.swift in Sources */,
+				T00000000000000000000108 /* RuntimeCMixerTests.swift in Sources */,
+				T00000000000000000000109 /* TrackerViewportTests.swift in Sources */,
 				A00000000000000000000012 /* VoodooTrackerXTests.swift in Sources */,
 				D00000000000000000000014 /* vtx_c_mixer.c in Sources */,
 			);

@@ -359,16 +359,20 @@ def build_tick_timeline(
         volume_before_tick = current_volume
         gain_before_tick = current_gain
 
-        if tick == 0:
-            current_volume = channel_volume_after
-            current_gain = gain_after
-        else:
-            volume_after_tick = last_number(tick_updates, "effective_volume_after")
-            gain_after_tick = last_number(tick_updates, "gain_after")
-            if volume_after_tick is not None:
-                current_volume = volume_after_tick
-            if gain_after_tick is not None:
-                current_gain = gain_after_tick
+        volume_after_tick = last_number(tick_updates, "effective_volume_after")
+        gain_after_tick = last_number(tick_updates, "gain_after")
+        if volume_after_tick is not None:
+            current_volume = volume_after_tick
+        elif tick == 0 and event:
+            event_volume = event.get("effective_volume_value")
+            if isinstance(event_volume, (int, float)):
+                current_volume = event_volume
+        if gain_after_tick is not None:
+            current_gain = gain_after_tick
+        elif tick == 0 and event:
+            event_gain = event.get("gain")
+            if isinstance(event_gain, (int, float)):
+                current_gain = event_gain
 
         scheduled_frame = None
         if row_start_frame is not None and tick_frames is not None:

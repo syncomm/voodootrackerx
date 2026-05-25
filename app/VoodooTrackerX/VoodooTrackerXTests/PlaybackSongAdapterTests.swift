@@ -5066,45 +5066,220 @@ final class PlaybackSongAdapterTests: XCTestCase {
         }
     }
 
-    func testPlaybackSongAdapterAxyVolumeColumnOrderingAndMixedNibblePolicyAreDeterministic() throws {
-        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+    func testPlaybackSongAdapterA0FSpeed3AppliesOnTicksAfterTick0() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
                 2: [
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
-                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x2F),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let event = try XCTUnwrap(plan.pattern.events.first)
+        let mapping = try XCTUnwrap(plan.diagnostics.eventMappings.first)
+        let updates = plan.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x0A }
+
+        XCTAssertEqual(plan.pattern.events.count, 1)
+        XCTAssertEqual(event.tick, 0)
+        XCTAssertEqual(event.gain, 0.5)
+        XCTAssertEqual(mapping.effectiveVolumeValue, 32)
+        XCTAssertEqual(updates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(updates.map(\.scheduledFrame), [1, 2])
+        XCTAssertEqual(updates.map(\.effectiveVolumeBefore), [32, 17])
+        XCTAssertEqual(updates.map(\.effectiveVolumeAfter), [17, 2])
+        XCTAssertTrue(updates.allSatisfy { $0.activeVoiceUpdated })
+        XCTAssertTrue(updates.allSatisfy { $0.command == .axyVolumeSlide(up: 0, down: 15) })
+        XCTAssertTrue(updates.allSatisfy { $0.behavior == .tickLevelAfterTick0 })
+        XCTAssertTrue(updates.allSatisfy { $0.volumeSlideTick0Suppressed == true })
+        XCTAssertFalse(updates.contains { $0.syntheticTick == 0 })
+    }
+
+    func testPlaybackSongAdapterA0FSpeed2AppliesOnceAfterTick0() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let updates = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .filter { $0.effectType == 0x0A }
+
+        XCTAssertEqual(updates.count, 1)
+        XCTAssertEqual(updates.first?.syntheticTick, 1)
+        XCTAssertEqual(updates.first?.scheduledFrame, 1)
+        XCTAssertEqual(updates.first?.effectiveVolumeBefore, 32)
+        XCTAssertEqual(updates.first?.effectiveVolumeAfter, 17)
+    }
+
+    func testPlaybackSongAdapterA0FClampsAtVolumeZero() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x11, effectType: 0x0A, effectParam: 0x0F),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let update = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .first { $0.effectType == 0x0A })
+
+        XCTAssertEqual(update.effectiveVolumeBefore, 1)
+        XCTAssertEqual(update.effectiveVolumeAfter, 0)
+        XCTAssertEqual(update.volumeSlideClamped, true)
+    }
+
+    func testPlaybackSongAdapterAF0ClampsAtVolume64() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x4F, effectType: 0x0A, effectParam: 0xF0),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let update = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .first { $0.effectType == 0x0A })
+
+        XCTAssertEqual(update.effectiveVolumeBefore, 63)
+        XCTAssertEqual(update.effectiveVolumeAfter, 64)
+        XCTAssertEqual(update.volumeSlideClamped, true)
+    }
+
+    func testPlaybackSongAdapterVolumeColumnSetVolumeThenAxyOrderingIsDeterministic() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x0F),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let updates = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.voiceStateUpdates
+        let volumeColumn = try XCTUnwrap(updates.first { $0.rawVolumeColumn == 0x30 })
+        let axy = updates.filter { $0.effectType == 0x0A }
+
+        XCTAssertEqual(volumeColumn.syntheticTick, 0)
+        XCTAssertEqual(volumeColumn.scheduledFrame, 3)
+        XCTAssertEqual(volumeColumn.effectiveVolumeBefore, 64)
+        XCTAssertEqual(volumeColumn.effectiveVolumeAfter, 32)
+        XCTAssertEqual(axy.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(axy.map(\.scheduledFrame), [4, 5])
+        XCTAssertEqual(axy.map(\.effectiveVolumeBefore), [32, 17])
+        XCTAssertEqual(axy.map(\.effectiveVolumeAfter), [17, 2])
+    }
+
+    func testPlaybackSongAdapterA2FMixedNibbleUsesMikModObservedUpNibblePrecedence() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x2F),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let update = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .first { $0.effectType == 0x0A })
+
+        XCTAssertEqual(update.command, .axyVolumeSlide(up: 2, down: 0))
+        XCTAssertEqual(update.effectiveVolumeBefore, 32)
+        XCTAssertEqual(update.effectiveVolumeAfter, 34)
+        XCTAssertEqual(update.volumeSlideRawUpNibble, 2)
+        XCTAssertEqual(update.volumeSlideRawDownNibble, 15)
+        XCTAssertEqual(update.volumeSlideBothNibblesNonzero, true)
+        XCTAssertEqual(update.volumeSlidePolicy, "up_nibble_precedence_mikmod_observed")
+    }
+
+    func testPlaybackSongAdapterA00RemainsNoOpWithoutVolumeSlideMemory() throws {
+        let sample = makePlaybackSample(pcm: [1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x00),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let update = try XCTUnwrap(plan.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
+
+        XCTAssertEqual(update.status, .ignoredNoOp)
+        XCTAssertEqual(update.syntheticTick, 0)
+        XCTAssertEqual(update.command, .axyVolumeSlide(up: 0, down: 0))
+        XCTAssertEqual(update.effectiveVolumeBefore, 32)
+        XCTAssertEqual(update.effectiveVolumeAfter, 32)
+        XCTAssertEqual(update.volumeSlidePolicy, "a00_no_effect_memory_no_op")
+        XCTAssertFalse(update.activeVoiceUpdated)
+    }
+
+    func testPlaybackSongAdapterAxyWindowedAndSplitRendersRemainDeterministic() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x0F),
                     makePlaybackRow(index: 2),
                 ],
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
-            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
-
-        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+        let request = PlaybackSongOfflineRenderRequest(
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 14
-        ))
-        let event = try XCTUnwrap(result.diagnostics.eventMappings.first)
-        let axyUpdates = result.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x0A }
-        let a0f = try XCTUnwrap(axyUpdates.first { $0.effectParam == 0x0F })
-        let a2f = try XCTUnwrap(axyUpdates.first { $0.effectParam == 0x2F })
+            frames: 9
+        )
+        let renderer = PlaybackSongOfflineRenderer()
 
-        XCTAssertEqual(event.effectiveVolumeValue, 17)
-        XCTAssertEqual(result.plan.pattern.events.first?.gain, 17.0 / 64.0)
-        XCTAssertEqual(a0f.syntheticTick, 0)
-        XCTAssertEqual(a0f.scheduledFrame, 0)
-        XCTAssertEqual(a0f.effectiveVolumeBefore, 32)
-        XCTAssertEqual(a0f.effectiveVolumeAfter, 17)
-        XCTAssertEqual(a0f.command, .axyVolumeSlide(up: 0, down: 15))
-        XCTAssertEqual(a0f.behavior, .rowLevelApproximation)
-        XCTAssertEqual(axyUpdates.count, 2)
-        XCTAssertEqual(a2f.effectiveVolumeBefore, 17)
-        XCTAssertEqual(a2f.effectiveVolumeAfter, 19)
-        XCTAssertEqual(a2f.command, .axyVolumeSlide(up: 2, down: 0))
-        XCTAssertEqual(a2f.effectParam, 0x2F)
+        let single = renderer.render(request)
+        let repeated = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [2, 3, 4])
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(repeated.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(split.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, single.block.interleavedPCM)
     }
 
     func testPlaybackSongAdapterCxxAnd8xxUpdateActiveVoiceState() throws {
@@ -5253,7 +5428,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
     }
 
     func testPlaybackSongAdapterAxyAndHxyGlobalVolumeSlidesUpdateActiveVoiceGain() throws {
-        let sample = makePlaybackSample(pcm: [1, 1, 1], volume: 1, baseSampleRate: 100)
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 8), volume: 1, baseSampleRate: 100)
         let axySong = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
@@ -5264,7 +5439,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 ]
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
-            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
         )
         let hxySong = makePlaybackSong(
             orderPatternIndices: [2],
@@ -5284,7 +5459,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: axySong,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 3
+            frames: 6
         ))
         let hxy = renderer.render(PlaybackSongOfflineRenderRequest(
             song: hxySong,
@@ -5292,14 +5467,16 @@ final class PlaybackSongAdapterTests: XCTestCase {
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
             frames: 3
         ))
-        let axyUpdate = try XCTUnwrap(axy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x0A })
+        let axyUpdates = axy.diagnostics.voiceStateUpdates.filter { $0.effectType == 0x0A }
         let hxyUpdate = try XCTUnwrap(hxy.diagnostics.voiceStateUpdates.first { $0.effectType == 0x11 })
 
-        XCTAssertFloatArrayEqual(axy.block.interleavedPCM, [1, 0.9980469, 0.99609375])
-        XCTAssertEqual(axyUpdate.activeVoiceUpdated, true)
-        XCTAssertEqual(axyUpdate.effectiveVolumeBefore, 64)
-        XCTAssertEqual(axyUpdate.effectiveVolumeAfter, 60)
-        XCTAssertEqual(axyUpdate.behavior, .rowLevelApproximation)
+        XCTAssertEqual(axyUpdates.count, 2)
+        XCTAssertEqual(axyUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(axyUpdates.map(\.scheduledFrame), [4, 5])
+        XCTAssertTrue(axyUpdates.allSatisfy(\.activeVoiceUpdated))
+        XCTAssertEqual(axyUpdates.map(\.effectiveVolumeBefore), [64, 60])
+        XCTAssertEqual(axyUpdates.map(\.effectiveVolumeAfter), [60, 56])
+        XCTAssertTrue(axyUpdates.allSatisfy { $0.behavior == .tickLevelAfterTick0 })
         XCTAssertFloatArrayEqual(hxy.block.interleavedPCM, [1, 0.9980469, 0.99609375])
         XCTAssertTrue(hxyUpdate.applied)
         XCTAssertEqual(hxyUpdate.activeVoiceUpdated, true)

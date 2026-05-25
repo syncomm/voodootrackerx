@@ -495,6 +495,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "fine_portamento_up_effects",
         "fine_portamento_down_effects",
         "vibrato_effects",
     ):
@@ -538,6 +539,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "retrigger_effects",
         "tone_portamento_effects",
         "portamento_slide_effects",
+        "fine_portamento_up_effects",
         "fine_portamento_down_effects",
         "vibrato_effects",
     ):

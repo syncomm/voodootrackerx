@@ -508,6 +508,7 @@ enum PlaybackSongSyntheticAdapter {
         var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
         var tonePortamentoEffects = [PlaybackSongSyntheticTonePortamentoDiagnostic]()
         var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
+        var finePortamentoUpEffects = [PlaybackSongSyntheticFinePortamentoUpDiagnostic]()
         var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
         var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
@@ -657,6 +658,7 @@ enum PlaybackSongSyntheticAdapter {
                 retriggerEffects: context.retriggerEffects,
                 tonePortamentoEffects: context.tonePortamentoEffects,
                 portamentoSlideEffects: context.portamentoSlideEffects,
+                finePortamentoUpEffects: context.finePortamentoUpEffects,
                 finePortamentoDownEffects: context.finePortamentoDownEffects,
                 vibratoEffects: context.vibratoEffects,
                 keyOffEvents: context.keyOffEvents,
@@ -701,6 +703,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
             let hasRetriggerEffect = extendedSubcommand == 0x09
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
+            let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
@@ -784,6 +787,19 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState
                 )
                 context.portamentoSlideEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
+            }
+            if hasFinePortamentoUpEffect, !(1...96).contains(cell.note) {
+                let diagnostic = handleFinePortamentoUp(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                context.finePortamentoUpEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
             if hasFinePortamentoDownEffect, !(1...96).contains(cell.note) {
@@ -1028,6 +1044,18 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventMappingIndex: nil
                     ))
                 }
+                if hasFinePortamentoUpEffect {
+                    let diagnostic = handleFinePortamentoUp(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.finePortamentoUpEffects.append(diagnostic)
+                }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
                         from: cell,
@@ -1079,6 +1107,18 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventIndex: nil,
                         activeEventMappingIndex: nil
                     ))
+                }
+                if hasFinePortamentoUpEffect {
+                    let diagnostic = handleFinePortamentoUp(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.finePortamentoUpEffects.append(diagnostic)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1133,6 +1173,18 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventMappingIndex: nil,
                         sampleFinetune: sampleSelection.diagnosticSample?.finetune
                     ))
+                }
+                if hasFinePortamentoUpEffect {
+                    let diagnostic = handleFinePortamentoUp(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.finePortamentoUpEffects.append(diagnostic)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1197,6 +1249,18 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState,
                         noteCutEffects: &context.noteCutEffects
                     )
+                }
+                if hasFinePortamentoUpEffect {
+                    let diagnostic = handleFinePortamentoUp(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.finePortamentoUpEffects.append(diagnostic)
                 }
                 if hasFinePortamentoDownEffect {
                     let diagnostic = handleFinePortamentoDown(
@@ -1268,6 +1332,22 @@ enum PlaybackSongSyntheticAdapter {
                     sampleFinetune: sample.finetune,
                     pitchMapping: pitchMapping
                 ))
+            }
+            if hasFinePortamentoUpEffect {
+                let result = finePortamentoUpAdjustedPitchMapping(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    basePitchMapping: pitchMapping,
+                    baseSampleRate: sample.baseSampleRate,
+                    activeEventIndex: eventIndex,
+                    activeEventMappingIndex: context.eventMappings.count,
+                    scheduledFrame: scheduledNoteFrame
+                )
+                pitchMapping = result.pitchMapping
+                context.finePortamentoUpEffects.append(result.diagnostic)
             }
             if hasFinePortamentoDownEffect {
                 let result = finePortamentoDownAdjustedPitchMapping(
@@ -2381,6 +2461,360 @@ enum PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: currentPlaybackStepAfter,
             rowSpeed: timingConfig.speed,
             rowBPM: timingConfig.bpm,
+            stepUpdates: stepUpdates,
+            clamped: clamped,
+            policy: policy
+        )
+    }
+
+    private static func handleFinePortamentoUp(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticFinePortamentoUpDiagnostic {
+        let amount = finePortamentoUpAmount(from: cell)
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let scheduledFrame = timingPlan.frameFor(row: syntheticRow, tick: 0)
+
+        guard amount > 0 else {
+            return finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "e10_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let currentLinearPeriod = channelState.activeLinearPeriod,
+              let currentPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        let rawAfter = currentLinearPeriod - Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "fine_portamento_up_pitch_out_of_range"
+            )
+        }
+
+        let update = PlaybackSongSyntheticTonePortamentoStepUpdate(
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            linearPeriodBefore: currentLinearPeriod,
+            linearPeriodAfter: afterPeriod,
+            playbackStepBefore: currentPlaybackStep,
+            playbackStepAfter: nextStep,
+            reachedTarget: false,
+            clamped: clamped
+        )
+        channelState.activeLinearPeriod = afterPeriod
+        channelState.activePlaybackStep = nextStep
+
+        return finePortamentoUpDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            fineAmount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: false,
+            stepUpdates: [update],
+            clamped: clamped,
+            policy: "row_start_fine_linear_period_up_first_pass"
+        )
+    }
+
+    private static func finePortamentoUpAdjustedPitchMapping(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        basePitchMapping: PlaybackStepMapping,
+        baseSampleRate: Double,
+        activeEventIndex: Int,
+        activeEventMappingIndex: Int,
+        scheduledFrame: Int
+    ) -> (pitchMapping: PlaybackStepMapping, diagnostic: PlaybackSongSyntheticFinePortamentoUpDiagnostic) {
+        let amount = finePortamentoUpAmount(from: cell)
+        let currentLinearPeriodBefore = basePitchMapping.linearPeriod
+        let currentPlaybackStepBefore = basePitchMapping.applied ? basePitchMapping.playbackStep : nil
+
+        guard amount > 0 else {
+            return (basePitchMapping, finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "e10_effect_memory_deferred_no_op"
+            ))
+        }
+
+        guard basePitchMapping.applied,
+              let linearPeriod = basePitchMapping.linearPeriod,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            let status: PlaybackSongSyntheticFinePortamentoUpDiagnostic.Status =
+                basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
+            return (basePitchMapping, finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: status,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: status == .unsupportedFrequencyTable
+                    ? "linear_frequency_only_first_pass"
+                    : "fine_portamento_up_pitch_out_of_range"
+            ))
+        }
+
+        let rawAfter = linearPeriod - Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return (basePitchMapping, finePortamentoUpDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                fineAmount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "fine_portamento_up_pitch_out_of_range"
+            ))
+        }
+
+        let adjustedMapping = PlaybackStepMapping(
+            playbackStep: nextStep,
+            outputSampleRate: basePitchMapping.outputSampleRate,
+            effectiveNoteValue: basePitchMapping.effectiveNoteValue,
+            effectiveNoteIndex: basePitchMapping.effectiveNoteIndex,
+            effectiveFinetune: basePitchMapping.effectiveFinetune,
+            linearPeriod: afterPeriod,
+            linearFrequency: nextStep * basePitchMapping.outputSampleRate,
+            finetuneStatus: basePitchMapping.finetuneStatus,
+            frequencyTableStatus: basePitchMapping.frequencyTableStatus,
+            linearFrequencyApplied: true,
+            amigaFrequencyDeferred: false,
+            applied: true,
+            usedNeutralStep: abs(nextStep - 1.0) <= 0.000000001
+        )
+        return (adjustedMapping, finePortamentoUpDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            fineAmount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: afterPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: nextStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: true,
+            stepUpdates: [],
+            clamped: clamped,
+            policy: "same_cell_note_initial_playback_step_fine_linear_period_up_first_pass"
+        ))
+    }
+
+    private static func finePortamentoUpDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticFinePortamentoUpDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        fineAmount: Int,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        scheduledFrame: Int?,
+        appliedToInitialPlaybackStep: Bool,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        clamped: Bool,
+        policy: String
+    ) -> PlaybackSongSyntheticFinePortamentoUpDiagnostic {
+        let applied = status == .applied
+        let effectMemoryDeferred = status == .zeroAmountEffectMemoryDeferred
+        return PlaybackSongSyntheticFinePortamentoUpDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: effectMemoryDeferred ||
+                status == .unsupportedFrequencyTable ||
+                status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice || effectMemoryDeferred,
+            effectMemoryDeferred: effectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            fineAmount: fineAmount,
+            fineAmountNibble: fineAmount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
             stepUpdates: stepUpdates,
             clamped: clamped,
             policy: policy
@@ -4614,6 +5048,14 @@ enum PlaybackSongSyntheticAdapter {
         extendedEffectSubcommand(cell) == 0x05
     }
 
+    private static func isFinePortamentoUpEffect(_ cell: PlaybackCell) -> Bool {
+        extendedEffectSubcommand(cell) == 0x01
+    }
+
+    private static func finePortamentoUpAmount(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
     private static func isFinePortamentoDownEffect(_ cell: PlaybackCell) -> Bool {
         extendedEffectSubcommand(cell) == 0x02
     }
@@ -4914,6 +5356,8 @@ enum PlaybackSongSyntheticAdapter {
             return interval < timingConfig.speed ? .applied : .ignoredNoOp
         case 0x0E where isSetFinetuneEffect(cell):
             return (1...96).contains(cell.note) ? .applied : .deferredUnsupported
+        case 0x0E where isFinePortamentoUpEffect(cell):
+            return finePortamentoUpAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isFinePortamentoDownEffect(cell):
             return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isFineVolumeSlideEffect(cell):
@@ -5036,6 +5480,7 @@ enum PlaybackSongSyntheticAdapter {
             isVibratoEffect(cell) ||
             isVibratoVolumeSlideEffect(cell) ||
             isSetFinetuneEffect(cell) ||
+            isFinePortamentoUpEffect(cell) ||
             isFinePortamentoDownEffect(cell) ||
             isFineVolumeSlideEffect(cell) ||
             isSupportedRetriggerEffect(cell) ||

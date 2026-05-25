@@ -290,6 +290,11 @@ final class PlaybackSongOfflineRenderSession {
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer
         )
+        PlaybackSongOfflineRenderer.scheduleFinePortamentoUpStepUpdates(
+            adaptedPlan.diagnostics.finePortamentoUpEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoDownStepUpdates(
             adaptedPlan.diagnostics.finePortamentoDownEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
@@ -455,6 +460,13 @@ final class PlaybackSongOfflineRenderer {
             )
             Self.schedulePortamentoSlideStepUpdates(
                 adaptedPlan.diagnostics.portamentoSlideEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
+            Self.scheduleFinePortamentoUpStepUpdates(
+                adaptedPlan.diagnostics.finePortamentoUpEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -660,6 +672,35 @@ final class PlaybackSongOfflineRenderer {
 
     fileprivate static func schedulePortamentoSlideStepUpdates(
         _ diagnostics: [PlaybackSongSyntheticPortamentoSlideDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for diagnostic in diagnostics where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                guard update.scheduledFrame >= windowStartFrame else {
+                    continue
+                }
+                if let windowEndFrame,
+                   update.scheduledFrame >= windowEndFrame {
+                    continue
+                }
+                _ = mixer.scheduleVoicePlaybackStepUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: update.scheduledFrame - windowStartFrame,
+                    playbackStep: update.playbackStepAfter
+                )
+            }
+        }
+    }
+
+    fileprivate static func scheduleFinePortamentoUpStepUpdates(
+        _ diagnostics: [PlaybackSongSyntheticFinePortamentoUpDiagnostic],
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
@@ -1137,13 +1178,16 @@ final class PlaybackSongOfflineRenderer {
         let slideUpdates = plan.diagnostics.portamentoSlideEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
+        let finePortamentoUpUpdates = plan.diagnostics.finePortamentoUpEffects
+            .filter { $0.applied && $0.activeEventIndex == eventIndex }
+            .flatMap(\.stepUpdates)
         let finePortamentoDownUpdates = plan.diagnostics.finePortamentoDownEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
         let vibratoUpdates = plan.diagnostics.vibratoEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
-        return (toneUpdates + slideUpdates + finePortamentoDownUpdates + vibratoUpdates)
+        return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + vibratoUpdates)
             .sorted { lhs, rhs in
                 if lhs.scheduledFrame != rhs.scheduledFrame {
                     return lhs.scheduledFrame < rhs.scheduledFrame

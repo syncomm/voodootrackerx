@@ -1012,6 +1012,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let portamentoSlideNoActiveVoiceCount = diagnostics.portamentoSlideEffects.filter { $0.status == .noActiveVoice }.count
         let portamentoSlideZeroParamCount = diagnostics.portamentoSlideEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
         let portamentoSlideDeferredCount = diagnostics.portamentoSlideEffects.filter(\.deferred).count
+        let finePortamentoUpAppliedCount = diagnostics.finePortamentoUpEffects.filter(\.applied).count
+        let finePortamentoUpNoActiveVoiceCount = diagnostics.finePortamentoUpEffects.filter { $0.status == .noActiveVoice }.count
+        let finePortamentoUpZeroAmountCount = diagnostics.finePortamentoUpEffects.filter { $0.status == .zeroAmountEffectMemoryDeferred }.count
+        let finePortamentoUpDeferredCount = diagnostics.finePortamentoUpEffects.filter(\.deferred).count
+        let finePortamentoUpScheduledStepUpdateCount = diagnostics.finePortamentoUpEffects.map(\.stepUpdates.count).reduce(0, +)
         let finePortamentoDownAppliedCount = diagnostics.finePortamentoDownEffects.filter(\.applied).count
         let finePortamentoDownNoActiveVoiceCount = diagnostics.finePortamentoDownEffects.filter { $0.status == .noActiveVoice }.count
         let finePortamentoDownZeroAmountCount = diagnostics.finePortamentoDownEffects.filter { $0.status == .zeroAmountEffectMemoryDeferred }.count
@@ -1074,6 +1079,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 5xy and volume-column tone portamento remain deferred.",
+            "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
             "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory, volume-column vibrato, and waveform controls remain deferred.",
@@ -1135,6 +1141,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "portamento_slide_no_active_voice_count": portamentoSlideNoActiveVoiceCount,
                 "portamento_slide_zero_param_effect_memory_deferred_count": portamentoSlideZeroParamCount,
                 "portamento_slide_deferred_count": portamentoSlideDeferredCount,
+                "e1x_fine_portamento_up_effect_count": diagnostics.finePortamentoUpEffectCount,
+                "e1x_fine_portamento_up_detected_count": diagnostics.finePortamentoUpEffectCount,
+                "e1x_fine_portamento_up_applied_count": finePortamentoUpAppliedCount,
+                "e1x_fine_portamento_up_no_active_voice_count": finePortamentoUpNoActiveVoiceCount,
+                "e1x_fine_portamento_up_zero_amount_effect_memory_deferred_count": finePortamentoUpZeroAmountCount,
+                "e1x_fine_portamento_up_deferred_count": finePortamentoUpDeferredCount,
+                "e1x_fine_portamento_up_scheduled_sample_step_update_count": finePortamentoUpScheduledStepUpdateCount,
                 "e2x_fine_portamento_down_effect_count": diagnostics.finePortamentoDownEffectCount,
                 "e2x_fine_portamento_down_detected_count": diagnostics.finePortamentoDownEffectCount,
                 "e2x_fine_portamento_down_applied_count": finePortamentoDownAppliedCount,
@@ -1244,6 +1257,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "retrigger_effects": diagnostics.retriggerEffects.map(retriggerDiagnosticJSON),
             "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
             "portamento_slide_effects": diagnostics.portamentoSlideEffects.map(portamentoSlideDiagnosticJSON),
+            "fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
+            "e1x_fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
             "fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "e2x_fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
@@ -2553,6 +2568,47 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func finePortamentoUpDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticFinePortamentoUpDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": finePortamentoUpStatusName(diagnostic.status),
+            "current_status": finePortamentoUpStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "fine_amount": diagnostic.fineAmount,
+            "fine_amount_nibble": diagnostic.fineAmountNibble,
+            "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
+            "applied_to_initial_playback_step": diagnostic.appliedToInitialPlaybackStep,
+            "active_voice_update_count": diagnostic.applied ? diagnostic.stepUpdates.count : 0,
+            "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            "step_update_count": diagnostic.stepUpdates.count,
+            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "clamped": diagnostic.clamped,
+            "policy": diagnostic.policy,
+        ]
+    }
+
     private static func finePortamentoDownDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticFinePortamentoDownDiagnostic
     ) -> [String: Any] {
@@ -2997,6 +3053,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }
     }
 
+    private static func finePortamentoUpStatusName(
+        _ status: PlaybackSongSyntheticFinePortamentoUpDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .zeroAmountEffectMemoryDeferred:
+            return "zero_amount_effect_memory_deferred"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
+        }
+    }
+
     private static func vibratoStatusName(
         _ status: PlaybackSongSyntheticVibratoDiagnostic.Status
     ) -> String {
@@ -3416,6 +3489,9 @@ private func appendEventCoverageSummary(
     let portamentoDown = result.diagnostics.portamentoSlideEffects.filter { $0.direction == .down }
     lines.append(
         "Portamento slide: 1xx \(portamentoUp.filter(\.applied).count) applied, \(portamentoUp.filter(\.deferred).count) deferred, \(portamentoUp.filter { $0.status == .noActiveVoice }.count) no-active; 2xx \(portamentoDown.filter(\.applied).count) applied, \(portamentoDown.filter(\.deferred).count) deferred, \(portamentoDown.filter { $0.status == .noActiveVoice }.count) no-active."
+    )
+    lines.append(
+        "Fine portamento: E1x \(result.diagnostics.finePortamentoUpEffects.filter(\.applied).count) applied, \(result.diagnostics.finePortamentoUpEffects.filter(\.deferred).count) deferred, \(result.diagnostics.finePortamentoUpEffects.filter { $0.status == .noActiveVoice }.count) no-active; E2x \(result.diagnostics.finePortamentoDownEffects.filter(\.applied).count) applied, \(result.diagnostics.finePortamentoDownEffects.filter(\.deferred).count) deferred, \(result.diagnostics.finePortamentoDownEffects.filter { $0.status == .noActiveVoice }.count) no-active."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

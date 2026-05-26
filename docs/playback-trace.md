@@ -108,6 +108,11 @@ row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
 vibrato memory for sample-step updates and use the existing row-start gain
 update path for nonzero volume slides. `600` can replay vibrato memory without
 volume-slide memory; missing vibrato memory remains effect-memory-deferred.
+XM `E4x` vibrato control rows store per-channel deterministic vibrato
+waveform/control state for later `4xy`/`6xy` rows and emit no direct audio
+events. Supported first-pass controls cover sine/default, ramp-down, square,
+and deterministic random waveforms; unsupported control values remain explicit
+deferred diagnostics.
 
 The engine emits an `observed` event with
 `decisionReason == "row_timing_before_effects"` before applying row-level timing
@@ -613,19 +618,20 @@ offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 retriggers, `0xy` arpeggio updates, `1xx`/`2xx`/`3xx` portamento updates,
 including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
 portamento up updates, minimal `E2x` fine portamento down updates, minimal
-`4xy` vibrato sample-step updates, sample
+`E4x` vibrato-control state, `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `6xy`
 vibrato + volume slide sample-step/gain updates, and volume-column set
 volume/panning for empty-note rows and same-cell valid-note `3xx`
-no-retrigger rows that keep the carried voice active. Adapter-sourced `0xy`,
+no-retrigger rows that keep the carried voice active. Adapter diagnostics
+include `E4x` state rows; adapter-sourced `0xy`,
 `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
 `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the runtime
 update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
-the planned adapter event stream. Volume-column vibrato, vibrato waveform
-controls, and broader effect-memory families remain unsupported/deferred.
+the planned adapter event stream. Volume-column vibrato and broader
+effect-memory families remain unsupported/deferred.
 Unsupported XM effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.

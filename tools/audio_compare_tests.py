@@ -1430,6 +1430,58 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["0xy arpeggio"]["unsupported_count"], 0)
         self.assertEqual(rows["0xy arpeggio"]["recommended_implementation_priority"], "covered/low")
 
+    def test_effect_coverage_summary_counts_e4x_vibrato_control(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x0E, 0x41, "E4x vibrato control", row=1, status="applied"),
+                traversal_effect(0x0E, 0x44, "E4x vibrato control", row=2),
+            ],
+            "vibrato_control_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 1},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x0E,
+                    "effect_param": 0x41,
+                    "status": "stored",
+                    "current_status": "stored",
+                    "detected": True,
+                    "applied": True,
+                    "stored": True,
+                    "deferred": False,
+                    "control_value": 1,
+                    "waveform_name": "ramp_down",
+                },
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 2},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x0E,
+                    "effect_param": 0x44,
+                    "status": "deferred/unsupported_waveform",
+                    "current_status": "deferred/unsupported_waveform",
+                    "detected": True,
+                    "applied": False,
+                    "stored": False,
+                    "deferred": True,
+                    "unsupported_waveform": True,
+                    "control_value": 4,
+                    "waveform_name": "unsupported",
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["E4x vibrato control"]["detected_count"], 2)
+        self.assertEqual(rows["E4x vibrato control"]["applied_count"], 1)
+        self.assertEqual(rows["E4x vibrato control"]["deferred_count"], 1)
+        self.assertEqual(rows["E4x vibrato control"]["unsupported_count"], 1)
+        self.assertEqual(rows["E4x vibrato control"]["first_effect_param_hex"], "41")
+
     def test_effect_coverage_summary_records_first_coordinates(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())

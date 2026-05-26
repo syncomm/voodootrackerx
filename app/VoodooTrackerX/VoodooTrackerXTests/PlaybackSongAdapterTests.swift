@@ -2750,6 +2750,9 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.activeEventIndex, 0)
         XCTAssertEqual(diagnostic.vibratoSpeed, 4)
         XCTAssertEqual(diagnostic.vibratoDepth, 8)
+        XCTAssertEqual(diagnostic.vibratoControlValue, 0)
+        XCTAssertEqual(diagnostic.vibratoWaveform, "sine")
+        XCTAssertEqual(diagnostic.vibratoWaveformSource, "default_sine")
         XCTAssertEqual(diagnostic.rowSpeed, 4)
         XCTAssertEqual(diagnostic.rowBPM, 250)
         XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7, 8])
@@ -2757,6 +2760,185 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(diagnostic.stepUpdates.last?.playbackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore), accuracy: 0.000_001)
         XCTAssertEqual(command.status, .applied)
         XCTAssertEqual(plan.diagnostics.deferredCellFields.map(\.effectType), [])
+    }
+
+    func testPlaybackSongAdapterE40StoresDefaultSineWithoutPlayback() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x40),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let control = try XCTUnwrap(diagnostics.vibratoControlEffects.first)
+        let command = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x0E && $0.effectParam == 0x40 })
+
+        XCTAssertEqual(diagnostics.vibratoControlEffects.count, 1)
+        XCTAssertEqual(diagnostics.eventMappings.count, 0)
+        XCTAssertEqual(control.status, .stored)
+        XCTAssertTrue(control.detected)
+        XCTAssertTrue(control.applied)
+        XCTAssertTrue(control.stored)
+        XCTAssertFalse(control.deferred)
+        XCTAssertFalse(control.activeVoiceFound)
+        XCTAssertEqual(control.controlValue, 0)
+        XCTAssertEqual(control.waveformID, 0)
+        XCTAssertEqual(control.waveformName, "sine")
+        XCTAssertTrue(control.affectsLaterVibrato)
+        XCTAssertEqual(command.status, .applied)
+        XCTAssertEqual(diagnostics.deferredCellFields.map(\.effectType), [])
+    }
+
+    func testPlaybackSongAdapterE4xWithoutActiveVoiceAffectsLater4xy() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x41),
+                makePlaybackRow(index: 1, note: 49, instrument: 1),
+                makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let control = try XCTUnwrap(diagnostics.vibratoControlEffects.first)
+        let vibrato = try XCTUnwrap(diagnostics.vibratoEffects.first)
+
+        XCTAssertEqual(control.status, .stored)
+        XCTAssertFalse(control.activeVoiceFound)
+        XCTAssertEqual(control.controlValue, 1)
+        XCTAssertEqual(control.waveformName, "ramp_down")
+        XCTAssertEqual(vibrato.status, .applied)
+        XCTAssertEqual(vibrato.vibratoControlValue, 1)
+        XCTAssertEqual(vibrato.vibratoWaveform, "ramp_down")
+        XCTAssertEqual(vibrato.vibratoWaveformSource, "e4x_channel_state")
+        XCTAssertEqual(vibrato.stepUpdates.map(\.scheduledFrame), [9, 10, 11, 12])
+        XCTAssertEqual(diagnostics.deferredCellFields.map(\.effectType), [])
+    }
+
+    func testPlaybackSongAdapterE4xWaveformChangesLater4xyDeterministically() throws {
+        let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+        let sineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x04, effectParam: 0x48),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let rampSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x0E, effectParam: 0x41),
+                makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let sine = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(sineSong, orderIndex: 0, sampleRate: 100).diagnostics.vibratoEffects.first)
+        let ramp = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(rampSong, orderIndex: 0, sampleRate: 100).diagnostics.vibratoEffects.first)
+
+        XCTAssertEqual(sine.vibratoWaveform, "sine")
+        XCTAssertEqual(ramp.vibratoWaveform, "ramp_down")
+        XCTAssertNotEqual(
+            sine.stepUpdates.map(\.playbackStepAfter),
+            ramp.stepUpdates.map(\.playbackStepAfter)
+        )
+        XCTAssertGreaterThan(
+            try XCTUnwrap(ramp.stepUpdates.first?.playbackStepAfter),
+            try XCTUnwrap(sine.stepUpdates.first?.playbackStepAfter)
+        )
+    }
+
+    func testPlaybackSongAdapterE43RandomWaveformIsRepeatable() throws {
+        let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x43),
+                makePlaybackRow(index: 1, note: 49, instrument: 1),
+                makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let first = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let second = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let firstVibrato = try XCTUnwrap(first.vibratoEffects.first)
+        let secondVibrato = try XCTUnwrap(second.vibratoEffects.first)
+
+        XCTAssertEqual(first.vibratoControlEffects.first?.waveformName, "random")
+        XCTAssertEqual(firstVibrato.vibratoWaveform, "random")
+        XCTAssertEqual(
+            firstVibrato.stepUpdates.map(\.playbackStepAfter),
+            secondVibrato.stepUpdates.map(\.playbackStepAfter)
+        )
+        XCTAssertEqual(first.deferredCellFields.map(\.effectType), [])
+    }
+
+    func testPlaybackSongAdapterUnsupportedE4xControlIsDeferredExplicitly() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x44),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let control = try XCTUnwrap(diagnostics.vibratoControlEffects.first)
+        let command = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x0E && $0.effectParam == 0x44 })
+
+        XCTAssertEqual(control.status, .unsupportedWaveform)
+        XCTAssertTrue(control.detected)
+        XCTAssertFalse(control.applied)
+        XCTAssertFalse(control.stored)
+        XCTAssertTrue(control.deferred)
+        XCTAssertTrue(control.unsupportedWaveform)
+        XCTAssertEqual(control.controlValue, 4)
+        XCTAssertEqual(control.waveformID, 0)
+        XCTAssertEqual(control.waveformName, "unsupported")
+        XCTAssertTrue(control.retriggerSuppressed)
+        XCTAssertFalse(control.affectsLaterVibrato)
+        XCTAssertEqual(command.status, .deferredUnsupported)
+        XCTAssertEqual(diagnostics.deferredCellFields.map(\.field), [.effect])
+    }
+
+    func testPlaybackSongAdapterE4xWindowedCarryoverMatchesDefaultRender() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x0E, effectParam: 0x41),
+                makePlaybackRow(index: 1, note: 49, instrument: 1),
+                makePlaybackRow(index: 2, effectType: 0x04, effectParam: 0x48),
+                makePlaybackRow(index: 3, effectType: 0x04, effectParam: 0x48),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 16
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertEqual(windowed.diagnostics.vibratoControlEffects.first?.status, .stored)
+        XCTAssertEqual(windowed.diagnostics.vibratoEffects.map(\.vibratoWaveform), ["ramp_down", "ramp_down"])
     }
 
     func testPlaybackSongAdapterVibrato4xySameCellNoteTriggersAndApplies() throws {

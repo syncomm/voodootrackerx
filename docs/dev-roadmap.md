@@ -85,10 +85,14 @@ deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
 into the note's initial playback step, no-note rows update the active voice at
 row start, and `E10`/`E20` remain effect-memory-deferred no-ops. Minimal `4xy`
 vibrato now uses the same linear-frequency sample-step update foundation in the
-runtime/offline C mixer adapter path, with deterministic sine-based row-tick
-modulation diagnostics for speed/depth, active voice updates, no-active-voice,
+runtime/offline C mixer adapter path, with deterministic row-tick modulation
+diagnostics for speed/depth, E4x-selected sine/ramp/square/deterministic-random
+waveform state, active voice updates, no-active-voice,
 `400`/single-zero-nibble memory replay, and effect-memory-deferred no-ops when
-required memory is unavailable. Minimal `EAx`/`EBx` fine volume slides now
+required memory is unavailable. Minimal `E4x` vibrato control stores
+per-channel waveform/control state for later `4xy`/`6xy` rows without emitting
+direct audio events; unsupported control values remain explicit deferred
+diagnostics. Minimal `EAx`/`EBx` fine volume slides now
 apply one deterministic row-level clamped channel-volume adjustment through the
 shared runtime/offline gain-update path. Same-cell notes trigger with the
 adjusted volume, no-note rows update an active voice at row start, and
@@ -96,8 +100,8 @@ adjusted volume, no-note rows update an active voice at row start, and
 volume slide now reuses prior channel vibrato memory for sample-step updates and
 the existing row-level gain path for nonzero volume slides; `600`
 can replay vibrato memory without broad volume-slide memory, while missing
-vibrato memory, volume-column vibrato, vibrato waveform controls, and unrelated
-effect-memory families remain deferred.
+vibrato memory, volume-column vibrato, and unrelated effect-memory families
+remain deferred.
 Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
@@ -159,8 +163,10 @@ reported 222,392 detected commands, 215,060 applied, 96 deferred, 81
 unsupported, 7,250 no-op/effect-memory-deferred, 4,174 effect-memory reuses,
 and one missing effect-memory case. `E0x` filter toggle remains the largest
 limited-usefulness deferral, while the clearest small concrete unsupported
-bucket is now `E4x` vibrato control; traversal and supported effect-memory
-residuals are covered or explicit safe/no-active classifications. The
+bucket was `E4x` vibrato control; the focused E4x pass now stores supported
+vibrato controls and leaves unsupported control values visible. Traversal and
+supported effect-memory residuals are covered or explicit safe/no-active
+classifications. The
 developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by
@@ -601,14 +607,17 @@ Features:
   memory deferred, and no broad E-command memory
 - minimal `4xy` vibrato support through deterministic linear-period
   sample-step updates in the runtime/offline C mixer adapter path, with `400`
-  and single-zero nibbles replaying available per-channel vibrato memory while
-  missing memory, volume-column vibrato, waveform controls, and unrelated effect
-  memory remain deferred
+  and single-zero nibbles replaying available per-channel vibrato memory and
+  supported `E4x` waveform/control state while missing memory,
+  volume-column vibrato, and unrelated effect memory remain deferred
+- minimal `E4x` vibrato-control support that stores per-channel sine/default,
+  ramp-down, square, and deterministic-random waveform state for later `4xy`
+  and `6xy` rows without emitting direct audio events; unsupported control
+  values remain explicit deferred diagnostics
 - minimal `6xy` vibrato + volume slide support through prior channel vibrato
   memory plus the existing row-level volume-slide/gain path, with
   `600` replaying available vibrato memory and missing vibrato memory,
-  volume-column vibrato, waveform controls, and unrelated effect memory still
-  deferred
+  volume-column vibrato, and unrelated effect memory still deferred
 - minimal `EAx`/`EBx` fine volume slide support through one row-level clamped
   channel-volume adjustment in the runtime/offline C mixer adapter gain path,
   with same-cell note folding, no-active-voice diagnostics, `EA0`/`EB0` effect

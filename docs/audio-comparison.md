@@ -63,11 +63,14 @@ deterministic row-level linear-period/sample-step
 pitch-up adjustment; `E10` remains an effect-memory-deferred no-op. The `E2x`
 foundation applies one deterministic row-level linear-period/sample-step
 pitch-down adjustment; `E20` remains an effect-memory-deferred no-op. The
-`4xy` foundation uses
-deterministic sine-based linear-period sample-step updates on row ticks in the
-shared runtime/offline C mixer adapter path; `400` and single-zero nibbles
-reuse available per-channel speed/depth memory, while unavailable memory,
-volume-column vibrato, and vibrato waveform controls remain deferred. The
+`E4x` vibrato control stores per-channel deterministic waveform/control state
+for later `4xy`/`6xy` rows without emitting direct audio events. Supported
+first-pass waveforms are sine/default, ramp-down, square, and deterministic
+random; unsupported control values remain explicitly deferred. The `4xy`
+foundation uses deterministic linear-period sample-step updates on row ticks in
+the shared runtime/offline C mixer adapter path; `400` and single-zero nibbles
+reuse available per-channel speed/depth memory, while unavailable memory and
+volume-column vibrato remain deferred. The
 `6xy` foundation reuses prior channel vibrato memory and its existing row-level
 volume-slide/gain path; `600` can replay vibrato memory without volume-slide
 memory, while unavailable vibrato memory remains an effect-memory-deferred
@@ -112,7 +115,9 @@ usage, sample-map/keymap selections, fallback-after-invalid-map cases,
 skipped-no-valid-sample cases, missing/deferred keymap state, current C mixer
 scheduled/active capacity values, accepted scheduled voices, capacity reject
 counts, and rejected event coordinates.
-Diagnostics JSON also reports `vibrato_effects` plus render counters such as
+Diagnostics JSON also reports `vibrato_control_effects` with
+`e4x_vibrato_control_*` render counters for detected, stored/applied, deferred,
+and unsupported-waveform/control cases. `vibrato_effects` plus render counters such as
 `vibrato_4xy_effect_count`, applied/no-active/effect-memory-deferred buckets,
 `vibrato_4xy_memory_applied_count`, `vibrato_4xy_memory_missing_count`, and
 scheduled sample-step update counts for first-pass `4xy` coverage.

@@ -515,6 +515,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "portamento_slide_effects",
         "fine_portamento_up_effects",
         "fine_portamento_down_effects",
+        "vibrato_control_effects",
         "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):
@@ -560,6 +561,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "portamento_slide_effects",
         "fine_portamento_up_effects",
         "fine_portamento_down_effects",
+        "vibrato_control_effects",
         "vibrato_effects",
     ):
         for item in nested_list(payload.get(field_name)):

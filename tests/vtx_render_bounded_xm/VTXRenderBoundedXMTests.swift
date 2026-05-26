@@ -2176,6 +2176,65 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "6xy vibrato + volume slide" && $0["status"] as? String == "ignored/no-op" })
     }
 
+    func testDiagnosticsJSONIncludesE4xVibratoControl() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 1, count: 64),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x41),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0E, effectParam: 0x44),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x04, effectParam: 0x48),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+        ]
+        let song = PlaybackSong(
+            title: "e4x-vibrato-control",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: rows)],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let controls = try XCTUnwrap(object["vibrato_control_effects"] as? [[String: Any]])
+        let vibrato = try XCTUnwrap((object["vibrato_effects"] as? [[String: Any]])?.first)
+        let stored = try XCTUnwrap(controls.first { $0["current_status"] as? String == "stored" })
+        let unsupported = try XCTUnwrap(controls.first { $0["current_status"] as? String == "deferred/unsupported_waveform" })
+
+        XCTAssertEqual(render["e4x_vibrato_control_effect_count"] as? Int, 2)
+        XCTAssertEqual(render["e4x_vibrato_control_detected_count"] as? Int, 2)
+        XCTAssertEqual(render["e4x_vibrato_control_stored_count"] as? Int, 1)
+        XCTAssertEqual(render["e4x_vibrato_control_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["e4x_vibrato_control_unsupported_waveform_count"] as? Int, 1)
+        XCTAssertEqual(render["e4x_vibrato_control_deferred_count"] as? Int, 1)
+        XCTAssertEqual(stored["vibrato_control_value"] as? Int, 1)
+        XCTAssertEqual(stored["vibrato_waveform"] as? String, "ramp_down")
+        XCTAssertEqual(stored["affects_later_4xy_6xy"] as? Bool, true)
+        XCTAssertEqual(unsupported["unsupported_waveform"] as? Bool, true)
+        XCTAssertEqual(unsupported["retrigger_suppressed"] as? Bool, true)
+        XCTAssertEqual(vibrato["vibrato_control_value"] as? Int, 1)
+        XCTAssertEqual(vibrato["vibrato_waveform"] as? String, "ramp_down")
+        XCTAssertEqual(vibrato["vibrato_waveform_source"] as? String, "e4x_channel_state")
+    }
+
     func testWindowedRenderMatchesFor6xyVibratoVolumeSlideWithoutRetrigger() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

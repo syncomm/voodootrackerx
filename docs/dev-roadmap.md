@@ -153,7 +153,14 @@ largest remaining unsupported buckets after the portamento-memory refresh were
 `Dxx`/`Bxx`/`E6x` traversal foundations move those concrete buckets into the
 applied or explicit safe-diagnostic path; the next effect target should likely
 refresh residual corpus classification and clean up `E0x` deferral reporting
-unless local evidence points at a higher-value remaining bucket. The
+unless local evidence points at a higher-value remaining bucket. A post-focused
+same-cell `3xx` gain-state local-only refresh covered 26 anonymized inputs and
+reported 222,392 detected commands, 215,060 applied, 96 deferred, 81
+unsupported, 7,250 no-op/effect-memory-deferred, 4,174 effect-memory reuses,
+and one missing effect-memory case. `E0x` filter toggle remains the largest
+limited-usefulness deferral, while the clearest small concrete unsupported
+bucket is now `E4x` vibrato control; traversal and supported effect-memory
+residuals are covered or explicit safe/no-active classifications. The
 developer-only helper keeps its default
 60-second safety clamp, and explicit longer local candidate WAV renders now use
 documented `--seconds` / `--max-frames` controls gated by

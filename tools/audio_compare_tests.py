@@ -14,6 +14,9 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "audio-compare.p
 SMOKE_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "local-reference-compare-smoke.py"
 CORRELATION_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "correlate-audio-comparison.py"
 DISCONTINUITY_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "analyze-audio-discontinuities.py"
+REFERENCE_TRIAGE_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "summarize-reference-render-triage.py"
+)
 RUNTIME_TRACE_SUMMARY_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "summarize-runtime-c-mixer-trace.py"
 )
@@ -39,6 +42,15 @@ def load_audio_compare_module():
 
 def load_audio_discontinuities_module():
     spec = importlib.util.spec_from_file_location("audio_discontinuities", DISCONTINUITY_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_reference_triage_module():
+    spec = importlib.util.spec_from_file_location("reference_triage", REFERENCE_TRIAGE_SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -84,6 +96,7 @@ def load_focused_xm_channel_module():
 
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
+reference_triage = load_reference_triage_module()
 runtime_trace_summary = load_runtime_trace_summary_module()
 runtime_offline_window = load_runtime_offline_window_module()
 effect_coverage = load_effect_coverage_module()
@@ -2498,6 +2511,20 @@ class AudioCompareTests(unittest.TestCase):
             self.assertGreater(diff["max_abs_sample_difference"], 0.24)
             self.assertGreater(diff["normalized_rms_difference"], 0.49)
 
+    def test_gain_normalized_metrics_identify_scalar_loudness_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_pcm16_wav(reference, frames=sine_frames(amplitude=0.5))
+            write_pcm16_wav(candidate, frames=sine_frames(amplitude=0.25))
+
+            comparison = audio_compare.build_comparison(reference, candidate, seconds=1.0)
+            normalized = comparison["sample_comparison"]["gain_normalized"]
+
+            self.assertAlmostEqual(normalized["candidate_scalar_to_reference"], 2.0, places=3)
+            self.assertGreater(normalized["rms_difference_reduction_ratio"], 0.99)
+            self.assertLess(normalized["diff"]["overall_rms_difference"], 0.0001)
+
     def test_localized_mismatch_appears_in_worst_window_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             reference = Path(tmpdir) / "reference.wav"
@@ -2862,6 +2889,117 @@ class AudioCompareTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("missing reference WAV", result.stderr)
             self.assertIn("missing-reference.wav", result.stderr)
+
+
+class ReferenceRenderTriageTests(unittest.TestCase):
+    def test_triage_summary_recommends_high_priority_bucket_and_sanitizes_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            reference = tmpdir_path / "private-reference-name.wav"
+            candidate = tmpdir_path / "private-candidate-name.wav"
+            comparison_path = tmpdir_path / "private-comparison-name.json"
+            write_pcm16_wav(reference, frames=sine_frames(amplitude=0.5))
+            write_pcm16_wav(candidate, frames=sine_frames(amplitude=0.25))
+            audio_compare.write_json_report(
+                comparison_path,
+                audio_compare.build_comparison(reference, candidate, seconds=1.0),
+            )
+            manifest = {
+                "title": "Synthetic Triage",
+                "metadata": ["unit-test anonymized triage"],
+                "cases": [
+                    {
+                        "label": "xm-corpus-999",
+                        "role": "synthetic high priority",
+                        "priority": "highest",
+                        "classification": "localized",
+                        "suspected_buckets": ["interpolation/sample stepping"],
+                        "references": [
+                            {
+                                "renderer": "synthetic-reference",
+                                "comparison_json": str(comparison_path),
+                                "comparison_artifact_label": "xm-corpus-999-synthetic",
+                            },
+                        ],
+                    },
+                    {
+                        "label": "xm-corpus-998",
+                        "role": "missing reference case",
+                        "references": [
+                            {
+                                "renderer": "missing-reference",
+                                "available": False,
+                                "status": "missing_reference",
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            report = reference_triage.build_report(manifest)
+            markdown = reference_triage.build_markdown(report)
+
+            self.assertEqual(
+                report["summary"]["recommended_next_pr"],
+                "Interpolation/sample-step parity investigation",
+            )
+            self.assertEqual(report["summary"]["missing_reference_count"], 1)
+            self.assertIn("xm-corpus-999", markdown)
+            self.assertIn("Gain-normalized scalar/RMS diff/reduction", markdown)
+            self.assertNotIn(str(tmpdir_path), markdown)
+            self.assertNotIn("private-reference-name", markdown)
+            self.assertNotIn("private-candidate-name", json.dumps(report))
+
+    def test_triage_cli_writes_json_and_markdown(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            reference = tmpdir_path / "reference.wav"
+            candidate = tmpdir_path / "candidate.wav"
+            comparison_path = tmpdir_path / "comparison.json"
+            manifest_path = tmpdir_path / "manifest.json"
+            json_report = tmpdir_path / "triage.json"
+            markdown_report = tmpdir_path / "triage.md"
+            write_pcm16_wav(reference, frames=sine_frames(amplitude=0.5))
+            write_pcm16_wav(candidate, frames=sine_frames(amplitude=0.25))
+            audio_compare.write_json_report(
+                comparison_path,
+                audio_compare.build_comparison(reference, candidate, seconds=1.0),
+            )
+            manifest_path.write_text(json.dumps({
+                "cases": [
+                    {
+                        "label": "xm-corpus-997",
+                        "suspected_buckets": ["render-gain policy"],
+                        "references": [
+                            {
+                                "renderer": "synthetic-reference",
+                                "comparison_json": str(comparison_path),
+                            },
+                        ],
+                    },
+                ],
+            }), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REFERENCE_TRIAGE_SCRIPT_PATH),
+                    "--manifest",
+                    str(manifest_path),
+                    "--json",
+                    str(json_report),
+                    "--markdown",
+                    str(markdown_report),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parsed = json.loads(json_report.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["tool"], "scripts/summarize-reference-render-triage.py")
+            self.assertIn("# Reference Render Parity Triage", markdown_report.read_text(encoding="utf-8"))
 
 
 class AudioCorrelationTests(unittest.TestCase):

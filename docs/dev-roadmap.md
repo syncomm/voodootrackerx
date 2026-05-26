@@ -147,7 +147,11 @@ coverage summary helper can now aggregate bounded offline diagnostics JSON and
 runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op
 effect tables, first source coordinates, unresolved key-off/no-active buckets,
 and a conservative next-effect recommendation; filled reports and generated
-audio artifacts stay outside git. A post-`E1x` local-only full mapped-corpus
+audio artifacts stay outside git. Reference-render parity triage summaries can
+now aggregate anonymized `scripts/audio-compare.py` JSON metrics across selected
+private/local modules, including scalar gain-normalized evidence and
+missing-reference status, without changing playback behavior or committing
+artifacts. A post-`E1x` local-only full mapped-corpus
 refresh covered 26 anonymized inputs and reported 222,402 detected commands,
 214,105 applied, 187 deferred, 172 unsupported, 8,125 no-op/effect-memory
 deferred, 3,316 effect-memory reuses, and one missing effect-memory case. The

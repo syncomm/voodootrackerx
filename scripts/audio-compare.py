@@ -253,6 +253,7 @@ def diff_metrics(
     candidate: list[float],
     channels: int,
     reference_rms: float,
+    candidate_gain: float = 1.0,
 ) -> dict[str, object]:
     sample_count = min(len(reference), len(candidate))
     if sample_count == 0:
@@ -260,7 +261,7 @@ def diff_metrics(
         overall = 0.0
         max_abs = 0.0
     else:
-        diffs = [candidate[index] - reference[index] for index in range(sample_count)]
+        diffs = [(candidate[index] * candidate_gain) - reference[index] for index in range(sample_count)]
         overall = math.sqrt(sum(diff * diff for diff in diffs) / sample_count)
         max_abs = max((abs(diff) for diff in diffs), default=0.0)
         per_channel = []
@@ -279,6 +280,54 @@ def diff_metrics(
         "normalized_rms_difference": rounded_optional(normalized),
         "max_abs_sample_difference": rounded(max_abs),
         "per_channel_rms_difference": [rounded(value) for value in per_channel],
+    }
+
+
+def best_fit_candidate_gain(reference: list[float], candidate: list[float]) -> float | None:
+    sample_count = min(len(reference), len(candidate))
+    if sample_count == 0:
+        return None
+
+    candidate_square_sum = 0.0
+    dot = 0.0
+    for index in range(sample_count):
+        ref = reference[index]
+        cand = candidate[index]
+        candidate_square_sum += cand * cand
+        dot += ref * cand
+
+    if candidate_square_sum == 0.0:
+        return None
+    return dot / candidate_square_sum
+
+
+def gain_normalized_metrics(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    reference_rms: float,
+    raw_rms_difference: float,
+) -> dict[str, object]:
+    gain = best_fit_candidate_gain(reference, candidate)
+    if gain is None:
+        return {
+            "candidate_scalar_to_reference": None,
+            "candidate_scalar_db": None,
+            "rms_difference_reduction_ratio": None,
+            "diff": None,
+        }
+
+    normalized_diff = diff_metrics(reference, candidate, channels, reference_rms, candidate_gain=gain)
+    normalized_rms = normalized_diff["overall_rms_difference"]
+    reduction_ratio = None
+    if raw_rms_difference > 0.0:
+        reduction_ratio = max(0.0, min(1.0, (raw_rms_difference - float(normalized_rms)) / raw_rms_difference))
+
+    return {
+        "candidate_scalar_to_reference": rounded(gain),
+        "candidate_scalar_db": rounded_optional(amplitude_to_dbfs(abs(gain))),
+        "rms_difference_reduction_ratio": rounded_optional(reduction_ratio),
+        "diff": normalized_diff,
     }
 
 
@@ -394,6 +443,7 @@ def build_comparison(
     }
 
     if sample_comparison_available:
+        raw_diff = diff_metrics(reference_samples, candidate_samples, reference_info.channels, reference_stats.rms)
         comparison["sample_comparison"] = {
             "overlap_frames": min(reference_stats.frames_analyzed, candidate_stats.frames_analyzed),
             "first_difference_seconds": rounded_optional(first_difference_timestamp(
@@ -404,7 +454,14 @@ def build_comparison(
                 diff_threshold,
             )),
             "normalized_correlation": rounded_optional(normalized_correlation(reference_samples, candidate_samples)),
-            "diff": diff_metrics(reference_samples, candidate_samples, reference_info.channels, reference_stats.rms),
+            "diff": raw_diff,
+            "gain_normalized": gain_normalized_metrics(
+                reference_samples,
+                candidate_samples,
+                reference_info.channels,
+                reference_stats.rms,
+                float(raw_diff["overall_rms_difference"]),
+            ),
             "worst_windows": worst_mismatch_windows(
                 reference_samples,
                 candidate_samples,
@@ -495,6 +552,7 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
         ])
     else:
         diff = sample_comparison["diff"]
+        gain_normalized = sample_comparison.get("gain_normalized")
         assert isinstance(diff, dict)
         lines.extend([
             f"- Overlap frames: {sample_comparison['overlap_frames']}",
@@ -506,6 +564,29 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
             "- First difference "
             f"> {comparison['diff_threshold']:g}: {format_timestamp(sample_comparison['first_difference_seconds'])}",
             "",
+            "## Gain-Normalized Difference",
+        ])
+        if isinstance(gain_normalized, dict) and isinstance(gain_normalized.get("diff"), dict):
+            normalized_diff = gain_normalized["diff"]
+            assert isinstance(normalized_diff, dict)
+            lines.extend([
+                "- Candidate scalar to reference: "
+                f"{format_optional_float(gain_normalized.get('candidate_scalar_to_reference'))} "
+                f"({format_db(gain_normalized.get('candidate_scalar_db'))})",
+                "- Gain-normalized RMS difference: "
+                f"{normalized_diff['overall_rms_difference']:.8f}",
+                "- Gain-normalized max absolute sample difference: "
+                f"{normalized_diff['max_abs_sample_difference']:.8f}",
+                "- RMS difference reduction after scalar normalization: "
+                f"{format_optional_float(gain_normalized.get('rms_difference_reduction_ratio'))}",
+                "",
+            ])
+        else:
+            lines.extend([
+                "- Unavailable because the candidate has no measurable energy in the analyzed overlap.",
+                "",
+            ])
+        lines.extend([
             "## Worst Mismatch Windows",
         ])
         windows = sample_comparison["worst_windows"]

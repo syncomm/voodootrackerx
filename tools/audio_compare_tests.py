@@ -1500,7 +1500,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
     def test_effect_coverage_summary_records_anonymized_input_labels(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "xm-corpus-001.diagnostics.json", synthetic_effect_coverage_diagnostics()),
-            ("offline_diagnostics", "xm-corpus-002.diagnostics.json", synthetic_effect_coverage_diagnostics()),
+            ("offline_diagnostics", "xm-corpus-002.effect-coverage.json", synthetic_effect_coverage_diagnostics()),
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
@@ -1558,6 +1558,19 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
 
         self.assertEqual(summary["summary"]["recommended_next_pr"], "Effect Memory Foundation")
+
+    def test_effect_coverage_summary_recommends_documenting_e0x_when_only_limited_bucket_remains(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x0E, 0x01, "E0x filter toggle"),
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.effect-coverage.json", diagnostics),
+        ])
+
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "Document E0x Filter Toggle Deferral")
 
     def test_effect_coverage_summary_recommends_portamento_memory_when_zero_param_portamento_dominates(self):
         diagnostics = {

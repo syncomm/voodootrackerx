@@ -239,7 +239,7 @@ def load_input(path: Path) -> tuple[str, Any]:
 
 def input_label(input_name: str) -> str:
     name = Path(input_name).name
-    for suffix in (".diagnostics.json", ".jsonl", ".json"):
+    for suffix in (".effect-coverage.json", ".diagnostics.json", ".jsonl", ".json"):
         if name.endswith(suffix):
             return name[:-len(suffix)]
     return name
@@ -1028,6 +1028,10 @@ def recommend_next_pr(
         row for row in unsupported_rows
         if str(row.get("recommended_implementation_priority")) not in NON_IMPLEMENTATION_PRIORITIES
     ]
+    if unsupported_rows and not useful_unsupported_rows:
+        unsupported_commands = {str(row.get("command") or "") for row in unsupported_rows}
+        if unsupported_commands <= LIMITED_USEFULNESS_COMMANDS:
+            return "Document E0x Filter Toggle Deferral"
     candidate_rows = useful_unsupported_rows or unsupported_rows or effect_memory_rows or unresolved_rows
     candidate_rows.sort(key=lambda row: (
         -int(row["unsupported_count"]),

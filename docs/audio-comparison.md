@@ -1292,7 +1292,7 @@ coverage without comparing audio:
 swift run vtx_render_bounded_xm \
   --input /path/to/local-reference-module.xm \
   --output /tmp/vtx-effect-coverage-candidate.wav \
-  --diagnostics-json /tmp/vtx-effect-coverage-diagnostics.json \
+  --effect-coverage-json /tmp/vtx-effect-coverage-diagnostics.json \
   --order 0 \
   --order-count 16 \
   --sample-rate 44100 \
@@ -1305,12 +1305,15 @@ python3 scripts/summarize-xm-effect-coverage.py \
   --markdown /tmp/vtx-effect-coverage-summary.md
 ```
 
-For a local-only corpus pass, pass multiple diagnostics JSON files to the same
-summary command. The Markdown table includes command, source column, offline or
-runtime category, detected/applied/deferred/unsupported/no-op counts, first
-coordinates, and recommended implementation priority. Use the recommendation as
-triage evidence only; implementation PRs still need synthetic tests and must not
-depend on private modules.
+For a local-only corpus pass, pass multiple compact effect-coverage JSON files
+or full diagnostics JSON files to the same summary command. Compact
+`--effect-coverage-json` output omits bulky row/event diagnostics and is
+preferred for broad corpus refreshes. The Markdown table includes command,
+source column, offline or runtime category,
+detected/applied/deferred/unsupported/no-op counts, first coordinates, and
+recommended implementation priority. Use the recommendation as triage evidence
+only; implementation PRs still need synthetic tests and must not depend on
+private modules.
 
 When anonymizing a private XM corpus for local reports, preserve
 `/tmp/vtx-private-xm-corpus-label-map.json` as the stable local-only label map.

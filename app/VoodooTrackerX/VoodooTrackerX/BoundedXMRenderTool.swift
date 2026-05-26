@@ -1036,6 +1036,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let setFinetuneNoNoteDeferredCount = diagnostics.setFinetuneEffects.filter { $0.status == .noNoteDeferred }.count
         let setFinetuneNoActiveVoiceCount = diagnostics.setFinetuneEffects.filter { $0.status == .noActiveVoice }.count
         let setFinetuneDeferredCount = diagnostics.setFinetuneEffects.filter(\.deferred).count
+        let vibratoControlStoredCount = diagnostics.vibratoControlEffects.filter(\.stored).count
+        let vibratoControlUnsupportedCount = diagnostics.vibratoControlEffects.filter(\.unsupportedWaveform).count
+        let vibratoControlDeferredCount = diagnostics.vibratoControlEffects.filter(\.deferred).count
         let vibrato4xyEffects = diagnostics.vibratoEffects.filter { $0.effectType == 0x04 }
         let vibrato6xyEffects = diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }
         let vibratoAppliedCount = vibrato4xyEffects.filter(\.applied).count
@@ -1108,7 +1111,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
-            "Minimal 4xy vibrato uses deterministic sine-based linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory, volume-column vibrato, and waveform controls remain deferred.",
+            "Minimal E4x vibrato control stores deterministic sine/ramp/square/random waveform state for later 4xy/6xy vibrato; unsupported control values remain explicitly deferred and E4x emits no direct audio event.",
+            "Minimal 4xy vibrato uses deterministic linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory and volume-column vibrato remain deferred.",
             "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus its existing row-level volume-slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx and tick-level Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
@@ -1205,6 +1209,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "e5x_set_finetune_no_note_deferred_count": setFinetuneNoNoteDeferredCount,
                 "e5x_set_finetune_no_active_voice_count": setFinetuneNoActiveVoiceCount,
                 "e5x_set_finetune_deferred_count": setFinetuneDeferredCount,
+                "e4x_vibrato_control_effect_count": diagnostics.vibratoControlEffectCount,
+                "e4x_vibrato_control_detected_count": diagnostics.vibratoControlEffectCount,
+                "e4x_vibrato_control_stored_count": vibratoControlStoredCount,
+                "e4x_vibrato_control_applied_count": vibratoControlStoredCount,
+                "e4x_vibrato_control_unsupported_waveform_count": vibratoControlUnsupportedCount,
+                "e4x_vibrato_control_deferred_count": vibratoControlDeferredCount,
                 "vibrato_4xy_effect_count": vibrato4xyEffects.count,
                 "vibrato_4xy_applied_count": vibratoAppliedCount,
                 "vibrato_4xy_no_active_voice_count": vibratoNoActiveVoiceCount,
@@ -1337,6 +1347,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "e2x_fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
+            "vibrato_control_effects": diagnostics.vibratoControlEffects.map(vibratoControlDiagnosticJSON),
             "vibrato_volume_slide_6xy_effects": diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }.map(vibratoDiagnosticJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
@@ -2979,6 +2990,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "depth": diagnostic.vibratoDepth,
             "vibrato_speed_source": diagnostic.vibratoSpeedSource.map { $0 as Any } ?? NSNull(),
             "vibrato_depth_source": diagnostic.vibratoDepthSource.map { $0 as Any } ?? NSNull(),
+            "vibrato_control_value": diagnostic.vibratoControlValue,
+            "vibrato_waveform": diagnostic.vibratoWaveform,
+            "vibrato_waveform_source": diagnostic.vibratoWaveformSource,
             "effect_memory_reused": diagnostic.effectMemoryReused,
             "effect_memory_missing": diagnostic.effectMemoryMissing,
             "effect_memory_deferred": diagnostic.effectMemoryDeferred,
@@ -3017,6 +3031,40 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             "step_update_count": diagnostic.stepUpdates.count,
             "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "policy": diagnostic.policy,
+        ]
+    }
+
+    private static func vibratoControlDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticVibratoControlDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "effect_label": "E4x vibrato control",
+            "decoded_label": "E4x vibrato control",
+            "status": vibratoControlStatusName(diagnostic.status),
+            "current_status": vibratoControlStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "stored": diagnostic.stored,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "control_value": diagnostic.controlValue,
+            "vibrato_control_value": diagnostic.controlValue,
+            "waveform_id": diagnostic.waveformID,
+            "waveform_name": diagnostic.waveformName,
+            "vibrato_waveform": diagnostic.waveformName,
+            "retrigger_suppressed": diagnostic.retriggerSuppressed,
+            "unsupported_waveform": diagnostic.unsupportedWaveform,
+            "affects_later_4xy_6xy": diagnostic.affectsLaterVibrato,
             "policy": diagnostic.policy,
         ]
     }
@@ -3412,6 +3460,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "deferred/unsupported_frequency_table"
         case .outOfRange:
             return "out_of_range"
+        }
+    }
+
+    private static func vibratoControlStatusName(
+        _ status: PlaybackSongSyntheticVibratoControlDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .stored:
+            return "stored"
+        case .unsupportedWaveform:
+            return "deferred/unsupported_waveform"
         }
     }
 

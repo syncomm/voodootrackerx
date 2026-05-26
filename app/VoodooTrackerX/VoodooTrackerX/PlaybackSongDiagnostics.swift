@@ -30,6 +30,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
     let finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
     let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
+    let vibratoControlEffects: [PlaybackSongSyntheticVibratoControlDiagnostic]
     let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
     let keyOffEvents: [PlaybackSongSyntheticKeyOffDiagnostic]
     let eventMappings: [PlaybackSongSyntheticEventMapping]
@@ -103,6 +104,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var vibratoEffectCount: Int {
         vibratoEffects.count
+    }
+
+    var vibratoControlEffectCount: Int {
+        vibratoControlEffects.count
     }
 
     var traversalHazardSummary: PlaybackSongSyntheticTraversalHazardSummary {
@@ -258,6 +263,7 @@ extension PlaybackSongSyntheticDiagnostics {
             finePortamentoUpEffects: finePortamentoUpEffects,
             finePortamentoDownEffects: finePortamentoDownEffects,
             arpeggioEffects: arpeggioEffects,
+            vibratoControlEffects: vibratoControlEffects,
             vibratoEffects: vibratoEffects,
             keyOffEvents: keyOffEvents,
             eventMappings: eventMappings,
@@ -1179,6 +1185,9 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let vibratoDepth: Int
     let vibratoSpeedSource: String?
     let vibratoDepthSource: String?
+    let vibratoControlValue: Int
+    let vibratoWaveform: String
+    let vibratoWaveformSource: String
     let effectMemoryReused: Bool
     let effectMemoryMissing: Bool
     let effectMemoryDeferred: Bool
@@ -1198,6 +1207,36 @@ struct PlaybackSongSyntheticVibratoDiagnostic: Equatable {
     let rowSpeed: Int
     let rowBPM: Int
     let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    let policy: String
+}
+
+struct PlaybackSongSyntheticVibratoControlDiagnostic: Equatable {
+    enum Status: Equatable {
+        case stored
+        case unsupportedWaveform
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let stored: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let controlValue: Int
+    let waveformID: Int
+    let waveformName: String
+    let retriggerSuppressed: Bool
+    let unsupportedWaveform: Bool
+    let affectsLaterVibrato: Bool
     let policy: String
 }
 

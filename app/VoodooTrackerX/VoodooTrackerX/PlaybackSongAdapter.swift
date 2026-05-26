@@ -876,6 +876,7 @@ enum PlaybackSongSyntheticAdapter {
         var vibratoDepth: Int?
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
         var vibratoDepthMemorySource: PlaybackSongSyntheticEffectMemorySource?
+        var vibratoControl: VibratoControlState?
         var vibratoPhase: Double = 0
 
         var pan: Float {
@@ -891,6 +892,33 @@ enum PlaybackSongSyntheticAdapter {
     private struct PortamentoSlideMemory: Equatable {
         let amount: Int
         let source: PlaybackSongSyntheticEffectMemorySource
+    }
+
+    private struct VibratoControlState: Equatable {
+        let controlValue: Int
+        let waveform: VibratoWaveform
+        let retriggerSuppressed: Bool
+        let source: PlaybackSongSyntheticEffectMemorySource?
+    }
+
+    private enum VibratoWaveform: Int, Equatable {
+        case sine = 0
+        case rampDown = 1
+        case square = 2
+        case random = 3
+
+        var name: String {
+            switch self {
+            case .sine:
+                return "sine"
+            case .rampDown:
+                return "ramp_down"
+            case .square:
+                return "square"
+            case .random:
+                return "random"
+            }
+        }
     }
 
     private struct GlobalVolumeState: Equatable {
@@ -1142,6 +1170,7 @@ enum PlaybackSongSyntheticAdapter {
         var finePortamentoUpEffects = [PlaybackSongSyntheticFinePortamentoUpDiagnostic]()
         var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
         var arpeggioEffects = [PlaybackSongSyntheticArpeggioDiagnostic]()
+        var vibratoControlEffects = [PlaybackSongSyntheticVibratoControlDiagnostic]()
         var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
         var keyOffEvents = [PlaybackSongSyntheticKeyOffDiagnostic]()
         var effectCommandDiagnostics = [PlaybackSongSyntheticEffectCommandDiagnostic]()
@@ -1261,6 +1290,7 @@ enum PlaybackSongSyntheticAdapter {
                 finePortamentoUpEffects: context.finePortamentoUpEffects,
                 finePortamentoDownEffects: context.finePortamentoDownEffects,
                 arpeggioEffects: context.arpeggioEffects,
+                vibratoControlEffects: context.vibratoControlEffects,
                 vibratoEffects: context.vibratoEffects,
                 keyOffEvents: context.keyOffEvents,
                 eventMappings: context.eventMappings,
@@ -1355,6 +1385,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
+            let hasVibratoControlEffect = extendedSubcommand == 0x04
             let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
             let hasTonePortamento = isTonePortamentoEffect(cell)
@@ -1403,6 +1434,16 @@ enum PlaybackSongSyntheticAdapter {
                 globalVolumeValue: context.globalVolumeState.volumeValue
             ) {
                 context.voiceStateUpdates.append(update)
+            }
+            if hasVibratoControlEffect {
+                let diagnostic = handleVibratoControl(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    channelState: &channelState
+                )
+                context.vibratoControlEffects.append(diagnostic)
             }
             context.channelStates[channelIndex] = channelState
             if cell.effectType == 0x11 {
@@ -4464,6 +4505,13 @@ enum PlaybackSongSyntheticAdapter {
         let phaseBefore = channelState.vibratoPhase
         let currentLinearPeriodBefore = channelState.activeLinearPeriod
         let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let vibratoControl = channelState.vibratoControl ?? VibratoControlState(
+            controlValue: 0,
+            waveform: .sine,
+            retriggerSuppressed: false,
+            source: nil
+        )
+        let waveformSource = vibratoControl.source == nil ? "default_sine" : "e4x_channel_state"
 
         guard !effectMemoryMissing else {
             return vibratoDiagnostic(
@@ -4480,6 +4528,9 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                controlValue: vibratoControl.controlValue,
+                waveform: vibratoControl.waveform,
+                waveformSource: waveformSource,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: true,
                 effectMemoryDeferred: true,
@@ -4515,6 +4566,9 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                controlValue: vibratoControl.controlValue,
+                waveform: vibratoControl.waveform,
+                waveformSource: waveformSource,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: false,
                 effectMemoryDeferred: false,
@@ -4548,6 +4602,9 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                controlValue: vibratoControl.controlValue,
+                waveform: vibratoControl.waveform,
+                waveformSource: waveformSource,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: false,
                 effectMemoryDeferred: true,
@@ -4583,6 +4640,9 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                controlValue: vibratoControl.controlValue,
+                waveform: vibratoControl.waveform,
+                waveformSource: waveformSource,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: false,
                 effectMemoryDeferred: false,
@@ -4619,6 +4679,9 @@ enum PlaybackSongSyntheticAdapter {
                 depth: depth,
                 speedSource: speedSource,
                 depthSource: depthSource,
+                controlValue: vibratoControl.controlValue,
+                waveform: vibratoControl.waveform,
+                waveformSource: waveformSource,
                 effectMemoryReused: effectMemoryReused,
                 effectMemoryMissing: false,
                 effectMemoryDeferred: false,
@@ -4647,7 +4710,9 @@ enum PlaybackSongSyntheticAdapter {
             let beforePeriod = currentLinearPeriod
             let beforeStep = currentPlaybackStep
             phase += Double(speed) * (.pi / 32.0)
-            let modulatedPeriod = clampedLinearPeriod(baseLinearPeriod - (sin(phase) * periodDepth))
+            let modulatedPeriod = clampedLinearPeriod(
+                baseLinearPeriod - (vibratoWaveformValue(vibratoControl.waveform, phase: phase) * periodDepth)
+            )
             guard let nextStep = playbackStep(
                 linearPeriod: modulatedPeriod,
                 baseSampleRate: baseSampleRate,
@@ -4668,6 +4733,9 @@ enum PlaybackSongSyntheticAdapter {
                     depth: depth,
                     speedSource: speedSource,
                     depthSource: depthSource,
+                    controlValue: vibratoControl.controlValue,
+                    waveform: vibratoControl.waveform,
+                    waveformSource: waveformSource,
                     effectMemoryReused: effectMemoryReused,
                     effectMemoryMissing: false,
                     effectMemoryDeferred: false,
@@ -4731,6 +4799,9 @@ enum PlaybackSongSyntheticAdapter {
             depth: depth,
             speedSource: speedSource,
             depthSource: depthSource,
+            controlValue: vibratoControl.controlValue,
+            waveform: vibratoControl.waveform,
+            waveformSource: waveformSource,
             effectMemoryReused: effectMemoryReused,
             effectMemoryMissing: false,
             effectMemoryDeferred: false,
@@ -4746,9 +4817,113 @@ enum PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             stepUpdates: stepUpdates,
             policy: isVibratoVolumeSlide
-                ? "6xy_reuses_4xy_sine_linear_period_state_plus_row_level_volume_slide"
-                : "sine_linear_period_first_pass_waveform_controls_deferred"
+                ? "6xy_reuses_4xy_vibrato_state_plus_row_level_volume_slide"
+                : "deterministic_vibrato_waveform_linear_period_first_pass"
         )
+    }
+
+    private static func handleVibratoControl(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticVibratoControlDiagnostic {
+        let controlValue = Int(cell.effectParam & 0x0F)
+        let waveformID = controlValue & 0x03
+        let retriggerSuppressed = (controlValue & 0x04) != 0
+        let activeEventIndex = channelState.activeEventIndex
+        let activeEventMappingIndex = channelState.activeEventMappingIndex
+        guard let waveform = supportedVibratoWaveform(controlValue: controlValue) else {
+            return PlaybackSongSyntheticVibratoControlDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: 0,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                status: .unsupportedWaveform,
+                detected: true,
+                applied: false,
+                stored: false,
+                deferred: true,
+                ignoredAsNoOp: false,
+                activeVoiceFound: activeEventIndex != nil,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                controlValue: controlValue,
+                waveformID: waveformID,
+                waveformName: "unsupported",
+                retriggerSuppressed: retriggerSuppressed,
+                unsupportedWaveform: true,
+                affectsLaterVibrato: false,
+                policy: "unsupported_e4x_vibrato_control_deferred"
+            )
+        }
+
+        channelState.vibratoControl = VibratoControlState(
+            controlValue: controlValue,
+            waveform: waveform,
+            retriggerSuppressed: retriggerSuppressed,
+            source: effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        )
+        return PlaybackSongSyntheticVibratoControlDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: .stored,
+            detected: true,
+            applied: true,
+            stored: true,
+            deferred: false,
+            ignoredAsNoOp: false,
+            activeVoiceFound: activeEventIndex != nil,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            controlValue: controlValue,
+            waveformID: waveform.rawValue,
+            waveformName: waveform.name,
+            retriggerSuppressed: retriggerSuppressed,
+            unsupportedWaveform: false,
+            affectsLaterVibrato: true,
+            policy: "e4x_stores_deterministic_vibrato_waveform_for_later_4xy_6xy"
+        )
+    }
+
+    private static func supportedVibratoWaveform(controlValue: Int) -> VibratoWaveform? {
+        guard (0...3).contains(controlValue) else {
+            return nil
+        }
+        return VibratoWaveform(rawValue: controlValue)
+    }
+
+    private static func vibratoWaveformValue(_ waveform: VibratoWaveform, phase: Double) -> Double {
+        switch waveform {
+        case .sine:
+            return sin(phase)
+        case .rampDown:
+            let cycle = normalizedCycle(phase)
+            return 1.0 - (cycle * 2.0)
+        case .square:
+            return normalizedCycle(phase) < 0.5 ? 1.0 : -1.0
+        case .random:
+            return deterministicRandomVibratoValue(phase: phase)
+        }
+    }
+
+    private static func normalizedCycle(_ phase: Double) -> Double {
+        let period = Double.pi * 2.0
+        let remainder = phase.truncatingRemainder(dividingBy: period)
+        return (remainder < 0 ? remainder + period : remainder) / period
+    }
+
+    private static func deterministicRandomVibratoValue(phase: Double) -> Double {
+        let phaseStep = Int((phase / (.pi / 32.0)).rounded(.down))
+        let hashed = UInt32(truncatingIfNeeded: phaseStep &* 1_103_515_245 &+ 12_345)
+        return (Double((hashed >> 16) & 0x7FFF) / 16_383.5) - 1.0
     }
 
     private static func vibratoDiagnostic(
@@ -4765,6 +4940,9 @@ enum PlaybackSongSyntheticAdapter {
         depth: Int,
         speedSource: String?,
         depthSource: String?,
+        controlValue: Int,
+        waveform: VibratoWaveform,
+        waveformSource: String,
         effectMemoryReused: Bool,
         effectMemoryMissing: Bool,
         effectMemoryDeferred: Bool,
@@ -4806,6 +4984,9 @@ enum PlaybackSongSyntheticAdapter {
             vibratoDepth: depth,
             vibratoSpeedSource: speedSource,
             vibratoDepthSource: depthSource,
+            vibratoControlValue: controlValue,
+            vibratoWaveform: waveform.name,
+            vibratoWaveformSource: waveformSource,
             effectMemoryReused: effectMemoryReused,
             effectMemoryMissing: effectMemoryMissing,
             effectMemoryDeferred: effectMemoryDeferred,
@@ -6659,6 +6840,10 @@ enum PlaybackSongSyntheticAdapter {
             return finePortamentoDownAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isFineVolumeSlideEffect(cell):
             return fineVolumeSlideAmount(from: cell) == 0 ? .ignoredNoOp : .applied
+        case 0x0E where isVibratoControlEffect(cell):
+            return supportedVibratoWaveform(controlValue: Int(cell.effectParam & 0x0F)) == nil
+                ? .deferredUnsupported
+                : .applied
         case 0x0E where isNoteCutEffect(cell) || isNoteDelayEffect(cell):
             guard extendedEffectTick(cell) < timingConfig.speed else {
                 return .ignoredNoOp
@@ -6788,6 +6973,7 @@ enum PlaybackSongSyntheticAdapter {
             isFinePortamentoUpEffect(cell) ||
             isFinePortamentoDownEffect(cell) ||
             isFineVolumeSlideEffect(cell) ||
+            (isVibratoControlEffect(cell) && supportedVibratoWaveform(controlValue: Int(cell.effectParam & 0x0F)) != nil) ||
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||
@@ -6847,6 +7033,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isVibratoVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x06
+    }
+
+    private static func isVibratoControlEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x0E && ((cell.effectParam >> 4) & 0x0F) == 0x04
     }
 
     private static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {

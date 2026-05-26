@@ -118,6 +118,7 @@ struct RenderToolArguments: Equatable {
     let inputPath: String
     let outputPath: String
     let diagnosticsJSONPath: String?
+    let effectCoverageJSONPath: String?
     let order: Int
     let orderCount: Int
     let rows: Int?
@@ -137,6 +138,7 @@ struct RenderToolArguments: Equatable {
         inputPath: String,
         outputPath: String,
         diagnosticsJSONPath: String?,
+        effectCoverageJSONPath: String? = nil,
         order: Int,
         orderCount: Int,
         rows: Int?,
@@ -155,6 +157,7 @@ struct RenderToolArguments: Equatable {
         self.inputPath = inputPath
         self.outputPath = outputPath
         self.diagnosticsJSONPath = diagnosticsJSONPath
+        self.effectCoverageJSONPath = effectCoverageJSONPath
         self.order = order
         self.orderCount = orderCount
         self.rows = rows
@@ -175,6 +178,7 @@ struct RenderToolArguments: Equatable {
         var inputPath: String?
         var outputPath: String?
         var diagnosticsJSONPath: String?
+        var effectCoverageJSONPath: String?
         var order: Int?
         var orderCount = 1
         var rows: Int?
@@ -245,6 +249,8 @@ struct RenderToolArguments: Equatable {
                 outputPath = value
             case "--diagnostics-json":
                 diagnosticsJSONPath = value
+            case "--effect-coverage-json":
+                effectCoverageJSONPath = value
             case "--order":
                 order = try parseInt(value, name: argument)
             case "--order-count":
@@ -309,6 +315,7 @@ struct RenderToolArguments: Equatable {
             inputPath: try required(inputPath, "--input"),
             outputPath: try required(outputPath, "--output"),
             diagnosticsJSONPath: diagnosticsJSONPath,
+            effectCoverageJSONPath: effectCoverageJSONPath,
             order: try required(order, "--order"),
             orderCount: orderCount,
             rows: rows,
@@ -515,11 +522,15 @@ struct RenderTool {
         let inputURL = URL(fileURLWithPath: arguments.inputPath).standardizedFileURL
         let outputURL = URL(fileURLWithPath: arguments.outputPath).standardizedFileURL
         let diagnosticsURL = arguments.diagnosticsJSONPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let effectCoverageURL = arguments.effectCoverageJSONPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
         try validateInput(inputURL)
         try validateOutput(outputURL)
         if let diagnosticsURL {
             try validateDiagnosticsOutput(diagnosticsURL)
+        }
+        if let effectCoverageURL {
+            try validateDiagnosticsOutput(effectCoverageURL)
         }
 
         emitProgress("loading module", arguments: arguments)
@@ -544,6 +555,10 @@ struct RenderTool {
         if let diagnosticsURL {
             emitProgress("writing diagnostics JSON", arguments: arguments)
             try PlaybackSongDiagnosticsJSONExporter.write(result, to: diagnosticsURL, renderDuration: durationDiagnostics)
+        }
+        if let effectCoverageURL {
+            emitProgress("writing effect coverage JSON", arguments: arguments)
+            try PlaybackSongDiagnosticsJSONExporter.writeEffectCoverage(result, to: effectCoverageURL, renderDuration: durationDiagnostics)
         }
         emitProgress("export succeeded", arguments: arguments)
         return result
@@ -987,6 +1002,380 @@ enum PlaybackSongDiagnosticsJSONExporter {
         )
         data.append(UInt8(0x0A))
         try data.write(to: url, options: [])
+    }
+
+    static func writeEffectCoverage(
+        _ result: PlaybackSongOfflineRenderResult,
+        to url: URL,
+        renderDuration: RenderDurationDiagnostics? = nil
+    ) throws {
+        try Data().write(to: url, options: [])
+        let handle = try FileHandle(forWritingTo: url)
+        defer {
+            try? handle.close()
+        }
+        let diagnostics = result.diagnostics
+        var firstKey = true
+        writeString("{\n", to: handle)
+        try writeJSONKey("schema_version", value: 1, firstKey: &firstKey, to: handle)
+        try writeJSONKey("tool", value: "vtx_render_bounded_xm_effect_coverage", firstKey: &firstKey, to: handle)
+        try writeJSONKey("local_only", value: true, firstKey: &firstKey, to: handle)
+        try writeJSONKey(
+            "notes",
+            value: [
+                "Compact local effect coverage diagnostics only.",
+                "Generated diagnostics are local artifacts and must not be committed.",
+            ],
+            firstKey: &firstKey,
+            to: handle
+        )
+        try writeJSONKey(
+            "render",
+            value: effectCoverageRenderJSON(from: result, renderDuration: renderDuration),
+            firstKey: &firstKey,
+            to: handle
+        )
+        try writeJSONArray("pattern_traversal_timing_effects", diagnostics.effectCommandDiagnostics, firstKey: &firstKey, to: handle, transform: effectCommandCoverageJSON)
+        try writeJSONArray("volume_column_mappings", diagnostics.volumeColumnMappings, firstKey: &firstKey, to: handle, transform: volumeColumnMappingCoverageJSON)
+        try writeJSONArray("sample_offset_effects", diagnostics.sampleOffsetEffects, firstKey: &firstKey, to: handle, transform: sampleOffsetCoverageJSON)
+        try writeJSONArray("set_finetune_effects", diagnostics.setFinetuneEffects, firstKey: &firstKey, to: handle, transform: setFinetuneCoverageJSON)
+        try writeJSONArray("note_cut_effects", diagnostics.noteCutEffects, firstKey: &firstKey, to: handle, transform: noteCutCoverageJSON)
+        try writeJSONArray("note_delay_effects", diagnostics.noteDelayEffects, firstKey: &firstKey, to: handle, transform: noteDelayCoverageJSON)
+        try writeJSONArray("retrigger_effects", diagnostics.retriggerEffects, firstKey: &firstKey, to: handle, transform: retriggerCoverageJSON)
+        try writeJSONArray("arpeggio_effects", diagnostics.arpeggioEffects, firstKey: &firstKey, to: handle, transform: arpeggioCoverageJSON)
+        try writeJSONArray("tone_portamento_effects", diagnostics.tonePortamentoEffects, firstKey: &firstKey, to: handle, transform: tonePortamentoCoverageJSON)
+        try writeJSONArray("portamento_slide_effects", diagnostics.portamentoSlideEffects, firstKey: &firstKey, to: handle, transform: portamentoSlideCoverageJSON)
+        try writeJSONArray("fine_portamento_up_effects", diagnostics.finePortamentoUpEffects, firstKey: &firstKey, to: handle, transform: finePortamentoUpCoverageJSON)
+        try writeJSONArray("fine_portamento_down_effects", diagnostics.finePortamentoDownEffects, firstKey: &firstKey, to: handle, transform: finePortamentoDownCoverageJSON)
+        try writeJSONArray("vibrato_control_effects", diagnostics.vibratoControlEffects, firstKey: &firstKey, to: handle, transform: vibratoControlCoverageJSON)
+        try writeJSONArray("vibrato_effects", diagnostics.vibratoEffects, firstKey: &firstKey, to: handle, transform: vibratoCoverageJSON)
+        try writeJSONArray("key_off_events", diagnostics.keyOffEvents, firstKey: &firstKey, to: handle, transform: keyOffEventJSON)
+        try writeJSONArray("deferred_fields", diagnostics.deferredCellFields, firstKey: &firstKey, to: handle, transform: deferredFieldCoverageJSON)
+        writeString("\n}\n", to: handle)
+    }
+
+    private static func effectCoverageRenderJSON(
+        from result: PlaybackSongOfflineRenderResult,
+        renderDuration: RenderDurationDiagnostics? = nil
+    ) -> [String: Any] {
+        let diagnostics = result.diagnostics
+        let renderDuration = renderDuration ?? RenderDurationDiagnostics.fallback(from: result)
+        return [
+            "requested_start_order_index": diagnostics.requestedStartOrderIndex,
+            "requested_order_count": diagnostics.requestedOrderCount,
+            "sample_rate": diagnostics.sampleRate,
+            "render_duration_mode": renderDuration.mode.rawValue,
+            "effective_frame_cap": renderDuration.effectiveFrameCap,
+            "effective_duration_seconds": renderDuration.effectiveDurationSeconds,
+            "requested_frame_count": result.requestedFrameCount,
+            "rendered_frame_count": result.renderedFrameCount,
+            "maximum_frame_count": result.maximumFrameCount,
+            "was_frame_count_bounded": result.wasFrameCountBounded,
+            "uses_linear_frequency_table": diagnostics.usesLinearFrequencyTable,
+            "synthetic_row_count": diagnostics.syntheticRowCount,
+        ]
+    }
+
+    private static func effectCommandCoverageJSON(
+        _ diagnostic: PlaybackSongSyntheticEffectCommandDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": effectCommandStatusName(diagnostic.status),
+            "current_status": effectCommandStatusName(diagnostic.status),
+        ]
+    }
+
+    private static func baseEffectCoverageJSON(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticTick: Int,
+        effectType: UInt8,
+        effectParam: UInt8,
+        status: String,
+        applied: Bool,
+        deferred: Bool,
+        ignoredAsNoOp: Bool
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(source),
+            "channel_index": channelIndex,
+            "synthetic_tick": syntheticTick,
+            "effect_type": Int(effectType),
+            "effect_param": Int(effectParam),
+            "status": status,
+            "current_status": status,
+            "applied": applied,
+            "deferred": deferred,
+            "ignored_as_no_op": ignoredAsNoOp,
+        ]
+    }
+
+    private static func sampleOffsetCoverageJSON(_ diagnostic: PlaybackSongSyntheticSampleOffsetDiagnostic) -> [String: Any] {
+        var object = baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: sampleOffsetStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+        object["effect_memory_reused"] = diagnostic.effectMemoryReused
+        object["effect_memory_missing"] = diagnostic.effectMemoryMissing
+        object["effect_memory_deferred"] = diagnostic.effectMemoryDeferred
+        object["memory_unavailable_reason"] = diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull()
+        return object
+    }
+
+    private static func setFinetuneCoverageJSON(_ diagnostic: PlaybackSongSyntheticSetFinetuneDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: setFinetuneStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func noteCutCoverageJSON(_ diagnostic: PlaybackSongSyntheticNoteCutDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: noteCutStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func noteDelayCoverageJSON(_ diagnostic: PlaybackSongSyntheticNoteDelayDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: noteDelayStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func retriggerCoverageJSON(_ diagnostic: PlaybackSongSyntheticRetriggerDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: retriggerStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func arpeggioCoverageJSON(_ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: arpeggioStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func tonePortamentoCoverageJSON(_ diagnostic: PlaybackSongSyntheticTonePortamentoDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: tonePortamentoStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func portamentoSlideCoverageJSON(_ diagnostic: PlaybackSongSyntheticPortamentoSlideDiagnostic) -> [String: Any] {
+        var object = baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: portamentoSlideStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+        object["effect_memory_reused"] = diagnostic.effectMemoryReused
+        object["effect_memory_missing"] = diagnostic.effectMemoryMissing
+        object["effect_memory_deferred"] = diagnostic.effectMemoryDeferred
+        object["memory_unavailable_reason"] = diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull()
+        return object
+    }
+
+    private static func finePortamentoUpCoverageJSON(_ diagnostic: PlaybackSongSyntheticFinePortamentoUpDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: finePortamentoUpStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func finePortamentoDownCoverageJSON(_ diagnostic: PlaybackSongSyntheticFinePortamentoDownDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: finePortamentoDownStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func vibratoControlCoverageJSON(_ diagnostic: PlaybackSongSyntheticVibratoControlDiagnostic) -> [String: Any] {
+        baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: vibratoControlStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+    }
+
+    private static func vibratoCoverageJSON(_ diagnostic: PlaybackSongSyntheticVibratoDiagnostic) -> [String: Any] {
+        var object = baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: vibratoStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+        object["effect_memory_reused"] = diagnostic.effectMemoryReused
+        object["effect_memory_missing"] = diagnostic.effectMemoryMissing
+        object["effect_memory_deferred"] = diagnostic.effectMemoryDeferred
+        object["memory_unavailable_reason"] = diagnostic.memoryUnavailableReason.map { $0 as Any } ?? NSNull()
+        return object
+    }
+
+    private static func volumeColumnMappingCoverageJSON(_ mapping: PlaybackSongSyntheticVolumeColumnMapping) -> [String: Any] {
+        [
+            "source": positionJSON(mapping.source),
+            "channel_index": mapping.channelIndex,
+            "synthetic_tick": mapping.syntheticTick,
+            "volume_column": volumeColumnCoverageJSON(mapping.volumeColumn),
+        ]
+    }
+
+    private static func volumeColumnCoverageJSON(_ diagnostic: PlaybackSongSyntheticVolumeColumnDiagnostic) -> [String: Any] {
+        [
+            "raw_value": Int(diagnostic.rawValue),
+            "command": volumeCommandJSON(diagnostic.command),
+            "classification": volumeColumnClassificationName(diagnostic.classification),
+            "applied": diagnostic.applied,
+            "ignored_as_empty_or_no_op": diagnostic.ignoredAsEmptyOrNoOp,
+            "deferred": diagnostic.deferred,
+        ]
+    }
+
+    private static func deferredFieldCoverageJSON(_ field: PlaybackSongSyntheticDeferredCellField) -> [String: Any] {
+        [
+            "source": positionJSON(field.source),
+            "channel_index": field.channelIndex,
+            "volume_column_raw": Int(field.volumeColumn),
+            "volume_column": volumeColumnCoverageJSON(field.volumeColumnDiagnostic),
+            "field": deferredFieldName(field.field),
+        ]
+    }
+
+    private static func writeJSONKey(
+        _ key: String,
+        value: Any,
+        firstKey: inout Bool,
+        to handle: FileHandle
+    ) throws {
+        try writeKeyPrefix(key, firstKey: &firstKey, to: handle)
+        try writeJSONValue(value, to: handle)
+    }
+
+    private static func writeJSONArray<Element>(
+        _ key: String,
+        _ values: [Element],
+        firstKey: inout Bool,
+        to handle: FileHandle,
+        transform: (Element) -> [String: Any]
+    ) throws {
+        try writeKeyPrefix(key, firstKey: &firstKey, to: handle)
+        writeString("[", to: handle)
+        for (index, value) in values.enumerated() {
+            if index > 0 {
+                writeString(",", to: handle)
+            }
+            try writeJSONValue(transform(value), to: handle)
+        }
+        writeString("]", to: handle)
+    }
+
+    private static func writeKeyPrefix(
+        _ key: String,
+        firstKey: inout Bool,
+        to handle: FileHandle
+    ) throws {
+        if firstKey {
+            firstKey = false
+        } else {
+            writeString(",\n", to: handle)
+        }
+        try writeJSONValue(key, to: handle)
+        writeString(":", to: handle)
+    }
+
+    private static func writeJSONValue(_ value: Any, to handle: FileHandle) throws {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys])
+        handle.write(data)
+    }
+
+    private static func writeString(_ value: String, to handle: FileHandle) {
+        handle.write(Data(value.utf8))
     }
 
     static func jsonObject(
@@ -3652,6 +4041,8 @@ func renderToolUsage() -> String {
       --output PATH         Local candidate WAV path. Required; prefer /tmp.
       --diagnostics-json PATH
                             Optional local adapter diagnostics JSON path; prefer /tmp.
+      --effect-coverage-json PATH
+                            Optional compact effect coverage JSON path for summarize-xm-effect-coverage.py; prefer /tmp.
       --order N             Zero-based order index to render. Required.
       --order-count N       Number of playable orders to include. Default: 1.
       --rows N              Render this many flattened rows from the bounded range.
@@ -3704,6 +4095,9 @@ func renderToolSummary(
     ]
     if let diagnosticsJSONPath = arguments.diagnosticsJSONPath {
         lines.append("Diagnostics JSON: \(URL(fileURLWithPath: diagnosticsJSONPath).standardizedFileURL.path)")
+    }
+    if let effectCoverageJSONPath = arguments.effectCoverageJSONPath {
+        lines.append("Effect coverage JSON: \(URL(fileURLWithPath: effectCoverageJSONPath).standardizedFileURL.path)")
     }
     lines.append("Requested order range: \(arguments.order)..<\(arguments.order + arguments.orderCount)")
     if let rows = arguments.rows {
@@ -3758,7 +4152,7 @@ func renderToolSummary(
         lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")
     }
     appendWindowedRenderSummary(to: &lines, result: result)
-    if arguments.diagnosticsJSONPath != nil || arguments.progress {
+    if arguments.diagnosticsJSONPath != nil || arguments.effectCoverageJSONPath != nil || arguments.progress {
         appendEventCoverageSummary(to: &lines, result: result)
     }
     lines.append("Export succeeded.")

@@ -648,6 +648,13 @@ offline-render responsibilities separate.
 - Diagnostics: bounded JSON now reports `vibrato_control_effects`, `e4x_vibrato_control_*` render counters, waveform/control values, stored/applied versus unsupported-waveform statuses, source coordinates, and later `4xy`/`6xy` waveform source fields. `E0x`, volume-column vibrato, new traversal behavior, parser changes, tracker viewport changes, C mixer DSP changes, backend default changes, and retired AVAudio paths remain out of scope.
 - Status: done. Recommended next PR: refreshed residual classification focused on the now-small remaining unsupported/deferred buckets, `E0x` deferral documentation, or reference-render parity work.
 
+### PR 2.7.11ay — XM Final Effect Residual Classification
+- Scope: diagnostics-only refresh of the full mapped local XM corpus after the focused `E4x` vibrato-control pass. Keep this to compact local effect-coverage export, public-safe anonymized reporting, and next-target selection; do not add XM effect behavior, parser changes, tracker viewport changes, backend changes, C mixer DSP changes, or committed private artifacts.
+- Findings: the final local-only pass covered 26 anonymized inputs and reported 904,704 detected commands, 865,829 applied, 87 deferred, 72 unsupported, 38,802 no-op/effect-memory-deferred, 4,174 effect-memory reuses, and 1 missing effect-memory case. The only remaining unsupported concrete bucket is `E0x` filter toggle with 72 deferred/unsupported occurrences, still classified as limited-usefulness. The previous `E4x` residual is covered: 9 `E4x` commands were detected and stored/applied, all observed as `E41`, with no `E44...E4F` residuals. `Dxx`/`Bxx`/`E6x` traversal is applied or safe out-of-range, `EDx` residuals are no-note/out-of-row, `900` has one missing-memory no-op, `1xx`/`2xx`/`3xx`/`ECx` residuals are no-active/no-target/out-of-row classifications, and volume-column vibrato/vibrato-speed/tone-portamento were not observed in the refreshed summary.
+- Report: see `docs/reports/xm-final-effect-residual-classification.md` for the public-safe summary.
+- Verification: local compact effect-coverage diagnostics generated under `/tmp`; private modules and the local label map stayed out of git. Recommended next PR: document `E0x` filter toggle as intentionally deferred, then move to reference-render parity work.
+- Status: done.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

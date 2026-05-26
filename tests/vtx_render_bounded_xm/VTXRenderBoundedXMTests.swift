@@ -8,6 +8,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--input", "/tmp/module.xm",
             "--output", "/tmp/vtx-candidate.wav",
             "--diagnostics-json", "/tmp/vtx-candidate-diagnostics.json",
+            "--effect-coverage-json", "/tmp/vtx-effect-coverage.json",
             "--order", "10",
             "--order-count", "2",
             "--rows", "16",
@@ -20,6 +21,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.inputPath, "/tmp/module.xm")
         XCTAssertEqual(arguments.outputPath, "/tmp/vtx-candidate.wav")
         XCTAssertEqual(arguments.diagnosticsJSONPath, "/tmp/vtx-candidate-diagnostics.json")
+        XCTAssertEqual(arguments.effectCoverageJSONPath, "/tmp/vtx-effect-coverage.json")
         XCTAssertEqual(arguments.order, 10)
         XCTAssertEqual(arguments.orderCount, 2)
         XCTAssertEqual(arguments.rows, 16)
@@ -1131,6 +1133,44 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["effective_duration_seconds"] as? Double, Double(32_193) / 44_100)
         XCTAssertTrue(notes.contains { $0.contains("bounded selected order-range end") })
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
+    }
+
+    func testRendersCompactEffectCoverageJSONWhenRequested() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("generated-playable-candidate.wav")
+        let effectCoverageURL = directory.appendingPathComponent("generated-effect-coverage.json")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            effectCoverageJSONPath: effectCoverageURL.path,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 44_100,
+            maxFrames: nil,
+            seconds: nil
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let data = try Data(contentsOf: effectCoverageURL)
+        let coverage = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let render = try XCTUnwrap(coverage["render"] as? [String: Any])
+
+        XCTAssertEqual(coverage["schema_version"] as? Int, 1)
+        XCTAssertEqual(coverage["tool"] as? String, "vtx_render_bounded_xm_effect_coverage")
+        XCTAssertEqual(coverage["local_only"] as? Bool, true)
+        XCTAssertEqual(render["render_duration_mode"] as? String, "fixed_rows")
+        XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
+        XCTAssertNotNil(coverage["pattern_traversal_timing_effects"] as? [[String: Any]])
+        XCTAssertNotNil(coverage["volume_column_mappings"] as? [[String: Any]])
+        XCTAssertNotNil(coverage["sample_offset_effects"] as? [[String: Any]])
+        XCTAssertNotNil(coverage["key_off_events"] as? [[String: Any]])
+        XCTAssertNil(coverage["events"])
+        XCTAssertNil(coverage["row_mappings"])
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains(inputURL.path))
     }
 
     func testDiagnosticsJSONIncludesAutoHeadroomFieldsWhenEnabled() throws {

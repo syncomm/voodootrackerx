@@ -1095,6 +1095,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
+        XCTAssertNotNil(events.first?["loop_start_frame"] as? Int)
+        XCTAssertNotNil(events.first?["loop_end_frame"] as? Int)
+        XCTAssertNotNil(events.first?["loop_length_frames"] as? Int)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
     }
 

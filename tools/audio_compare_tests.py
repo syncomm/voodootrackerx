@@ -131,6 +131,7 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
         "tool": "vtx_render_bounded_xm",
         "render": {
             "sample_rate": 1000,
+            "sample_interpolation": "linear",
             "rendered_frame_count": 400,
             "requested_start_order_index": 0,
             "requested_order_count": 1,
@@ -254,9 +255,13 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 "estimated_end_frame": event_end,
                 "estimated_duration_frames": event_end - event_start,
                 "sample_frame_count": 35,
+                "initial_source_frame": 18,
                 "gain": 0.5,
                 "pan": -0.25,
                 "loop_mode": "forward",
+                "loop_start_frame": 10,
+                "loop_end_frame": 20,
+                "loop_length_frames": 10,
                 "volume_column": {
                     "raw_value": 48,
                     "command": {"name": "setVolume", "value": 32},
@@ -2511,6 +2516,26 @@ class AudioCompareTests(unittest.TestCase):
             self.assertGreater(diff["max_abs_sample_difference"], 0.24)
             self.assertGreater(diff["normalized_rms_difference"], 0.49)
 
+    def test_nearest_vs_linear_interpolation_shape_difference_is_measurable(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "linear.wav"
+            candidate = Path(tmpdir) / "nearest.wav"
+            write_pcm16_wav(reference, sample_rate=1000, frames=[0.0, 0.5, 1.0, 0.5, 0.0])
+            write_pcm16_wav(candidate, sample_rate=1000, frames=[0.0, 0.0, 1.0, 1.0, 0.0])
+
+            comparison = audio_compare.build_comparison(
+                reference,
+                candidate,
+                seconds=1.0,
+                window_ms=5.0,
+                top_windows=1,
+            )
+            diff = comparison["sample_comparison"]["diff"]
+
+            self.assertGreater(diff["overall_rms_difference"], 0.31)
+            self.assertGreater(diff["max_abs_sample_difference"], 0.49)
+            self.assertEqual(comparison["sample_comparison"]["worst_windows"][0]["start_frame"], 0)
+
     def test_gain_normalized_metrics_identify_scalar_loudness_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             reference = Path(tmpdir) / "reference.wav"
@@ -3028,6 +3053,45 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("speed F03 6/125->3/125", markdown)
             self.assertIn("mapped 2/2; deferred loop", markdown)
             self.assertIn("| forward |", markdown)
+
+    def test_correlation_includes_sample_step_interpolation_mechanics_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Sample-Step / Interpolation Evidence", markdown)
+            self.assertIn("- Interpolation mode: linear", markdown)
+            self.assertIn("render 1000.00000000 Hz, candidate 1000.00000000 Hz, reference 1000.00000000 Hz", markdown)
+            self.assertIn("- Playback-step events: 1/1 fractional, 0/1 integer, 0/1 neutral-step", markdown)
+            self.assertIn("- Source-position phase events: 1/1 fractional phase estimates", markdown)
+            self.assertIn("- Loop/sample-offset events: 1/1 looped, 1/1 sample-offset starts", markdown)
+            self.assertIn("- Pitch frequency-table statuses: linear_applied=1", markdown)
+            self.assertIn("- Candidate mechanics signal: interpolation_or_sample_step_possible", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 0 |", markdown)
+            self.assertIn("source 18.0000->11.7500 loop forward 10-20", markdown)
+
+    def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["arpeggio_effects"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "effect_type": 0x00,
+                "effect_param": 0x37,
+                "status": "applied",
+                "applied": True,
+                "step_updates": [{"scheduled_frame": 120, "current_step_before": 1.0, "current_step_after": 1.25}],
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- Scheduled sample-step updates: 1", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", markdown)
 
     def test_correlation_includes_event_coverage_summary_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3565,6 +3629,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Candidate diagnostic events: 0", markdown)
             self.assertIn("No row timing diagnostics overlap this mismatch window.", markdown)
             self.assertIn("No candidate event frame range overlapped this mismatch window", markdown)
+            self.assertIn("- Candidate mechanics signal: insufficient_rendering_mechanics_evidence", markdown)
 
     def test_correlation_missing_comparison_json_fails_clearly(self):
         with tempfile.TemporaryDirectory() as tmpdir:

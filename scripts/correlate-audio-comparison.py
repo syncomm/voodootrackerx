@@ -16,7 +16,17 @@ from typing import Any
 DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
+MAX_MECHANICS_EXAMPLES = 5
+FRACTION_EPSILON = 1.0e-9
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
+STEP_UPDATE_SECTIONS = (
+    ("arpeggio_effects", "0xy arpeggio"),
+    ("tone_portamento_effects", "3xx tone portamento"),
+    ("portamento_slide_effects", "1xx/2xx portamento slide"),
+    ("fine_portamento_up_effects", "E1x fine portamento up"),
+    ("fine_portamento_down_effects", "E2x fine portamento down"),
+    ("vibrato_effects", "4xy/6xy vibrato"),
+)
 PITCH_LABEL_TO_CATEGORY = {
     "0xy arpeggio": "arpeggio",
     "1xx portamento up": "portamento",
@@ -63,6 +73,14 @@ class CommandOccurrence:
     end_frame: int | None
     parameter: Any = None
     window_ranks: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class SourcePositionEstimate:
+    raw_position: float
+    rendered_position: float | None
+    fractional_part: float | None
+    boundary_crossing_count: int | None
 
 
 def load_json(path: Path, role: str) -> dict[str, Any]:
@@ -938,6 +956,351 @@ def correlated_windows(
     return correlated
 
 
+def build_rendering_mechanics_summary(
+    comparison: dict[str, Any],
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render = nested_dict(diagnostics.get("render"))
+    reference_info = nested_dict(nested_dict(comparison.get("reference")).get("info"))
+    candidate_info = nested_dict(nested_dict(comparison.get("candidate")).get("info"))
+    render_sample_rate = number(render.get("sample_rate"))
+    reference_sample_rate = number(reference_info.get("sample_rate"))
+    candidate_sample_rate = number(candidate_info.get("sample_rate"))
+    sample_rate_values = [
+        value for value in (render_sample_rate, reference_sample_rate, candidate_sample_rate)
+        if value is not None
+    ]
+    sample_rate_mismatch = bool(sample_rate_values) and (
+        max(sample_rate_values) - min(sample_rate_values) > FRACTION_EPSILON
+    )
+
+    step_updates = normalize_step_update_signals(diagnostics, rows)
+    all_event_mechanics = [event_mechanics_for_window(event, None) for event in events]
+    window_summaries = []
+    for window in windows:
+        overlapping_events = [
+            event for event in events
+            if overlaps(event["_start_frame"], event["_end_frame"], window["_start_frame"], window["_end_frame"])
+        ]
+        mechanics = [event_mechanics_for_window(event, window) for event in overlapping_events]
+        window_step_updates = [
+            update for update in step_updates
+            if window["_start_frame"] <= update["frame"] < window["_end_frame"]
+        ]
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "event_count": len(overlapping_events),
+            "fractional_step_event_count": sum(1 for item in mechanics if item["fractional_playback_step"]),
+            "fractional_source_phase_event_count": sum(1 for item in mechanics if item["fractional_source_phase"]),
+            "looped_event_count": sum(1 for item in mechanics if item["loop_mode"] != "none"),
+            "loop_boundary_crossing_event_count": sum(1 for item in mechanics if item["loop_boundary_crossing"]),
+            "sample_offset_event_count": sum(1 for item in mechanics if item["sample_offset_applied"]),
+            "step_update_count": len(window_step_updates),
+            "examples": [mechanics_example_label(item) for item in mechanics[:MAX_MECHANICS_EXAMPLES]],
+        })
+
+    pitch_status_counts = Counter(
+        str(nested_dict(event.get("pitch")).get("frequency_table_status") or "unavailable")
+        for event in events
+    )
+    summary = {
+        "interpolation_mode": render.get("sample_interpolation") or "unavailable",
+        "render_sample_rate": render_sample_rate,
+        "reference_sample_rate": reference_sample_rate,
+        "candidate_sample_rate": candidate_sample_rate,
+        "sample_rate_mismatch": sample_rate_mismatch,
+        "comparison_shape": comparison_shape(comparison),
+        "total_event_count": len(events),
+        "fractional_step_event_count": sum(1 for item in all_event_mechanics if item["fractional_playback_step"]),
+        "integer_step_event_count": sum(1 for item in all_event_mechanics if item["integer_playback_step"]),
+        "neutral_step_event_count": sum(1 for item in all_event_mechanics if item["neutral_playback_step"]),
+        "fractional_source_phase_event_count": sum(1 for item in all_event_mechanics if item["fractional_source_phase"]),
+        "looped_event_count": sum(1 for item in all_event_mechanics if item["loop_mode"] != "none"),
+        "sample_offset_event_count": sum(1 for item in all_event_mechanics if item["sample_offset_applied"]),
+        "step_update_count": len(step_updates),
+        "pitch_frequency_table_counts": dict(sorted(pitch_status_counts.items())),
+        "amiga_deferred_event_count": sum(
+            1 for event in events
+            if bool(nested_dict(event.get("pitch")).get("amiga_frequency_deferred"))
+        ),
+        "neutral_step_fallback_event_count": sum(
+            1 for event in events
+            if bool(nested_dict(event.get("pitch")).get("fallback_neutral_step_used"))
+            or bool(nested_dict(event.get("pitch")).get("used_neutral_step"))
+        ),
+        "window_summaries": window_summaries,
+    }
+    recommendation, rationale = recommend_rendering_mechanics(summary)
+    summary["candidate_signal"] = recommendation
+    summary["candidate_signal_rationale"] = rationale
+    return summary
+
+
+def normalize_step_update_signals(
+    diagnostics: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    updates: list[dict[str, Any]] = []
+    for section, label in STEP_UPDATE_SECTIONS:
+        for diagnostic in nested_list(diagnostics.get(section)):
+            if not isinstance(diagnostic, dict):
+                continue
+            for raw_update in nested_list(diagnostic.get("step_updates")):
+                if not isinstance(raw_update, dict):
+                    continue
+                frame = integer(raw_update.get("scheduled_frame"))
+                if frame is None:
+                    frame, _ = frame_range_for_diagnostic(diagnostic, rows_by_source, rows_by_synthetic)
+                if frame is None:
+                    continue
+                updates.append({
+                    "frame": max(0, frame),
+                    "label": label,
+                    "status": diagnostic.get("status"),
+                    "source": nested_dict(diagnostic.get("source")),
+                    "channel_index": diagnostic.get("channel_index"),
+                })
+    updates.sort(key=lambda item: (item["frame"], item["label"], sort_int(item.get("channel_index"))))
+    return updates
+
+
+def event_mechanics_for_window(event: dict[str, Any], window: dict[str, Any] | None) -> dict[str, Any]:
+    pitch = nested_dict(event.get("pitch"))
+    playback_step = number(pitch.get("playback_step"))
+    start_frame = integer(event.get("_start_frame"))
+    end_frame = integer(event.get("_end_frame"))
+    if start_frame is None:
+        start_frame = integer(event.get("scheduled_start_frame")) or 0
+    if end_frame is None:
+        end_frame = integer(event.get("estimated_end_frame")) or start_frame + 1
+    if window is None:
+        probe_start = start_frame
+        probe_end = end_frame
+    else:
+        probe_start = max(start_frame, int(window["_start_frame"]))
+        probe_end = min(end_frame, int(window["_end_frame"]))
+    probe_end = max(probe_start, probe_end)
+
+    start_position = estimate_source_position(event, probe_start)
+    end_position = estimate_source_position(event, probe_end)
+    loop_mode = str(event.get("loop_mode") or "none")
+    loop_boundary_crossing = (
+        loop_mode != "none"
+        and start_position.boundary_crossing_count is not None
+        and end_position.boundary_crossing_count is not None
+        and end_position.boundary_crossing_count > start_position.boundary_crossing_count
+    )
+    return {
+        "event": event,
+        "playback_step": playback_step,
+        "fractional_playback_step": playback_step is not None and is_fractional(playback_step),
+        "integer_playback_step": playback_step is not None and not is_fractional(playback_step),
+        "neutral_playback_step": playback_step is not None and abs(playback_step - 1.0) <= FRACTION_EPSILON,
+        "fractional_source_phase": (
+            fractional_part_is_nonzero(start_position.fractional_part)
+            or fractional_part_is_nonzero(end_position.fractional_part)
+        ),
+        "start_position": start_position,
+        "end_position": end_position,
+        "loop_mode": loop_mode,
+        "loop_boundary_crossing": loop_boundary_crossing,
+        "sample_offset_applied": event_sample_offset_applied(event),
+    }
+
+
+def estimate_source_position(event: dict[str, Any], frame: int) -> SourcePositionEstimate:
+    start_frame = integer(event.get("_start_frame"))
+    if start_frame is None:
+        start_frame = integer(event.get("scheduled_start_frame")) or 0
+    pitch = nested_dict(event.get("pitch"))
+    playback_step = number(pitch.get("playback_step"))
+    if playback_step is None or playback_step <= 0:
+        return SourcePositionEstimate(0.0, None, None, None)
+    initial_source_frame = number(event.get("initial_source_frame")) or 0.0
+    raw_position = initial_source_frame + (max(0, frame - start_frame) * playback_step)
+    loop_mode = str(event.get("loop_mode") or "none")
+    sample_frame_count = integer(event.get("sample_frame_count"))
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+
+    if loop_mode == "forward" and loop_start is not None and loop_end is not None and loop_end > loop_start:
+        loop_length = loop_end - loop_start
+        if raw_position >= loop_end:
+            overflow = raw_position - loop_end
+            crossing_count = int(math.floor(overflow / loop_length)) + 1
+            rendered = loop_start + math.fmod(overflow, loop_length)
+        else:
+            crossing_count = 0
+            rendered = raw_position
+        return SourcePositionEstimate(
+            raw_position=raw_position,
+            rendered_position=rendered,
+            fractional_part=fractional_part(rendered),
+            boundary_crossing_count=crossing_count,
+        )
+
+    if loop_mode == "ping_pong" and loop_start is not None and loop_end is not None and loop_end > loop_start + 1:
+        first_frame = float(loop_start)
+        last_frame = float(loop_end - 1)
+        span = last_frame - first_frame
+        if raw_position <= last_frame:
+            rendered = raw_position
+            crossing_count = 0
+        else:
+            excess = raw_position - last_frame
+            period = span * 2.0
+            phase = math.fmod(excess, period)
+            crossing_count = int(math.floor(excess / span)) + 1
+            if phase <= span:
+                rendered = last_frame - phase
+            else:
+                rendered = first_frame + (phase - span)
+        return SourcePositionEstimate(
+            raw_position=raw_position,
+            rendered_position=rendered,
+            fractional_part=fractional_part(rendered),
+            boundary_crossing_count=crossing_count,
+        )
+
+    crossing_count = 0
+    if sample_frame_count is not None and raw_position >= sample_frame_count:
+        crossing_count = 1
+    return SourcePositionEstimate(
+        raw_position=raw_position,
+        rendered_position=raw_position,
+        fractional_part=fractional_part(raw_position),
+        boundary_crossing_count=crossing_count,
+    )
+
+
+def recommend_rendering_mechanics(summary: dict[str, Any]) -> tuple[str, str]:
+    shape = str(summary.get("comparison_shape") or "unknown")
+    window_summaries = nested_list(summary.get("window_summaries"))
+    window_fractional_steps = sum(integer(item.get("fractional_step_event_count")) or 0 for item in window_summaries if isinstance(item, dict))
+    window_loop_crossings = sum(integer(item.get("loop_boundary_crossing_event_count")) or 0 for item in window_summaries if isinstance(item, dict))
+    window_sample_offsets = sum(integer(item.get("sample_offset_event_count")) or 0 for item in window_summaries if isinstance(item, dict))
+    window_step_updates = sum(integer(item.get("step_update_count")) or 0 for item in window_summaries if isinstance(item, dict))
+
+    if bool(summary.get("sample_rate_mismatch")):
+        return (
+            "output_sample_rate_difference",
+            "render, candidate, and reference sample rates do not all match.",
+        )
+    if shape == "broad_low_correlation" and window_fractional_steps > 0:
+        return (
+            "interpolation_or_sample_step_plausible",
+            "top windows overlap fractional playback steps and the comparison shape is broad/low-correlation.",
+        )
+    if window_loop_crossings > 0 and shape == "localized":
+        return (
+            "loop_endpoint_or_loop_interpolation_plausible",
+            "top localized windows include estimated loop-boundary crossings.",
+        )
+    if window_sample_offsets > 0 and shape == "localized":
+        return (
+            "sample_offset_rounding_plausible",
+            "top localized windows overlap applied sample-offset starts.",
+        )
+    if window_step_updates > 0:
+        return (
+            "pitch_or_sample_step_update_timing_possible",
+            "top windows include scheduled pitch/sample-step updates.",
+        )
+    if window_fractional_steps > 0:
+        return (
+            "interpolation_or_sample_step_possible",
+            "top windows overlap fractional playback steps, but the comparison shape is not strongly broad.",
+        )
+    if window_loop_crossings > 0:
+        return (
+            "loop_endpoint_possible",
+            "top windows include estimated loop-boundary crossings.",
+        )
+    return (
+        "insufficient_rendering_mechanics_evidence",
+        "top windows did not expose fractional steps, sample-offset starts, step updates, or loop-boundary crossings.",
+    )
+
+
+def comparison_shape(comparison: dict[str, Any]) -> str:
+    sample = comparison.get("sample_comparison")
+    if not isinstance(sample, dict):
+        return "comparison_unavailable"
+    correlation = number(sample.get("normalized_correlation"))
+    diff = nested_dict(sample.get("diff"))
+    overall = number(diff.get("overall_rms_difference"))
+    windows = [item for item in nested_list(sample.get("worst_windows")) if isinstance(item, dict)]
+    top = number(windows[0].get("rms_difference")) if windows else None
+    if overall is not None and overall <= 0.005 and (correlation is None or correlation >= 0.995):
+        return "close"
+    if correlation is not None and correlation < 0.90:
+        return "broad_low_correlation"
+    if overall is not None and top is not None and overall > 0 and top / overall >= 2.5:
+        return "localized"
+    return "mixed_or_broad"
+
+
+def event_sample_offset_applied(event: dict[str, Any]) -> bool:
+    sample_offset = nested_dict(event.get("sample_offset"))
+    if bool(sample_offset.get("applied")):
+        return True
+    initial = number(event.get("initial_source_frame"))
+    return initial is not None and initial > 0
+
+
+def is_fractional(value: float) -> bool:
+    return abs(value - round(value)) > FRACTION_EPSILON
+
+
+def fractional_part(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return value - math.floor(value)
+
+
+def fractional_part_is_nonzero(value: float | None) -> bool:
+    if value is None:
+        return False
+    return value > FRACTION_EPSILON and abs(value - 1.0) > FRACTION_EPSILON
+
+
+def mechanics_example_label(item: dict[str, Any]) -> str:
+    event = nested_dict(item.get("event"))
+    pitch = nested_dict(event.get("pitch"))
+    start = item["start_position"]
+    end = item["end_position"]
+    assert isinstance(start, SourcePositionEstimate)
+    assert isinstance(end, SourcePositionEstimate)
+    loop_mode = str(item.get("loop_mode") or "none")
+    loop_range = ""
+    if loop_mode != "none":
+        loop_range = (
+            f" loop {loop_mode} "
+            f"{format_optional(event.get('loop_start_frame'))}-{format_optional(event.get('loop_end_frame'))}"
+        )
+    return (
+        f"{source_label(nested_dict(event.get('source')))} "
+        f"ch {format_optional(event.get('channel_index'))} "
+        f"note {format_optional(event.get('note'))} "
+        f"inst/sample {format_optional(event.get('instrument_index'))}/{format_optional(event.get('sample_index'))} "
+        f"step {format_optional_float(pitch.get('playback_step'))} "
+        f"source {format_position(start.rendered_position)}->{format_position(end.rendered_position)}"
+        f"{loop_range}"
+    )
+
+
+def format_position(value: float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return f"{value:.4f}"
+
+
 def relevant_timing_change(
     change: dict[str, Any],
     start_frame: int,
@@ -984,6 +1347,7 @@ def build_correlation_report(
         extract_command_occurrences(diagnostics, events, rows, changes),
         windows,
     )
+    rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
         windows,
@@ -1027,6 +1391,7 @@ def build_correlation_report(
         traversal_effects,
     )
     append_pitch_modulation_summary(lines, command_occurrences)
+    append_rendering_mechanics_summary(lines, rendering_mechanics)
 
     lines.extend([
         "",
@@ -1278,6 +1643,66 @@ def append_pitch_modulation_summary(
             f"| {category} | {occurrence.label} | {occurrence.status} | "
             f"{source_label(occurrence.source)} | {format_optional(occurrence.channel)} | "
             f"{format_optional(occurrence.parameter)} | {windows} |"
+        )
+
+
+def append_rendering_mechanics_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    pitch_counts = nested_dict(summary.get("pitch_frequency_table_counts"))
+    pitch_count_label = ", ".join(
+        f"{key}={value}" for key, value in sorted(pitch_counts.items())
+    ) or "unavailable"
+    total_events = integer(summary.get("total_event_count")) or 0
+    lines.extend([
+        "",
+        "## Sample-Step / Interpolation Evidence",
+        f"- Interpolation mode: {format_optional(summary.get('interpolation_mode'))}",
+        "- Sample rates: "
+        f"render {format_optional_float(summary.get('render_sample_rate'))} Hz, "
+        f"candidate {format_optional_float(summary.get('candidate_sample_rate'))} Hz, "
+        f"reference {format_optional_float(summary.get('reference_sample_rate'))} Hz, "
+        f"mismatch {str(bool(summary.get('sample_rate_mismatch'))).lower()}",
+        f"- Comparison shape: {format_optional(summary.get('comparison_shape'))}",
+        "- Playback-step events: "
+        f"{format_optional(summary.get('fractional_step_event_count'))}/{total_events} fractional, "
+        f"{format_optional(summary.get('integer_step_event_count'))}/{total_events} integer, "
+        f"{format_optional(summary.get('neutral_step_event_count'))}/{total_events} neutral-step",
+        "- Source-position phase events: "
+        f"{format_optional(summary.get('fractional_source_phase_event_count'))}/{total_events} fractional phase estimates",
+        "- Loop/sample-offset events: "
+        f"{format_optional(summary.get('looped_event_count'))}/{total_events} looped, "
+        f"{format_optional(summary.get('sample_offset_event_count'))}/{total_events} sample-offset starts",
+        f"- Scheduled sample-step updates: {format_optional(summary.get('step_update_count'))}",
+        f"- Pitch frequency-table statuses: {pitch_count_label}",
+        "- Amiga/neutral fallback evidence: "
+        f"{format_optional(summary.get('amiga_deferred_event_count'))} Amiga-deferred, "
+        f"{format_optional(summary.get('neutral_step_fallback_event_count'))} neutral-fallback",
+        f"- Candidate mechanics signal: {format_optional(summary.get('candidate_signal'))}",
+        f"- Mechanics rationale: {format_optional(summary.get('candidate_signal_rationale'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window mechanics: unavailable")
+        return
+
+    lines.extend([
+        "",
+        "| Window | Events | Fractional Steps | Fractional Source Phase | Loop Crossings | Sample Offsets | Step Updates | Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ])
+    for item in window_summaries:
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('event_count'))} | "
+            f"{format_optional(item.get('fractional_step_event_count'))} | "
+            f"{format_optional(item.get('fractional_source_phase_event_count'))} | "
+            f"{format_optional(item.get('loop_boundary_crossing_event_count'))} | "
+            f"{format_optional(item.get('sample_offset_event_count'))} | "
+            f"{format_optional(item.get('step_update_count'))} | "
+            f"{examples} |"
         )
 
 

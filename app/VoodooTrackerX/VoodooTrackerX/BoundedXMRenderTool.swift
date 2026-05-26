@@ -2342,6 +2342,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["gain"] = Double(event?.gain ?? 0)
         object["pan"] = Double(event?.pan ?? mapping.effectivePan)
         object["loop_mode"] = loopModeName(mapping.loopMode)
+        object["loop_start_frame"] = event?.loop.startFrame ?? 0
+        object["loop_end_frame"] = event?.loop.endFrame ?? 0
+        object["loop_length_frames"] = event?.loop.lengthFrames ?? 0
         object["volume_column"] = volumeColumnDiagnosticJSON(mapping.volumeColumn)
         object["sample_offset"] = sampleOffsetDiagnosticJSON(mapping.sampleOffset)
         object["has_ignored_volume_column"] = mapping.hasIgnoredVolumeColumn

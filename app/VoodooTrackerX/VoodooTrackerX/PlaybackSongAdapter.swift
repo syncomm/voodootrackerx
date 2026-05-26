@@ -38,6 +38,12 @@ enum PlaybackSongTraversalPlanner {
         let channelIndex: Int
     }
 
+    private struct TraversalPositionKey: Hashable {
+        let orderIndex: Int
+        let patternIndex: Int
+        let rowArrayIndex: Int
+    }
+
     private struct TraversalCommand {
         let channelIndex: Int
         let cell: PlaybackCell
@@ -108,6 +114,7 @@ enum PlaybackSongTraversalPlanner {
         var diagnostics = [PlaybackSongSyntheticTraversalDiagnostic]()
         var loopStarts = [LoopKey: Int]()
         var loopRemaining = [LoopCountKey: Int]()
+        var visitedPositions = Set<TraversalPositionKey>()
         var currentOrderIndex = startOrderIndex
         var currentRowIndex = 0
         var stopReason: PlaybackSongSyntheticTraversalStopReason = .selectedRangeEnd
@@ -181,6 +188,11 @@ enum PlaybackSongTraversalPlanner {
                     patternIndex: pattern.index,
                     rowIndex: row.index
                 )
+                visitedPositions.insert(TraversalPositionKey(
+                    orderIndex: currentOrderIndex,
+                    patternIndex: pattern.index,
+                    rowArrayIndex: currentRowIndex
+                ))
                 rows.append(PlaybackSongTraversalRow(
                     source: source,
                     orderIndex: currentOrderIndex,
@@ -200,13 +212,18 @@ enum PlaybackSongTraversalPlanner {
                     startOrderIndex: startOrderIndex,
                     selectedEndOrderIndex: selectedEndOrderIndex,
                     syntheticRow: syntheticRow,
+                    maxTraversalRows: maxTraversalRows,
                     loopStarts: &loopStarts,
                     loopRemaining: &loopRemaining,
+                    visitedPositions: visitedPositions,
                     diagnostics: &diagnostics
                 )
                 currentOrderIndex = decision.orderIndex
                 currentRowIndex = decision.rowIndex
                 if let reason = decision.stopReason {
+                    if reason == .traversalGuardHit {
+                        guardHit = true
+                    }
                     stopReason = reason
                     break
                 }
@@ -255,17 +272,17 @@ enum PlaybackSongTraversalPlanner {
         startOrderIndex: Int,
         selectedEndOrderIndex: Int,
         syntheticRow: Int,
+        maxTraversalRows: Int,
         loopStarts: inout [LoopKey: Int],
         loopRemaining: inout [LoopCountKey: Int],
+        visitedPositions: Set<TraversalPositionKey>,
         diagnostics: inout [PlaybackSongSyntheticTraversalDiagnostic]
     ) -> NextPositionDecision {
         let bxx = firstCommand(in: row, effectType: 0x0B)
         let dxx = firstCommand(in: row, effectType: 0x0D)
-        let e6xCommands = row.cells.enumerated().compactMap { channelIndex, cell -> TraversalCommand? in
-            guard isE6x(cell) else {
-                return nil
-            }
-            return TraversalCommand(channelIndex: channelIndex, cell: cell)
+        var e6xCommands = [TraversalCommand]()
+        for (channelIndex, cell) in row.cells.enumerated() where isE6x(cell) {
+            e6xCommands.append(TraversalCommand(channelIndex: channelIndex, cell: cell))
         }
         let hasBxx = bxx != nil
         let hasDxx = dxx != nil
@@ -346,6 +363,28 @@ enum PlaybackSongTraversalPlanner {
                 return NextPositionDecision(orderIndex: targetOrder, rowIndex: 0, stopReason: .outOfRange)
             }
             let targetRow = min(max(0, target?.targetRow ?? 0), targetPattern.rows.count - 1)
+            if visitedPositions.contains(TraversalPositionKey(
+                orderIndex: targetOrder,
+                patternIndex: targetPattern.index,
+                rowArrayIndex: targetRow
+            )) {
+                diagnostics.append(positionCycleGuardDiagnostic(
+                    kind: .bxxPositionJump,
+                    command: bxx,
+                    source: source,
+                    syntheticRow: syntheticRow,
+                    targetOrderIndex: targetOrder,
+                    targetPatternIndex: targetPattern.index,
+                    targetRowIndex: targetPattern.rows[targetRow].index,
+                    loopLimit: maxTraversalRows,
+                    combinedWithBxx: false,
+                    combinedWithDxx: dxx != nil,
+                    policy: dxx == nil
+                        ? "bxx_position_cycle_guard"
+                        : "bxx_dxx_position_cycle_guard"
+                ))
+                return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: .traversalGuardHit)
+            }
             diagnostics.append(PlaybackSongSyntheticTraversalDiagnostic(
                 kind: .bxxPositionJump,
                 status: .applied,
@@ -391,6 +430,26 @@ enum PlaybackSongTraversalPlanner {
                 return NextPositionDecision(orderIndex: targetOrder, rowIndex: target.targetRow, stopReason: .outOfRange)
             }
             let targetRow = min(max(0, target.targetRow), targetPattern.rows.count - 1)
+            if visitedPositions.contains(TraversalPositionKey(
+                orderIndex: targetOrder,
+                patternIndex: targetPattern.index,
+                rowArrayIndex: targetRow
+            )) {
+                diagnostics.append(positionCycleGuardDiagnostic(
+                    kind: .dxxPatternBreak,
+                    command: dxx,
+                    source: source,
+                    syntheticRow: syntheticRow,
+                    targetOrderIndex: targetOrder,
+                    targetPatternIndex: targetPattern.index,
+                    targetRowIndex: targetPattern.rows[targetRow].index,
+                    loopLimit: maxTraversalRows,
+                    combinedWithBxx: false,
+                    combinedWithDxx: false,
+                    policy: "dxx_position_cycle_guard"
+                ))
+                return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: .traversalGuardHit)
+            }
             return NextPositionDecision(orderIndex: targetOrder, rowIndex: targetRow, stopReason: nil)
         }
 
@@ -491,12 +550,10 @@ enum PlaybackSongTraversalPlanner {
     }
 
     private static func firstCommand(in row: PlaybackRow, effectType: UInt8) -> TraversalCommand? {
-        row.cells.enumerated().compactMap { channelIndex, cell -> TraversalCommand? in
-            guard cell.effectType == effectType else {
-                return nil
-            }
+        for (channelIndex, cell) in row.cells.enumerated() where cell.effectType == effectType {
             return TraversalCommand(channelIndex: channelIndex, cell: cell)
-        }.first
+        }
+        return nil
     }
 
     private static func patternForOrder(_ orderIndex: Int, in song: PlaybackSong) -> PlaybackPattern? {
@@ -504,6 +561,40 @@ enum PlaybackSongTraversalPlanner {
             return nil
         }
         return song.patternsByIndex[song.orders[orderIndex].patternIndex]
+    }
+
+    private static func positionCycleGuardDiagnostic(
+        kind: PlaybackSongSyntheticTraversalDiagnostic.Kind,
+        command: TraversalCommand,
+        source: PlaybackPosition,
+        syntheticRow: Int,
+        targetOrderIndex: Int,
+        targetPatternIndex: Int,
+        targetRowIndex: Int,
+        loopLimit: Int,
+        combinedWithBxx: Bool,
+        combinedWithDxx: Bool,
+        policy: String
+    ) -> PlaybackSongSyntheticTraversalDiagnostic {
+        PlaybackSongSyntheticTraversalDiagnostic(
+            kind: kind,
+            status: .loopLimitHit,
+            source: source,
+            channelIndex: command.channelIndex,
+            syntheticRow: syntheticRow,
+            effectType: command.cell.effectType,
+            effectParam: command.cell.effectParam,
+            targetOrderIndex: targetOrderIndex,
+            targetPatternIndex: targetPatternIndex,
+            targetRowIndex: targetRowIndex,
+            nextOrderIndex: nil,
+            loopStartRowIndex: nil,
+            loopRemaining: nil,
+            loopLimit: loopLimit,
+            combinedWithBxx: combinedWithBxx,
+            combinedWithDxx: combinedWithDxx,
+            policy: policy
+        )
     }
 
     private static func resolvedDxxTarget(

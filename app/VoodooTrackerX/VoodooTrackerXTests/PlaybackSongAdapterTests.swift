@@ -6140,8 +6140,37 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertTrue(plan.diagnostics.traversalGuardHit)
         XCTAssertEqual(plan.diagnostics.traversalStopReason, .traversalGuardHit)
-        XCTAssertEqual(plan.diagnostics.traversalPathLength, 1_040)
-        XCTAssertEqual(plan.diagnostics.traversalSummary.e6xLoopLimitHitCount, 1)
+        XCTAssertEqual(plan.diagnostics.traversalPathLength, 1)
+        XCTAssertEqual(plan.diagnostics.traversalSummary.bxxDetectedCount, 1)
+        XCTAssertEqual(plan.diagnostics.traversalSummary.e6xLoopLimitHitCount, 0)
+        XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.status, .loopLimitHit)
+        XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.policy, "bxx_position_cycle_guard")
+    }
+
+    func testRuntimeAdapterPlanningDoesNotExpandLongOrderTablePositionJumpCycle() {
+        let orderCount = 512
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        var orderPatternIndices = Array(repeating: 2, count: orderCount - 1)
+        orderPatternIndices.append(3)
+        let song = makePlaybackSong(
+            orderPatternIndices: orderPatternIndices,
+            patternRowsByIndex: [
+                2: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+                3: [makePlaybackRow(index: 0, effectType: 0x0B, effectParam: 0x00)]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(plan.plannedEventCount, orderCount - 1)
+        XCTAssertEqual(plan.plan?.diagnostics.traversalGuardHit, true)
+        XCTAssertEqual(plan.plan?.diagnostics.traversalStopReason, .traversalGuardHit)
+        XCTAssertEqual(plan.plan?.diagnostics.traversalPathLength, orderCount)
+        XCTAssertEqual(plan.plan?.diagnostics.requestedOrderCount, orderCount)
+        XCTAssertEqual(plan.plan?.diagnostics.adaptedOrders.count, orderCount)
     }
 
     func testTraversalOfflineRenderRuntimePlanAndDirectStartRemainDeterministic() throws {

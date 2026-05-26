@@ -1356,6 +1356,52 @@ is not an automatic correctness decision and should be checked against listening
 notes, renderer settings, and the actual row/event context before opening the
 follow-up implementation PR.
 
+## Summarize A Multi-Module Triage Pass
+
+When several local comparison JSON files have been generated with
+`scripts/audio-compare.py`, summarize them with an anonymized local manifest:
+
+```json
+{
+  "title": "Reference Render Parity Triage",
+  "metadata": ["local-only comparison set; anonymized labels only"],
+  "cases": [
+    {
+      "label": "xm-corpus-001",
+      "role": "focused parity candidate",
+      "bounds": "full-song or bounded target recorded locally",
+      "priority": "highest",
+      "suspected_buckets": ["interpolation/sample stepping"],
+      "references": [
+        {
+          "renderer": "mikmod",
+          "comparison_json": "/tmp/xm-corpus-001-mikmod-audio-compare.json",
+          "comparison_artifact_label": "xm-corpus-001-mikmod"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Then write a public-safe Markdown/JSON summary under `/tmp`:
+
+```bash
+python3 scripts/summarize-reference-render-triage.py \
+  --manifest /tmp/vtx-reference-render-triage-manifest.json \
+  --json /tmp/vtx-reference-render-triage-summary.json \
+  --markdown /tmp/vtx-reference-render-triage-summary.md
+```
+
+The summary helper consumes existing comparison JSON only. It does not render
+audio, change playback behavior, change C mixer DSP, or add XM effects. It
+keeps comparison inputs anonymized by reporting case labels, renderer labels,
+format/level/difference metrics, scalar gain-normalized evidence, worst
+mismatch windows, missing-reference status, and a conservative next-PR
+recommendation across the selected cases. Do not put private filenames or local
+absolute module/reference paths in the manifest labels, metadata, notes, or
+artifact labels if the resulting report will be shared publicly.
+
 Order 10 and order 30 of a local/private module can be useful exploratory
 bounded targets when they expose dense transitions. They remain local-only
 debugging inputs. Do not commit the module or any generated WAV, JSON,
@@ -1484,6 +1530,8 @@ The JSON and Markdown reports include:
 - overall RMS difference
 - normalized RMS difference against reference RMS when practical
 - max absolute sample difference
+- scalar gain-normalized RMS difference, max absolute difference, candidate
+  scalar, and RMS-difference reduction ratio for loudness/headroom triage
 - clipping sample count
 - silence or near-silence sample count and ratio
 - stereo balance as left/right RMS and energy difference for stereo files

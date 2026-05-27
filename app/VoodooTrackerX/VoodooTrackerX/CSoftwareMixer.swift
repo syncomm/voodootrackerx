@@ -93,7 +93,8 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
             start: diagnostic.gain_ramp_start,
             target: diagnostic.gain_ramp_target,
             totalFrames: Int(diagnostic.gain_ramp_total_frames),
-            positionFrame: Int(diagnostic.gain_ramp_position_frame)
+            positionFrame: Int(diagnostic.gain_ramp_position_frame),
+            deactivateAfterRamp: diagnostic.deactivate_after_gain_ramp != 0
         )
         deactivateAfterGainRamp = diagnostic.deactivate_after_gain_ramp != 0
         panRamp = diagnostic.pan_ramp_active == 0 ? nil : CSoftwareMixerValueRampRuntimeState(
@@ -110,12 +111,20 @@ struct CSoftwareMixerValueRampRuntimeState: Equatable {
     let target: Float
     let totalFrames: Int
     let positionFrame: Int
+    let deactivateAfterRamp: Bool
 
-    init(start: Float, target: Float, totalFrames: Int, positionFrame: Int) {
+    init(
+        start: Float,
+        target: Float,
+        totalFrames: Int,
+        positionFrame: Int,
+        deactivateAfterRamp: Bool = false
+    ) {
         self.start = start.isFinite ? start : 0
         self.target = target.isFinite ? target : 0
         self.totalFrames = max(1, totalFrames)
         self.positionFrame = min(max(0, positionFrame), max(0, totalFrames - 1))
+        self.deactivateAfterRamp = deactivateAfterRamp
     }
 }
 
@@ -554,6 +563,37 @@ final class CSoftwareMixer {
         return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
     }
 
+    /// Schedules a deterministic replacement ramp for an existing offline voice and
+    /// retires that voice when the ramp reaches silence.
+    @discardableResult
+    func scheduleVoiceRampDownAndDeactivate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        rampFrames: Int = CSoftwareMixer.replacementStopRampFrameCount
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              rampFrames > 0 else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_ramp_down_and_deactivate(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            UInt32(clamping: rampFrames)
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
     /// Schedules an immediate sample-step update for an existing offline voice.
     ///
     /// Higher-level adapters own musical pitch semantics; the C mixer receives only frame-stamped source-step
@@ -767,7 +807,8 @@ final class CSoftwareMixer {
                 start: 0,
                 target: 0,
                 total_frames: 0,
-                position_frame: 0
+                position_frame: 0,
+                deactivate_after_ramp: 0
             )
         }
         return VTXCMixerValueRampRuntimeState(
@@ -775,7 +816,8 @@ final class CSoftwareMixer {
             start: state.start,
             target: state.target,
             total_frames: UInt32(clamping: state.totalFrames),
-            position_frame: UInt32(clamping: state.positionFrame)
+            position_frame: UInt32(clamping: state.positionFrame),
+            deactivate_after_ramp: state.deactivateAfterRamp ? 1 : 0
         )
     }
 

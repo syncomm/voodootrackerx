@@ -155,12 +155,17 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
         var events = [RuntimeCMixerAdapterEvent]()
         var nextID = 0
+        var seenNoteTriggerChannels = Set<Int>()
 
         for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
             guard let mapping = eventMappingsByIndex[eventIndex] else {
                 continue
             }
             var categories = ["note_trigger"]
+            if seenNoteTriggerChannels.contains(mapping.channelIndex) {
+                categories.append("replacement")
+            }
+            seenNoteTriggerChannels.insert(mapping.channelIndex)
             let bridgedPortamentoSlide = appliedPortamentoSlidesByTriggerKey[portamentoSlideTriggerKey(
                 eventIndex: eventIndex,
                 source: mapping.source,

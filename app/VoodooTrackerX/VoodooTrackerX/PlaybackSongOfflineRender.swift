@@ -167,6 +167,68 @@ struct PlaybackSongWindowedRenderSummary: Equatable {
     }
 }
 
+struct PlaybackSongSameChannelReplacementEvent: Equatable {
+    let sourceChannelIndex: Int
+    let oldEventIndex: Int
+    let newEventIndex: Int
+    let replacementFrame: Int
+    let completionFrame: Int
+    let oldVoiceKeptReason: String
+    let oldVoiceRampDurationFrames: Int
+
+    func rampState(
+        startGain: Float,
+        at boundaryFrame: Int
+    ) -> CSoftwareMixerValueRampRuntimeState? {
+        guard boundaryFrame > replacementFrame,
+              boundaryFrame < completionFrame else {
+            return nil
+        }
+        return CSoftwareMixerValueRampRuntimeState(
+            start: startGain,
+            target: 0,
+            totalFrames: oldVoiceRampDurationFrames,
+            positionFrame: boundaryFrame - replacementFrame,
+            deactivateAfterRamp: true
+        )
+    }
+}
+
+struct PlaybackSongSameChannelVoiceLifetimeDiagnostics: Equatable {
+    static let oldVoiceKeptReasonReplacementRamp = "replacement_ramp_overlap"
+
+    let replacementRampFrameCount: Int
+    let activeVoicesBySourceChannel: [Int: Int]
+    let loadedVoicesBySourceChannel: [Int: Int]
+    let sameChannelActiveVoiceCount: Int
+    let sameChannelReplacementStartCount: Int
+    let sameChannelReplacementCompletionCount: Int
+    let sameChannelVoiceOverlapFrames: Int
+    let maxVoicesPerSourceChannel: [Int: Int]
+    let oldVoiceKeptReasonCounts: [String: Int]
+    let oldVoiceRampDurationFrames: Int
+    let windowBoundaryPruneCount: Int
+    let replacementEvents: [PlaybackSongSameChannelReplacementEvent]
+
+    func rampEvent(
+        forOldEventIndex eventIndex: Int,
+        at boundaryFrame: Int
+    ) -> PlaybackSongSameChannelReplacementEvent? {
+        replacementEvents.last { event in
+            event.oldEventIndex == eventIndex &&
+                event.replacementFrame <= boundaryFrame &&
+                boundaryFrame < event.completionFrame
+        }
+    }
+
+    func firstReplacementFrame(forOldEventIndex eventIndex: Int) -> Int? {
+        replacementEvents
+            .filter { $0.oldEventIndex == eventIndex }
+            .map(\.replacementFrame)
+            .min()
+    }
+}
+
 struct PlaybackSongOfflineRenderResult: Equatable {
     let request: PlaybackSongOfflineRenderRequest
     let plan: PlaybackSongSyntheticPlan
@@ -175,6 +237,7 @@ struct PlaybackSongOfflineRenderResult: Equatable {
     let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
     let scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]
     let windowedRenderSummary: PlaybackSongWindowedRenderSummary?
+    let sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
     let exportDiagnostics: MixerWAVExportDiagnostics?
 
     init(
@@ -185,6 +248,7 @@ struct PlaybackSongOfflineRenderResult: Equatable {
         scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?] = [],
         scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]? = nil,
         windowedRenderSummary: PlaybackSongWindowedRenderSummary? = nil,
+        sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics? = nil,
         exportDiagnostics: MixerWAVExportDiagnostics? = nil
     ) {
         self.request = request
@@ -207,6 +271,10 @@ struct PlaybackSongOfflineRenderResult: Equatable {
             )
         }
         self.windowedRenderSummary = windowedRenderSummary
+        self.sameChannelVoiceLifetime = sameChannelVoiceLifetime ?? PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(
+            for: plan,
+            renderedFrameCount: block.frameCount
+        )
         self.exportDiagnostics = exportDiagnostics
     }
 
@@ -241,6 +309,7 @@ struct PlaybackSongOfflineRenderResult: Equatable {
             scheduledVoiceRejectionReasons: scheduledVoiceRejectionReasons,
             scheduledVoiceAttempts: scheduledVoiceAttempts,
             windowedRenderSummary: windowedRenderSummary,
+            sameChannelVoiceLifetime: sameChannelVoiceLifetime,
             exportDiagnostics: diagnostics
         )
     }
@@ -252,6 +321,7 @@ final class PlaybackSongOfflineRenderSession {
     let plan: PlaybackSongSyntheticPlan
     let scheduledVoiceIndices: [Int?]
     let scheduledVoiceRejectionReasons: [CSoftwareMixerScheduledVoiceRejectionReason?]
+    let sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
 
     private let mixer: CSoftwareMixer
     private var renderedFrameCount = 0
@@ -320,6 +390,15 @@ final class PlaybackSongOfflineRenderSession {
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer
         )
+        sameChannelVoiceLifetime = PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(
+            for: adaptedPlan,
+            renderedFrameCount: request.boundedFrameCount
+        )
+        PlaybackSongOfflineRenderer.scheduleSameChannelReplacementRamps(
+            sameChannelVoiceLifetime.replacementEvents,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer
+        )
         let rejectionReasons = scheduledResults.map(\.rejectionReason)
         let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
@@ -377,7 +456,8 @@ final class PlaybackSongOfflineRenderer {
             plan: session.plan,
             block: session.render(frames: effectiveRequest.boundedFrameCount),
             scheduledVoiceIndices: session.scheduledVoiceIndices,
-            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons,
+            sameChannelVoiceLifetime: session.sameChannelVoiceLifetime
         )
     }
 
@@ -408,6 +488,10 @@ final class PlaybackSongOfflineRenderer {
         var windowDiagnostics = [PlaybackSongWindowedRenderWindowDiagnostic]()
         var outputConfig = CSoftwareMixer(config: effectiveRequest.config).config
         let knownUnsupportedCarryoverReasons = Self.knownUnsupportedCarryoverReasons(for: adaptedPlan)
+        let sameChannelLifetime = Self.sameChannelVoiceLifetimeDiagnostics(
+            for: adaptedPlan,
+            renderedFrameCount: totalFrames
+        )
 
         for spec in windows {
             let mixer = CSoftwareMixer(config: effectiveRequest.config)
@@ -420,7 +504,8 @@ final class PlaybackSongOfflineRenderer {
             let continuations = Self.continuations(
                 for: spec,
                 plan: adaptedPlan,
-                scheduler: scheduler
+                scheduler: scheduler,
+                sameChannelLifetime: sameChannelLifetime
             )
             var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
             continuationResults.reserveCapacity(continuations.count)
@@ -512,6 +597,13 @@ final class PlaybackSongOfflineRenderer {
                 windowStartFrame: spec.startFrame,
                 windowEndFrame: spec.endFrame
             )
+            Self.scheduleSameChannelReplacementRamps(
+                sameChannelLifetime.replacementEvents,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame
+            )
             attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
                 PlaybackSongScheduledVoiceAttempt(
                     eventIndex: pair.offset,
@@ -584,7 +676,8 @@ final class PlaybackSongOfflineRenderer {
             scheduledVoiceIndices: attempts.map(\.voiceIndex),
             scheduledVoiceRejectionReasons: attempts.map(\.rejectionReason),
             scheduledVoiceAttempts: attempts,
-            windowedRenderSummary: summary
+            windowedRenderSummary: summary,
+            sameChannelVoiceLifetime: sameChannelLifetime
         )
     }
 
@@ -616,7 +709,8 @@ final class PlaybackSongOfflineRenderer {
             plan: session.plan,
             block: block,
             scheduledVoiceIndices: session.scheduledVoiceIndices,
-            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons
+            scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons,
+            sameChannelVoiceLifetime: session.sameChannelVoiceLifetime
         )
     }
 
@@ -885,6 +979,32 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
+    fileprivate static func scheduleSameChannelReplacementRamps(
+        _ replacements: [PlaybackSongSameChannelReplacementEvent],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil
+    ) {
+        for replacement in replacements {
+            guard let voiceIndex = voiceIndexByEventIndex[replacement.oldEventIndex] else {
+                continue
+            }
+            guard replacement.replacementFrame >= windowStartFrame else {
+                continue
+            }
+            if let windowEndFrame,
+               replacement.replacementFrame >= windowEndFrame {
+                continue
+            }
+            _ = mixer.scheduleVoiceRampDownAndDeactivate(
+                voiceIndex: voiceIndex,
+                scheduledFrame: replacement.replacementFrame - windowStartFrame,
+                rampFrames: replacement.oldVoiceRampDurationFrames
+            )
+        }
+    }
+
     private static func changedGain(
         from update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Float? {
@@ -1009,6 +1129,11 @@ final class PlaybackSongOfflineRenderer {
         let carriedTonePortamentoActive: Bool
     }
 
+    private struct SameChannelActiveVoice: Equatable {
+        let eventIndex: Int
+        var rampCompletionFrame: Int?
+    }
+
     private static func windowSpecs(
         for plan: PlaybackSongSyntheticPlan,
         totalFrames: Int,
@@ -1071,7 +1196,8 @@ final class PlaybackSongOfflineRenderer {
     private static func continuations(
         for window: RenderWindowSpec,
         plan: PlaybackSongSyntheticPlan,
-        scheduler: SyntheticTrackerScheduler
+        scheduler: SyntheticTrackerScheduler,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
     ) -> [WindowContinuation] {
         let windowStartFrame = window.startFrame
         guard windowStartFrame > 0 else {
@@ -1089,9 +1215,15 @@ final class PlaybackSongOfflineRenderer {
                 return nil
             }
             if let mapping = mappingsByEventIndex[eventIndex],
-               let latestEventIndex = latestEventIndexByChannel[mapping.channelIndex],
-               latestEventIndex != eventIndex {
-                return nil
+               let latestEventIndex = latestEventIndexByChannel[mapping.channelIndex] {
+                let isLatestChannelVoice = latestEventIndex == eventIndex
+                let isReplacementRampCarry = sameChannelLifetime.rampEvent(
+                    forOldEventIndex: eventIndex,
+                    at: windowStartFrame
+                ) != nil
+                if !isLatestChannelVoice && !isReplacementRampCarry {
+                    return nil
+                }
             }
             if hasAppliedNoteCut(
                 eventIndex: eventIndex,
@@ -1105,6 +1237,19 @@ final class PlaybackSongOfflineRenderer {
                 eventIndex: eventIndex,
                 plan: plan,
                 before: windowStartFrame
+            )
+            let replacementRampEvent = sameChannelLifetime.rampEvent(
+                forOldEventIndex: eventIndex,
+                at: windowStartFrame
+            )
+            let replacementGainRamp = replacementRampEvent?.rampState(
+                startGain: replacementRampStartGain(
+                    for: event,
+                    eventIndex: eventIndex,
+                    plan: plan,
+                    replacementFrame: replacementRampEvent?.replacementFrame
+                ),
+                at: windowStartFrame
             )
             let stepState = stepStateAtBoundary(
                 for: event,
@@ -1122,7 +1267,7 @@ final class PlaybackSongOfflineRenderer {
                 eventStartFrame: eventStartFrame,
                 boundaryFrame: windowStartFrame,
                 plan: plan,
-                gainRamp: gainPanState.gainRamp,
+                gainRamp: replacementGainRamp ?? gainPanState.gainRamp,
                 panRamp: gainPanState.panRamp,
                 carriedTonePortamentoActive: stepState.carriedTonePortamentoActive
             )
@@ -1133,7 +1278,8 @@ final class PlaybackSongOfflineRenderer {
         for event: SyntheticTrackerEvent,
         eventIndex: Int,
         plan: PlaybackSongSyntheticPlan,
-        before boundaryFrame: Int
+        before boundaryFrame: Int,
+        includingUpdatesAtBoundary: Bool = false
     ) -> GainPanStateAtBoundary {
         var gain = event.gain
         var pan = event.pan
@@ -1144,7 +1290,8 @@ final class PlaybackSongOfflineRenderer {
         for update in plan.diagnostics.voiceStateUpdates {
             guard update.activeVoiceUpdated,
                   update.activeEventIndex == eventIndex,
-                  update.scheduledFrame < boundaryFrame else {
+                  update.scheduledFrame < boundaryFrame ||
+                  (includingUpdatesAtBoundary && update.scheduledFrame == boundaryFrame) else {
                 continue
             }
             if let target = changedGain(from: update) {
@@ -1209,6 +1356,24 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
+    private static func replacementRampStartGain(
+        for event: SyntheticTrackerEvent,
+        eventIndex: Int,
+        plan: PlaybackSongSyntheticPlan,
+        replacementFrame: Int?
+    ) -> Float {
+        guard let replacementFrame else {
+            return event.gain
+        }
+        return gainPanStateAtBoundary(
+            for: event,
+            eventIndex: eventIndex,
+            plan: plan,
+            before: replacementFrame,
+            includingUpdatesAtBoundary: true
+        ).gain
+    }
+
     private static func sampleStepUpdates(
         for eventIndex: Int,
         plan: PlaybackSongSyntheticPlan
@@ -1266,6 +1431,18 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
+    private static func hasAppliedNoteCut(
+        eventIndex: Int,
+        atOrBefore boundaryFrame: Int,
+        plan: PlaybackSongSyntheticPlan
+    ) -> Bool {
+        plan.diagnostics.noteCutEffects.contains { cut in
+            cut.applied &&
+                cut.activeEventIndex == eventIndex &&
+                (cut.scheduledFrame ?? Int.max) <= boundaryFrame
+        }
+    }
+
     private static func latestEventIndicesByChannel(
         atOrBefore boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan,
@@ -1290,6 +1467,155 @@ final class PlaybackSongOfflineRenderer {
             }
         }
         return latestByChannel.mapValues(\.eventIndex)
+    }
+
+    fileprivate static func sameChannelVoiceLifetimeDiagnostics(
+        for plan: PlaybackSongSyntheticPlan,
+        renderedFrameCount: Int,
+        windowBoundaryPruneCount: Int = 0
+    ) -> PlaybackSongSameChannelVoiceLifetimeDiagnostics {
+        struct EventInfo {
+            let eventIndex: Int
+            let event: SyntheticTrackerEvent
+            let channelIndex: Int
+            let frame: Int
+        }
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
+        let eventInfos = plan.pattern.events.enumerated().compactMap { eventIndex, event -> EventInfo? in
+            guard let mapping = mappingsByEventIndex[eventIndex] else {
+                return nil
+            }
+            return EventInfo(
+                eventIndex: eventIndex,
+                event: event,
+                channelIndex: mapping.channelIndex,
+                frame: scheduler.frame(for: event)
+            )
+        }.sorted { lhs, rhs in
+            if lhs.frame != rhs.frame {
+                return lhs.frame < rhs.frame
+            }
+            return lhs.eventIndex < rhs.eventIndex
+        }
+
+        let rampFrames = CSoftwareMixer.replacementStopRampFrameCount
+        let renderedFrameCount = max(0, renderedFrameCount)
+        var activeByChannel = [Int: [SameChannelActiveVoice]]()
+        var maxVoicesByChannel = [Int: Int]()
+        var loadedByChannel = [Int: Int]()
+        var replacementEvents = [PlaybackSongSameChannelReplacementEvent]()
+
+        for info in eventInfos {
+            loadedByChannel[info.channelIndex, default: 0] += 1
+            var activeVoices = activeByChannel[info.channelIndex] ?? []
+            activeVoices = activeVoices.filter { voice in
+                sameChannelVoiceIsActive(
+                    voice,
+                    at: info.frame,
+                    plan: plan,
+                    scheduler: scheduler
+                )
+            }
+            for index in activeVoices.indices {
+                let oldEventIndex = activeVoices[index].eventIndex
+                let completionFrame = info.frame + rampFrames
+                replacementEvents.append(PlaybackSongSameChannelReplacementEvent(
+                    sourceChannelIndex: info.channelIndex,
+                    oldEventIndex: oldEventIndex,
+                    newEventIndex: info.eventIndex,
+                    replacementFrame: info.frame,
+                    completionFrame: completionFrame,
+                    oldVoiceKeptReason: PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonReplacementRamp,
+                    oldVoiceRampDurationFrames: rampFrames
+                ))
+                activeVoices[index].rampCompletionFrame = completionFrame
+            }
+            activeVoices.append(SameChannelActiveVoice(eventIndex: info.eventIndex, rampCompletionFrame: nil))
+            activeByChannel[info.channelIndex] = activeVoices
+            maxVoicesByChannel[info.channelIndex] = max(
+                maxVoicesByChannel[info.channelIndex] ?? 0,
+                activeVoices.count
+            )
+        }
+
+        let activeAtEndByChannel = activeByChannel.mapValues { voices in
+            voices.filter { voice in
+                sameChannelVoiceIsActive(
+                    voice,
+                    at: renderedFrameCount,
+                    plan: plan,
+                    scheduler: scheduler
+                )
+            }.count
+        }.filter { $0.value > 0 }
+        let replacementCompletionCount = replacementEvents.filter {
+            $0.completionFrame <= renderedFrameCount
+        }.count
+        let overlapFrames = replacementEvents.map { replacement in
+            max(0, min(renderedFrameCount, replacement.completionFrame) - replacement.replacementFrame)
+        }.reduce(0, +)
+        let keptReasonCounts = replacementEvents.reduce(into: [String: Int]()) { result, event in
+            result[event.oldVoiceKeptReason, default: 0] += 1
+        }
+        return PlaybackSongSameChannelVoiceLifetimeDiagnostics(
+            replacementRampFrameCount: rampFrames,
+            activeVoicesBySourceChannel: activeAtEndByChannel,
+            loadedVoicesBySourceChannel: loadedByChannel.filter { $0.value > 0 },
+            sameChannelActiveVoiceCount: maxVoicesByChannel.values.max() ?? 0,
+            sameChannelReplacementStartCount: replacementEvents.count,
+            sameChannelReplacementCompletionCount: replacementCompletionCount,
+            sameChannelVoiceOverlapFrames: overlapFrames,
+            maxVoicesPerSourceChannel: maxVoicesByChannel.filter { $0.value > 0 },
+            oldVoiceKeptReasonCounts: keptReasonCounts,
+            oldVoiceRampDurationFrames: rampFrames,
+            windowBoundaryPruneCount: max(0, windowBoundaryPruneCount),
+            replacementEvents: replacementEvents
+        )
+    }
+
+    private static func sameChannelVoiceIsActive(
+        _ voice: SameChannelActiveVoice,
+        at frame: Int,
+        plan: PlaybackSongSyntheticPlan,
+        scheduler: SyntheticTrackerScheduler
+    ) -> Bool {
+        if let rampCompletionFrame = voice.rampCompletionFrame,
+           frame >= rampCompletionFrame {
+            return false
+        }
+        guard plan.pattern.events.indices.contains(voice.eventIndex) else {
+            return false
+        }
+        let event = plan.pattern.events[voice.eventIndex]
+        let eventStartFrame = scheduler.frame(for: event)
+        guard eventStartFrame <= frame else {
+            return false
+        }
+        if hasAppliedNoteCut(
+            eventIndex: voice.eventIndex,
+            atOrBefore: frame,
+            plan: plan
+        ) {
+            return false
+        }
+        guard sourcePositionState(
+            for: event,
+            eventIndex: voice.eventIndex,
+            plan: plan,
+            eventStartFrame: eventStartFrame,
+            boundaryFrame: frame
+        ) != nil else {
+            return false
+        }
+        let releasedFrames = releasedFrameCount(
+            boundaryFrame: frame,
+            keyOffFrame: event.keyOffFrame
+        )
+        return fadeoutValue(
+            releasedFrames: releasedFrames,
+            decrementPerFrame: event.fadeoutFrameDecrement
+        ) > 0
     }
 
     private static func continuation(

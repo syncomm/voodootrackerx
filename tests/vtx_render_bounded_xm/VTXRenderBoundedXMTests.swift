@@ -1217,6 +1217,72 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(export["pcm16_clipping_count"] as? Int, 0)
     }
 
+    func testDiagnosticsJSONIncludesSameChannelVoiceLifetimeFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 6_400,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = PlaybackSong(
+            title: "same-channel-lifetime",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                    ]),
+                    PlaybackRow(index: 1, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                    ]),
+                ]),
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 6_400, channelCount: 1),
+            frames: 128
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let lifetime = try XCTUnwrap(object["same_channel_voice_lifetime"] as? [String: Any])
+        let loadedByChannel = try XCTUnwrap(lifetime["loaded_voices_by_source_channel"] as? [String: Int])
+        let maxByChannel = try XCTUnwrap(lifetime["max_voices_per_source_channel"] as? [String: Int])
+        let keptReasons = try XCTUnwrap(lifetime["old_voice_kept_reason_counts"] as? [String: Int])
+        let replacementEvents = try XCTUnwrap(lifetime["replacement_events"] as? [[String: Any]])
+        let firstReplacement = try XCTUnwrap(replacementEvents.first)
+
+        XCTAssertEqual(render["same_channel_replacement_ramp_enabled"] as? Bool, true)
+        XCTAssertEqual(render["same_channel_replacement_ramp_frame_count"] as? Int, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(render["same_channel_replacement_start_count"] as? Int, 1)
+        XCTAssertEqual(render["same_channel_replacement_completion_count"] as? Int, 1)
+        XCTAssertEqual(render["same_channel_voice_overlap_frames"] as? Int, CSoftwareMixer.replacementStopRampFrameCount)
+        XCTAssertEqual(lifetime["same_channel_active_voice_count"] as? Int, 2)
+        XCTAssertEqual(loadedByChannel["0"], 2)
+        XCTAssertEqual(maxByChannel["0"], 2)
+        XCTAssertEqual(
+            keptReasons[PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonReplacementRamp],
+            1
+        )
+        XCTAssertEqual(firstReplacement["old_event_index"] as? Int, 0)
+        XCTAssertEqual(firstReplacement["new_event_index"] as? Int, 1)
+        XCTAssertEqual(firstReplacement["replacement_frame"] as? Int, 64)
+        XCTAssertEqual(firstReplacement["completion_frame"] as? Int, 96)
+        XCTAssertEqual(firstReplacement["old_voice_ramp_duration_frames"] as? Int, CSoftwareMixer.replacementStopRampFrameCount)
+    }
+
     func testWindowedDiagnosticsJSONIncludesAggregateWindowFields() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -1483,6 +1483,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
+        let sameChannelVoiceLifetime = result.sameChannelVoiceLifetime
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         let traversalSummary = diagnostics.traversalSummary
         let notes = [
@@ -1658,6 +1659,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "gain_pan_update_count": gainPanUpdateCount,
                 "gain_pan_ramped_update_count": gainPanUpdateCount,
                 "gain_pan_interrupted_ramp_count": gainPanInterruptedRampCount,
+                "same_channel_replacement_ramp_enabled": true,
+                "same_channel_replacement_ramp_frame_count": sameChannelVoiceLifetime.replacementRampFrameCount,
+                "same_channel_active_voice_count": sameChannelVoiceLifetime.sameChannelActiveVoiceCount,
+                "same_channel_replacement_start_count": sameChannelVoiceLifetime.sameChannelReplacementStartCount,
+                "same_channel_replacement_completion_count": sameChannelVoiceLifetime.sameChannelReplacementCompletionCount,
+                "same_channel_voice_overlap_frames": sameChannelVoiceLifetime.sameChannelVoiceOverlapFrames,
+                "max_voices_per_source_channel": intKeyedDictionaryJSON(sameChannelVoiceLifetime.maxVoicesPerSourceChannel),
+                "old_voice_kept_reason_counts": sameChannelVoiceLifetime.oldVoiceKeptReasonCounts,
+                "old_voice_ramp_duration_frames": sameChannelVoiceLifetime.oldVoiceRampDurationFrames,
+                "window_boundary_prune_count": sameChannelVoiceLifetime.windowBoundaryPruneCount,
                 "hxy_global_volume_slide_detected_count": hxyEffectDiagnostics.count,
                 "hxy_global_volume_slide_applied_count": hxyAppliedCount,
                 "hxy_global_volume_slide_ignored_no_op_count": hxyIgnoredNoOpCount,
@@ -1709,6 +1720,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "render": render,
             "export_diagnostics": exportDiagnosticsJSON(exportDiagnostics),
             "windowed_render": windowedRenderJSON(from: result),
+            "same_channel_voice_lifetime": sameChannelVoiceLifetimeJSON(sameChannelVoiceLifetime),
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
             "traversal_summary": traversalSummaryJSON(traversalSummary),
@@ -1843,6 +1855,45 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "scheduled_capacity_rejected_count": diagnostic.scheduledCapacityRejectedCount,
             "invalid_scheduled_voice_rejected_count": diagnostic.invalidScheduledVoiceRejectedCount,
         ]
+    }
+
+    private static func sameChannelVoiceLifetimeJSON(
+        _ diagnostics: PlaybackSongSameChannelVoiceLifetimeDiagnostics
+    ) -> [String: Any] {
+        [
+            "replacement_ramp_frame_count": diagnostics.replacementRampFrameCount,
+            "active_voices_by_source_channel": intKeyedDictionaryJSON(diagnostics.activeVoicesBySourceChannel),
+            "loaded_voices_by_source_channel": intKeyedDictionaryJSON(diagnostics.loadedVoicesBySourceChannel),
+            "same_channel_active_voice_count": diagnostics.sameChannelActiveVoiceCount,
+            "same_channel_replacement_start_count": diagnostics.sameChannelReplacementStartCount,
+            "same_channel_replacement_completion_count": diagnostics.sameChannelReplacementCompletionCount,
+            "same_channel_voice_overlap_frames": diagnostics.sameChannelVoiceOverlapFrames,
+            "max_voices_per_source_channel": intKeyedDictionaryJSON(diagnostics.maxVoicesPerSourceChannel),
+            "old_voice_kept_reason_counts": diagnostics.oldVoiceKeptReasonCounts,
+            "old_voice_ramp_duration_frames": diagnostics.oldVoiceRampDurationFrames,
+            "window_boundary_prune_count": diagnostics.windowBoundaryPruneCount,
+            "replacement_events": diagnostics.replacementEvents.map(sameChannelReplacementEventJSON),
+        ]
+    }
+
+    private static func sameChannelReplacementEventJSON(
+        _ event: PlaybackSongSameChannelReplacementEvent
+    ) -> [String: Any] {
+        [
+            "source_channel_index": event.sourceChannelIndex,
+            "old_event_index": event.oldEventIndex,
+            "new_event_index": event.newEventIndex,
+            "replacement_frame": event.replacementFrame,
+            "completion_frame": event.completionFrame,
+            "old_voice_kept_reason": event.oldVoiceKeptReason,
+            "old_voice_ramp_duration_frames": event.oldVoiceRampDurationFrames,
+        ]
+    }
+
+    private static func intKeyedDictionaryJSON(_ values: [Int: Int]) -> [String: Int] {
+        values.reduce(into: [String: Int]()) { result, entry in
+            result[String(entry.key)] = entry.value
+        }
     }
 
     private static func eventJSON(from result: PlaybackSongOfflineRenderResult) -> [[String: Any]] {

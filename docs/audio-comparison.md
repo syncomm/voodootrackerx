@@ -91,6 +91,25 @@ volume slides that actually change an active voice.
 `ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
 memory, and both-nibble `Hxy` parameters use the same safe up-nibble precedence
 policy as the current runtime effect helper.
+Same-channel note replacement in bounded/offline C mixer renders now mirrors
+the runtime replacement lifetime policy: a new replacing note starts at its
+scheduled frame while the old same-channel voice receives a deterministic
+32-frame gain-to-zero ramp and is retired when that ramp completes. Full and
+row-windowed offline renders schedule the same replacement ramps, carry
+in-flight replacement ramps across window boundaries, and should not accumulate
+unbounded same-channel voices inside dense windows. A maximum same-channel
+active voice count of `2` is expected during replacement: one current voice plus
+one old voice still inside the 32-frame replacement ramp. This is an offline
+renderer correctness and reference-harness fix; local candidate/reference
+correlation metrics remain diagnostic evidence only, and no reference
+correlation improvement is claimed without a matching pre-fix safe-level
+baseline. Diagnostics JSON reports
+`same_channel_voice_lifetime` plus render counters for
+`same_channel_replacement_start_count`,
+`same_channel_replacement_completion_count`,
+`same_channel_voice_overlap_frames`, `max_voices_per_source_channel`,
+`old_voice_kept_reason_counts`, `old_voice_ramp_duration_frames`, and
+`window_boundary_prune_count`.
 Normal note triggers also use
 parsed XM instrument note-sample maps/keymaps when a valid bounded offline
 mapping exists, with deterministic first-playable fallback or skip diagnostics
@@ -1144,9 +1163,10 @@ direction, volume-envelope position, key-on/key-off release state, fadeout
 value, gain, and pan. Volume/panning state updates that occurred before a
 window boundary are folded into the carried voice state, and updates inside the
 window are scheduled at local frames. If a newer note event on the same adapted
-channel reaches the boundary, the older voice is not carried into the next
-window. This improves long local candidate continuity for sustained one-shot and
-looped voices without switching runtime playback or adding broad effect support.
+channel reaches the boundary, the older voice is carried only while its bounded
+replacement ramp is still active; otherwise it is not carried into the next
+window. This keeps row-windowed offline voice lifetime deterministic without
+switching runtime playback or adding broad effect support.
 
 Remaining limitations are still important. Carryover is approximate bounded
 offline behavior, not FT2/OpenMPT parity or a generic mixer-state serialization

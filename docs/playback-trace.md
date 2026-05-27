@@ -632,6 +632,10 @@ sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
 the planned adapter event stream. Volume-column vibrato and broader
 effect-memory families remain unsupported/deferred.
+Repeated same-channel note triggers in the runtime adapter event plan are also
+tagged with the `replacement` category, matching the C mixer runtime
+same-channel replacement path and the bounded/offline replacement-ramp
+diagnostics.
 Unsupported XM effects remain unsupported.
 If the plan is unavailable, the runtime trace reports the fallback and the C
 mixer continues through the simpler runtime event bridge.

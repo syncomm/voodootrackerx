@@ -525,7 +525,7 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(firstEvent.effectivePan, 1)
     }
 
-    func testPlaybackSongOfflineRendererWindowedDoesNotCarryReplacedChannelVoiceAtBoundary() {
+    func testPlaybackSongOfflineRendererWindowedCarriesReplacementRampAtBoundary() {
         let firstSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
         let replacementSample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25, 0.25], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
         let rows = [
@@ -551,8 +551,15 @@ final class OfflineRenderTests: XCTestCase {
 
         let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 1)
 
-        XCTAssertEqual(result.block.interleavedPCM, [1, 0.25, 0.25])
-        XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 1)
+        XCTAssertEqual(result.block.interleavedPCM, [1, 1.21875, 1.1875])
+        XCTAssertEqual(result.windowedRenderSummary?.totalBoundaryContinuations, 3)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.replacementRampFrameCount, 32)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelActiveVoiceCount, 2)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 1)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementCompletionCount, 0)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelVoiceOverlapFrames, 2)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.windowBoundaryPruneCount, 0)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.oldVoiceKeptReasonCounts["replacement_ramp_overlap"], 1)
     }
 
     func testPlaybackSongOfflineRendererWindowedDiagnosticsReportBoundaryDrops() throws {

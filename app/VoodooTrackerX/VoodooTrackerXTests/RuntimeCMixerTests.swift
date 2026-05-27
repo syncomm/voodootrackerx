@@ -1908,7 +1908,7 @@ final class RuntimeCMixerTests: XCTestCase {
 
         XCTAssertTrue(plan.generated)
         XCTAssertEqual(plan.plannedEventCount, rows.count)
-        XCTAssertEqual(plan.categories, ["note_trigger"])
+        XCTAssertEqual(plan.categories, ["note_trigger", "replacement"])
         XCTAssertEqual(noteTriggers.count, rows.count)
         for event in noteTriggers {
             XCTAssertEqual(event.sample.frameCount, pcm.count)

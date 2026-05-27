@@ -531,6 +531,33 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(mixer.activeVoiceCount, 1)
     }
 
+    func testCSoftwareMixerScheduledReplacementRampRetiresVoice() throws {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))
+        let oldVoice = mixer.addScheduledVoice(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 64)),
+            scheduledStartFrame: 0
+        )
+        let newVoice = mixer.addScheduledVoice(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(0.25), count: 64)),
+            scheduledStartFrame: 1
+        )
+
+        let ramp = mixer.scheduleVoiceRampDownAndDeactivate(
+            voiceIndex: try XCTUnwrap(oldVoice),
+            scheduledFrame: 1
+        )
+        let block = mixer.render(frames: 35)
+
+        XCTAssertNotNil(newVoice)
+        XCTAssertTrue(ramp.wasAccepted)
+        XCTAssertEqual(block.interleavedPCM[0], 1, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[1], 1.21875, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[31], 0.28125, accuracy: 0.000_001)
+        XCTAssertEqual(block.interleavedPCM[32], 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(mixer.rampDownCompletionCount, 1)
+        XCTAssertEqual(mixer.activeVoiceCount, 1)
+    }
+
     func testCSoftwareMixerPanUpdateMicroRampsInsteadOfStepping() {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
         let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 40)), pan: 0)

@@ -2040,6 +2040,23 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(secondTick.frameOffsetInRow, 15)
     }
 
+    func testRuntimeAdapterPlanUsesAccumulatedExactRowStartForPlannedTickFrames() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 2],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 11)
+        )
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let context = AudioRuntimeTraceContext(orderIndex: 0, patternIndex: 2, rowIndex: 1, tickInRow: 1)
+        let adaptedPlan = try XCTUnwrap(plan.plan)
+        let resolver = PlaybackSongSampleTimePositionResolver(plan: adaptedPlan)
+
+        XCTAssertEqual(plan.plannedRowStartFrame(matching: context), 45)
+        XCTAssertEqual(plan.plannedFrame(matching: context), 68)
+        XCTAssertEqual(resolver.position(atFrame: 67)?.tickInRow, 0)
+        XCTAssertEqual(resolver.position(atFrame: 68)?.tickInRow, 1)
+    }
+
     func testSampleTimePositionResolverUsesFxxTimingChanges() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

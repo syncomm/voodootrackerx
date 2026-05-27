@@ -60,6 +60,20 @@ def integer(value: Any) -> int | None:
     return int(numeric) if numeric is not None else None
 
 
+def first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def value_from(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return None
+
+
 def sample_rate_from(diagnostics: dict[str, Any], comparison: dict[str, Any] | None = None) -> int:
     candidates = [nested_dict(diagnostics.get("render")).get("sample_rate")]
     if comparison:
@@ -220,20 +234,85 @@ def collect_step_updates(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
             for update in nested_list(diagnostic.get("step_updates")):
                 if not isinstance(update, dict):
                     continue
-                frame = integer(update.get("scheduled_frame", update.get("absolute_frame")))
+                annotated = annotate_step_update(update, diagnostic, label)
+                frame = integer(first_present(
+                    value_from(annotated, "scheduled_frame"),
+                    value_from(annotated, "absolute_frame"),
+                ))
                 if frame is None:
                     continue
                 updates.append({
-                    **update,
+                    **annotated,
                     "_frame": max(0, frame),
-                    "label": label,
-                    "source": nested_dict(diagnostic.get("source")),
-                    "channel_index": diagnostic.get("channel_index"),
-                    "active_event_index": diagnostic.get("active_event_index"),
-                    "status": diagnostic.get("status", diagnostic.get("current_status")),
                 })
     updates.sort(key=lambda item: (item["_frame"], str(item["label"]), integer(item.get("channel_index")) or -1))
     return updates
+
+
+def annotate_step_update(
+    update: dict[str, Any],
+    parent: dict[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    result = dict(update)
+    result["label"] = label
+    result["source"] = nested_dict(parent.get("source"))
+    result["channel_index"] = first_present(update.get("channel_index"), parent.get("channel_index"))
+    result["active_event_index"] = first_present(update.get("active_event_index"), parent.get("active_event_index"))
+    result["active_event_mapping_index"] = first_present(
+        update.get("active_event_mapping_index"),
+        parent.get("active_event_mapping_index"),
+    )
+    result["status"] = first_present(
+        update.get("status"),
+        update.get("current_status"),
+        parent.get("status"),
+        parent.get("current_status"),
+    )
+    result["linear_period_before"] = value_from(
+        update,
+        "linear_period_before",
+        "current_linear_period_before",
+        "current_period_before",
+    )
+    result["linear_period_after"] = value_from(
+        update,
+        "linear_period_after",
+        "current_linear_period_after",
+        "current_period_after",
+    )
+    result["playback_step_before"] = value_from(
+        update,
+        "playback_step_before",
+        "current_playback_step_before",
+        "current_step_before",
+    )
+    result["playback_step_after"] = value_from(
+        update,
+        "playback_step_after",
+        "current_playback_step_after",
+        "current_step_after",
+    )
+    result["target_linear_period"] = first_present(
+        value_from(update, "target_linear_period", "target_period"),
+        value_from(parent, "target_linear_period", "target_period"),
+    )
+    result["target_playback_step"] = first_present(
+        value_from(update, "target_playback_step", "target_step"),
+        value_from(parent, "target_playback_step", "target_step"),
+    )
+    return result
+
+
+def annotate_effect_diagnostic(diagnostic: dict[str, Any], label: str) -> dict[str, Any]:
+    result = dict(diagnostic)
+    result["label"] = label
+    result["step_updates"] = [
+        annotate_step_update(update, diagnostic, label)
+        for update in nested_list(diagnostic.get("step_updates"))
+        if isinstance(update, dict)
+    ]
+    return result
 
 
 def advance_position(
@@ -436,7 +515,8 @@ def build_summary(
             return frame is not None and start <= frame < end
 
         tone = [
-            item for item in nested_list(diagnostics.get("tone_portamento_effects"))
+            annotate_effect_diagnostic(item, "3xx tone portamento")
+            for item in nested_list(diagnostics.get("tone_portamento_effects"))
             if isinstance(item, dict)
             and (
                 source_key(nested_dict(item.get("source"))) in overlapping_source_keys
@@ -511,6 +591,73 @@ def format_float(value: Any) -> str:
     return "unavailable" if parsed is None else f"{parsed:.6f}"
 
 
+def format_compact_float(value: Any) -> str:
+    parsed = number(value)
+    return "unavailable" if parsed is None else f"{parsed:.6f}".rstrip("0").rstrip(".")
+
+
+def format_transition(before: Any, after: Any) -> str:
+    return f"{format_compact_float(before)}->{format_compact_float(after)}"
+
+
+def format_target(period: Any, step: Any) -> str:
+    return f"{format_compact_float(period)}/{format_compact_float(step)}"
+
+
+def format_bool(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return "unavailable"
+
+
+def render_sample_step_updates_markdown(lines: list[str], updates: list[dict[str, Any]]) -> None:
+    if not updates:
+        return
+    lines.extend([
+        "",
+        "### Sample-Step Updates",
+        "",
+        "| Effect | Source | Channel | Tick | Frame | Period | Step | Target | Reached |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+    ])
+    for update in updates:
+        lines.append(
+            f"| {update.get('label', 'sample-step update')} | {source_label(nested_dict(update.get('source')))} | "
+            f"{update.get('channel_index')} | {update.get('synthetic_tick')} | {update.get('_frame', update.get('scheduled_frame'))} | "
+            f"{format_transition(update.get('linear_period_before'), update.get('linear_period_after'))} | "
+            f"{format_transition(update.get('playback_step_before'), update.get('playback_step_after'))} | "
+            f"{format_target(update.get('target_linear_period'), update.get('target_playback_step'))} | "
+            f"{format_bool(update.get('reached_target'))} |"
+        )
+
+
+def render_tone_portamento_markdown(lines: list[str], rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    lines.extend([
+        "",
+        "### Tone-Portamento Rows",
+        "",
+        "| Source | Channel | Status | Target Note | Target Period | Target Step | Step Frames |",
+        "| --- | ---: | --- | --- | ---: | ---: | --- |",
+    ])
+    for row in rows:
+        step_frames = [
+            str(integer(first_present(value_from(update, "scheduled_frame"), value_from(update, "absolute_frame"))))
+            for update in nested_list(row.get("step_updates"))
+            if isinstance(update, dict)
+            and integer(first_present(value_from(update, "scheduled_frame"), value_from(update, "absolute_frame"))) is not None
+        ]
+        lines.append(
+            f"| {source_label(nested_dict(row.get('source')))} | {row.get('channel_index')} | "
+            f"{row.get('status', row.get('current_status', 'unavailable'))} | "
+            f"{row.get('target_note_text', row.get('target_note', 'unavailable'))} | "
+            f"{format_compact_float(row.get('target_linear_period'))} | "
+            f"{format_compact_float(row.get('target_playback_step', row.get('target_step')))} | "
+            f"{', '.join(step_frames) if step_frames else 'none'} |"
+        )
+
+
 def render_markdown(summary: dict[str, Any]) -> str:
     lines = [
         f"# Focused Window Voice Timeline: {summary['label']}",
@@ -560,6 +707,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"{format_float(voice.get('playback_step'))} | {source} | "
                 f"{format_float(voice.get('gain'))}/{format_float(voice.get('pan'))} |"
             )
+        render_sample_step_updates_markdown(lines, window["sample_step_updates"])
+        render_tone_portamento_markdown(lines, window["tone_portamento"])
     return "\n".join(lines) + "\n"
 
 

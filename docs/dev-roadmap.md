@@ -180,8 +180,21 @@ groups. Local evidence kept the pass diagnostics-only: early known windows
 overlap `3xx` tick-1 sample-step updates, later windows show reference
 alignment shifts with fewer step updates, and no tiny sample-step, loop,
 sample-offset, replacement, event-ordering, or row-boundary bug was proven. The
-next focused parity target should be a reference-backed row/tick boundary frame
-rounding or sample-step update frame timing experiment. Bounded offline note
+row/tick boundary and sample-step timing audit now records the adapter's frame
+policy in bounded diagnostics: `framesPerTick = sampleRate * 2.5 / BPM`,
+fractional row starts are accumulated exactly, row/tick boundaries are floored,
+and scheduled C mixer state events apply before the scheduled frame is rendered.
+Runtime planning diagnostics now use the same exact row-start math as scheduled
+adapter events. A local ft2-clone reference is now the primary FT2-style
+comparison target for `xm-corpus-025`, with MikMod and Renoise treated as
+secondary references. Against that reference the remaining largest windows are
+mostly zero-shift, high-correlation differences around louder reference output,
+loop crossings, and occasional replacement/gain events; no consistent
+row-boundary, `3xx` sample-step, or event-ordering audio-render fix was proven.
+The likely next parity target is amplitude/timbre comparison, especially C
+mixer resampler/timbre and per-voice level normalization evidence, rather than
+gain/export policy alone.
+Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

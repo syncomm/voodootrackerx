@@ -1409,6 +1409,7 @@ def synthetic_focused_window_timeline_diagnostics():
                 "portamento_speed": 4,
                 "target_note_text": "D#4",
                 "target_linear_period": 4400,
+                "target_playback_step": 2.0,
                 "current_linear_period_before": 4608,
                 "current_linear_period_after": 4400,
                 "step_updates": [
@@ -1419,6 +1420,7 @@ def synthetic_focused_window_timeline_diagnostics():
                         "current_step_after": 2.0,
                         "linear_period_before": 4608,
                         "linear_period_after": 4400,
+                        "reached_target": True,
                     }
                 ],
             }
@@ -1565,8 +1567,16 @@ class FocusedWindowVoiceTimelineTests(unittest.TestCase):
         self.assertEqual(voices[0]["active_frame_range"], [0, 182])
         self.assertGreaterEqual(voices[0]["loop_crossings_in_window"], 1)
         self.assertEqual(window["sample_step_update_count"], 1)
-        self.assertEqual(window["sample_step_updates"][0]["label"], "3xx tone portamento")
+        step_update = window["sample_step_updates"][0]
+        self.assertEqual(step_update["label"], "3xx tone portamento")
+        self.assertEqual(step_update["linear_period_before"], 4608)
+        self.assertEqual(step_update["linear_period_after"], 4400)
+        self.assertEqual(step_update["playback_step_before"], 1.5)
+        self.assertEqual(step_update["playback_step_after"], 2.0)
+        self.assertEqual(step_update["target_linear_period"], 4400)
+        self.assertEqual(step_update["target_playback_step"], 2.0)
         self.assertEqual(window["tone_portamento"][0]["target_linear_period"], 4400)
+        self.assertEqual(window["tone_portamento"][0]["step_updates"][0]["target_playback_step"], 2.0)
         self.assertEqual(len(window["sample_offsets"]), 1)
         self.assertEqual(len(window["note_replacements"]), 1)
         self.assertEqual(window["gain_pan_update_count"], 1)
@@ -1619,6 +1629,10 @@ class FocusedWindowVoiceTimelineTests(unittest.TestCase):
 
         self.assertIn("Focused Window Voice Timeline: xm-corpus-synthetic", markdown)
         self.assertIn("Sample-step updates: 1", markdown)
+        self.assertIn("### Sample-Step Updates", markdown)
+        self.assertIn("| 3xx tone portamento | order 0 pattern 3 row 1 | 0 | 1 | 120 | 4608->4400 | 1.5->2 | 4400/2 | yes |", markdown)
+        self.assertIn("### Tone-Portamento Rows", markdown)
+        self.assertIn("| order 0 pattern 3 row 1 | 0 | applied | D#4 | 4400 | 2 | 120 |", markdown)
         self.assertIn("Same-frame groups: 2", markdown)
         self.assertIn("D#4", markdown)
 

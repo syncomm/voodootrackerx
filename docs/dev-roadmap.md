@@ -143,11 +143,15 @@ Renoise comparison against `xm-corpus-011` still shows broad late-song
 mismatch windows with envelope/key-off/fadeout metadata present and 66...82
 audible envelope-enabled voices in the top windows, mostly sustain-held with
 fadeout still at 1.0. The `xm-corpus-025` control windows remain
-envelope-disabled with zero key-off evidence. No tiny behavior bug was proven,
-so the next implementation target should be a narrowly tested volume-envelope
-tick-clock/sustain timing policy pass, with key-off/fadeout scaling and
-gain/panning math kept as separate follow-ups if expected-value tests isolate
-them. Bounded offline note
+envelope-disabled with zero key-off evidence. The focused envelope timing policy
+audit documented the current C mixer policy as XM envelope ticks mapped to
+output-frame positions, first audible samples evaluated before envelope advance,
+sustain holding before loop handling while key-on, inclusive envelope loops
+while key-on only, and key-off release before rendering the key-off frame. No
+tiny envelope behavior bug was proven; the next parity target should be
+same-channel offline voice replacement/overlap or a reference-backed envelope
+tick-clock experiment, with key-off/fadeout scaling and gain/panning math kept
+as separate follow-ups if expected-value tests isolate them. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

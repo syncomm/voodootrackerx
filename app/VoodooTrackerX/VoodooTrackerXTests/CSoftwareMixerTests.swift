@@ -1028,6 +1028,24 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, stereoPCM(from: [0, 0.5, 1]))
     }
 
+    func testCSoftwareMixerVolumeEnvelopeFirstAudibleFrameUsesInitialPositionBeforeAdvance() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0),
+            MixerEnvelopePoint(positionFrame: 1, value: 1)
+        ])
+
+        let block = cScheduledBlock(
+            sample: sample,
+            scheduledStartFrame: 2,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            volumeEnvelope: envelope
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 0, 0, 1])
+    }
+
     func testCSoftwareMixerVolumeEnvelopeInterpolatesAndClampsOutsidePoints() {
         let sample = MixerSampleBuffer(monoPCM: [1, 1, 1, 1, 1, 1])
         let envelope = MixerEnvelope(points: [
@@ -1714,6 +1732,29 @@ final class CSoftwareMixerTests: XCTestCase {
         )
 
         XCTAssertEqual(block.interleavedPCM, [1, 0.5, 0.25, 0.5, 0.25, 0.5])
+    }
+
+    func testCSoftwareMixerEnvelopeLoopStopsAfterKeyOffFrame() {
+        let envelope = MixerEnvelope(
+            points: [
+                MixerEnvelopePoint(positionFrame: 0, value: 1),
+                MixerEnvelopePoint(positionFrame: 1, value: 0.5),
+                MixerEnvelopePoint(positionFrame: 2, value: 0.25),
+                MixerEnvelopePoint(positionFrame: 3, value: 0)
+            ],
+            loopStartFrame: 1,
+            loopEndFrame: 2
+        )
+
+        let block = cOneShotBlock(
+            sample: MixerSampleBuffer(monoPCM: Array(repeating: 1, count: 6)),
+            frames: 6,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            volumeEnvelope: envelope,
+            keyOffFrame: 4
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [1, 0.5, 0.25, 0.5, 0.25, 0])
     }
 
     func testCSoftwareMixerFadeoutAppliesAfterKeyOffFrame() {

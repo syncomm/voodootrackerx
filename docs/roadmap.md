@@ -90,7 +90,14 @@ Current stabilization note:
   loop-heavy envelope-disabled target still points at a pitch/phase/loop-speed
   class of mismatch, but no tiny formula or C-side stepping bug was proven. The
   envelope-heavy target remains strongly confounded by envelope/key-off/fadeout
-  evidence.
+  evidence. The focused envelope timing policy audit kept this diagnostics-only:
+  the current C mixer policy maps XM envelope ticks to output-frame positions,
+  evaluates the first audible sample before envelope advance, holds sustain
+  before loop handling while key-on, loops inclusively while key-on only, and
+  releases before rendering the key-off frame. Local evidence did not prove a
+  tiny envelope-policy fix; same-channel offline voice replacement/overlap is
+  the stronger next parity candidate unless a reference-backed envelope
+  tick-clock experiment isolates a smaller behavior change.
 - Bounded diagnostics and the local correlation report now include applied `0xy` arpeggio diagnostics, applied `1xx`/`2xx` portamento-slide diagnostics, applied `3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, stored `E4x` vibrato-control diagnostics, applied `4xy` vibrato diagnostics, applied `6xy` vibrato + volume slide diagnostics, `900`/`1xx`/`2xx`/`4xy`/`6xy` effect-memory reuse metadata, deferred pitch-modulation counts, source coordinates, and a conservative pitch-effect recommendation for remaining `5xy` portamento-family commands, volume-column vibrato commands, `7xy` tremolo, and volume-column tone portamento. Broader pitch-modulation effects remain separate implementation work.
 - The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`. It also has an opt-in `--until-song-end` mode with optional `--tail-seconds N` that computes the bounded selected order-range end from the adapter timing model, including minimal supported `Fxx` timing changes, without adding default looping or full FT2/OpenMPT song-duration parity.
 - Long developer-only candidate WAV exports can opt into `--window-rows` row-windowed offline scheduling so the fixed C scheduled-voice pool is reused across deterministic render windows. Diagnostics aggregate per-window scheduled, accepted, rejected, carried, continuation, and boundary-drop counts. Windowed renders now carry practical active voice state across fresh C mixer windows where the bounded adapter can determine it, including source sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, active gain/pan ramp state, active `0xy`/`1xx`/`2xx`/`3xx`/`E1x`/`E2x`/`4xy`/`6xy` sample-step state, and supported sample-offset memory, plus supported in-window gain/pan and sample-step updates for carried voices. Unsupported/deferred effects and full tracker voice semantics remain separate targeted work.

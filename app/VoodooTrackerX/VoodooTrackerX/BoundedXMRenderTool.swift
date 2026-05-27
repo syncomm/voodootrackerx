@@ -2426,6 +2426,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
         var object: [String: Any] = [
             "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
             "enabled": semantics.envelopeEnabled,
+            "clock_policy": "xm_ticks_mapped_to_output_frames",
+            "point_mapping_policy": "floor_xm_tick_times_frames_per_tick_at_event",
+            "position_domain": "output_frames",
+            "advance_policy": "evaluate_then_advance_one_output_frame",
+            "first_audible_frame_policy": "note_start_uses_position_zero_before_advance",
+            "sustain_policy": "hold_at_sustain_frame_while_key_on_before_loop",
+            "key_off_policy": "release_before_rendering_key_off_frame",
+            "release_policy": "continue_from_current_or_sustain_position_after_key_off",
+            "loop_policy": "inclusive_frame_loop_while_key_on_after_sustain_check",
+            "loop_end_policy": "inclusive",
+            "loop_after_key_off": false,
             "source_point_count": mapping.sourceVolumeEnvelopePointCount,
             "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
             "points": envelopePointsJSON(envelope),
@@ -2475,10 +2486,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let label: String
         let absoluteFrame: Int
         let positionFrame: Int?
+        let positionFrameAfterAdvance: Int?
         let value: Double?
         let segmentIndex: Int?
         let sustainHeld: Bool?
         let loopActive: Bool?
+        let loopTakenCount: Int?
         let keyOn: Bool
         let fadeoutValue: Double
         let fadeoutAppliedGain: Double
@@ -2502,10 +2515,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
     ) {
         object["envelope_tick_frame_\(suffix)"] = snapshot.absoluteFrame
         object["envelope_position_frame_\(suffix)"] = nullableJSONValue(snapshot.positionFrame)
+        object["envelope_position_frame_after_advance_\(suffix)"] = nullableJSONValue(snapshot.positionFrameAfterAdvance)
         object["envelope_value_\(suffix)"] = nullableJSONValue(snapshot.value)
         object["envelope_segment_index_\(suffix)"] = nullableJSONValue(snapshot.segmentIndex)
         object["envelope_sustain_held_\(suffix)"] = nullableJSONValue(snapshot.sustainHeld)
         object["envelope_loop_active_\(suffix)"] = nullableJSONValue(snapshot.loopActive)
+        object["envelope_loop_taken_count_\(suffix)"] = nullableJSONValue(snapshot.loopTakenCount)
         object["key_on_\(suffix)"] = snapshot.keyOn
         object["fadeout_value_\(suffix)"] = snapshot.fadeoutValue
         object["fadeout_applied_gain_\(suffix)"] = snapshot.fadeoutAppliedGain
@@ -2517,10 +2532,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "label": snapshot.label,
             "absolute_frame": snapshot.absoluteFrame,
             "position_frame": nullableJSONValue(snapshot.positionFrame),
+            "position_frame_after_advance": nullableJSONValue(snapshot.positionFrameAfterAdvance),
             "value": nullableJSONValue(snapshot.value),
             "segment_index": nullableJSONValue(snapshot.segmentIndex),
             "sustain_held": nullableJSONValue(snapshot.sustainHeld),
             "loop_active": nullableJSONValue(snapshot.loopActive),
+            "loop_taken_count": nullableJSONValue(snapshot.loopTakenCount),
             "key_on": snapshot.keyOn,
             "fadeout_value": snapshot.fadeoutValue,
             "fadeout_applied_gain": snapshot.fadeoutAppliedGain,
@@ -2543,26 +2560,32 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let keyedFrames = keyOn ? relativeFrame : min(relativeFrame, relativeKeyOffFrame ?? relativeFrame)
         let releasedFrames = keyOn ? 0 : max(0, relativeFrame - (relativeKeyOffFrame ?? relativeFrame))
         let positionFrame: Int?
+        let positionFrameAfterAdvance: Int?
         let value: Double?
         let segmentIndex: Int?
         let sustainHeld: Bool?
         let loopActive: Bool?
+        let loopTakenCount: Int?
         if let envelope, !envelope.points.isEmpty {
             let keyedPosition = advancedEnvelopePosition(0, frames: keyedFrames, keyOn: true, envelope: envelope)
             let position = advancedEnvelopePosition(keyedPosition, frames: releasedFrames, keyOn: false, envelope: envelope)
             positionFrame = position
+            positionFrameAfterAdvance = advancedEnvelopePosition(position, frames: 1, keyOn: keyOn, envelope: envelope)
             value = envelopeValue(envelope, at: position)
             segmentIndex = envelopeSegmentIndex(envelope, at: position)
             sustainHeld = keyOn && envelope.sustainFrame.map { position == $0 && keyedFrames >= $0 } == true
             loopActive = keyOn && envelope.loopStartFrame.map { start in
                 envelope.loopEndFrame.map { end in position >= start && position <= end } ?? false
             } == true
+            loopTakenCount = envelopeLoopTakenCount(keyedFrames: keyedFrames, envelope: envelope)
         } else {
             positionFrame = nil
+            positionFrameAfterAdvance = nil
             value = nil
             segmentIndex = nil
             sustainHeld = nil
             loopActive = nil
+            loopTakenCount = nil
         }
         let safeFadeoutDecrement = fadeoutFrameDecrement.isFinite && fadeoutFrameDecrement > 0
             ? Double(fadeoutFrameDecrement)
@@ -2574,10 +2597,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             label: label,
             absoluteFrame: absoluteFrame,
             positionFrame: positionFrame,
+            positionFrameAfterAdvance: positionFrameAfterAdvance,
             value: value,
             segmentIndex: segmentIndex,
             sustainHeld: sustainHeld,
             loopActive: loopActive,
+            loopTakenCount: loopTakenCount,
             keyOn: keyOn,
             fadeoutValue: fadeoutValue,
             fadeoutAppliedGain: fadeoutValue,
@@ -2625,6 +2650,38 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return clampedEnvelopePosition(target)
         }
         return loopStartFrame + ((target - loopEndFrame - 1) % loopLength)
+    }
+
+    private static func envelopeLoopTakenCount(keyedFrames: Int, envelope: MixerEnvelope) -> Int {
+        guard keyedFrames > 0,
+              let loopStartFrame = envelope.loopStartFrame,
+              let loopEndFrame = envelope.loopEndFrame,
+              loopEndFrame >= loopStartFrame else {
+            return 0
+        }
+        let initialPosition = 0
+        if let sustainFrame = envelope.sustainFrame {
+            if sustainFrame <= initialPosition {
+                return 0
+            }
+            if canReachSustainBeforeLoop(
+                position: initialPosition,
+                frames: keyedFrames,
+                sustainFrame: sustainFrame,
+                loopEndFrame: loopEndFrame
+            ) {
+                return 0
+            }
+        }
+        let target = initialPosition + keyedFrames
+        guard target > loopEndFrame else {
+            return 0
+        }
+        let loopLength = loopEndFrame - loopStartFrame + 1
+        guard loopLength > 0 else {
+            return 0
+        }
+        return ((target - loopEndFrame - 1) / loopLength) + 1
     }
 
     private static func canReachSustainBeforeLoop(

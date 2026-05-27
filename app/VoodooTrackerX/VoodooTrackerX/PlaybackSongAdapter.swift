@@ -731,6 +731,8 @@ struct PlaybackSongFxxRowTiming: Equatable {
         PlaybackSongSyntheticRowTimingDiagnostic(
             source: source,
             syntheticRow: syntheticRow,
+            rowStartExactFrame: rowStartExactFrame,
+            rowEndExactFrame: rowEndExactFrame,
             rowStartFrame: rowStartFrame,
             rowDurationFrames: rowDurationFrames,
             effectiveSpeed: effectiveSpeed,

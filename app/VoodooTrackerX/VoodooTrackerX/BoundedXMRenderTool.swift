@@ -1727,6 +1727,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "render": render,
             "export_diagnostics": exportDiagnosticsJSON(exportDiagnostics),
             "windowed_render": windowedRenderJSON(from: result),
+            "row_tick_frame_mapping_policy": rowTickFrameMappingPolicyJSON(),
+            "event_application_timing_policy": eventApplicationTimingPolicyJSON(),
             "same_channel_voice_lifetime": sameChannelVoiceLifetimeJSON(sameChannelVoiceLifetime),
             "event_coverage": eventCoverageJSON(from: result),
             "traversal_hazard_summary": traversalHazardSummaryJSON(diagnostics.traversalHazardSummary),
@@ -1737,7 +1739,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "pitch_modulation_deferred_effects": pitchModulationDeferredEffectsJSON(diagnostics),
             "orders": diagnostics.adaptedOrders.map(orderJSON),
             "row_mappings": diagnostics.rowMappings.map(rowMappingJSON),
-            "row_timing": diagnostics.rowTiming.map(rowTimingJSON),
+            "row_timing": diagnostics.rowTiming.map { rowTimingJSON($0, sampleRate: diagnostics.sampleRate) },
             "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
             "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
             "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
@@ -2864,13 +2866,56 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
-    private static func rowTimingJSON(_ diagnostic: PlaybackSongSyntheticRowTimingDiagnostic) -> [String: Any] {
+    private static func rowTickFrameMappingPolicyJSON() -> [String: Any] {
         [
+            "frames_per_tick_formula": "sample_rate * 2.5 / bpm",
+            "tick_duration_seconds_formula": "2.5 / bpm",
+            "row_start_frame_policy": "floor(accumulated_exact_row_start)",
+            "row_end_frame_policy": "floor(accumulated_exact_row_end)",
+            "tick_start_frame_policy": "floor(row_start_exact_frame + tick * frames_per_tick)",
+            "fractional_row_frame_accumulation": true,
+            "timing_change_policy": "Fxx applies to rows after the source row",
+            "constant_timing_synthetic_policy": "floor((row * speed + tick) * frames_per_tick)",
+        ]
+    }
+
+    private static func eventApplicationTimingPolicyJSON() -> [String: Any] {
+        [
+            "note_trigger_frame_policy": "voice_audible_on_scheduled_frame",
+            "tick_level_effect_update_frame_policy": "applied_before_rendering_scheduled_frame",
+            "sample_step_update_frame_policy": "applied_before_rendering_scheduled_frame",
+            "gain_pan_update_frame_policy": "ramp_starts_on_scheduled_frame",
+            "volume_column_update_frame_policy": "applied_before_rendering_scheduled_frame",
+            "c_mixer_voice_state_event_policy": "scheduled_events_apply_before_mixing_each_frame",
+            "runtime_callback_policy": "render_until_event_frame_then_apply_same_frame_burst_before_rendering_event_frame",
+            "same_frame_event_order": [
+                "gain_pan_update",
+                "sample_step_update",
+                "note_cut",
+                "note_trigger",
+            ],
+        ]
+    }
+
+    private static func rowTimingJSON(
+        _ diagnostic: PlaybackSongSyntheticRowTimingDiagnostic,
+        sampleRate: Double
+    ) -> [String: Any] {
+        let framesPerTick = sampleRate * 2.5 / Double(max(1, diagnostic.effectiveBPM))
+        return [
             "source": positionJSON(diagnostic.source),
             "synthetic_row": diagnostic.syntheticRow,
+            "row_start_exact_frame": diagnostic.rowStartExactFrame,
+            "row_end_exact_frame": diagnostic.rowEndExactFrame,
             "row_start_frame": diagnostic.rowStartFrame,
             "row_end_frame": diagnostic.rowStartFrame + diagnostic.rowDurationFrames,
             "row_duration_frames": diagnostic.rowDurationFrames,
+            "row_duration_exact_frames": diagnostic.rowEndExactFrame - diagnostic.rowStartExactFrame,
+            "frames_per_tick": framesPerTick,
+            "tick_start_frame_policy": "floor(row_start_exact_frame + tick * frames_per_tick)",
+            "row_start_frame_policy": "floor(accumulated_exact_row_start)",
+            "row_end_frame_policy": "floor(accumulated_exact_row_end)",
+            "fractional_frame_accumulation": true,
             "effective_speed": diagnostic.effectiveSpeed,
             "effective_bpm": diagnostic.effectiveBPM,
         ]

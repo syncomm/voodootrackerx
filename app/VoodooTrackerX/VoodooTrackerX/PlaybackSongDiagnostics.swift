@@ -314,6 +314,8 @@ struct PlaybackSongSyntheticRowDiagnostic: Equatable {
 struct PlaybackSongSyntheticRowTimingDiagnostic: Equatable {
     let source: PlaybackPosition
     let syntheticRow: Int
+    let rowStartExactFrame: Double
+    let rowEndExactFrame: Double
     let rowStartFrame: Int
     let rowDurationFrames: Int
     let effectiveSpeed: Int

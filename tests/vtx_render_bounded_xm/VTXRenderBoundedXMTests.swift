@@ -1048,12 +1048,28 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let diagnosticsData = try Data(contentsOf: diagnosticsURL)
         let diagnostics = try XCTUnwrap(JSONSerialization.jsonObject(with: diagnosticsData) as? [String: Any])
         let render = try XCTUnwrap(diagnostics["render"] as? [String: Any])
+        let rowTickPolicy = try XCTUnwrap(diagnostics["row_tick_frame_mapping_policy"] as? [String: Any])
+        let eventTimingPolicy = try XCTUnwrap(diagnostics["event_application_timing_policy"] as? [String: Any])
         let coverage = try XCTUnwrap(diagnostics["event_coverage"] as? [String: Any])
         let events = try XCTUnwrap(diagnostics["events"] as? [[String: Any]])
+        let rowTiming = try XCTUnwrap(diagnostics["row_timing"] as? [[String: Any]])
+        let firstRowTiming = try XCTUnwrap(rowTiming.first)
 
         XCTAssertEqual(diagnostics["schema_version"] as? Int, 1)
         XCTAssertEqual(diagnostics["tool"] as? String, "vtx_render_bounded_xm")
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
+        XCTAssertEqual(rowTickPolicy["frames_per_tick_formula"] as? String, "sample_rate * 2.5 / bpm")
+        XCTAssertEqual(rowTickPolicy["row_start_frame_policy"] as? String, "floor(accumulated_exact_row_start)")
+        XCTAssertEqual(rowTickPolicy["tick_start_frame_policy"] as? String, "floor(row_start_exact_frame + tick * frames_per_tick)")
+        XCTAssertEqual(rowTickPolicy["fractional_row_frame_accumulation"] as? Bool, true)
+        XCTAssertEqual(eventTimingPolicy["sample_step_update_frame_policy"] as? String, "applied_before_rendering_scheduled_frame")
+        XCTAssertEqual(eventTimingPolicy["c_mixer_voice_state_event_policy"] as? String, "scheduled_events_apply_before_mixing_each_frame")
+        XCTAssertEqual(eventTimingPolicy["same_frame_event_order"] as? [String], [
+            "gain_pan_update",
+            "sample_step_update",
+            "note_cut",
+            "note_trigger",
+        ])
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
         XCTAssertEqual(render["sample_interpolation_enabled"] as? Bool, true)
@@ -1096,6 +1112,11 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(coverage["skipped_note_events"] as? Int, result.diagnostics.eventCoverage.skippedNoteEvents)
         XCTAssertNotNil(coverage["capacity"] as? [String: Any])
         XCTAssertNotNil(diagnostics["retrigger_effects"] as? [[String: Any]])
+        XCTAssertEqual(firstRowTiming["row_start_exact_frame"] as? Double, 0)
+        XCTAssertEqual(firstRowTiming["row_end_exact_frame"] as? Double, 5292)
+        XCTAssertEqual(firstRowTiming["frames_per_tick"] as? Double, 882)
+        XCTAssertEqual(firstRowTiming["tick_start_frame_policy"] as? String, "floor(row_start_exact_frame + tick * frames_per_tick)")
+        XCTAssertEqual(firstRowTiming["fractional_frame_accumulation"] as? Bool, true)
         XCTAssertEqual(events.count, result.diagnostics.emittedEventCount)
         XCTAssertNotNil(events.first?["loop_start_frame"] as? Int)
         XCTAssertNotNil(events.first?["loop_end_frame"] as? Int)

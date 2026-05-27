@@ -880,9 +880,12 @@ same-frame timing evidence matters, use
 `--window START:END` seconds. The report lists overlapping order/pattern/row and
 tick ranges, active voices with loop/source-position/sample-step estimates,
 tone-portamento step updates, sample-offset rows, same-channel replacement
-ramps, gain/pan updates, traversal rows, and same-frame event groups. It is a
-local diagnostic helper only; keep generated JSON/Markdown reports under `/tmp`
-or another ignored path.
+ramps, gain/pan updates, traversal rows, and same-frame event groups. Its
+Markdown output includes sample-step and `3xx` tone-portamento timing tables
+when those diagnostics are present, and bounded diagnostics JSON records the
+row/tick frame mapping plus C mixer event-application timing policy used by the
+candidate render. It is a local diagnostic helper only; keep generated
+JSON/Markdown reports under `/tmp` or another ignored path.
 
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,

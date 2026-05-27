@@ -552,7 +552,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         }
         let tickInRow = min(max(0, context.tickInRow ?? 0), max(0, timing.effectiveSpeed - 1))
         let framesPerTick = sampleRate * 2.5 / Double(max(1, timing.effectiveBPM))
-        let exactFrame = Double(timing.rowStartFrame) + (Double(tickInRow) * framesPerTick)
+        let exactFrame = timing.rowStartExactFrame + (Double(tickInRow) * framesPerTick)
         guard exactFrame.isFinite else {
             return nil
         }
@@ -676,13 +676,7 @@ struct PlaybackSongSampleTimePositionResolver: Equatable {
         status: String
     ) -> PlaybackSongSampleTimePosition {
         let framesPerTick = sampleRate * 2.5 / Double(max(1, timing.effectiveBPM))
-        let frameOffset = max(0, frame - timing.rowStartFrame)
-        let tick: Int
-        if framesPerTick.isFinite, framesPerTick > 0 {
-            tick = min(max(0, Int((Double(frameOffset) / framesPerTick).rounded(.down))), max(0, timing.effectiveSpeed - 1))
-        } else {
-            tick = 0
-        }
+        let tick = tickInRow(forFrame: frame, timing: timing, framesPerTick: framesPerTick)
         return PlaybackSongSampleTimePosition(
             frame: frame,
             source: timing.source,
@@ -691,10 +685,42 @@ struct PlaybackSongSampleTimePositionResolver: Equatable {
             rowStartFrame: timing.rowStartFrame,
             rowEndFrame: timing.rowStartFrame + timing.rowDurationFrames,
             rowDurationFrames: timing.rowDurationFrames,
-            frameOffsetInRow: frameOffset,
+            frameOffsetInRow: max(0, frame - timing.rowStartFrame),
             effectiveSpeed: timing.effectiveSpeed,
             effectiveBPM: timing.effectiveBPM,
             status: status
         )
+    }
+
+    private func tickInRow(
+        forFrame frame: Int,
+        timing: PlaybackSongSyntheticRowTimingDiagnostic,
+        framesPerTick: Double
+    ) -> Int {
+        guard framesPerTick.isFinite,
+              framesPerTick > 0,
+              timing.effectiveSpeed > 1 else {
+            return 0
+        }
+        var result = 0
+        for tick in 1..<timing.effectiveSpeed {
+            let tickFrame = Self.floorFrame(timing.rowStartExactFrame + (Double(tick) * framesPerTick))
+            guard frame >= tickFrame else {
+                break
+            }
+            result = tick
+        }
+        return result
+    }
+
+    private static func floorFrame(_ exactFrame: Double) -> Int {
+        guard exactFrame.isFinite,
+              exactFrame > 0 else {
+            return 0
+        }
+        guard exactFrame < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(exactFrame.rounded(.down))
     }
 }

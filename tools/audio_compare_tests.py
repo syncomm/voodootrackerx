@@ -2574,6 +2574,24 @@ class AudioCompareTests(unittest.TestCase):
             self.assertEqual(windows[0]["end_frame"], 60)
             self.assertGreater(windows[0]["rms_difference"], 0.79)
 
+    def test_local_alignment_search_reports_best_shift(self):
+        reference = [0.0, 0.0, 0.8, 0.0, -0.8, 0.0, 0.8, 0.0, 0.0, 0.0]
+        candidate = [0.0, 0.0, 0.0, 0.8, 0.0, -0.8, 0.0, 0.8, 0.0, 0.0]
+
+        alignment = audio_compare.local_alignment_search(
+            reference,
+            candidate,
+            channels=1,
+            sample_rate=1000,
+            start_frame=0,
+            end_frame=8,
+            search_radius_frames=3,
+        )
+
+        self.assertEqual(alignment["best_shift"]["candidate_shift_frames"], 1)
+        self.assertGreater(alignment["best_shift"]["normalized_correlation"], 0.99)
+        self.assertLess(alignment["best_shift"]["rms_difference"], alignment["zero_shift"]["rms_difference"])
+
     def test_left_right_stereo_balance_mismatch_is_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             reference = Path(tmpdir) / "reference.wav"
@@ -3065,9 +3083,13 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Playback-step events: 1/1 fractional, 0/1 integer, 0/1 neutral-step", markdown)
             self.assertIn("- Source-position phase events: 1/1 fractional phase estimates", markdown)
             self.assertIn("- Loop/sample-offset events: 1/1 looped, 1/1 sample-offset starts", markdown)
+            self.assertIn("- Estimated loop boundary crossings: 5 total, 5 forward wraps, 0 ping-pong turnarounds", markdown)
+            self.assertIn("- Playback-step range: 1.25000000...1.25000000; missing 0", markdown)
+            self.assertIn("- Sample base-rate range: 8363.00000000...8363.00000000 Hz; missing 0", markdown)
             self.assertIn("- Pitch frequency-table statuses: linear_applied=1", markdown)
             self.assertIn("- Candidate mechanics signal: interpolation_or_sample_step_possible", markdown)
             self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 0 |", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 0 | 5 | 0 | 1.25000000...1.25000000 |", markdown)
             self.assertIn("source 18.0000->11.7500 loop forward 10-20", markdown)
 
     def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
@@ -3092,6 +3114,67 @@ class AudioCorrelationTests(unittest.TestCase):
 
             self.assertIn("- Scheduled sample-step updates: 1", markdown)
             self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", markdown)
+
+    def test_correlation_period_sample_step_summary_handles_missing_fields(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["events"][0]["pitch"] = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- Playback-step range: unavailable...unavailable; missing 1", markdown)
+            self.assertIn("- Sample base-rate range: unavailable...unavailable Hz; missing 1", markdown)
+            self.assertIn("missing period/frequency 1/1", markdown)
+
+    def test_correlation_envelope_gain_summary_handles_missing_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics={})
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Envelope / Gain Timing Evidence", markdown)
+            self.assertIn("- Envelope-enabled events: 0/0", markdown)
+            self.assertIn("- Gain/pan/global-volume updates: gain 0, pan 0, channel-volume 0, global-volume 0", markdown)
+
+    def test_correlation_envelope_gain_summary_counts_synthetic_updates(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["key_off_events"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 0,
+                "release_frame": 120,
+                "applied": True,
+                "deferred": False,
+            }
+        ]
+        diagnostics["volume_panning_state_updates"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "scheduled_frame": 125,
+                "command_name": "Axy volume slide",
+                "status": "applied",
+                "effective_volume_before": 64,
+                "effective_volume_after": 48,
+                "global_volume_before": 64,
+                "global_volume_after": 60,
+                "gain_before": 1.0,
+                "gain_after": 0.75,
+                "pan_before": 0.0,
+                "pan_after": 0.25,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("- Envelope-enabled events: 1/1", markdown)
+            self.assertIn("sustain 0, loop 1, fadeout 0, key-off 1", markdown)
+            self.assertIn("gain 1, pan 1, channel-volume 1, global-volume 1", markdown)
+            self.assertIn("| 1 | 1 | 1 | 0 | 1 | 0 | 1 | 1 | 1 | 1 |", markdown)
 
     def test_correlation_includes_event_coverage_summary_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:

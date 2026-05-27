@@ -1260,6 +1260,15 @@ ranges, then lists:
   diagnostics, minimal `ECx` note-cut diagnostics, minimal `EDx` note-delay
   diagnostics, envelope status, loop mode, and render interpolation status when
   those fields are present
+- optional worst-window local alignment evidence from `scripts/audio-compare.py`
+  when `--alignment-search-frames N` is used, including zero-shift correlation,
+  best candidate shift, best shifted correlation, and shifted RMS difference
+- sample-step/interpolation mechanics summaries, including estimated loop
+  boundary crossings, forward-loop wraps, ping-pong turnarounds, playback-step
+  range, sample base-rate range, and missing pitch/step diagnostic counts
+- envelope/gain timing summaries, including envelope-enabled events,
+  sustain/loop/fadeout/key-off evidence, and gain/pan/channel-volume/global-volume
+  update counts near each worst mismatch window
 - deferred effect commands in the worst windows, applied effect commands in the
   worst windows, deferred volume-column commands in the worst windows, applied
   volume-column commands in the worst windows, ignored/no-op and unknown command
@@ -1468,11 +1477,16 @@ python3 scripts/audio-compare.py \
   --seconds 30 \
   --window-ms 100 \
   --top-windows 5 \
+  --alignment-search-frames 256 \
   --json /tmp/vtx-audio-compare.json
 ```
 
 The script supports uncompressed PCM WAV input. It does not resample, downmix,
-upmix, time-align, or compensate for renderer latency.
+upmix, or compensate for renderer latency. The optional local alignment search
+does not change the main comparison metrics; it only reports whether each worst
+window improves when the candidate slice is shifted within the requested frame
+radius. Positive `candidate_shift_frames` means the candidate comparison slice
+starts later than the reference window.
 
 ## Optional Reference Renderers
 
@@ -1539,6 +1553,7 @@ The JSON and Markdown reports include:
 - normalized correlation over overlapping PCM samples
 - first sample-difference timestamp over the configured threshold
 - top N worst mismatch windows using non-overlapping windowed RMS difference
+- optional per-window local alignment diagnostics when requested
 
 JSON output intentionally stores only input basenames, not absolute local paths,
 so automation can parse reports without leaking machine-specific locations.

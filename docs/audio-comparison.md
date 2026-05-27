@@ -873,6 +873,17 @@ values, then maps those windows to runtime JSONL trace rows and optional offline
 diagnostics JSON. This keeps full-song evidence visible while still producing
 small, readable window-level reports for follow-up runtime decisions.
 
+For focused offline parity windows where sample-step, loop, replacement, or
+same-frame timing evidence matters, use
+`scripts/focused-window-voice-timeline.py` with a bounded
+`vtx_render_bounded_xm --diagnostics-json` artifact and explicit
+`--window START:END` seconds. The report lists overlapping order/pattern/row and
+tick ranges, active voices with loop/source-position/sample-step estimates,
+tone-portamento step updates, sample-offset rows, same-channel replacement
+ramps, gain/pan updates, traversal rows, and same-frame event groups. It is a
+local diagnostic helper only; keep generated JSON/Markdown reports under `/tmp`
+or another ignored path.
+
 Current C-backed candidate renders are still expected to differ from
 OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
@@ -1213,6 +1224,10 @@ automatic fix.
    pattern traversal/timing section for focused `Bxx`, `Dxx`, `E6x`, deferred
    `EEx`, contextual `Fxx`, and nearby `E` subcommands before choosing an
    implementation PR.
+   When the problem is a known focused timestamp rather than a top-ranked
+   `audio-compare.py` window, run `scripts/focused-window-voice-timeline.py`
+   with repeated `--window START:END` values to inspect the voice timeline and
+   same-frame event groups directly.
 6. If clipping is eliminated but crackle/static remains audible, run
    `scripts/analyze-audio-discontinuities.py` on the candidate WAV and optional
    candidate diagnostics JSON. Keep the click/discontinuity reports local.

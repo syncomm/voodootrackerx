@@ -3133,7 +3133,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             if event.categories.contains("key_off") {
                 keyOffCount += 1
             }
-            if event.categories.contains("hxy_global_volume_update") {
+            if event.categories.contains("global_volume_update") {
                 globalVolumeUpdateCount += 1
             }
             for category in event.categories {

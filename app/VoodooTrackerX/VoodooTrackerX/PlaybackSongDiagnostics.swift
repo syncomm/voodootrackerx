@@ -557,6 +557,10 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
         effectType == 0x11
     }
 
+    var isGxxSetGlobalVolume: Bool {
+        effectType == 0x10
+    }
+
     var isPitchModulationDiagnostic: Bool {
         switch effectType {
         case 0x00:
@@ -587,6 +591,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case cxxSetVolume(value: Int)
     case effect8xxSetPanning(value: Int)
     case axyVolumeSlide(up: Int, down: Int)
+    case gxxSetGlobalVolume(value: Int)
     case hxyGlobalVolumeSlide(up: Int, down: Int)
     case eaxFineVolumeSlideUp(amount: Int)
     case ebxFineVolumeSlideDown(amount: Int)
@@ -604,6 +609,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "8xx set panning"
         case .axyVolumeSlide:
             return "Axy volume slide"
+        case .gxxSetGlobalVolume:
+            return "Gxx set global volume"
         case .hxyGlobalVolumeSlide:
             return "Hxy global volume slide"
         case .eaxFineVolumeSlideUp:

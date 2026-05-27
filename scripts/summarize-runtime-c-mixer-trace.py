@@ -1271,6 +1271,8 @@ def top_same_frame_event_bursts(events: list[dict[str, Any]], limit: int = 10) -
 def normalized_burst_category(category: str) -> str:
     aliases = {
         "step_pitch_update": "step_update",
+        "gxx_global_volume": "global_volume_update",
+        "gxx_global_volume_update": "global_volume_update",
         "hxy_global_volume": "global_volume_update",
         "hxy_global_volume_update": "global_volume_update",
         "key_off": "key_off_fadeout",

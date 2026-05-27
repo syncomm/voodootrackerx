@@ -1163,6 +1163,24 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [0.25, 0.25])
     }
 
+    func testCSoftwareMixerGainEnvelopeAndFadeoutMultiplyDeterministically() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 0.5)
+        ])
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 2,
+            gain: 0.5,
+            volumeEnvelope: envelope,
+            keyOffFrame: 0,
+            fadeoutFrameDecrement: 0.5
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0.25, 0.25, 0.125, 0.125])
+    }
+
     func testCSoftwareMixerExistingPanStillAppliesWithEnvelopeEnabledVoice() {
         let sample = MixerSampleBuffer(monoPCM: [1, 1])
         let envelope = MixerEnvelope(points: [

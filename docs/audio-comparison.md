@@ -1300,6 +1300,9 @@ ranges, then lists:
 - optional worst-window local alignment evidence from `scripts/audio-compare.py`
   when `--alignment-search-frames N` is used, including zero-shift correlation,
   best candidate shift, best shifted correlation, and shifted RMS difference
+- stereo/mono comparison evidence from `scripts/audio-compare.py`, including
+  stereo-as-is, mono-summed, left-only, right-only, side-channel, and
+  gain-normalized metrics for panning/stereo versus gain/level triage.
 - sample-step/interpolation mechanics summaries, including estimated loop
   boundary crossings, forward-loop wraps, ping-pong turnarounds, playback-step
   range, sample base-rate range, and missing pitch/step diagnostic counts
@@ -1308,6 +1311,9 @@ ranges, then lists:
   voices, sample-step update counts, step/base-rate/period ranges, and examples
   with note, effective note, relative note, finetune, base/output sample rates,
   period/frequency, sample step, source position, and loop mode when present
+- gain/pan voice evidence for each worst window, including active voice counts,
+  final-gain/pan ranges, left/right gain ranges under the C mixer's current
+  linear pan law, and representative voice examples when available
 - envelope/gain timing summaries, including envelope-enabled events,
   sustain/loop/fadeout/key-off evidence, and gain/pan/channel-volume/global-volume
   update counts near each worst mismatch window
@@ -1591,12 +1597,16 @@ The JSON and Markdown reports include:
 - max absolute sample difference
 - scalar gain-normalized RMS difference, max absolute difference, candidate
   scalar, and RMS-difference reduction ratio for loudness/headroom triage
+- stereo-as-is, mono-summed, left-only, right-only, and side-channel comparison
+  modes when sample rate and channel count match
 - clipping sample count
 - silence or near-silence sample count and ratio
 - stereo balance as left/right RMS and energy difference for stereo files
 - normalized correlation over overlapping PCM samples
 - first sample-difference timestamp over the configured threshold
 - top N worst mismatch windows using non-overlapping windowed RMS difference
+- per-window left/right/mono-summed/side-channel RMS, RMS difference,
+  correlation, and side-energy diagnostics where applicable
 - optional per-window local alignment diagnostics when requested
 
 JSON output intentionally stores only input basenames, not absolute local paths,

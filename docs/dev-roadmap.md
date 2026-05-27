@@ -164,7 +164,14 @@ reference-correlation improvement: safe-level local comparisons were generated
 only after the fix, with no matching pre-fix safe-level baseline. The next
 parity target should move to gain/headroom-normalized level behavior or a
 reference-backed envelope tick-clock experiment rather than unbounded
-same-channel stacking. Bounded offline note
+same-channel stacking. The gain/panning math parity investigation kept behavior
+unchanged and added comparison/correlation diagnostics that separate
+stereo-as-is, mono-summed, left-only, right-only, side-channel, and
+gain-normalized evidence, plus worst-window final-gain and pan distributions
+under the current C mixer linear pan law. Use those diagnostics to decide
+whether the next focused parity PR should target gain normalization/order,
+panning law/stereo placement, global-volume scaling, envelope/fadeout timing,
+or a remaining waveform/timing issue. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

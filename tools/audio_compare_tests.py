@@ -2535,6 +2535,9 @@ class AudioCompareTests(unittest.TestCase):
             self.assertEqual(sample_comparison["diff"]["max_abs_sample_difference"], 0.0)
             self.assertEqual(sample_comparison["diff"]["per_channel_rms_difference"], [0.0, 0.0])
             self.assertEqual(sample_comparison["normalized_correlation"], 1.0)
+            self.assertEqual(sample_comparison["comparison_modes"]["mono_sum"]["diff"]["overall_rms_difference"], 0.0)
+            self.assertEqual(sample_comparison["comparison_modes"]["left"]["normalized_correlation"], 1.0)
+            self.assertEqual(sample_comparison["comparison_modes"]["right"]["normalized_correlation"], 1.0)
             self.assertIsNone(sample_comparison["first_difference_seconds"])
 
     def test_amplitude_mismatch_reports_rms_and_max_difference(self):
@@ -2641,6 +2644,28 @@ class AudioCompareTests(unittest.TestCase):
 
             self.assertGreater(balance["left_minus_right_rms"], 0.69)
             self.assertGreater(balance["left_right_energy_difference"], 0.62)
+
+    def test_mono_comparison_mode_isolates_stereo_placement_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_pcm16_wav(reference, channels=2, frames=[(0.75, 0.0)] * 32)
+            write_pcm16_wav(candidate, channels=2, frames=[(0.0, 0.75)] * 32)
+
+            comparison = audio_compare.build_comparison(
+                reference,
+                candidate,
+                seconds=1.0,
+                window_ms=32.0,
+                top_windows=1,
+            )
+            modes = comparison["sample_comparison"]["comparison_modes"]
+            window_modes = comparison["sample_comparison"]["worst_windows"][0]["stereo_mono_metrics"]
+
+            self.assertLess(modes["stereo"]["normalized_correlation"], 0.01)
+            self.assertGreater(modes["mono_sum"]["normalized_correlation"], 0.99)
+            self.assertLess(window_modes["mono_sum"]["rms_difference"], 0.0001)
+            self.assertGreater(window_modes["side"]["rms_difference"], 0.74)
 
     def test_duration_and_frame_count_mismatch_are_reported(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3138,6 +3163,18 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("note 49 eff 49 rel 0 fine 0/0 inst/sample 7/2", markdown)
             self.assertIn("base 8363.00000000 Hz out 1000.00000000 Hz period 4608.00000000 freq 8363.00000000 step 1.25000000", markdown)
 
+    def test_correlation_includes_gain_pan_voice_distribution_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Gain / Pan Voice Evidence", markdown)
+            self.assertIn("- Pan law: linear_clamped_-1_to_1_full_amplitude_center", markdown)
+            self.assertIn("- Event base-gain range: 0.50000000...0.50000000; mean 0.50000000; missing 0", markdown)
+            self.assertIn("- Event pan range: -0.25000000...-0.25000000; mean -0.25000000; missing 0", markdown)
+            self.assertIn("| 1 | 1 | 125 | 0.35625000...0.35625000 | -0.25000000...-0.25000000 | 0.35625000...0.35625000 |", markdown)
+            self.assertIn("gain 0.50000000->0.35625000 pan -0.25000000 L/R 0.35625000/0.26718750", markdown)
+
     def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
         diagnostics = synthetic_diagnostics_json()
         diagnostics["arpeggio_effects"] = [
@@ -3182,6 +3219,8 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("## Envelope / Gain Timing Evidence", markdown)
             self.assertIn("- Envelope-enabled events: 0/0", markdown)
             self.assertIn("- Gain/pan/global-volume updates: gain 0, pan 0, channel-volume 0, global-volume 0", markdown)
+            self.assertIn("## Gain / Pan Voice Evidence", markdown)
+            self.assertIn("- Event base-gain range: unavailable...unavailable; mean unavailable; missing 0", markdown)
             self.assertIn("## Period / Sample-Step Voice Evidence", markdown)
             self.assertIn("- Render windows: 0", markdown)
 

@@ -1539,6 +1539,17 @@ enum PlaybackSongSyntheticAdapter {
                 context.vibratoControlEffects.append(diagnostic)
             }
             context.channelStates[channelIndex] = channelState
+            if cell.effectType == 0x10 {
+                context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSet(
+                    from: cell,
+                    source: source,
+                    sourceChannelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledStartFrame,
+                    channelStates: context.channelStates,
+                    globalVolumeState: &context.globalVolumeState
+                ))
+            }
             if cell.effectType == 0x11 {
                 context.voiceStateUpdates.append(contentsOf: applyGlobalVolumeSlide(
                     from: cell,
@@ -2846,6 +2857,116 @@ enum PlaybackSongSyntheticAdapter {
             ))
         }
         return updates
+    }
+
+    private static func applyGlobalVolumeSet(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        channelStates: [Int: ChannelState],
+        globalVolumeState: inout GlobalVolumeState
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        guard cell.effectType == 0x10 else {
+            return []
+        }
+
+        let beforeGlobalVolume = globalVolumeState.volumeValue
+        let afterGlobalVolume = clampedGlobalVolumeValue(Int(cell.effectParam))
+        globalVolumeState.volumeValue = afterGlobalVolume
+        let diagnostics = channelStates.keys.sorted().compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
+            guard let targetState = channelStates[targetChannelIndex],
+                  targetState.activeEventIndex != nil,
+                  targetState.activeSampleVolume != nil else {
+                return nil
+            }
+            let gainBefore = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: beforeGlobalVolume
+                )
+            }
+            let gainAfter = targetState.activeSampleVolume.map {
+                adaptedGain(
+                    sampleVolume: $0,
+                    channelVolume: targetState.volumeValue,
+                    globalVolume: afterGlobalVolume
+                )
+            }
+            guard gainBefore != gainAfter else {
+                return nil
+            }
+            return globalVolumeSetDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: targetChannelIndex,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                channelState: targetState,
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                activeVoiceUpdatedOverride: true
+            )
+        }
+        if !diagnostics.isEmpty {
+            return diagnostics
+        }
+
+        return [
+            globalVolumeSetDiagnostic(
+                source: source,
+                sourceChannelIndex: sourceChannelIndex,
+                targetChannelIndex: nil,
+                syntheticRow: syntheticRow,
+                scheduledFrame: scheduledFrame,
+                cell: cell,
+                status: .applied,
+                channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                globalVolumeBefore: beforeGlobalVolume,
+                globalVolumeAfter: afterGlobalVolume,
+                activeVoiceUpdatedOverride: false
+            ),
+        ]
+    }
+
+    private static func globalVolumeSetDiagnostic(
+        source: PlaybackPosition,
+        sourceChannelIndex: Int,
+        targetChannelIndex: Int?,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticVoiceStateUpdateStatus,
+        channelState: ChannelState,
+        globalVolumeBefore: Int,
+        globalVolumeAfter: Int,
+        activeVoiceUpdatedOverride: Bool
+    ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
+        voiceStateUpdateDiagnostic(
+            source: source,
+            channelIndex: sourceChannelIndex,
+            syntheticRow: syntheticRow,
+            scheduledFrame: scheduledFrame,
+            cell: cell,
+            commandSource: .effectColumn,
+            command: .gxxSetGlobalVolume(value: globalVolumeAfter),
+            rawVolumeColumn: nil,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            behavior: .rowLevelApproximation,
+            channelStateBefore: channelState,
+            channelStateAfter: channelState,
+            globalVolumeBefore: globalVolumeBefore,
+            globalVolumeAfter: globalVolumeAfter,
+            includeGlobalVolumeFields: true,
+            targetChannelIndex: targetChannelIndex,
+            activeVoiceUpdatedOverride: activeVoiceUpdatedOverride
+        )
     }
 
     private static func applyGlobalVolumeSlide(
@@ -6885,7 +7006,7 @@ enum PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00:
             return cell.effectParam != 0
-        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x11:
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11:
             return true
         default:
             return false
@@ -6918,6 +7039,8 @@ enum PlaybackSongSyntheticAdapter {
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x0F:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x10:
+            return .applied
         case 0x11:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
         case 0x0E where isRetriggerEffect(cell):
@@ -6998,6 +7121,8 @@ enum PlaybackSongSyntheticAdapter {
             return extendedEffectCommandLabel(effectParam: effectParam)
         case 0x0F:
             return "Fxx speed/BPM"
+        case 0x10:
+            return "Gxx set global volume"
         case 0x11:
             return "Hxy global volume slide"
         default:
@@ -7071,6 +7196,7 @@ enum PlaybackSongSyntheticAdapter {
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||
+            isGlobalVolumeSetEffect(cell) ||
             isGlobalVolumeSlideEffect(cell) ||
             isTraversalPlanningEffect(cell) {
             return false
@@ -7139,6 +7265,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x11
+    }
+
+    private static func isGlobalVolumeSetEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x10
     }
 
     private static func isTraversalPlanningEffect(_ cell: PlaybackCell) -> Bool {

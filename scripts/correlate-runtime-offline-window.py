@@ -267,6 +267,8 @@ def event_category(event: dict[str, Any]) -> str:
     if isinstance(raw, str) and raw:
         return {
             "replacement_stop_ramp": "replacement_ramp",
+            "gxx_global_volume": "global_volume_update",
+            "gxx_global_volume_update": "global_volume_update",
             "hxy_global_volume": "global_volume_update",
             "hxy_global_volume_update": "global_volume_update",
             "key_off": "key_off_fadeout",

@@ -1385,6 +1385,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let diagnostics = result.diagnostics
         let exportDiagnostics = exportDiagnostics(from: result)
         let renderDuration = renderDuration ?? RenderDurationDiagnostics.fallback(from: result)
+        let gxxEffectDiagnostics = diagnostics.effectCommandDiagnostics.filter(\.isGxxSetGlobalVolume)
+        let gxxAppliedCount = gxxEffectDiagnostics.filter { $0.status == .applied }.count
+        let gxxDeferredCount = gxxEffectDiagnostics.filter { $0.status == .deferredUnsupported }.count
         let hxyEffectDiagnostics = diagnostics.effectCommandDiagnostics.filter(\.isHxyGlobalVolumeSlide)
         let hxyAppliedCount = hxyEffectDiagnostics.filter { $0.status == .applied }.count
         let hxyIgnoredNoOpCount = hxyEffectDiagnostics.filter { $0.status == .ignoredNoOp }.count
@@ -1507,6 +1510,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx and tick-level Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
+            "Minimal Gxx set-global-volume commands are row-level bounded offline adapter updates that clamp the XM global volume value to 0...64.",
             "Minimal Hxy global volume slides are row-level bounded offline adapter updates; H00 is a no-op and both-nibble parameters use the runtime-compatible up-nibble precedence policy.",
             "Focused traversal planning applies Dxx pattern break, Bxx position jump, and E6x pattern loop in the Swift adapter path; EEx pattern delay remains deferred.",
             "Dxx row targets use XM BCD decoding; invalid BCD targets are diagnosed and clamped safely.",
@@ -1669,6 +1673,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "old_voice_kept_reason_counts": sameChannelVoiceLifetime.oldVoiceKeptReasonCounts,
                 "old_voice_ramp_duration_frames": sameChannelVoiceLifetime.oldVoiceRampDurationFrames,
                 "window_boundary_prune_count": sameChannelVoiceLifetime.windowBoundaryPruneCount,
+                "gxx_set_global_volume_detected_count": gxxEffectDiagnostics.count,
+                "gxx_set_global_volume_applied_count": gxxAppliedCount,
+                "gxx_set_global_volume_deferred_count": gxxDeferredCount,
                 "hxy_global_volume_slide_detected_count": hxyEffectDiagnostics.count,
                 "hxy_global_volume_slide_applied_count": hxyAppliedCount,
                 "hxy_global_volume_slide_ignored_no_op_count": hxyIgnoredNoOpCount,
@@ -3022,6 +3029,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "vibrato_volume_slide_6xy_scheduled_gain_update_count": count {
                 is6xyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
             },
+            "gxx_set_global_volume_applied": count {
+                $0.applied && isGxxSetGlobalVolumeUpdate($0)
+            },
+            "gxx_set_global_volume_active_voice_update_count": count {
+                $0.activeVoiceUpdated && isGxxSetGlobalVolumeUpdate($0)
+            },
             "hxy_global_volume_slide_applied": count {
                 $0.applied && isHxyGlobalVolumeSlideUpdate($0)
             },
@@ -3102,6 +3115,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Bool {
         if case .hxyGlobalVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }
+
+    private static func isGxxSetGlobalVolumeUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .gxxSetGlobalVolume = update.command {
             return true
         }
         return false
@@ -3924,6 +3946,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return ["name": "effect8xxSetPanning", "label": command.label, "value": value]
         case let .axyVolumeSlide(up, down):
             return ["name": "axyVolumeSlide", "label": command.label, "up": up, "down": down]
+        case let .gxxSetGlobalVolume(value):
+            return ["name": "gxxSetGlobalVolume", "label": command.label, "value": value]
         case let .hxyGlobalVolumeSlide(up, down):
             return ["name": "hxyGlobalVolumeSlide", "label": command.label, "up": up, "down": down]
         case let .eaxFineVolumeSlideUp(amount):
@@ -3965,6 +3989,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "effect8xxSetPanning"
         case .axyVolumeSlide:
             return "axyVolumeSlide"
+        case .gxxSetGlobalVolume:
+            return "gxxSetGlobalVolume"
         case .hxyGlobalVolumeSlide:
             return "hxyGlobalVolumeSlide"
         case .eaxFineVolumeSlideUp:
@@ -4601,6 +4627,21 @@ private func appendEventCoverageSummary(
     }.count
     lines.append(
         "Volume/panning state updates: \(appliedStateUpdates) applied, \(deferredStateUpdates) deferred, \(activeVoiceStateUpdates) active voice updates."
+    )
+    let gxxEffects = result.diagnostics.effectCommandDiagnostics.filter(\.isGxxSetGlobalVolume)
+    let gxxApplied = gxxEffects.filter { $0.status == .applied }.count
+    let gxxDeferred = gxxEffects.filter { $0.status == .deferredUnsupported }.count
+    let gxxActiveUpdates = stateUpdates.filter { update in
+        guard update.activeVoiceUpdated else {
+            return false
+        }
+        if case .gxxSetGlobalVolume = update.command {
+            return true
+        }
+        return false
+    }.count
+    lines.append(
+        "Global volume set Gxx: \(gxxApplied) applied, \(gxxDeferred) deferred, \(gxxActiveUpdates) active voice updates."
     )
     let hxyEffects = result.diagnostics.effectCommandDiagnostics.filter(\.isHxyGlobalVolumeSlide)
     let hxyApplied = hxyEffects.filter { $0.status == .applied }.count

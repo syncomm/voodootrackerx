@@ -723,6 +723,12 @@ offline-render responsibilities separate.
 - Verification: synthetic audio comparison and correlation tests cover the new fields and missing optional diagnostics. Private/local modules and generated WAV/JSON/Markdown artifacts remain local-only and out of git.
 - Status: diagnostics-only unless a later focused PR proves a tiny expected-value gain or panning bug.
 
+### PR 2.7.11bf — XM Gain Multiplication / Normalization Parity Fix
+- Scope: narrowly audit XM sample, channel, global-volume, envelope, and fadeout multiplication across the Swift adapter and C mixer render path. Do not change panning law, period/sample-step formulas, loop behavior, runtime backend defaults, parser architecture, tracker viewport behavior, or retired AVAudio backends.
+- Findings: the gain policy is `sampleVolume * channelVolume/64 * globalVolume/64`, followed by C mixer `volumeEnvelope * fadeout` at render time before panning. The C mixer was already applying gain, envelope, and fadeout once. The proven bug was adapter-side support for `Hxy` global-volume slides without matching `Gxx` set-global-volume updates; bounded/offline and runtime C mixer plans now apply clamped `Gxx` row-level global volume and active voice gain updates.
+- Verification: synthetic expected-value tests cover full and half sample/channel/global volume, combined sample/channel/global/envelope, C mixer envelope/fadeout multiplication, and `Gxx` active/future voice gain updates. Local-only 48 kHz runtime CoreAudio captures and offline C mixer renders stayed under `/tmp`; runtime/offline correlation was effectively 1.0 for the primary target and a secondary envelope-heavy window.
+- Status: done. Primary local reference metrics did not materially improve because the primary target contained no `Gxx` events; recommended next parity PR remains focused sample-step/loop/interpolation or envelope tick-clock work based on mismatch-window evidence, not panning.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

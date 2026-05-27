@@ -111,6 +111,7 @@ def effect_category(effect_type: int, effect_param: int) -> str | None:
         0x0C: "Cxx set volume",
         0x0D: "Dxx pattern break",
         0x0F: "Fxx speed/BPM",
+        0x10: "Gxx set global volume",
         0x11: "Hxy global volume slide",
     }
     if effect_type == 0x0E:

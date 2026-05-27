@@ -359,6 +359,8 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "unknown/unsupported"
     if effect_type == 0x0F:
         return "Fxx speed/BPM"
+    if effect_type == 0x10:
+        return "Gxx set global volume"
     if effect_type == 0x11:
         return "Hxy global volume slide"
     return "unknown/unsupported"

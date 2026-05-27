@@ -6299,6 +6299,117 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertGreaterThan(hxyUpdates[1].gainAfter ?? 0, hxyUpdates[0].gainAfter ?? 1)
     }
 
+    func testPlaybackSongAdapterExpectedGainFormulaIncludesSampleChannelGlobalAndEnvelope() throws {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 32)
+        ])
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 0.5, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, effectType: 0x10, effectParam: 0x20),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 2)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 3
+        ))
+        let event = try XCTUnwrap(result.plan.pattern.events.first)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(event.gain, 0.125, accuracy: 0.000_001)
+        XCTAssertEqual(mapping.effectiveVolumeValue, 32)
+        XCTAssertEqual(mapping.effectiveGlobalVolumeValue, 32)
+        XCTAssertEqual(mapping.effectiveGlobalVolumeMultiplier, 0.5, accuracy: 0.000_001)
+        XCTAssertFloatArrayEqual(result.block.interleavedPCM, [0, 0.0625, 0.0625])
+    }
+
+    func testPlaybackSongAdapterGainFormulaNormalizesSampleChannelAndGlobalVolumes() throws {
+        func render(
+            sampleVolume: Float = 1,
+            rows: [PlaybackRow],
+            frames: Int
+        ) -> PlaybackSongOfflineRenderResult {
+            let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: sampleVolume, baseSampleRate: 100)
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: rows],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+                initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+            )
+            return PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+                song: song,
+                orderIndex: 0,
+                config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+                frames: frames
+            ))
+        }
+
+        let full = render(rows: [makePlaybackRow(index: 0, note: 49, instrument: 1)], frames: 2)
+        let halfSample = render(
+            sampleVolume: 0.5,
+            rows: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+            frames: 2
+        )
+        let halfChannel = render(rows: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30)
+        ], frames: 2)
+        let halfGlobal = render(rows: [
+            makePlaybackRow(index: 0, effectType: 0x10, effectParam: 0x20),
+            makePlaybackRow(index: 1, note: 49, instrument: 1)
+        ], frames: 3)
+
+        XCTAssertEqual(try XCTUnwrap(full.plan.pattern.events.first).gain, 1, accuracy: 0.000_001)
+        XCTAssertFloatArrayEqual(full.block.interleavedPCM, [1, 1])
+        XCTAssertEqual(try XCTUnwrap(halfSample.plan.pattern.events.first).gain, 0.5, accuracy: 0.000_001)
+        XCTAssertFloatArrayEqual(halfSample.block.interleavedPCM, [0.5, 0.5])
+        XCTAssertEqual(try XCTUnwrap(halfChannel.plan.pattern.events.first).gain, 0.5, accuracy: 0.000_001)
+        XCTAssertFloatArrayEqual(halfChannel.block.interleavedPCM, [0.5, 0.5])
+        XCTAssertEqual(try XCTUnwrap(halfGlobal.plan.pattern.events.first).gain, 0.5, accuracy: 0.000_001)
+        XCTAssertFloatArrayEqual(halfGlobal.block.interleavedPCM, [0, 0.5, 0.5])
+    }
+
+    func testPlaybackSongAdapterGxxSetGlobalVolumeUpdatesActiveVoiceAndFutureNotes() throws {
+        let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, effectType: 0x10, effectParam: 0x20),
+                    makePlaybackRow(index: 2, note: 49, instrument: 1)
+                ]
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let gxxUpdate = try XCTUnwrap(result.diagnostics.voiceStateUpdates.first { $0.effectType == 0x10 })
+
+        XCTAssertTrue(gxxUpdate.applied)
+        XCTAssertEqual(gxxUpdate.command.label, "Gxx set global volume")
+        XCTAssertEqual(gxxUpdate.activeVoiceUpdated, true)
+        XCTAssertEqual(gxxUpdate.globalVolumeBefore, 64)
+        XCTAssertEqual(gxxUpdate.globalVolumeAfter, 32)
+        XCTAssertEqual(try XCTUnwrap(gxxUpdate.globalVolumeMultiplierBefore), 1, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(gxxUpdate.globalVolumeMultiplierAfter), 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(gxxUpdate.gainBefore, 1)
+        XCTAssertEqual(gxxUpdate.gainAfter, 0.5)
+        XCTAssertEqual(result.pattern.events.map(\.gain), [1, 0.5])
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.effectiveGlobalVolumeValue), [64, 32])
+        XCTAssertFalse(result.diagnostics.deferredCellFields.contains { $0.effectType == 0x10 })
+    }
+
     func testPlaybackSongAdapterHxyClampsAndDiagnosesNoOpAndBothNibblePolicy() throws {
         let rows = [
             makePlaybackRow(index: 0, effectType: 0x11, effectParam: 0x10),

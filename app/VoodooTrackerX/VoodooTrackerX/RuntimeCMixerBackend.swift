@@ -837,8 +837,14 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if event.categories.contains("key_off") {
             return "key_off_fadeout"
         }
+        if event.categories.contains("gxx_global_volume_update") {
+            return "gxx_global_volume"
+        }
         if event.categories.contains("hxy_global_volume_update") {
             return "hxy_global_volume"
+        }
+        if event.categories.contains("global_volume_update") {
+            return "global_volume"
         }
         if event.categories.contains("note_cut") ||
             event.categories.contains("note_delay") ||

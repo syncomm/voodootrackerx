@@ -627,6 +627,10 @@ Features:
   callback duration/budget, realtime safety, route/sample-rate, capture, and
   song-end/tail health
 - transport, timing, pitch, loop, panning, volume-column, and envelope compatibility passes
+- gain normalization parity coverage: sample volume, channel volume, global
+  volume, volume envelope, and fadeout remain separate multipliers; `Gxx`
+  set-global-volume is applied as a clamped row-level global-volume update in
+  the bounded/offline and runtime C mixer adapter plans
 - stop-position preservation plus a tracker-style plain Spacebar play/stop
   shortcut for manual playback debugging
 - playback debug seek and trace export

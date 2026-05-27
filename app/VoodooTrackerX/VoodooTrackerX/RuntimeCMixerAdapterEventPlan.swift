@@ -282,8 +282,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
             var categories = ["gain_pan_update"]
             switch update.command {
+            case .gxxSetGlobalVolume:
+                categories.append("gxx_global_volume_update")
+                categories.append("global_volume_update")
             case .hxyGlobalVolumeSlide:
                 categories.append("hxy_global_volume_update")
+                categories.append("global_volume_update")
             case .axyVolumeSlide:
                 categories.append("axy_volume_slide")
             case .volumeColumn:

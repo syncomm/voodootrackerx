@@ -3114,6 +3114,17 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("| 1 | 1 | 1 | 1 | 1 | 1 | 0 | 5 | 0 | 1.25000000...1.25000000 |", markdown)
             self.assertIn("source 18.0000->11.7500 loop forward 10-20", markdown)
 
+    def test_correlation_includes_period_sample_step_active_voice_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Period / Sample-Step Voice Evidence", markdown)
+            self.assertIn("- Windowed render-aware active-voice estimate: false", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 0 | 1.25000000...1.25000000 | 8363.00000000...8363.00000000 | 4608.00000000...4608.00000000 |", markdown)
+            self.assertIn("note 49 eff 49 rel 0 fine 0/0 inst/sample 7/2", markdown)
+            self.assertIn("base 8363.00000000 Hz out 1000.00000000 Hz period 4608.00000000 freq 8363.00000000 step 1.25000000", markdown)
+
     def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
         diagnostics = synthetic_diagnostics_json()
         diagnostics["arpeggio_effects"] = [
@@ -3148,6 +3159,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Playback-step range: unavailable...unavailable; missing 1", markdown)
             self.assertIn("- Sample base-rate range: unavailable...unavailable Hz; missing 1", markdown)
             self.assertIn("missing period/frequency 1/1", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 0 | unavailable...unavailable | unavailable...unavailable | unavailable...unavailable |", markdown)
 
     def test_correlation_envelope_gain_summary_handles_missing_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3157,6 +3169,8 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("## Envelope / Gain Timing Evidence", markdown)
             self.assertIn("- Envelope-enabled events: 0/0", markdown)
             self.assertIn("- Gain/pan/global-volume updates: gain 0, pan 0, channel-volume 0, global-volume 0", markdown)
+            self.assertIn("## Period / Sample-Step Voice Evidence", markdown)
+            self.assertIn("- Render windows: 0", markdown)
 
     def test_correlation_envelope_gain_summary_counts_synthetic_updates(self):
         diagnostics = synthetic_diagnostics_json()

@@ -18,6 +18,7 @@ DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
 MAX_MECHANICS_EXAMPLES = 5
 MAX_ENVELOPE_GAIN_EXAMPLES = 5
+MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
 STEP_UPDATE_SECTIONS = (
@@ -1075,9 +1076,182 @@ def normalize_step_update_signals(
                     "status": diagnostic.get("status"),
                     "source": nested_dict(diagnostic.get("source")),
                     "channel_index": diagnostic.get("channel_index"),
+                    "active_event_index": diagnostic.get("active_event_index"),
+                    "active_event_mapping_index": diagnostic.get("active_event_mapping_index"),
+                    "linear_period_before": raw_update.get("linear_period_before"),
+                    "linear_period_after": raw_update.get("linear_period_after"),
+                    "playback_step_before": raw_update.get("playback_step_before", raw_update.get("current_step_before")),
+                    "playback_step_after": raw_update.get("playback_step_after", raw_update.get("current_step_after")),
+                    "synthetic_tick": raw_update.get("synthetic_tick"),
                 })
     updates.sort(key=lambda item: (item["frame"], item["label"], sort_int(item.get("channel_index"))))
     return updates
+
+
+def normalize_render_windows(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    windowed = nested_dict(diagnostics.get("windowed_render"))
+    windows: list[dict[str, Any]] = []
+    for raw_window in nested_list(windowed.get("per_window")):
+        if not isinstance(raw_window, dict):
+            continue
+        start_frame = integer(raw_window.get("start_frame"))
+        end_frame = integer(raw_window.get("end_frame"))
+        if start_frame is None or end_frame is None:
+            continue
+        windows.append({
+            **raw_window,
+            "_start_frame": max(0, start_frame),
+            "_end_frame": max(start_frame + 1, end_frame),
+        })
+    windows.sort(key=lambda item: (item["_start_frame"], item.get("window_index", 0)))
+    return windows
+
+
+def render_window_for_frame(render_windows: list[dict[str, Any]], frame: int) -> dict[str, Any] | None:
+    for window in render_windows:
+        if window["_start_frame"] <= frame < window["_end_frame"]:
+            return window
+    return None
+
+
+def active_events_for_window(
+    window: dict[str, Any],
+    events: list[dict[str, Any]],
+    render_windows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    start_frame = int(window["_start_frame"])
+    end_frame = int(window["_end_frame"])
+    render_window = render_window_for_frame(render_windows, start_frame)
+    if render_window is None:
+        return [
+            {**event, "_effective_start_frame": event["_start_frame"], "_effective_end_frame": event["_end_frame"]}
+            for event in events
+            if overlaps(event["_start_frame"], event["_end_frame"], start_frame, end_frame)
+        ]
+
+    render_start = int(render_window["_start_frame"])
+    render_end = int(render_window["_end_frame"])
+    latest_prior_by_channel: dict[Any, dict[str, Any]] = {}
+    current_window_events: list[dict[str, Any]] = []
+    for event in events:
+        event_start = int(event["_start_frame"])
+        event_end = int(event["_end_frame"])
+        if event_start < render_start and event_end > render_start:
+            channel = event.get("channel_index")
+            existing = latest_prior_by_channel.get(channel)
+            if existing is None or (
+                event_start,
+                sort_int(event.get("event_index")),
+            ) > (
+                int(existing["_start_frame"]),
+                sort_int(existing.get("event_index")),
+            ):
+                latest_prior_by_channel[channel] = event
+        elif render_start <= event_start < render_end:
+            current_window_events.append(event)
+
+    candidates = list(latest_prior_by_channel.values()) + current_window_events
+    active: list[dict[str, Any]] = []
+    for event in candidates:
+        effective_start = max(int(event["_start_frame"]), render_start)
+        effective_end = min(int(event["_end_frame"]), render_end)
+        if overlaps(effective_start, effective_end, start_frame, end_frame):
+            active.append({
+                **event,
+                "_effective_start_frame": effective_start,
+                "_effective_end_frame": effective_end,
+                "_render_window_index": render_window.get("window_index"),
+            })
+    active.sort(key=lambda item: (sort_int(item.get("channel_index")), sort_int(item.get("event_index"))))
+    return active
+
+
+def build_period_sample_step_voice_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    step_updates = normalize_step_update_signals(diagnostics, rows)
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        update_count = sum(
+            1 for update in step_updates
+            if int(window["_start_frame"]) <= update["frame"] < int(window["_end_frame"])
+        )
+        mechanics = [event_mechanics_for_window(event, window) for event in active]
+        pitch_summary = pitch_mechanics_summary(mechanics)
+        looped_count = sum(1 for item in mechanics if item["loop_mode"] != "none")
+        examples = [
+            period_sample_step_voice_label(event, window, step_updates)
+            for event in active[:MAX_PERIOD_SAMPLE_STEP_EXAMPLES]
+        ]
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "active_voice_count": len(active),
+            "active_channel_count": len({event.get("channel_index") for event in active}),
+            "looped_voice_count": looped_count,
+            "sample_step_update_count": update_count,
+            **pitch_summary,
+            "examples": examples,
+        })
+    return {
+        "windowed_render_aware": bool(render_windows),
+        "render_window_count": len(render_windows),
+        "window_summaries": window_summaries,
+    }
+
+
+def period_sample_step_voice_label(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    step_updates: list[dict[str, Any]],
+) -> str:
+    pitch = nested_dict(event.get("pitch"))
+    start_position = estimate_source_position(event, int(window["_start_frame"]))
+    end_position = estimate_source_position(event, int(window["_end_frame"]))
+    event_index = event.get("event_index")
+    event_updates = [
+        update for update in step_updates
+        if update.get("active_event_index") == event_index
+        and int(window["_start_frame"]) <= update["frame"] < int(window["_end_frame"])
+    ]
+    if not event_updates:
+        event_updates = [
+            update for update in step_updates
+            if update.get("active_event_index") is None
+            and update.get("channel_index") == event.get("channel_index")
+            and int(window["_start_frame"]) <= update["frame"] < int(window["_end_frame"])
+        ]
+    update_suffix = ""
+    if event_updates:
+        first_update = event_updates[0]
+        update_suffix = (
+            f" updates {len(event_updates)} first {first_update['frame']} "
+            f"{format_optional_float(first_update.get('playback_step_before'))}->"
+            f"{format_optional_float(first_update.get('playback_step_after'))}"
+        )
+    return (
+        f"{source_label(nested_dict(event.get('source')))} "
+        f"ch {format_optional(event.get('channel_index'))} "
+        f"note {format_optional(event.get('note'))} "
+        f"eff {format_optional(pitch.get('effective_note_value'))} "
+        f"rel {format_optional(pitch.get('sample_relative_note'))} "
+        f"fine {format_optional(pitch.get('sample_finetune'))}/{format_optional(pitch.get('effective_finetune'))} "
+        f"inst/sample {format_optional(event.get('instrument_index'))}/{format_optional(event.get('sample_index'))} "
+        f"base {format_optional_float(pitch.get('sample_base_sample_rate'))} Hz "
+        f"out {format_optional_float(pitch.get('output_sample_rate'))} Hz "
+        f"period {format_optional_float(pitch.get('linear_period'))} "
+        f"freq {format_optional_float(pitch.get('linear_frequency'))} "
+        f"step {format_optional_float(pitch.get('playback_step'))} "
+        f"source {format_position(start_position.rendered_position)}->{format_position(end_position.rendered_position)} "
+        f"loop {format_optional(event.get('loop_mode'))}"
+        f"{update_suffix}"
+    )
 
 
 def event_mechanics_for_window(event: dict[str, Any], window: dict[str, Any] | None) -> dict[str, Any]:
@@ -1627,6 +1801,7 @@ def build_correlation_report(
     )
     alignment_summary = build_alignment_summary(windows)
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
+    period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
@@ -1673,6 +1848,7 @@ def build_correlation_report(
     append_pitch_modulation_summary(lines, command_occurrences)
     append_alignment_summary(lines, alignment_summary)
     append_rendering_mechanics_summary(lines, rendering_mechanics)
+    append_period_sample_step_voice_summary(lines, period_sample_step_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
 
     lines.extend([
@@ -2011,6 +2187,52 @@ def append_rendering_mechanics_summary(lines: list[str], summary: dict[str, Any]
             f"{format_optional(item.get('forward_loop_wrap_count'))} | "
             f"{format_optional(item.get('ping_pong_turnaround_count'))} | "
             f"{step_range} | "
+            f"{examples} |"
+        )
+
+
+def append_period_sample_step_voice_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    lines.extend([
+        "",
+        "## Period / Sample-Step Voice Evidence",
+        f"- Windowed render-aware active-voice estimate: {str(bool(summary.get('windowed_render_aware'))).lower()}",
+        f"- Render windows: {format_optional(summary.get('render_window_count'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window active voice evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Active Voices | Channels | Looped Voices | Step Updates | Step Range | Base Rate Range | Period Range | Voice Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+    ])
+    for item in window_summaries:
+        step_range = (
+            f"{format_optional_float(item.get('playback_step_min'))}..."
+            f"{format_optional_float(item.get('playback_step_max'))}"
+        )
+        base_range = (
+            f"{format_optional_float(item.get('sample_base_rate_min'))}..."
+            f"{format_optional_float(item.get('sample_base_rate_max'))}"
+        )
+        period_range = (
+            f"{format_optional_float(item.get('linear_period_min'))}..."
+            f"{format_optional_float(item.get('linear_period_max'))}"
+        )
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional(item.get('active_channel_count'))} | "
+            f"{format_optional(item.get('looped_voice_count'))} | "
+            f"{format_optional(item.get('sample_step_update_count'))} | "
+            f"{step_range} | "
+            f"{base_range} | "
+            f"{period_range} | "
             f"{examples} |"
         )
 

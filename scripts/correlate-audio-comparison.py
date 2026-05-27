@@ -20,6 +20,7 @@ MAX_MECHANICS_EXAMPLES = 5
 MAX_ENVELOPE_GAIN_EXAMPLES = 5
 MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
+AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
 STEP_UPDATE_SECTIONS = (
     ("arpeggio_effects", "0xy arpeggio"),
@@ -1406,13 +1407,15 @@ def build_envelope_gain_summary(
             item for item in key_offs
             if window["_start_frame"] <= item["frame"] < window["_end_frame"]
         ]
-        examples = envelope_gain_examples(overlapping_events, window_updates, window_key_offs)
+        probe_frame = window["_start_frame"] + max(0, (window["_end_frame"] - window["_start_frame"]) // 2)
+        examples = envelope_gain_examples(overlapping_events, window_updates, window_key_offs, probe_frame)
         window_summaries.append({
             "rank": int(window["_rank"]),
             "start_seconds": window["_start_seconds"],
             "end_seconds": window["_end_seconds"],
             "event_count": len(overlapping_events),
             "envelope_enabled_event_count": sum(1 for item in overlapping_envelopes if item["envelope_enabled"]),
+            "audible_envelope_event_count": audible_envelope_event_count(overlapping_events, probe_frame),
             "sustain_event_count": sum(1 for item in overlapping_envelopes if item["sustain_applied"] or item["sustain_deferred"]),
             "envelope_loop_event_count": sum(1 for item in overlapping_envelopes if item["loop_applied"] or item["loop_deferred"]),
             "fadeout_event_count": sum(1 for item in overlapping_envelopes if item["fadeout_applied"] or item["fadeout_deferred"]),
@@ -1516,9 +1519,16 @@ def envelope_gain_examples(
     events: list[dict[str, Any]],
     updates: list[dict[str, Any]],
     key_offs: list[dict[str, Any]],
+    probe_frame: int | None = None,
 ) -> list[str]:
     examples: list[str] = []
-    for event in events:
+    ordered_events = events
+    if probe_frame is not None:
+        ordered_events = sorted(
+            events,
+            key=lambda event: 0 if envelope_event_is_audible(event, probe_frame) else 1,
+        )
+    for event in ordered_events:
         envelope = nested_dict(event.get("volume_envelope"))
         signal = event_envelope_signal(event)
         if not any(signal.values()):
@@ -1532,6 +1542,8 @@ def envelope_gain_examples(
             parts.append("key-off")
         if signal["fadeout_applied"] or signal["fadeout_deferred"]:
             parts.append(f"fadeout {format_optional(envelope.get('fadeout_value'))}")
+        if probe_frame is not None:
+            parts.append(envelope_state_label(event, probe_frame))
         examples.append(" ".join(parts))
         if len(examples) >= MAX_ENVELOPE_GAIN_EXAMPLES:
             return examples
@@ -1560,6 +1572,149 @@ def envelope_gain_examples(
         if len(examples) >= MAX_ENVELOPE_GAIN_EXAMPLES:
             return examples
     return examples
+
+
+def envelope_event_is_audible(event: dict[str, Any], probe_frame: int) -> bool:
+    snapshot = event_envelope_snapshot(event, probe_frame)
+    if snapshot is None:
+        return False
+    return (number(snapshot.get("final_voice_gain")) or 0.0) > AUDIBLE_GAIN_EPSILON
+
+
+def audible_envelope_event_count(events: list[dict[str, Any]], probe_frame: int) -> int:
+    count = 0
+    for event in events:
+        if not event_envelope_signal(event)["envelope_enabled"]:
+            continue
+        if envelope_event_is_audible(event, probe_frame):
+            count += 1
+    return count
+
+
+def envelope_state_label(event: dict[str, Any], frame: int) -> str:
+    snapshot = event_envelope_snapshot(event, frame)
+    if snapshot is None:
+        return f"env@{frame} unavailable"
+    return (
+        f"env@{frame} pos {format_optional(snapshot.get('position_frame'))} "
+        f"val {format_optional_float(snapshot.get('value'))} "
+        f"seg {format_optional(snapshot.get('segment_index'))} "
+        f"key-on {snapshot.get('key_on')} "
+        f"sustain-held {snapshot.get('sustain_held')} "
+        f"loop-active {snapshot.get('loop_active')} "
+        f"fadeout {format_optional_float(snapshot.get('fadeout_value'))} "
+        f"final-gain {format_optional_float(snapshot.get('final_voice_gain'))}"
+    )
+
+
+def event_envelope_snapshot(event: dict[str, Any], frame: int) -> dict[str, Any] | None:
+    envelope = nested_dict(event.get("volume_envelope"))
+    points = envelope_points(envelope)
+    if not points:
+        return None
+    start_frame = integer(event.get("_start_frame"))
+    if start_frame is None:
+        start_frame = integer(event.get("scheduled_start_frame")) or 0
+    key_off_frame = integer(envelope.get("key_off_frame"))
+    if key_off_frame is None:
+        key_off_frame = integer(envelope.get("release_frame"))
+    relative_frame = max(0, frame - max(0, start_frame))
+    relative_key_off_frame = None if key_off_frame is None else max(0, key_off_frame - max(0, start_frame))
+    key_on = relative_key_off_frame is None or relative_frame < relative_key_off_frame
+    key_off_basis = relative_key_off_frame if relative_key_off_frame is not None else relative_frame
+    keyed_frames = relative_frame if key_on else min(relative_frame, key_off_basis)
+    released_frames = 0 if key_on else max(0, relative_frame - key_off_basis)
+    position = advance_envelope_position(0, keyed_frames, True, envelope)
+    position = advance_envelope_position(position, released_frames, False, envelope)
+    value = envelope_value_at(points, position)
+    fadeout_decrement = number(envelope.get("fadeout_frame_decrement")) or 0.0
+    fadeout_value = 1.0 if key_on else max(0.0, 1.0 - (released_frames * max(0.0, fadeout_decrement)))
+    base_gain = number(event.get("gain")) or 0.0
+    sustain_frame = integer(envelope.get("sustain_frame"))
+    loop_start = integer(envelope.get("loop_start_frame"))
+    loop_end = integer(envelope.get("loop_end_frame"))
+    return {
+        "position_frame": position,
+        "value": value,
+        "segment_index": envelope_segment_index(points, position),
+        "key_on": key_on,
+        "sustain_held": key_on and sustain_frame is not None and position == sustain_frame and keyed_frames >= sustain_frame,
+        "loop_active": key_on and loop_start is not None and loop_end is not None and loop_start <= position <= loop_end,
+        "fadeout_value": fadeout_value,
+        "final_voice_gain": base_gain * value * fadeout_value,
+    }
+
+
+def envelope_points(envelope: dict[str, Any]) -> list[dict[str, float]]:
+    points: list[dict[str, float]] = []
+    for raw_point in nested_list(envelope.get("points")):
+        if not isinstance(raw_point, dict):
+            continue
+        position_frame = integer(raw_point.get("position_frame"))
+        value = number(raw_point.get("value"))
+        if position_frame is None or value is None:
+            continue
+        points.append({"position_frame": float(max(0, position_frame)), "value": value})
+    points.sort(key=lambda item: item["position_frame"])
+    return points
+
+
+def advance_envelope_position(position: int, frames: int, key_on: bool, envelope: dict[str, Any]) -> int:
+    position = max(0, position)
+    frames = max(0, frames)
+    if frames <= 0:
+        return position
+    if not key_on:
+        return position + frames
+    sustain_frame = integer(envelope.get("sustain_frame"))
+    if sustain_frame is not None and position >= sustain_frame:
+        return sustain_frame
+    loop_start = integer(envelope.get("loop_start_frame"))
+    loop_end = integer(envelope.get("loop_end_frame"))
+    if sustain_frame is not None and can_reach_sustain_before_loop(position, frames, sustain_frame, loop_end):
+        return sustain_frame
+    if loop_start is None or loop_end is None or loop_end < loop_start:
+        return position + frames
+    target = position + frames
+    if target <= loop_end:
+        return target
+    loop_length = loop_end - loop_start + 1
+    if loop_length <= 0:
+        return target
+    return loop_start + ((target - loop_end - 1) % loop_length)
+
+
+def can_reach_sustain_before_loop(position: int, frames: int, sustain_frame: int, loop_end_frame: int | None) -> bool:
+    if position >= sustain_frame or position + frames < sustain_frame:
+        return False
+    return not (loop_end_frame is not None and loop_end_frame < sustain_frame and position + frames > loop_end_frame)
+
+
+def envelope_value_at(points: list[dict[str, float]], position_frame: int) -> float:
+    if not points:
+        return 1.0
+    first = points[0]
+    if position_frame <= first["position_frame"]:
+        return first["value"]
+    for index in range(1, len(points)):
+        previous = points[index - 1]
+        current = points[index]
+        if position_frame <= current["position_frame"]:
+            span = max(1.0, current["position_frame"] - previous["position_frame"])
+            progress = (position_frame - previous["position_frame"]) / span
+            return previous["value"] + ((current["value"] - previous["value"]) * progress)
+    return points[-1]["value"]
+
+
+def envelope_segment_index(points: list[dict[str, float]], position_frame: int) -> int | None:
+    if not points:
+        return None
+    if position_frame <= points[0]["position_frame"]:
+        return 0
+    for index in range(1, len(points)):
+        if position_frame <= points[index]["position_frame"]:
+            return index - 1
+    return len(points) - 1
 
 
 def values_changed(before: float | None, after: float | None) -> bool:
@@ -2296,8 +2451,8 @@ def append_envelope_gain_summary(lines: list[str], summary: dict[str, Any]) -> N
         return
     lines.extend([
         "",
-        "| Window | Events | Env Enabled | Sustain | Env Loop | Fadeout | Key-Off | Gain Updates | Pan Updates | Global Vol | Examples |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Window | Events | Env Enabled | Audible Env | Sustain | Env Loop | Fadeout | Key-Off | Gain Updates | Pan Updates | Global Vol | Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ])
     for item in window_summaries:
         examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
@@ -2305,6 +2460,7 @@ def append_envelope_gain_summary(lines: list[str], summary: dict[str, Any]) -> N
             f"| {format_optional(item.get('rank'))} | "
             f"{format_optional(item.get('event_count'))} | "
             f"{format_optional(item.get('envelope_enabled_event_count'))} | "
+            f"{format_optional(item.get('audible_envelope_event_count'))} | "
             f"{format_optional(item.get('sustain_event_count'))} | "
             f"{format_optional(item.get('envelope_loop_event_count'))} | "
             f"{format_optional(item.get('fadeout_event_count'))} | "

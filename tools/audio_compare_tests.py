@@ -286,10 +286,23 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 },
                 "volume_envelope": {
                     "status": "mapped",
+                    "enabled": True,
                     "source_point_count": 2,
                     "mapped_point_count": 2,
+                    "points": [
+                        {"index": 0, "position_frame": 0, "value": 1.0},
+                        {"index": 1, "position_frame": 30, "value": 0.5},
+                    ],
+                    "loop_applied": True,
+                    "loop_start_frame": 10,
+                    "loop_end_frame": 20,
+                    "key_off_frame": 120,
+                    "fadeout_start_frame": 120,
+                    "fadeout_value": 65536,
+                    "fadeout_applied": True,
+                    "fadeout_frame_decrement": 0.01,
                     "has_deferred_sustain": False,
-                    "has_deferred_loop": True,
+                    "has_deferred_loop": False,
                     "has_deferred_fadeout": False,
                 },
                 "pitch": {
@@ -3091,7 +3104,7 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("raw 48 setVolume(32) / supported", markdown)
             self.assertIn("9xx applied offset 512", markdown)
             self.assertIn("speed F03 6/125->3/125", markdown)
-            self.assertIn("mapped 2/2; deferred loop", markdown)
+            self.assertIn("mapped 2/2; applied loop,fadeout", markdown)
             self.assertIn("| forward |", markdown)
 
     def test_correlation_includes_sample_step_interpolation_mechanics_summary(self):
@@ -3208,9 +3221,11 @@ class AudioCorrelationTests(unittest.TestCase):
             markdown = report.read_text(encoding="utf-8")
 
             self.assertIn("- Envelope-enabled events: 1/1", markdown)
-            self.assertIn("sustain 0, loop 1, fadeout 0, key-off 1", markdown)
+            self.assertIn("sustain 0, loop 1, fadeout 1, key-off 1", markdown)
             self.assertIn("gain 1, pan 1, channel-volume 1, global-volume 1", markdown)
-            self.assertIn("| 1 | 1 | 1 | 0 | 1 | 0 | 1 | 1 | 1 | 1 |", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 |", markdown)
+            self.assertIn("env@125 pos 15 val 0.75000000 seg 0 key-on False", markdown)
+            self.assertIn("fadeout 0.95000000 final-gain 0.35625000", markdown)
 
     def test_correlation_includes_event_coverage_summary_when_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:

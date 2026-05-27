@@ -6006,6 +6006,173 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(windowed.diagnostics.voiceStateUpdates.first?.activeVoiceUpdated, true)
     }
 
+    func testPlaybackSongAdapterSameChannelRepeatedNotesUseBoundedReplacementRamp() throws {
+        let sample = makePlaybackSample(
+            pcm: [1],
+            baseSampleRate: 6_400,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2, note: 49, instrument: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 6_400, channelCount: 1),
+            frames: 160
+        ))
+        let lifetime = result.sameChannelVoiceLifetime
+
+        XCTAssertEqual(lifetime.sameChannelReplacementStartCount, 2)
+        XCTAssertEqual(lifetime.sameChannelReplacementCompletionCount, 2)
+        XCTAssertEqual(lifetime.sameChannelVoiceOverlapFrames, CSoftwareMixer.replacementStopRampFrameCount * 2)
+        XCTAssertEqual(lifetime.sameChannelActiveVoiceCount, 2)
+        XCTAssertEqual(lifetime.maxVoicesPerSourceChannel[0], 2)
+        XCTAssertEqual(lifetime.loadedVoicesBySourceChannel[0], 3)
+        XCTAssertEqual(lifetime.activeVoicesBySourceChannel[0], 1)
+        XCTAssertEqual(
+            lifetime.oldVoiceKeptReasonCounts[PlaybackSongSameChannelVoiceLifetimeDiagnostics.oldVoiceKeptReasonReplacementRamp],
+            2
+        )
+        XCTAssertEqual(result.block.interleavedPCM[63], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[64], 1.96875, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[94], 1.03125, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[95], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[128], 1.96875, accuracy: 0.000_001)
+    }
+
+    func testPlaybackSongAdapterSameChannelReplacementWindowedRenderMatchesFullRender() throws {
+        let sample = makePlaybackSample(
+            pcm: [1],
+            baseSampleRate: 6_400,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2, note: 49, instrument: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 6_400, channelCount: 1),
+            frames: 160
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let full = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, full.block.interleavedPCM)
+        XCTAssertEqual(windowed.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 2)
+        XCTAssertEqual(windowed.sameChannelVoiceLifetime.windowBoundaryPruneCount, 0)
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalCarriedVoices, 2)
+    }
+
+    func testPlaybackSongAdapterEnvelopeVoicesDoNotSurviveSameChannelReplacementPastRamp() throws {
+        let envelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 64),
+            ],
+            sustainPointIndex: 0,
+            typeFlags: 0x03
+        )
+        let sample = makePlaybackSample(
+            pcm: [1],
+            baseSampleRate: 6_400,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 49, instrument: 1),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 6_400, channelCount: 1),
+            frames: 128
+        ))
+
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 1)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementCompletionCount, 1)
+        XCTAssertEqual(result.block.interleavedPCM[64], 1.96875, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[95], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[127], 1, accuracy: 0.000_001)
+    }
+
+    func testPlaybackSongAdapterSameCell3xxDoesNotReplaceUntilPlainNote() throws {
+        let sample = makePlaybackSample(
+            pcm: [1],
+            baseSampleRate: 6_400,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 53, instrument: 1, effectType: 0x03, effectParam: 0x04),
+                    makePlaybackRow(index: 2, note: 55, instrument: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 6_400, channelCount: 1),
+            frames: 160
+        ))
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 6_400)
+        let tonePortamento = try XCTUnwrap(result.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(result.diagnostics.eventMappings.map(\.source.rowIndex), [0, 2])
+        XCTAssertFalse(tonePortamento.noteTriggerEventCreated)
+        XCTAssertFalse(tonePortamento.cMixerReceivesNewVoice)
+        XCTAssertEqual(result.sameChannelVoiceLifetime.sameChannelReplacementStartCount, 1)
+        XCTAssertEqual(runtimePlan.events.filter { $0.categories.contains("replacement") }.count, 1)
+        XCTAssertEqual(runtimePlan.events.filter { $0.categories.contains("replacement") }.count, result.sameChannelVoiceLifetime.sameChannelReplacementStartCount)
+        XCTAssertEqual(result.block.interleavedPCM[127], 1, accuracy: 0.000_001)
+        XCTAssertEqual(result.block.interleavedPCM[128], 1.96875, accuracy: 0.000_001)
+    }
+
     func testPlaybackSongAdapterWindowedCarryoverPreservesActiveGainRampState() throws {
         let sample = makePlaybackSample(pcm: [1, 1, 1, 1], volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(

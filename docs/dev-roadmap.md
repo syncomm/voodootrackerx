@@ -148,10 +148,23 @@ audit documented the current C mixer policy as XM envelope ticks mapped to
 output-frame positions, first audible samples evaluated before envelope advance,
 sustain holding before loop handling while key-on, inclusive envelope loops
 while key-on only, and key-off release before rendering the key-off frame. No
-tiny envelope behavior bug was proven; the next parity target should be
-same-channel offline voice replacement/overlap or a reference-backed envelope
-tick-clock experiment, with key-off/fadeout scaling and gain/panning math kept
-as separate follow-ups if expected-value tests isolate them. Bounded offline note
+tiny envelope behavior bug was proven. The follow-up same-channel replacement
+parity pass found a real offline/windowed lifetime bug: bounded offline renders
+pre-scheduled note voices and only pruned older same-channel voices at window
+boundaries, while the runtime CoreAudio C mixer ramps the replaced same-channel
+voice out immediately. Bounded full and windowed offline renders now schedule
+the same deterministic 32-frame replacement ramp, retire the old voice when the
+ramp reaches silence, carry in-flight replacement ramps across row-window
+boundaries, and expose same-channel lifetime diagnostics. Local anonymized
+checks show bounded overlap is now capped at one active same-channel voice plus
+one 32-frame replacement-ramping voice, replacement starts/completions match,
+and window-boundary prune count is zero. This should be classified as an
+offline renderer correctness and reference-harness fix rather than a proven
+reference-correlation improvement: safe-level local comparisons were generated
+only after the fix, with no matching pre-fix safe-level baseline. The next
+parity target should move to gain/headroom-normalized level behavior or a
+reference-backed envelope tick-clock experiment rather than unbounded
+same-channel stacking. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,
@@ -523,7 +536,8 @@ Immediate audio accuracy sequence:
 97. Minimal 0xy Arpeggio Foundation — done
 98. Reference comparison stabilization against MikMod/OpenMPT
 99. Focused Dxx/Bxx/E6x traversal foundation — done
-100. Residual effect classification / E0x deferral cleanup — recommended next effect PR
+100. Offline window same-channel voice replacement parity — done
+101. Residual effect classification / E0x deferral cleanup — recommended next effect PR
 
 ---
 

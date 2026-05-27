@@ -59,6 +59,7 @@ typedef struct {
     float target;
     uint32_t total_frames;
     uint32_t position_frame;
+    int deactivate_after_ramp;
 } VTXCMixerValueRampRuntimeState;
 
 typedef struct {
@@ -157,6 +158,8 @@ typedef struct {
     int update_sample_step;
     double sample_step;
     int ramp_enabled;
+    uint32_t ramp_frame_count;
+    int deactivate_after_gain_ramp;
 } VTXCMixerVoiceStateEvent;
 
 typedef struct {
@@ -430,6 +433,16 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
     float gain,
     int update_pan,
     float pan
+);
+
+// Schedules a deterministic ramp down to silence for one existing voice, then
+// marks it inactive when the ramp completes. This is used by offline adapter
+// note-replacement scheduling to match runtime same-channel replacement ramps.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_ramp_down_and_deactivate(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    uint32_t ramp_frame_count
 );
 
 VTXCMixerStatus vtx_c_mixer_render(

@@ -774,11 +774,12 @@ memory. `scripts/correlate-audio-comparison.py` can combine those diagnostics
 with `scripts/audio-compare.py` JSON and produce a local Markdown report that
 maps worst mismatch windows to approximate source rows, channels, note/sample
 events, pitch steps, linear period/frequency intermediates when present,
-volume-column decisions, volume/panning/global-volume state-update diagnostics,
-Fxx timing changes, sample-offset decisions, `1xx`/`2xx` portamento-slide
-current sample-step diagnostics, `3xx` tone-portamento target/current
-sample-step diagnostics, `E9x` retrigger decisions and generated frames,
-envelope sustain/loop/key-off/fadeout status, and loop metadata.
+windowed active-voice period/sample-step estimates, volume-column decisions,
+volume/panning/global-volume state-update diagnostics, Fxx timing changes,
+sample-offset decisions, `1xx`/`2xx` portamento-slide current sample-step
+diagnostics, `3xx` tone-portamento target/current sample-step diagnostics,
+`E9x` retrigger decisions and generated frames, envelope
+sustain/loop/key-off/fadeout status, and loop metadata.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.
@@ -1276,6 +1277,11 @@ ranges, then lists:
 - sample-step/interpolation mechanics summaries, including estimated loop
   boundary crossings, forward-loop wraps, ping-pong turnarounds, playback-step
   range, sample base-rate range, and missing pitch/step diagnostic counts
+- period/sample-step voice evidence for each worst window, including
+  windowed-render-aware active-voice estimates, active channel counts, looped
+  voices, sample-step update counts, step/base-rate/period ranges, and examples
+  with note, effective note, relative note, finetune, base/output sample rates,
+  period/frequency, sample step, source position, and loop mode when present
 - envelope/gain timing summaries, including envelope-enabled events,
   sustain/loop/fadeout/key-off evidence, and gain/pan/channel-volume/global-volume
   update counts near each worst mismatch window

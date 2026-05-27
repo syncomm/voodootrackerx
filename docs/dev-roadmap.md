@@ -120,9 +120,17 @@ tail-read behavior. The local anonymized loop-heavy and envelope-heavy
 validation renders were byte-identical before and after this endpoint fix. This
 did not improve the observed local reference mismatch, so the remaining
 private-corpus mismatch is not explained by this exact boundary condition. The
-strongest next parity targets are period/sample-step conversion for the
-loop-heavy envelope-disabled material and envelope/key-off/fadeout timing for
-envelope-heavy material. Bounded offline note
+period/sample-step conversion investigation added windowed active-voice pitch
+summaries to the local correlation report and reviewed the current XM linear
+period pipeline, including effective note, relative note, finetune, fixed
+sample base rate, output sample rate, tone-portamento targets, and scheduled
+sample-step update timing. The primary loop-heavy envelope-disabled local target
+still looks compatible with a pitch/phase/loop-speed class of mismatch, but no
+tiny formula or C-side stepping bug was proven. The secondary envelope-heavy
+target remains strongly confounded by envelope/key-off/fadeout evidence. The
+strongest next parity targets remain a narrowly tested period/sample-step
+formula audit for loop-heavy material and a separate envelope/key-off/fadeout
+timing pass for envelope-heavy material. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

@@ -230,6 +230,169 @@ def normalized_correlation(reference: list[float], candidate: list[float]) -> fl
     return dot / denominator
 
 
+def signal_rms(samples: list[float]) -> float:
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+
+
+def channel_signal(samples: list[float], channels: int, channel: int) -> list[float]:
+    if channels <= 0 or channel < 0 or channel >= channels:
+        return []
+    return samples[channel::channels]
+
+
+def mono_sum_signal(samples: list[float], channels: int) -> list[float]:
+    if channels <= 0:
+        return []
+    frames = len(samples) // channels
+    result: list[float] = []
+    for frame in range(frames):
+        start = frame * channels
+        result.append(sum(samples[start : start + channels]) / channels)
+    return result
+
+
+def stereo_side_signal(samples: list[float], channels: int) -> list[float]:
+    if channels < 2:
+        return []
+    frames = len(samples) // channels
+    result: list[float] = []
+    for frame in range(frames):
+        start = frame * channels
+        result.append((samples[start] - samples[start + 1]) * 0.5)
+    return result
+
+
+def signal_comparison_metrics(
+    reference: list[float],
+    candidate: list[float],
+    *,
+    description: str,
+) -> dict[str, object]:
+    reference_rms = signal_rms(reference)
+    raw_diff = diff_metrics(reference, candidate, 1, reference_rms)
+    return {
+        "description": description,
+        "overlap_frames": min(len(reference), len(candidate)),
+        "reference_rms": rounded(reference_rms),
+        "candidate_rms": rounded(signal_rms(candidate)),
+        "normalized_correlation": rounded_optional(normalized_correlation(reference, candidate)),
+        "diff": raw_diff,
+        "gain_normalized": gain_normalized_metrics(
+            reference,
+            candidate,
+            1,
+            reference_rms,
+            float(raw_diff["overall_rms_difference"]),
+        ),
+    }
+
+
+def comparison_mode_metrics(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    reference_rms: float,
+    raw_diff: dict[str, object],
+) -> dict[str, object]:
+    modes: dict[str, object] = {
+        "stereo": {
+            "description": "interleaved samples as-is",
+            "overlap_frames": min(len(reference), len(candidate)) // channels if channels > 0 else 0,
+            "reference_rms": rounded(reference_rms),
+            "candidate_rms": rounded(signal_rms(candidate)),
+            "normalized_correlation": rounded_optional(normalized_correlation(reference, candidate)),
+            "diff": raw_diff,
+            "gain_normalized": gain_normalized_metrics(
+                reference,
+                candidate,
+                channels,
+                reference_rms,
+                float(raw_diff["overall_rms_difference"]),
+            ),
+        },
+        "mono_sum": signal_comparison_metrics(
+            mono_sum_signal(reference, channels),
+            mono_sum_signal(candidate, channels),
+            description="per-frame channel average for mono-summed comparison",
+        ),
+    }
+    if channels >= 1:
+        modes["left"] = signal_comparison_metrics(
+            channel_signal(reference, channels, 0),
+            channel_signal(candidate, channels, 0),
+            description="channel 0 only",
+        )
+    if channels >= 2:
+        modes["right"] = signal_comparison_metrics(
+            channel_signal(reference, channels, 1),
+            channel_signal(candidate, channels, 1),
+            description="channel 1 only",
+        )
+        modes["side"] = signal_comparison_metrics(
+            stereo_side_signal(reference, channels),
+            stereo_side_signal(candidate, channels),
+            description="(left - right) / 2 side-channel comparison",
+        )
+    return modes
+
+
+def frame_slice(samples: list[float], channels: int, start_frame: int, end_frame: int) -> list[float]:
+    if channels <= 0:
+        return []
+    return samples[start_frame * channels : end_frame * channels]
+
+
+def window_signal_metrics(reference: list[float], candidate: list[float]) -> dict[str, object]:
+    reference_rms = signal_rms(reference)
+    candidate_rms = signal_rms(candidate)
+    diff = diff_metrics(reference, candidate, 1, reference_rms)
+    result = {
+        "reference_rms": rounded(reference_rms),
+        "candidate_rms": rounded(candidate_rms),
+        "rms_difference": diff["overall_rms_difference"],
+        "normalized_correlation": rounded_optional(normalized_correlation(reference, candidate)),
+    }
+    if reference_rms > 0.0 or candidate_rms > 0.0:
+        result["reference_energy"] = rounded(reference_rms * reference_rms)
+        result["candidate_energy"] = rounded(candidate_rms * candidate_rms)
+        result["candidate_minus_reference_energy"] = rounded((candidate_rms * candidate_rms) - (reference_rms * reference_rms))
+    return result
+
+
+def window_stereo_mono_metrics(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    start_frame: int,
+    end_frame: int,
+) -> dict[str, object]:
+    reference_window = frame_slice(reference, channels, start_frame, end_frame)
+    candidate_window = frame_slice(candidate, channels, start_frame, end_frame)
+    metrics: dict[str, object] = {
+        "mono_sum": window_signal_metrics(
+            mono_sum_signal(reference_window, channels),
+            mono_sum_signal(candidate_window, channels),
+        ),
+    }
+    if channels >= 1:
+        metrics["left"] = window_signal_metrics(
+            channel_signal(reference_window, channels, 0),
+            channel_signal(candidate_window, channels, 0),
+        )
+    if channels >= 2:
+        metrics["right"] = window_signal_metrics(
+            channel_signal(reference_window, channels, 1),
+            channel_signal(candidate_window, channels, 1),
+        )
+        metrics["side"] = window_signal_metrics(
+            stereo_side_signal(reference_window, channels),
+            stereo_side_signal(candidate_window, channels),
+        )
+    return metrics
+
+
 def aligned_window_metrics(
     reference: list[float],
     candidate: list[float],
@@ -489,6 +652,13 @@ def worst_mismatch_windows(
             end_frame,
             alignment_search_frames,
         )
+        window["stereo_mono_metrics"] = window_stereo_mono_metrics(
+            reference,
+            candidate,
+            channels,
+            start_frame,
+            end_frame,
+        )
     return selected
 
 
@@ -564,6 +734,13 @@ def build_comparison(
 
     if sample_comparison_available:
         raw_diff = diff_metrics(reference_samples, candidate_samples, reference_info.channels, reference_stats.rms)
+        gain_normalized = gain_normalized_metrics(
+            reference_samples,
+            candidate_samples,
+            reference_info.channels,
+            reference_stats.rms,
+            float(raw_diff["overall_rms_difference"]),
+        )
         comparison["sample_comparison"] = {
             "overlap_frames": min(reference_stats.frames_analyzed, candidate_stats.frames_analyzed),
             "first_difference_seconds": rounded_optional(first_difference_timestamp(
@@ -575,12 +752,13 @@ def build_comparison(
             )),
             "normalized_correlation": rounded_optional(normalized_correlation(reference_samples, candidate_samples)),
             "diff": raw_diff,
-            "gain_normalized": gain_normalized_metrics(
+            "gain_normalized": gain_normalized,
+            "comparison_modes": comparison_mode_metrics(
                 reference_samples,
                 candidate_samples,
                 reference_info.channels,
                 reference_stats.rms,
-                float(raw_diff["overall_rms_difference"]),
+                raw_diff,
             ),
             "worst_windows": worst_mismatch_windows(
                 reference_samples,
@@ -707,6 +885,37 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
                 "- Unavailable because the candidate has no measurable energy in the analyzed overlap.",
                 "",
             ])
+        comparison_modes = sample_comparison.get("comparison_modes")
+        if isinstance(comparison_modes, dict):
+            lines.extend([
+                "## Stereo / Mono Comparison Modes",
+                "",
+                "| Mode | Correlation | RMS Diff | Normalized RMS Diff | Candidate Scalar | Gain-Norm RMS Diff | Reduction |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ])
+            for key, label in (
+                ("stereo", "Stereo as-is"),
+                ("mono_sum", "Mono-summed"),
+                ("left", "Left only"),
+                ("right", "Right only"),
+                ("side", "Side channel"),
+            ):
+                mode = comparison_modes.get(key)
+                if not isinstance(mode, dict):
+                    continue
+                mode_diff = mode.get("diff")
+                mode_gain = mode.get("gain_normalized")
+                normalized_mode_diff = nested_dict_value(mode_gain, "diff")
+                lines.append(
+                    f"| {label} | "
+                    f"{format_optional_float(mode.get('normalized_correlation'))} | "
+                    f"{format_optional_float(nested_value(mode_diff, 'overall_rms_difference'))} | "
+                    f"{format_optional_float(nested_value(mode_diff, 'normalized_rms_difference'))} | "
+                    f"{format_optional_float(nested_value(mode_gain, 'candidate_scalar_to_reference'))} | "
+                    f"{format_optional_float(nested_value(normalized_mode_diff, 'overall_rms_difference'))} | "
+                    f"{format_optional_float(nested_value(mode_gain, 'rms_difference_reduction_ratio'))} |"
+                )
+            lines.append("")
         lines.extend([
             "## Worst Mismatch Windows",
         ])
@@ -736,6 +945,9 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
                             f"best_corr={format_optional_float(best_shift.get('normalized_correlation'))}, "
                             f"best_rms_diff={format_optional_float(best_shift.get('rms_difference'))}"
                         )
+                mode_metrics = window.get("stereo_mono_metrics")
+                if isinstance(mode_metrics, dict):
+                    lines.append(f"   stereo_mono: {format_window_mode_summary(mode_metrics)}")
         lines.append("")
 
     lines.extend([
@@ -789,6 +1001,37 @@ def format_stereo_balance(balance: object) -> str:
         f"L-R RMS {float(balance['left_minus_right_rms']):+.8f}, "
         f"L-R energy {float(balance['left_right_energy_difference']):+.8f}"
     )
+
+
+def nested_value(value: object, key: str) -> object:
+    if not isinstance(value, dict):
+        return None
+    return value.get(key)
+
+
+def nested_dict_value(value: object, key: str) -> dict[str, object]:
+    nested = nested_value(value, key)
+    return nested if isinstance(nested, dict) else {}
+
+
+def format_window_mode_summary(metrics: dict[str, object]) -> str:
+    parts: list[str] = []
+    for key, label in (
+        ("left", "L"),
+        ("right", "R"),
+        ("mono_sum", "mono"),
+        ("side", "side"),
+    ):
+        mode = metrics.get(key)
+        if not isinstance(mode, dict):
+            continue
+        parts.append(
+            f"{label}_rms ref/cand/diff "
+            f"{format_optional_float(mode.get('reference_rms'))}/"
+            f"{format_optional_float(mode.get('candidate_rms'))}/"
+            f"{format_optional_float(mode.get('rms_difference'))}"
+        )
+    return "; ".join(parts) if parts else "unavailable"
 
 
 def format_timestamp(value: float | None) -> str:

@@ -19,6 +19,7 @@ MAX_EXAMPLES_PER_COMMAND = 3
 MAX_MECHANICS_EXAMPLES = 5
 MAX_ENVELOPE_GAIN_EXAMPLES = 5
 MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
+MAX_GAIN_PAN_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -1207,6 +1208,137 @@ def build_period_sample_step_voice_summary(
     }
 
 
+def build_gain_pan_voice_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    all_voice_signals = [gain_pan_voice_signal(event, None) for event in events]
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        probe_frame = int(window["_start_frame"]) + max(0, (int(window["_end_frame"]) - int(window["_start_frame"])) // 2)
+        voice_signals = [gain_pan_voice_signal(event, probe_frame) for event in active]
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "probe_frame": probe_frame,
+            "active_voice_count": len(active),
+            "final_gain": numeric_distribution(voice_signals, "final_gain"),
+            "base_gain": numeric_distribution(voice_signals, "base_gain"),
+            "pan": numeric_distribution(voice_signals, "pan"),
+            "left_gain": numeric_distribution(voice_signals, "left_gain"),
+            "right_gain": numeric_distribution(voice_signals, "right_gain"),
+            "center_pan_voice_count": sum(1 for item in voice_signals if pan_is_centered(item.get("pan"))),
+            "hard_left_voice_count": sum(1 for item in voice_signals if pan_is_hard_left(item.get("pan"))),
+            "hard_right_voice_count": sum(1 for item in voice_signals if pan_is_hard_right(item.get("pan"))),
+            "examples": [gain_pan_voice_label(item) for item in voice_signals[:MAX_GAIN_PAN_EXAMPLES]],
+        })
+    return {
+        "pan_law": "linear_clamped_-1_to_1_full_amplitude_center",
+        "pan_law_detail": "left=1 when pan<=0 else 1-pan; right=1 when pan>=0 else 1+pan",
+        "event_count": len(events),
+        "base_gain": numeric_distribution(all_voice_signals, "base_gain"),
+        "pan": numeric_distribution(all_voice_signals, "pan"),
+        "windowed_render_aware": bool(render_windows),
+        "window_summaries": window_summaries,
+    }
+
+
+def gain_pan_voice_signal(event: dict[str, Any], probe_frame: int | None) -> dict[str, Any]:
+    base_gain = number(event.get("gain"))
+    pan = number(event.get("pan"))
+    if pan is None:
+        pan = number(event.get("effective_pan"))
+    final_gain = base_gain
+    envelope_value = None
+    fadeout_value = None
+    if probe_frame is not None:
+        snapshot = event_envelope_snapshot(event, probe_frame)
+        if snapshot is not None:
+            final_gain = number(snapshot.get("final_voice_gain"))
+            envelope_value = number(snapshot.get("value"))
+            fadeout_value = number(snapshot.get("fadeout_value"))
+    left_pan = left_pan_gain(pan)
+    right_pan = right_pan_gain(pan)
+    return {
+        "source": nested_dict(event.get("source")),
+        "channel_index": event.get("channel_index"),
+        "event_index": event.get("event_index"),
+        "base_gain": base_gain,
+        "final_gain": final_gain,
+        "pan": pan,
+        "left_pan_gain": left_pan,
+        "right_pan_gain": right_pan,
+        "left_gain": None if final_gain is None or left_pan is None else final_gain * left_pan,
+        "right_gain": None if final_gain is None or right_pan is None else final_gain * right_pan,
+        "envelope_value": envelope_value,
+        "fadeout_value": fadeout_value,
+    }
+
+
+def left_pan_gain(pan: Any) -> float | None:
+    value = clamped_pan(pan)
+    if value is None:
+        return None
+    return 1.0 if value <= 0.0 else 1.0 - value
+
+
+def right_pan_gain(pan: Any) -> float | None:
+    value = clamped_pan(pan)
+    if value is None:
+        return None
+    return 1.0 if value >= 0.0 else 1.0 + value
+
+
+def clamped_pan(pan: Any) -> float | None:
+    value = number(pan)
+    if value is None:
+        return None
+    return min(1.0, max(-1.0, value))
+
+
+def pan_is_centered(pan: Any) -> bool:
+    value = clamped_pan(pan)
+    return value is not None and abs(value) <= 0.01
+
+
+def pan_is_hard_left(pan: Any) -> bool:
+    value = clamped_pan(pan)
+    return value is not None and value <= -0.99
+
+
+def pan_is_hard_right(pan: Any) -> bool:
+    value = clamped_pan(pan)
+    return value is not None and value >= 0.99
+
+
+def numeric_distribution(items: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    values = [value for value in (number(item.get(key)) for item in items) if value is not None]
+    return {
+        "count": len(values),
+        "missing_count": len(items) - len(values),
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
+        "mean": sum(values) / len(values) if values else None,
+    }
+
+
+def gain_pan_voice_label(item: dict[str, Any]) -> str:
+    return (
+        f"{source_label(nested_dict(item.get('source')))} "
+        f"ch {format_optional(item.get('channel_index'))} "
+        f"event {format_optional(item.get('event_index'))} "
+        f"gain {format_optional_float(item.get('base_gain'))}->"
+        f"{format_optional_float(item.get('final_gain'))} "
+        f"pan {format_optional_float(item.get('pan'))} "
+        f"L/R {format_optional_float(item.get('left_gain'))}/"
+        f"{format_optional_float(item.get('right_gain'))}"
+    )
+
+
 def period_sample_step_voice_label(
     event: dict[str, Any],
     window: dict[str, Any],
@@ -1957,6 +2089,7 @@ def build_correlation_report(
     alignment_summary = build_alignment_summary(windows)
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
     period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
+    gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
@@ -2004,6 +2137,7 @@ def build_correlation_report(
     append_alignment_summary(lines, alignment_summary)
     append_rendering_mechanics_summary(lines, rendering_mechanics)
     append_period_sample_step_voice_summary(lines, period_sample_step_summary)
+    append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
 
     lines.extend([
@@ -2388,6 +2522,51 @@ def append_period_sample_step_voice_summary(lines: list[str], summary: dict[str,
             f"{step_range} | "
             f"{base_range} | "
             f"{period_range} | "
+            f"{examples} |"
+        )
+
+
+def append_gain_pan_voice_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    base_gain = nested_dict(summary.get("base_gain"))
+    pan = nested_dict(summary.get("pan"))
+    lines.extend([
+        "",
+        "## Gain / Pan Voice Evidence",
+        f"- Pan law: {format_optional(summary.get('pan_law'))}",
+        f"- Pan law detail: {format_optional(summary.get('pan_law_detail'))}",
+        f"- Windowed render-aware active-voice estimate: {str(bool(summary.get('windowed_render_aware'))).lower()}",
+        "- Event base-gain range: "
+        f"{format_distribution_range(base_gain)}; mean {format_optional_float(base_gain.get('mean'))}; "
+        f"missing {format_optional(base_gain.get('missing_count'))}",
+        "- Event pan range: "
+        f"{format_distribution_range(pan)}; mean {format_optional_float(pan.get('mean'))}; "
+        f"missing {format_optional(pan.get('missing_count'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window gain/pan voice evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Active Voices | Probe Frame | Final Gain Range | Pan Range | L Gain Range | R Gain Range | Center/Hard L/Hard R | Voice Examples |",
+        "| ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+    ])
+    for item in window_summaries:
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional(item.get('probe_frame'))} | "
+            f"{format_distribution_range(nested_dict(item.get('final_gain')))} | "
+            f"{format_distribution_range(nested_dict(item.get('pan')))} | "
+            f"{format_distribution_range(nested_dict(item.get('left_gain')))} | "
+            f"{format_distribution_range(nested_dict(item.get('right_gain')))} | "
+            f"{format_optional(item.get('center_pan_voice_count'))}/"
+            f"{format_optional(item.get('hard_left_voice_count'))}/"
+            f"{format_optional(item.get('hard_right_voice_count'))} | "
             f"{examples} |"
         )
 
@@ -3027,6 +3206,15 @@ def format_optional_float(value: Any) -> str:
     if numeric is None:
         return "unavailable"
     return f"{numeric:.8f}"
+
+
+def format_distribution_range(distribution: dict[str, Any]) -> str:
+    if not distribution or integer(distribution.get("count")) == 0:
+        return "unavailable...unavailable"
+    return (
+        f"{format_optional_float(distribution.get('min'))}..."
+        f"{format_optional_float(distribution.get('max'))}"
+    )
 
 
 def int_or_zero(value: Any) -> int:

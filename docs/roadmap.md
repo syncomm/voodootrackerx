@@ -717,6 +717,12 @@ offline-render responsibilities separate.
 - Verification: synthetic C mixer and playback adapter fixtures cover repeated notes, envelope-enabled replacements, full/windowed equivalence, same-cell `3xx` no-retrigger, plain-note replacement after `3xx`, and runtime/offline event category agreement. Local anonymized safe-level private-module candidate/reference renders stayed under `/tmp`; they showed replacement overlap is bounded, replacement starts/completions match, and window-boundary prune count is zero.
 - Status: done as an offline renderer correctness and reference-harness fix. No pre-fix safe-level baseline was generated, so this PR does not claim a proven reference-correlation improvement. Recommended next parity PR: gain/headroom-normalized level behavior or a reference-backed volume-envelope tick-clock experiment, keeping key-off/fadeout scaling and gain/panning math as separate expected-value targets.
 
+### PR 2.7.11be — Gain / Panning Math Parity Investigation
+- Scope: diagnostics-first investigation of whether remaining reference-render mismatch evidence points at gain normalization/order, channel/global volume scaling, envelope/fadeout multiplication, panning law, stereo placement, or remaining waveform/timing issues. Do not change C mixer DSP, runtime backend defaults, tracker viewport behavior, parser architecture, period/sample-step formulas, loop endpoints, or XM effect coverage.
+- Diagnostics: `scripts/audio-compare.py` now reports stereo-as-is, mono-summed, left-only, right-only, side-channel, and gain-normalized comparison modes plus per-window left/right/mono/side metrics. The local correlation report now summarizes worst-window active voice final-gain and pan distributions and shows the current C mixer linear pan law left/right gain ranges.
+- Verification: synthetic audio comparison and correlation tests cover the new fields and missing optional diagnostics. Private/local modules and generated WAV/JSON/Markdown artifacts remain local-only and out of git.
+- Status: diagnostics-only unless a later focused PR proves a tiny expected-value gain or panning bug.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

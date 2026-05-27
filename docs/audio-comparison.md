@@ -780,6 +780,12 @@ sample-offset decisions, `1xx`/`2xx` portamento-slide current sample-step
 diagnostics, `3xx` tone-portamento target/current sample-step diagnostics,
 `E9x` retrigger decisions and generated frames, envelope
 sustain/loop/key-off/fadeout status, and loop metadata.
+When bounded diagnostics include optional envelope snapshots, the envelope/gain
+section also reports mapped envelope point frames/values, envelope
+position/value/segment estimates at each worst-window probe frame, sustain-hold
+and loop-active state, key-on/key-off state, fadeout value, final voice gain,
+and an audible-envelope count that filters out envelope-enabled voices whose
+probe-frame final gain is effectively zero.
 When diagnostics JSON contains event coverage, the correlation report includes
 a concise event-coverage section with normal note counts, scheduled events,
 skipped notes, top skip reasons, and first skipped coordinates.

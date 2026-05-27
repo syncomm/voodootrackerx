@@ -134,9 +134,20 @@ fixed relative-note clamping to XM's zero-based real-note range `0...118`
 instead of pattern note values `1...96`. The inspected loop-heavy mismatch
 windows did not contain out-of-range relative-note cases, so no local
 reference-correlation improvement was attributed to that fix. The strongest
-next parity target is a separate envelope/key-off/fadeout timing pass for
-envelope-heavy material, with gain/panning math as a secondary pitch-independent
-target if loop-heavy comparisons remain mismatched. Bounded offline note
+next parity target was investigated with envelope/key-off/fadeout timing
+diagnostics: bounded JSON now exposes mapped envelope points plus start/key-off
+snapshots, and the local correlation report estimates per-window envelope
+position/value/segment, sustain-hold, loop-active, key-on, fadeout, final-gain,
+and audible-envelope counts when those optional fields are present. Local
+Renoise comparison against `xm-corpus-011` still shows broad late-song
+mismatch windows with envelope/key-off/fadeout metadata present and 66...82
+audible envelope-enabled voices in the top windows, mostly sustain-held with
+fadeout still at 1.0. The `xm-corpus-025` control windows remain
+envelope-disabled with zero key-off evidence. No tiny behavior bug was proven,
+so the next implementation target should be a narrowly tested volume-envelope
+tick-clock/sustain timing policy pass, with key-off/fadeout scaling and
+gain/panning math kept as separate follow-ups if expected-value tests isolate
+them. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

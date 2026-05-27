@@ -2355,7 +2355,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["effective_global_volume_value"] = mapping.effectiveGlobalVolumeValue
         object["effective_global_volume_multiplier"] = Double(mapping.effectiveGlobalVolumeMultiplier)
         object["effective_pan"] = Double(mapping.effectivePan)
-        object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping)
+        object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping, event: event, startFrame: startFrame)
         object["pitch"] = eventPitchJSON(mapping)
         if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
             object["scheduled_start_seconds"] = startSeconds
@@ -2394,13 +2394,41 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return (max(1, estimated), "one_shot_sample_length")
     }
 
-    private static func eventVolumeEnvelopeJSON(_ mapping: PlaybackSongSyntheticEventMapping) -> [String: Any] {
+    private static func eventVolumeEnvelopeJSON(
+        _ mapping: PlaybackSongSyntheticEventMapping,
+        event: SyntheticTrackerEvent?,
+        startFrame: Int
+    ) -> [String: Any] {
         let semantics = mapping.volumeEnvelopeSemantics
-        return [
+        let envelope = event?.volumeEnvelope
+        let keyOffFrame = event?.keyOffFrame
+        let fadeoutFrameDecrement = event?.fadeoutFrameDecrement ?? 0
+        let startSnapshot = envelopeDiagnosticSnapshot(
+            label: "start",
+            envelope: envelope,
+            absoluteFrame: startFrame,
+            startFrame: startFrame,
+            keyOffFrame: keyOffFrame,
+            fadeoutFrameDecrement: fadeoutFrameDecrement,
+            baseGain: event?.gain ?? 0
+        )
+        let keyOffSnapshot = keyOffFrame.map {
+            envelopeDiagnosticSnapshot(
+                label: "key_off",
+                envelope: envelope,
+                absoluteFrame: $0,
+                startFrame: startFrame,
+                keyOffFrame: keyOffFrame,
+                fadeoutFrameDecrement: fadeoutFrameDecrement,
+                baseGain: event?.gain ?? 0
+            )
+        }
+        var object: [String: Any] = [
             "status": volumeEnvelopeStatusName(mapping.volumeEnvelopeStatus),
             "enabled": semantics.envelopeEnabled,
             "source_point_count": mapping.sourceVolumeEnvelopePointCount,
             "mapped_point_count": mapping.mappedVolumeEnvelopePointCount,
+            "points": envelopePointsJSON(envelope),
             "sustain_enabled": semantics.sustainEnabled,
             "sustain_applied": semantics.sustainApplied,
             "sustain_deferred": semantics.sustainDeferred,
@@ -2424,6 +2452,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "key_off_synthetic_row": nullableJSONValue(semantics.keyOffSyntheticRow),
             "key_off_synthetic_tick": nullableJSONValue(semantics.keyOffSyntheticTick),
             "release_frame": nullableJSONValue(semantics.releaseFrame),
+            "key_off_frame": nullableJSONValue(keyOffFrame),
+            "fadeout_start_frame": nullableJSONValue(keyOffFrame),
+            "fadeout_frame_decrement": Double(fadeoutFrameDecrement),
             "fadeout_value": semantics.fadeoutValue,
             "fadeout_applied": semantics.fadeoutApplied,
             "fadeout_deferred": semantics.fadeoutDeferred,
@@ -2432,6 +2463,225 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "has_deferred_loop": mapping.hasDeferredVolumeEnvelopeLoop,
             "has_deferred_fadeout": mapping.hasDeferredVolumeEnvelopeFadeout,
         ]
+        appendEnvelopeSnapshotFields(startSnapshot, suffix: "at_start", to: &object)
+        if let keyOffSnapshot {
+            appendEnvelopeSnapshotFields(keyOffSnapshot, suffix: "at_key_off", to: &object)
+        }
+        object["diagnostic_snapshots"] = [startSnapshot, keyOffSnapshot].compactMap { $0 }.map(envelopeSnapshotJSON)
+        return object
+    }
+
+    private struct EnvelopeDiagnosticSnapshot {
+        let label: String
+        let absoluteFrame: Int
+        let positionFrame: Int?
+        let value: Double?
+        let segmentIndex: Int?
+        let sustainHeld: Bool?
+        let loopActive: Bool?
+        let keyOn: Bool
+        let fadeoutValue: Double
+        let fadeoutAppliedGain: Double
+        let finalVoiceGain: Double
+    }
+
+    private static func envelopePointsJSON(_ envelope: MixerEnvelope?) -> [[String: Any]] {
+        envelope?.points.enumerated().map { index, point in
+            [
+                "index": index,
+                "position_frame": point.positionFrame,
+                "value": Double(point.value),
+            ]
+        } ?? []
+    }
+
+    private static func appendEnvelopeSnapshotFields(
+        _ snapshot: EnvelopeDiagnosticSnapshot,
+        suffix: String,
+        to object: inout [String: Any]
+    ) {
+        object["envelope_tick_frame_\(suffix)"] = snapshot.absoluteFrame
+        object["envelope_position_frame_\(suffix)"] = nullableJSONValue(snapshot.positionFrame)
+        object["envelope_value_\(suffix)"] = nullableJSONValue(snapshot.value)
+        object["envelope_segment_index_\(suffix)"] = nullableJSONValue(snapshot.segmentIndex)
+        object["envelope_sustain_held_\(suffix)"] = nullableJSONValue(snapshot.sustainHeld)
+        object["envelope_loop_active_\(suffix)"] = nullableJSONValue(snapshot.loopActive)
+        object["key_on_\(suffix)"] = snapshot.keyOn
+        object["fadeout_value_\(suffix)"] = snapshot.fadeoutValue
+        object["fadeout_applied_gain_\(suffix)"] = snapshot.fadeoutAppliedGain
+        object["final_voice_gain_\(suffix)"] = snapshot.finalVoiceGain
+    }
+
+    private static func envelopeSnapshotJSON(_ snapshot: EnvelopeDiagnosticSnapshot) -> [String: Any] {
+        [
+            "label": snapshot.label,
+            "absolute_frame": snapshot.absoluteFrame,
+            "position_frame": nullableJSONValue(snapshot.positionFrame),
+            "value": nullableJSONValue(snapshot.value),
+            "segment_index": nullableJSONValue(snapshot.segmentIndex),
+            "sustain_held": nullableJSONValue(snapshot.sustainHeld),
+            "loop_active": nullableJSONValue(snapshot.loopActive),
+            "key_on": snapshot.keyOn,
+            "fadeout_value": snapshot.fadeoutValue,
+            "fadeout_applied_gain": snapshot.fadeoutAppliedGain,
+            "final_voice_gain": snapshot.finalVoiceGain,
+        ]
+    }
+
+    private static func envelopeDiagnosticSnapshot(
+        label: String,
+        envelope: MixerEnvelope?,
+        absoluteFrame: Int,
+        startFrame: Int,
+        keyOffFrame: Int?,
+        fadeoutFrameDecrement: Float,
+        baseGain: Float
+    ) -> EnvelopeDiagnosticSnapshot {
+        let relativeFrame = max(0, absoluteFrame - max(0, startFrame))
+        let relativeKeyOffFrame = keyOffFrame.map { max(0, $0 - max(0, startFrame)) }
+        let keyOn = relativeKeyOffFrame.map { relativeFrame < $0 } ?? true
+        let keyedFrames = keyOn ? relativeFrame : min(relativeFrame, relativeKeyOffFrame ?? relativeFrame)
+        let releasedFrames = keyOn ? 0 : max(0, relativeFrame - (relativeKeyOffFrame ?? relativeFrame))
+        let positionFrame: Int?
+        let value: Double?
+        let segmentIndex: Int?
+        let sustainHeld: Bool?
+        let loopActive: Bool?
+        if let envelope, !envelope.points.isEmpty {
+            let keyedPosition = advancedEnvelopePosition(0, frames: keyedFrames, keyOn: true, envelope: envelope)
+            let position = advancedEnvelopePosition(keyedPosition, frames: releasedFrames, keyOn: false, envelope: envelope)
+            positionFrame = position
+            value = envelopeValue(envelope, at: position)
+            segmentIndex = envelopeSegmentIndex(envelope, at: position)
+            sustainHeld = keyOn && envelope.sustainFrame.map { position == $0 && keyedFrames >= $0 } == true
+            loopActive = keyOn && envelope.loopStartFrame.map { start in
+                envelope.loopEndFrame.map { end in position >= start && position <= end } ?? false
+            } == true
+        } else {
+            positionFrame = nil
+            value = nil
+            segmentIndex = nil
+            sustainHeld = nil
+            loopActive = nil
+        }
+        let safeFadeoutDecrement = fadeoutFrameDecrement.isFinite && fadeoutFrameDecrement > 0
+            ? Double(fadeoutFrameDecrement)
+            : 0
+        let fadeoutValue = keyOn ? 1.0 : max(0, 1.0 - (Double(releasedFrames) * safeFadeoutDecrement))
+        let envelopeGain = value ?? 1.0
+        let baseGain = baseGain.isFinite ? Double(baseGain) : 0
+        return EnvelopeDiagnosticSnapshot(
+            label: label,
+            absoluteFrame: absoluteFrame,
+            positionFrame: positionFrame,
+            value: value,
+            segmentIndex: segmentIndex,
+            sustainHeld: sustainHeld,
+            loopActive: loopActive,
+            keyOn: keyOn,
+            fadeoutValue: fadeoutValue,
+            fadeoutAppliedGain: fadeoutValue,
+            finalVoiceGain: baseGain * envelopeGain * fadeoutValue
+        )
+    }
+
+    private static func advancedEnvelopePosition(
+        _ position: Int,
+        frames: Int,
+        keyOn: Bool,
+        envelope: MixerEnvelope
+    ) -> Int {
+        let current = max(0, position)
+        guard frames > 0 else {
+            return current
+        }
+        guard keyOn else {
+            return clampedEnvelopePosition(current + frames)
+        }
+        if let sustainFrame = envelope.sustainFrame,
+           current >= sustainFrame {
+            return sustainFrame
+        }
+        if let sustainFrame = envelope.sustainFrame,
+           canReachSustainBeforeLoop(
+               position: current,
+               frames: frames,
+               sustainFrame: sustainFrame,
+               loopEndFrame: envelope.loopEndFrame
+           ) {
+            return sustainFrame
+        }
+        guard let loopStartFrame = envelope.loopStartFrame,
+              let loopEndFrame = envelope.loopEndFrame,
+              loopEndFrame >= loopStartFrame else {
+            return clampedEnvelopePosition(current + frames)
+        }
+        let target = current + frames
+        guard target > loopEndFrame else {
+            return clampedEnvelopePosition(target)
+        }
+        let loopLength = loopEndFrame - loopStartFrame + 1
+        guard loopLength > 0 else {
+            return clampedEnvelopePosition(target)
+        }
+        return loopStartFrame + ((target - loopEndFrame - 1) % loopLength)
+    }
+
+    private static func canReachSustainBeforeLoop(
+        position: Int,
+        frames: Int,
+        sustainFrame: Int,
+        loopEndFrame: Int?
+    ) -> Bool {
+        guard position < sustainFrame,
+              position + frames >= sustainFrame else {
+            return false
+        }
+        if let loopEndFrame,
+           loopEndFrame < sustainFrame,
+           position + frames > loopEndFrame {
+            return false
+        }
+        return true
+    }
+
+    private static func clampedEnvelopePosition(_ position: Int) -> Int {
+        min(Int(UInt32.max), max(0, position))
+    }
+
+    private static func envelopeValue(_ envelope: MixerEnvelope, at positionFrame: Int) -> Double {
+        guard let first = envelope.points.first else {
+            return 1
+        }
+        if positionFrame <= first.positionFrame {
+            return Double(first.value)
+        }
+        for index in 1..<envelope.points.count {
+            let previous = envelope.points[index - 1]
+            let next = envelope.points[index]
+            guard positionFrame <= next.positionFrame else {
+                continue
+            }
+            let span = Double(max(1, next.positionFrame - previous.positionFrame))
+            let progress = Double(positionFrame - previous.positionFrame) / span
+            return Double(previous.value) + ((Double(next.value) - Double(previous.value)) * progress)
+        }
+        return Double(envelope.points.last?.value ?? 1)
+    }
+
+    private static func envelopeSegmentIndex(_ envelope: MixerEnvelope, at positionFrame: Int) -> Int? {
+        guard !envelope.points.isEmpty else {
+            return nil
+        }
+        if positionFrame <= envelope.points[0].positionFrame {
+            return 0
+        }
+        for index in 1..<envelope.points.count {
+            if positionFrame <= envelope.points[index].positionFrame {
+                return index - 1
+            }
+        }
+        return envelope.points.count - 1
     }
 
     private static func eventPitchJSON(_ mapping: PlaybackSongSyntheticEventMapping) -> [String: Any] {

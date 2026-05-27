@@ -73,10 +73,18 @@ Current stabilization note:
   interpolation, high-quality mixer, and 44.1/48 kHz output variants do not
   materially explain the remaining private-corpus mismatch; fixed versus
   auto-headroom primarily affects clipping/loudness, and local alignment search
-  improves windows without indicating a single global offset. Current evidence
-  points next at real-module loop endpoint parity, especially long-lived
-  forward-loop voices in the worst windows, with envelope/fadeout as a
-  secondary confounder for envelope-heavy material.
+  improves windows without indicating a single global offset. The focused
+  loop-endpoint correctness-hardening pass confirmed exclusive XM loop-end mapping
+  (`start + length`), normalized imported forward-loop runtime positions at or
+  beyond the exclusive end while preserving fractional overshoot, and keeps
+  exact initial source offsets at the exclusive end from reading tail samples.
+  Local anonymized loop-heavy and envelope-heavy validation renders were
+  byte-identical before and after this endpoint fix. This is a correctness
+  hardening fix only; it did not improve the observed local reference mismatch
+  for those validation modules, so the remaining mismatch is not explained by
+  this exact boundary condition. Current evidence points next at
+  period/sample-step conversion for the loop-heavy envelope-disabled material
+  and envelope/key-off/fadeout timing for envelope-heavy material.
 - Bounded diagnostics and the local correlation report now include applied `0xy` arpeggio diagnostics, applied `1xx`/`2xx` portamento-slide diagnostics, applied `3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, stored `E4x` vibrato-control diagnostics, applied `4xy` vibrato diagnostics, applied `6xy` vibrato + volume slide diagnostics, `900`/`1xx`/`2xx`/`4xy`/`6xy` effect-memory reuse metadata, deferred pitch-modulation counts, source coordinates, and a conservative pitch-effect recommendation for remaining `5xy` portamento-family commands, volume-column vibrato commands, `7xy` tremolo, and volume-column tone portamento. Broader pitch-modulation effects remain separate implementation work.
 - The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`. It also has an opt-in `--until-song-end` mode with optional `--tail-seconds N` that computes the bounded selected order-range end from the adapter timing model, including minimal supported `Fxx` timing changes, without adding default looping or full FT2/OpenMPT song-duration parity.
 - Long developer-only candidate WAV exports can opt into `--window-rows` row-windowed offline scheduling so the fixed C scheduled-voice pool is reused across deterministic render windows. Diagnostics aggregate per-window scheduled, accepted, rejected, carried, continuation, and boundary-drop counts. Windowed renders now carry practical active voice state across fresh C mixer windows where the bounded adapter can determine it, including source sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, active gain/pan ramp state, active `0xy`/`1xx`/`2xx`/`3xx`/`E1x`/`E2x`/`4xy`/`6xy` sample-step state, and supported sample-offset memory, plus supported in-window gain/pan and sample-step updates for carried voices. Unsupported/deferred effects and full tracker voice semantics remain separate targeted work.
@@ -665,6 +673,11 @@ offline-render responsibilities separate.
 - Report: see `docs/reports/xm-final-effect-residual-classification.md` for the public-safe summary.
 - Verification: local compact effect-coverage diagnostics generated under `/tmp`; private modules and the local label map stayed out of git. Recommended next PR: document `E0x` filter toggle as intentionally deferred, then move to reference-render parity work.
 - Status: done.
+
+### PR 2.7.11az — Real-Module Loop Endpoint Correctness Hardening
+- Scope: fix only the C mixer forward-loop endpoint/sample-position boundary found by synthetic microfixtures: imported runtime positions at or beyond the exclusive loop end wrap to loop start with fractional overshoot preserved, and an exact initial source offset at the exclusive end starts at loop start instead of reading the first tail frame. Preserve existing offset-after-loop tail-read behavior, ping-pong behavior, no-loop behavior, runtime backend defaults, parser architecture, tracker viewport behavior, gain/headroom policy, and envelope/fadeout behavior.
+- Verification: synthetic C mixer microfixtures for exclusive forward loop ends, no duplicated endpoint, fractional overshoot, loop-boundary interpolation, step greater than loop length, initial offset inside the loop, split render determinism, and existing forward-loop/ping-pong/no-loop regressions. Local-only anonymized reference checks kept generated WAV/JSON/Markdown artifacts under `/tmp`; the loop-heavy and envelope-heavy validation renders were byte-identical before and after this endpoint fix, with no observed improvement to the local reference mismatch.
+- Status: done. Recommended next parity PR: period/sample-step conversion evidence for loop-heavy envelope-disabled material, with a separate envelope/key-off/fadeout timing pass for envelope-heavy material.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

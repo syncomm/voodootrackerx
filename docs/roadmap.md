@@ -69,9 +69,14 @@ Current stabilization note:
 - Reference-render parity triage summaries can now aggregate anonymized `scripts/audio-compare.py` JSON metrics across a small local corpus, including scalar gain-normalized evidence, missing-reference status, worst-window metrics, and a conservative next-PR recommendation. This is diagnostics-only; private/local modules, generated WAVs, JSON, and Markdown reports remain outside git.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
-  sample steps; the current follow-up recommendation is reference resampler and
-  real-module loop-endpoint parity unless new evidence identifies a concrete
-  sample-step rounding bug.
+  sample steps. The reference-resampler follow-up found that local MikMod
+  interpolation, high-quality mixer, and 44.1/48 kHz output variants do not
+  materially explain the remaining private-corpus mismatch; fixed versus
+  auto-headroom primarily affects clipping/loudness, and local alignment search
+  improves windows without indicating a single global offset. Current evidence
+  points next at real-module loop endpoint parity, especially long-lived
+  forward-loop voices in the worst windows, with envelope/fadeout as a
+  secondary confounder for envelope-heavy material.
 - Bounded diagnostics and the local correlation report now include applied `0xy` arpeggio diagnostics, applied `1xx`/`2xx` portamento-slide diagnostics, applied `3xx` tone-portamento diagnostics, applied `E1x`/`E2x` fine-portamento diagnostics, applied `EAx`/`EBx` fine-volume-slide diagnostics, stored `E4x` vibrato-control diagnostics, applied `4xy` vibrato diagnostics, applied `6xy` vibrato + volume slide diagnostics, `900`/`1xx`/`2xx`/`4xy`/`6xy` effect-memory reuse metadata, deferred pitch-modulation counts, source coordinates, and a conservative pitch-effect recommendation for remaining `5xy` portamento-family commands, volume-column vibrato commands, `7xy` tremolo, and volume-column tone portamento. Broader pitch-modulation effects remain separate implementation work.
 - The developer-only bounded XM render helper keeps its conservative 60-second default clamp while allowing explicit longer local candidate renders through documented `--seconds` / `--max-frames` controls gated by `--allow-long-render`. It also has an opt-in `--until-song-end` mode with optional `--tail-seconds N` that computes the bounded selected order-range end from the adapter timing model, including minimal supported `Fxx` timing changes, without adding default looping or full FT2/OpenMPT song-duration parity.
 - Long developer-only candidate WAV exports can opt into `--window-rows` row-windowed offline scheduling so the fixed C scheduled-voice pool is reused across deterministic render windows. Diagnostics aggregate per-window scheduled, accepted, rejected, carried, continuation, and boundary-drop counts. Windowed renders now carry practical active voice state across fresh C mixer windows where the bounded adapter can determine it, including source sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, active gain/pan ramp state, active `0xy`/`1xx`/`2xx`/`3xx`/`E1x`/`E2x`/`4xy`/`6xy` sample-step state, and supported sample-offset memory, plus supported in-window gain/pan and sample-step updates for carried voices. Unsupported/deferred effects and full tracker voice semantics remain separate targeted work.

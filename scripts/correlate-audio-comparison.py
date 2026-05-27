@@ -17,6 +17,7 @@ DEFAULT_PRECEDING_EVENTS = 5
 DEFAULT_CONTEXT_ROWS = 8
 MAX_EXAMPLES_PER_COMMAND = 3
 MAX_MECHANICS_EXAMPLES = 5
+MAX_ENVELOPE_GAIN_EXAMPLES = 5
 FRACTION_EPSILON = 1.0e-9
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
 STEP_UPDATE_SECTIONS = (
@@ -990,6 +991,7 @@ def build_rendering_mechanics_summary(
             update for update in step_updates
             if window["_start_frame"] <= update["frame"] < window["_end_frame"]
         ]
+        pitch_summary = pitch_mechanics_summary(mechanics)
         window_summaries.append({
             "rank": int(window["_rank"]),
             "start_seconds": window["_start_seconds"],
@@ -999,8 +1001,12 @@ def build_rendering_mechanics_summary(
             "fractional_source_phase_event_count": sum(1 for item in mechanics if item["fractional_source_phase"]),
             "looped_event_count": sum(1 for item in mechanics if item["loop_mode"] != "none"),
             "loop_boundary_crossing_event_count": sum(1 for item in mechanics if item["loop_boundary_crossing"]),
+            "loop_boundary_crossing_count": sum(int(item["loop_boundary_crossing_count"]) for item in mechanics),
+            "forward_loop_wrap_count": sum(int(item["forward_loop_wrap_count"]) for item in mechanics),
+            "ping_pong_turnaround_count": sum(int(item["ping_pong_turnaround_count"]) for item in mechanics),
             "sample_offset_event_count": sum(1 for item in mechanics if item["sample_offset_applied"]),
             "step_update_count": len(window_step_updates),
+            **pitch_summary,
             "examples": [mechanics_example_label(item) for item in mechanics[:MAX_MECHANICS_EXAMPLES]],
         })
 
@@ -1021,8 +1027,12 @@ def build_rendering_mechanics_summary(
         "neutral_step_event_count": sum(1 for item in all_event_mechanics if item["neutral_playback_step"]),
         "fractional_source_phase_event_count": sum(1 for item in all_event_mechanics if item["fractional_source_phase"]),
         "looped_event_count": sum(1 for item in all_event_mechanics if item["loop_mode"] != "none"),
+        "loop_boundary_crossing_count": sum(int(item["loop_boundary_crossing_count"]) for item in all_event_mechanics),
+        "forward_loop_wrap_count": sum(int(item["forward_loop_wrap_count"]) for item in all_event_mechanics),
+        "ping_pong_turnaround_count": sum(int(item["ping_pong_turnaround_count"]) for item in all_event_mechanics),
         "sample_offset_event_count": sum(1 for item in all_event_mechanics if item["sample_offset_applied"]),
         "step_update_count": len(step_updates),
+        **pitch_mechanics_summary(all_event_mechanics),
         "pitch_frequency_table_counts": dict(sorted(pitch_status_counts.items())),
         "amiga_deferred_event_count": sum(
             1 for event in events
@@ -1096,6 +1106,9 @@ def event_mechanics_for_window(event: dict[str, Any], window: dict[str, Any] | N
         and end_position.boundary_crossing_count is not None
         and end_position.boundary_crossing_count > start_position.boundary_crossing_count
     )
+    crossing_delta = 0
+    if start_position.boundary_crossing_count is not None and end_position.boundary_crossing_count is not None:
+        crossing_delta = max(0, end_position.boundary_crossing_count - start_position.boundary_crossing_count)
     return {
         "event": event,
         "playback_step": playback_step,
@@ -1110,8 +1123,273 @@ def event_mechanics_for_window(event: dict[str, Any], window: dict[str, Any] | N
         "end_position": end_position,
         "loop_mode": loop_mode,
         "loop_boundary_crossing": loop_boundary_crossing,
+        "loop_boundary_crossing_count": crossing_delta if loop_mode != "none" else 0,
+        "forward_loop_wrap_count": crossing_delta if loop_mode == "forward" else 0,
+        "ping_pong_turnaround_count": crossing_delta if loop_mode == "ping_pong" else 0,
         "sample_offset_applied": event_sample_offset_applied(event),
     }
+
+
+def pitch_mechanics_summary(mechanics: list[dict[str, Any]]) -> dict[str, Any]:
+    pitch_objects = [nested_dict(nested_dict(item.get("event")).get("pitch")) for item in mechanics]
+    playback_steps = [value for value in (number(pitch.get("playback_step")) for pitch in pitch_objects) if value is not None]
+    sample_base_rates = [
+        value for value in (number(pitch.get("sample_base_sample_rate")) for pitch in pitch_objects)
+        if value is not None
+    ]
+    linear_periods = [value for value in (number(pitch.get("linear_period")) for pitch in pitch_objects) if value is not None]
+    linear_frequencies = [
+        value for value in (number(pitch.get("linear_frequency")) for pitch in pitch_objects)
+        if value is not None
+    ]
+    return {
+        "playback_step_min": min(playback_steps) if playback_steps else None,
+        "playback_step_max": max(playback_steps) if playback_steps else None,
+        "playback_step_missing_count": len(mechanics) - len(playback_steps),
+        "sample_base_rate_min": min(sample_base_rates) if sample_base_rates else None,
+        "sample_base_rate_max": max(sample_base_rates) if sample_base_rates else None,
+        "sample_base_rate_missing_count": len(mechanics) - len(sample_base_rates),
+        "linear_period_min": min(linear_periods) if linear_periods else None,
+        "linear_period_max": max(linear_periods) if linear_periods else None,
+        "linear_period_missing_count": len(mechanics) - len(linear_periods),
+        "linear_frequency_min": min(linear_frequencies) if linear_frequencies else None,
+        "linear_frequency_max": max(linear_frequencies) if linear_frequencies else None,
+        "linear_frequency_missing_count": len(mechanics) - len(linear_frequencies),
+    }
+
+
+def build_alignment_summary(windows: list[dict[str, Any]]) -> dict[str, Any]:
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        alignment = nested_dict(window.get("local_alignment"))
+        if not alignment:
+            continue
+        zero = nested_dict(alignment.get("zero_shift"))
+        best = nested_dict(alignment.get("best_shift"))
+        if not zero and not best:
+            continue
+        zero_corr = number(zero.get("normalized_correlation"))
+        best_corr = number(best.get("normalized_correlation"))
+        zero_rms = number(zero.get("rms_difference"))
+        best_rms = number(best.get("rms_difference"))
+        shift = integer(best.get("candidate_shift_frames"))
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "search_radius_frames": integer(alignment.get("search_radius_frames")),
+            "zero_shift_correlation": zero_corr,
+            "best_shift_frames": shift,
+            "best_shift_seconds": number(best.get("candidate_shift_seconds")),
+            "best_shift_correlation": best_corr,
+            "correlation_improvement": None
+            if zero_corr is None or best_corr is None else best_corr - zero_corr,
+            "zero_shift_rms_difference": zero_rms,
+            "best_shift_rms_difference": best_rms,
+            "rms_difference_reduction": None
+            if zero_rms is None or best_rms is None else zero_rms - best_rms,
+        })
+    return {
+        "enabled": bool(window_summaries),
+        "window_count": len(window_summaries),
+        "nonzero_best_shift_count": sum(
+            1 for item in window_summaries
+            if (integer(item.get("best_shift_frames")) or 0) != 0
+        ),
+        "improved_correlation_count": sum(
+            1 for item in window_summaries
+            if (number(item.get("correlation_improvement")) or 0.0) > FRACTION_EPSILON
+        ),
+        "improved_rms_count": sum(
+            1 for item in window_summaries
+            if (number(item.get("rms_difference_reduction")) or 0.0) > FRACTION_EPSILON
+        ),
+        "window_summaries": window_summaries,
+    }
+
+
+def build_envelope_gain_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updates = normalize_gain_pan_updates(diagnostics, rows)
+    key_offs = normalize_key_off_events(diagnostics, rows)
+    event_envelopes = [event_envelope_signal(event) for event in events]
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        overlapping_events = [
+            event for event in events
+            if overlaps(event["_start_frame"], event["_end_frame"], window["_start_frame"], window["_end_frame"])
+        ]
+        overlapping_envelopes = [event_envelope_signal(event) for event in overlapping_events]
+        window_updates = [
+            update for update in updates
+            if window["_start_frame"] <= update["frame"] < window["_end_frame"]
+        ]
+        window_key_offs = [
+            item for item in key_offs
+            if window["_start_frame"] <= item["frame"] < window["_end_frame"]
+        ]
+        examples = envelope_gain_examples(overlapping_events, window_updates, window_key_offs)
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "event_count": len(overlapping_events),
+            "envelope_enabled_event_count": sum(1 for item in overlapping_envelopes if item["envelope_enabled"]),
+            "sustain_event_count": sum(1 for item in overlapping_envelopes if item["sustain_applied"] or item["sustain_deferred"]),
+            "envelope_loop_event_count": sum(1 for item in overlapping_envelopes if item["loop_applied"] or item["loop_deferred"]),
+            "fadeout_event_count": sum(1 for item in overlapping_envelopes if item["fadeout_applied"] or item["fadeout_deferred"]),
+            "key_off_event_count": len(window_key_offs),
+            "gain_update_count": sum(1 for item in window_updates if item["gain_changed"]),
+            "pan_update_count": sum(1 for item in window_updates if item["pan_changed"]),
+            "channel_volume_update_count": sum(1 for item in window_updates if item["channel_volume_changed"]),
+            "global_volume_update_count": sum(1 for item in window_updates if item["global_volume_changed"]),
+            "examples": examples,
+        })
+    return {
+        "event_count": len(events),
+        "envelope_enabled_event_count": sum(1 for item in event_envelopes if item["envelope_enabled"]),
+        "sustain_event_count": sum(1 for item in event_envelopes if item["sustain_applied"] or item["sustain_deferred"]),
+        "envelope_loop_event_count": sum(1 for item in event_envelopes if item["loop_applied"] or item["loop_deferred"]),
+        "fadeout_event_count": sum(1 for item in event_envelopes if item["fadeout_applied"] or item["fadeout_deferred"]),
+        "key_off_event_count": len(key_offs),
+        "gain_update_count": sum(1 for item in updates if item["gain_changed"]),
+        "pan_update_count": sum(1 for item in updates if item["pan_changed"]),
+        "channel_volume_update_count": sum(1 for item in updates if item["channel_volume_changed"]),
+        "global_volume_update_count": sum(1 for item in updates if item["global_volume_changed"]),
+        "window_summaries": window_summaries,
+    }
+
+
+def normalize_gain_pan_updates(diagnostics: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    updates: list[dict[str, Any]] = []
+    for raw_update in nested_list(diagnostics.get("volume_panning_state_updates")):
+        if not isinstance(raw_update, dict):
+            continue
+        frame, _ = frame_range_for_diagnostic(raw_update, rows_by_source, rows_by_synthetic)
+        if frame is None:
+            continue
+        gain_before = number(raw_update.get("gain_before"))
+        gain_after = number(raw_update.get("gain_after"))
+        pan_before = number(raw_update.get("pan_before"))
+        pan_after = number(raw_update.get("pan_after"))
+        volume_before = number(raw_update.get("effective_volume_before"))
+        volume_after = number(raw_update.get("effective_volume_after"))
+        global_before = number(raw_update.get("global_volume_before"))
+        global_after = number(raw_update.get("global_volume_after"))
+        updates.append({
+            "frame": max(0, frame),
+            "source": nested_dict(raw_update.get("source")),
+            "channel_index": raw_update.get("target_channel_index", raw_update.get("channel_index")),
+            "command_name": raw_update.get("command_name") or raw_update.get("command_label") or raw_update.get("command"),
+            "status": raw_update.get("status"),
+            "gain_before": gain_before,
+            "gain_after": gain_after,
+            "pan_before": pan_before,
+            "pan_after": pan_after,
+            "gain_changed": values_changed(gain_before, gain_after),
+            "pan_changed": values_changed(pan_before, pan_after),
+            "channel_volume_changed": values_changed(volume_before, volume_after),
+            "global_volume_changed": values_changed(global_before, global_after),
+        })
+    updates.sort(key=lambda item: (item["frame"], sort_int(item.get("channel_index")), str(item.get("command_name"))))
+    return updates
+
+
+def normalize_key_off_events(diagnostics: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    result: list[dict[str, Any]] = []
+    for raw_event in nested_list(diagnostics.get("key_off_events")):
+        if not isinstance(raw_event, dict):
+            continue
+        frame, _ = frame_range_for_diagnostic(raw_event, rows_by_source, rows_by_synthetic)
+        if frame is None:
+            frame = integer(raw_event.get("release_frame"))
+        if frame is None:
+            continue
+        result.append({
+            "frame": max(0, frame),
+            "source": nested_dict(raw_event.get("source")),
+            "channel_index": raw_event.get("channel_index"),
+            "applied": bool(raw_event.get("applied")),
+            "deferred": bool(raw_event.get("deferred")),
+            "reason": raw_event.get("reason"),
+        })
+    result.sort(key=lambda item: (item["frame"], sort_int(item.get("channel_index"))))
+    return result
+
+
+def event_envelope_signal(event: dict[str, Any]) -> dict[str, Any]:
+    envelope = nested_dict(event.get("volume_envelope"))
+    return {
+        "envelope_enabled": bool(envelope.get("enabled")) or str(envelope.get("status") or "") == "mapped",
+        "sustain_applied": bool(envelope.get("sustain_applied")),
+        "sustain_deferred": bool(envelope.get("sustain_deferred") or envelope.get("has_deferred_sustain")),
+        "loop_applied": bool(envelope.get("loop_applied")),
+        "loop_deferred": bool(envelope.get("loop_deferred") or envelope.get("has_deferred_loop")),
+        "key_off_applied": bool(envelope.get("key_off_applied")),
+        "key_off_deferred": bool(envelope.get("key_off_deferred")),
+        "fadeout_applied": bool(envelope.get("fadeout_applied")),
+        "fadeout_deferred": bool(envelope.get("fadeout_deferred") or envelope.get("has_deferred_fadeout")),
+    }
+
+
+def envelope_gain_examples(
+    events: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+    key_offs: list[dict[str, Any]],
+) -> list[str]:
+    examples: list[str] = []
+    for event in events:
+        envelope = nested_dict(event.get("volume_envelope"))
+        signal = event_envelope_signal(event)
+        if not any(signal.values()):
+            continue
+        parts = [source_label(nested_dict(event.get("source"))), f"ch {format_optional(event.get('channel_index'))}"]
+        if signal["sustain_applied"] or signal["sustain_deferred"]:
+            parts.append("sustain")
+        if signal["loop_applied"] or signal["loop_deferred"]:
+            parts.append("env-loop")
+        if signal["key_off_applied"] or signal["key_off_deferred"]:
+            parts.append("key-off")
+        if signal["fadeout_applied"] or signal["fadeout_deferred"]:
+            parts.append(f"fadeout {format_optional(envelope.get('fadeout_value'))}")
+        examples.append(" ".join(parts))
+        if len(examples) >= MAX_ENVELOPE_GAIN_EXAMPLES:
+            return examples
+    for key_off in key_offs:
+        examples.append(
+            f"{source_label(nested_dict(key_off.get('source')))} ch {format_optional(key_off.get('channel_index'))} key-off"
+        )
+        if len(examples) >= MAX_ENVELOPE_GAIN_EXAMPLES:
+            return examples
+    for update in updates:
+        changed = []
+        if update["gain_changed"]:
+            changed.append("gain")
+        if update["pan_changed"]:
+            changed.append("pan")
+        if update["channel_volume_changed"]:
+            changed.append("chan-vol")
+        if update["global_volume_changed"]:
+            changed.append("global-vol")
+        if not changed:
+            continue
+        examples.append(
+            f"{source_label(nested_dict(update.get('source')))} ch {format_optional(update.get('channel_index'))} "
+            f"{','.join(changed)} {format_optional(update.get('command_name'))}"
+        )
+        if len(examples) >= MAX_ENVELOPE_GAIN_EXAMPLES:
+            return examples
+    return examples
+
+
+def values_changed(before: float | None, after: float | None) -> bool:
+    return before is not None and after is not None and abs(after - before) > FRACTION_EPSILON
 
 
 def estimate_source_position(event: dict[str, Any], frame: int) -> SourcePositionEstimate:
@@ -1347,7 +1625,9 @@ def build_correlation_report(
         extract_command_occurrences(diagnostics, events, rows, changes),
         windows,
     )
+    alignment_summary = build_alignment_summary(windows)
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
+    envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
         windows,
@@ -1391,7 +1671,9 @@ def build_correlation_report(
         traversal_effects,
     )
     append_pitch_modulation_summary(lines, command_occurrences)
+    append_alignment_summary(lines, alignment_summary)
     append_rendering_mechanics_summary(lines, rendering_mechanics)
+    append_envelope_gain_summary(lines, envelope_gain_summary)
 
     lines.extend([
         "",
@@ -1671,7 +1953,27 @@ def append_rendering_mechanics_summary(lines: list[str], summary: dict[str, Any]
         "- Loop/sample-offset events: "
         f"{format_optional(summary.get('looped_event_count'))}/{total_events} looped, "
         f"{format_optional(summary.get('sample_offset_event_count'))}/{total_events} sample-offset starts",
+        "- Estimated loop boundary crossings: "
+        f"{format_optional(summary.get('loop_boundary_crossing_count'))} total, "
+        f"{format_optional(summary.get('forward_loop_wrap_count'))} forward wraps, "
+        f"{format_optional(summary.get('ping_pong_turnaround_count'))} ping-pong turnarounds",
         f"- Scheduled sample-step updates: {format_optional(summary.get('step_update_count'))}",
+        "- Playback-step range: "
+        f"{format_optional_float(summary.get('playback_step_min'))}..."
+        f"{format_optional_float(summary.get('playback_step_max'))}; "
+        f"missing {format_optional(summary.get('playback_step_missing_count'))}",
+        "- Sample base-rate range: "
+        f"{format_optional_float(summary.get('sample_base_rate_min'))}..."
+        f"{format_optional_float(summary.get('sample_base_rate_max'))} Hz; "
+        f"missing {format_optional(summary.get('sample_base_rate_missing_count'))}",
+        "- Linear period/frequency ranges: "
+        f"period {format_optional_float(summary.get('linear_period_min'))}..."
+        f"{format_optional_float(summary.get('linear_period_max'))}, "
+        f"frequency {format_optional_float(summary.get('linear_frequency_min'))}..."
+        f"{format_optional_float(summary.get('linear_frequency_max'))}; "
+        f"missing period/frequency "
+        f"{format_optional(summary.get('linear_period_missing_count'))}/"
+        f"{format_optional(summary.get('linear_frequency_missing_count'))}",
         f"- Pitch frequency-table statuses: {pitch_count_label}",
         "- Amiga/neutral fallback evidence: "
         f"{format_optional(summary.get('amiga_deferred_event_count'))} Amiga-deferred, "
@@ -1689,11 +1991,15 @@ def append_rendering_mechanics_summary(lines: list[str], summary: dict[str, Any]
 
     lines.extend([
         "",
-        "| Window | Events | Fractional Steps | Fractional Source Phase | Loop Crossings | Sample Offsets | Step Updates | Examples |",
-        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Window | Events | Fractional Steps | Fractional Source Phase | Loop Crossings | Sample Offsets | Step Updates | Forward Wraps | Ping-Pong Turns | Step Range | Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ])
     for item in window_summaries:
         examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        step_range = (
+            f"{format_optional_float(item.get('playback_step_min'))}..."
+            f"{format_optional_float(item.get('playback_step_max'))}"
+        )
         lines.append(
             f"| {format_optional(item.get('rank'))} | "
             f"{format_optional(item.get('event_count'))} | "
@@ -1702,6 +2008,88 @@ def append_rendering_mechanics_summary(lines: list[str], summary: dict[str, Any]
             f"{format_optional(item.get('loop_boundary_crossing_event_count'))} | "
             f"{format_optional(item.get('sample_offset_event_count'))} | "
             f"{format_optional(item.get('step_update_count'))} | "
+            f"{format_optional(item.get('forward_loop_wrap_count'))} | "
+            f"{format_optional(item.get('ping_pong_turnaround_count'))} | "
+            f"{step_range} | "
+            f"{examples} |"
+        )
+
+
+def append_alignment_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    lines.extend(["", "## Local Alignment Evidence"])
+    if not bool(summary.get("enabled")):
+        lines.append("- Worst-window local alignment search: unavailable in comparison JSON.")
+        return
+    lines.extend([
+        "- Worst-window local alignment search: available",
+        f"- Windows with nonzero best shift: {format_optional(summary.get('nonzero_best_shift_count'))}/"
+        f"{format_optional(summary.get('window_count'))}",
+        f"- Windows with improved correlation: {format_optional(summary.get('improved_correlation_count'))}/"
+        f"{format_optional(summary.get('window_count'))}",
+        f"- Windows with lower RMS difference after shift: {format_optional(summary.get('improved_rms_count'))}/"
+        f"{format_optional(summary.get('window_count'))}",
+        "",
+        "| Window | Search Radius | Zero Corr | Best Shift | Best Corr | Corr Improvement | Zero RMS | Best RMS |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ])
+    for item in nested_list(summary.get("window_summaries")):
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('search_radius_frames'))} | "
+            f"{format_optional_float(item.get('zero_shift_correlation'))} | "
+            f"{format_optional(item.get('best_shift_frames'))} | "
+            f"{format_optional_float(item.get('best_shift_correlation'))} | "
+            f"{format_optional_float(item.get('correlation_improvement'))} | "
+            f"{format_optional_float(item.get('zero_shift_rms_difference'))} | "
+            f"{format_optional_float(item.get('best_shift_rms_difference'))} |"
+        )
+
+
+def append_envelope_gain_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    total_events = integer(summary.get("event_count")) or 0
+    lines.extend([
+        "",
+        "## Envelope / Gain Timing Evidence",
+        "- Envelope-enabled events: "
+        f"{format_optional(summary.get('envelope_enabled_event_count'))}/{total_events}",
+        "- Sustain/loop/fadeout event evidence: "
+        f"sustain {format_optional(summary.get('sustain_event_count'))}, "
+        f"loop {format_optional(summary.get('envelope_loop_event_count'))}, "
+        f"fadeout {format_optional(summary.get('fadeout_event_count'))}, "
+        f"key-off {format_optional(summary.get('key_off_event_count'))}",
+        "- Gain/pan/global-volume updates: "
+        f"gain {format_optional(summary.get('gain_update_count'))}, "
+        f"pan {format_optional(summary.get('pan_update_count'))}, "
+        f"channel-volume {format_optional(summary.get('channel_volume_update_count'))}, "
+        f"global-volume {format_optional(summary.get('global_volume_update_count'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window envelope/gain timing evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Events | Env Enabled | Sustain | Env Loop | Fadeout | Key-Off | Gain Updates | Pan Updates | Global Vol | Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ])
+    for item in window_summaries:
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('event_count'))} | "
+            f"{format_optional(item.get('envelope_enabled_event_count'))} | "
+            f"{format_optional(item.get('sustain_event_count'))} | "
+            f"{format_optional(item.get('envelope_loop_event_count'))} | "
+            f"{format_optional(item.get('fadeout_event_count'))} | "
+            f"{format_optional(item.get('key_off_event_count'))} | "
+            f"{format_optional(item.get('gain_update_count'))} | "
+            f"{format_optional(item.get('pan_update_count'))} | "
+            f"{format_optional(item.get('global_volume_update_count'))} | "
             f"{examples} |"
         )
 

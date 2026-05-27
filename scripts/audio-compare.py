@@ -18,6 +18,7 @@ DEFAULT_DIFF_THRESHOLD = 1.0e-4
 DEFAULT_NEAR_SILENCE_THRESHOLD = 1.0e-5
 DEFAULT_WINDOW_MS = 100.0
 DEFAULT_TOP_WINDOWS = 5
+DEFAULT_ALIGNMENT_SEARCH_FRAMES = 0
 FLOAT_DIGITS = 9
 
 
@@ -229,6 +230,108 @@ def normalized_correlation(reference: list[float], candidate: list[float]) -> fl
     return dot / denominator
 
 
+def aligned_window_metrics(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    start_frame: int,
+    end_frame: int,
+    candidate_shift_frames: int = 0,
+) -> dict[str, object] | None:
+    if channels <= 0:
+        return None
+    safe_start = max(0, start_frame)
+    safe_end = max(safe_start, end_frame)
+    frame_count = safe_end - safe_start
+    if frame_count <= 0:
+        return None
+
+    candidate_start = safe_start + candidate_shift_frames
+    candidate_end = candidate_start + frame_count
+    if candidate_start < 0:
+        return None
+    if safe_end * channels > len(reference):
+        return None
+    if candidate_end * channels > len(candidate):
+        return None
+
+    reference_start_sample = safe_start * channels
+    reference_end_sample = safe_end * channels
+    candidate_start_sample = candidate_start * channels
+    candidate_end_sample = candidate_end * channels
+    reference_slice = reference[reference_start_sample:reference_end_sample]
+    candidate_slice = candidate[candidate_start_sample:candidate_end_sample]
+    if not reference_slice or len(reference_slice) != len(candidate_slice):
+        return None
+
+    dot = 0.0
+    ref_square_sum = 0.0
+    candidate_square_sum = 0.0
+    diff_square_sum = 0.0
+    max_abs = 0.0
+    for index, ref in enumerate(reference_slice):
+        cand = candidate_slice[index]
+        dot += ref * cand
+        ref_square_sum += ref * ref
+        candidate_square_sum += cand * cand
+        diff = cand - ref
+        diff_square_sum += diff * diff
+        max_abs = max(max_abs, abs(diff))
+
+    denominator = math.sqrt(ref_square_sum * candidate_square_sum)
+    correlation = None if denominator == 0.0 else dot / denominator
+    sample_count = len(reference_slice)
+    return {
+        "candidate_shift_frames": candidate_shift_frames,
+        "normalized_correlation": rounded_optional(correlation),
+        "rms_difference": rounded(math.sqrt(diff_square_sum / sample_count)),
+        "max_abs_sample_difference": rounded(max_abs),
+        "compared_frames": frame_count,
+    }
+
+
+def local_alignment_search(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    sample_rate: int,
+    start_frame: int,
+    end_frame: int,
+    search_radius_frames: int,
+) -> dict[str, object]:
+    radius = max(0, search_radius_frames)
+    zero_shift = aligned_window_metrics(reference, candidate, channels, start_frame, end_frame, 0)
+    best_shift: dict[str, object] | None = None
+    for shift in range(-radius, radius + 1):
+        metrics = aligned_window_metrics(reference, candidate, channels, start_frame, end_frame, shift)
+        if metrics is None:
+            continue
+        correlation = metrics.get("normalized_correlation")
+        correlation_value = float(correlation) if correlation is not None else -2.0
+        key = (
+            -correlation_value,
+            float(metrics["rms_difference"]),
+            float(metrics["max_abs_sample_difference"]),
+            abs(shift),
+            shift,
+        )
+        if best_shift is None or key < best_shift["_sort_key"]:
+            best_shift = {**metrics, "_sort_key": key}
+    if best_shift is not None:
+        del best_shift["_sort_key"]
+        best_shift["candidate_shift_seconds"] = rounded(
+            float(best_shift["candidate_shift_frames"]) / sample_rate if sample_rate > 0 else 0.0
+        )
+    if zero_shift is not None:
+        zero_shift["candidate_shift_seconds"] = 0.0
+    return {
+        "search_radius_frames": radius,
+        "search_radius_seconds": rounded(radius / sample_rate if sample_rate > 0 else 0.0),
+        "zero_shift": zero_shift,
+        "best_shift": best_shift,
+    }
+
+
 def first_difference_timestamp(
     reference: list[float],
     candidate: list[float],
@@ -338,6 +441,7 @@ def worst_mismatch_windows(
     sample_rate: int,
     window_ms: float,
     top_count: int,
+    alignment_search_frames: int = DEFAULT_ALIGNMENT_SEARCH_FRAMES,
 ) -> list[dict[str, object]]:
     if channels <= 0 or sample_rate <= 0 or top_count <= 0:
         return []
@@ -372,7 +476,20 @@ def worst_mismatch_windows(
         })
 
     windows.sort(key=lambda item: (-float(item["rms_difference"]), int(item["start_frame"])))
-    return windows[:top_count]
+    selected = windows[:top_count]
+    for window in selected:
+        start_frame = int(window["start_frame"])
+        end_frame = int(window["end_frame"])
+        window["local_alignment"] = local_alignment_search(
+            reference,
+            candidate,
+            channels,
+            sample_rate,
+            start_frame,
+            end_frame,
+            alignment_search_frames,
+        )
+    return selected
 
 
 def build_comparison(
@@ -383,6 +500,7 @@ def build_comparison(
     near_silence_threshold: float = DEFAULT_NEAR_SILENCE_THRESHOLD,
     window_ms: float = DEFAULT_WINDOW_MS,
     top_windows: int = DEFAULT_TOP_WINDOWS,
+    alignment_search_frames: int = DEFAULT_ALIGNMENT_SEARCH_FRAMES,
 ) -> dict[str, object]:
     reference_info, reference_samples = read_wav(reference_path, seconds)
     candidate_info, candidate_samples = read_wav(candidate_path, seconds)
@@ -415,6 +533,7 @@ def build_comparison(
         "near_silence_threshold": rounded(near_silence_threshold),
         "window_ms": rounded(window_ms),
         "top_window_count": top_windows,
+        "alignment_search_frames": max(0, alignment_search_frames),
         "reference": {
             "info": reference_info.to_json(),
             "stats": reference_stats.to_json(),
@@ -438,7 +557,8 @@ def build_comparison(
         "sample_comparison": None,
         "notes": [
             "Diagnostic metrics only; they do not prove tracker semantic correctness.",
-            "No resampling, downmixing, time alignment, or renderer-latency compensation is applied.",
+            "No resampling, downmixing, upmixing, or renderer-latency compensation is applied.",
+            "Worst-window local alignment search is diagnostic only and shifts the candidate window when enabled.",
         ],
     }
 
@@ -469,6 +589,7 @@ def build_comparison(
                 reference_info.sample_rate,
                 window_ms,
                 top_windows,
+                alignment_search_frames,
             ),
         }
 
@@ -602,11 +723,25 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
                     f"rms_diff={window['rms_difference']:.8f}, "
                     f"max_abs_diff={window['max_abs_sample_difference']:.8f}"
                 )
+                alignment = window.get("local_alignment")
+                if isinstance(alignment, dict):
+                    best_shift = alignment.get("best_shift")
+                    zero_shift = alignment.get("zero_shift")
+                    if isinstance(best_shift, dict) and isinstance(zero_shift, dict):
+                        lines.append(
+                            "   local_alignment: "
+                            f"radius={alignment.get('search_radius_frames')} frames, "
+                            f"zero_corr={format_optional_float(zero_shift.get('normalized_correlation'))}, "
+                            f"best_shift={best_shift.get('candidate_shift_frames')} frames, "
+                            f"best_corr={format_optional_float(best_shift.get('normalized_correlation'))}, "
+                            f"best_rms_diff={format_optional_float(best_shift.get('rms_difference'))}"
+                        )
         lines.append("")
 
     lines.extend([
         "## Notes",
-        "- This tool does not resample, downmix, upmix, time-align, or compensate for renderer latency.",
+        "- This tool does not resample, downmix, upmix, or compensate for renderer latency.",
+        "- Positive candidate_shift_frames means the candidate comparison slice starts later than the reference window.",
         "- Use mismatch windows as leads for focused follow-up debugging, not as an automatic pass/fail oracle.",
     ])
     return "\n".join(lines) + "\n"
@@ -708,6 +843,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=DEFAULT_TOP_WINDOWS,
         help=f"Number of worst mismatch windows to report (default: {DEFAULT_TOP_WINDOWS})",
     )
+    parser.add_argument(
+        "--alignment-search-frames",
+        type=int,
+        default=DEFAULT_ALIGNMENT_SEARCH_FRAMES,
+        help=(
+            "Search +/- this many frames around each worst window for local candidate/reference alignment "
+            f"(default: {DEFAULT_ALIGNMENT_SEARCH_FRAMES})"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -728,6 +872,9 @@ def main(argv: list[str]) -> int:
     if args.top_windows < 0:
         print("--top-windows must be zero or greater", file=sys.stderr)
         return 2
+    if args.alignment_search_frames < 0:
+        print("--alignment-search-frames must be zero or greater", file=sys.stderr)
+        return 2
 
     try:
         comparison = build_comparison(
@@ -738,6 +885,7 @@ def main(argv: list[str]) -> int:
             args.near_silence_threshold,
             args.window_ms,
             args.top_windows,
+            args.alignment_search_frames,
         )
     except (FileNotFoundError, wave.Error, ValueError) as error:
         print(f"audio-compare: {error}", file=sys.stderr)

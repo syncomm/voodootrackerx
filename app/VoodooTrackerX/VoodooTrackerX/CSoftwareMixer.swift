@@ -164,6 +164,9 @@ final class CSoftwareMixer {
     static let maximumVoiceStateEventCount = Int(VTX_C_MIXER_MAX_VOICE_STATE_EVENTS)
     static let gainPanUpdateRampFrameCount = Int(vtx_c_mixer_gain_pan_update_ramp_frame_count())
     static let replacementStopRampFrameCount = Int(vtx_c_mixer_replacement_stop_ramp_frame_count())
+    static let interpolationMode = "linear"
+    static let interpolationEnabled = true
+    static let sampleStepPrecisionMode = "double_sample_position_and_step"
 
     private var state: VTXCMixerState
     private(set) var config: MixerRenderConfig

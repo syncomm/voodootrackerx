@@ -1056,6 +1056,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(diagnostics["local_only"] as? Bool, true)
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
+        XCTAssertEqual(render["sample_interpolation_enabled"] as? Bool, true)
+        XCTAssertEqual(render["sample_step_precision_mode"] as? String, "double_sample_position_and_step")
         XCTAssertEqual(render["render_duration_mode"] as? String, "fixed_rows")
         XCTAssertTrue(render["calculated_song_end_frames"] is NSNull)
         XCTAssertEqual(render["tail_seconds"] as? Double, 0)

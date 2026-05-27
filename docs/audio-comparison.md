@@ -100,9 +100,10 @@ mapped-sample selection in bounded segments. `900` remains a diagnosed no-op
 when no prior same-channel nonzero `9xx` memory exists, and out-of-range `9xx`
 offsets are reported as skipped voices. Linear-frequency songs also carry
 explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
-events. Fractional C-backed offline sample steps use simple deterministic
-linear interpolation; diagnostics JSON reports this as `sample_interpolation`
-with value `linear` in the render section. Candidate diagnostics also report
+events. Fractional C-backed offline sample steps use deterministic linear
+interpolation with double-precision sample positions and sample steps; diagnostics
+JSON reports `sample_interpolation`, `sample_interpolation_enabled`, and
+`sample_step_precision_mode` in the render section. Candidate diagnostics also report
 first-pass volume-envelope sustain, loop, note value `97` key-off/release, and
 post-key-off fadeout decisions for bounded offline adapted events, including
 whether each decision was applied, deferred, or approximated. Non-linear/Amiga-table pitch

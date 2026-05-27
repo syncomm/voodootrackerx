@@ -691,6 +691,12 @@ offline-render responsibilities separate.
 - Verification: synthetic audio-correlation tests cover the new period/sample-step report section and missing optional fields. Local anonymized renders, reference comparisons, diagnostics JSON, and Markdown reports stayed under `/tmp` and out of git.
 - Status: diagnostics-only. Recommended next parity PR: a narrowly tested Linear Period Formula Parity Fix or Relative Note / Finetune Sample-Step Fix if independent expected-value tests identify an exact formula delta; otherwise prioritize Envelope / Key-Off / Fadeout Timing Parity for envelope-heavy material.
 
+### PR 2.7.11bb — Linear Period Formula / Sample Base Rate Parity Audit
+- Scope: expected-value audit of the Swift adapter/runtime planning layer XM linear-period path: note + relative note, finetune and `E5x`, linear period/frequency, fixed 8363 Hz sample-base anchor, output-rate sample step, and tone-portamento targets. Do not change C mixer DSP, runtime backend defaults, tracker viewport code, parser architecture, envelopes/fadeout, gain policy, or unsupported effects.
+- Findings: the FT2 linear-period and frequency equations match the current VTX formula, and the fixed 8363 Hz value is the XM linear-table C-4 base-frequency anchor rather than a parsed per-sample rate. The proven bug was the adapter clamping `note + relativeNote` to pattern note values `1...96`; FT2 applies relative note to a zero-based real-note range `0...118`, so high transposed samples could be under-pitched.
+- Verification: synthetic app tests cover C-0, C-1, C-4, C-5, relative note -12/0/+12, high relative-note real-note clamping, negative/positive finetune, `E5x` override, 44.1 kHz and 48 kHz sample steps, and tone-portamento period targets. Local-only anonymized loop-heavy diagnostics stayed under `/tmp`; inspected mismatch windows did not contain out-of-range relative-note cases, so no reference-correlation improvement was attributed to this fix.
+- Status: done. Recommended next parity PR: Envelope / Key-Off / Fadeout Timing Parity for envelope-heavy material, or Gain/Panning Math Parity if refreshed loop-heavy comparisons still show pitch-independent phase or level mismatch.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

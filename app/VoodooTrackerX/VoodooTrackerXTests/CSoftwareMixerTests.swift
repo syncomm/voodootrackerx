@@ -292,6 +292,20 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [12.5])
     }
 
+    func testCSoftwareMixerForwardLoopRuntimeStateAtExclusiveEndPreservesOvershoot() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let voiceIndex = mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+        mixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 3.25),
+            forVoiceAt: voiceIndex
+        )
+
+        XCTAssertEqual(mixer.render(frames: 3).interleavedPCM, [12.5, 17.5, 12.5])
+    }
+
     func testCSoftwareMixerPingPongEndpointInterpolationReflectsAtTurnaround() {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
         let voiceIndex = mixer.addVoice(
@@ -317,6 +331,36 @@ final class CSoftwareMixerTests: XCTestCase {
         )
 
         XCTAssertEqual(block.interleavedPCM, [2, 3, 0, 0])
+    }
+
+    func testCSoftwareMixerForwardLoopInitialSourceFrameAtExclusiveEndStartsAtLoopStart() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            loop: loop,
+            initialSourceFrame: 3
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [10, 20, 10, 20])
+    }
+
+    func testCSoftwareMixerForwardLoopInitialSourceFrameAfterExclusiveEndPreservesTailRead() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 4,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            loop: loop,
+            initialSourceFrame: 4
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [40, 10, 20, 10])
     }
 
     func testCSoftwareMixerInitialSourceFrameCombinesWithStepAndInterpolation() {
@@ -713,6 +757,21 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [0, 2, 1, 3, 2, 1])
     }
 
+    func testCSoftwareMixerForwardLoopStepGreaterThanLoopLengthLandsAtWrappedPosition() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+
+        let block = cOneShotBlock(
+            sample: sample,
+            frames: 5,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            playbackStep: 5,
+            loop: loop
+        )
+
+        XCTAssertEqual(block.interleavedPCM, [0, 20, 10, 30, 20])
+    }
+
     func testCSoftwareMixerForwardLoopWorksWithFractionalPlaybackStep() {
         let sample = MixerSampleBuffer(monoPCM: [0, 1, 2, 3, 4])
         let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
@@ -726,6 +785,22 @@ final class CSoftwareMixerTests: XCTestCase {
         )
 
         XCTAssertEqual(block.interleavedPCM, [0, 0.5, 1, 1.5, 2, 2.5, 3, 2, 1, 1.5])
+    }
+
+    func testCSoftwareMixerForwardLoopInitialSourceFrameInsideLoopStaysSplitDeterministic() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        singleRenderMixer.addVoice(sample: sample, playbackStep: 1.25, loop: loop, initialSourceFrame: 2)
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        splitRenderMixer.addVoice(sample: sample, playbackStep: 1.25, loop: loop, initialSourceFrame: 2)
+
+        let singleRender = singleRenderMixer.render(frames: 5)
+        let splitRender = splitRenderMixer.render(frames: 2).interleavedPCM +
+            splitRenderMixer.render(frames: 3).interleavedPCM
+
+        XCTAssertEqual(singleRender.interleavedPCM, [20, 25, 15, 27.5, 10])
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
     }
 
     func testCSoftwareMixerPingPongLoopReversesDirectionAndMatchesSwiftReference() {

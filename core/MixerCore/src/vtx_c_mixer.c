@@ -268,6 +268,20 @@ static void vtx_c_mixer_sanitize_loop(
     }
 }
 
+static uint32_t vtx_c_mixer_normalized_initial_sample_frame(
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint32_t initial_sample_frame
+) {
+    if (loop_mode == VTX_C_MIXER_LOOP_FORWARD &&
+        initial_sample_frame == loop_end_frame &&
+        loop_end_frame > loop_start_frame) {
+        return loop_start_frame;
+    }
+    return initial_sample_frame;
+}
+
 static void vtx_c_mixer_disable_envelope(VTXCMixerEnvelopeState *envelope) {
     if (envelope == NULL) {
         return;
@@ -597,6 +611,27 @@ static void vtx_c_mixer_advance_forward_loop_position(VTXCMixerVoice *voice) {
     voice->sample_position = (double)voice->loop_start_frame + fmod(overflow, loop_length);
 }
 
+static double vtx_c_mixer_normalized_forward_loop_runtime_position(
+    const VTXCMixerVoice *voice,
+    double sample_position
+) {
+    double loop_length;
+    double overflow;
+
+    if (voice == NULL ||
+        voice->loop_mode != VTX_C_MIXER_LOOP_FORWARD ||
+        sample_position < (double)voice->loop_end_frame) {
+        return sample_position;
+    }
+
+    loop_length = (double)(voice->loop_end_frame - voice->loop_start_frame);
+    if (loop_length <= 0.0) {
+        return sample_position;
+    }
+    overflow = sample_position - (double)voice->loop_end_frame;
+    return (double)voice->loop_start_frame + fmod(overflow, loop_length);
+}
+
 static void vtx_c_mixer_advance_ping_pong_loop_position(VTXCMixerVoice *voice) {
     double first_loop_frame;
     double last_loop_frame;
@@ -772,6 +807,12 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     }
 
     vtx_c_mixer_sanitize_loop(&loop_mode, &loop_start_frame, &loop_end_frame, sample_frame_count);
+    initial_sample_frame = vtx_c_mixer_normalized_initial_sample_frame(
+        loop_mode,
+        loop_start_frame,
+        loop_end_frame,
+        initial_sample_frame
+    );
 
     voice = &state->voices[voice_index];
     memset(voice, 0, sizeof(*voice));
@@ -1327,7 +1368,7 @@ VTXCMixerStatus vtx_c_mixer_set_voice_runtime_state(
     }
 
     voice = &state->voices[voice_index];
-    voice->sample_position = sample_position;
+    voice->sample_position = vtx_c_mixer_normalized_forward_loop_runtime_position(voice, sample_position);
     voice->ping_pong_direction = ping_pong_direction < 0 ? -1 : 1;
     voice->volume_envelope.position_frame = volume_envelope_position_frame;
     voice->pan_envelope.position_frame = pan_envelope_position_frame;

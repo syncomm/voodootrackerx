@@ -111,14 +111,18 @@ C-backed offline sample steps now have microfixture coverage for deterministic
 linear interpolation, double-precision sample positions/steps, safe no-loop
 ends, forward-loop wraps, and ping-pong turnarounds, with bounded render
 diagnostics reporting the interpolation and sample-step precision modes. The
-reference-resampler follow-up found that changing local MikMod interpolation,
-high-quality mixer, and 44.1/48 kHz output settings did not materially recover
-the remaining private-corpus mismatch. Auto-headroom affected clipping/loudness
-but not the underlying correlation, and local alignment search showed window
-improvements without a single global offset explanation. The strongest next
-target is real-module loop endpoint parity, especially long-lived forward-loop
-voices in worst windows, while envelope/fadeout remains a secondary confounder
-for modules that actively use envelopes. Bounded offline note
+focused loop-endpoint correctness-hardening pass confirmed that XM loop starts
+plus lengths map to exclusive C mixer loop ends, and it now normalizes imported
+forward-loop runtime positions at or beyond the exclusive end while preserving
+fractional overshoot. Exact initial source offsets at the exclusive end also
+start at the loop start; offsets after the loop end retain the existing
+tail-read behavior. The local anonymized loop-heavy and envelope-heavy
+validation renders were byte-identical before and after this endpoint fix. This
+did not improve the observed local reference mismatch, so the remaining
+private-corpus mismatch is not explained by this exact boundary condition. The
+strongest next parity targets are period/sample-step conversion for the
+loop-heavy envelope-disabled material and envelope/key-off/fadeout timing for
+envelope-heavy material. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

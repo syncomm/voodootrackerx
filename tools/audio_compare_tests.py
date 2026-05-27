@@ -29,6 +29,9 @@ EFFECT_COVERAGE_SCRIPT_PATH = (
 FOCUSED_XM_CHANNEL_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "focused-xm-channel-diagnostics.py"
 )
+FOCUSED_WINDOW_TIMELINE_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "focused-window-voice-timeline.py"
+)
 
 
 def load_audio_compare_module():
@@ -94,6 +97,15 @@ def load_focused_xm_channel_module():
     return module
 
 
+def load_focused_window_timeline_module():
+    spec = importlib.util.spec_from_file_location("focused_window_timeline", FOCUSED_WINDOW_TIMELINE_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 reference_triage = load_reference_triage_module()
@@ -101,6 +113,7 @@ runtime_trace_summary = load_runtime_trace_summary_module()
 runtime_offline_window = load_runtime_offline_window_module()
 effect_coverage = load_effect_coverage_module()
 focused_xm_channel = load_focused_xm_channel_module()
+focused_window_timeline = load_focused_window_timeline_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -1303,6 +1316,148 @@ def synthetic_focused_channel_diagnostics():
     }
 
 
+def synthetic_focused_window_timeline_diagnostics():
+    source0 = {"order": 0, "pattern": 3, "row": 0}
+    source1 = {"order": 0, "pattern": 3, "row": 1}
+    return {
+        "render": {"sample_rate": 1000},
+        "row_timing": [
+            {
+                "source": source0,
+                "synthetic_row": 0,
+                "row_start_frame": 0,
+                "row_end_frame": 100,
+                "row_duration_frames": 100,
+                "effective_speed": 5,
+                "effective_bpm": 125,
+            },
+            {
+                "source": source1,
+                "synthetic_row": 1,
+                "row_start_frame": 100,
+                "row_end_frame": 200,
+                "row_duration_frames": 100,
+                "effective_speed": 5,
+                "effective_bpm": 125,
+            },
+        ],
+        "events": [
+            {
+                "source": source0,
+                "event_index": 0,
+                "channel_index": 0,
+                "note": 49,
+                "note_text": "C-4",
+                "instrument_index": 1,
+                "sample_index": 0,
+                "scheduled_start_frame": 0,
+                "estimated_end_frame": 500,
+                "sample_frame_count": 32,
+                "initial_source_frame": 0,
+                "loop_mode": "forward",
+                "loop_start_frame": 8,
+                "loop_end_frame": 20,
+                "loop_length_frames": 12,
+                "gain": 0.5,
+                "pan": 0.0,
+                "pitch": {"playback_step": 1.5, "linear_period": 4608, "linear_frequency": 8363},
+            },
+            {
+                "source": source1,
+                "event_index": 1,
+                "channel_index": 0,
+                "note": 52,
+                "note_text": "D#4",
+                "instrument_index": 2,
+                "sample_index": 0,
+                "scheduled_start_frame": 150,
+                "estimated_end_frame": 500,
+                "sample_frame_count": 64,
+                "initial_source_frame": 0,
+                "loop_mode": "none",
+                "loop_start_frame": 0,
+                "loop_end_frame": 0,
+                "loop_length_frames": 0,
+                "gain": 0.75,
+                "pan": -0.5,
+                "pitch": {"playback_step": 1.0, "linear_period": 4400, "linear_frequency": 9000},
+            },
+            {
+                "source": source1,
+                "event_index": 2,
+                "channel_index": 1,
+                "note": 57,
+                "note_text": "G#4",
+                "instrument_index": 3,
+                "sample_index": 0,
+                "scheduled_start_frame": 120,
+                "estimated_end_frame": 260,
+                "sample_frame_count": 128,
+                "initial_source_frame": 4,
+                "loop_mode": "none",
+                "gain": 0.25,
+                "pan": 0.5,
+                "pitch": {"playback_step": 0.5},
+            },
+        ],
+        "tone_portamento_effects": [
+            {
+                "source": source1,
+                "channel_index": 0,
+                "active_event_index": 0,
+                "status": "applied",
+                "portamento_speed": 4,
+                "target_note_text": "D#4",
+                "target_linear_period": 4400,
+                "current_linear_period_before": 4608,
+                "current_linear_period_after": 4400,
+                "step_updates": [
+                    {
+                        "synthetic_tick": 1,
+                        "scheduled_frame": 120,
+                        "current_step_before": 1.5,
+                        "current_step_after": 2.0,
+                        "linear_period_before": 4608,
+                        "linear_period_after": 4400,
+                    }
+                ],
+            }
+        ],
+        "sample_offset_effects": [
+            {
+                "source": source1,
+                "channel_index": 1,
+                "status": "applied",
+                "applied_offset_frames": 4,
+            }
+        ],
+        "volume_panning_state_updates": [
+            {
+                "source": source1,
+                "channel_index": 0,
+                "scheduled_frame": 150,
+                "command_label": "Cxx set volume",
+                "status": "applied",
+                "active_event_index": 0,
+                "gain_before": 0.5,
+                "gain_after": 0.25,
+            }
+        ],
+        "same_channel_voice_lifetime": {
+            "replacement_events": [
+                {
+                    "old_event_index": 0,
+                    "new_event_index": 1,
+                    "source_channel_index": 0,
+                    "replacement_frame": 150,
+                    "completion_frame": 182,
+                    "old_voice_ramp_duration_frames": 32,
+                }
+            ]
+        },
+    }
+
+
 class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
     def test_note_text_mapping_matches_tracker_display_policy(self):
         self.assertEqual(focused_xm_channel.note_text(1), "C-0")
@@ -1385,6 +1540,87 @@ class FocusedXMChannelDiagnosticsTests(unittest.TestCase):
         self.assertIn("| 06 | 1 | 3700 | 16->16 | 0.25->0.25 | no | - | 1 | no |", markdown)
         self.assertNotIn("F#4", markdown)
         self.assertNotIn("E-4", markdown)
+
+
+class FocusedWindowVoiceTimelineTests(unittest.TestCase):
+    def test_summary_reports_rows_active_voices_step_updates_and_same_frame_groups(self):
+        diagnostics = synthetic_focused_window_timeline_diagnostics()
+        sample_rate = focused_window_timeline.sample_rate_from(diagnostics)
+        windows = [focused_window_timeline.parse_window("0.10:0.20", sample_rate, 1)]
+
+        summary = focused_window_timeline.build_summary(
+            diagnostics,
+            windows,
+            label="xm-corpus-synthetic",
+            sample_rate=sample_rate,
+        )
+        window = summary["windows"][0]
+        voices = {voice["event_index"]: voice for voice in window["active_voices"]}
+
+        self.assertEqual(summary["schema_version"], 1)
+        self.assertEqual(window["row_tick_ranges"][0]["source"], {"order": 0, "pattern": 3, "row": 1})
+        self.assertEqual(window["row_tick_ranges"][0]["tick_start"], 0)
+        self.assertEqual(window["row_tick_ranges"][0]["tick_end"], 4)
+        self.assertEqual(window["active_voice_count"], 3)
+        self.assertEqual(voices[0]["active_frame_range"], [0, 182])
+        self.assertGreaterEqual(voices[0]["loop_crossings_in_window"], 1)
+        self.assertEqual(window["sample_step_update_count"], 1)
+        self.assertEqual(window["sample_step_updates"][0]["label"], "3xx tone portamento")
+        self.assertEqual(window["tone_portamento"][0]["target_linear_period"], 4400)
+        self.assertEqual(len(window["sample_offsets"]), 1)
+        self.assertEqual(len(window["note_replacements"]), 1)
+        self.assertEqual(window["gain_pan_update_count"], 1)
+        replacement_group = next(group for group in window["same_frame_event_groups"] if group["frame"] == 150)
+        self.assertEqual(
+            [event["category"] for event in replacement_group["events"]],
+            ["note_trigger", "gain_pan_update", "same_channel_replacement"],
+        )
+
+    def test_summary_handles_missing_optional_fields(self):
+        diagnostics = {
+            "render": {"sample_rate": 1000},
+            "row_timing": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 0},
+                    "synthetic_row": 0,
+                    "row_start_frame": 0,
+                    "row_end_frame": 100,
+                }
+            ],
+        }
+        sample_rate = focused_window_timeline.sample_rate_from(diagnostics)
+        windows = [focused_window_timeline.parse_window("0.00:0.05", sample_rate, 1)]
+
+        summary = focused_window_timeline.build_summary(
+            diagnostics,
+            windows,
+            label="xm-corpus-synthetic",
+            sample_rate=sample_rate,
+        )
+        window = summary["windows"][0]
+
+        self.assertEqual(window["active_voice_count"], 0)
+        self.assertEqual(window["sample_step_update_count"], 0)
+        self.assertEqual(window["gain_pan_update_count"], 0)
+        self.assertEqual(window["same_frame_event_groups"], [])
+
+    def test_markdown_report_includes_voice_timeline_fields(self):
+        diagnostics = synthetic_focused_window_timeline_diagnostics()
+        sample_rate = focused_window_timeline.sample_rate_from(diagnostics)
+        windows = [focused_window_timeline.parse_window("0.10:0.20", sample_rate, 1)]
+        summary = focused_window_timeline.build_summary(
+            diagnostics,
+            windows,
+            label="xm-corpus-synthetic",
+            sample_rate=sample_rate,
+        )
+
+        markdown = focused_window_timeline.render_markdown(summary)
+
+        self.assertIn("Focused Window Voice Timeline: xm-corpus-synthetic", markdown)
+        self.assertIn("Sample-step updates: 1", markdown)
+        self.assertIn("Same-frame groups: 2", markdown)
+        self.assertIn("D#4", markdown)
 
 
 class EffectCoverageSummaryTests(unittest.TestCase):

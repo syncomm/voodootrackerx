@@ -171,7 +171,17 @@ gain-normalized evidence, plus worst-window final-gain and pan distributions
 under the current C mixer linear pan law. Use those diagnostics to decide
 whether the next focused parity PR should target gain normalization/order,
 panning law/stereo placement, global-volume scaling, envelope/fadeout timing,
-or a remaining waveform/timing issue. Bounded offline note
+or a remaining waveform/timing issue. The focused `xm-corpus-025`
+sample-step/loop/timing window pass added a local-only voice-timeline helper for
+explicit mismatch timestamps, including row/tick ranges, replacement-aware
+active voices, source-position/loop estimates, tone-portamento sample-step
+updates, gain/pan updates, sample offsets, traversal rows, and same-frame event
+groups. Local evidence kept the pass diagnostics-only: early known windows
+overlap `3xx` tick-1 sample-step updates, later windows show reference
+alignment shifts with fewer step updates, and no tiny sample-step, loop,
+sample-offset, replacement, event-ordering, or row-boundary bug was proven. The
+next focused parity target should be a reference-backed row/tick boundary frame
+rounding or sample-step update frame timing experiment. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

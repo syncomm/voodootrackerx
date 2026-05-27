@@ -936,8 +936,10 @@ enum PlaybackSongSyntheticAdapter {
     private static let xmLinearC4Period = 4_608.0
     private static let xmLinearPeriodUnitsPerSemitone = 64.0
     private static let xmLinearPeriodUnitsPerOctave = 768.0
+    private static let xmLinearMaximumRealNoteIndex = 118
+    private static let xmLinearMaximumEffectiveNoteValue = xmLinearMaximumRealNoteIndex + 1
     private static let xmLinearMinimumSafePeriod = xmLinearPeriodBase
-        - (95.0 * xmLinearPeriodUnitsPerSemitone)
+        - (Double(xmLinearMaximumRealNoteIndex) * xmLinearPeriodUnitsPerSemitone)
         - (127.0 / 2.0)
     private static let xmLinearMaximumSafePeriod = xmLinearPeriodBase + 64.0
 
@@ -6278,6 +6280,7 @@ enum PlaybackSongSyntheticAdapter {
         let effectiveFinetune = clampedFinetune(finetune)
 
         // XM linear frequency mode is period based even though the C mixer consumes a source-sample step.
+        // FT2 applies sample relative note to the pattern note and clamps the zero-based real note to 0...118.
         // FT2's linear period formula is:
         // period = 7680 - (zeroBasedNote * 64) - (finetune / 2)
         // C-4 is note value 49, zero-based note 48, period 4608, so it maps to the sample base rate.
@@ -6342,7 +6345,7 @@ enum PlaybackSongSyntheticAdapter {
     }
 
     private static func clampedEffectiveNoteValue(note: UInt8, relativeNote: Int) -> Int {
-        min(96, max(1, Int(note) + relativeNote))
+        min(xmLinearMaximumEffectiveNoteValue, max(1, Int(note) + relativeNote))
     }
 
     private static func clampedFinetune(_ finetune: Int) -> Int {

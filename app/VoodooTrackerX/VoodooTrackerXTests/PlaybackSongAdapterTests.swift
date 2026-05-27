@@ -888,6 +888,247 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(steps[3], steps[1] * 2, accuracy: 0.000000001)
     }
 
+    func testPlaybackSongSyntheticAdapterMatchesFT2LinearPeriodExpectedValues() throws {
+        struct LinearPitchCase {
+            let name: String
+            let note: UInt8
+            let relativeNote: Int
+            let sampleFinetune: Int
+            let effectParam: UInt8?
+            let outputSampleRate: Double
+            let expectedEffectiveNoteValue: Int
+            let expectedEffectiveNoteIndex: Int
+            let expectedFinetune: Int
+            let expectedLinearPeriod: Double
+            let expectedLinearFrequency: Double
+        }
+
+        let baseSampleRate = 8_363.0
+        let cases = [
+            LinearPitchCase(
+                name: "C-0",
+                note: 1,
+                relativeNote: 0,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 1,
+                expectedEffectiveNoteIndex: 0,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 7_680,
+                expectedLinearFrequency: baseSampleRate / 16.0
+            ),
+            LinearPitchCase(
+                name: "C-1",
+                note: 13,
+                relativeNote: 0,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 13,
+                expectedEffectiveNoteIndex: 12,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 6_912,
+                expectedLinearFrequency: baseSampleRate / 8.0
+            ),
+            LinearPitchCase(
+                name: "C-4 at 44.1 kHz",
+                note: 49,
+                relativeNote: 0,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 49,
+                expectedEffectiveNoteIndex: 48,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 4_608,
+                expectedLinearFrequency: baseSampleRate
+            ),
+            LinearPitchCase(
+                name: "C-4 at 48 kHz",
+                note: 49,
+                relativeNote: 0,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 48_000,
+                expectedEffectiveNoteValue: 49,
+                expectedEffectiveNoteIndex: 48,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 4_608,
+                expectedLinearFrequency: baseSampleRate
+            ),
+            LinearPitchCase(
+                name: "C-5",
+                note: 61,
+                relativeNote: 0,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 61,
+                expectedEffectiveNoteIndex: 60,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 3_840,
+                expectedLinearFrequency: baseSampleRate * 2.0
+            ),
+            LinearPitchCase(
+                name: "relative note -12",
+                note: 49,
+                relativeNote: -12,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 37,
+                expectedEffectiveNoteIndex: 36,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 5_376,
+                expectedLinearFrequency: baseSampleRate / 2.0
+            ),
+            LinearPitchCase(
+                name: "relative note +12",
+                note: 49,
+                relativeNote: 12,
+                sampleFinetune: 0,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 61,
+                expectedEffectiveNoteIndex: 60,
+                expectedFinetune: 0,
+                expectedLinearPeriod: 3_840,
+                expectedLinearFrequency: baseSampleRate * 2.0
+            ),
+            LinearPitchCase(
+                name: "negative finetune",
+                note: 49,
+                relativeNote: 0,
+                sampleFinetune: -64,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 49,
+                expectedEffectiveNoteIndex: 48,
+                expectedFinetune: -64,
+                expectedLinearPeriod: 4_640,
+                expectedLinearFrequency: baseSampleRate * pow(2.0, -32.0 / 768.0)
+            ),
+            LinearPitchCase(
+                name: "positive finetune",
+                note: 49,
+                relativeNote: 0,
+                sampleFinetune: 64,
+                effectParam: nil,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 49,
+                expectedEffectiveNoteIndex: 48,
+                expectedFinetune: 64,
+                expectedLinearPeriod: 4_576,
+                expectedLinearFrequency: baseSampleRate * pow(2.0, 32.0 / 768.0)
+            ),
+            LinearPitchCase(
+                name: "E5F finetune override",
+                note: 49,
+                relativeNote: 0,
+                sampleFinetune: -64,
+                effectParam: 0x5F,
+                outputSampleRate: 44_100,
+                expectedEffectiveNoteValue: 49,
+                expectedEffectiveNoteIndex: 48,
+                expectedFinetune: 112,
+                expectedLinearPeriod: 4_552,
+                expectedLinearFrequency: baseSampleRate * pow(2.0, 56.0 / 768.0)
+            ),
+        ]
+
+        for pitchCase in cases {
+            let sample = makePlaybackSample(
+                pcm: [0, 1, 2, 3],
+                relativeNote: pitchCase.relativeNote,
+                finetune: pitchCase.sampleFinetune,
+                baseSampleRate: baseSampleRate
+            )
+            let row = makePlaybackRow(
+                index: 0,
+                note: pitchCase.note,
+                instrument: 1,
+                effectType: pitchCase.effectParam == nil ? 0 : 0x0E,
+                effectParam: pitchCase.effectParam ?? 0
+            )
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [row]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+
+            let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: pitchCase.outputSampleRate)
+            let mapping = try XCTUnwrap(plan.diagnostics.eventMappings.first, pitchCase.name)
+
+            XCTAssertEqual(mapping.sampleBaseSampleRate, baseSampleRate, pitchCase.name)
+            XCTAssertEqual(mapping.outputSampleRate, pitchCase.outputSampleRate, pitchCase.name)
+            XCTAssertEqual(mapping.effectiveNoteValue, pitchCase.expectedEffectiveNoteValue, pitchCase.name)
+            XCTAssertEqual(mapping.effectiveNoteIndex, pitchCase.expectedEffectiveNoteIndex, pitchCase.name)
+            XCTAssertEqual(mapping.effectiveFinetune, pitchCase.expectedFinetune, pitchCase.name)
+            XCTAssertEqual(
+                try XCTUnwrap(mapping.linearPeriod, pitchCase.name),
+                pitchCase.expectedLinearPeriod,
+                accuracy: 0.000_001,
+                pitchCase.name
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(mapping.linearFrequency, pitchCase.name),
+                pitchCase.expectedLinearFrequency,
+                accuracy: 0.000_001,
+                pitchCase.name
+            )
+            XCTAssertEqual(
+                mapping.playbackStep,
+                pitchCase.expectedLinearFrequency / pitchCase.outputSampleRate,
+                accuracy: 0.000_001,
+                pitchCase.name
+            )
+        }
+    }
+
+    func testPlaybackSongSyntheticAdapterRelativeNoteUsesXMRealNoteRange() throws {
+        func mapping(note: UInt8, relativeNote: Int) throws -> PlaybackSongSyntheticEventMapping {
+            let sample = makePlaybackSample(
+                pcm: [0, 1, 2, 3],
+                relativeNote: relativeNote,
+                baseSampleRate: 8_363
+            )
+            let song = makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: note, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+            return try XCTUnwrap(
+                PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 44_100)
+                    .diagnostics
+                    .eventMappings
+                    .first
+            )
+        }
+
+        let highTransposed = try mapping(note: 96, relativeNote: 12)
+        let lowTransposed = try mapping(note: 1, relativeNote: -12)
+
+        XCTAssertEqual(highTransposed.effectiveNoteValue, 108)
+        XCTAssertEqual(highTransposed.effectiveNoteIndex, 107)
+        XCTAssertEqual(try XCTUnwrap(highTransposed.linearPeriod), 832, accuracy: 0.000_001)
+        XCTAssertEqual(
+            try XCTUnwrap(highTransposed.linearFrequency),
+            8_363.0 * pow(2.0, (4_608.0 - 832.0) / 768.0),
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            highTransposed.playbackStep,
+            (8_363.0 * pow(2.0, (4_608.0 - 832.0) / 768.0)) / 44_100.0,
+            accuracy: 0.000_001
+        )
+
+        XCTAssertEqual(lowTransposed.effectiveNoteValue, 1)
+        XCTAssertEqual(lowTransposed.effectiveNoteIndex, 0)
+        XCTAssertEqual(try XCTUnwrap(lowTransposed.linearPeriod), 7_680, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(lowTransposed.linearFrequency), 8_363.0 / 16.0, accuracy: 0.000_001)
+    }
+
     func testPlaybackSongSyntheticAdapterUsesRelativeNoteAndFinetuneInPlaybackStep() throws {
         let relativeSample = makePlaybackSample(pcm: [0, 1, 2, 3], relativeNote: 12, baseSampleRate: 100)
         let negativeRelativeSample = makePlaybackSample(pcm: [0, 1, 2, 3], relativeNote: -12, baseSampleRate: 100)
@@ -2287,7 +2528,12 @@ final class PlaybackSongAdapterTests: XCTestCase {
                 makePlaybackRow(index: 0, note: 96, instrument: 1),
                 makePlaybackRow(index: 1, effectType: 0x01, effectParam: 0xFF),
             ]],
-            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makeRampPlaybackSample(frameCount: 600, relativeNote: 23, baseSampleRate: 100)]
+                )
+            ],
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 

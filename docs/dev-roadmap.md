@@ -128,9 +128,15 @@ sample-step update timing. The primary loop-heavy envelope-disabled local target
 still looks compatible with a pitch/phase/loop-speed class of mismatch, but no
 tiny formula or C-side stepping bug was proven. The secondary envelope-heavy
 target remains strongly confounded by envelope/key-off/fadeout evidence. The
-strongest next parity targets remain a narrowly tested period/sample-step
-formula audit for loop-heavy material and a separate envelope/key-off/fadeout
-timing pass for envelope-heavy material. Bounded offline note
+follow-up linear-period/sample-rate parity audit confirmed the FT2 linear
+period/frequency equations and fixed 8363 Hz C-4 base-frequency anchor, and
+fixed relative-note clamping to XM's zero-based real-note range `0...118`
+instead of pattern note values `1...96`. The inspected loop-heavy mismatch
+windows did not contain out-of-range relative-note cases, so no local
+reference-correlation improvement was attributed to that fix. The strongest
+next parity target is a separate envelope/key-off/fadeout timing pass for
+envelope-heavy material, with gain/panning math as a secondary pitch-independent
+target if loop-heavy comparisons remain mismatched. Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,

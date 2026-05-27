@@ -2019,6 +2019,28 @@ class RuntimeOfflineWindowCorrelationTests(unittest.TestCase):
             self.assertEqual(report["windows"][0]["end_frame"], 30)
             self.assertEqual(report["inputs"]["audio_comparison_path_name"], "comparison.json")
 
+    def test_runtime_offline_sample_rate_mismatch_reports_both_rates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_wav = tmpdir_path / "runtime.wav"
+            offline_wav = tmpdir_path / "offline.wav"
+            trace = tmpdir_path / "trace.jsonl"
+            write_pcm16_wav(runtime_wav, sample_rate=1000, frames=[0.0, 0.1])
+            write_pcm16_wav(offline_wav, sample_rate=1200, frames=[0.0, 0.1])
+            trace.write_text("", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                runtime_offline_window.WindowCorrelationError,
+                "runtime 1000 Hz, offline 1200 Hz",
+            ):
+                runtime_offline_window.build_report(
+                    runtime_wav=runtime_wav,
+                    offline_wav=offline_wav,
+                    runtime_trace=trace,
+                    windows=["0:0.001"],
+                    window_frames=[],
+                )
+
     def test_missing_and_malformed_inputs_fail_clearly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)

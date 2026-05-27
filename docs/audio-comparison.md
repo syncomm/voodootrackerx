@@ -222,6 +222,14 @@ runtime capture, planned adapter event frames, and sample-time position
 resolution. For local diagnostics only, developers can force the runtime C
 mixer rate with `VTX_C_MIXER_RUNTIME_SAMPLE_RATE=48000`.
 
+For comparisons, choose the sample rate from the reference you are trying to
+match and pass it explicitly to every render command. Use `--sample-rate 48000`
+when comparing an offline candidate against a 48 kHz CoreAudio runtime capture,
+Renoise export, or hardware/device-derived reference. Use `--sample-rate 44100`
+when comparing against a 44.1 kHz MikMod/OpenMPT reference. The offline helper
+defaults to 44.1 kHz for historical/reference compatibility, so do not rely on
+that default for runtime or hardware comparisons.
+
 Enable a local-only runtime C mixer JSONL trace:
 
 ```bash
@@ -404,13 +412,15 @@ traces, captures, reports, logs, screenshots, and listening notes remain
 local-only.
 
 To compare the runtime capture against an offline C mixer render, first render a
-clean local candidate WAV under `/tmp`:
+clean local candidate WAV under `/tmp`. Replace `48000` with the selected
+runtime rate reported by the trace when it differs:
 
 ```bash
 swift run vtx_render_bounded_xm \
   --input /path/to/local-reference-module.xm \
   --output /tmp/vtx-offline-c-mixer.wav \
   --diagnostics-json /tmp/vtx-offline-c-mixer-diagnostics.json \
+  --sample-rate 48000 \
   --until-song-end \
   --tail-seconds 3 \
   --window-rows 64 \
@@ -1491,10 +1501,12 @@ starts later than the reference window.
 ## Optional Reference Renderers
 
 When `openmpt123` is installed locally, render a bounded reference WAV outside
-the repository:
+the repository with an explicit sample rate:
 
 ```bash
-openmpt123 --render /tmp/openmpt-reference.wav /path/to/local-module.xm
+openmpt123 --samplerate 44100 \
+  --render /tmp/openmpt-reference.wav \
+  /path/to/local-module.xm
 ```
 
 MikMod is also acceptable when installed locally, but do not use its default

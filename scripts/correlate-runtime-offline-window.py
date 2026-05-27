@@ -691,7 +691,10 @@ def build_report(
     runtime_info = wav_info(runtime_wav)
     offline_info = wav_info(offline_wav)
     if runtime_info["sample_rate"] != offline_info["sample_rate"]:
-        raise WindowCorrelationError("runtime and offline WAV sample rates must match")
+        raise WindowCorrelationError(
+            "runtime and offline WAV sample rates must match "
+            f"(runtime {runtime_info['sample_rate']} Hz, offline {offline_info['sample_rate']} Hz)"
+        )
     if runtime_info["channel_count"] != offline_info["channel_count"]:
         raise WindowCorrelationError("runtime and offline WAV channel counts must match")
     trace = load_trace(runtime_trace)

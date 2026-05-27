@@ -220,6 +220,51 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(block.interleavedPCM, [0, 1, 2, 3])
     }
 
+    func testCSoftwareMixerRuntimeStateSamplePositionUsesLinearInterpolation() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 4, 8, 12])
+        let halfPositionMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let halfPositionVoice = halfPositionMixer.addVoice(sample: sample)
+        halfPositionMixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 0.5),
+            forVoiceAt: halfPositionVoice
+        )
+        let weightedPositionMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let weightedPositionVoice = weightedPositionMixer.addVoice(sample: sample)
+        weightedPositionMixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 1.25),
+            forVoiceAt: weightedPositionVoice
+        )
+
+        XCTAssertEqual(halfPositionMixer.render(frames: 1).interleavedPCM, [2])
+        XCTAssertEqual(weightedPositionMixer.render(frames: 1).interleavedPCM, [5])
+    }
+
+    func testCSoftwareMixerIntegerRuntimeStateSamplePositionKeepsPointValue() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let voiceIndex = mixer.addVoice(sample: MixerSampleBuffer(monoPCM: [0, 4, 8]))
+        mixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 1.0),
+            forVoiceAt: voiceIndex
+        )
+
+        XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [4])
+    }
+
+    func testCSoftwareMixerFractionalSampleStepAccumulationStaysSplitDeterministic() {
+        let sample = MixerSampleBuffer(monoPCM: [0, 4, 8, 12])
+        let singleRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        singleRenderMixer.addVoice(sample: sample, playbackStep: 0.25)
+        let splitRenderMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        splitRenderMixer.addVoice(sample: sample, playbackStep: 0.25)
+
+        let singleRender = singleRenderMixer.render(frames: 7)
+        let splitRender = splitRenderMixer.render(frames: 3).interleavedPCM +
+            splitRenderMixer.render(frames: 4).interleavedPCM
+
+        XCTAssertEqual(singleRender.interleavedPCM, [0, 1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(splitRender, singleRender.interleavedPCM)
+    }
+
     func testCSoftwareMixerNoLoopInterpolationClampsAtSampleEndSafely() {
         let sample = MixerSampleBuffer(monoPCM: [0, 2, 4])
 
@@ -231,6 +276,34 @@ final class CSoftwareMixerTests: XCTestCase {
         )
 
         XCTAssertEqual(block.interleavedPCM, [0, 1.5, 3, 4, 0])
+    }
+
+    func testCSoftwareMixerForwardLoopEndpointInterpolationWrapsToLoopStart() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let voiceIndex = mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 10, 20, 30]),
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3)
+        )
+        mixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 2.75),
+            forVoiceAt: voiceIndex
+        )
+
+        XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [12.5])
+    }
+
+    func testCSoftwareMixerPingPongEndpointInterpolationReflectsAtTurnaround() {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        let voiceIndex = mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: [0, 10, 20, 30, 40]),
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+        mixer.setRuntimeState(
+            CSoftwareMixerVoiceRuntimeState(samplePosition: 3.25),
+            forVoiceAt: voiceIndex
+        )
+
+        XCTAssertEqual(mixer.render(frames: 1).interleavedPCM, [27.5])
     }
 
     func testCSoftwareMixerInitialSourceFrameStartsAtRequestedSampleFrame() {

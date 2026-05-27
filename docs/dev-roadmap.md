@@ -107,10 +107,15 @@ in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
 offset, pitch, volume, pan, loop, and envelope mapping, and diagnoses `E90`,
 no-active-voice, and out-of-row cases without effect memory. Fractional
-C-backed offline sample steps now use simple
-deterministic linear interpolation, including safe no-loop ends, forward-loop
-wraps, and ping-pong turnarounds. Bounded offline note triggers now use parsed
-XM instrument sample maps/keymaps when a valid multi-sample mapping is present,
+C-backed offline sample steps now have microfixture coverage for deterministic
+linear interpolation, double-precision sample positions/steps, safe no-loop
+ends, forward-loop wraps, and ping-pong turnarounds, with bounded render
+diagnostics reporting the interpolation and sample-step precision modes. The
+next reference-render parity target should inspect reference resampler and
+real-module loop-endpoint behavior rather than more sample-step precision changes
+unless new evidence identifies a concrete rounding bug. Bounded offline note
+triggers now use parsed XM instrument sample maps/keymaps when a valid
+multi-sample mapping is present,
 with diagnostics for sample-map selection, first-playable fallback,
 fallback-after-invalid-map, skipped-no-valid-sample, and missing/deferred
 keymap state. Amiga-table pitch behavior, full

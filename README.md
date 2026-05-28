@@ -106,6 +106,7 @@ The helper is developer-only. It does not change runtime backend selection and d
 - [docs/agent-current-state.md](docs/agent-current-state.md) - current backend state, comparison defaults, and context-loading guidance.
 - [docs/audio-comparison.md](docs/audio-comparison.md) - current local-only candidate/reference WAV comparison workflow.
 - [docs/xm-effect-support.md](docs/xm-effect-support.md) - public XM effect support matrix for the runtime/offline C mixer adapter path.
+- [docs/diagnostic-tools.md](docs/diagnostic-tools.md) - diagnostic script inventory and consolidation plan.
 - [docs/roadmap.md](docs/roadmap.md) - current milestone sequencing.
 - [docs/dev-roadmap.md](docs/dev-roadmap.md) - short phase-based roadmap.
 - [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.

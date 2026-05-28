@@ -355,7 +355,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00:
             return cell.effectParam != 0
-        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x1B, 0x21:
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x15, 0x1B, 0x21:
             return true
         default:
             return false
@@ -393,6 +393,8 @@ extension PlaybackSongSyntheticAdapter {
             return .applied
         case 0x11:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x15:
+            return .applied
         case 0x1B:
             let interval = retriggerIntervalNibble(from: cell)
             guard interval > 0 else {
@@ -488,6 +490,8 @@ extension PlaybackSongSyntheticAdapter {
             return "Hxy global volume slide"
         case 0x14:
             return "Kxx key off"
+        case 0x15:
+            return "Lxx set envelope position"
         case 0x1B:
             return "Rxy multi retrigger"
         case 0x21:
@@ -565,6 +569,7 @@ extension PlaybackSongSyntheticAdapter {
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||
             isKxxKeyOffEffect(cell) ||
+            isLxxSetEnvelopePositionEffect(cell) ||
             isGlobalVolumeSetEffect(cell) ||
             isGlobalVolumeSlideEffect(cell) ||
             isTraversalPlanningEffect(cell) {
@@ -650,6 +655,10 @@ extension PlaybackSongSyntheticAdapter {
 
     static func isKxxKeyOffEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x14
+    }
+
+    static func isLxxSetEnvelopePositionEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x15
     }
 
     static func isTraversalPlanningEffect(_ cell: PlaybackCell) -> Bool {

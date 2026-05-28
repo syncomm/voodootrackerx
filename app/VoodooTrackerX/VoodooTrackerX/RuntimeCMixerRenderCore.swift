@@ -554,6 +554,17 @@ struct RuntimeCMixerPlannedCutResult: Equatable {
     let reason: String
 }
 
+struct RuntimeCMixerEnvelopePositionUpdateResult: Equatable {
+    let channel: Int
+    let targetVoiceIndex: Int?
+    let snapshotBefore: RuntimeCMixerRenderSnapshot
+    let snapshotAfter: RuntimeCMixerRenderSnapshot
+    let requestedPositionFrame: Int
+    let appliedPositionFrame: Int?
+    let succeeded: Bool?
+    let reason: String
+}
+
 private struct RuntimeCMixerChannelVoiceState: Equatable {
     let voiceIndex: Int
     let sample: PlaybackSample
@@ -569,8 +580,10 @@ private struct RuntimeCMixerAdapterVoiceState: Equatable {
     var gain: Float
     var pan: Float
     var sampleStep: Double
+    var volumeEnvelopePositionFrame: Int
     var lastGainPanUpdateFrame: UInt64?
     var lastStepUpdateFrame: UInt64?
+    var lastEnvelopePositionUpdateFrame: UInt64?
 }
 
 struct RuntimeCMixerReplacementVoiceState: Equatable {
@@ -642,6 +655,7 @@ enum RuntimeCMixerAppliedAdapterEventResult: Equatable {
     case noteTrigger(RuntimeCMixerTriggerResult)
     case gainPanUpdate(RuntimeCMixerUpdateResult)
     case stepUpdate(RuntimeCMixerUpdateResult)
+    case envelopePositionUpdate(RuntimeCMixerEnvelopePositionUpdateResult)
     case noteCut(RuntimeCMixerPlannedCutResult)
 }
 
@@ -1494,8 +1508,10 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             gain: event.gain,
             pan: event.pan,
             sampleStep: event.playbackStep,
+            volumeEnvelopePositionFrame: 0,
             lastGainPanUpdateFrame: nil,
-            lastStepUpdateFrame: nil
+            lastStepUpdateFrame: nil,
+            lastEnvelopePositionUpdateFrame: nil
         )
         adapterEventIndexByChannel[mapping.channelIndex] = eventIndex
         stoppedFrameByChannel.removeValue(forKey: mapping.channelIndex)
@@ -2359,6 +2375,86 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     @discardableResult
+    func applyAdapterEnvelopePositionUpdateWithDiagnostics(
+        channel: Int,
+        activeEventIndex: Int,
+        positionFrame: Int
+    ) -> RuntimeCMixerEnvelopePositionUpdateResult {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return applyAdapterEnvelopePositionUpdateWithDiagnosticsLocked(
+            channel: channel,
+            activeEventIndex: activeEventIndex,
+            positionFrame: positionFrame
+        )
+    }
+
+    private func applyAdapterEnvelopePositionUpdateWithDiagnosticsLocked(
+        channel: Int,
+        activeEventIndex: Int,
+        positionFrame: Int
+    ) -> RuntimeCMixerEnvelopePositionUpdateResult {
+        let snapshotBefore = snapshotLocked()
+        guard var voiceState = adapterVoiceStateByEventIndex[activeEventIndex] else {
+            return RuntimeCMixerEnvelopePositionUpdateResult(
+                channel: channel,
+                targetVoiceIndex: nil,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                requestedPositionFrame: positionFrame,
+                appliedPositionFrame: nil,
+                succeeded: nil,
+                reason: "runtime_c_mixer_adapter_plan_envelope_position_unmatched_active_voice"
+            )
+        }
+        guard positionFrame >= 0,
+              mixer.currentFrame <= UInt64(Int.max) else {
+            return RuntimeCMixerEnvelopePositionUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotBefore,
+                requestedPositionFrame: positionFrame,
+                appliedPositionFrame: nil,
+                succeeded: false,
+                reason: "runtime_c_mixer_adapter_plan_invalid_envelope_position_update"
+            )
+        }
+        let updateResult = mixer.scheduleVoiceVolumeEnvelopePositionUpdate(
+            voiceIndex: voiceState.voiceIndex,
+            scheduledFrame: Int(mixer.currentFrame),
+            positionFrame: positionFrame
+        )
+        guard updateResult.wasAccepted else {
+            return RuntimeCMixerEnvelopePositionUpdateResult(
+                channel: channel,
+                targetVoiceIndex: voiceState.voiceIndex,
+                snapshotBefore: snapshotBefore,
+                snapshotAfter: snapshotLocked(),
+                requestedPositionFrame: positionFrame,
+                appliedPositionFrame: nil,
+                succeeded: false,
+                reason: updateResult.rejectionReason?.rawValue ?? "runtime_c_mixer_adapter_plan_envelope_position_rejected"
+            )
+        }
+        voiceState.volumeEnvelopePositionFrame = positionFrame
+        voiceState.lastEnvelopePositionUpdateFrame = mixer.currentFrame
+        adapterVoiceStateByEventIndex[activeEventIndex] = voiceState
+        return RuntimeCMixerEnvelopePositionUpdateResult(
+            channel: channel,
+            targetVoiceIndex: voiceState.voiceIndex,
+            snapshotBefore: snapshotBefore,
+            snapshotAfter: snapshotLocked(),
+            requestedPositionFrame: positionFrame,
+            appliedPositionFrame: positionFrame,
+            succeeded: true,
+            reason: "runtime_c_mixer_adapter_plan_envelope_position_applied"
+        )
+    }
+
+    @discardableResult
     func applyAdapterNoteCutWithDiagnostics(
         channel: Int,
         activeEventIndex: Int?
@@ -2468,9 +2564,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     }
 
     private static func adapterEventPriority(_ event: RuntimeCMixerAdapterEvent) -> Int {
-        // Match the offline C mixer frame boundary: frame-stamped voice-state
-        // events are applied before voices render at that frame, then note
-        // starts become audible on the same sample.
+        // Match the offline C mixer frame boundary: state updates and same-cell
+        // note/Lxx ordering are resolved before voices render at that frame.
         switch event.action {
         case .gainPanUpdate, .stepUpdate:
             return 0
@@ -2478,6 +2573,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             return 1
         case .noteTrigger:
             return 2
+        case .envelopePositionUpdate:
+            return 3
         }
     }
 
@@ -3127,6 +3224,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 gainPanUpdateCount += 1
             case .stepUpdate:
                 stepUpdateCount += 1
+            case .envelopePositionUpdate:
+                break
             case .noteCut:
                 noteCutCount += 1
             }
@@ -3214,6 +3313,12 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
                 activeEventIndex: activeEventIndex,
                 playbackStep: playbackStep
             ))
+        case let .envelopePositionUpdate(activeEventIndex, positionFrame):
+            result = .envelopePositionUpdate(applyAdapterEnvelopePositionUpdateWithDiagnosticsLocked(
+                channel: queuedEvent.event.channelIndex,
+                activeEventIndex: activeEventIndex,
+                positionFrame: positionFrame
+            ))
         case let .noteCut(activeEventIndex):
             result = .noteCut(applyAdapterNoteCutWithDiagnosticsLocked(
                 channel: queuedEvent.event.channelIndex,
@@ -3225,7 +3330,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             adapterCurrentEventIndexBefore == adapterCurrentEventIndexAfter
         let sustainedVoiceUpdate: Bool
         switch queuedEvent.event.action {
-        case .gainPanUpdate, .stepUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .noteCut:
             sustainedVoiceUpdate = adapterActiveEventIndex != nil &&
                 adapterActiveEventIndex == adapterCurrentEventIndexBefore
         case .noteTrigger:
@@ -4065,7 +4170,7 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             effectType = event.effectType ?? mapping.effectType
             effectParam = event.effectParam ?? mapping.effectParam
             volumeColumn = mapping.volumeColumn.rawValue
-        case .gainPanUpdate, .stepUpdate, .noteCut:
+        case .gainPanUpdate, .stepUpdate, .envelopePositionUpdate, .noteCut:
             noteValue = nil
             instrumentIndex = nil
             effectType = event.effectType

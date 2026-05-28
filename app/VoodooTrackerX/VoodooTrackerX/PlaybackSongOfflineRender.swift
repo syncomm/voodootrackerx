@@ -396,6 +396,12 @@ final class PlaybackSongOfflineRenderSession {
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
         let voiceIndices = scheduledResults.map(\.voiceIndex)
+        PlaybackSongOfflineRenderer.scheduleEnvelopePositionUpdates(
+            adaptedPlan.diagnostics.envelopePositionEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
+        )
         PlaybackSongOfflineRenderer.scheduleVoiceStateUpdates(
             adaptedPlan.diagnostics.voiceStateUpdates,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
@@ -646,6 +652,14 @@ final class PlaybackSongOfflineRenderer {
                     voiceIndexByEventIndex[pair.offset] = voiceIndex
                 }
             }
+            Self.scheduleEnvelopePositionUpdates(
+                adaptedPlan.diagnostics.envelopePositionEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
+            )
             Self.scheduleVoiceStateUpdates(
                 adaptedPlan.diagnostics.voiceStateUpdates,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
@@ -875,6 +889,36 @@ final class PlaybackSongOfflineRenderer {
                 scheduledFrame: update.scheduledFrame - windowStartFrame,
                 gain: gain,
                 pan: pan
+            )
+        }
+    }
+
+    fileprivate static func scheduleEnvelopePositionUpdates(
+        _ diagnostics: [PlaybackSongSyntheticEnvelopePositionDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
+    ) {
+        for diagnostic in diagnostics where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
+                  let appliedPositionFrame = diagnostic.appliedPositionFrame else {
+                continue
+            }
+            guard diagnostic.scheduledFrame >= windowStartFrame else {
+                continue
+            }
+            if let windowEndFrame,
+               diagnostic.scheduledFrame >= windowEndFrame {
+                continue
+            }
+            _ = mixer.scheduleVoiceVolumeEnvelopePositionUpdate(
+                voiceIndex: voiceIndex,
+                scheduledFrame: diagnostic.scheduledFrame - windowStartFrame,
+                positionFrame: appliedPositionFrame
             )
         }
     }
@@ -1884,10 +1928,13 @@ final class PlaybackSongOfflineRenderer {
         guard fadeoutValue > 0 else {
             return nil
         }
-        let volumeEnvelopePosition = envelopePosition(
+        let volumeEnvelopePosition = volumeEnvelopePosition(
             for: event.volumeEnvelope,
-            keyedFrames: keyedFrames,
-            releasedFrames: releasedFrames
+            eventIndex: eventIndex,
+            plan: plan,
+            eventStartFrame: eventStartFrame,
+            boundaryFrame: boundaryFrame,
+            keyOffFrame: keyOffFrame
         )
         let panEnvelopePosition = envelopePosition(
             for: event.panEnvelope,
@@ -2068,6 +2115,98 @@ final class PlaybackSongOfflineRenderer {
             return 1
         }
         return max(0, 1 - (Float(releasedFrames) * decrementPerFrame))
+    }
+
+    private static func volumeEnvelopePosition(
+        for envelope: MixerEnvelope?,
+        eventIndex: Int,
+        plan: PlaybackSongSyntheticPlan,
+        eventStartFrame: Int,
+        boundaryFrame: Int,
+        keyOffFrame: Int?
+    ) -> Int {
+        guard let envelope,
+              !envelope.points.isEmpty,
+              boundaryFrame > eventStartFrame else {
+            return 0
+        }
+        var position = 0
+        var cursorFrame = eventStartFrame
+        for update in envelopePositionUpdates(for: eventIndex, plan: plan) {
+            guard update.scheduledFrame >= eventStartFrame,
+                  update.scheduledFrame < boundaryFrame,
+                  let appliedPositionFrame = update.appliedPositionFrame else {
+                continue
+            }
+            position = advanceEnvelopePosition(
+                position,
+                fromFrame: cursorFrame,
+                toFrame: update.scheduledFrame,
+                keyOffFrame: keyOffFrame,
+                envelope: envelope
+            )
+            position = clampedEnvelopePosition(appliedPositionFrame)
+            cursorFrame = update.scheduledFrame
+        }
+        return advanceEnvelopePosition(
+            position,
+            fromFrame: cursorFrame,
+            toFrame: boundaryFrame,
+            keyOffFrame: keyOffFrame,
+            envelope: envelope
+        )
+    }
+
+    private static func envelopePositionUpdates(
+        for eventIndex: Int,
+        plan: PlaybackSongSyntheticPlan
+    ) -> [PlaybackSongSyntheticEnvelopePositionDiagnostic] {
+        plan.diagnostics.envelopePositionEffects
+            .filter { $0.applied && $0.activeEventIndex == eventIndex }
+            .sorted { lhs, rhs in
+                if lhs.scheduledFrame != rhs.scheduledFrame {
+                    return lhs.scheduledFrame < rhs.scheduledFrame
+                }
+                if lhs.syntheticRow != rhs.syntheticRow {
+                    return lhs.syntheticRow < rhs.syntheticRow
+                }
+                return lhs.channelIndex < rhs.channelIndex
+            }
+    }
+
+    private static func advanceEnvelopePosition(
+        _ position: Int,
+        fromFrame: Int,
+        toFrame: Int,
+        keyOffFrame: Int?,
+        envelope: MixerEnvelope
+    ) -> Int {
+        guard toFrame > fromFrame else {
+            return position
+        }
+        if let keyOffFrame,
+           fromFrame < keyOffFrame,
+           toFrame > keyOffFrame {
+            let keyedPosition = advanceEnvelopePosition(
+                position,
+                frames: keyOffFrame - fromFrame,
+                keyOn: true,
+                envelope: envelope
+            )
+            return advanceEnvelopePosition(
+                keyedPosition,
+                frames: toFrame - keyOffFrame,
+                keyOn: false,
+                envelope: envelope
+            )
+        }
+        let keyOn = keyOffFrame.map { fromFrame < $0 } ?? true
+        return advanceEnvelopePosition(
+            position,
+            frames: toFrame - fromFrame,
+            keyOn: keyOn,
+            envelope: envelope
+        )
     }
 
     private static func envelopePosition(

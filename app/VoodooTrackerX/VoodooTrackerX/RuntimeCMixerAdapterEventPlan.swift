@@ -10,6 +10,7 @@ enum RuntimeCMixerAdapterEventAction: Equatable {
     case noteTrigger(eventIndex: Int, event: SyntheticTrackerEvent, mapping: PlaybackSongSyntheticEventMapping)
     case gainPanUpdate(activeEventIndex: Int, gain: Float?, pan: Float?)
     case stepUpdate(activeEventIndex: Int, playbackStep: Double)
+    case envelopePositionUpdate(activeEventIndex: Int, positionFrame: Int)
     case noteCut(activeEventIndex: Int?)
 }
 
@@ -58,7 +59,8 @@ struct RuntimeCMixerAdapterEvent: Equatable {
         case let .noteTrigger(eventIndex, _, _):
             return eventIndex
         case let .gainPanUpdate(activeEventIndex, _, _),
-             let .stepUpdate(activeEventIndex, _):
+             let .stepUpdate(activeEventIndex, _),
+             let .envelopePositionUpdate(activeEventIndex, _):
             return activeEventIndex
         case let .noteCut(activeEventIndex):
             return activeEventIndex
@@ -562,6 +564,28 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             }
         }
 
+        for diagnostic in adaptedPlan.diagnostics.envelopePositionEffects where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  let appliedPositionFrame = diagnostic.appliedPositionFrame else {
+                continue
+            }
+            events.append(RuntimeCMixerAdapterEvent(
+                id: nextID,
+                source: diagnostic.source,
+                channelIndex: diagnostic.channelIndex,
+                syntheticTick: diagnostic.syntheticTick,
+                scheduledFrame: diagnostic.scheduledFrame,
+                action: .envelopePositionUpdate(
+                    activeEventIndex: activeEventIndex,
+                    positionFrame: appliedPositionFrame
+                ),
+                categories: ["lxx_set_envelope_position", "envelope_position_update"],
+                effectType: diagnostic.effectType,
+                effectParam: diagnostic.effectParam
+            ))
+            nextID += 1
+        }
+
         for cut in adaptedPlan.diagnostics.noteCutEffects where cut.applied {
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
@@ -674,6 +698,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             return 1
         case .noteTrigger:
             return 2
+        case .envelopePositionUpdate:
+            return 3
         }
     }
 

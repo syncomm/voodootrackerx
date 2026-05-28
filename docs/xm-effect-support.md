@@ -61,7 +61,7 @@ external tracker feature completeness.
 | `Gxx` | Global volume | Supported / first-pass | Not applicable | Yes | Yes | Clamped `0...64` global-volume state. |
 | `Hxy` | Global volume slide | Supported / first-pass | `H00` no-op | Yes | Yes | Both-nibble parameters use diagnosed up-nibble precedence. |
 | `Kxx` | Key off | Supported / first-pass | Not applicable | Yes | Yes | Schedules the existing key-off/release path; `K00` releases at row start. |
-| `Lxx` | Set envelope position | Deferred | Deferred | No | No | Envelope position setting is a separate future foundation. |
+| `Lxx` | Set envelope position | Supported / first-pass | Not applicable | Yes | Yes | Effect-column `Lxx` sets the active mapped volume-envelope position; no-active and no-envelope cases are diagnosed no-ops. Panning-envelope behavior remains deferred. |
 | `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
 | `Rxy` | Multi retrigger | Supported / first-pass | `R00` deferred/no-op | Yes | Yes | Reuses the retrigger scheduler for active voices and applies a common-XM volume-change table with channel volume clamped to `0...64`. |
 | `Txy` | Tremor | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
@@ -101,7 +101,7 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 
 - `E0x` filter toggle.
 - Amiga frequency-table pitch behavior.
-- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, and
+- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Pxy`, and
   `Txy` in the default C mixer adapter path.
 - `X` subcommands other than `X1x` and `X2x`.
 - OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by

@@ -216,6 +216,9 @@ python3 scripts/focused-window-voice-timeline.py \
 Use these reports to classify the likely mismatch family: timing, traversal,
 pitch/sample-step, gain/headroom, panning/stereo, envelope/fadeout, loop,
 sample offset, retrigger, note cut/delay, unsupported effect, or unknown.
+Candidate diagnostics JSON includes `lxx_set_envelope_position_effects` for
+first-pass effect-column `Lxx` volume-envelope-position updates, including
+applied/no-active/no-envelope status and requested/applied envelope positions.
 
 ## Runtime Capture Checks
 

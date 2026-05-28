@@ -164,6 +164,8 @@ typedef struct {
     float pan;
     int update_sample_step;
     double sample_step;
+    int update_volume_envelope_position;
+    uint32_t volume_envelope_position_frame;
     int ramp_enabled;
     uint32_t ramp_frame_count;
     int deactivate_after_gain_ramp;
@@ -415,6 +417,16 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
     uint32_t voice_index,
     uint64_t scheduled_frame,
     double sample_step
+);
+
+// Schedules a generic volume-envelope position update for an existing offline
+// voice at an absolute output frame. Callers own any tracker-specific effect
+// decoding and clamping policy.
+VTXCMixerStatus vtx_c_mixer_schedule_voice_volume_envelope_position_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    uint32_t volume_envelope_position_frame
 );
 
 // Schedules a combined generic gain/pan/sample-step update for an existing

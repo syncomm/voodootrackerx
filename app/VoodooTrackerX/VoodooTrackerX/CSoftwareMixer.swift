@@ -637,6 +637,39 @@ final class CSoftwareMixer {
         return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
     }
 
+    /// Schedules an immediate volume-envelope position update for an existing offline voice.
+    ///
+    /// Higher-level adapters own XM envelope-position semantics; the C mixer receives only a
+    /// frame-stamped envelope cursor position.
+    @discardableResult
+    func scheduleVoiceVolumeEnvelopePositionUpdate(
+        voiceIndex: Int,
+        scheduledFrame: Int,
+        positionFrame: Int
+    ) -> CSoftwareMixerVoiceStateUpdateResult {
+        guard voiceIndex >= 0,
+              scheduledFrame >= 0,
+              positionFrame >= 0 else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: .invalidVoiceStateUpdate
+            )
+        }
+        let status = vtx_c_mixer_schedule_voice_volume_envelope_position_update(
+            &state,
+            UInt32(clamping: voiceIndex),
+            UInt64(clamping: scheduledFrame),
+            UInt32(clamping: positionFrame)
+        )
+        guard status == VTX_C_MIXER_STATUS_OK else {
+            return CSoftwareMixerVoiceStateUpdateResult(
+                wasAccepted: false,
+                rejectionReason: Self.voiceStateUpdateRejectionReason(for: status)
+            )
+        }
+        return CSoftwareMixerVoiceStateUpdateResult(wasAccepted: true, rejectionReason: nil)
+    }
+
     /// Schedules a generic combined gain/pan/sample-step update for an existing voice.
     ///
     /// Gain and pan use the same fixed C mixer micro-ramp as offline gain/pan updates. The sample-step

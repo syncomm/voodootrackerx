@@ -1135,6 +1135,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         try writeJSONArray("volume_column_mappings", diagnostics.volumeColumnMappings, firstKey: &firstKey, to: handle, transform: volumeColumnMappingCoverageJSON)
         try writeJSONArray("sample_offset_effects", diagnostics.sampleOffsetEffects, firstKey: &firstKey, to: handle, transform: sampleOffsetCoverageJSON)
         try writeJSONArray("set_finetune_effects", diagnostics.setFinetuneEffects, firstKey: &firstKey, to: handle, transform: setFinetuneCoverageJSON)
+        try writeJSONArray("lxx_set_envelope_position_effects", diagnostics.envelopePositionEffects, firstKey: &firstKey, to: handle, transform: envelopePositionCoverageJSON)
         try writeJSONArray("note_cut_effects", diagnostics.noteCutEffects, firstKey: &firstKey, to: handle, transform: noteCutCoverageJSON)
         try writeJSONArray("note_delay_effects", diagnostics.noteDelayEffects, firstKey: &firstKey, to: handle, transform: noteDelayCoverageJSON)
         try writeJSONArray("retrigger_effects", diagnostics.retriggerEffects, firstKey: &firstKey, to: handle, transform: retriggerCoverageJSON)
@@ -1243,6 +1244,32 @@ enum PlaybackSongDiagnosticsJSONExporter {
             deferred: diagnostic.deferred,
             ignoredAsNoOp: diagnostic.ignoredAsNoOp
         )
+    }
+
+    private static func envelopePositionCoverageJSON(_ diagnostic: PlaybackSongSyntheticEnvelopePositionDiagnostic) -> [String: Any] {
+        var object = baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: envelopePositionStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+        object["requested_position"] = diagnostic.requestedPosition
+        object["requested_position_frame"] = diagnostic.requestedPositionFrame
+        object["applied_position_frame"] = diagnostic.appliedPositionFrame.map { $0 as Any } ?? NSNull()
+        object["clamped"] = diagnostic.clamped
+        object["active_voice_found"] = diagnostic.activeVoiceFound
+        object["active_event_index"] = diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull()
+        object["active_event_mapping_index"] = diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull()
+        object["volume_envelope_status"] = diagnostic.volumeEnvelopeStatus.map(volumeEnvelopeStatusName) ?? "unknown"
+        object["source_volume_envelope_point_count"] = diagnostic.sourceVolumeEnvelopePointCount
+        object["mapped_volume_envelope_point_count"] = diagnostic.mappedVolumeEnvelopePointCount
+        object["policy"] = diagnostic.policy
+        return object
     }
 
     private static func noteCutCoverageJSON(_ diagnostic: PlaybackSongSyntheticNoteCutDiagnostic) -> [String: Any] {
@@ -1564,6 +1591,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let extraFinePortamentoUnsupportedSubcommandCount = diagnostics.extraFinePortamentoEffects.filter { $0.status == .unsupportedSubcommand }.count
         let extraFinePortamentoDeferredCount = diagnostics.extraFinePortamentoEffects.filter(\.deferred).count
         let extraFinePortamentoScheduledStepUpdateCount = diagnostics.extraFinePortamentoEffects.map(\.stepUpdates.count).reduce(0, +)
+        let lxxEnvelopePositionEffects = diagnostics.envelopePositionEffects
+        let lxxEnvelopePositionAppliedCount = lxxEnvelopePositionEffects.filter(\.applied).count
+        let lxxEnvelopePositionNoActiveVoiceCount = lxxEnvelopePositionEffects.filter { $0.status == .noActiveVoice }.count
+        let lxxEnvelopePositionNoEnvelopeCount = lxxEnvelopePositionEffects.filter { $0.status == .noEnvelope }.count
+        let lxxEnvelopePositionClampedCount = lxxEnvelopePositionEffects.filter(\.clamped).count
         let setFinetuneAppliedCount = diagnostics.setFinetuneEffects.filter(\.applied).count
         let setFinetuneNoNoteDeferredCount = diagnostics.setFinetuneEffects.filter { $0.status == .noNoteDeferred }.count
         let setFinetuneNoActiveVoiceCount = diagnostics.setFinetuneEffects.filter { $0.status == .noActiveVoice }.count
@@ -1722,6 +1754,23 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             ]
         }
+        let firstLxxCoordinates = Array(lxxEnvelopePositionEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "scheduled_frame": diagnostic.scheduledFrame,
+                "effect_type": Int(diagnostic.effectType),
+                "effect_param": Int(diagnostic.effectParam),
+                "effect_label": "Lxx set envelope position",
+                "status": envelopePositionStatusName(diagnostic.status),
+                "requested_position": diagnostic.requestedPosition,
+                "requested_position_frame": diagnostic.requestedPositionFrame,
+                "applied_position_frame": diagnostic.appliedPositionFrame.map { $0 as Any } ?? NSNull(),
+                "clamped": diagnostic.clamped,
+            ]
+        }
         let sameChannelVoiceLifetime = result.sameChannelVoiceLifetime
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         let traversalSummary = diagnostics.traversalSummary
@@ -1747,6 +1796,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 4xy vibrato uses deterministic linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory and volume-column vibrato remain deferred.",
             "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus its existing row-level volume-slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
             "Minimal Kxx key-off schedules the existing active voice release at the requested row tick; K00 releases at row start and no-active channels are diagnosed without inventing playback.",
+            "Minimal Lxx set-envelope-position applies effect-column Lxx to the active mapped volume envelope only; panning-envelope behavior remains deferred and no-active/no-envelope cases are diagnosed as no-ops.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx and tick-level Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
@@ -1914,6 +1964,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "xxy_extra_fine_portamento_deferred_count": extraFinePortamentoDeferredCount,
                 "xxy_extra_fine_portamento_scheduled_sample_step_update_count": extraFinePortamentoScheduledStepUpdateCount,
                 "first_xxy_extra_fine_portamento_coordinates": firstXxyCoordinates,
+                "lxx_set_envelope_position_effect_count": diagnostics.envelopePositionEffectCount,
+                "lxx_set_envelope_position_detected_count": diagnostics.envelopePositionEffectCount,
+                "lxx_set_envelope_position_applied_count": lxxEnvelopePositionAppliedCount,
+                "lxx_set_envelope_position_no_active_voice_count": lxxEnvelopePositionNoActiveVoiceCount,
+                "lxx_set_envelope_position_no_envelope_count": lxxEnvelopePositionNoEnvelopeCount,
+                "lxx_set_envelope_position_clamped_count": lxxEnvelopePositionClampedCount,
+                "first_lxx_set_envelope_position_coordinates": firstLxxCoordinates,
                 "e5x_set_finetune_effect_count": diagnostics.setFinetuneEffectCount,
                 "e5x_set_finetune_detected_count": diagnostics.setFinetuneEffectCount,
                 "e5x_set_finetune_applied_count": setFinetuneAppliedCount,
@@ -2095,6 +2152,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "e2x_fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "xxy_extra_fine_portamento_effects": diagnostics.extraFinePortamentoEffects.map(extraFinePortamentoDiagnosticJSON),
+            "lxx_set_envelope_position_effects": diagnostics.envelopePositionEffects.map(envelopePositionDiagnosticJSON),
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
             "vibrato_control_effects": diagnostics.vibratoControlEffects.map(vibratoControlDiagnosticJSON),
             "vibrato_volume_slide_6xy_effects": diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }.map(vibratoDiagnosticJSON),
@@ -4084,6 +4142,35 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func envelopePositionDiagnosticJSON(_ diagnostic: PlaybackSongSyntheticEnvelopePositionDiagnostic) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "scheduled_frame": diagnostic.scheduledFrame,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "status": envelopePositionStatusName(diagnostic.status),
+            "current_status": envelopePositionStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "requested_position": diagnostic.requestedPosition,
+            "requested_position_frame": diagnostic.requestedPositionFrame,
+            "applied_position_frame": diagnostic.appliedPositionFrame.map { $0 as Any } ?? NSNull(),
+            "clamped": diagnostic.clamped,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "volume_envelope_status": diagnostic.volumeEnvelopeStatus.map(volumeEnvelopeStatusName) ?? "unknown",
+            "source_volume_envelope_point_count": diagnostic.sourceVolumeEnvelopePointCount,
+            "mapped_volume_envelope_point_count": diagnostic.mappedVolumeEnvelopePointCount,
+            "policy": diagnostic.policy,
+        ]
+    }
+
     private static func noteCutDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticNoteCutDiagnostic,
         from result: PlaybackSongOfflineRenderResult
@@ -4819,6 +4906,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "deferred/unsupported_frequency_table"
         case .outOfRange:
             return "out_of_range"
+        }
+    }
+
+    private static func envelopePositionStatusName(_ status: PlaybackSongSyntheticEnvelopePositionDiagnostic.Status) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .noEnvelope:
+            return "no_envelope"
         }
     }
 

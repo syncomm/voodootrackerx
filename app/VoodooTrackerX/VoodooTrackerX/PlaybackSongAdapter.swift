@@ -34,6 +34,10 @@ enum PlaybackSongSyntheticAdapter {
         var activeSampleRelativeNote: Int?
         var activeSampleFinetune: Int?
         var activeUsesLinearFrequencyTable: Bool?
+        var activeVolumeEnvelopeStatus: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus?
+        var activeVolumeEnvelopeMaxFrame: Int?
+        var activeVolumeEnvelopeSourcePointCount = 0
+        var activeVolumeEnvelopeMappedPointCount = 0
         var tonePortamentoTargetNote: UInt8?
         var tonePortamentoTargetLinearPeriod: Double?
         var tonePortamentoTargetPlaybackStep: Double?
@@ -156,6 +160,10 @@ enum PlaybackSongSyntheticAdapter {
         state.activeSampleRelativeNote = nil
         state.activeSampleFinetune = nil
         state.activeUsesLinearFrequencyTable = nil
+        state.activeVolumeEnvelopeStatus = nil
+        state.activeVolumeEnvelopeMaxFrame = nil
+        state.activeVolumeEnvelopeSourcePointCount = 0
+        state.activeVolumeEnvelopeMappedPointCount = 0
         state.tonePortamentoTargetNote = nil
         state.tonePortamentoTargetLinearPeriod = nil
         state.tonePortamentoTargetPlaybackStep = nil
@@ -337,6 +345,7 @@ enum PlaybackSongSyntheticAdapter {
         var voiceStateUpdates = [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]()
         var sampleOffsetEffects = [PlaybackSongSyntheticSampleOffsetDiagnostic]()
         var setFinetuneEffects = [PlaybackSongSyntheticSetFinetuneDiagnostic]()
+        var envelopePositionEffects = [PlaybackSongSyntheticEnvelopePositionDiagnostic]()
         var noteCutEffects = [PlaybackSongSyntheticNoteCutDiagnostic]()
         var noteDelayEffects = [PlaybackSongSyntheticNoteDelayDiagnostic]()
         var retriggerEffects = [PlaybackSongSyntheticRetriggerDiagnostic]()
@@ -458,6 +467,7 @@ enum PlaybackSongSyntheticAdapter {
                 voiceStateUpdates: context.voiceStateUpdates,
                 sampleOffsetEffects: context.sampleOffsetEffects,
                 setFinetuneEffects: context.setFinetuneEffects,
+                envelopePositionEffects: context.envelopePositionEffects,
                 noteCutEffects: context.noteCutEffects,
                 noteDelayEffects: context.noteDelayEffects,
                 retriggerEffects: context.retriggerEffects,
@@ -570,6 +580,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasVibrato = isVibratoEffect(cell)
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasKxxKeyOff = isKxxKeyOffEffect(cell)
+            let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
@@ -881,6 +892,17 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventMappingIndex: channelState.activeEventMappingIndex
                     ))
                 }
+                if hasLxxSetEnvelopePosition {
+                    context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        timingConfig: timingConfig,
+                        channelState: channelState
+                    ))
+                }
                 context.channelStates[channelIndex] = channelState
                 continue
             }
@@ -951,6 +973,19 @@ enum PlaybackSongSyntheticAdapter {
                         deferredCellFields: &context.deferredCellFields,
                         eventCoverage: &context.eventCoverage
                     )
+                    context.channelStates[channelIndex] = channelState
+                    continue
+                }
+                if hasLxxSetEnvelopePosition {
+                    context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        timingConfig: timingConfig,
+                        channelState: channelState
+                    ))
                     context.channelStates[channelIndex] = channelState
                     continue
                 }
@@ -1050,6 +1085,17 @@ enum PlaybackSongSyntheticAdapter {
                     )
                     context.extraFinePortamentoEffects.append(diagnostic)
                 }
+                if hasLxxSetEnvelopePosition {
+                    context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        timingConfig: timingConfig,
+                        channelState: channelState
+                    ))
+                }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1125,6 +1171,17 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState
                     )
                     context.extraFinePortamentoEffects.append(diagnostic)
+                }
+                if hasLxxSetEnvelopePosition {
+                    context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        timingConfig: timingConfig,
+                        channelState: channelState
+                    ))
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1203,6 +1260,17 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState
                     )
                     context.extraFinePortamentoEffects.append(diagnostic)
+                }
+                if hasLxxSetEnvelopePosition {
+                    context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        scheduledFrame: scheduledStartFrame,
+                        timingConfig: timingConfig,
+                        channelState: channelState
+                    ))
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1557,6 +1625,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeSampleRelativeNote = sample.relativeNote
             channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
             channelState.activeUsesLinearFrequencyTable = song.usesLinearFrequencyTable
+            applyActiveVolumeEnvelopeMapping(envelopeMapping, to: &channelState)
             channelState.tonePortamentoTargetNote = nil
             channelState.tonePortamentoTargetLinearPeriod = nil
             channelState.tonePortamentoTargetPlaybackStep = nil
@@ -1618,6 +1687,17 @@ enum PlaybackSongSyntheticAdapter {
                 pitchMappingApplied: pitchMapping.applied,
                 pitchMappingUsedNeutralStep: pitchMapping.usedNeutralStep
             ))
+            if hasLxxSetEnvelopePosition {
+                context.envelopePositionEffects.append(envelopePositionDiagnostic(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    scheduledFrame: scheduledNoteFrame,
+                    timingConfig: timingConfig,
+                    channelState: channelState
+                ))
+            }
             if hasArpeggio {
                 let diagnostic = handleArpeggio(
                     from: cell,

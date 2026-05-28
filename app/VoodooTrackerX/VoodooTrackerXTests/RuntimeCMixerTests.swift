@@ -3,6 +3,45 @@ import AudioToolbox
 import XCTest
 
 final class RuntimeCMixerTests: XCTestCase {
+    func testRuntimeCMixerAdapterEventPlanReportsLxxEnvelopePositionMetadata() throws {
+        let envelope = makePlaybackVolumeEnvelope(points: [
+            PlaybackEnvelopePoint(tick: 0, value: 64),
+            PlaybackEnvelopePoint(tick: 1, value: 32),
+            PlaybackEnvelopePoint(tick: 2, value: 0),
+        ])
+        let sample = makePlaybackSample(
+            pcm: [1],
+            baseSampleRate: 100,
+            loopStart: 0,
+            loopLength: 1,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x15, effectParam: 0x02),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample], volumeEnvelope: envelope)],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let sameFrameEvents = plan.events.filter { $0.scheduledFrame == 0 }
+        let lxx = try XCTUnwrap(sameFrameEvents.first { $0.categories.contains("lxx_set_envelope_position") })
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("lxx_set_envelope_position"))
+        XCTAssertEqual(sameFrameEvents.map(\.primaryCategory), ["note_trigger", "lxx_set_envelope_position"])
+        XCTAssertEqual(lxx.effectType, 0x15)
+        XCTAssertEqual(lxx.effectParam, 0x02)
+        if case let .envelopePositionUpdate(activeEventIndex, positionFrame) = lxx.action {
+            XCTAssertEqual(activeEventIndex, 0)
+            XCTAssertEqual(positionFrame, 2)
+        } else {
+            XCTFail("Expected Lxx runtime event to bridge as envelope-position update")
+        }
+    }
+
     func testRuntimeCMixerAdapterEventPlanReportsE5xSetFinetuneMetadata() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

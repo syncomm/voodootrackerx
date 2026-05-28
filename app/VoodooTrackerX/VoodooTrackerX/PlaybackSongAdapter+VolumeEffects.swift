@@ -1,6 +1,8 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    static let lxxSetEnvelopePositionPolicy = "first_pass_volume_envelope_position_only"
+
     static func mixerSampleBuffer(
         for sample: PlaybackSample,
         cache: inout [MixerSampleBufferCacheKey: MixerSampleBuffer]
@@ -17,6 +19,96 @@ extension PlaybackSongSyntheticAdapter {
         let buffer = MixerSampleBuffer(monoPCM: sample.pcm)
         cache[key] = buffer
         return buffer
+    }
+
+    static func envelopePositionDiagnostic(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        scheduledFrame: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        channelState: ChannelState
+    ) -> PlaybackSongSyntheticEnvelopePositionDiagnostic {
+        let requestedPosition = Int(cell.effectParam)
+        let requestedPositionFrame = envelopePositionFrame(
+            requestedPosition: requestedPosition,
+            timingConfig: timingConfig
+        )
+        let activeVoiceFound = channelState.activeEventIndex != nil
+        let status: PlaybackSongSyntheticEnvelopePositionDiagnostic.Status
+        let appliedPositionFrame: Int?
+        let clamped: Bool
+        if !activeVoiceFound {
+            status = .noActiveVoice
+            appliedPositionFrame = nil
+            clamped = false
+        } else if channelState.activeVolumeEnvelopeStatus == .mapped,
+                  let maxFrame = channelState.activeVolumeEnvelopeMaxFrame {
+            let clampedFrame = min(max(0, requestedPositionFrame), maxFrame)
+            status = .applied
+            appliedPositionFrame = clampedFrame
+            clamped = clampedFrame != requestedPositionFrame
+        } else {
+            status = .noEnvelope
+            appliedPositionFrame = nil
+            clamped = false
+        }
+        return PlaybackSongSyntheticEnvelopePositionDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            detected: true,
+            applied: status == .applied,
+            deferred: false,
+            ignoredAsNoOp: status != .applied,
+            status: status,
+            requestedPosition: requestedPosition,
+            requestedPositionFrame: requestedPositionFrame,
+            appliedPositionFrame: appliedPositionFrame,
+            clamped: clamped,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            volumeEnvelopeStatus: channelState.activeVolumeEnvelopeStatus,
+            sourceVolumeEnvelopePointCount: channelState.activeVolumeEnvelopeSourcePointCount,
+            mappedVolumeEnvelopePointCount: channelState.activeVolumeEnvelopeMappedPointCount,
+            policy: lxxSetEnvelopePositionPolicy
+        )
+    }
+
+    static func envelopePositionFrame(
+        requestedPosition: Int,
+        timingConfig: SyntheticTrackerTimingConfig
+    ) -> Int {
+        let timing = SyntheticTrackerTiming(config: timingConfig)
+        guard timing.framesPerTick.isFinite,
+              timing.framesPerTick > 0 else {
+            return 0
+        }
+        let exactFrame = Double(max(0, requestedPosition)) * timing.framesPerTick
+        guard exactFrame.isFinite,
+              exactFrame > 0 else {
+            return 0
+        }
+        if exactFrame >= Double(Int(UInt32.max)) {
+            return Int(UInt32.max)
+        }
+        return Int(exactFrame.rounded(.down))
+    }
+
+    static func applyActiveVolumeEnvelopeMapping(
+        _ mapping: VolumeEnvelopeMapping,
+        to channelState: inout ChannelState
+    ) {
+        channelState.activeVolumeEnvelopeStatus = mapping.status
+        channelState.activeVolumeEnvelopeMaxFrame = mapping.envelope?.points.last?.positionFrame
+        channelState.activeVolumeEnvelopeSourcePointCount = mapping.sourcePointCount
+        channelState.activeVolumeEnvelopeMappedPointCount = mapping.mappedPointCount
     }
 
     static func voiceStateUpdate(

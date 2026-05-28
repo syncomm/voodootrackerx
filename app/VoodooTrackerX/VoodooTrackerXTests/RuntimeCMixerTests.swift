@@ -29,6 +29,31 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(diagnostic.status, .applied)
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsKxxKeyOffMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x01),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])], initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first { $0.categories.contains("note_trigger") })
+        let keyOff = try XCTUnwrap(try XCTUnwrap(plan.plan).diagnostics.keyOffEvents.first)
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("key_off"))
+        XCTAssertTrue(plan.categories.contains("kxx_key_off"))
+        XCTAssertTrue(noteTrigger.categories.contains("key_off"))
+        XCTAssertTrue(noteTrigger.categories.contains("kxx_key_off"))
+        XCTAssertEqual(noteTrigger.effectType, 0x14)
+        XCTAssertEqual(noteTrigger.effectParam, 0x01)
+        XCTAssertEqual(keyOff.effectType, 0x14)
+        XCTAssertEqual(keyOff.scheduledFrame, 5)
+    }
+
     func testRuntimeCMixerAdapterEventPlanReportsSampleOffset900MemoryMetadata() throws {
         let sample = makeRampPlaybackSample(frameCount: 300)
         let song = makePlaybackSong(

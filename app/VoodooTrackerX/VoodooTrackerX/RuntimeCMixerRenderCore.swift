@@ -4062,8 +4062,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         case let .noteTrigger(_, _, mapping):
             noteValue = mapping.note
             instrumentIndex = mapping.instrumentIndex
-            effectType = mapping.effectType
-            effectParam = mapping.effectParam
+            effectType = event.effectType ?? mapping.effectType
+            effectParam = event.effectParam ?? mapping.effectParam
             volumeColumn = mapping.volumeColumn.rawValue
         case .gainPanUpdate, .stepUpdate, .noteCut:
             noteValue = nil

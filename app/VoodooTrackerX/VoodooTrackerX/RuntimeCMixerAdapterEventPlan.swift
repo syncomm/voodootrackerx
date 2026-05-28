@@ -110,6 +110,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let eventMappingsByIndex = Dictionary(
             uniqueKeysWithValues: adaptedPlan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
         )
+        let keyOffDiagnosticsByEventIndex = Dictionary(
+            grouping: adaptedPlan.diagnostics.keyOffEvents.filter { $0.applied },
+            by: { $0.activeEventIndex ?? -1 }
+        )
         let appliedVibratoVolumeSlideEventIndices = Set(
             adaptedPlan.diagnostics.vibratoEffects
                 .filter { $0.effectType == 0x06 && $0.applied }
@@ -244,8 +248,12 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     )
                 }
             }
+            let keyOffDiagnostic = keyOffDiagnosticsByEventIndex[eventIndex]?.first
             if syntheticEvent.keyOffFrame != nil {
                 categories.append("key_off")
+                if keyOffDiagnostic?.effectType == 0x14 {
+                    categories.append("kxx_key_off")
+                }
             }
             let hasBridgedEffectMetadata = isSetFinetune ||
                 isFinePortamentoUp ||
@@ -256,7 +264,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isAxyVolumeSlide ||
                 isArpeggio ||
                 bridgedPortamentoSlide != nil ||
-                mapping.sampleOffset.applied
+                mapping.sampleOffset.applied ||
+                keyOffDiagnostic?.effectType == 0x14
+            let bridgedEffectType = keyOffDiagnostic?.effectType == 0x14 ? keyOffDiagnostic?.effectType : mapping.effectType
+            let bridgedEffectParam = keyOffDiagnostic?.effectType == 0x14 ? keyOffDiagnostic?.effectParam : mapping.effectParam
             events.append(RuntimeCMixerAdapterEvent(
                 id: nextID,
                 source: mapping.source,
@@ -265,8 +276,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 scheduledFrame: scheduler.frame(for: syntheticEvent),
                 action: .noteTrigger(eventIndex: eventIndex, event: syntheticEvent, mapping: mapping),
                 categories: categories,
-                effectType: hasBridgedEffectMetadata ? mapping.effectType : nil,
-                effectParam: hasBridgedEffectMetadata ? mapping.effectParam : nil
+                effectType: hasBridgedEffectMetadata ? bridgedEffectType : nil,
+                effectParam: hasBridgedEffectMetadata ? bridgedEffectParam : nil
             ))
             nextID += 1
         }

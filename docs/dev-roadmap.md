@@ -262,6 +262,19 @@ that group, but their source positions are before the loop start rather than in
 the loop interior. The next precise parity target should isolate dominant-sample
 PCM/resampler/pre-loop timbre before changing loop-interior, ramp, gain, or
 timing behavior.
+A stem/isolation diagnostics pass added local-only solo-channel,
+solo-instrument, and solo-sample filters to the bounded XM render helper while
+leaving normal playback and full renders unchanged. Local ft2-clone
+individual-track references for `xm-corpus-025` show the focused worst windows
+are carried by one-based tracker channels 5, 6, and 7, dominated by
+instrument/sample `23/0`. Those VTX solo channels are timing-aligned and highly
+correlated after local scalar normalization in the focused windows, but the
+dominant channels are about `4.5x` louder than the matching stems. This points
+at per-channel/per-sample level or PCM-scaling parity rather than a full-mix
+accumulation-only cause. A diagnostic windowed-isolation carryover bug was fixed
+with synthetic coverage; no normal playback behavior, C mixer DSP, XM effects,
+timing, panning, tracker viewport, runtime backend default, or parser
+architecture changed.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

@@ -233,6 +233,18 @@ resampler mode alone. Next work should favor focused resampler-window analysis
 or a separate SINC8 candidate experiment, with sample/instrument volume
 normalization kept as the level-focused fallback.
 A focused sample/instrument volume normalization pass kept behavior unchanged and documented the gain path: XM sample header volume `0...64` is normalized once into `PlaybackSample.volume`, note-trigger gain is `sample_volume * (channel_volume / 64) * (global_volume / 64)`, and the C mixer applies `event_gain * volume_envelope * fadeout` before panning. The confirmed primary ft2-clone linear profile was 48 kHz 32-bit float, 10x amplification, master volume 256, Linear interpolation, Linear frequency slides, volume ramping enabled, precise BPM disabled, and no individual track rendering. The current `xm-corpus-025` VTX-vs-ft2-linear comparison remains about `0.927530` correlation with `0.101857` raw RMS difference and `0.038170` gain-normalized RMS difference; VTX RMS is about `0.189161` versus ft2-clone linear RMS about `0.102128`. Same-channel replacement completion frames are now folded into local voice estimates, leaving the top windows at roughly 3-8 active voices and dominated by the same full-volume instrument/sample group. No double-normalization, instrument default-volume, channel/global-volume, envelope/fadeout, or many-simultaneous-voice gain bug was proven; the next focused parity target should isolate that dominant loop/timbre behavior rather than changing gain policy.
+A focused loop-crossing timbre microfixture pass kept behavior unchanged and
+confirmed the C mixer forward-loop path with synthetic discontinuous-boundary,
+smooth-boundary, fractional-overshoot, integer-wrap, high-frequency-loop,
+transient-loop, and split-render tests. Local `xm-corpus-025` evidence against
+the confirmed ft2-clone Linear profile still reports about `0.927530`
+correlation, `0.101857` raw RMS difference, and `0.038170` gain-normalized RMS
+difference. The latest top 12 windows are still dominated by the same looped
+instrument/sample group, but the loop-crossing diagnostics report zero estimated
+loop-boundary crossings in every top window. Loop endpoint/crossing behavior is
+therefore not a proven cause of the residual; the next precise parity target
+should be Replacement Ramp Shape / Timbre Parity or another dominant-sample
+timbre microfixture.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

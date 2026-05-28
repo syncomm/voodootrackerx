@@ -130,6 +130,18 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 }
                 .compactMap(\.activeEventIndex)
         )
+        let axyVolumeSlideMemoryReusedEventIndices = Set(
+            adaptedPlan.diagnostics.voiceStateUpdates
+                .filter { update in
+                    guard update.applied,
+                          update.effectMemoryReused,
+                          case .axyVolumeSlide = update.command else {
+                        return false
+                    }
+                    return true
+                }
+                .compactMap(\.activeEventIndex)
+        )
         let appliedArpeggioEventIndices = Set(
             adaptedPlan.diagnostics.arpeggioEffects
                 .filter(\.applied)
@@ -235,6 +247,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 appliedAxyVolumeSlideEventIndices.contains(eventIndex)
             if isAxyVolumeSlide {
                 categories.append("axy_volume_slide")
+                if axyVolumeSlideMemoryReusedEventIndices.contains(eventIndex) {
+                    categories.append("effect_memory_reused")
+                    categories.append("axy_volume_slide_memory_reused")
+                }
             }
             let isArpeggio = mapping.effectType == 0x00 &&
                 mapping.effectParam != 0 &&
@@ -309,6 +325,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("global_volume_update")
             case .axyVolumeSlide:
                 categories.append("axy_volume_slide")
+                if update.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    categories.append("axy_volume_slide_memory_reused")
+                }
             case .volumeColumn:
                 categories.append("volume_column_update")
             case .instrumentDefaultVolume:
@@ -319,6 +339,13 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("ebx_fine_volume_slide_down")
             case .effect5xyVolumeSlide:
                 categories.append("tone_portamento_volume_slide_5xy")
+                if update.effectMemoryReused {
+                    categories.append("effect_memory_reused")
+                    categories.append("tone_portamento_volume_slide_5xy_memory_reused")
+                    if update.effectParam == 0 {
+                        categories.append("tone_portamento_volume_slide_5xy_500_memory_reused")
+                    }
+                }
             case .effect6xyVolumeSlide:
                 categories.append("vibrato_volume_slide_6xy")
             default:

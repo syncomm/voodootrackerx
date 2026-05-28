@@ -555,6 +555,10 @@ extension PlaybackSongSyntheticAdapter {
         if cell.effectType == 0x06 {
             return channelState.vibratoSpeed == nil || channelState.vibratoDepth == nil
         }
+        if (cell.effectType == 0x0A || cell.effectType == 0x05),
+           cell.effectParam == 0 {
+            return channelState.volumeSlideMemory == nil
+        }
         return hasDeferredEffect(cell)
     }
 

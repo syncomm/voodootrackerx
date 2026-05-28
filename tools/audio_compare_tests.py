@@ -2068,6 +2068,58 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(summary["summary"]["effect_memory_reused_count"], 1)
         self.assertEqual(summary["summary"]["effect_memory_missing_count"], 1)
 
+    def test_effect_coverage_summary_uses_volume_slide_memory_diagnostics(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                {
+                    **traversal_effect(0x0A, 0x00, "Axy volume slide", row=0, channel=0, status="ignored/no-op"),
+                    "source": {"order": 0, "pattern": 0, "row": 0},
+                },
+                {
+                    **traversal_effect(0x0A, 0x00, "Axy volume slide", row=2, channel=0, status="ignored/no-op"),
+                    "source": {"order": 0, "pattern": 0, "row": 2},
+                },
+            ],
+            "volume_panning_state_updates": [
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 0},
+                    "channel_index": 0,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x0A,
+                    "effect_param": 0x00,
+                    "status": "ignored/no-op",
+                    "applied": False,
+                    "ignored_as_no_op": True,
+                    "effect_memory_reused": False,
+                    "effect_memory_missing": True,
+                    "memory_unavailable_reason": "missing_axy_volume_slide_memory",
+                },
+                {
+                    "source": {"order": 0, "pattern": 0, "row": 2},
+                    "channel_index": 0,
+                    "synthetic_tick": 1,
+                    "effect_type": 0x0A,
+                    "effect_param": 0x00,
+                    "status": "applied",
+                    "applied": True,
+                    "ignored_as_no_op": False,
+                    "effect_memory_reused": True,
+                    "effect_memory_missing": False,
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        row = {item["command"]: item for item in summary["effect_coverage"]}["Axy volume slide"]
+
+        self.assertEqual(row["detected_count"], 2)
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(row["effect_memory_reused_count"], 1)
+        self.assertEqual(row["effect_memory_missing_count"], 1)
+
     def test_effect_coverage_summary_handles_unknown_high_effect_bytes_safely(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())

@@ -91,8 +91,10 @@ trigger with the row-level adjusted channel volume. Empty-note nonzero
 while `EA0`/`EB0` remain effect-memory-deferred no-ops.
 Same-cell nonzero `Axy` note triggers keep effect metadata and trigger once at
 the tick-0 channel volume. The Swift adapter then emits `Axy` gain updates on
-ticks `1...(speed - 1)` for the row, with `A00` remaining a no-op and mixed
-nibbles using the MikMod-observed up-nibble precedence policy.
+ticks `1...(speed - 1)` for the row. Nonzero Axy-style volume slides store
+per-channel memory, `A00` replays that memory when available, and missing
+memory remains a diagnosed no-op/deferred case. Mixed nibbles keep the
+MikMod-observed up-nibble precedence policy.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
@@ -107,7 +109,8 @@ missing portamento memory remains diagnosed as effect-memory-deferred/no-op.
 sample-step updates and the `Axy` tick-level volume-slide policy for gain
 updates. Same-cell note `5xy` rows set the tone-portamento target without
 retriggering, empty-note rows continue an existing target when available, and
-`500` keeps volume-slide memory as a diagnosed no-op/deferred case.
+`500` reuses shared Axy-style volume-slide memory when available. Missing
+`500` volume-slide memory remains a diagnosed no-op/deferred case.
 Same-cell nonzero `6xy` note triggers keep effect metadata and trigger with the
 row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
 vibrato memory for sample-step updates and use the existing row-start gain

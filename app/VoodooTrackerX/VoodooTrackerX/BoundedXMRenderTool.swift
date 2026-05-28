@@ -1581,6 +1581,39 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let axyNoActiveVoiceCount = axyVolumeSlides.filter(isAxyVolumeSlideNoActiveVoice).count
         let axyScheduledGainUpdateCount = axyVolumeSlides.filter(isChangedGainStateUpdate).count
         let axyTickLevelUpdateCount = axyVolumeSlides.filter { $0.applied && $0.syntheticTick > 0 }.count
+        func stateUpdateCoordinateKey(_ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> String {
+            "\(update.source.orderIndex):\(update.source.patternIndex):\(update.source.rowIndex):\(update.channelIndex)"
+        }
+        func firstStateUpdateCoordinate(
+            _ updates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
+        ) -> [String: Any]? {
+            updates.first.map { update in
+                [
+                    "source": positionJSON(update.source),
+                    "channel_index": update.channelIndex,
+                    "synthetic_row": update.syntheticRow,
+                    "synthetic_tick": update.syntheticTick,
+                    "scheduled_frame": update.scheduledFrame,
+                ]
+            }
+        }
+        let axyA00Updates = axyVolumeSlides.filter { $0.effectParam == 0 }
+        let axyA00MemoryReusedUpdates = axyA00Updates.filter(\.effectMemoryReused)
+        let axyA00MemoryMissingUpdates = axyA00Updates.filter(\.effectMemoryMissing)
+        let axyA00MemoryReusedCount = Set(axyA00MemoryReusedUpdates.map(stateUpdateCoordinateKey)).count
+        let axyA00MemoryMissingCount = Set(axyA00MemoryMissingUpdates.map(stateUpdateCoordinateKey)).count
+        let axyA00DetectedCount = axyEffectDiagnostics.filter { $0.effectParam == 0 }.count
+        let axyA00AppliedCount = axyA00MemoryReusedCount
+        let axyA00NoOpCount = axyA00MemoryMissingCount
+        let axyMemoryReusedGainUpdateCount = axyA00MemoryReusedUpdates.filter(isChangedGainStateUpdate).count
+        let axyMemoryMissingCoordinates = firstStateUpdateCoordinate(axyA00MemoryMissingUpdates)
+        let axyMemoryReusedCoordinates = firstStateUpdateCoordinate(axyA00MemoryReusedUpdates)
+        let fiveXY500Updates = tonePortamento5xyVolumeSlides.filter { $0.effectParam == 0 }
+        let fiveXY500MemoryReusedUpdates = fiveXY500Updates.filter(\.effectMemoryReused)
+        let fiveXY500MemoryMissingUpdates = fiveXY500Updates.filter(\.effectMemoryMissing)
+        let fiveXY500MemoryReusedCount = Set(fiveXY500MemoryReusedUpdates.map(stateUpdateCoordinateKey)).count
+        let fiveXY500MemoryMissingCount = Set(fiveXY500MemoryMissingUpdates.map(stateUpdateCoordinateKey)).count
+        let fiveXY500MemoryReusedGainUpdateCount = fiveXY500MemoryReusedUpdates.filter(isChangedGainStateUpdate).count
         let axyTick0SuppressedCount = axyEffectDiagnostics.filter {
             $0.status == .applied && $0.effectParam != 0
         }.count
@@ -1879,7 +1912,18 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "axy_tick_level_updates": axyTickLevelUpdateCount,
                 "axy_tick0_suppressed": axyTick0SuppressedCount,
                 "axy_tick0_suppressed_count": axyTick0SuppressedCount,
+                "axy_a00_detected_count": axyA00DetectedCount,
+                "axy_a00_applied_count": axyA00AppliedCount,
+                "axy_a00_no_op_count": axyA00NoOpCount,
+                "axy_volume_slide_memory_reused_count": axyA00MemoryReusedCount,
+                "axy_volume_slide_memory_missing_count": axyA00MemoryMissingCount,
+                "axy_volume_slide_memory_reused_gain_update_count": axyMemoryReusedGainUpdateCount,
+                "first_axy_volume_slide_memory_reused_coordinates": axyMemoryReusedCoordinates ?? NSNull(),
+                "first_axy_volume_slide_memory_missing_coordinates": axyMemoryMissingCoordinates ?? NSNull(),
                 "axy_mixed_nibble_policy": axyMixedNibblePolicy,
+                "tone_portamento_volume_slide_5xy_500_memory_reused_count": fiveXY500MemoryReusedCount,
+                "tone_portamento_volume_slide_5xy_500_memory_missing_count": fiveXY500MemoryMissingCount,
+                "tone_portamento_volume_slide_5xy_500_memory_reused_gain_update_count": fiveXY500MemoryReusedGainUpdateCount,
                 "eax_fine_volume_slide_up_effect_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_detected_count": eaxFineVolumeSlides.count,
                 "eax_fine_volume_slide_up_applied_count": eaxFineVolumeSlideAppliedCount,
@@ -3359,6 +3403,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "scheduled_frame": update.scheduledFrame,
             ]
         }
+        func stateUpdateCoordinateKey(_ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic) -> String {
+            "\(update.source.orderIndex):\(update.source.patternIndex):\(update.source.rowIndex):\(update.channelIndex)"
+        }
+        let axyA00Updates = axyUpdates.filter { $0.effectParam == 0 }
+        let axyA00MemoryReused = axyA00Updates.filter(\.effectMemoryReused)
+        let axyA00MemoryMissing = axyA00Updates.filter(\.effectMemoryMissing)
+        let fiveXY500Updates = updates.filter { update in
+            is5xyVolumeSlideUpdate(update) && update.effectParam == 0
+        }
+        let fiveXY500MemoryReused = fiveXY500Updates.filter(\.effectMemoryReused)
+        let fiveXY500MemoryMissing = fiveXY500Updates.filter(\.effectMemoryMissing)
         let axyMixedNibblePolicy = axyUpdates.first {
             $0.volumeSlideBothNibblesNonzero == true
         }?.volumeSlidePolicy ?? "up_nibble_precedence_mikmod_observed"
@@ -3422,6 +3477,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 $0.applied && isAxyVolumeSlideUpdate($0) && $0.syntheticTick > 0
             },
             "axy_tick0_suppressed": axyTick0SuppressedCoordinateCount,
+            "axy_a00_detected": Set(axyA00Updates.map(stateUpdateCoordinateKey)).count,
+            "axy_a00_applied": Set(axyA00MemoryReused.map(stateUpdateCoordinateKey)).count,
+            "axy_a00_no_op": Set(axyA00MemoryMissing.map(stateUpdateCoordinateKey)).count,
+            "axy_volume_slide_memory_reused": Set(axyA00MemoryReused.map(stateUpdateCoordinateKey)).count,
+            "axy_volume_slide_memory_missing": Set(axyA00MemoryMissing.map(stateUpdateCoordinateKey)).count,
+            "axy_volume_slide_memory_reused_gain_update_count": count {
+                isAxyVolumeSlideUpdate($0) && $0.effectParam == 0 && $0.effectMemoryReused && isChangedGainStateUpdate($0)
+            },
             "axy_mixed_nibble_policy": axyMixedNibblePolicy,
             "first_axy_coordinates": firstAxyCoordinates.map { $0 as Any } ?? NSNull(),
             "eax_fine_volume_slide_up_applied": count {
@@ -3465,6 +3528,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             },
             "tone_portamento_volume_slide_5xy_zero_param_effect_memory_deferred": count {
                 is5xyVolumeSlideUpdate($0) && is5xyVolumeSlideZeroParamNoOp($0)
+            },
+            "tone_portamento_volume_slide_5xy_500_memory_reused": Set(fiveXY500MemoryReused.map(stateUpdateCoordinateKey)).count,
+            "tone_portamento_volume_slide_5xy_500_memory_missing": Set(fiveXY500MemoryMissing.map(stateUpdateCoordinateKey)).count,
+            "tone_portamento_volume_slide_5xy_500_memory_reused_gain_update_count": count {
+                is5xyVolumeSlideUpdate($0) && $0.effectParam == 0 && $0.effectMemoryReused && isChangedGainStateUpdate($0)
             },
             "tone_portamento_volume_slide_5xy_scheduled_gain_update_count": count {
                 is5xyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
@@ -3720,6 +3788,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "applied": update.applied,
             "deferred": update.deferred,
             "ignored_as_no_op": update.ignoredAsNoOp,
+            "effect_memory_reused": update.effectMemoryReused,
+            "effect_memory_missing": update.effectMemoryMissing,
+            "effect_memory_deferred": update.effectMemoryDeferred,
+            "memory_source": update.memorySource.map(effectMemorySourceJSON) ?? NSNull(),
+            "memory_source_effect_type": update.memorySource.map { Int($0.effectType) as Any } ?? NSNull(),
+            "memory_source_effect_param": update.memorySource.map { Int($0.effectParam) as Any } ?? NSNull(),
+            "memory_target_effect_type": update.effectType.map { Int($0) as Any } ?? NSNull(),
+            "memory_target_effect_param": update.effectParam.map { Int($0) as Any } ?? NSNull(),
+            "memory_unavailable_reason": update.memoryUnavailableReason.map { $0 as Any } ?? NSNull(),
             "active_voice_updated": update.activeVoiceUpdated,
             "gain_pan_ramp_enabled": update.activeVoiceUpdated && (update.gainBefore != update.gainAfter || update.panBefore != update.panAfter),
             "gain_pan_ramp_frame_count": CSoftwareMixer.gainPanUpdateRampFrameCount,
@@ -3767,6 +3844,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["axy_tick_level_update"] = update.applied && update.syntheticTick > 0
             object["axy_tick0_suppressed"] = update.volumeSlideTick0Suppressed.map { $0 as Any } ?? NSNull()
             object["axy_mixed_nibble_policy"] = policy
+            object["axy_volume_slide_memory_reused"] = update.effectMemoryReused
+            object["axy_volume_slide_memory_missing"] = update.effectMemoryMissing
+            object["memory_volume_slide_direction"] = update.effectMemoryReused ? object["volume_slide_direction"] ?? "none" : NSNull()
+            object["memory_volume_slide_amount"] = update.effectMemoryReused ? object["volume_slide_amount"] ?? 0 : NSNull()
             object["axy_volume_before_tick"] = update.effectiveVolumeBefore.map { $0 as Any } ?? NSNull()
             object["axy_volume_after_tick"] = update.effectiveVolumeAfter.map { $0 as Any } ?? NSNull()
             object["scheduled_gain_update_count"] = isChangedGainStateUpdate(update) ? 1 : 0
@@ -3799,6 +3880,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["volume_slide_tick0_suppressed"] = update.volumeSlideTick0Suppressed.map { $0 as Any } ?? NSNull()
             object["volume_slide_row_speed"] = update.volumeSlideRowSpeed.map { $0 as Any } ?? NSNull()
             object["effect_memory_deferred"] = update.ignoredAsNoOp && up == 0 && down == 0
+            object["tone_portamento_volume_slide_5xy_memory_reused"] = update.effectMemoryReused
+            object["tone_portamento_volume_slide_5xy_memory_missing"] = update.effectMemoryMissing
+            object["tone_portamento_volume_slide_5xy_500_memory_reused"] = update.effectParam == 0 && update.effectMemoryReused
+            object["memory_volume_slide_direction"] = update.effectMemoryReused ? object["volume_slide_direction"] ?? "none" : NSNull()
+            object["memory_volume_slide_amount"] = update.effectMemoryReused ? object["volume_slide_amount"] ?? 0 : NSNull()
             object["no_active_voice"] = is5xyVolumeSlideNoActiveVoice(update)
             object["scheduled_gain_update_count"] = isChangedGainStateUpdate(update) ? 1 : 0
         case let .effect6xyVolumeSlide(up, down):

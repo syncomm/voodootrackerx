@@ -76,6 +76,23 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertEqual(buckets["unknown"].count("wxx_count"), 1)
         self.assertEqual(scan.recommend_next_pr(group), "Minimal Xxy Extra Fine Portamento")
 
+    def test_recommendation_treats_axy_memory_as_completed_foundation(self):
+        scan = load_module()
+        group = scan.ScanGroup("linear")
+        group.bucket("axy").add(
+            "xm-corpus-001",
+            scan.Coordinate("xm-corpus-001", 0, 0, 0, 0, "linear"),
+            metric="a00_reuse_if_implemented_count",
+            amount=1000,
+        )
+        group.bucket("xxy").add(
+            "xm-corpus-002",
+            scan.Coordinate("xm-corpus-002", 0, 0, 0, 0, "linear"),
+        )
+
+        self.assertEqual(scan.recommend_next_pr(group), "Minimal Xxy Extra Fine Portamento")
+        self.assertIn("A00 replay", scan.status_note("axy", {}))
+
     def test_amiga_scan_keeps_pitch_residuals_in_foundation_bucket(self):
         scan = load_module()
         module = scan.ModuleData(

@@ -707,18 +707,12 @@ def recommend_next_pr(linear_group: ScanGroup) -> str:
     xxy = linear_group.bucket("xxy").count()
     volume_f = linear_group.bucket("vol_f").count()
     tremolo = linear_group.bucket("7xy").count("7xy_count")
-    axy_reuse = linear_group.bucket("axy").count("a00_reuse_if_implemented_count")
-    three_reuse = linear_group.bucket("3xx").count("zero_300_memory_reuse_count")
     lxx = linear_group.bucket("lxx").count()
 
-    if volume_f > xxy and volume_f >= max(25, tremolo, axy_reuse, three_reuse):
+    if volume_f > xxy and volume_f >= max(25, tremolo):
         return "Volume-Column Tone Portamento Foundation"
-    if tremolo > xxy and tremolo >= max(25, volume_f, axy_reuse, three_reuse):
+    if tremolo > xxy and tremolo >= max(25, volume_f):
         return "Minimal 7xy Tremolo Foundation"
-    if axy_reuse > xxy and axy_reuse >= max(25, volume_f, tremolo, three_reuse):
-        return "Axy Volume-Slide Memory"
-    if three_reuse > xxy and three_reuse >= max(25, volume_f, tremolo, axy_reuse):
-        return "3xx Tone-Portamento Memory"
     if xxy > 0:
         return "Minimal Xxy Extra Fine Portamento"
     if lxx > 0:
@@ -827,10 +821,10 @@ def three_xx_status(counts: dict[str, Any]) -> str:
 def axy_status(counts: dict[str, Any]) -> str:
     return (
         f"A00={counts.get('a00_count', 0)}, nonzero={counts.get('nonzero_axy_count', 0)}, "
-        f"A00 reuse-if-implemented={counts.get('a00_reuse_if_implemented_count', 0)}, "
+        f"A00 reuse-candidates={counts.get('a00_reuse_if_implemented_count', 0)}, "
         f"missing={counts.get('missing_memory_count', 0)}, "
-        f"no-active/no-op={counts.get('no_active_no_op_count', 0)}, "
-        f"active/no-op={counts.get('active_no_op_count', 0)}, mixed={counts.get('mixed_nibble_count', 0)}"
+        f"baseline no-active/no-op={counts.get('no_active_no_op_count', 0)}, "
+        f"baseline active/no-op={counts.get('active_no_op_count', 0)}, mixed={counts.get('mixed_nibble_count', 0)}"
     )
 
 
@@ -873,7 +867,8 @@ def fivexy_status(counts: dict[str, Any]) -> str:
     return (
         f"detected={counts.get('detected_count', 0)}, applied={counts.get('applied_count', 0)}, "
         f"no-active={counts.get('no_active_count', 0)}, no-target={counts.get('no_target_count', 0)}, "
-        f"no-speed={counts.get('no_speed_count', 0)}, 500/no-op={counts.get('zero_volume_slide_no_op_count', 0)}, "
+        f"no-speed={counts.get('no_speed_count', 0)}, "
+        f"500 memory-candidates={counts.get('zero_volume_slide_no_op_count', 0)}, "
         f"Amiga/unsupported={counts.get('unsupported_frequency_table_count', 0)}"
     )
 
@@ -903,14 +898,16 @@ def status_note(key: str, counts: dict[str, Any]) -> str:
     if key == "3xx":
         return "Supported first-pass; zero-param memory evidence is classified separately."
     if key == "axy":
-        return "Nonzero Axy supported first-pass; A00 memory remains no-op/deferred."
+        return "Supported first-pass; A00 replay should appear as applied/memory-reused in adapter diagnostics."
     if key == "7xy":
         return "Deferred; E7x control should travel with tremolo if promoted."
     if key in {"vol_a", "vol_b"}:
         return "Deferred volume-column vibrato diagnostics only."
     if key == "vol_f":
         return "Deferred volume-column tone portamento diagnostics only."
-    if key in {"rxy", "kxx", "5xy"}:
+    if key == "5xy":
+        return "Supported first-pass; 500 replay should appear as applied/memory-reused in adapter diagnostics."
+    if key in {"rxy", "kxx"}:
         return "Supported first-pass; residuals are applied/no-active/no-op/out-of-row classifications."
     if key == "unknown":
         return "Classification-only; no playback work recommended without a concrete target."

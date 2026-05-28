@@ -2565,6 +2565,98 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(effects.contains { $0["effect_label"] as? String == "Hxy global volume slide" && $0["status"] as? String == "applied" })
     }
 
+    func testDiagnosticsJSONIncludesAxyVolumeSlideMemoryFields() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 64),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let song = PlaybackSong(
+            title: "axy-volume-slide-memory",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x00)
+                    ]),
+                    PlaybackRow(index: 1, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01)
+                    ]),
+                    PlaybackRow(index: 2, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x00)
+                    ]),
+                    PlaybackRow(index: 3, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x05, effectParam: 0x02)
+                    ]),
+                    PlaybackRow(index: 4, cells: [
+                        PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x05, effectParam: 0x00)
+                    ]),
+                ])
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 10
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let summary = try XCTUnwrap(object["volume_panning_state_update_summary"] as? [String: Any])
+        let updates = try XCTUnwrap(object["volume_panning_state_updates"] as? [[String: Any]])
+        let missingA00 = try XCTUnwrap(updates.first {
+            ($0["command_name"] as? String) == "axyVolumeSlide" &&
+                ($0["effect_param"] as? Int) == 0 &&
+                ($0["effect_memory_missing"] as? Bool) == true
+        })
+        let reusedA00 = try XCTUnwrap(updates.first {
+            ($0["command_name"] as? String) == "axyVolumeSlide" &&
+                ($0["effect_param"] as? Int) == 0 &&
+                ($0["effect_memory_reused"] as? Bool) == true
+        })
+        let reused500 = try XCTUnwrap(updates.first {
+            ($0["command_name"] as? String) == "effect5xyVolumeSlide" &&
+                ($0["effect_param"] as? Int) == 0 &&
+                ($0["effect_memory_reused"] as? Bool) == true
+        })
+        let source = try XCTUnwrap(reusedA00["memory_source"] as? [String: Any])
+        let sourcePosition = try XCTUnwrap(source["source"] as? [String: Any])
+
+        XCTAssertEqual(render["axy_a00_detected_count"] as? Int, 2)
+        XCTAssertEqual(render["axy_a00_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_a00_no_op_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_memory_reused_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_memory_missing_count"] as? Int, 1)
+        XCTAssertEqual(render["axy_volume_slide_memory_reused_gain_update_count"] as? Int, 1)
+        XCTAssertEqual(render["tone_portamento_volume_slide_5xy_500_memory_reused_count"] as? Int, 1)
+        XCTAssertEqual(render["tone_portamento_volume_slide_5xy_500_memory_missing_count"] as? Int, 0)
+        XCTAssertEqual(summary["axy_a00_detected"] as? Int, 2)
+        XCTAssertEqual(summary["axy_a00_applied"] as? Int, 1)
+        XCTAssertEqual(summary["axy_a00_no_op"] as? Int, 1)
+        XCTAssertEqual(summary["tone_portamento_volume_slide_5xy_500_memory_reused"] as? Int, 1)
+        XCTAssertEqual(missingA00["effect_memory_deferred"] as? Bool, true)
+        XCTAssertEqual(missingA00["memory_unavailable_reason"] as? String, "missing_axy_volume_slide_memory")
+        XCTAssertEqual(reusedA00["axy_volume_slide_memory_reused"] as? Bool, true)
+        XCTAssertEqual(reusedA00["volume_slide_direction"] as? String, "down")
+        XCTAssertEqual(reusedA00["memory_volume_slide_amount"] as? Int, 1)
+        XCTAssertEqual(reusedA00["memory_source_effect_type"] as? Int, 0x0A)
+        XCTAssertEqual(reusedA00["memory_source_effect_param"] as? Int, 0x01)
+        XCTAssertEqual(sourcePosition["row"] as? Int, 1)
+        XCTAssertEqual(reused500["tone_portamento_volume_slide_5xy_500_memory_reused"] as? Bool, true)
+        XCTAssertEqual(reused500["memory_volume_slide_amount"] as? Int, 2)
+        XCTAssertNotNil(render["first_axy_volume_slide_memory_reused_coordinates"])
+        XCTAssertNotNil(render["first_axy_volume_slide_memory_missing_coordinates"])
+    }
+
     func testDiagnosticsJSONIncludesEAxAndEBxFineVolumeSlides() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

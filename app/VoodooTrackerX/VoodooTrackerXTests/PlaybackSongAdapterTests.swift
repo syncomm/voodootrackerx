@@ -6442,19 +6442,155 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(update.command, .axyVolumeSlide(up: 0, down: 0))
         XCTAssertEqual(update.effectiveVolumeBefore, 32)
         XCTAssertEqual(update.effectiveVolumeAfter, 32)
-        XCTAssertEqual(update.volumeSlidePolicy, "a00_no_effect_memory_no_op")
+        XCTAssertEqual(update.volumeSlidePolicy, "a00_no_volume_slide_memory_no_op")
+        XCTAssertEqual(update.effectMemoryMissing, true)
+        XCTAssertEqual(update.effectMemoryDeferred, true)
+        XCTAssertEqual(update.memoryUnavailableReason, "missing_axy_volume_slide_memory")
         XCTAssertFalse(update.activeVoiceUpdated)
     }
 
-    func testPlaybackSongAdapterAxyWindowedAndSplitRendersRemainDeterministic() throws {
+    func testPlaybackSongAdapterA00ReusesPriorAxyVolumeSlideMemory() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01),
+                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x00),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let updates = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .filter { $0.effectType == 0x0A }
+        let memoryUpdates = updates.filter { $0.effectParam == 0 }
+
+        XCTAssertEqual(updates.map(\.syntheticTick), [1, 2, 1, 2])
+        XCTAssertEqual(memoryUpdates.map(\.scheduledFrame), [4, 5])
+        XCTAssertTrue(memoryUpdates.allSatisfy(\.applied))
+        XCTAssertTrue(memoryUpdates.allSatisfy(\.activeVoiceUpdated))
+        XCTAssertTrue(memoryUpdates.allSatisfy(\.effectMemoryReused))
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.command == .axyVolumeSlide(up: 0, down: 1) })
+        XCTAssertEqual(memoryUpdates.map(\.effectiveVolumeBefore), [30, 29])
+        XCTAssertEqual(memoryUpdates.map(\.effectiveVolumeAfter), [29, 28])
+        XCTAssertEqual(memoryUpdates.first?.memorySource?.source.rowIndex, 0)
+        XCTAssertEqual(memoryUpdates.first?.memorySource?.effectType, 0x0A)
+        XCTAssertEqual(memoryUpdates.first?.memorySource?.effectParam, 0x01)
+    }
+
+    func testPlaybackSongAdapterA00VolumeSlideMemoryIsPerChannel() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01),
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x00),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x0A, effectParam: 0x00),
+            ]),
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let updates = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .filter { $0.effectType == 0x0A && $0.effectParam == 0 }
+        let channel0 = try XCTUnwrap(updates.first { $0.channelIndex == 0 })
+        let channel1 = try XCTUnwrap(updates.first { $0.channelIndex == 1 })
+
+        XCTAssertEqual(channel0.status, .applied)
+        XCTAssertEqual(channel0.effectMemoryReused, true)
+        XCTAssertEqual(channel0.command, .axyVolumeSlide(up: 0, down: 1))
+        XCTAssertEqual(channel1.status, .ignoredNoOp)
+        XCTAssertEqual(channel1.effectMemoryMissing, true)
+        XCTAssertEqual(channel1.memoryUnavailableReason, "missing_axy_volume_slide_memory")
+    }
+
+    func testPlaybackSongAdapterSameCellNoteA00TriggersOnceAndReusesMemoryAfterTick0() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01),
+                    makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x0A, effectParam: 0x00),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let row1Events = plan.diagnostics.eventMappings.filter { $0.source.rowIndex == 1 }
+        let memoryUpdates = plan.diagnostics.voiceStateUpdates.filter {
+            $0.effectType == 0x0A && $0.effectParam == 0
+        }
+
+        XCTAssertEqual(row1Events.count, 1)
+        XCTAssertEqual(row1Events.first?.note, 52)
+        XCTAssertEqual(row1Events.first?.syntheticTick, 0)
+        XCTAssertEqual(row1Events.first?.effectiveVolumeValue, 30)
+        XCTAssertEqual(memoryUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(memoryUpdates.map(\.effectiveVolumeBefore), [30, 29])
+        XCTAssertEqual(memoryUpdates.map(\.effectiveVolumeAfter), [29, 28])
+        XCTAssertTrue(memoryUpdates.allSatisfy(\.effectMemoryReused))
+        XCTAssertEqual(Set(memoryUpdates.compactMap(\.activeEventIndex)), [1])
+    }
+
+    func testPlaybackSongAdapter500ReusesSharedAxyStyleVolumeSlideMemory() throws {
         let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [
                 2: [
                     makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
-                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x0F),
-                    makePlaybackRow(index: 2),
+                    makePlaybackRow(index: 1, effectType: 0x05, effectParam: 0x02),
+                    makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x00),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let updates = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .filter { update in
+                if case .effect5xyVolumeSlide = update.command {
+                    return true
+                }
+                return false
+            }
+        let memoryUpdates = updates.filter { $0.effectParam == 0 }
+
+        XCTAssertEqual(updates.count, 4)
+        XCTAssertEqual(memoryUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertTrue(memoryUpdates.allSatisfy(\.effectMemoryReused))
+        XCTAssertTrue(memoryUpdates.allSatisfy { $0.command == .effect5xyVolumeSlide(up: 0, down: 2) })
+        XCTAssertEqual(memoryUpdates.first?.memorySource?.effectType, 0x05)
+        XCTAssertEqual(memoryUpdates.first?.memorySource?.effectParam, 0x02)
+    }
+
+    func testPlaybackSongAdapterAxyWindowedAndSplitRendersPreserveVolumeSlideMemory() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 32), volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                    makePlaybackRow(index: 1, effectType: 0x0A, effectParam: 0x01),
+                    makePlaybackRow(index: 2, effectType: 0x0A, effectParam: 0x00),
+                    makePlaybackRow(index: 3),
                 ],
             ],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
@@ -6464,13 +6600,13 @@ final class PlaybackSongAdapterTests: XCTestCase {
             song: song,
             orderIndex: 0,
             config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
-            frames: 9
+            frames: 12
         )
         let renderer = PlaybackSongOfflineRenderer()
 
         let single = renderer.render(request)
         let repeated = renderer.render(request)
-        let split = renderer.render(request, splitFrameCounts: [2, 3, 4])
+        let split = renderer.render(request, splitFrameCounts: [3, 3, 6])
         let windowed = renderer.renderWindowed(request, windowRows: 1)
 
         XCTAssertFloatArrayEqual(repeated.block.interleavedPCM, single.block.interleavedPCM)

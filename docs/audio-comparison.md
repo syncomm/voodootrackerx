@@ -1605,6 +1605,20 @@ discovered later, append new labels without renumbering existing ones. Keep the
 map under `/tmp`, do not commit or copy it into fixtures, and publish only the
 anonymized labels in docs or PR summaries.
 
+Refresh the local map and write a public-safe aggregate summary with:
+
+```bash
+python3 scripts/update-private-xm-corpus-label-map.py \
+  --source-dir /path/to/private-xm-directory \
+  --map /tmp/vtx-private-xm-corpus-label-map.json \
+  --summary-json /tmp/vtx-private-xm-corpus-label-map-summary.json \
+  --summary-markdown /tmp/vtx-private-xm-corpus-label-map-summary.md
+```
+
+The helper scans only `.xm` files in the selected directory, preserves existing
+labels, appends new labels, enriches the local map with header metadata, and
+omits private filenames and paths from the generated summaries.
+
 Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or

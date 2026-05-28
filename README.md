@@ -81,6 +81,8 @@ LaunchServices overrides with `launchctl unsetenv` after the smoke run.
 
 Detailed audio comparison guidance lives in [docs/audio-comparison.md](docs/audio-comparison.md). Local/private modules may be used for manual listening, smoke testing, bounded candidate WAV renders, and local reference comparisons, but they are not repo fixtures and must not be committed, uploaded, copied into tests, or required by CI.
 
+XM effect support status is tracked in [docs/xm-effect-support.md](docs/xm-effect-support.md).
+
 Keep generated WAVs, JSON reports, Markdown reports, traces, screenshots, logs, and filled findings reports under `/tmp` or another ignored local path.
 
 Short bounded candidate render example:
@@ -101,6 +103,7 @@ The helper is developer-only. It does not change runtime backend selection and d
 ## Documentation Map
 
 - [docs/audio-comparison.md](docs/audio-comparison.md) - local-only candidate/reference WAV comparison workflow, artifact rules, diagnostics, and interpretation notes.
+- [docs/xm-effect-support.md](docs/xm-effect-support.md) - public XM effect support matrix for the runtime/offline C mixer adapter path.
 - [docs/roadmap.md](docs/roadmap.md) - detailed PR-by-PR roadmap and current audio/mixer sequencing.
 - [docs/dev-roadmap.md](docs/dev-roadmap.md) - shorter phase-based roadmap and current state snapshot.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.

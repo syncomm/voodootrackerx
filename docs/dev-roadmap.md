@@ -432,7 +432,7 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E1x`,
-`E2x`, `4xy`, `6xy`, and supported sample-offset memory state, plus supported in-window
+`E2x`, `4xy`, `6xy`, `Kxx`, and supported sample-offset memory state, plus supported in-window
 `EAx`/`EBx` and `6xy` gain updates.
 Unsupported/deferred effects and full tracker voice semantics remain separate
 targeted work. Developer-only bounded candidate WAV exports now also report
@@ -876,6 +876,7 @@ Features:
   memory deferred, and no broad E-command memory
 - minimal `E9x` retrigger support for bounded offline adapted renders, with
   `E90` effect memory and retrigger volume-change variants still deferred
+- minimal `Kxx` key-off scheduling through the existing key-off/release path in the runtime/offline C mixer adapter path, with no-active-voice diagnostics
 - minimal `ECx` note cut and `EDx` note delay support for bounded offline
   adapted renders, with broader effect parity still deferred
 - first-pass parsed volume-envelope sustain, envelope loop, note value `97`

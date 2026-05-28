@@ -1585,6 +1585,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
+        let kxxKeyOffEvents = diagnostics.keyOffEvents.filter { $0.effectType == 0x14 }
+        let firstKxxKeyOffCoordinates = Array(kxxKeyOffEvents.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
+            ]
+        }
         let sameChannelVoiceLifetime = result.sameChannelVoiceLifetime
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         let traversalSummary = diagnostics.traversalSummary
@@ -1607,6 +1617,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E4x vibrato control stores deterministic sine/ramp/square/random waveform state for later 4xy/6xy vibrato; unsupported control values remain explicitly deferred and E4x emits no direct audio event.",
             "Minimal 4xy vibrato uses deterministic linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory and volume-column vibrato remain deferred.",
             "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus its existing row-level volume-slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
+            "Minimal Kxx key-off schedules the existing active voice release at the requested row tick; K00 releases at row start and no-active channels are diagnosed without inventing playback.",
             "Minimal volume/panning state updates are applied for bounded offline empty-note and same-cell 3xx no-retrigger volume-column state commands plus Cxx/8xx and tick-level Axy effect-column commands where diagnosed as applied.",
             "Supported bounded/offline gain/pan update events use a fixed deterministic micro-ramp; ECx note cuts remain hard cuts.",
             "Minimal EAx/EBx fine volume slides are deterministic row-level channel-volume updates in the shared runtime/offline gain path; EA0/EB0 effect memory remains deferred/no-op.",
@@ -1777,6 +1788,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "vibrato_volume_slide_6xy_memory_missing_count": vibrato6xyMemoryMissingCount,
                 "vibrato_volume_slide_6xy_scheduled_sample_step_update_count": vibrato6xyScheduledStepUpdateCount,
                 "vibrato_volume_slide_6xy_scheduled_gain_update_count": vibrato6xyScheduledGainUpdateCount,
+                "kxx_key_off_effect_count": kxxKeyOffEvents.count,
+                "kxx_key_off_detected_count": kxxKeyOffEvents.count,
+                "kxx_key_off_applied_count": kxxKeyOffEvents.filter(\.applied).count,
+                "kxx_key_off_no_active_voice_count": kxxKeyOffEvents.filter { $0.reason == .noActiveVoice }.count,
+                "kxx_key_off_out_of_row_no_op_count": kxxKeyOffEvents.filter { $0.reason == .outOfRowNoOp }.count,
+                "kxx_key_off_event_count": kxxKeyOffEvents.count,
+                "first_kxx_key_off_coordinates": firstKxxKeyOffCoordinates,
                 "axy_volume_slide_effect_count": axyEffectDiagnostics.count,
                 "axy_volume_slide_detected_count": axyEffectDiagnostics.count,
                 "axy_volume_slide_applied_count": axyAppliedCount,
@@ -1909,6 +1927,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
             "vibrato_control_effects": diagnostics.vibratoControlEffects.map(vibratoControlDiagnosticJSON),
             "vibrato_volume_slide_6xy_effects": diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }.map(vibratoDiagnosticJSON),
+            "kxx_key_off_effects": kxxKeyOffEvents.map(keyOffEventJSON),
             "key_off_events": diagnostics.keyOffEvents.map(keyOffEventJSON),
             "events": eventJSON(from: result),
             "ignored_cells": diagnostics.ignoredCells.map(ignoredCellJSON),
@@ -3121,10 +3140,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "channel_index": diagnostic.channelIndex,
             "synthetic_row": diagnostic.syntheticRow,
             "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": diagnostic.effectType.map { Int($0) as Any } ?? NSNull(),
+            "effect_param": diagnostic.effectParam.map { Int($0) as Any } ?? NSNull(),
+            "kxx_key_off": diagnostic.effectType == 0x14,
+            "detected": diagnostic.detected,
             "release_frame": diagnostic.releaseFrame.map { $0 as Any } ?? NSNull(),
+            "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
             "applied": diagnostic.applied,
             "deferred": diagnostic.deferred,
             "reason": keyOffReasonName(diagnostic.reason),
+            "requested_tick": diagnostic.requestedTick,
+            "tick": diagnostic.syntheticTick,
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_voice_released": diagnostic.activeVoiceReleased,
             "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
         ]
     }
@@ -4719,6 +4749,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "released_active_voice"
         case .noActiveVoice:
             return "no_active_voice"
+        case .outOfRowNoOp:
+            return "out_of_row_no_op"
         }
     }
 

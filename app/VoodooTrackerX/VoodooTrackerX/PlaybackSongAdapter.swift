@@ -1486,6 +1486,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasTonePortamento = isTonePortamentoEffect(cell)
             let hasVibrato = isVibratoEffect(cell)
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
+            let hasKxxKeyOff = isKxxKeyOffEffect(cell)
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
@@ -1707,7 +1708,10 @@ enum PlaybackSongSyntheticAdapter {
                     source: source,
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
-                    scheduledStartFrame: scheduledStartFrame,
+                    syntheticTick: 0,
+                    scheduledFrame: scheduledStartFrame,
+                    rowSpeed: timingConfig.speed,
+                    rowBPM: timingConfig.bpm,
                     volumeColumn: volumeColumn,
                     cell: cell,
                     channelState: &channelState,
@@ -1718,6 +1722,24 @@ enum PlaybackSongSyntheticAdapter {
                     deferredCellFields: &context.deferredCellFields,
                     eventCoverage: &context.eventCoverage
                 )
+                if hasKxxKeyOff {
+                    handleKxxKeyOff(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        volumeColumn: volumeColumn,
+                        channelState: &channelState,
+                        events: &context.events,
+                        keyOffEvents: &context.keyOffEvents,
+                        eventMappings: &context.eventMappings,
+                        ignoredCells: &context.ignoredCells,
+                        deferredCellFields: &context.deferredCellFields,
+                        eventCoverage: &context.eventCoverage
+                    )
+                }
                 if hasRetriggerEffect {
                     _ = handleRetrigger(
                         from: cell,
@@ -1815,6 +1837,26 @@ enum PlaybackSongSyntheticAdapter {
                         activeEventIndex: channelState.activeEventIndex,
                         activeEventMappingIndex: channelState.activeEventMappingIndex
                     ))
+                }
+                if hasKxxKeyOff {
+                    handleKxxKeyOff(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        volumeColumn: volumeColumn,
+                        channelState: &channelState,
+                        events: &context.events,
+                        keyOffEvents: &context.keyOffEvents,
+                        eventMappings: &context.eventMappings,
+                        ignoredCells: &context.ignoredCells,
+                        deferredCellFields: &context.deferredCellFields,
+                        eventCoverage: &context.eventCoverage
+                    )
+                    context.channelStates[channelIndex] = channelState
+                    continue
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -2508,6 +2550,24 @@ enum PlaybackSongSyntheticAdapter {
                     timingPlan: timingPlan,
                     channelState: &channelState,
                     noteCutEffects: &context.noteCutEffects
+                )
+            }
+            if hasKxxKeyOff {
+                handleKxxKeyOff(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    volumeColumn: volumeColumn,
+                    channelState: &channelState,
+                    events: &context.events,
+                    keyOffEvents: &context.keyOffEvents,
+                    eventMappings: &context.eventMappings,
+                    ignoredCells: &context.ignoredCells,
+                    deferredCellFields: &context.deferredCellFields,
+                    eventCoverage: &context.eventCoverage
                 )
             }
             context.channelStates[channelIndex] = channelState
@@ -5635,7 +5695,10 @@ enum PlaybackSongSyntheticAdapter {
         source: PlaybackPosition,
         channelIndex: Int,
         syntheticRow: Int,
-        scheduledStartFrame: Int,
+        syntheticTick: Int,
+        scheduledFrame: Int,
+        rowSpeed: Int,
+        rowBPM: Int,
         volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         cell: PlaybackCell,
         channelState: inout ChannelState,
@@ -5644,22 +5707,34 @@ enum PlaybackSongSyntheticAdapter {
         eventMappings: inout [PlaybackSongSyntheticEventMapping],
         ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
         deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
-        eventCoverage: inout EventCoverageBuilder
+        eventCoverage: inout EventCoverageBuilder,
+        effectType: UInt8? = nil,
+        effectParam: UInt8? = nil
     ) {
+        let activeEventIndexBefore = channelState.activeEventIndex
         guard let activeEventIndex = channelState.activeEventIndex,
               let activeEventMappingIndex = channelState.activeEventMappingIndex,
               events.indices.contains(activeEventIndex),
               eventMappings.indices.contains(activeEventMappingIndex),
-              scheduledStartFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
+              scheduledFrame >= (events[activeEventIndex].scheduledStartFrame ?? 0) else {
             keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
-                syntheticTick: 0,
+                syntheticTick: syntheticTick,
+                effectType: effectType,
+                effectParam: effectParam,
+                detected: true,
                 releaseFrame: nil,
+                scheduledFrame: scheduledFrame,
                 applied: false,
                 deferred: true,
                 reason: .noActiveVoice,
+                requestedTick: syntheticTick,
+                rowSpeed: rowSpeed,
+                rowBPM: rowBPM,
+                activeVoiceFound: activeEventIndexBefore != nil,
+                activeVoiceReleased: false,
                 activeEventIndex: nil
             ))
             let ignored = ignoredCell(
@@ -5694,7 +5769,7 @@ enum PlaybackSongSyntheticAdapter {
             sampleRate: previousMapping.outputSampleRate
         )
         events[activeEventIndex] = events[activeEventIndex].withKeyOffFrame(
-            scheduledStartFrame,
+            scheduledFrame,
             fadeoutFrameDecrement: fadeoutDecrement
         )
         eventMappings[activeEventMappingIndex] = eventMapping(
@@ -5703,25 +5778,100 @@ enum PlaybackSongSyntheticAdapter {
                 source: source,
                 channelIndex: channelIndex,
                 syntheticRow: syntheticRow,
-                syntheticTick: 0,
-                releaseFrame: scheduledStartFrame
+                syntheticTick: syntheticTick,
+                releaseFrame: scheduledFrame
             )
         )
         keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
             source: source,
             channelIndex: channelIndex,
             syntheticRow: syntheticRow,
-            syntheticTick: 0,
-            releaseFrame: scheduledStartFrame,
+            syntheticTick: syntheticTick,
+            effectType: effectType,
+            effectParam: effectParam,
+            detected: true,
+            releaseFrame: scheduledFrame,
+            scheduledFrame: scheduledFrame,
             applied: true,
             deferred: false,
             reason: .releasedActiveVoice,
+            requestedTick: syntheticTick,
+            rowSpeed: rowSpeed,
+            rowBPM: rowBPM,
+            activeVoiceFound: true,
+            activeVoiceReleased: true,
             activeEventIndex: activeEventIndex
         ))
         if hasDeferredEffect(cell) || volumeColumn.deferred {
             eventCoverage.recordDeferredCellWithoutSkip()
         }
         clearActiveVoiceState(&channelState)
+    }
+
+    private static func handleKxxKeyOff(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
+        channelState: inout ChannelState,
+        events: inout [SyntheticTrackerEvent],
+        keyOffEvents: inout [PlaybackSongSyntheticKeyOffDiagnostic],
+        eventMappings: inout [PlaybackSongSyntheticEventMapping],
+        ignoredCells: inout [PlaybackSongSyntheticIgnoredCell],
+        deferredCellFields: inout [PlaybackSongSyntheticDeferredCellField],
+        eventCoverage: inout EventCoverageBuilder
+    ) {
+        guard isKxxKeyOffEffect(cell) else {
+            return
+        }
+        let requestedTick = Int(cell.effectParam)
+        guard requestedTick < timingConfig.speed else {
+            keyOffEvents.append(PlaybackSongSyntheticKeyOffDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                syntheticTick: requestedTick,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam,
+                detected: true,
+                releaseFrame: nil,
+                scheduledFrame: nil,
+                applied: false,
+                deferred: false,
+                reason: .outOfRowNoOp,
+                requestedTick: requestedTick,
+                rowSpeed: timingConfig.speed,
+                rowBPM: timingConfig.bpm,
+                activeVoiceFound: channelState.activeEventIndex != nil,
+                activeVoiceReleased: false,
+                activeEventIndex: channelState.activeEventIndex
+            ))
+            return
+        }
+        let keyOffFrame = timingPlan.frameFor(row: syntheticRow, tick: requestedTick)
+        handleKeyOff(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: requestedTick,
+            scheduledFrame: keyOffFrame,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            volumeColumn: volumeColumn,
+            cell: cell,
+            channelState: &channelState,
+            events: &events,
+            keyOffEvents: &keyOffEvents,
+            eventMappings: &eventMappings,
+            ignoredCells: &ignoredCells,
+            deferredCellFields: &deferredCellFields,
+            eventCoverage: &eventCoverage,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam
+        )
     }
 
     @discardableResult
@@ -7140,6 +7290,8 @@ enum PlaybackSongSyntheticAdapter {
             return "Gxx set global volume"
         case 0x11:
             return "Hxy global volume slide"
+        case 0x14:
+            return "Kxx key off"
         default:
             return "unknown/unsupported"
         }
@@ -7211,6 +7363,7 @@ enum PlaybackSongSyntheticAdapter {
             isSupportedRetriggerEffect(cell) ||
             isNoteCutEffect(cell) ||
             isNoteDelayEffect(cell) ||
+            isKxxKeyOffEffect(cell) ||
             isGlobalVolumeSetEffect(cell) ||
             isGlobalVolumeSlideEffect(cell) ||
             isTraversalPlanningEffect(cell) {
@@ -7284,6 +7437,10 @@ enum PlaybackSongSyntheticAdapter {
 
     private static func isGlobalVolumeSetEffect(_ cell: PlaybackCell) -> Bool {
         cell.effectType == 0x10
+    }
+
+    private static func isKxxKeyOffEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x14
     }
 
     private static func isTraversalPlanningEffect(_ cell: PlaybackCell) -> Bool {

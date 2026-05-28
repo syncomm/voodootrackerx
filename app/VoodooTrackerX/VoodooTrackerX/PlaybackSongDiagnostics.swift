@@ -326,16 +326,26 @@ struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {
     enum Reason: Equatable {
         case releasedActiveVoice
         case noActiveVoice
+        case outOfRowNoOp
     }
 
     let source: PlaybackPosition
     let channelIndex: Int
     let syntheticRow: Int
     let syntheticTick: Int
+    let effectType: UInt8?
+    let effectParam: UInt8?
+    let detected: Bool
     let releaseFrame: Int?
+    let scheduledFrame: Int?
     let applied: Bool
     let deferred: Bool
     let reason: Reason
+    let requestedTick: Int
+    let rowSpeed: Int
+    let rowBPM: Int
+    let activeVoiceFound: Bool
+    let activeVoiceReleased: Bool
     let activeEventIndex: Int?
 }
 

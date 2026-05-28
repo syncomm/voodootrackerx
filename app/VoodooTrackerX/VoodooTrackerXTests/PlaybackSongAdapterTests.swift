@@ -4796,6 +4796,157 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(mapping.volumeEnvelopeSemantics.fadeoutValue, 65_536)
     }
 
+    private func makeKxxSyntheticPlan(
+        rows: [PlaybackRow],
+        speed: Int = 4,
+        bpm: Int = 250,
+        samplePCM: [Float] = Array(repeating: Float(1), count: 8),
+        volumeEnvelope: PlaybackVolumeEnvelope = .disabled
+    ) -> PlaybackSongSyntheticPlan {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: samplePCM, baseSampleRate: 100)],
+                    volumeEnvelope: volumeEnvelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: speed, bpm: bpm)
+        )
+
+        return PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+    }
+
+    private func renderKxxRows(
+        _ rows: [PlaybackRow],
+        samplePCM: [Float],
+        volumeEnvelope: PlaybackVolumeEnvelope,
+        frames: Int
+    ) -> PlaybackSongOfflineRenderResult {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(
+                    index: 1,
+                    samples: [makePlaybackSample(pcm: samplePCM, baseSampleRate: 100)],
+                    volumeEnvelope: volumeEnvelope
+                )
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+
+        return PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: frames
+        ))
+    }
+
+    func testPlaybackSongAdapterKxxSchedulesRowStartAndTickOneKeyOffs() throws {
+        let k00 = makeKxxSyntheticPlan(rows: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x00)
+        ])
+        let k00Event = try XCTUnwrap(k00.pattern.events.first)
+        let k00KeyOff = try XCTUnwrap(k00.diagnostics.keyOffEvents.first)
+
+        XCTAssertEqual(k00.diagnostics.keyOffEvents.count, 1)
+        XCTAssertEqual(k00Event.keyOffFrame, 4)
+        XCTAssertEqual(k00KeyOff.effectType, 0x14)
+        XCTAssertEqual(k00KeyOff.effectParam, 0x00)
+        XCTAssertTrue(k00KeyOff.detected)
+        XCTAssertTrue(k00KeyOff.applied)
+        XCTAssertEqual(k00KeyOff.reason, .releasedActiveVoice)
+        XCTAssertEqual(k00KeyOff.requestedTick, 0)
+        XCTAssertEqual(k00KeyOff.syntheticTick, 0)
+        XCTAssertEqual(k00KeyOff.scheduledFrame, 4)
+        XCTAssertEqual(k00KeyOff.releaseFrame, 4)
+        XCTAssertTrue(k00KeyOff.activeVoiceReleased)
+        XCTAssertFalse(k00.diagnostics.deferredCellFields.contains { $0.effectType == 0x14 })
+
+        let k01 = makeKxxSyntheticPlan(rows: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x01)
+        ])
+        let k01KeyOff = try XCTUnwrap(k01.diagnostics.keyOffEvents.first)
+
+        XCTAssertEqual(k01.pattern.events.first?.keyOffFrame, 5)
+        XCTAssertEqual(k01KeyOff.requestedTick, 1)
+        XCTAssertEqual(k01KeyOff.syntheticTick, 1)
+        XCTAssertEqual(k01KeyOff.scheduledFrame, 5)
+        XCTAssertEqual(k01KeyOff.rowSpeed, 4)
+        XCTAssertEqual(k01KeyOff.rowBPM, 250)
+    }
+
+    func testPlaybackSongAdapterKxxNoActiveVoiceIsDiagnosed() throws {
+        let plan = makeKxxSyntheticPlan(rows: [makePlaybackRow(index: 0, effectType: 0x14, effectParam: 0x00)])
+        let keyOff = try XCTUnwrap(plan.diagnostics.keyOffEvents.first)
+
+        XCTAssertEqual(plan.pattern.events, [])
+        XCTAssertEqual(keyOff.effectType, 0x14)
+        XCTAssertFalse(keyOff.applied)
+        XCTAssertTrue(keyOff.deferred)
+        XCTAssertEqual(keyOff.reason, .noActiveVoice)
+        XCTAssertEqual(keyOff.scheduledFrame, 0)
+        XCTAssertFalse(keyOff.activeVoiceFound)
+        XCTAssertFalse(keyOff.activeVoiceReleased)
+    }
+
+    func testPlaybackSongAdapterSameCellNoteAndKxxTriggersOnceThenKeysOff() throws {
+        let plan = makeKxxSyntheticPlan(rows: [
+            makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x14, effectParam: 0x01)
+        ])
+        let event = try XCTUnwrap(plan.pattern.events.first)
+        let mapping = try XCTUnwrap(plan.diagnostics.eventMappings.first)
+        let keyOff = try XCTUnwrap(plan.diagnostics.keyOffEvents.first)
+
+        XCTAssertEqual(plan.pattern.events.count, 1)
+        XCTAssertEqual(plan.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(event.scheduledStartFrame, 0)
+        XCTAssertEqual(event.keyOffFrame, 1)
+        XCTAssertEqual(mapping.effectType, 0x14)
+        XCTAssertEqual(mapping.effectParam, 0x01)
+        XCTAssertEqual(keyOff.activeEventIndex, 0)
+        XCTAssertEqual(keyOff.releaseFrame, 1)
+    }
+
+    func testPlaybackSongAdapterKxxReleasesEnvelopeSustainAndStartsFadeout() throws {
+        let sustainEnvelope = makePlaybackVolumeEnvelope(
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 1, value: 0)
+            ],
+            sustainPointIndex: 0,
+            typeFlags: 0x03
+        )
+        let sustain = renderKxxRows([
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x00),
+            makePlaybackRow(index: 2)
+        ], samplePCM: Array(repeating: Float(1), count: 4), volumeEnvelope: sustainEnvelope, frames: 4)
+        let sustainMapping = try XCTUnwrap(sustain.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(sustain.block.interleavedPCM, [1, 1, 0, 0])
+        XCTAssertTrue(sustainMapping.volumeEnvelopeSemantics.sustainApplied)
+        XCTAssertTrue(sustainMapping.volumeEnvelopeSemantics.keyOffApplied)
+        XCTAssertEqual(sustain.diagnostics.keyOffEvents.first?.effectType, 0x14)
+
+        let fadeout = renderKxxRows([
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, effectType: 0x14, effectParam: 0x00)
+        ], samplePCM: Array(repeating: Float(1), count: 6), volumeEnvelope: makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536), frames: 4)
+        let fadeoutMapping = try XCTUnwrap(fadeout.diagnostics.eventMappings.first)
+
+        XCTAssertEqual(fadeout.block.interleavedPCM, [1, 1, 0.5, 0])
+        XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.keyOffApplied)
+        XCTAssertTrue(fadeoutMapping.volumeEnvelopeSemantics.fadeoutApplied)
+        XCTAssertEqual(fadeout.diagnostics.keyOffEvents.first?.effectType, 0x14)
+    }
+
     func testPlaybackSongAdapterEnvelopeSemanticsSplitAndResetRemainDeterministic() {
         let envelope = makePlaybackVolumeEnvelope(enabled: false, points: [], typeFlags: 0, fadeout: 65_536)
         let song = makePlaybackSong(

@@ -697,13 +697,22 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
     for key_off in nested_list(payload.get("key_off_events")):
         if not isinstance(key_off, dict):
             continue
+        effect_type = parse_byte(key_off.get("effect_type"))
+        effect_param = parse_byte(key_off.get("effect_param")) or 0
+        command = "note off / key off"
+        command_source = "note"
+        if effect_type == 0x14:
+            command = effect_command_label(effect_type, effect_param)
+            command_source = "effect_column"
         occurrences.append(CoverageOccurrence(
-            command="note off / key off",
-            command_source="note",
+            command=command,
+            command_source=command_source,
             category="offline_bounded_render",
             status="applied" if bool(key_off.get("applied")) else "ignored/no-op",
             reason=str(key_off.get("reason") or "key_off"),
             source=source_coordinate(nested_dict(key_off.get("source")), channel=key_off.get("channel_index"), tick=key_off.get("synthetic_tick"), fallback=key_off),
+            effect_type=effect_type,
+            effect_param=effect_param if effect_type is not None else None,
             input_name=input_name,
         ))
 

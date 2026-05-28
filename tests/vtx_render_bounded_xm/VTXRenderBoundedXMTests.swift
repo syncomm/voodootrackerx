@@ -3627,6 +3627,48 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(keyOffEvents.first?["release_frame"] as? Int, 1)
     }
 
+    func testDiagnosticsJSONIncludesKxxKeyOffSummaryFields() throws {
+        let song = PlaybackSong(
+            title: "kxx-diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [
+                2: PlaybackPattern(index: 2, rows: [
+                    PlaybackRow(index: 0, cells: [PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)]),
+                    PlaybackRow(index: 1, cells: [PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x14, effectParam: 0x01)])
+                ])
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [
+                    PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, 1, 1, 1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 100)
+                ])
+            ],
+            restartOrderIndex: 0, endBehavior: .stopAtEnd, initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 8
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let kxxEffects = try XCTUnwrap(object["kxx_key_off_effects"] as? [[String: Any]])
+        let first = try XCTUnwrap(kxxEffects.first)
+        let firstCoordinates = try XCTUnwrap(render["first_kxx_key_off_coordinates"] as? [[String: Any]])
+
+        XCTAssertEqual(render["kxx_key_off_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["kxx_key_off_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["kxx_key_off_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(render["kxx_key_off_event_count"] as? Int, 1)
+        XCTAssertEqual(first["effect_type"] as? Int, 0x14)
+        XCTAssertEqual(first["effect_param"] as? Int, 0x01)
+        XCTAssertEqual(first["scheduled_frame"] as? Int, 5)
+        XCTAssertEqual(first["tick"] as? Int, 1)
+        XCTAssertEqual(first["active_voice_released"] as? Bool, true)
+        XCTAssertEqual(firstCoordinates.first?["synthetic_tick"] as? Int, 1)
+    }
+
     func testCSoftwareMixerAlternatingHighFrequencyFixtureUsesLinearInterpolation() {
         let output = cMixerMonoOutput(
             sample: [1, -1, 1, -1, 1],

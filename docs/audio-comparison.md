@@ -1064,6 +1064,9 @@ counts by command, source coordinates for the first examples, effect-family
 counts, unresolved key-off/no-active buckets, and a conservative next-effect
 recommendation. It is local diagnostics only; generated JSON/Markdown reports
 derived from private modules must stay under `/tmp` or another ignored path.
+Effect-column `Kxx` key-off rows are reported as `Kxx key off` rather than
+generic note-off events, with applied/no-active counts and first tick/frame
+coordinates when bounded diagnostics expose them.
 Candidate diagnostics and the correlation report also include a focused
 pitch-modulation/deferred-effect summary for remaining deferred `5xy`, `7xy`,
 and volume-column vibrato/tone-portamento ranges. Applied `0xy` arpeggio,

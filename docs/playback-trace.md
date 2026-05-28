@@ -108,6 +108,8 @@ row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
 vibrato memory for sample-step updates and use the existing row-start gain
 update path for nonzero volume slides. `600` can replay vibrato memory without
 volume-slide memory; missing vibrato memory remains effect-memory-deferred.
+`Kxx` rows use the existing key-off/release path; same-cell note triggers keep
+the `Kxx` effect metadata and then release at the requested row tick.
 XM `E4x` vibrato control rows store per-channel deterministic vibrato
 waveform/control state for later `4xy`/`6xy` rows and emit no direct audio
 events. Supported first-pass controls cover sine/default, ramp-down, square,

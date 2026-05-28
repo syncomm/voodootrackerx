@@ -2082,6 +2082,31 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["Txy tremor"]["unsupported_count"], 1)
         self.assertEqual(rows["Wxx unknown/unsupported"]["unsupported_count"], 1)
 
+    def test_effect_coverage_summary_counts_kxx_key_off_events_as_effect_column(self):
+        diagnostics = {
+            "key_off_events": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 1}, "channel_index": 0,
+                    "synthetic_tick": 1, "effect_type": 0x14, "effect_param": 0x01, "applied": True,
+                    "reason": "released_active_voice",
+                },
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 2}, "channel_index": 1,
+                    "synthetic_tick": 0, "effect_type": 0x14, "effect_param": 0x00, "applied": False,
+                    "reason": "no_active_voice",
+                },
+            ],
+        }
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["Kxx key off"]["detected_count"], 2)
+        self.assertEqual(rows["Kxx key off"]["applied_count"], 1)
+        self.assertEqual(rows["Kxx key off"]["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(rows["Kxx key off"]["first_coordinates"][0]["tick"], 1)
+
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [

@@ -682,6 +682,11 @@ struct PlaybackSongSyntheticVoiceStateUpdateDiagnostic: Equatable {
     let volumeSlideClamped: Bool?
     let volumeSlideTick0Suppressed: Bool?
     let volumeSlideRowSpeed: Int?
+    let effectMemoryReused: Bool
+    let effectMemoryMissing: Bool
+    let effectMemoryDeferred: Bool
+    let memorySource: PlaybackSongSyntheticEffectMemorySource?
+    let memoryUnavailableReason: String?
     let gainBefore: Float?
     let gainAfter: Float?
     let panBefore: Float?

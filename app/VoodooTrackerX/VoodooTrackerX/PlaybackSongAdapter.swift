@@ -41,6 +41,7 @@ enum PlaybackSongSyntheticAdapter {
         var sampleOffsetMemory: SampleOffsetMemory?
         var portamentoUpMemory: PortamentoSlideMemory?
         var portamentoDownMemory: PortamentoSlideMemory?
+        var volumeSlideMemory: VolumeSlideMemory?
         var vibratoSpeed: Int?
         var vibratoDepth: Int?
         var vibratoSpeedMemorySource: PlaybackSongSyntheticEffectMemorySource?
@@ -60,6 +61,11 @@ enum PlaybackSongSyntheticAdapter {
 
     struct PortamentoSlideMemory: Equatable {
         let amount: Int
+        let source: PlaybackSongSyntheticEffectMemorySource
+    }
+
+    struct VolumeSlideMemory: Equatable {
+        let slide: VolumeSlideAmounts
         let source: PlaybackSongSyntheticEffectMemorySource
     }
 

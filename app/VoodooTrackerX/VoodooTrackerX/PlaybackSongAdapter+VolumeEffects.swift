@@ -270,7 +270,41 @@ extension PlaybackSongSyntheticAdapter {
             return []
         }
 
-        let slide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
+        let requestedSlide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
+        let targetMemorySource = effectMemorySource(source: source, channelIndex: channelIndex, cell: cell)
+        let slide: VolumeSlideAmounts
+        let memorySource: PlaybackSongSyntheticEffectMemorySource?
+        let effectMemoryReused: Bool
+        let effectMemoryMissing: Bool
+        let effectMemoryDeferred: Bool
+        let memoryUnavailableReason: String?
+
+        if requestedSlide.amount > 0 {
+            slide = requestedSlide
+            channelState.volumeSlideMemory = VolumeSlideMemory(
+                slide: requestedSlide,
+                source: targetMemorySource
+            )
+            memorySource = nil
+            effectMemoryReused = false
+            effectMemoryMissing = false
+            effectMemoryDeferred = false
+            memoryUnavailableReason = nil
+        } else if let remembered = channelState.volumeSlideMemory {
+            slide = remembered.slide
+            memorySource = remembered.source
+            effectMemoryReused = true
+            effectMemoryMissing = false
+            effectMemoryDeferred = false
+            memoryUnavailableReason = nil
+        } else {
+            slide = requestedSlide
+            memorySource = nil
+            effectMemoryReused = false
+            effectMemoryMissing = true
+            effectMemoryDeferred = true
+            memoryUnavailableReason = volumeSlideMemoryUnavailableReason(for: cell)
+        }
         let rowSpeed = max(1, timingConfig.speed)
         let command = volumeSlideCommand(for: cell, up: slide.up, down: slide.down)
         guard slide.amount > 0 else {
@@ -299,6 +333,11 @@ extension PlaybackSongSyntheticAdapter {
                     volumeSlideTick0Suppressed: true,
                     volumeSlideRowSpeed: rowSpeed,
                     volumeSlidePolicyOverride: zeroVolumeSlidePolicy(for: cell),
+                    effectMemoryReused: effectMemoryReused,
+                    effectMemoryMissing: effectMemoryMissing,
+                    effectMemoryDeferred: effectMemoryDeferred,
+                    memorySource: memorySource,
+                    memoryUnavailableReason: memoryUnavailableReason,
                     activeVoiceUpdatedOverride: false
                 ),
             ]
@@ -339,6 +378,11 @@ extension PlaybackSongSyntheticAdapter {
                 volumeSlideClamped: clamped,
                 volumeSlideTick0Suppressed: true,
                 volumeSlideRowSpeed: rowSpeed,
+                effectMemoryReused: effectMemoryReused,
+                effectMemoryMissing: effectMemoryMissing,
+                effectMemoryDeferred: effectMemoryDeferred,
+                memorySource: memorySource,
+                memoryUnavailableReason: memoryUnavailableReason,
                 activeVoiceUpdatedOverride: activeVoiceAvailable
             ))
         }
@@ -379,7 +423,20 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func zeroVolumeSlidePolicy(for cell: PlaybackCell) -> String? {
-        cell.effectType == 0x05 ? "500_no_volume_slide_memory_no_op" : nil
+        switch cell.effectType {
+        case 0x05:
+            return "500_no_volume_slide_memory_no_op"
+        case 0x0A:
+            return "a00_no_volume_slide_memory_no_op"
+        default:
+            return nil
+        }
+    }
+
+    static func volumeSlideMemoryUnavailableReason(for cell: PlaybackCell) -> String {
+        cell.effectType == 0x05
+            ? "missing_5xy_volume_slide_memory"
+            : "missing_axy_volume_slide_memory"
     }
 
     static func applyGlobalVolumeSet(
@@ -761,6 +818,11 @@ extension PlaybackSongSyntheticAdapter {
         volumeSlideTick0Suppressed: Bool? = nil,
         volumeSlideRowSpeed: Int? = nil,
         volumeSlidePolicyOverride: String? = nil,
+        effectMemoryReused: Bool = false,
+        effectMemoryMissing: Bool = false,
+        effectMemoryDeferred: Bool = false,
+        memorySource: PlaybackSongSyntheticEffectMemorySource? = nil,
+        memoryUnavailableReason: String? = nil,
         activeVoiceUpdatedOverride: Bool? = nil
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         let activeSampleVolumeBefore = channelStateBefore.activeSampleVolume
@@ -827,6 +889,11 @@ extension PlaybackSongSyntheticAdapter {
             volumeSlideClamped: volumeSlideClamped,
             volumeSlideTick0Suppressed: volumeSlideTick0Suppressed,
             volumeSlideRowSpeed: volumeSlideRowSpeed,
+            effectMemoryReused: effectMemoryReused,
+            effectMemoryMissing: effectMemoryMissing,
+            effectMemoryDeferred: effectMemoryDeferred,
+            memorySource: memorySource,
+            memoryUnavailableReason: memoryUnavailableReason,
             gainBefore: gainBefore,
             gainAfter: gainAfter,
             panBefore: channelStateBefore.pan,

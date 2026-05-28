@@ -232,10 +232,10 @@ with no fade-in; same-channel replacement keeps the outgoing voice alive for a
 fixed 32-frame gain-to-zero ramp while the new voice starts immediately; note
 cuts/retrigger cuts and true transport/global stops are hard stops; ordinary
 active-voice gain or pan changes use the fixed 32-frame C mixer micro-ramp.
-Volume-column set/slide/pan commands, tick-level nonzero `Axy`, row-level
-`EAx`/`EBx`, `Gxx`, and `Hxy` all feed the same active-voice gain/pan update
-path when they change audible state, while sample-step changes remain immediate
-at their scheduled frame.
+Volume-column set/slide/pan commands, tick-level `Axy` including `A00` memory
+replay, row-level `EAx`/`EBx`, `Gxx`, and `Hxy` all feed the same active-voice
+gain/pan update path when they change audible state, while sample-step changes
+remain immediate at their scheduled frame.
 
 The inspected ft2-clone Linear profile instead uses linear per-sample volume
 ramping with a quick about-5 ms note-start/replacement/stop/reset fade and
@@ -268,8 +268,8 @@ renders only. Candidate renders now include conservative adapter support for
 volume-column set-volume (`0x10...0x50`), set-panning (`0xC0...0xCF`),
 row-level volume slides (`0x60...0x9F`), row-level panning slides
 (`0xD0...0xEF`), minimal `Cxx` set-volume, `8xx` set-panning, nonzero
-tick-level `Axy` volume slide updates after tick 0, minimal `Fxx` speed/BPM
-timing changes, minimal `9xx` sample offsets on same-cell note triggers including
+tick-level `Axy` volume slide updates after tick 0 including per-channel `A00`
+memory replay, minimal `Fxx` speed/BPM timing changes, minimal `9xx` sample offsets on same-cell note triggers including
 per-channel `900` memory replay, minimal `0xy` arpeggio, minimal `1xx`/`2xx`
 portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
 portamento up, minimal `E2x` fine portamento down, minimal `5xy` tone
@@ -299,8 +299,9 @@ The `5xy` foundation reuses the current `3xx` tone-portamento target/speed and
 sample-step update path together with the `Axy` tick-level volume-slide gain
 path. Same-cell note rows set the target without retriggering, empty-note rows
 continue the existing target when memory exists, no-active/no-target/no-speed
-cases are diagnosed safely, and `500` volume-slide memory is kept as a
-diagnosed no-op/deferred case rather than broad new effect memory.
+cases are diagnosed safely, and `500` reuses shared Axy-style volume-slide
+memory when available. Missing `500` volume-slide memory remains a diagnosed
+no-op/deferred case.
 The `Rxy` foundation reuses the existing retrigger scheduling path for the
 active voice, starts same-cell notes only once at row tick 0, and schedules
 generated retriggers on later interval ticks. Volume modes use a first-pass
@@ -1105,9 +1106,11 @@ summary first: it reports empty-note volume-column set-volume/set-panning,
 `Cxx`, `8xx`, `Axy`, `EAx`/`EBx`, and `Hxy` applied/deferred/no-op counts,
 whether an active voice was updated, effective channel volume/pan and global
 volume before and after, `Axy` tick-level update counts, tick-0 suppression,
-mixed-nibble policy, scheduled gain-update counts, fine slide amount,
-global-volume slide direction/amount/clamping, and the source
-order/pattern/row/channel plus synthetic tick/frame.
+mixed-nibble policy, `A00` memory reused/missing counts, memory source
+coordinates, scheduled gain-update counts, fine slide amount, global-volume
+slide direction/amount/clamping, and the source order/pattern/row/channel plus
+synthetic tick/frame. The same diagnostics report `500` volume-slide memory
+reuse when it occurs through the shared Axy-style volume-slide path.
 Candidate diagnostics now include a pattern traversal/timing hazard summary for
 wrong structure or groove investigations. It counts `Bxx` position jump, `Dxx`
 pattern break, `E6x` pattern loop, `EEx` pattern delay, contextual `Fxx`

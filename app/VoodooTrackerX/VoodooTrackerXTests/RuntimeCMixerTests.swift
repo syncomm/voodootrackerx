@@ -214,6 +214,37 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(gainUpdates.allSatisfy { $0.effectParam == 0x0F })
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsAxyVolumeSlideMemoryMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x0A, effectParam: 0x01),
+                makePlaybackRow(index: 1, note: 52, instrument: 1, effectType: 0x0A, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let memoryTrigger = try XCTUnwrap(plan.events.first {
+            $0.categories.contains("note_trigger") &&
+                $0.categories.contains("axy_volume_slide_memory_reused")
+        })
+        let memoryUpdates = plan.events.filter {
+            $0.categories.contains("gain_pan_update") &&
+                $0.categories.contains("axy_volume_slide_memory_reused")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
+        XCTAssertTrue(plan.categories.contains("axy_volume_slide_memory_reused"))
+        XCTAssertEqual(memoryTrigger.effectType, 0x0A)
+        XCTAssertEqual(memoryTrigger.effectParam, 0x00)
+        XCTAssertEqual(memoryUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(memoryUpdates.map(\.effectType), [0x0A, 0x0A])
+        XCTAssertEqual(memoryUpdates.map(\.effectParam), [0x00, 0x00])
+    }
+
     func testRuntimeCMixerAdapterEventPlanReportsTonePortamentoVolumeSlide5xyMetadata() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -244,6 +275,33 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(gainUpdates.map(\.effectType), [0x05, 0x05, 0x05])
         XCTAssertEqual(gainUpdates.map(\.effectParam), [0x02, 0x02, 0x02])
         XCTAssertEqual(gainUpdates.map(\.scheduledFrame), [9, 10, 11])
+    }
+
+    func testRuntimeCMixerAdapterEventPlanReports500VolumeSlideMemoryMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                makePlaybackRow(index: 1, effectType: 0x05, effectParam: 0x02),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let memoryUpdates = plan.events.filter {
+            $0.categories.contains("gain_pan_update") &&
+                $0.categories.contains("tone_portamento_volume_slide_5xy_500_memory_reused")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("effect_memory_reused"))
+        XCTAssertTrue(plan.categories.contains("tone_portamento_volume_slide_5xy_memory_reused"))
+        XCTAssertTrue(plan.categories.contains("tone_portamento_volume_slide_5xy_500_memory_reused"))
+        XCTAssertEqual(memoryUpdates.map(\.syntheticTick), [1, 2])
+        XCTAssertEqual(memoryUpdates.map(\.effectType), [0x05, 0x05])
+        XCTAssertEqual(memoryUpdates.map(\.effectParam), [0x00, 0x00])
     }
 
     func testRuntimeCMixerAdapterEventPlanReportsRxyMultiRetriggerMetadata() throws {

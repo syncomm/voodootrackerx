@@ -47,11 +47,11 @@ row-level subset of volume-column volume and panning slides to event gain/pan.
 It also applies minimal bounded/offline state updates for empty-note and
 same-cell `3xx` no-retrigger volume-column set-volume/set-panning cells,
 regular effect-column `Cxx` set volume, regular effect-column `8xx` set
-panning, and nonzero tick-level `Axy` volume slides after tick 0; where a
-carried voice is active, deterministic gain/pan update events can update that
-voice after its original note trigger, and changed active-voice gain/pan
-updates are smoothed by a fixed 32-frame C mixer micro-ramp in the
-bounded/offline path. Minimal
+panning, and tick-level `Axy` volume slides after tick 0 including per-channel
+`A00` memory replay; where a carried voice is active, deterministic gain/pan
+update events can update that voice after its original note trigger, and
+changed active-voice gain/pan updates are smoothed by a fixed 32-frame C mixer
+micro-ramp in the bounded/offline path. Minimal
 row-level `Hxy` global volume slide is also applied in the bounded/offline
 adapter: the adapter carries a
 clamped `0...64` global-volume value, defaults to `64`, applies up/down Hxy
@@ -82,8 +82,9 @@ reuses the existing `3xx` tone-portamento target/speed and sample-step update
 path together with the `Axy` tick-level volume-slide gain path in the
 runtime/offline C mixer adapter. Same-cell notes set the tone-portamento target
 without retriggering, no-active/no-target/no-speed cases are diagnosed safely,
-and `500` volume-slide memory remains a diagnosed no-op/deferred case without
-broad new effect memory. Volume-column tone portamento remains deferred.
+and `500` reuses shared Axy-style volume-slide memory when available while
+missing memory remains a diagnosed no-op/deferred case. Volume-column tone
+portamento remains deferred.
 Minimal `E1x` fine portamento up and `E2x` fine portamento down now use the
 same runtime/offline linear-frequency sample-step update path for one
 deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
@@ -117,12 +118,15 @@ mixer adapter path; it reuses the retrigger scheduler, applies a first-pass
 common-XM volume-change table clamped to `0...64`, and keeps `R00` effect
 memory deferred/no-op. A follow-up diagnostics-only 36-module private-corpus
 scan split 35 linear-table modules from one Amiga-table module and found the
-largest linear residual memory bucket is `A00`: 8,533 rows, 8,520 of which
-could reuse prior `Axy` volume-slide memory if implemented. The same scan found
-166 linear `Xxy` rows, 25 `Lxx` rows with envelope evidence, no `7xy`/`E7x`,
-no volume-column vibrato-speed/depth rows, 5 volume-column tone-portamento
-rows, and kept Amiga `2xx`/`3xx` pitch behavior in a separate foundation
-bucket. The recommended next XM effect PR is `Axy` volume-slide memory.
+largest linear residual memory bucket was `A00`: 8,533 rows, 8,520 of which
+could reuse prior `Axy` volume-slide memory. Per-channel Axy-style volume-slide
+memory is now implemented in the shared runtime/offline adapter path, including
+`A00` replay and `500` reuse through the existing shared `5xy` gain-update
+path. The same scan found 166 linear `Xxy` rows, 25 `Lxx` rows with envelope
+evidence, no `7xy`/`E7x`, no volume-column vibrato-speed/depth rows, 5
+volume-column tone-portamento rows, and kept Amiga `2xx`/`3xx` pitch behavior
+in a separate foundation bucket. The next residual effect target should be a
+separate `Xxy` extra-fine portamento investigation/foundation PR.
 Fractional
 C-backed offline sample steps now have microfixture coverage for deterministic
 linear interpolation, double-precision sample positions/steps, safe no-loop
@@ -744,7 +748,8 @@ Immediate audio accuracy sequence:
 101. Residual effect classification / E0x deferral cleanup — recommended next effect PR
 102. Note-start fade-in / ordinary gain-pan smoothing diagnostics — done; next audio parity target: one-tick gain update smoothing experiment
 103. Minimal Rxy Multi Retrigger — done
-104. Expanded Corpus Residual Effect Memory / Volume Column Scan — diagnostics-only; next implementation PR: Axy volume-slide memory
+104. Expanded Corpus Residual Effect Memory / Volume Column Scan — diagnostics-only; follow-up Axy volume-slide memory foundation done
+105. Axy Volume-Slide Memory Foundation — done; next residual effect target: Xxy extra-fine portamento investigation/foundation
 
 ---
 
@@ -850,8 +855,8 @@ Features:
 - conservative volume-column set-volume, set-panning, and row-level volume/panning slide mapping for bounded offline adapted renders, without full volume-column parity
 - minimal bounded/offline volume/panning state updates for empty-note
   volume-column set-volume/set-panning cells, regular effect-column `Cxx` set
-  volume, regular effect-column `8xx` set panning, and nonzero tick-level
-  `Axy` volume slides after tick 0
+  volume, regular effect-column `8xx` set panning, and tick-level `Axy`
+  volume slides after tick 0 with per-channel `A00` memory replay
 - minimal row-level `Hxy` global volume slides for bounded offline adapted
   renders, with clamped adapter global-volume state, active voice updates,
   future trigger gain mapping, and diagnostics for no-op/clamped/both-nibble
@@ -868,8 +873,9 @@ Features:
   minimal `5xy` tone portamento + volume slide support for bounded offline and
   CoreAudio C mixer runtime adapter paths, with no-retrigger target setting,
   per-channel `100`/`200` memory replay, generic C mixer sample-step updates,
-  `Axy`-style `5xy` gain updates, diagnostics, and volume-column tone
-  portamento still deferred
+  shared Axy-style `5xy` gain updates including `500` volume-slide memory
+  replay when available, diagnostics, and volume-column tone portamento still
+  deferred
 - minimal `E2x` fine portamento down support through one row-level
   linear-period/sample-step adjustment in the runtime/offline C mixer adapter
   path, with same-cell note folding, no-active-voice diagnostics, `E20` effect

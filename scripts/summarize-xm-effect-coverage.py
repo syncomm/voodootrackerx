@@ -561,6 +561,18 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
             reason = diagnostic_reason(item, status)
             specialized[key] = (status, reason)
 
+    for item in nested_list(payload.get("volume_panning_state_updates")):
+        if not isinstance(item, dict):
+            continue
+        effect_type = parse_byte(item.get("effect_type"))
+        effect_param = parse_byte(item.get("effect_param")) or 0
+        if effect_type is None or (effect_type == 0 and effect_param == 0):
+            continue
+        key = effect_status_key(item, effect_type=effect_type, effect_param=effect_param)
+        status = diagnostic_status(item)
+        reason = diagnostic_reason(item, status)
+        specialized[key] = (status, reason)
+
     for item in nested_list(payload.get("pattern_traversal_timing_effects")):
         if not isinstance(item, dict):
             continue

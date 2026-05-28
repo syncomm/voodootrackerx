@@ -1073,6 +1073,17 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
         XCTAssertEqual(render["sample_interpolation_enabled"] as? Bool, true)
+        let interpolationKernel = try XCTUnwrap(render["sample_interpolation_kernel"] as? [String: Any])
+        XCTAssertEqual(interpolationKernel["kernel"] as? String, CSoftwareMixer.interpolationKernel)
+        XCTAssertEqual(interpolationKernel["source_index_policy"] as? String, CSoftwareMixer.interpolationSourceIndexPolicy)
+        XCTAssertEqual(interpolationKernel["fraction_policy"] as? String, CSoftwareMixer.interpolationFractionPolicy)
+        XCTAssertEqual(interpolationKernel["blend_formula"] as? String, CSoftwareMixer.interpolationBlendFormula)
+        XCTAssertEqual(interpolationKernel["sample_value_policy"] as? String, CSoftwareMixer.interpolationSampleValuePolicy)
+        XCTAssertEqual(interpolationKernel["sample_end_policy"] as? String, CSoftwareMixer.interpolationEndPolicy)
+        XCTAssertEqual(interpolationKernel["forward_loop_policy"] as? String, CSoftwareMixer.interpolationForwardLoopPolicy)
+        XCTAssertEqual(interpolationKernel["ping_pong_policy"] as? String, CSoftwareMixer.interpolationPingPongPolicy)
+        XCTAssertEqual(interpolationKernel["always_enabled"] as? Bool, true)
+        XCTAssertEqual(interpolationKernel["point_sampling_fallback"] as? Bool, false)
         XCTAssertEqual(render["sample_step_precision_mode"] as? String, "double_sample_position_and_step")
         XCTAssertEqual(render["render_duration_mode"] as? String, "fixed_rows")
         XCTAssertTrue(render["calculated_song_end_frames"] is NSNull)
@@ -3209,6 +3220,62 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(keyOffEvents.first?["release_frame"] as? Int, 1)
     }
 
+    func testCSoftwareMixerAlternatingHighFrequencyFixtureUsesLinearInterpolation() {
+        let output = cMixerMonoOutput(
+            sample: [1, -1, 1, -1, 1],
+            frames: 8,
+            playbackStep: 0.5
+        )
+        let pointCandidate: [Float] = [1, 1, -1, -1, 1, 1, -1, -1]
+
+        XCTAssertEqual(output, [1, 0, -1, 0, 1, 0, -1, 0])
+        XCTAssertNotEqual(output, pointCandidate)
+    }
+
+    func testCSoftwareMixerImpulseFixtureSpreadsTransientByLinearFraction() {
+        let output = cMixerMonoOutput(
+            sample: [0, 1, 0, 0],
+            frames: 7,
+            playbackStep: 0.5
+        )
+        let pointCandidate: [Float] = [0, 0, 1, 1, 0, 0, 0]
+
+        XCTAssertEqual(output, [0, 0.5, 1, 0.5, 0, 0, 0])
+        XCTAssertNotEqual(output, pointCandidate)
+    }
+
+    func testCSoftwareMixerRampFixtureBlendsPositiveAndNegativeValuesLinearly() {
+        let output = cMixerMonoOutput(
+            sample: [-1, -0.5, 0, 0.5, 1],
+            frames: 9,
+            playbackStep: 0.5
+        )
+
+        XCTAssertEqual(output, [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1])
+    }
+
+    func testCSoftwareMixerForwardLoopBoundaryFixtureBlendsAcrossExclusiveLoopEnd() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, 30, 40],
+            frames: 10,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertEqual(output, [0, 5, 10, 15, 20, 25, 30, 20, 10, 15])
+    }
+
+    func testCSoftwareMixerPingPongFixtureInterpolatesReflectedTurnaroundPosition() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, 30, 40],
+            frames: 12,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertEqual(output, [0, 5, 10, 15, 20, 25, 30, 25, 20, 15, 10, 15])
+    }
+
     private func repoRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -3360,5 +3427,20 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func cMixerMonoOutput(
+        sample: [Float],
+        frames: Int,
+        playbackStep: Double,
+        loop: MixerSampleLoop = .none
+    ) -> [Float] {
+        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
+        mixer.addVoice(
+            sample: MixerSampleBuffer(monoPCM: sample),
+            playbackStep: playbackStep,
+            loop: loop
+        )
+        return mixer.render(frames: frames).interleavedPCM
     }
 }

@@ -204,6 +204,22 @@ loop-endpoint, event, tracker viewport, or parser bug was proven. The strongest
 next parity target is a diagnostics-first C mixer resampler/interpolation
 timbre microfixture PR, with sample/instrument volume normalization kept as the
 next level-specific alternative.
+The C mixer resampler/timbre diagnostics pass kept playback behavior unchanged
+and does not solve the observed reference mismatch. It documents the exact
+current VTX interpolation policy as always-enabled, floor-index linear
+fractional blending of signed float samples. Synthetic microfixtures now cover
+alternating high-frequency samples, impulses, ramps, forward-loop boundary
+interpolation, and ping-pong turnaround interpolation. Targeted local ft2-clone
+inspection found configurable disabled, linear, cubic, SINC8, and SINC16
+interpolation modes; the inspected configuration path appears to use SINC8 as
+the default or fallback. A local `xm-corpus-025` ft2-clone comparison against
+the current VTX render remained zero-shift and level/timbre dominated:
+correlation was about `0.922506` for the auto-headroom PCM16 candidate, global
+gain-normalized RMS was about `0.039823`, and lower-correlation worst windows
+showed substantially higher reference high-frequency and transient proxy
+energy. No tiny C mixer interpolation boundary bug was proven; the remaining
+mismatch is likely resampler/timbre-related, with replacement ramp shape or
+level normalization left as secondary alternatives.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

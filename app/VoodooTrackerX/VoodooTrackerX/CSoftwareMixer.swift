@@ -175,6 +175,15 @@ final class CSoftwareMixer {
     static let replacementStopRampFrameCount = Int(vtx_c_mixer_replacement_stop_ramp_frame_count())
     static let interpolationMode = "linear"
     static let interpolationEnabled = true
+    static let interpolationKernel = "floor_index_linear_fractional_blend"
+    static let interpolationSourceIndexPolicy = "floor(sample_position)"
+    static let interpolationFractionPolicy = "sample_position - floor(sample_position)"
+    static let interpolationBlendFormula = "current_sample * (1 - fraction) + next_sample * fraction"
+    static let interpolationSampleValuePolicy = "signed_float32_values_blended_without_sign_specific_branch"
+    static let interpolationEndPolicy = "no_loop_next_index_clamps_to_final_sample_before_voice_deactivation_on_advance"
+    static let interpolationForwardLoopPolicy = "next_index_wraps_from_exclusive_loop_end_minus_one_to_loop_start"
+    static let interpolationPingPongPolicy = "position_reflects_after_turnaround_and_linear_blend_uses_reflected_absolute_position"
+    static let interpolationPointSamplingFallback = false
     static let sampleStepPrecisionMode = "double_sample_position_and_step"
 
     private var state: VTXCMixerState

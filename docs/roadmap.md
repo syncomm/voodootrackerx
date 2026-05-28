@@ -69,7 +69,17 @@ Current stabilization note:
 - Reference-render parity triage summaries can now aggregate anonymized `scripts/audio-compare.py` JSON metrics across a small local corpus, including scalar gain-normalized evidence, missing-reference status, worst-window metrics, and a conservative next-PR recommendation. This is diagnostics-only; private/local modules, generated WAVs, JSON, and Markdown reports remain outside git.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
-  sample steps. The reference-resampler follow-up found that local MikMod
+  sample steps. The diagnostics-only resampler/timbre follow-up documented the
+  exact always-enabled floor-index linear blend policy, added high-frequency,
+  impulse, ramp, forward-loop, and ping-pong microfixtures, and found from a
+  targeted local ft2-clone source check that ft2-clone supports disabled,
+  linear, cubic, SINC8, and SINC16 interpolation modes; the inspected
+  configuration path appears to use SINC8 as the default or fallback. Local
+  `xm-corpus-025` evidence remained zero-shift and level/timbre dominated, with
+  brighter ft2-clone residuals in lower-correlation worst windows and no proven
+  tiny C mixer boundary bug. This follow-up does not change C mixer behavior,
+  does not improve parity directly, and does not solve the mismatch. The
+  reference-resampler follow-up found that local MikMod
   interpolation, high-quality mixer, and 44.1/48 kHz output variants do not
   materially explain the remaining private-corpus mismatch; fixed versus
   auto-headroom primarily affects clipping/loudness, and local alignment search
@@ -749,6 +759,14 @@ offline-render responsibilities separate.
 - Change: audio comparison JSON/Markdown now reports sample format/code, per-window gain-normalized RMS difference, mono high-frequency proxy, zero-crossing rate, transient derivative RMS, and residual shape evidence. Public docs record ft2-clone as the preferred FT2-style reference when an export is available.
 - Verification: synthetic audio comparison tests cover 32-bit float WAV reading, float peak/RMS, float candidate/reference comparison, sample-rate mismatch rejection, unchanged PCM16 scaling, and timbre metrics. Local private WAV/JSON/Markdown artifacts stayed under `/tmp` and out of git.
 - Status: diagnostics/tooling only. Recommended next parity PR: C Mixer Resampler / Interpolation Timbre Parity microfixtures first; keep Sample/Instrument Volume Normalization Edge Case as the next level-focused alternative if timbre microfixtures do not reproduce the residual.
+
+### PR 2.7.11bj — C Mixer Resampler / Interpolation Timbre Diagnostics
+- Scope: diagnostics/tooling-only C mixer sample interpolation/resampler timbre investigation for `xm-corpus-025`, with synthetic microfixtures only in automated tests. No new XM effects, parser changes, tracker viewport changes, gain policy changes, panning law changes, period/sample-step changes, loop endpoint behavior changes, runtime backend changes, or C mixer behavior changes.
+- Findings: VTX's C mixer uses always-enabled floor-index linear interpolation: source index is `floor(sample_position)`, fraction is `sample_position - floor(sample_position)`, signed float samples are blended as current/next without sign-specific branching, no-loop next samples clamp to the final frame, forward-loop interpolation wraps from the exclusive loop end back to loop start, and ping-pong interpolation follows the reflected playback position. Targeted local ft2-clone inspection found configurable disabled, linear, cubic, SINC8, and SINC16 interpolation modes; the inspected configuration path appears to use SINC8 as the default or fallback, plus separate volume ramping behavior.
+- Local evidence: the current auto-headroom `xm-corpus-025` comparison against the local ft2-clone 48 kHz float reference was zero-shift in the top windows, with correlation about `0.922506` and global gain-normalized RMS about `0.039823` for the PCM16 VTX export. Highest-correlation windows mostly collapsed under local scalar normalization, while lower-correlation windows retained residuals where ft2-clone had substantially higher high-frequency/transient proxy energy. No point-sampling fallback, sample-step update timing, loop-boundary, ping-pong turnaround, panning, gain-policy, parser, or tracker-viewport bug was proven.
+- Change: bounded render diagnostics now report a structured `sample_interpolation_kernel`; `scripts/audio-compare.py` reports rough centroid and low/mid/high band-energy timbre proxies in JSON/Markdown; synthetic tests cover high-frequency alternating, impulse, ramp, forward-loop boundary, ping-pong turnaround, interpolation diagnostics, and comparison optional-field behavior.
+- Verification: synthetic Swift and Python tests cover the new diagnostics and microfixtures. Local private-module WAV/JSON/Markdown artifacts stayed under `/tmp` and out of git.
+- Status: diagnostics/tooling only. This PR does not solve the remaining `xm-corpus-025` mismatch and does not claim a direct parity improvement. Recommended next implementation PR: C Mixer Cubic/FT2-Compatible Resampler Experiment if matching ft2-clone's configured interpolation target is desired; otherwise investigate replacement ramp shape or sample/instrument volume normalization as secondary alternatives.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

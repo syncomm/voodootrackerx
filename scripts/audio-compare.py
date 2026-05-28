@@ -531,26 +531,100 @@ def timbre_profile(samples: list[float], sample_rate: int) -> dict[str, object]:
         return {
             "first_10ms_rms": 0.0,
             "derivative_rms": 0.0,
+            "first_10ms_derivative_rms": 0.0,
+            "transient_derivative_to_sustain_ratio": None,
             "max_abs_delta": 0.0,
             "high_frequency_proxy_ratio": None,
+            "spectral_centroid_proxy_hz": None,
+            "band_energy_proxy": band_energy_proxy([]),
             "zero_crossing_rate": None,
         }
     first_10ms_frames = max(1, min(len(samples), int(sample_rate * 0.010))) if sample_rate > 0 else len(samples)
     deltas = [samples[index] - samples[index - 1] for index in range(1, len(samples))]
     rms = signal_rms(samples)
     derivative_rms = signal_rms(deltas)
+    first_10ms_delta_count = max(0, first_10ms_frames - 1)
+    first_10ms_derivative_rms = signal_rms(deltas[:first_10ms_delta_count])
+    sustain_derivative_rms = signal_rms(deltas[first_10ms_delta_count:])
     zero_crossings = sum(
         1
         for index in range(1, len(samples))
         if (samples[index - 1] < 0.0 <= samples[index]) or (samples[index - 1] > 0.0 >= samples[index])
     )
+    high_frequency_proxy_ratio = derivative_rms / rms if rms > 0.0 else None
     return {
         "first_10ms_rms": rounded(signal_rms(samples[:first_10ms_frames])),
         "derivative_rms": rounded(derivative_rms),
+        "first_10ms_derivative_rms": rounded(first_10ms_derivative_rms),
+        "transient_derivative_to_sustain_ratio": rounded_optional(
+            first_10ms_derivative_rms / sustain_derivative_rms if sustain_derivative_rms > 0.0 else None
+        ),
         "max_abs_delta": rounded(max((abs(delta) for delta in deltas), default=0.0)),
-        "high_frequency_proxy_ratio": rounded_optional(derivative_rms / rms if rms > 0.0 else None),
+        "high_frequency_proxy_ratio": rounded_optional(high_frequency_proxy_ratio),
+        "spectral_centroid_proxy_hz": rounded_optional(
+            spectral_centroid_proxy_hz(high_frequency_proxy_ratio, sample_rate)
+        ),
+        "band_energy_proxy": band_energy_proxy(samples),
         "zero_crossing_rate": rounded_optional(zero_crossings / (len(samples) - 1) if len(samples) > 1 else None),
     }
+
+
+def moving_average(samples: list[float], width: int) -> list[float]:
+    if not samples:
+        return []
+    window_width = max(1, width)
+    if window_width == 1:
+        return list(samples)
+
+    half_width = window_width // 2
+    prefix_sum = [0.0]
+    for sample in samples:
+        prefix_sum.append(prefix_sum[-1] + sample)
+
+    averaged: list[float] = []
+    for index in range(len(samples)):
+        start = max(0, index - half_width)
+        end = min(len(samples), index + half_width + 1)
+        averaged.append((prefix_sum[end] - prefix_sum[start]) / float(end - start))
+    return averaged
+
+
+def band_energy_proxy(samples: list[float]) -> dict[str, object]:
+    if not samples:
+        return {
+            "low_rms": 0.0,
+            "mid_rms": 0.0,
+            "high_rms": 0.0,
+            "low_ratio": None,
+            "mid_ratio": None,
+            "high_ratio": None,
+        }
+
+    low = moving_average(samples, 16)
+    mid_smooth = moving_average(samples, 4)
+    mid = [mid_smooth[index] - low[index] for index in range(len(samples))]
+    high = [samples[index] - mid_smooth[index] for index in range(len(samples))]
+    low_rms = signal_rms(low)
+    mid_rms = signal_rms(mid)
+    high_rms = signal_rms(high)
+    total_energy = (low_rms * low_rms) + (mid_rms * mid_rms) + (high_rms * high_rms)
+    return {
+        "low_rms": rounded(low_rms),
+        "mid_rms": rounded(mid_rms),
+        "high_rms": rounded(high_rms),
+        "low_ratio": rounded_optional((low_rms * low_rms) / total_energy if total_energy > 0.0 else None),
+        "mid_ratio": rounded_optional((mid_rms * mid_rms) / total_energy if total_energy > 0.0 else None),
+        "high_ratio": rounded_optional((high_rms * high_rms) / total_energy if total_energy > 0.0 else None),
+    }
+
+
+def spectral_centroid_proxy_hz(high_frequency_proxy_ratio: float | None, sample_rate: int) -> float | None:
+    if high_frequency_proxy_ratio is None or sample_rate <= 0:
+        return None
+    # For a sine wave, derivative_rms/rms is 2*sin(pi*f/sample_rate). Invert it
+    # as a rough single-number brightness proxy for mixed tracker audio.
+    normalized = max(0.0, min(1.0, high_frequency_proxy_ratio / 2.0))
+    return math.asin(normalized) * float(sample_rate) / math.pi
 
 
 def residual_signal(reference: list[float], candidate: list[float]) -> list[float]:
@@ -1275,15 +1349,30 @@ def format_window_timbre_summary(metrics: dict[str, object]) -> str:
     reference = nested_dict_value(mono, "reference")
     candidate = nested_dict_value(mono, "candidate")
     residual = nested_dict_value(mono, "residual")
+    reference_band = nested_dict_value(reference, "band_energy_proxy")
+    candidate_band = nested_dict_value(candidate, "band_energy_proxy")
+    residual_band = nested_dict_value(residual, "band_energy_proxy")
     parts = [
         "hf_proxy ref/cand/resid "
         f"{format_optional_float(reference.get('high_frequency_proxy_ratio'))}/"
         f"{format_optional_float(candidate.get('high_frequency_proxy_ratio'))}/"
         f"{format_optional_float(residual.get('high_frequency_proxy_ratio'))}",
+        "centroid_proxy_hz ref/cand/resid "
+        f"{format_optional_float(reference.get('spectral_centroid_proxy_hz'))}/"
+        f"{format_optional_float(candidate.get('spectral_centroid_proxy_hz'))}/"
+        f"{format_optional_float(residual.get('spectral_centroid_proxy_hz'))}",
+        "band_high ref/cand/resid "
+        f"{format_optional_float(reference_band.get('high_ratio'))}/"
+        f"{format_optional_float(candidate_band.get('high_ratio'))}/"
+        f"{format_optional_float(residual_band.get('high_ratio'))}",
         "delta_rms ref/cand/resid "
         f"{format_optional_float(reference.get('derivative_rms'))}/"
         f"{format_optional_float(candidate.get('derivative_rms'))}/"
         f"{format_optional_float(residual.get('derivative_rms'))}",
+        "transient_delta_rms ref/cand/resid "
+        f"{format_optional_float(reference.get('first_10ms_derivative_rms'))}/"
+        f"{format_optional_float(candidate.get('first_10ms_derivative_rms'))}/"
+        f"{format_optional_float(residual.get('first_10ms_derivative_rms'))}",
         "zero_cross ref/cand "
         f"{format_optional_float(reference.get('zero_crossing_rate'))}/"
         f"{format_optional_float(candidate.get('zero_crossing_rate'))}",

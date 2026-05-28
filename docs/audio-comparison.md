@@ -137,7 +137,11 @@ explicit XM linear-period/frequency/sample-step diagnostics for bounded adapted
 events. Fractional C-backed offline sample steps use deterministic linear
 interpolation with double-precision sample positions and sample steps; diagnostics
 JSON reports `sample_interpolation`, `sample_interpolation_enabled`, and
-`sample_step_precision_mode` in the render section. Candidate diagnostics also report
+`sample_step_precision_mode` in the render section. Candidate diagnostics also
+report `sample_interpolation_kernel` with the floor-index source selection,
+fractional blend formula, no-loop clamp, forward-loop wrap, ping-pong
+turnaround, always-enabled, and point-sampling fallback policies used by the C
+mixer. Candidate diagnostics also report
 first-pass volume-envelope sustain, loop, note value `97` key-off/release, and
 post-key-off fadeout decisions for bounded offline adapted events, including
 whether each decision was applied, deferred, or approximated. Non-linear/Amiga-table pitch
@@ -195,6 +199,13 @@ Float32 render block before PCM16 conversion. Optional `--gain`,
 `--headroom-db`, and `--auto-headroom` controls apply only at the WAV export
 boundary, after Float32 offline rendering and before PCM16 encoding. Default
 export gain remains unchanged when none of those options is passed.
+Worst-window timbre diagnostics include derivative high-frequency proxy,
+zero-crossing rate, transient derivative RMS, a rough centroid proxy, and
+low/mid/high band-energy proxies for the mono reference, candidate, and
+residual signals. These are comparison heuristics for choosing narrow follow-up
+work, not a formal spectral analysis or a standalone correctness verdict. They
+do not change C mixer resampling behavior and do not solve the current
+reference mismatch.
 
 ## Runtime C Mixer Listening Diagnostics
 

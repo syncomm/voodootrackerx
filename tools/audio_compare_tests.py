@@ -2960,8 +2960,25 @@ class AudioCompareTests(unittest.TestCase):
 
             self.assertLess(timbre["reference"]["high_frequency_proxy_ratio"], 0.20)
             self.assertGreater(timbre["candidate"]["high_frequency_proxy_ratio"], 1.0)
+            self.assertGreater(timbre["candidate"]["spectral_centroid_proxy_hz"], timbre["reference"]["spectral_centroid_proxy_hz"])
+            self.assertGreater(
+                timbre["candidate"]["band_energy_proxy"]["high_ratio"],
+                timbre["reference"]["band_energy_proxy"]["high_ratio"],
+            )
             self.assertGreater(timbre["candidate"]["zero_crossing_rate"], timbre["reference"]["zero_crossing_rate"])
+            self.assertIn("centroid_proxy_hz", report)
+            self.assertIn("band_high", report)
             self.assertIn("timbre:", report)
+
+    def test_timbre_profile_reports_transient_and_band_energy_proxies(self):
+        samples = [0.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0] + [0.01, -0.01] * 32
+
+        profile = audio_compare.timbre_profile(samples, sample_rate=1000)
+
+        self.assertGreater(profile["first_10ms_derivative_rms"], 0.0)
+        self.assertGreater(profile["transient_derivative_to_sustain_ratio"], 1.0)
+        self.assertGreater(profile["band_energy_proxy"]["high_rms"], 0.0)
+        self.assertIsNotNone(profile["spectral_centroid_proxy_hz"])
 
     def test_gain_normalized_metrics_identify_scalar_loudness_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:

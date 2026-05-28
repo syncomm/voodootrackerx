@@ -32,6 +32,9 @@ FOCUSED_XM_CHANNEL_SCRIPT_PATH = (
 FOCUSED_WINDOW_TIMELINE_SCRIPT_PATH = (
     Path(__file__).resolve().parents[1] / "scripts" / "focused-window-voice-timeline.py"
 )
+STEM_SCALING_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "stem-scaling-diagnostics.py"
+)
 
 
 def load_audio_compare_module():
@@ -106,6 +109,15 @@ def load_focused_window_timeline_module():
     return module
 
 
+def load_stem_scaling_module():
+    spec = importlib.util.spec_from_file_location("stem_scaling", STEM_SCALING_SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 audio_compare = load_audio_compare_module()
 audio_discontinuities = load_audio_discontinuities_module()
 reference_triage = load_reference_triage_module()
@@ -114,6 +126,7 @@ runtime_offline_window = load_runtime_offline_window_module()
 effect_coverage = load_effect_coverage_module()
 focused_xm_channel = load_focused_xm_channel_module()
 focused_window_timeline = load_focused_window_timeline_module()
+stem_scaling = load_stem_scaling_module()
 
 
 def synthetic_comparison_json(start_frame=100, end_frame=150):
@@ -2826,6 +2839,83 @@ class AudioDiscontinuityTests(unittest.TestCase):
             item["category"]
             for item in analysis["diagnostics_correlation"]["summary_by_category"]
         }
+
+
+class StemScalingDiagnosticsTests(unittest.TestCase):
+    def test_stem_sum_reconstructs_synthetic_full_mix(self):
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            stem_a = directory / "stem-a.wav"
+            stem_b = directory / "stem-b.wav"
+            full = directory / "full.wav"
+            summed = directory / "summed.wav"
+            frames_a = [(0.10, -0.20), (0.20, 0.10), (0.00, 0.05), (-0.10, 0.00)]
+            frames_b = [(0.05, 0.10), (-0.05, 0.15), (0.25, -0.10), (0.10, 0.20)]
+            full_frames = [
+                (left_a + left_b, right_a + right_b)
+                for (left_a, right_a), (left_b, right_b) in zip(frames_a, frames_b)
+            ]
+            write_float32_wav(stem_a, sample_rate=1000, channels=2, frames=frames_a)
+            write_float32_wav(stem_b, sample_rate=1000, channels=2, frames=frames_b)
+            write_float32_wav(full, sample_rate=1000, channels=2, frames=full_frames)
+
+            diagnostics = stem_scaling.build_diagnostics(
+                [stem_a, stem_b],
+                summed,
+                full_render_path=full,
+                chunk_frames=2,
+                top_windows=1,
+            )
+
+            reconstruction = diagnostics["full_render_reconstruction"]
+            self.assertEqual(reconstruction["classification"], "reconstructs_full_render")
+            self.assertAlmostEqual(reconstruction["normalized_correlation"], 1.0, places=7)
+            self.assertAlmostEqual(reconstruction["summed_to_full_rms_ratio"], 1.0, places=7)
+            self.assertTrue(summed.exists())
+            self.assertEqual(diagnostics["summed_mix"]["frame_count"], 4)
+            self.assertEqual(diagnostics["summed_mix"]["stats"]["overrange_sample_count"], 0)
+
+    def test_stem_sum_classifies_scalar_only_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            stem = directory / "stem.wav"
+            full = directory / "full.wav"
+            summed = directory / "summed.wav"
+            stem_frames = [(0.20,), (-0.10,), (0.40,), (-0.30,)]
+            full_frames = [(sample[0] * 0.5,) for sample in stem_frames]
+            write_float32_wav(stem, sample_rate=1000, channels=1, frames=stem_frames)
+            write_float32_wav(full, sample_rate=1000, channels=1, frames=full_frames)
+
+            diagnostics = stem_scaling.build_diagnostics(
+                [stem],
+                summed,
+                full_render_path=full,
+                chunk_frames=2,
+                top_windows=1,
+            )
+
+            reconstruction = diagnostics["full_render_reconstruction"]
+            self.assertEqual(reconstruction["classification"], "matches_full_render_after_scalar_only")
+            self.assertAlmostEqual(reconstruction["candidate_scalar_to_reference"], 0.5, places=7)
+            self.assertAlmostEqual(reconstruction["summed_to_full_rms_ratio"], 2.0, places=7)
+
+    def test_stem_sum_handles_missing_optional_full_render(self):
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            stem = directory / "stem.wav"
+            summed = directory / "summed.wav"
+            write_float32_wav(stem, sample_rate=1000, channels=1, frames=[(0.20,), (-0.10,)])
+
+            diagnostics = stem_scaling.build_diagnostics(
+                [stem],
+                summed,
+                full_render_path=None,
+                chunk_frames=1,
+            )
+
+            self.assertEqual(diagnostics["full_render_reconstruction"]["classification"], "not_requested")
+            self.assertNotIn("comparison", diagnostics)
+            self.assertEqual(diagnostics["stem_inputs"][0]["stats"]["frames_analyzed"], 2)
 
 
 class AudioCompareTests(unittest.TestCase):

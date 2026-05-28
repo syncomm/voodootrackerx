@@ -1206,6 +1206,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let coverage = try XCTUnwrap(diagnostics["event_coverage"] as? [String: Any])
         let events = try XCTUnwrap(diagnostics["events"] as? [[String: Any]])
         let firstEvent = try XCTUnwrap(events.first)
+        let samplePCMStats = try XCTUnwrap(diagnostics["sample_pcm_stats"] as? [[String: Any]])
+        let firstSamplePCMStats = try XCTUnwrap(samplePCMStats.first)
         let rowTiming = try XCTUnwrap(diagnostics["row_timing"] as? [[String: Any]])
         let firstRowTiming = try XCTUnwrap(rowTiming.first)
 
@@ -1239,6 +1241,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(interpolationKernel["always_enabled"] as? Bool, true)
         XCTAssertEqual(interpolationKernel["point_sampling_fallback"] as? Bool, false)
         XCTAssertEqual(render["sample_step_precision_mode"] as? String, "double_sample_position_and_step")
+        XCTAssertEqual(render["sample_pcm_stat_count"] as? Int, 1)
         let gainConstructionPolicy = try XCTUnwrap(render["gain_construction_policy"] as? [String: Any])
         XCTAssertEqual(gainConstructionPolicy["event_gain_formula"] as? String, "sample_volume * (channel_volume / 64) * (global_volume / 64)")
         XCTAssertEqual(gainConstructionPolicy["c_mixer_render_multiplier"] as? String, "event_gain * volume_envelope * fadeout before panning")
@@ -1289,6 +1292,22 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNotNil(firstEvent["loop_start_frame"] as? Int)
         XCTAssertNotNil(firstEvent["loop_end_frame"] as? Int)
         XCTAssertNotNil(firstEvent["loop_length_frames"] as? Int)
+        XCTAssertEqual(firstSamplePCMStats["instrument_index"] as? Int, 1)
+        XCTAssertEqual(firstSamplePCMStats["sample_index"] as? Int, 0)
+        XCTAssertEqual(firstSamplePCMStats["frame_count"] as? Int, 64)
+        XCTAssertEqual(firstSamplePCMStats["sample_length"] as? Int, 64)
+        XCTAssertEqual(firstSamplePCMStats["min"] as? Double ?? 0, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(firstSamplePCMStats["max"] as? Double ?? 0, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(firstSamplePCMStats["rms"] as? Double ?? 0, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(firstSamplePCMStats["peak"] as? Double ?? 0, 0.25, accuracy: 0.000_001)
+        XCTAssertEqual(firstSamplePCMStats["loop_start_frame"] as? Int, 0)
+        XCTAssertEqual(firstSamplePCMStats["loop_end_frame"] as? Int, 64)
+        XCTAssertEqual(firstSamplePCMStats["loop_length_frames"] as? Int, 64)
+        XCTAssertEqual(firstSamplePCMStats["sample_volume_raw_estimate"] as? Int, 64)
+        XCTAssertEqual(firstSamplePCMStats["source_bit_depth_bits"] as? Int, 8)
+        XCTAssertEqual(firstSamplePCMStats["source_16_bit"] as? Bool, false)
+        XCTAssertEqual(firstSamplePCMStats["source_signedness"] as? String, "signed")
+        XCTAssertEqual(firstSamplePCMStats["source_delta_encoded"] as? Bool, true)
         XCTAssertEqual(firstEvent["sample_volume"] as? Double, 1)
         XCTAssertEqual(firstEvent["sample_volume_raw_estimate"] as? Int, 64)
         XCTAssertEqual(firstEvent["effective_volume_multiplier"] as? Double, 0.75)
@@ -1298,6 +1317,56 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(gainConstruction["global_volume_value"] as? Int, 64)
         XCTAssertEqual(gainConstruction["base_gain"] as? Double, 0.75)
         XCTAssertFalse(String(decoding: diagnosticsData, as: UTF8.self).contains(inputURL.path))
+    }
+
+    func testDiagnosticsJSONSamplePCMStatsHandleEmptySamples() throws {
+        let emptySample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [],
+            volume: 0.5,
+            relativeNote: -1,
+            finetune: 2,
+            baseSampleRate: 8_363
+        )
+        let song = PlaybackSong(
+            title: "empty-sample-stats",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: []),
+                ]),
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [emptySample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let stats = try XCTUnwrap(object["sample_pcm_stats"] as? [[String: Any]])
+        let first = try XCTUnwrap(stats.first)
+
+        XCTAssertEqual(render["sample_pcm_stat_count"] as? Int, 1)
+        XCTAssertEqual(first["frame_count"] as? Int, 0)
+        XCTAssertEqual(first["sample_length"] as? Int, 0)
+        XCTAssertTrue(first["min"] is NSNull)
+        XCTAssertTrue(first["max"] is NSNull)
+        XCTAssertEqual(first["rms"] as? Double, 0)
+        XCTAssertEqual(first["peak"] as? Double, 0)
+        XCTAssertEqual(first["sample_volume_raw_estimate"] as? Int, 32)
+        XCTAssertTrue(first["source_bit_depth_bits"] is NSNull)
+        XCTAssertTrue(first["source_16_bit"] is NSNull)
+        XCTAssertTrue(first["source_signedness"] is NSNull)
+        XCTAssertTrue(first["source_delta_encoded"] is NSNull)
+        XCTAssertEqual(first["relative_note"] as? Int, -1)
+        XCTAssertEqual(first["finetune"] as? Int, 2)
     }
 
     func testUntilSongEndDiagnosticsJSONIncludesDurationModeAndTailFields() throws {

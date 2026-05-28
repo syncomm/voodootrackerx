@@ -127,6 +127,23 @@ current residual as per-channel/per-sample level or PCM-scaling evidence around
 the dominant instrument/sample, not a full-mix accumulation-only issue and not
 a row/tick, panning, loop-boundary, or SINC8-primary finding.
 
+A stem scaling and sample PCM normalization audit kept playback behavior
+unchanged. `scripts/stem-scaling-diagnostics.py` can sum local reference stems
+or VTX solo-channel renders into a synthetic full mix and compare that sum to a
+full-song render before any stem-to-stem conclusion is trusted. The local
+`xm-corpus-025` audit found that ft2-clone individual-track references
+reconstruct the ft2-clone full render, and VTX solo-channel renders reconstruct
+the VTX full render, so the focused channel comparisons are valid diagnostics.
+The dominant instrument/sample `23/0` has byte-identical decoded PCM between
+VTX and the ft2-clone exported sample, with matching frame count, peak, RMS,
+forward loop, sample volume, finetune, and relative note. The volume and
+panning envelopes are disabled for that instrument. The remaining level
+difference is therefore not explained by ft2-clone stem attenuation, VTX solo
+isolation scaling, VTX PCM decode/scaling, sample volume normalization, or
+envelope application; the next precise parity PR should analyze full-mix
+contribution and later render/mix gain around the dominant channel group
+without assuming a PCM decode bug.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.
@@ -1110,6 +1127,32 @@ scheduled voices start at zero gain and their later state updates are not
 applied; timing, traversal, and diagnostics are still planned from the full
 bounded song. Diagnostics JSON records the selected isolation filter and the
 included/muted scheduled-event counts.
+
+Candidate diagnostics JSON also includes `sample_pcm_stats`, a per-sample
+summary of decoded `PlaybackSample.pcm` data. It reports frame count, min/max,
+RMS, peak, zero-crossing count, loop start/end/length/type, sample volume and
+raw-volume estimate, relative note, finetune, base sample rate, and optional
+source bit-depth/signedness/delta-encoding metadata. Synthetic samples may have
+unknown optional source fields; consumers should treat missing values as
+diagnostic unknowns rather than errors.
+
+For stem reconstruction checks, use `scripts/stem-scaling-diagnostics.py` with
+one `--stem` argument per input WAV and write the synthetic sum under `/tmp`:
+
+```bash
+python3 scripts/stem-scaling-diagnostics.py \
+  --stem /tmp/local-stem-ch01.wav \
+  --stem /tmp/local-stem-ch02.wav \
+  --sum-output /tmp/local-stem-sum.wav \
+  --full-render /tmp/local-full-render.wav \
+  --json /tmp/local-stem-sum-diagnostics.json \
+  --seconds 183
+```
+
+The helper performs an unnormalized Float32 sum and reports summed-vs-full
+correlation, scalar, RMS ratio, peak/RMS levels, overrange counts, and a
+classification. If a stem sum does not reconstruct its corresponding full mix,
+do not use those stems as direct per-channel amplitude references.
 
 Long candidate WAVs and diagnostics JSON can be large. Write them under `/tmp`
 or an ignored scratch directory, and do not commit generated WAVs, JSON reports,

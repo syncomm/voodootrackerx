@@ -102,10 +102,13 @@ The helper is developer-only. It does not change runtime backend selection and d
 
 ## Documentation Map
 
-- [docs/audio-comparison.md](docs/audio-comparison.md) - local-only candidate/reference WAV comparison workflow, artifact rules, diagnostics, and interpretation notes.
+- [docs/README.md](docs/README.md) - concise documentation index for humans and agents.
+- [docs/agent-current-state.md](docs/agent-current-state.md) - current backend state, comparison defaults, and context-loading guidance.
+- [docs/audio-comparison.md](docs/audio-comparison.md) - current local-only candidate/reference WAV comparison workflow.
 - [docs/xm-effect-support.md](docs/xm-effect-support.md) - public XM effect support matrix for the runtime/offline C mixer adapter path.
-- [docs/roadmap.md](docs/roadmap.md) - detailed PR-by-PR roadmap and current audio/mixer sequencing.
-- [docs/dev-roadmap.md](docs/dev-roadmap.md) - shorter phase-based roadmap and current state snapshot.
+- [docs/roadmap.md](docs/roadmap.md) - current milestone sequencing.
+- [docs/dev-roadmap.md](docs/dev-roadmap.md) - short phase-based roadmap.
+- [docs/playback-trace.md](docs/playback-trace.md) - runtime trace and capture diagnostics.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.

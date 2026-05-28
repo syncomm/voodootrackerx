@@ -21,6 +21,7 @@ MAX_ENVELOPE_GAIN_EXAMPLES = 5
 MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
 MAX_GAIN_PAN_EXAMPLES = 8
 MAX_SAMPLE_INSTRUMENT_EXAMPLES = 8
+MAX_LOOP_CROSSING_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -1334,6 +1335,56 @@ def build_sample_instrument_gain_summary(
     }
 
 
+def build_loop_crossing_timbre_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    all_mechanics = [event_mechanics_for_window(event, None) for event in events]
+    looped_mechanics = [item for item in all_mechanics if item["loop_mode"] != "none"]
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        probe_frame = int(window["_start_frame"]) + max(0, (int(window["_end_frame"]) - int(window["_start_frame"])) // 2)
+        signals = [
+            loop_crossing_voice_signal(event, window, probe_frame)
+            for event in active
+            if str(event.get("loop_mode") or "none") != "none"
+        ]
+        crossing_count = sum(integer(item.get("loop_boundary_crossing_count")) or 0 for item in signals)
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "probe_frame": probe_frame,
+            "active_voice_count": len(active),
+            "looped_voice_count": len(signals),
+            "crossing_voice_count": sum(1 for item in signals if (integer(item.get("loop_boundary_crossing_count")) or 0) > 0),
+            "loop_boundary_crossing_count": crossing_count,
+            "forward_loop_wrap_count": sum(integer(item.get("forward_loop_wrap_count")) or 0 for item in signals),
+            "playback_step": numeric_distribution(signals, "playback_step"),
+            "final_gain": numeric_distribution(signals, "final_gain"),
+            "timbre": loop_timbre_signal(window),
+            "dominant": dominant_looped_instrument_sample_groups(signals),
+            "examples": [loop_crossing_voice_label(item) for item in signals[:MAX_LOOP_CROSSING_EXAMPLES]],
+        })
+    return {
+        "event_count": len(events),
+        "looped_event_count": len(looped_mechanics),
+        "loop_crossing_event_count": sum(1 for item in looped_mechanics if int(item["loop_boundary_crossing_count"]) > 0),
+        "loop_boundary_crossing_count": sum(int(item["loop_boundary_crossing_count"]) for item in looped_mechanics),
+        "windowed_render_aware": bool(render_windows),
+        "render_window_count": len(render_windows),
+        "timbre_metric_window_count": sum(
+            1 for window in windows
+            if loop_timbre_signal(window).get("residual_to_reference_rms") is not None
+        ),
+        "window_count": len(windows),
+        "window_summaries": window_summaries,
+    }
+
+
 def gain_pan_voice_signal(event: dict[str, Any], probe_frame: int | None) -> dict[str, Any]:
     base_gain = number(event.get("gain"))
     pan = number(event.get("pan"))
@@ -1488,6 +1539,162 @@ def sample_instrument_gain_signal(event: dict[str, Any], probe_frame: int | None
     }
 
 
+def loop_crossing_voice_signal(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    probe_frame: int,
+) -> dict[str, Any]:
+    mechanics = event_mechanics_for_window(event, window)
+    gain_signal = sample_instrument_gain_signal(event, probe_frame)
+    pitch = nested_dict(event.get("pitch"))
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    loop_length = integer(event.get("loop_length_frames"))
+    if loop_length is None and loop_start is not None and loop_end is not None:
+        loop_length = max(0, loop_end - loop_start)
+    start_position = mechanics["start_position"]
+    end_position = mechanics["end_position"]
+    window_start = int(window["_start_frame"])
+    window_end = int(window["_end_frame"])
+    event_start = integer(event.get("_effective_start_frame", event.get("_start_frame")))
+    event_end = integer(event.get("_effective_end_frame", event.get("_end_frame")))
+    overlap_frames = 1
+    if event_start is not None and event_end is not None:
+        overlap_frames = max(0, min(event_end, window_end) - max(event_start, window_start))
+    final_gain = number(gain_signal.get("final_gain"))
+    contribution = 0.0 if final_gain is None else final_gain * final_gain * float(overlap_frames)
+    return {
+        "source": nested_dict(event.get("source")),
+        "channel_index": event.get("channel_index"),
+        "event_index": event.get("event_index"),
+        "note": event.get("note"),
+        "instrument_index": integer(event.get("instrument_index")),
+        "sample_index": integer(event.get("sample_index")),
+        "sample_frame_count": integer(event.get("sample_frame_count")),
+        "loop_mode": mechanics["loop_mode"],
+        "loop_start_frame": loop_start,
+        "loop_end_frame": loop_end,
+        "loop_length_frames": loop_length,
+        "playback_step": number(pitch.get("playback_step")),
+        "final_gain": final_gain,
+        "contribution_estimate": contribution,
+        "loop_boundary_crossing_count": mechanics["loop_boundary_crossing_count"],
+        "forward_loop_wrap_count": mechanics["forward_loop_wrap_count"],
+        "start_source_position": start_position.rendered_position,
+        "end_source_position": end_position.rendered_position,
+        "start_raw_source_position": start_position.raw_position,
+        "end_raw_source_position": end_position.raw_position,
+        "crossing_examples": loop_crossing_examples(event, window),
+    }
+
+
+def loop_timbre_signal(window: dict[str, Any]) -> dict[str, Any]:
+    mono = nested_dict(nested_dict(window.get("timbre_metrics")).get("mono"))
+    reference = nested_dict(mono.get("reference"))
+    candidate = nested_dict(mono.get("candidate"))
+    residual = nested_dict(mono.get("residual"))
+    residual_band = nested_dict(residual.get("band_energy_proxy"))
+    return {
+        "residual_to_reference_rms": number(mono.get("residual_to_reference_rms")),
+        "reference_high_frequency_proxy": number(reference.get("high_frequency_proxy_ratio")),
+        "candidate_high_frequency_proxy": number(candidate.get("high_frequency_proxy_ratio")),
+        "residual_high_frequency_proxy": number(residual.get("high_frequency_proxy_ratio")),
+        "residual_derivative_rms": number(residual.get("derivative_rms")),
+        "residual_transient_derivative_rms": number(residual.get("first_10ms_derivative_rms")),
+        "residual_high_band_ratio": number(residual_band.get("high_ratio")),
+    }
+
+
+def dominant_looped_instrument_sample_groups(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[Any, Any, Any, Any, Any], dict[str, Any]] = {}
+    for signal in signals:
+        key = (
+            signal.get("instrument_index"),
+            signal.get("sample_index"),
+            signal.get("loop_mode"),
+            signal.get("loop_start_frame"),
+            signal.get("loop_end_frame"),
+        )
+        group = groups.setdefault(key, {
+            "instrument_index": signal.get("instrument_index"),
+            "sample_index": signal.get("sample_index"),
+            "loop_mode": signal.get("loop_mode"),
+            "loop_start_frame": signal.get("loop_start_frame"),
+            "loop_end_frame": signal.get("loop_end_frame"),
+            "loop_length_frames": signal.get("loop_length_frames"),
+            "voice_count": 0,
+            "loop_boundary_crossing_count": 0,
+            "contribution_estimate": 0.0,
+            "_playback_step_items": [],
+            "_final_gain_items": [],
+        })
+        group["voice_count"] += 1
+        group["loop_boundary_crossing_count"] += integer(signal.get("loop_boundary_crossing_count")) or 0
+        group["contribution_estimate"] += number(signal.get("contribution_estimate")) or 0.0
+        group["_playback_step_items"].append({"playback_step": signal.get("playback_step")})
+        group["_final_gain_items"].append({"final_gain": signal.get("final_gain")})
+    total = sum(number(group.get("contribution_estimate")) or 0.0 for group in groups.values())
+    result = []
+    for group in groups.values():
+        contribution = number(group.get("contribution_estimate")) or 0.0
+        result.append({
+            "instrument_index": group.get("instrument_index"),
+            "sample_index": group.get("sample_index"),
+            "loop_mode": group.get("loop_mode"),
+            "loop_start_frame": group.get("loop_start_frame"),
+            "loop_end_frame": group.get("loop_end_frame"),
+            "loop_length_frames": group.get("loop_length_frames"),
+            "voice_count": group.get("voice_count"),
+            "loop_boundary_crossing_count": group.get("loop_boundary_crossing_count"),
+            "contribution_estimate": contribution,
+            "contribution_ratio": contribution / total if total > 0.0 else None,
+            "playback_step": numeric_distribution(nested_list(group.get("_playback_step_items")), "playback_step"),
+            "final_gain": numeric_distribution(nested_list(group.get("_final_gain_items")), "final_gain"),
+        })
+    result.sort(key=lambda item: (
+        -(number(item.get("contribution_estimate")) or 0.0),
+        -sort_int(item.get("voice_count")),
+        sort_int(item.get("instrument_index")),
+        sort_int(item.get("sample_index")),
+    ))
+    return result[:MAX_SAMPLE_INSTRUMENT_EXAMPLES]
+
+
+def loop_crossing_examples(event: dict[str, Any], window: dict[str, Any]) -> list[dict[str, Any]]:
+    if str(event.get("loop_mode") or "none") != "forward":
+        return []
+    step = number(nested_dict(event.get("pitch")).get("playback_step"))
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    event_start = integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0
+    if step is None or step <= 0 or loop_start is None or loop_end is None or loop_end <= loop_start:
+        return []
+    loop_length = loop_end - loop_start
+    probe_start = max(event_start, int(window["_start_frame"]))
+    probe_end = min(integer(event.get("_end_frame", event.get("estimated_end_frame"))) or probe_start, int(window["_end_frame"]))
+    if probe_end <= probe_start:
+        return []
+    start_raw = estimate_source_position(event, probe_start).raw_position
+    end_raw = estimate_source_position(event, probe_end).raw_position
+    first_index = max(0, math.ceil((start_raw - loop_end) / loop_length))
+    threshold = loop_end + (first_index * loop_length)
+    initial_source_frame = number(event.get("initial_source_frame")) or 0.0
+    examples = []
+    while threshold <= end_raw + FRACTION_EPSILON and len(examples) < 3:
+        frame = event_start + int(math.ceil((threshold - initial_source_frame) / step))
+        if probe_start < frame <= probe_end:
+            before = estimate_source_position(event, frame - 1)
+            after = estimate_source_position(event, frame)
+            examples.append({
+                "frame": frame,
+                "raw_threshold": threshold,
+                "before_position": before.rendered_position,
+                "after_position": after.rendered_position,
+            })
+        threshold += loop_length
+    return examples
+
+
 def normalized_xm_volume_multiplier(value: int) -> float:
     return float(min(64, max(0, value))) / 64.0
 
@@ -1597,6 +1804,62 @@ def dominant_instrument_sample_groups(
 
 def sample_instrument_group_label(item: dict[str, Any]) -> str:
     return f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} voices {format_optional(item.get('voice_count'))} score {format_optional_float(item.get('contribution_estimate'))} ratio {format_optional_float(item.get('contribution_ratio'))} sample-vol {format_distribution_range(nested_dict(item.get('sample_volume')))} chan-vol {format_distribution_range(nested_dict(item.get('channel_volume')))} global-vol {format_distribution_range(nested_dict(item.get('global_volume')))} final-gain {format_distribution_range(nested_dict(item.get('final_gain')))}"
+
+
+def looped_instrument_sample_group_label(item: dict[str, Any]) -> str:
+    return (
+        f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} "
+        f"voices {format_optional(item.get('voice_count'))} crossings {format_optional(item.get('loop_boundary_crossing_count'))} "
+        f"score {format_optional_float(item.get('contribution_estimate'))} ratio {format_optional_float(item.get('contribution_ratio'))} "
+        f"loop {format_optional(item.get('loop_mode'))} {format_optional(item.get('loop_start_frame'))}-"
+        f"{format_optional(item.get('loop_end_frame'))} len {format_optional(item.get('loop_length_frames'))} "
+        f"step {format_distribution_range(nested_dict(item.get('playback_step')))} "
+        f"final-gain {format_distribution_range(nested_dict(item.get('final_gain')))}"
+    )
+
+
+def loop_crossing_voice_label(item: dict[str, Any]) -> str:
+    examples = ", ".join(
+        loop_crossing_position_label(example)
+        for example in nested_list(item.get("crossing_examples"))
+        if isinstance(example, dict)
+    ) or "no crossing frame example"
+    return (
+        f"{source_label(nested_dict(item.get('source')))} "
+        f"ch {format_optional(item.get('channel_index'))} "
+        f"event {format_optional(item.get('event_index'))} "
+        f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} "
+        f"loop {format_optional(item.get('loop_mode'))} "
+        f"{format_optional(item.get('loop_start_frame'))}-{format_optional(item.get('loop_end_frame'))} "
+        f"len {format_optional(item.get('loop_length_frames'))} "
+        f"step {format_optional_float(item.get('playback_step'))} "
+        f"gain {format_optional_float(item.get('final_gain'))} "
+        f"crossings {format_optional(item.get('loop_boundary_crossing_count'))} "
+        f"source {format_position(number(item.get('start_source_position')))}->"
+        f"{format_position(number(item.get('end_source_position')))} "
+        f"{examples}"
+    )
+
+
+def loop_crossing_position_label(item: dict[str, Any]) -> str:
+    return (
+        f"frame {format_optional(item.get('frame'))} "
+        f"source {format_position(number(item.get('before_position')))}->"
+        f"{format_position(number(item.get('after_position')))} "
+        f"raw {format_optional_float(item.get('raw_threshold'))}"
+    )
+
+
+def loop_timbre_label(item: dict[str, Any]) -> str:
+    return (
+        f"rms_ratio {format_optional_float(item.get('residual_to_reference_rms'))}; "
+        f"hf ref/cand/resid {format_optional_float(item.get('reference_high_frequency_proxy'))}/"
+        f"{format_optional_float(item.get('candidate_high_frequency_proxy'))}/"
+        f"{format_optional_float(item.get('residual_high_frequency_proxy'))}; "
+        f"resid_delta {format_optional_float(item.get('residual_derivative_rms'))}; "
+        f"resid_10ms_delta {format_optional_float(item.get('residual_transient_derivative_rms'))}; "
+        f"resid_high_band {format_optional_float(item.get('residual_high_band_ratio'))}"
+    )
 
 
 def period_sample_step_voice_label(
@@ -2349,6 +2612,7 @@ def build_correlation_report(
     alignment_summary = build_alignment_summary(windows)
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
     period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
+    loop_crossing_timbre_summary = build_loop_crossing_timbre_summary(diagnostics, windows, events)
     gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
     sample_instrument_gain_summary = build_sample_instrument_gain_summary(comparison, diagnostics, windows, events)
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
@@ -2398,6 +2662,7 @@ def build_correlation_report(
     append_alignment_summary(lines, alignment_summary)
     append_rendering_mechanics_summary(lines, rendering_mechanics)
     append_period_sample_step_voice_summary(lines, period_sample_step_summary)
+    append_loop_crossing_timbre_summary(lines, loop_crossing_timbre_summary)
     append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
     append_sample_instrument_gain_summary(lines, sample_instrument_gain_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
@@ -2784,6 +3049,56 @@ def append_period_sample_step_voice_summary(lines: list[str], summary: dict[str,
             f"{step_range} | "
             f"{base_range} | "
             f"{period_range} | "
+            f"{examples} |"
+        )
+
+
+def append_loop_crossing_timbre_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    lines.extend([
+        "",
+        "## Loop-Crossing Timbre Evidence",
+        f"- Windowed render-aware active-voice estimate: {str(bool(summary.get('windowed_render_aware'))).lower()}",
+        f"- Render windows: {format_optional(summary.get('render_window_count'))}",
+        "- Looped events: "
+        f"{format_optional(summary.get('looped_event_count'))}/"
+        f"{format_optional(summary.get('event_count'))}; "
+        f"estimated crossing events {format_optional(summary.get('loop_crossing_event_count'))}; "
+        f"crossings {format_optional(summary.get('loop_boundary_crossing_count'))}",
+        "- Timbre metrics in comparison windows: "
+        f"{format_optional(summary.get('timbre_metric_window_count'))}/"
+        f"{format_optional(summary.get('window_count'))}",
+        "- Dominant looped voice score: final_gain^2 times active overlap frames; this is a level-weighted estimate, not isolated audio RMS",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window loop-crossing evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Active Voices | Looped Voices | Crossing Voices | Loop Crossings | Forward Wraps | Step Range | Final Gain Range | Residual Timbre | Dominant Looped Instruments/Samples | Voice Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+    ])
+    for item in window_summaries:
+        dominant = "; ".join(
+            looped_instrument_sample_group_label(group)
+            for group in nested_list(item.get("dominant"))
+            if isinstance(group, dict)
+        ) or "none"
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional(item.get('looped_voice_count'))} | "
+            f"{format_optional(item.get('crossing_voice_count'))} | "
+            f"{format_optional(item.get('loop_boundary_crossing_count'))} | "
+            f"{format_optional(item.get('forward_loop_wrap_count'))} | "
+            f"{format_distribution_range(nested_dict(item.get('playback_step')))} | "
+            f"{format_distribution_range(nested_dict(item.get('final_gain')))} | "
+            f"{loop_timbre_label(nested_dict(item.get('timbre')))} | "
+            f"{dominant} | "
             f"{examples} |"
         )
 

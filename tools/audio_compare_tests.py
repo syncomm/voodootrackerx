@@ -3584,6 +3584,36 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("note 49 eff 49 rel 0 fine 0/0 inst/sample 7/2", markdown)
             self.assertIn("base 8363.00000000 Hz out 1000.00000000 Hz period 4608.00000000 freq 8363.00000000 step 1.25000000", markdown)
 
+    def test_correlation_includes_loop_crossing_timbre_summary(self):
+        comparison = synthetic_comparison_json()
+        comparison["sample_comparison"]["worst_windows"][0]["timbre_metrics"] = {
+            "mono": {
+                "reference": {"high_frequency_proxy_ratio": 0.2},
+                "candidate": {"high_frequency_proxy_ratio": 0.4},
+                "residual": {
+                    "high_frequency_proxy_ratio": 1.5,
+                    "derivative_rms": 0.125,
+                    "first_10ms_derivative_rms": 0.25,
+                    "band_energy_proxy": {"high_ratio": 0.75},
+                },
+                "residual_to_reference_rms": 0.5,
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, comparison=comparison)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Loop-Crossing Timbre Evidence", markdown)
+            self.assertIn("- Looped events: 1/1; estimated crossing events 1; crossings 5", markdown)
+            self.assertIn("- Timbre metrics in comparison windows: 1/1", markdown)
+            self.assertIn("Dominant looped voice score: final_gain^2 times active overlap frames", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 5 | 5 | 1.25000000...1.25000000 | 0.35625000...0.35625000 |", markdown)
+            self.assertIn("rms_ratio 0.50000000; hf ref/cand/resid 0.20000000/0.40000000/1.50000000", markdown)
+            self.assertIn("inst/sample 7/2 voices 1 crossings 5", markdown)
+            self.assertIn("loop forward 10-20 len 10", markdown)
+            self.assertIn("source 18.0000->11.7500", markdown)
+
     def test_correlation_includes_gain_pan_voice_distribution_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             report = self.run_correlation(tmpdir)
@@ -3621,6 +3651,20 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("## Sample / Instrument Gain Evidence", markdown)
             self.assertIn("- Event sample-volume range: unavailable...unavailable; raw unavailable...unavailable; missing 1", markdown)
             self.assertIn("inst/sample 7/2 voices 1", markdown)
+
+    def test_correlation_loop_crossing_summary_handles_missing_fields(self):
+        diagnostics = synthetic_diagnostics_json()
+        for field in ("loop_mode", "loop_start_frame", "loop_end_frame", "loop_length_frames", "pitch"):
+            diagnostics["events"][0].pop(field)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Loop-Crossing Timbre Evidence", markdown)
+            self.assertIn("- Looped events: 0/1; estimated crossing events 0; crossings 0", markdown)
+            self.assertIn("- Timbre metrics in comparison windows: 0/1", markdown)
+            self.assertIn("| 1 | 1 | 0 | 0 | 0 | 0 | unavailable...unavailable | unavailable...unavailable |", markdown)
 
     def test_correlation_sample_instrument_summary_honors_same_channel_replacement_lifetime(self):
         diagnostics = synthetic_diagnostics_json(event_start=80, event_end=220)

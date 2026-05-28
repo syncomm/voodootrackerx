@@ -3277,6 +3277,87 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(output, [0, 5, 10, 15, 20, 25, 30, 20, 10, 15])
     }
 
+    func testCSoftwareMixerForwardLoopDiscontinuityBlendsToLoopStart() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, -20, 99],
+            frames: 10,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertEqual(output, [0, 5, 10, 15, 20, 0, -20, -5, 10, 15])
+    }
+
+    func testCSoftwareMixerForwardLoopSmoothBoundaryDoesNotUseExclusiveEndpoint() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, 10, 99],
+            frames: 10,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertEqual(output, [0, 5, 10, 15, 20, 15, 10, 10, 10, 15])
+    }
+
+    func testCSoftwareMixerForwardLoopFractionalOvershootIsPreserved() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, 30, 40],
+            frames: 6,
+            playbackStep: 0.75,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
+            initialSourceFrame: 2
+        )
+
+        XCTAssertEqual(output, [20, 27.5, 20, 12.5, 20, 27.5])
+    }
+
+    func testCSoftwareMixerForwardLoopIntegerStepDoesNotDuplicateEndpoint() {
+        let output = cMixerMonoOutput(
+            sample: [0, 10, 20, 30, 40],
+            frames: 6,
+            playbackStep: 1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4),
+            initialSourceFrame: 2
+        )
+
+        XCTAssertEqual(output, [20, 30, 10, 20, 30, 10])
+    }
+
+    func testCSoftwareMixerForwardLoopHighFrequencyFixtureWrapsLinearly() {
+        let output = cMixerMonoOutput(
+            sample: [0, 1, -1, 1, -1, 99],
+            frames: 10,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 5),
+            initialSourceFrame: 1
+        )
+
+        XCTAssertEqual(output, [1, 0, -1, 0, 1, 0, -1, 0, 1, 0])
+    }
+
+    func testCSoftwareMixerForwardLoopTransientFixtureMatchesSplitRender() {
+        let sample: [Float] = [0, 0, 1, 0, 0, 99]
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 5)
+        let single = cMixerMonoOutput(
+            sample: sample,
+            frames: 12,
+            playbackStep: 0.5,
+            loop: loop,
+            initialSourceFrame: 1
+        )
+        let split = cMixerMonoOutput(
+            sample: sample,
+            frames: 12,
+            playbackStep: 0.5,
+            loop: loop,
+            initialSourceFrame: 1,
+            splitFrameCounts: [3, 4, 5]
+        )
+
+        XCTAssertEqual(single, [0, 0.5, 1, 0.5, 0, 0, 0, 0, 0, 0.5, 1, 0.5])
+        XCTAssertEqual(split, single)
+    }
+
     func testCSoftwareMixerPingPongFixtureInterpolatesReflectedTurnaroundPosition() {
         let output = cMixerMonoOutput(
             sample: [0, 10, 20, 30, 40],
@@ -3445,14 +3526,21 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         sample: [Float],
         frames: Int,
         playbackStep: Double,
-        loop: MixerSampleLoop = .none
+        loop: MixerSampleLoop = .none,
+        initialSourceFrame: Int = 0,
+        splitFrameCounts: [Int] = []
     ) -> [Float] {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
         mixer.addVoice(
             sample: MixerSampleBuffer(monoPCM: sample),
             playbackStep: playbackStep,
-            loop: loop
+            loop: loop,
+            initialSourceFrame: initialSourceFrame
         )
+        if !splitFrameCounts.isEmpty {
+            XCTAssertEqual(splitFrameCounts.reduce(0, +), frames)
+            return splitFrameCounts.flatMap { mixer.render(frames: $0).interleavedPCM }
+        }
         return mixer.render(frames: frames).interleavedPCM
     }
 }

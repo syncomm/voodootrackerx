@@ -80,6 +80,19 @@ sample/instrument volume normalization kept as a level-focused alternative.
 
 A focused sample/instrument volume diagnostics pass kept playback behavior unchanged and reported the gain path explicitly: XM sample header volume `0...64` is normalized once into `PlaybackSample.volume`, note-trigger gain is `sample_volume * (channel_volume / 64) * (global_volume / 64)`, and the C mixer applies `event_gain * volume_envelope * fadeout` before panning. The primary linear-reference comparison still reports correlation about `0.927530`, raw RMS difference about `0.101857`, and gain-normalized RMS difference about `0.038170`; VTX RMS is about `0.189161` against ft2-clone linear RMS about `0.102128`. Worst-window local scalar needs cluster around `0.462...0.489`, with global volume fixed at 64 and no envelope events in those windows. The dominant windows are mostly the same full-volume instrument/sample group, so this is local instrument/timbre-heavy evidence, not a proven double-normalization or default-volume bug.
 
+A focused loop-crossing timbre diagnostics pass kept playback behavior unchanged
+and added synthetic forward-loop microfixtures for discontinuous boundaries,
+smooth boundaries, fractional overshoot, integer wrap, high-frequency loops,
+transient loops, and split-render determinism. The same primary ft2-clone
+Linear profile still reports correlation about `0.927530`, raw RMS difference
+about `0.101857`, and gain-normalized RMS difference about `0.038170`. The top
+12 local worst windows are dominated by the same looped instrument/sample group,
+but none of those windows has an estimated loop-boundary crossing; loop-crossing
+behavior therefore does not currently explain the residual. The next focused
+parity target should be replacement ramp shape or another timbre/residual
+microfixture around that dominant sample group rather than changing loop
+endpoint or gain behavior.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.
@@ -1386,6 +1399,11 @@ ranges, then lists:
   voices, sample-step update counts, step/base-rate/period ranges, and examples
   with note, effective note, relative note, finetune, base/output sample rates,
   period/frequency, sample step, source position, and loop mode when present
+- loop-crossing/timbre evidence for each worst window, including active looped
+  voices, estimated boundary-crossing counts, loop start/end/length, source
+  positions, sample-step/final-gain ranges, level-weighted dominant looped
+  instrument/sample groups, and local residual timbre proxies when comparison
+  JSON includes them
 - gain/pan voice evidence for each worst window, including active voice counts,
   final-gain/pan ranges, left/right gain ranges under the C mixer's current
   linear pan law, and representative voice examples when available

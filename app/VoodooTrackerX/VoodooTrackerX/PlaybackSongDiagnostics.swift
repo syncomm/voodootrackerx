@@ -607,6 +607,7 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
     case hxyGlobalVolumeSlide(up: Int, down: Int)
     case eaxFineVolumeSlideUp(amount: Int)
     case ebxFineVolumeSlideDown(amount: Int)
+    case effect5xyVolumeSlide(up: Int, down: Int)
     case effect6xyVolumeSlide(up: Int, down: Int)
 
     var label: String {
@@ -629,6 +630,8 @@ enum PlaybackSongSyntheticVoiceStateUpdateCommand: Equatable {
             return "EAx fine volume slide up"
         case .ebxFineVolumeSlideDown:
             return "EBx fine volume slide down"
+        case .effect5xyVolumeSlide:
+            return "5xy tone portamento + volume slide"
         case .effect6xyVolumeSlide:
             return "6xy vibrato + volume slide"
         }

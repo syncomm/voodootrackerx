@@ -319,9 +319,10 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00 where cell.effectParam != 0:
             return .applied
-        case 0x05,
-             0x07:
+        case 0x07:
             return .deferredUnsupported
+        case 0x05:
+            return .applied
         case 0x04:
             let speed = Int((cell.effectParam & 0xF0) >> 4)
             let depth = Int(cell.effectParam & 0x0F)
@@ -546,7 +547,11 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func isTonePortamentoEffect(_ cell: PlaybackCell) -> Bool {
-        cell.effectType == 0x03
+        cell.effectType == 0x03 || cell.effectType == 0x05
+    }
+
+    static func isTonePortamentoVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x05
     }
 
     static func isVibratoEffect(_ cell: PlaybackCell) -> Bool {

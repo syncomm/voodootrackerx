@@ -3510,21 +3510,218 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(diagnostic.stepUpdates, [])
     }
 
-    func testPlaybackSongAdapterTonePortamentoVolumeSlideAndVolumeColumnTonePortamentoRemainDeferred() throws {
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide5xySchedulesStepAndGainUpdates() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
             patternRowsByIndex: [2: [
-                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xF4, effectType: 0x05, effectParam: 0x20),
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let five = try XCTUnwrap(diagnostics.tonePortamentoEffects.first { $0.effectType == 0x05 })
+        let update = try XCTUnwrap(diagnostics.voiceStateUpdates.first { update in
+            if case .effect5xyVolumeSlide = update.command {
+                return update.applied
+            }
+            return false
+        })
+
+        XCTAssertEqual(five.status, .applied)
+        XCTAssertEqual(five.targetNote, 61)
+        XCTAssertEqual(five.portamentoSpeed, 0x40)
+        XCTAssertEqual(five.stepUpdates.map(\.scheduledFrame), [9, 10, 11])
+        XCTAssertEqual(update.syntheticTick, 1)
+        XCTAssertEqual(update.scheduledFrame, 9)
+        XCTAssertEqual(update.command, .effect5xyVolumeSlide(up: 0, down: 2))
+        XCTAssertEqual(update.effectiveVolumeBefore, 32)
+        XCTAssertEqual(update.effectiveVolumeAfter, 30)
+        XCTAssertTrue(update.activeVoiceUpdated)
+        XCTAssertEqual(update.volumeSlidePolicy, "single_nonzero_nibble")
+    }
+
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide5xyIsDetectedAndCounted() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x01),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let effect = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x05 })
+        let fiveEffects = diagnostics.tonePortamentoEffects.filter { $0.effectType == 0x05 }
+
+        XCTAssertEqual(effect.decodedLabel, "5xy tone portamento + volume slide")
+        XCTAssertEqual(effect.status, .applied)
+        XCTAssertEqual(fiveEffects.count, 1)
+        XCTAssertEqual(fiveEffects.first?.effectParam, 0x01)
+    }
+
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide500WithoutTargetDiagnosesNoOp() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x05, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let tone = try XCTUnwrap(diagnostics.tonePortamentoEffects.first { $0.effectType == 0x05 })
+        let volume = try XCTUnwrap(diagnostics.voiceStateUpdates.first { update in
+            if case .effect5xyVolumeSlide = update.command {
+                return true
+            }
+            return false
+        })
+
+        XCTAssertEqual(tone.status, .noTarget)
+        XCTAssertFalse(tone.applied)
+        XCTAssertTrue(tone.ignoredAsNoOp)
+        XCTAssertEqual(volume.status, .ignoredNoOp)
+        XCTAssertEqual(volume.command, .effect5xyVolumeSlide(up: 0, down: 0))
+        XCTAssertEqual(volume.volumeSlidePolicy, "500_no_volume_slide_memory_no_op")
+        XCTAssertFalse(volume.activeVoiceUpdated)
+    }
+
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide5xyNoActiveVoiceIsDiagnosed() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, effectType: 0x05, effectParam: 0x02),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let tone = try XCTUnwrap(diagnostics.tonePortamentoEffects.first { $0.effectType == 0x05 })
+        let volume = try XCTUnwrap(diagnostics.voiceStateUpdates.first { update in
+            if case .effect5xyVolumeSlide = update.command {
+                return true
+            }
+            return false
+        })
+
+        XCTAssertEqual(tone.status, .noActiveVoice)
+        XCTAssertFalse(tone.activeVoiceFound)
+        XCTAssertFalse(tone.applied)
+        XCTAssertEqual(volume.command, .effect5xyVolumeSlide(up: 0, down: 2))
+        XCTAssertFalse(volume.activeVoiceUpdated)
+    }
+
+    func testPlaybackSongAdapterSameCellNote5xySetsTargetWithoutRetriggering() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, note: 65, instrument: 1, effectType: 0x05, effectParam: 0x01),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let five = try XCTUnwrap(diagnostics.tonePortamentoEffects.first { $0.effectType == 0x05 })
+
+        XCTAssertEqual(diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(five.status, .applied)
+        XCTAssertEqual(five.sameCellNote, true)
+        XCTAssertEqual(five.targetNote, 65)
+        XCTAssertEqual(five.noteTriggerEventCreated, false)
+        XCTAssertEqual(five.voiceReplacement, false)
+        XCTAssertEqual(five.samplePositionReset, false)
+        XCTAssertEqual(five.cMixerReceivesNewVoice, false)
+        XCTAssertEqual(five.cMixerReceivesOnlyStateUpdates, true)
+    }
+
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide5xyUsesMixedNibbleVolumePolicy() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, volumeColumn: 0x30, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x2F),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let update = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+            .diagnostics
+            .voiceStateUpdates
+            .first { update in
+                if case .effect5xyVolumeSlide = update.command {
+                    return true
+                }
+                return false
+            })
+
+        XCTAssertEqual(update.command, .effect5xyVolumeSlide(up: 2, down: 0))
+        XCTAssertEqual(update.volumeSlideRawUpNibble, 2)
+        XCTAssertEqual(update.volumeSlideRawDownNibble, 15)
+        XCTAssertEqual(update.volumeSlideBothNibblesNonzero, true)
+        XCTAssertEqual(update.volumeSlidePolicy, "up_nibble_precedence_mikmod_observed")
+        XCTAssertEqual(update.effectiveVolumeBefore, 32)
+        XCTAssertEqual(update.effectiveVolumeAfter, 34)
+    }
+
+    func testPlaybackSongAdapterTonePortamentoVolumeSlide5xyWindowedAndSplitRendersRemainDeterministic() throws {
+        let sample = makePlaybackSample(pcm: Array(repeating: Float(1), count: 64), volume: 1, baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
+                makePlaybackRow(index: 3),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 3, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 12
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let single = renderer.render(request)
+        let repeated = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [2, 4, 6])
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(repeated.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(split.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
+    }
+
+    func testPlaybackSongAdapterVolumeColumnTonePortamentoRemainsDeferred() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0xF4),
             ]],
             instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])]
         )
 
         let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
-        let effect = try XCTUnwrap(diagnostics.effectCommandDiagnostics.first { $0.effectType == 0x05 })
         let volumeColumn = try XCTUnwrap(diagnostics.volumeColumnMappings.first?.volumeColumn)
 
-        XCTAssertEqual(diagnostics.portamentoSlideEffects, [])
-        XCTAssertEqual(effect.status, .deferredUnsupported)
         XCTAssertEqual(volumeColumn.command, .tonePortamento(amount: 4))
         XCTAssertTrue(volumeColumn.deferred)
     }

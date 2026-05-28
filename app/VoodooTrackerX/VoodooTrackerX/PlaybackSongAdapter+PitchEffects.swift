@@ -1824,7 +1824,7 @@ extension PlaybackSongSyntheticAdapter {
             )
         }
 
-        if cell.effectParam > 0 {
+        if cell.effectType == 0x03, cell.effectParam > 0 {
             channelState.tonePortamentoSpeed = Int(cell.effectParam)
         }
 
@@ -1945,7 +1945,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: "no_existing_target"
+                policy: cell.effectType == 0x05
+                    ? "5xy_no_existing_tone_portamento_target"
+                    : "no_existing_target"
             )
         }
         guard let speed = channelState.tonePortamentoSpeed,
@@ -1971,7 +1973,9 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: "no_3xx_speed_memory"
+                policy: cell.effectType == 0x05
+                    ? "5xy_no_existing_3xx_speed_memory"
+                    : "no_3xx_speed_memory"
             )
         }
         guard var currentLinearPeriod = channelState.activeLinearPeriod,
@@ -2087,7 +2091,9 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             portamentoSpeed: speed,
             stepUpdates: stepUpdates,
-            policy: "linear_period_units_per_tick_row_level_first_pass"
+            policy: cell.effectType == 0x05
+                ? "5xy_reuses_existing_3xx_tone_portamento_target_and_speed_plus_axy_volume_slide"
+                : "linear_period_units_per_tick_row_level_first_pass"
         )
     }
 

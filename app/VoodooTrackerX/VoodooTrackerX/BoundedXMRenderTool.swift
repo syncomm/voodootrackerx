@@ -1496,11 +1496,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let arpeggioNoActiveVoiceCount = diagnostics.arpeggioEffects.filter { $0.status == .noActiveVoice }.count
         let arpeggioDeferredCount = diagnostics.arpeggioEffects.filter(\.deferred).count
         let arpeggioScheduledStepUpdateCount = diagnostics.arpeggioEffects.map(\.stepUpdates.count).reduce(0, +)
-        let tonePortamento3xxEffectCount = diagnostics.tonePortamentoEffectCount
-        let tonePortamento3xxAppliedCount = diagnostics.tonePortamentoEffects.filter(\.applied).count
-        let tonePortamento3xxNoActiveVoiceCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noActiveVoice }.count
-        let tonePortamento3xxNoTargetCount = diagnostics.tonePortamentoEffects.filter { $0.status == .noTarget }.count
-        let tonePortamento3xxDeferredCount = diagnostics.tonePortamentoEffects.filter(\.deferred).count
+        let tonePortamento3xxEffects = diagnostics.tonePortamentoEffects.filter { $0.effectType == 0x03 }
+        let tonePortamento3xxEffectCount = tonePortamento3xxEffects.count
+        let tonePortamento3xxAppliedCount = tonePortamento3xxEffects.filter(\.applied).count
+        let tonePortamento3xxNoActiveVoiceCount = tonePortamento3xxEffects.filter { $0.status == .noActiveVoice }.count
+        let tonePortamento3xxNoTargetCount = tonePortamento3xxEffects.filter { $0.status == .noTarget }.count
+        let tonePortamento3xxDeferredCount = tonePortamento3xxEffects.filter(\.deferred).count
+        let tonePortamento5xyEffects = diagnostics.tonePortamentoEffects.filter { $0.effectType == 0x05 }
+        let tonePortamento5xyAppliedCount = tonePortamento5xyEffects.filter(\.applied).count
+        let tonePortamento5xyNoActiveVoiceCount = tonePortamento5xyEffects.filter { $0.status == .noActiveVoice }.count
+        let tonePortamento5xyNoTargetCount = tonePortamento5xyEffects.filter { $0.status == .noTarget }.count
+        let tonePortamento5xyNoSpeedCount = tonePortamento5xyEffects.filter { $0.status == .noSpeed }.count
+        let tonePortamento5xyDeferredCount = tonePortamento5xyEffects.filter(\.deferred).count
+        let tonePortamento5xyIgnoredNoOpCount = tonePortamento5xyEffects.filter(\.ignoredAsNoOp).count
+        let tonePortamento5xyScheduledStepUpdateCount = tonePortamento5xyEffects.map(\.stepUpdates.count).reduce(0, +)
         let portamentoUpEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .up }
         let portamentoDownEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .down }
         let portamentoSlideAppliedCount = diagnostics.portamentoSlideEffects.filter(\.applied).count
@@ -1556,6 +1565,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         }.count
         let eaxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEaxFineVolumeSlideUpdate)
         let ebxFineVolumeSlides = diagnostics.voiceStateUpdates.filter(isEbxFineVolumeSlideUpdate)
+        let tonePortamento5xyVolumeSlides = diagnostics.voiceStateUpdates.filter(is5xyVolumeSlideUpdate)
         let vibrato6xyVolumeSlides = diagnostics.voiceStateUpdates.filter(is6xyVolumeSlideUpdate)
         let axyEffectDiagnostics = diagnostics.effectCommandDiagnostics.filter(\.isAxyVolumeSlide)
         let axyVolumeSlides = diagnostics.voiceStateUpdates.filter(isAxyVolumeSlideUpdate)
@@ -1581,11 +1591,22 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let ebxFineVolumeSlideDeferredCount = ebxFineVolumeSlides.filter(\.deferred).count
         let eaxFineVolumeSlideScheduledGainUpdateCount = eaxFineVolumeSlides.filter(isChangedGainStateUpdate).count
         let ebxFineVolumeSlideScheduledGainUpdateCount = ebxFineVolumeSlides.filter(isChangedGainStateUpdate).count
+        let tonePortamento5xyScheduledGainUpdateCount = tonePortamento5xyVolumeSlides.filter(isChangedGainStateUpdate).count
         let vibrato6xyScheduledGainUpdateCount = vibrato6xyVolumeSlides.filter(isChangedGainStateUpdate).count
         let activeVoiceStateUpdateCount = diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
         let kxxKeyOffEvents = diagnostics.keyOffEvents.filter { $0.effectType == 0x14 }
+        let first5xyCoordinates = Array(tonePortamento5xyEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "status": tonePortamentoStatusName(diagnostic.status),
+                "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
         let firstKxxKeyOffCoordinates = Array(kxxKeyOffEvents.prefix(5)).map { diagnostic -> [String: Any] in
             [
                 "source": positionJSON(diagnostic.source),
@@ -1609,7 +1630,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
-            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy and volume-column tone portamento remain deferred.",
+            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento remains deferred.",
             "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
@@ -1721,6 +1742,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
                 "tone_portamento_3xx_no_target_count": tonePortamento3xxNoTargetCount,
                 "tone_portamento_3xx_deferred_count": tonePortamento3xxDeferredCount,
+                "tone_portamento_volume_slide_5xy_effect_count": tonePortamento5xyEffects.count,
+                "tone_portamento_volume_slide_5xy_detected_count": tonePortamento5xyEffects.count,
+                "tone_portamento_volume_slide_5xy_applied_count": tonePortamento5xyAppliedCount,
+                "tone_portamento_volume_slide_5xy_no_active_voice_count": tonePortamento5xyNoActiveVoiceCount,
+                "tone_portamento_volume_slide_5xy_no_target_count": tonePortamento5xyNoTargetCount,
+                "tone_portamento_volume_slide_5xy_no_speed_count": tonePortamento5xyNoSpeedCount,
+                "tone_portamento_volume_slide_5xy_ignored_no_op_count": tonePortamento5xyIgnoredNoOpCount,
+                "tone_portamento_volume_slide_5xy_deferred_count": tonePortamento5xyDeferredCount,
+                "tone_portamento_volume_slide_5xy_scheduled_sample_step_update_count": tonePortamento5xyScheduledStepUpdateCount,
+                "tone_portamento_volume_slide_5xy_scheduled_gain_update_count": tonePortamento5xyScheduledGainUpdateCount,
+                "first_5xy_coordinates": first5xyCoordinates,
                 "portamento_1xx_effect_count": portamentoUpEffects.count,
                 "portamento_1xx_applied_count": portamentoUpEffects.filter(\.applied).count,
                 "portamento_1xx_no_active_voice_count": portamentoUpEffects.filter { $0.status == .noActiveVoice }.count,
@@ -1919,6 +1951,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "arpeggio_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
             "arpeggio_0xy_effects": diagnostics.arpeggioEffects.map(arpeggioDiagnosticJSON),
             "tone_portamento_effects": diagnostics.tonePortamentoEffects.map(tonePortamentoDiagnosticJSON),
+            "tone_portamento_volume_slide_5xy_effects": tonePortamento5xyEffects.map(tonePortamentoDiagnosticJSON),
             "portamento_slide_effects": diagnostics.portamentoSlideEffects.map(portamentoSlideDiagnosticJSON),
             "fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
             "e1x_fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
@@ -3379,6 +3412,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "ebx_fine_volume_slide_down_scheduled_gain_update_count": count {
                 isEbxFineVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
             },
+            "tone_portamento_volume_slide_5xy_volume_slide_applied": count {
+                $0.applied && is5xyVolumeSlideUpdate($0)
+            },
+            "tone_portamento_volume_slide_5xy_volume_slide_deferred": count {
+                $0.deferred && is5xyVolumeSlideUpdate($0)
+            },
+            "tone_portamento_volume_slide_5xy_no_active_voice": count {
+                is5xyVolumeSlideUpdate($0) && is5xyVolumeSlideNoActiveVoice($0)
+            },
+            "tone_portamento_volume_slide_5xy_zero_param_effect_memory_deferred": count {
+                is5xyVolumeSlideUpdate($0) && is5xyVolumeSlideZeroParamNoOp($0)
+            },
+            "tone_portamento_volume_slide_5xy_scheduled_gain_update_count": count {
+                is5xyVolumeSlideUpdate($0) && isChangedGainStateUpdate($0)
+            },
             "vibrato_volume_slide_6xy_volume_slide_applied": count {
                 $0.applied && is6xyVolumeSlideUpdate($0)
             },
@@ -3512,6 +3560,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         return false
     }
 
+    private static func is5xyVolumeSlideUpdate(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        if case .effect5xyVolumeSlide = update.command {
+            return true
+        }
+        return false
+    }
+
     private static func is6xyVolumeSlideUpdate(
         _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
     ) -> Bool {
@@ -3551,6 +3608,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         default:
             return false
         }
+    }
+
+    private static func is5xyVolumeSlideNoActiveVoice(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        is5xyVolumeSlideUpdate(update) &&
+            update.applied &&
+            update.cellNote == 0 &&
+            !update.activeVoiceUpdated
+    }
+
+    private static func is5xyVolumeSlideZeroParamNoOp(
+        _ update: PlaybackSongSyntheticVoiceStateUpdateDiagnostic
+    ) -> Bool {
+        guard update.ignoredAsNoOp else {
+            return false
+        }
+        if case let .effect5xyVolumeSlide(up, down) = update.command {
+            return up == 0 && down == 0
+        }
+        return false
     }
 
     private static func is6xyVolumeSlideNoActiveVoice(
@@ -3662,6 +3740,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
             object["fine_amount_nibble"] = amount
             object["effect_memory_deferred"] = update.ignoredAsNoOp && amount == 0
             object["no_active_voice"] = isFineVolumeSlideNoActiveVoice(update)
+        case let .effect5xyVolumeSlide(up, down):
+            let rawUp = update.volumeSlideRawUpNibble ?? update.effectParam.map { Int(($0 & 0xF0) >> 4) }
+            let rawDown = update.volumeSlideRawDownNibble ?? update.effectParam.map { Int($0 & 0x0F) }
+            let bothNibblesNonzero = update.volumeSlideBothNibblesNonzero ?? ((rawUp ?? 0) > 0 && (rawDown ?? 0) > 0)
+            let policy = update.volumeSlidePolicy ?? (bothNibblesNonzero ? "up_nibble_precedence_mikmod_observed" : "single_nonzero_nibble")
+            object["volume_slide_up"] = up
+            object["volume_slide_down"] = down
+            object["volume_slide_amount"] = max(up, down)
+            object["volume_slide_direction"] = up > 0 ? "up" : (down > 0 ? "down" : "none")
+            object["volume_slide_raw_up_nibble"] = rawUp.map { $0 as Any } ?? NSNull()
+            object["volume_slide_raw_down_nibble"] = rawDown.map { $0 as Any } ?? NSNull()
+            object["volume_slide_both_nibbles_nonzero"] = bothNibblesNonzero
+            object["volume_slide_policy"] = policy
+            object["volume_slide_clamped"] = update.volumeSlideClamped.map { $0 as Any } ?? NSNull()
+            object["volume_slide_tick0_suppressed"] = update.volumeSlideTick0Suppressed.map { $0 as Any } ?? NSNull()
+            object["volume_slide_row_speed"] = update.volumeSlideRowSpeed.map { $0 as Any } ?? NSNull()
+            object["effect_memory_deferred"] = update.ignoredAsNoOp && up == 0 && down == 0
+            object["no_active_voice"] = is5xyVolumeSlideNoActiveVoice(update)
+            object["scheduled_gain_update_count"] = isChangedGainStateUpdate(update) ? 1 : 0
         case let .effect6xyVolumeSlide(up, down):
             object["volume_slide_up"] = up
             object["volume_slide_down"] = down
@@ -3912,6 +4009,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
+            "effect_label": diagnostic.effectType == 0x05 ? "5xy tone portamento + volume slide" : "3xx tone portamento",
+            "decoded_label": diagnostic.effectType == 0x05 ? "5xy tone portamento + volume slide" : "3xx tone portamento",
             "status": tonePortamentoStatusName(diagnostic.status),
             "current_status": tonePortamentoStatusName(diagnostic.status),
             "detected": diagnostic.detected,
@@ -4329,6 +4428,14 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "amount": amount,
                 "fine_amount_nibble": amount,
             ]
+        case let .effect5xyVolumeSlide(up, down):
+            return [
+                "name": "effect5xyVolumeSlide",
+                "label": command.label,
+                "up": up,
+                "down": down,
+                "amount": max(up, down),
+            ]
         case let .effect6xyVolumeSlide(up, down):
             return [
                 "name": "effect6xyVolumeSlide",
@@ -4362,6 +4469,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "eaxFineVolumeSlideUp"
         case .ebxFineVolumeSlideDown:
             return "ebxFineVolumeSlideDown"
+        case .effect5xyVolumeSlide:
+            return "effect5xyVolumeSlide"
         case .effect6xyVolumeSlide:
             return "effect6xyVolumeSlide"
         }

@@ -103,6 +103,11 @@ remains a no-op, and arpeggio effect memory is intentionally not replayed.
 `100` and `200` portamento rows replay prior same-channel nonzero `1xx` or
 `2xx` slide memory through the shared sample-step update path when available;
 missing portamento memory remains diagnosed as effect-memory-deferred/no-op.
+`5xy` rows reuse the current `3xx` tone-portamento target/speed for
+sample-step updates and the `Axy` tick-level volume-slide policy for gain
+updates. Same-cell note `5xy` rows set the tone-portamento target without
+retriggering, empty-note rows continue an existing target when available, and
+`500` keeps volume-slide memory as a diagnosed no-op/deferred case.
 Same-cell nonzero `6xy` note triggers keep effect metadata and trigger with the
 row-level volume-slide adjustment. Empty-note `6xy` rows reuse prior channel
 vibrato memory for sample-step updates and use the existing row-start gain
@@ -622,14 +627,15 @@ including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
 portamento up updates, minimal `E2x` fine portamento down updates, minimal
 `E4x` vibrato-control state, `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
-volume slide gain updates, minimal `6xy`
-vibrato + volume slide sample-step/gain updates, and volume-column set
+volume slide gain updates, minimal `5xy` tone-portamento + volume-slide
+sample-step/gain updates, minimal `6xy` vibrato + volume slide
+sample-step/gain updates, and volume-column set
 volume/panning for empty-note rows and same-cell valid-note `3xx`
 no-retrigger rows that keep the carried voice active. Adapter diagnostics
 include `E4x` state rows; adapter-sourced `0xy`,
 `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
-`EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the runtime
-update row so coverage summaries can count applied updates. Memory-replayed
+`5xy`, `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the
+runtime update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
 the planned adapter event stream. Volume-column vibrato and broader

@@ -22,6 +22,7 @@ MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
 MAX_GAIN_PAN_EXAMPLES = 8
 MAX_SAMPLE_INSTRUMENT_EXAMPLES = 8
 MAX_LOOP_CROSSING_EXAMPLES = 8
+MAX_STEADY_STATE_LOOP_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -1385,6 +1386,78 @@ def build_loop_crossing_timbre_summary(
     }
 
 
+def build_steady_state_loop_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    step_updates = normalize_step_update_signals(diagnostics, rows)
+    gain_updates = normalize_gain_pan_updates(diagnostics, rows)
+    replacement_ramps = normalize_replacement_ramp_signals(diagnostics)
+    window_summaries: list[dict[str, Any]] = []
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        probe_frame = int(window["_start_frame"]) + max(0, (int(window["_end_frame"]) - int(window["_start_frame"])) // 2)
+        signals = [
+            steady_state_loop_voice_signal(
+                event,
+                window,
+                probe_frame,
+                step_updates,
+                gain_updates,
+                replacement_ramps,
+            )
+            for event in active
+            if str(event.get("loop_mode") or "none") != "none"
+        ]
+        window_step_updates = [
+            update for update in step_updates
+            if int(window["_start_frame"]) <= update["frame"] < int(window["_end_frame"])
+        ]
+        window_gain_updates = [
+            update for update in gain_updates
+            if int(window["_start_frame"]) <= update["frame"] < int(window["_end_frame"])
+        ]
+        window_replacement_ramps = [
+            ramp for ramp in replacement_ramps
+            if overlaps(
+                int(ramp["start_frame"]),
+                int(ramp["end_frame"]),
+                int(window["_start_frame"]),
+                int(window["_end_frame"]),
+            )
+        ]
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "probe_frame": probe_frame,
+            "active_voice_count": len(active),
+            "looped_voice_count": len(signals),
+            "steady_state_loop_interior_voice_count": sum(1 for item in signals if bool(item.get("steady_state_loop_interior"))),
+            "loop_boundary_crossing_count": sum(integer(item.get("loop_boundary_crossing_count")) or 0 for item in signals),
+            "sample_step_update_count": len(window_step_updates),
+            "gain_update_count": len(window_gain_updates),
+            "replacement_ramp_count": len(window_replacement_ramps),
+            "loop_phase_histogram": loop_phase_histogram(signals),
+            "timbre": loop_timbre_signal(window),
+            "dominant": dominant_steady_state_loop_groups(signals),
+            "examples": [steady_state_loop_voice_label(item) for item in signals[:MAX_STEADY_STATE_LOOP_EXAMPLES]],
+        })
+    return {
+        "event_count": len(events),
+        "looped_event_count": sum(1 for event in events if str(event.get("loop_mode") or "none") != "none"),
+        "windowed_render_aware": bool(render_windows),
+        "render_window_count": len(render_windows),
+        "window_count": len(windows),
+        "classification_policy": "steady_state_loop_interior means looped, no estimated boundary crossing, and start/mid/end source positions remain at least max(1 frame, sample_step) away from loop edges",
+        "contribution_policy": "final_gain^2 times active overlap frames; this is a stem proxy, not isolated audio RMS",
+        "window_summaries": window_summaries,
+    }
+
+
 def gain_pan_voice_signal(event: dict[str, Any], probe_frame: int | None) -> dict[str, Any]:
     base_gain = number(event.get("gain"))
     pan = number(event.get("pan"))
@@ -1603,6 +1676,271 @@ def loop_timbre_signal(window: dict[str, Any]) -> dict[str, Any]:
         "residual_transient_derivative_rms": number(residual.get("first_10ms_derivative_rms")),
         "residual_high_band_ratio": number(residual_band.get("high_ratio")),
     }
+
+
+def steady_state_loop_voice_signal(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    probe_frame: int,
+    step_updates: list[dict[str, Any]],
+    gain_updates: list[dict[str, Any]],
+    replacement_ramps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    mechanics = event_mechanics_for_window(event, window)
+    gain_signal = sample_instrument_gain_signal(event, probe_frame)
+    pitch = nested_dict(event.get("pitch"))
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    loop_length = integer(event.get("loop_length_frames"))
+    if loop_length is None and loop_start is not None and loop_end is not None:
+        loop_length = max(0, loop_end - loop_start)
+    start_position = mechanics["start_position"]
+    end_position = mechanics["end_position"]
+    midpoint_position = estimate_source_position(event, probe_frame)
+    final_gain = number(gain_signal.get("final_gain"))
+    window_start = int(window["_start_frame"])
+    window_end = int(window["_end_frame"])
+    event_start = integer(event.get("_effective_start_frame", event.get("_start_frame")))
+    event_end = integer(event.get("_effective_end_frame", event.get("_end_frame")))
+    overlap_frames = 1
+    if event_start is not None and event_end is not None:
+        overlap_frames = max(0, min(event_end, window_end) - max(event_start, window_start))
+    contribution = 0.0 if final_gain is None else final_gain * final_gain * float(overlap_frames)
+    crossing_count = integer(mechanics.get("loop_boundary_crossing_count")) or 0
+    playback_step = number(pitch.get("playback_step"))
+    return {
+        "source": nested_dict(event.get("source")),
+        "channel_index": event.get("channel_index"),
+        "event_index": event.get("event_index"),
+        "note": event.get("note"),
+        "instrument_index": integer(event.get("instrument_index")),
+        "sample_index": integer(event.get("sample_index")),
+        "sample_frame_count": integer(event.get("sample_frame_count")),
+        "sample_volume": gain_signal.get("sample_volume"),
+        "sample_volume_raw_estimate": gain_signal.get("sample_volume_raw_estimate"),
+        "sample_relative_note": integer(pitch.get("sample_relative_note")),
+        "sample_finetune": integer(pitch.get("sample_finetune")),
+        "loop_mode": mechanics["loop_mode"],
+        "loop_start_frame": loop_start,
+        "loop_end_frame": loop_end,
+        "loop_length_frames": loop_length,
+        "playback_step": playback_step,
+        "final_gain": final_gain,
+        "contribution_estimate": contribution,
+        "overlap_frames": overlap_frames,
+        "loop_boundary_crossing_count": crossing_count,
+        "start_source_position": start_position.rendered_position,
+        "mid_source_position": midpoint_position.rendered_position,
+        "end_source_position": end_position.rendered_position,
+        "start_loop_phase": loop_phase_for_position(start_position.rendered_position, event),
+        "mid_loop_phase": loop_phase_for_position(midpoint_position.rendered_position, event),
+        "end_loop_phase": loop_phase_for_position(end_position.rendered_position, event),
+        "steady_state_loop_interior": source_positions_are_loop_interior(
+            event,
+            [start_position.rendered_position, midpoint_position.rendered_position, end_position.rendered_position],
+            crossing_count,
+            playback_step,
+        ),
+        "sample_step_update_count": count_updates_for_event(step_updates, event, window),
+        "gain_update_count": count_updates_for_event(gain_updates, event, window),
+        "replacement_ramp_count": count_replacement_ramps_for_event(replacement_ramps, event, window),
+    }
+
+
+def loop_phase_for_position(position: float | None, event: dict[str, Any]) -> float | None:
+    if position is None:
+        return None
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    loop_mode = str(event.get("loop_mode") or "none")
+    if loop_start is None or loop_end is None or loop_end <= loop_start:
+        return None
+    if loop_mode == "forward":
+        return min(1.0, max(0.0, (position - loop_start) / float(loop_end - loop_start)))
+    if loop_mode == "ping_pong":
+        span = max(1, loop_end - loop_start - 1)
+        return min(1.0, max(0.0, (position - loop_start) / float(span)))
+    return None
+
+
+def source_positions_are_loop_interior(
+    event: dict[str, Any],
+    positions: list[float | None],
+    crossing_count: int,
+    playback_step: float | None,
+) -> bool:
+    if crossing_count > 0 or str(event.get("loop_mode") or "none") == "none":
+        return False
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    if loop_start is None or loop_end is None or loop_end <= loop_start:
+        return False
+    margin = max(1.0, abs(playback_step or 0.0))
+    for position in positions:
+        if position is None:
+            return False
+        if position < loop_start + margin or position > loop_end - margin:
+            return False
+    return True
+
+
+def count_updates_for_event(
+    updates: list[dict[str, Any]],
+    event: dict[str, Any],
+    window: dict[str, Any],
+) -> int:
+    event_index = event.get("event_index")
+    channel = event.get("channel_index")
+    count = 0
+    for update in updates:
+        frame = integer(update.get("frame"))
+        if frame is None or not (int(window["_start_frame"]) <= frame < int(window["_end_frame"])):
+            continue
+        active_index = update.get("active_event_index")
+        if active_index == event_index or (active_index is None and update.get("channel_index") == channel):
+            count += 1
+    return count
+
+
+def normalize_replacement_ramp_signals(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
+    ramps: list[dict[str, Any]] = []
+    for replacement in nested_list(nested_dict(diagnostics.get("same_channel_voice_lifetime")).get("replacement_events")):
+        if not isinstance(replacement, dict):
+            continue
+        start = integer(replacement.get("replacement_frame"))
+        if start is None:
+            continue
+        duration = max(1, integer(replacement.get("old_voice_ramp_duration_frames")) or 1)
+        end = integer(replacement.get("completion_frame"))
+        if end is None:
+            end = start + duration
+        ramps.append({
+            **replacement,
+            "start_frame": max(0, start),
+            "end_frame": max(start + 1, end),
+        })
+    return ramps
+
+
+def count_replacement_ramps_for_event(
+    ramps: list[dict[str, Any]],
+    event: dict[str, Any],
+    window: dict[str, Any],
+) -> int:
+    event_index = event.get("event_index")
+    count = 0
+    for ramp in ramps:
+        if not overlaps(int(ramp["start_frame"]), int(ramp["end_frame"]), int(window["_start_frame"]), int(window["_end_frame"])):
+            continue
+        if ramp.get("old_event_index") == event_index or ramp.get("new_event_index") == event_index:
+            count += 1
+    return count
+
+
+def loop_phase_histogram(signals: list[dict[str, Any]]) -> dict[str, int]:
+    histogram = {"0_0.25": 0, "0.25_0.5": 0, "0.5_0.75": 0, "0.75_1.0": 0, "missing": 0}
+    for signal in signals:
+        for key in ("start_loop_phase", "mid_loop_phase", "end_loop_phase"):
+            phase = number(signal.get(key))
+            if phase is None:
+                histogram["missing"] += 1
+            elif phase < 0.25:
+                histogram["0_0.25"] += 1
+            elif phase < 0.5:
+                histogram["0.25_0.5"] += 1
+            elif phase < 0.75:
+                histogram["0.5_0.75"] += 1
+            else:
+                histogram["0.75_1.0"] += 1
+    return histogram
+
+
+def dominant_steady_state_loop_groups(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[Any, Any, Any, Any, Any], dict[str, Any]] = {}
+    for signal in signals:
+        key = (
+            signal.get("instrument_index"),
+            signal.get("sample_index"),
+            signal.get("loop_mode"),
+            signal.get("loop_start_frame"),
+            signal.get("loop_end_frame"),
+        )
+        group = groups.setdefault(key, {
+            "instrument_index": signal.get("instrument_index"),
+            "sample_index": signal.get("sample_index"),
+            "sample_frame_count": signal.get("sample_frame_count"),
+            "loop_mode": signal.get("loop_mode"),
+            "loop_start_frame": signal.get("loop_start_frame"),
+            "loop_end_frame": signal.get("loop_end_frame"),
+            "loop_length_frames": signal.get("loop_length_frames"),
+            "voice_count": 0,
+            "steady_state_loop_interior_voice_count": 0,
+            "loop_boundary_crossing_count": 0,
+            "sample_step_update_count": 0,
+            "gain_update_count": 0,
+            "replacement_ramp_count": 0,
+            "contribution_estimate": 0.0,
+            "_sample_volume_items": [],
+            "_sample_volume_raw_items": [],
+            "_relative_note_items": [],
+            "_finetune_items": [],
+            "_playback_step_items": [],
+            "_final_gain_items": [],
+            "_source_position_items": [],
+            "_phase_signals": [],
+        })
+        group["voice_count"] += 1
+        group["steady_state_loop_interior_voice_count"] += 1 if bool(signal.get("steady_state_loop_interior")) else 0
+        group["loop_boundary_crossing_count"] += integer(signal.get("loop_boundary_crossing_count")) or 0
+        group["sample_step_update_count"] += integer(signal.get("sample_step_update_count")) or 0
+        group["gain_update_count"] += integer(signal.get("gain_update_count")) or 0
+        group["replacement_ramp_count"] += integer(signal.get("replacement_ramp_count")) or 0
+        group["contribution_estimate"] += number(signal.get("contribution_estimate")) or 0.0
+        group["_sample_volume_items"].append({"sample_volume": signal.get("sample_volume")})
+        group["_sample_volume_raw_items"].append({"sample_volume_raw_estimate": signal.get("sample_volume_raw_estimate")})
+        group["_relative_note_items"].append({"sample_relative_note": signal.get("sample_relative_note")})
+        group["_finetune_items"].append({"sample_finetune": signal.get("sample_finetune")})
+        group["_playback_step_items"].append({"playback_step": signal.get("playback_step")})
+        group["_final_gain_items"].append({"final_gain": signal.get("final_gain")})
+        for key_name in ("start_source_position", "mid_source_position", "end_source_position"):
+            group["_source_position_items"].append({"source_position": signal.get(key_name)})
+        group["_phase_signals"].append(signal)
+    total = sum(number(group.get("contribution_estimate")) or 0.0 for group in groups.values())
+    result = []
+    for group in groups.values():
+        contribution = number(group.get("contribution_estimate")) or 0.0
+        result.append({
+            "instrument_index": group.get("instrument_index"),
+            "sample_index": group.get("sample_index"),
+            "sample_frame_count": group.get("sample_frame_count"),
+            "loop_mode": group.get("loop_mode"),
+            "loop_start_frame": group.get("loop_start_frame"),
+            "loop_end_frame": group.get("loop_end_frame"),
+            "loop_length_frames": group.get("loop_length_frames"),
+            "voice_count": group.get("voice_count"),
+            "steady_state_loop_interior_voice_count": group.get("steady_state_loop_interior_voice_count"),
+            "loop_boundary_crossing_count": group.get("loop_boundary_crossing_count"),
+            "sample_step_update_count": group.get("sample_step_update_count"),
+            "gain_update_count": group.get("gain_update_count"),
+            "replacement_ramp_count": group.get("replacement_ramp_count"),
+            "contribution_estimate": contribution,
+            "contribution_ratio": contribution / total if total > 0.0 else None,
+            "sample_volume": numeric_distribution(nested_list(group.get("_sample_volume_items")), "sample_volume"),
+            "sample_volume_raw_estimate": numeric_distribution(nested_list(group.get("_sample_volume_raw_items")), "sample_volume_raw_estimate"),
+            "sample_relative_note": numeric_distribution(nested_list(group.get("_relative_note_items")), "sample_relative_note"),
+            "sample_finetune": numeric_distribution(nested_list(group.get("_finetune_items")), "sample_finetune"),
+            "playback_step": numeric_distribution(nested_list(group.get("_playback_step_items")), "playback_step"),
+            "final_gain": numeric_distribution(nested_list(group.get("_final_gain_items")), "final_gain"),
+            "source_position": numeric_distribution(nested_list(group.get("_source_position_items")), "source_position"),
+            "loop_phase_histogram": loop_phase_histogram(nested_list(group.get("_phase_signals"))),
+        })
+    result.sort(key=lambda item: (
+        -(number(item.get("contribution_estimate")) or 0.0),
+        -sort_int(item.get("voice_count")),
+        sort_int(item.get("instrument_index")),
+        sort_int(item.get("sample_index")),
+    ))
+    return result[:MAX_STEADY_STATE_LOOP_EXAMPLES]
 
 
 def dominant_looped_instrument_sample_groups(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1838,6 +2176,51 @@ def loop_crossing_voice_label(item: dict[str, Any]) -> str:
         f"source {format_position(number(item.get('start_source_position')))}->"
         f"{format_position(number(item.get('end_source_position')))} "
         f"{examples}"
+    )
+
+
+def steady_state_loop_group_label(item: dict[str, Any]) -> str:
+    return (
+        f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} "
+        f"voices {format_optional(item.get('voice_count'))} steady {format_optional(item.get('steady_state_loop_interior_voice_count'))} "
+        f"crossings {format_optional(item.get('loop_boundary_crossing_count'))} "
+        f"updates step/gain/ramp {format_optional(item.get('sample_step_update_count'))}/"
+        f"{format_optional(item.get('gain_update_count'))}/{format_optional(item.get('replacement_ramp_count'))} "
+        f"score {format_optional_float(item.get('contribution_estimate'))} ratio {format_optional_float(item.get('contribution_ratio'))} "
+        f"sample-len {format_optional(item.get('sample_frame_count'))} "
+        f"loop {format_optional(item.get('loop_mode'))} {format_optional(item.get('loop_start_frame'))}-"
+        f"{format_optional(item.get('loop_end_frame'))} len {format_optional(item.get('loop_length_frames'))} "
+        f"sample-vol {format_distribution_range(nested_dict(item.get('sample_volume')))} "
+        f"raw-vol {format_distribution_range(nested_dict(item.get('sample_volume_raw_estimate')))} "
+        f"rel/fine {format_distribution_range(nested_dict(item.get('sample_relative_note')))}/"
+        f"{format_distribution_range(nested_dict(item.get('sample_finetune')))} "
+        f"step {format_distribution_range(nested_dict(item.get('playback_step')))} "
+        f"source {format_distribution_range(nested_dict(item.get('source_position')))} "
+        f"phase {format_phase_histogram(nested_dict(item.get('loop_phase_histogram')))} "
+        f"final-gain {format_distribution_range(nested_dict(item.get('final_gain')))}"
+    )
+
+
+def steady_state_loop_voice_label(item: dict[str, Any]) -> str:
+    return (
+        f"{source_label(nested_dict(item.get('source')))} "
+        f"ch {format_optional(item.get('channel_index'))} "
+        f"event {format_optional(item.get('event_index'))} "
+        f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} "
+        f"loop {format_optional(item.get('loop_mode'))} "
+        f"{format_optional(item.get('loop_start_frame'))}-{format_optional(item.get('loop_end_frame'))} "
+        f"step {format_optional_float(item.get('playback_step'))} "
+        f"source {format_position(number(item.get('start_source_position')))}->"
+        f"{format_position(number(item.get('mid_source_position')))}->"
+        f"{format_position(number(item.get('end_source_position')))} "
+        f"phase {format_optional_float(item.get('start_loop_phase'))}->"
+        f"{format_optional_float(item.get('mid_loop_phase'))}->"
+        f"{format_optional_float(item.get('end_loop_phase'))} "
+        f"steady {str(bool(item.get('steady_state_loop_interior'))).lower()} "
+        f"gain {format_optional_float(item.get('final_gain'))} "
+        f"score {format_optional_float(item.get('contribution_estimate'))} "
+        f"updates step/gain/ramp {format_optional(item.get('sample_step_update_count'))}/"
+        f"{format_optional(item.get('gain_update_count'))}/{format_optional(item.get('replacement_ramp_count'))}"
     )
 
 
@@ -2117,6 +2500,7 @@ def normalize_gain_pan_updates(diagnostics: dict[str, Any], rows: list[dict[str,
             "frame": max(0, frame),
             "source": nested_dict(raw_update.get("source")),
             "channel_index": raw_update.get("target_channel_index", raw_update.get("channel_index")),
+            "active_event_index": raw_update.get("active_event_index"),
             "command_name": raw_update.get("command_name") or raw_update.get("command_label") or raw_update.get("command"),
             "status": raw_update.get("status"),
             "gain_before": gain_before,
@@ -2613,6 +2997,7 @@ def build_correlation_report(
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
     period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
     loop_crossing_timbre_summary = build_loop_crossing_timbre_summary(diagnostics, windows, events)
+    steady_state_loop_summary = build_steady_state_loop_summary(diagnostics, windows, events, rows)
     gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
     sample_instrument_gain_summary = build_sample_instrument_gain_summary(comparison, diagnostics, windows, events)
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
@@ -2663,6 +3048,7 @@ def build_correlation_report(
     append_rendering_mechanics_summary(lines, rendering_mechanics)
     append_period_sample_step_voice_summary(lines, period_sample_step_summary)
     append_loop_crossing_timbre_summary(lines, loop_crossing_timbre_summary)
+    append_steady_state_loop_summary(lines, steady_state_loop_summary)
     append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
     append_sample_instrument_gain_summary(lines, sample_instrument_gain_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
@@ -3097,6 +3483,54 @@ def append_loop_crossing_timbre_summary(lines: list[str], summary: dict[str, Any
             f"{format_optional(item.get('forward_loop_wrap_count'))} | "
             f"{format_distribution_range(nested_dict(item.get('playback_step')))} | "
             f"{format_distribution_range(nested_dict(item.get('final_gain')))} | "
+            f"{loop_timbre_label(nested_dict(item.get('timbre')))} | "
+            f"{dominant} | "
+            f"{examples} |"
+        )
+
+
+def append_steady_state_loop_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    lines.extend([
+        "",
+        "## Steady-State Looped Sample Evidence",
+        f"- Windowed render-aware active-voice estimate: {str(bool(summary.get('windowed_render_aware'))).lower()}",
+        f"- Render windows: {format_optional(summary.get('render_window_count'))}",
+        f"- Looped events: {format_optional(summary.get('looped_event_count'))}/{format_optional(summary.get('event_count'))}",
+        f"- Classification policy: {format_optional(summary.get('classification_policy'))}",
+        f"- Contribution policy: {format_optional(summary.get('contribution_policy'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window steady-state loop evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Active Voices | Looped Voices | Steady Interior Voices | Loop Crossings | Step/Gain/Ramp Updates | Loop Phase Histogram | Residual Timbre | Dominant Looped Instruments/Samples | Voice Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+    ])
+    for item in window_summaries:
+        dominant = "; ".join(
+            steady_state_loop_group_label(group)
+            for group in nested_list(item.get("dominant"))
+            if isinstance(group, dict)
+        ) or "none"
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        updates = (
+            f"{format_optional(item.get('sample_step_update_count'))}/"
+            f"{format_optional(item.get('gain_update_count'))}/"
+            f"{format_optional(item.get('replacement_ramp_count'))}"
+        )
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional(item.get('looped_voice_count'))} | "
+            f"{format_optional(item.get('steady_state_loop_interior_voice_count'))} | "
+            f"{format_optional(item.get('loop_boundary_crossing_count'))} | "
+            f"{updates} | "
+            f"{format_phase_histogram(nested_dict(item.get('loop_phase_histogram')))} | "
             f"{loop_timbre_label(nested_dict(item.get('timbre')))} | "
             f"{dominant} | "
             f"{examples} |"
@@ -3859,6 +4293,13 @@ def format_final_gain_histogram(histogram: dict[str, Any]) -> str:
     if not histogram:
         return "unavailable"
     keys = ("zero", "0_0.125", "0.125_0.25", "0.25_0.5", "0.5_0.75", "0.75_1.0", "gt_1.0", "missing")
+    return ", ".join(f"{key}={int_or_zero(histogram.get(key))}" for key in keys)
+
+
+def format_phase_histogram(histogram: dict[str, Any]) -> str:
+    if not histogram:
+        return "unavailable"
+    keys = ("0_0.25", "0.25_0.5", "0.5_0.75", "0.75_1.0", "missing")
     return ", ".join(f"{key}={int_or_zero(histogram.get(key))}" for key in keys)
 
 

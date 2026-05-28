@@ -390,11 +390,116 @@ def source_position_at(event: dict[str, Any], frame: int, step_updates: list[dic
     }
 
 
-def summarize_voice(event: dict[str, Any], window: dict[str, Any], step_updates: list[dict[str, Any]]) -> dict[str, Any]:
+def loop_phase(position: Any, event: dict[str, Any]) -> float | None:
+    value = number(position)
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    if value is None or loop_start is None or loop_end is None or loop_end <= loop_start:
+        return None
+    loop_mode = str(event.get("loop_mode") or "none")
+    if loop_mode == "forward":
+        return min(1.0, max(0.0, (value - loop_start) / (loop_end - loop_start)))
+    if loop_mode == "ping_pong":
+        span = max(1, loop_end - loop_start - 1)
+        return min(1.0, max(0.0, (value - loop_start) / span))
+    return None
+
+
+def steady_state_loop_interior(event: dict[str, Any], start: dict[str, Any], end: dict[str, Any]) -> bool:
+    loop_mode = str(event.get("loop_mode") or "none")
+    if loop_mode == "none":
+        return False
+    loop_start = integer(event.get("loop_start_frame"))
+    loop_end = integer(event.get("loop_end_frame"))
+    step = number(end.get("sample_step")) or number(start.get("sample_step")) or 0.0
+    start_position = number(start.get("position"))
+    end_position = number(end.get("position"))
+    if loop_start is None or loop_end is None or loop_end <= loop_start:
+        return False
+    if start_position is None or end_position is None:
+        return False
+    if int(end.get("loop_crossing_count") or 0) > int(start.get("loop_crossing_count") or 0):
+        return False
+    margin = max(1.0, abs(step))
+    return (
+        start_position >= loop_start + margin
+        and start_position <= loop_end - margin
+        and end_position >= loop_start + margin
+        and end_position <= loop_end - margin
+    )
+
+
+def voice_update_count(
+    updates: list[dict[str, Any]],
+    event: dict[str, Any],
+    window: dict[str, Any],
+) -> int:
+    start = int(window["start_frame"])
+    end = int(window["end_frame"])
+    event_index = event.get("event_index")
+    channel = event.get("channel_index")
+    count = 0
+    for update in updates:
+        frame = integer(update.get("_frame", update.get("scheduled_frame")))
+        if frame is None or not (start <= frame < end):
+            continue
+        active_index = update.get("active_event_index")
+        if active_index == event_index or (active_index is None and update.get("channel_index") == channel):
+            count += 1
+    return count
+
+
+def replacement_ramp_count(
+    replacements: list[dict[str, Any]],
+    event: dict[str, Any],
+    window: dict[str, Any],
+) -> int:
+    start = int(window["start_frame"])
+    end = int(window["end_frame"])
+    event_index = event.get("event_index")
+    count = 0
+    for replacement in replacements:
+        replacement_frame = integer(replacement.get("replacement_frame"))
+        completion = integer(replacement.get("completion_frame"))
+        if replacement_frame is None:
+            continue
+        ramp_start = replacement_frame
+        ramp_end = max(ramp_start + 1, completion or replacement_frame + max(1, integer(replacement.get("old_voice_ramp_duration_frames")) or 1))
+        if not overlaps(ramp_start, ramp_end, start, end):
+            continue
+        if replacement.get("old_event_index") == event_index or replacement.get("new_event_index") == event_index:
+            count += 1
+    return count
+
+
+def contribution_estimate(event: dict[str, Any], window: dict[str, Any]) -> float:
+    gain = number(event.get("gain"))
+    if gain is None:
+        return 0.0
+    start = max(int(window["start_frame"]), integer(event.get("_start_frame")) or 0)
+    end = min(
+        int(window["end_frame"]),
+        integer(event.get("_active_end_frame", event.get("_end_frame"))) or int(window["end_frame"]),
+    )
+    overlap_frames = max(0, end - start)
+    return gain * gain * overlap_frames
+
+
+def summarize_voice(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    step_updates: list[dict[str, Any]],
+    gain_pan_updates: list[dict[str, Any]],
+    replacements: list[dict[str, Any]],
+) -> dict[str, Any]:
     start = source_position_at(event, int(window["start_frame"]), step_updates)
     effective_end_frame = min(int(window["end_frame"]), int(event.get("_active_end_frame", event["_end_frame"])))
     end = source_position_at(event, effective_end_frame, step_updates)
     pitch = nested_dict(event.get("pitch"))
+    crossing_delta = max(0, int(end["loop_crossing_count"]) - int(start["loop_crossing_count"]))
+    loop_mode = str(event.get("loop_mode") or "none")
+    loop_boundary_crossings = crossing_delta if loop_mode != "none" else 0
+    source_end_crossings = crossing_delta if loop_mode == "none" else 0
     return {
         "event_index": event.get("event_index"),
         "channel_index": event.get("channel_index"),
@@ -418,8 +523,62 @@ def summarize_voice(event: dict[str, Any], window: dict[str, Any], step_updates:
         "active_frame_range": [event["_start_frame"], event.get("_active_end_frame", event["_end_frame"])],
         "source_position_start": start,
         "source_position_end": end,
-        "loop_crossings_in_window": max(0, int(end["loop_crossing_count"]) - int(start["loop_crossing_count"])),
+        "loop_phase_start": loop_phase(start.get("position"), event),
+        "loop_phase_end": loop_phase(end.get("position"), event),
+        "steady_state_loop_interior": steady_state_loop_interior(event, start, end),
+        "loop_crossings_in_window": loop_boundary_crossings,
+        "source_end_crossings_in_window": source_end_crossings,
+        "contribution_estimate": contribution_estimate(event, window),
+        "sample_step_update_count": voice_update_count(step_updates, event, window),
+        "gain_pan_update_count": voice_update_count(gain_pan_updates, event, window),
+        "replacement_ramp_count": replacement_ramp_count(replacements, event, window),
     }
+
+
+def dominant_sample_groups(voices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[Any, Any, Any, Any, Any], dict[str, Any]] = {}
+    for voice in voices:
+        key = (
+            voice.get("instrument_index"),
+            voice.get("sample_index"),
+            voice.get("loop_mode"),
+            voice.get("loop_start_frame"),
+            voice.get("loop_end_frame"),
+        )
+        group = groups.setdefault(key, {
+            "instrument_index": voice.get("instrument_index"),
+            "sample_index": voice.get("sample_index"),
+            "loop_mode": voice.get("loop_mode"),
+            "loop_start_frame": voice.get("loop_start_frame"),
+            "loop_end_frame": voice.get("loop_end_frame"),
+            "loop_length_frames": voice.get("loop_length_frames"),
+            "voice_count": 0,
+            "steady_state_voice_count": 0,
+            "loop_crossing_count": 0,
+            "source_end_crossing_count": 0,
+            "contribution_estimate": 0.0,
+        })
+        group["voice_count"] += 1
+        if voice.get("steady_state_loop_interior"):
+            group["steady_state_voice_count"] += 1
+        group["loop_crossing_count"] += integer(voice.get("loop_crossings_in_window")) or 0
+        group["source_end_crossing_count"] += integer(voice.get("source_end_crossings_in_window")) or 0
+        group["contribution_estimate"] += number(voice.get("contribution_estimate")) or 0.0
+    total = sum(number(group.get("contribution_estimate")) or 0.0 for group in groups.values())
+    result = []
+    for group in groups.values():
+        contribution = number(group.get("contribution_estimate")) or 0.0
+        result.append({
+            **group,
+            "contribution_ratio": contribution / total if total > 0 else None,
+        })
+    result.sort(key=lambda item: (
+        -(number(item.get("contribution_estimate")) or 0.0),
+        -(integer(item.get("voice_count")) or 0),
+        integer(item.get("instrument_index")) or 0,
+        integer(item.get("sample_index")) or 0,
+    ))
+    return result[:8]
 
 
 def frame_for_diagnostic(item: dict[str, Any], rows_by_source: dict[tuple[Any, Any, Any], dict[str, Any]]) -> int | None:
@@ -539,6 +698,10 @@ def build_summary(
             item for item in replacements
             if start <= (integer(item.get("replacement_frame")) or -1) < end
         ]
+        active_voice_summaries = [
+            summarize_voice(event, window, step_updates, gain_pan, replacements)
+            for event in active_events
+        ]
         window_summaries.append({
             **window,
             "row_tick_ranges": [
@@ -553,16 +716,34 @@ def build_summary(
                 for row in overlapping_rows
             ],
             "active_voice_count": len(active_events),
-            "active_voices": [summarize_voice(event, window, step_updates) for event in active_events],
+            "active_voices": active_voice_summaries,
+            "dominant_sample_groups": dominant_sample_groups(active_voice_summaries),
             "loop_crossing_count": sum(
-                summarize_voice(event, window, step_updates)["loop_crossings_in_window"]
-                for event in active_events
+                voice["loop_crossings_in_window"]
+                for voice in active_voice_summaries
+            ),
+            "source_end_crossing_count": sum(
+                voice["source_end_crossings_in_window"]
+                for voice in active_voice_summaries
+            ),
+            "steady_state_loop_interior_voice_count": sum(
+                1 for voice in active_voice_summaries
+                if voice.get("steady_state_loop_interior")
             ),
             "sample_step_update_count": len(window_step_updates),
             "sample_step_updates": window_step_updates,
             "tone_portamento": tone,
             "sample_offsets": offsets,
             "note_replacements": window_replacements,
+            "replacement_ramp_count": sum(
+                1 for replacement in replacements
+                if overlaps(
+                    integer(replacement.get("replacement_frame")) or -1,
+                    integer(replacement.get("completion_frame")) or (integer(replacement.get("replacement_frame")) or -1) + 1,
+                    start,
+                    end,
+                )
+            ),
             "gain_pan_update_count": len(gain_pan),
             "gain_pan_updates": gain_pan[:16],
             "traversal_events": traversal,
@@ -570,7 +751,7 @@ def build_summary(
         })
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "tool": "scripts/focused-window-voice-timeline.py",
         "local_only": True,
         "label": label,
@@ -608,6 +789,11 @@ def format_bool(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
     return "unavailable"
+
+
+def format_percent(value: Any) -> str:
+    parsed = number(value)
+    return "unavailable" if parsed is None else f"{parsed * 100.0:.1f}%"
 
 
 def render_sample_step_updates_markdown(lines: list[str], updates: list[dict[str, Any]]) -> None:
@@ -673,11 +859,14 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"- Frames: {window['start_frame']}-{window['end_frame']}",
             f"- Rows overlapped: {len(window['row_tick_ranges'])}",
             f"- Active voices: {window['active_voice_count']}",
-            f"- Loop crossings: {window['loop_crossing_count']}",
+            f"- Loop-boundary crossings: {window['loop_crossing_count']}",
+            f"- Source-end crossings: {window['source_end_crossing_count']}",
+            f"- Steady-state loop-interior voices: {window['steady_state_loop_interior_voice_count']}",
             f"- Sample-step updates: {window['sample_step_update_count']}",
             f"- Tone-portamento rows: {len(window['tone_portamento'])}",
             f"- Sample-offset rows: {len(window['sample_offsets'])}",
             f"- Note replacements: {len(window['note_replacements'])}",
+            f"- Replacement ramps: {window['replacement_ramp_count']}",
             f"- Gain/pan updates: {window['gain_pan_update_count']}",
             f"- Same-frame groups: {len(window['same_frame_event_groups'])}",
             "",
@@ -690,8 +879,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"| {source_label(row['source'])} | {row['frame_range'][0]}-{row['frame_range'][1]} | "
                 f"{ticks} | speed {row.get('effective_speed')} BPM {row.get('effective_bpm')} |"
             )
-        lines.extend(["", "| Channel | Note | Instrument/Sample | Loop | Step | Source Position | Gain/Pan |"])
-        lines.append("| ---: | --- | --- | --- | ---: | --- | --- |")
+        lines.extend(["", "| Channel | Note | Instrument/Sample | Loop | Step | Source Position | Loop Phase | Steady | Gain/Pan | Contribution | Updates |"])
+        lines.append("| ---: | --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |")
         for voice in window["active_voices"]:
             loop = (
                 f"{voice.get('loop_mode')} "
@@ -701,12 +890,33 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"{format_float(voice['source_position_start'].get('position'))}->"
                 f"{format_float(voice['source_position_end'].get('position'))}"
             )
+            phase = f"{format_percent(voice.get('loop_phase_start'))}->{format_percent(voice.get('loop_phase_end'))}"
+            updates = (
+                f"step {voice.get('sample_step_update_count')}, "
+                f"gain {voice.get('gain_pan_update_count')}, "
+                f"ramp {voice.get('replacement_ramp_count')}"
+            )
             lines.append(
                 f"| {voice.get('channel_index')} | {voice.get('note_text', voice.get('note'))} | "
                 f"{voice.get('instrument_index')}/{voice.get('sample_index')} | {loop} | "
                 f"{format_float(voice.get('playback_step'))} | {source} | "
-                f"{format_float(voice.get('gain'))}/{format_float(voice.get('pan'))} |"
+                f"{phase} | {format_bool(voice.get('steady_state_loop_interior'))} | "
+                f"{format_float(voice.get('gain'))}/{format_float(voice.get('pan'))} | "
+                f"{format_float(voice.get('contribution_estimate'))} | {updates} |"
             )
+        if window["dominant_sample_groups"]:
+            lines.extend(["", "### Dominant Sample Groups", ""])
+            for group in window["dominant_sample_groups"]:
+                lines.append(
+                    "- "
+                    f"inst/sample {group.get('instrument_index')}/{group.get('sample_index')} "
+                    f"voices {group.get('voice_count')} steady {group.get('steady_state_voice_count')} "
+                    f"loop-boundary crossings {group.get('loop_crossing_count')} "
+                    f"source-end crossings {group.get('source_end_crossing_count')} "
+                    f"score {format_float(group.get('contribution_estimate'))} "
+                    f"ratio {format_percent(group.get('contribution_ratio'))} "
+                    f"loop {group.get('loop_mode')} {group.get('loop_start_frame')}-{group.get('loop_end_frame')}"
+                )
         render_sample_step_updates_markdown(lines, window["sample_step_updates"])
         render_tone_portamento_markdown(lines, window["tone_portamento"])
     return "\n".join(lines) + "\n"

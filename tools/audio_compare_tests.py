@@ -1441,8 +1441,8 @@ def synthetic_focused_window_timeline_diagnostics():
                 "sample_index": 0,
                 "scheduled_start_frame": 120,
                 "estimated_end_frame": 260,
-                "sample_frame_count": 128,
-                "initial_source_frame": 4,
+                "sample_frame_count": 64,
+                "initial_source_frame": 60,
                 "loop_mode": "none",
                 "gain": 0.25,
                 "pan": 0.5,
@@ -1608,13 +1608,22 @@ class FocusedWindowVoiceTimelineTests(unittest.TestCase):
         window = summary["windows"][0]
         voices = {voice["event_index"]: voice for voice in window["active_voices"]}
 
-        self.assertEqual(summary["schema_version"], 1)
+        self.assertEqual(summary["schema_version"], 2)
         self.assertEqual(window["row_tick_ranges"][0]["source"], {"order": 0, "pattern": 3, "row": 1})
         self.assertEqual(window["row_tick_ranges"][0]["tick_start"], 0)
         self.assertEqual(window["row_tick_ranges"][0]["tick_end"], 4)
         self.assertEqual(window["active_voice_count"], 3)
+        self.assertEqual(window["dominant_sample_groups"][0]["instrument_index"], 2)
+        self.assertGreater(window["dominant_sample_groups"][0]["contribution_estimate"], 0)
         self.assertEqual(voices[0]["active_frame_range"], [0, 182])
         self.assertGreaterEqual(voices[0]["loop_crossings_in_window"], 1)
+        self.assertEqual(voices[2]["loop_crossings_in_window"], 0)
+        self.assertEqual(voices[2]["source_end_crossings_in_window"], 1)
+        self.assertEqual(window["source_end_crossing_count"], 1)
+        self.assertFalse(voices[0]["steady_state_loop_interior"])
+        self.assertEqual(voices[0]["sample_step_update_count"], 1)
+        self.assertEqual(voices[0]["gain_pan_update_count"], 1)
+        self.assertEqual(voices[0]["replacement_ramp_count"], 1)
         self.assertEqual(window["sample_step_update_count"], 1)
         step_update = window["sample_step_updates"][0]
         self.assertEqual(step_update["label"], "3xx tone portamento")
@@ -1678,6 +1687,8 @@ class FocusedWindowVoiceTimelineTests(unittest.TestCase):
 
         self.assertIn("Focused Window Voice Timeline: xm-corpus-synthetic", markdown)
         self.assertIn("Sample-step updates: 1", markdown)
+        self.assertIn("Steady-state loop-interior voices:", markdown)
+        self.assertIn("### Dominant Sample Groups", markdown)
         self.assertIn("### Sample-Step Updates", markdown)
         self.assertIn("| 3xx tone portamento | order 0 pattern 3 row 1 | 0 | 1 | 120 | 4608->4400 | 1.5->2 | 4400/2 | yes |", markdown)
         self.assertIn("### Tone-Portamento Rows", markdown)
@@ -3613,6 +3624,54 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("inst/sample 7/2 voices 1 crossings 5", markdown)
             self.assertIn("loop forward 10-20 len 10", markdown)
             self.assertIn("source 18.0000->11.7500", markdown)
+
+    def test_correlation_includes_steady_state_loop_contribution_summary(self):
+        diagnostics = synthetic_diagnostics_json(event_start=100, event_end=140)
+        event = diagnostics["events"][0]
+        event["initial_source_frame"] = 12
+        event["sample_offset"]["applied"] = False
+        event["sample_offset"]["detected"] = False
+        event["sample_offset"]["status"] = "not_present"
+        event["pitch"]["playback_step"] = 0.1
+        comparison = synthetic_comparison_json(start_frame=100, end_frame=140)
+        comparison["sample_comparison"]["worst_windows"][0]["timbre_metrics"] = {
+            "mono": {
+                "reference": {"high_frequency_proxy_ratio": 0.2},
+                "candidate": {"high_frequency_proxy_ratio": 0.18},
+                "residual": {
+                    "high_frequency_proxy_ratio": 0.7,
+                    "derivative_rms": 0.05,
+                    "first_10ms_derivative_rms": 0.04,
+                    "band_energy_proxy": {"high_ratio": 0.25},
+                },
+                "residual_to_reference_rms": 0.125,
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, comparison=comparison, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Steady-State Looped Sample Evidence", markdown)
+            self.assertIn("Classification policy: steady_state_loop_interior", markdown)
+            self.assertIn("| 1 | 1 | 1 | 1 | 0 | 0/0/0 |", markdown)
+            self.assertIn("inst/sample 7/2 voices 1 steady 1 crossings 0", markdown)
+            self.assertIn("sample-len 35 loop forward 10-20 len 10", markdown)
+            self.assertIn("phase 0_0.25=1, 0.25_0.5=1, 0.5_0.75=1", markdown)
+            self.assertIn("source 12.0000->14.0000->16.0000", markdown)
+
+    def test_correlation_steady_state_loop_summary_handles_missing_fields(self):
+        diagnostics = synthetic_diagnostics_json()
+        for field in ("loop_mode", "loop_start_frame", "loop_end_frame", "loop_length_frames", "pitch"):
+            diagnostics["events"][0].pop(field)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Steady-State Looped Sample Evidence", markdown)
+            self.assertIn("- Looped events: 0/1", markdown)
+            self.assertIn("| 1 | 1 | 0 | 0 | 0 | 0/0/0 |", markdown)
 
     def test_correlation_includes_gain_pan_voice_distribution_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:

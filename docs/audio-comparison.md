@@ -93,6 +93,24 @@ parity target should be replacement ramp shape or another timbre/residual
 microfixture around that dominant sample group rather than changing loop
 endpoint or gain behavior.
 
+A steady-state loop/sample-contribution diagnostics pass kept playback behavior
+unchanged and expanded the correlation and focused-window reports with per-window
+dominant instrument/sample contribution, loop phase/source-position ranges,
+steady loop-interior classification, and per-voice sample-step/gain/ramp update
+counts. The latest local `xm-corpus-025` comparison against the same ft2-clone
+Linear profile still reports correlation about `0.927530` and gain-normalized
+RMS difference about `0.038170`; the explicit-level local render used for this
+pass reported raw RMS difference about `0.116031`. The dominant local group is
+instrument/sample `23/0`, sample length `53744`, forward loop `4056...53744`,
+sample volume `64/64`, relative note `0`, finetune `16`, and typical sample
+steps around `0.185927...0.278576`. It accounts for roughly `92...100%` of the
+level-weighted contribution estimate in the latest top windows. The first four
+worst windows are steady in the no-update/no-ramp/no-loop-boundary sense, but
+their dominant voices are before the loop start rather than inside the loop
+interior. The remaining evidence points at dominant-sample raw PCM/resampler
+timbre or pre-loop source-region parity before a loop-interior or ramp-shape
+behavior change.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

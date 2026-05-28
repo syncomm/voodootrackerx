@@ -245,6 +245,23 @@ loop-boundary crossings in every top window. Loop endpoint/crossing behavior is
 therefore not a proven cause of the residual; the next precise parity target
 should be Replacement Ramp Shape / Timbre Parity or another dominant-sample
 timbre microfixture.
+A steady-state looped sample contribution pass kept behavior unchanged and
+expanded local correlation/focused-window diagnostics with dominant
+instrument/sample contribution, loop phase/source-position ranges, strict loop
+interior classification, and per-voice sample-step/gain/ramp update counts.
+The current `xm-corpus-025` comparison against the confirmed ft2-clone Linear
+profile remains about `0.927530` correlation and `0.038170` gain-normalized RMS
+difference; the explicit-level render used for this pass reported about
+`0.116031` raw RMS difference. The dominant local group is instrument/sample
+`23/0`, sample length `53744`, forward loop `4056...53744`, sample volume
+`64/64`, relative note `0`, finetune `16`, and typical sample steps around
+`0.185927...0.278576`, contributing roughly `92...100%` of the latest top
+window level-weighted estimates. The top four windows are steady with no
+sample-step updates, no replacement ramps, and no loop-boundary crossings for
+that group, but their source positions are before the loop start rather than in
+the loop interior. The next precise parity target should isolate dominant-sample
+PCM/resampler/pre-loop timbre before changing loop-interior, ramp, gain, or
+timing behavior.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

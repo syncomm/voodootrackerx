@@ -4678,13 +4678,15 @@ final class PlaybackSongAdapterTests: XCTestCase {
         let upRetrigger = try XCTUnwrap(upResult.diagnostics.retriggerEffects.first)
         let downRetrigger = try XCTUnwrap(downResult.diagnostics.retriggerEffects.first)
 
-        XCTAssertEqual(upResult.plan.pattern.events.map(\.gain), [60.0 / 64.0, 1, 1, 1])
+        let expectedUpGains: [Float] = [60.0 / 64.0, 1, 1, 1]
+        XCTAssertEqual(upResult.plan.pattern.events.map(\.gain), expectedUpGains)
         XCTAssertEqual(upRetrigger.volumeModeNibble, 15)
         XCTAssertEqual(upRetrigger.volumeValuesBefore, [60, 64, 64])
         XCTAssertEqual(upRetrigger.volumeValuesAfter, [64, 64, 64])
         XCTAssertEqual(upRetrigger.volumeChangeCount, 1)
         XCTAssertEqual(upRetrigger.retriggerGains, [1, 1, 1])
-        XCTAssertEqual(downResult.plan.pattern.events.map(\.gain), [8.0 / 64.0, 0, 0])
+        let expectedDownGains: [Float] = [8.0 / 64.0, 0, 0]
+        XCTAssertEqual(downResult.plan.pattern.events.map(\.gain), expectedDownGains)
         XCTAssertEqual(downRetrigger.volumeModeNibble, 5)
         XCTAssertEqual(downRetrigger.volumeValuesBefore, [8, 0])
         XCTAssertEqual(downRetrigger.volumeValuesAfter, [0, 0])
@@ -4711,7 +4713,8 @@ final class PlaybackSongAdapterTests: XCTestCase {
         ))
         let retrigger = try XCTUnwrap(result.diagnostics.retriggerEffects.first)
 
-        XCTAssertEqual(result.plan.pattern.events.map(\.gain), [0.5, 34.0 / 64.0, 36.0 / 64.0])
+        let expectedGains: [Float] = [0.5, 34.0 / 64.0, 36.0 / 64.0]
+        XCTAssertEqual(result.plan.pattern.events.map(\.gain), expectedGains)
         XCTAssertEqual(result.diagnostics.eventMappings.map(\.effectiveVolumeValue), [32, 34, 36])
         XCTAssertEqual(retrigger.volumeModeNibble, 10)
         XCTAssertEqual(retrigger.volumeValuesBefore, [32, 34])

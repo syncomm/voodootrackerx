@@ -51,6 +51,9 @@ The confirmed primary `xm-corpus-025` linear reference profile is 48 kHz 32-bit
 float, amplification 10x, master volume 256, Linear (FT2) interpolation,
 Linear frequency slides, volume ramping enabled, precise BPM disabled, and no
 individual track rendering.
+For stem diagnostics, use the same profile with ft2-clone individual-track
+rendering enabled and label those artifacts only as the ft2-clone
+individual-track references for the anonymized corpus target.
 For the local `xm-corpus-025` parity target, direct comparison against the
 ft2-clone 48 kHz 32-bit float export confirms the same result previously seen
 through a temporary PCM conversion: correlation is about `0.939009`, global
@@ -110,6 +113,19 @@ their dominant voices are before the loop start rather than inside the loop
 interior. The remaining evidence points at dominant-sample raw PCM/resampler
 timbre or pre-loop source-region parity before a loop-interior or ramp-shape
 behavior change.
+
+A stem/isolation diagnostics pass added local-only solo render filters to the
+bounded helper and compared ft2-clone individual-track references for
+`xm-corpus-025` against VTX solo-channel renders. The focused worst windows are
+carried by one-based tracker channels 5, 6, and 7, with instrument/sample
+`23/0` contributing roughly `93...100%` of the focused level estimate. In those
+windows, VTX solo-channel output is zero-shift and highly correlated after
+local scalar normalization, but the dominant channels are about `4.5x` louder
+than the matching ft2-clone stems. Channel 8 is silent in both references after
+fixing the diagnostic windowed-isolation carryover path. This classifies the
+current residual as per-channel/per-sample level or PCM-scaling evidence around
+the dominant instrument/sample, not a full-mix accumulation-only issue and not
+a row/tick, panning, loop-boundary, or SINC8-primary finding.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
@@ -1061,6 +1077,39 @@ Command output and diagnostics JSON report the render duration mode, calculated
 song-end frames, tail seconds/frames, effective frame cap, and effective
 duration. `--seconds` and `--max-frames` remain hard debug caps for fixed
 duration/frame-count renders.
+
+## Render Isolation Diagnostics
+
+For local stem diagnostics, `vtx_render_bounded_xm` can render only selected
+scheduled voices while preserving full-song timing and adapter diagnostics:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-solo-channel.wav \
+  --diagnostics-json /tmp/vtx-solo-channel-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 48000 \
+  --until-song-end \
+  --window-rows 16 \
+  --allow-long-render \
+  --solo-channel 4
+```
+
+The isolation flags are:
+
+- `--solo-channel N`: zero-based VTX channel index.
+- `--solo-instrument I`: one-based XM instrument index.
+- `--solo-sample I:S`: one-based XM instrument index and zero-based sample
+  index.
+
+`--solo-channel` may be combined with `--solo-instrument` or `--solo-sample`.
+`--solo-instrument` and `--solo-sample` are mutually exclusive. Nonmatching
+scheduled voices start at zero gain and their later state updates are not
+applied; timing, traversal, and diagnostics are still planned from the full
+bounded song. Diagnostics JSON records the selected isolation filter and the
+included/muted scheduled-event counts.
 
 Long candidate WAVs and diagnostics JSON can be large. Write them under `/tmp`
 or an ignored scratch directory, and do not commit generated WAVs, JSON reports,

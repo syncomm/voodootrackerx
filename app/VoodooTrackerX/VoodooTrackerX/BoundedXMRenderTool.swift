@@ -35,6 +35,7 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidRenderLimit(String)
     case invalidWindowRows(String)
     case invalidExportGainPolicy(String)
+    case invalidIsolationFilter(String)
     case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
 
     var errorDescription: String? {
@@ -60,7 +61,8 @@ enum RenderToolError: LocalizedError, Equatable {
              let .invalidOrderRange(message),
              let .invalidRenderLimit(message),
              let .invalidWindowRows(message),
-             let .invalidExportGainPolicy(message):
+             let .invalidExportGainPolicy(message),
+             let .invalidIsolationFilter(message):
             return message
         case let .longRenderRequiresAllowLongRender(frames, defaultLimit):
             return "Requested render cap \(frames) frames exceeds the default safety clamp \(defaultLimit) frames. Pass --allow-long-render intentionally for longer local renders."
@@ -133,6 +135,7 @@ struct RenderToolArguments: Equatable {
     let gain: Double?
     let headroomDB: Double?
     let autoHeadroom: Bool
+    let isolationFilter: PlaybackSongRenderIsolationFilter?
 
     init(
         inputPath: String,
@@ -152,7 +155,8 @@ struct RenderToolArguments: Equatable {
         progress: Bool = false,
         gain: Double? = nil,
         headroomDB: Double? = nil,
-        autoHeadroom: Bool = false
+        autoHeadroom: Bool = false,
+        isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.inputPath = inputPath
         self.outputPath = outputPath
@@ -172,6 +176,7 @@ struct RenderToolArguments: Equatable {
         self.gain = gain
         self.headroomDB = headroomDB
         self.autoHeadroom = autoHeadroom
+        self.isolationFilter = isolationFilter?.isEnabled == true ? isolationFilter : nil
     }
 
     static func parse(_ argv: [String]) throws -> RenderToolArguments {
@@ -193,6 +198,9 @@ struct RenderToolArguments: Equatable {
         var gain: Double?
         var headroomDB: Double?
         var autoHeadroom = false
+        var soloChannelIndex: Int?
+        var soloInstrumentIndex: Int?
+        var soloSampleIndex: Int?
         var seen = Set<String>()
         var index = 0
 
@@ -271,6 +279,14 @@ struct RenderToolArguments: Equatable {
                 gain = try parseExportGain(value, name: argument)
             case "--headroom-db":
                 headroomDB = try parseHeadroomDB(value, name: argument)
+            case "--solo-channel":
+                soloChannelIndex = try parseNonNegativeInt(value, name: argument)
+            case "--solo-instrument":
+                soloInstrumentIndex = try parsePositiveInt(value, name: argument)
+            case "--solo-sample":
+                let soloSample = try parseSoloSample(value, name: argument)
+                soloInstrumentIndex = soloSample.instrumentIndex
+                soloSampleIndex = soloSample.sampleIndex
             default:
                 throw RenderToolError.unknownArgument(argument)
             }
@@ -304,11 +320,19 @@ struct RenderToolArguments: Equatable {
         if autoHeadroom && headroomDB != nil {
             throw RenderToolError.mutuallyExclusive("--auto-headroom", "--headroom-db")
         }
+        if seen.contains("--solo-instrument") && seen.contains("--solo-sample") {
+            throw RenderToolError.mutuallyExclusive("--solo-instrument", "--solo-sample")
+        }
         try validateExplicitRenderLimit(
             maxFrames: maxFrames,
             seconds: seconds,
             sampleRate: sampleRate,
             allowLongRender: allowLongRender
+        )
+        let isolationFilter = PlaybackSongRenderIsolationFilter(
+            soloChannelIndex: soloChannelIndex,
+            soloInstrumentIndex: soloInstrumentIndex,
+            soloSampleIndex: soloSampleIndex
         )
 
         return RenderToolArguments(
@@ -329,7 +353,8 @@ struct RenderToolArguments: Equatable {
             progress: progress,
             gain: gain,
             headroomDB: headroomDB,
-            autoHeadroom: autoHeadroom
+            autoHeadroom: autoHeadroom,
+            isolationFilter: isolationFilter
         )
     }
 
@@ -417,6 +442,27 @@ struct RenderToolArguments: Equatable {
             throw RenderToolError.invalidInteger(name: name, value: value)
         }
         return parsed
+    }
+
+    private static func parseNonNegativeInt(_ value: String, name: String) throws -> Int {
+        let parsed = try parseInt(value, name: name)
+        guard parsed >= 0 else {
+            throw RenderToolError.invalidInteger(name: name, value: value)
+        }
+        return parsed
+    }
+
+    private static func parseSoloSample(
+        _ value: String,
+        name: String
+    ) throws -> (instrumentIndex: Int, sampleIndex: Int) {
+        let parts = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            throw RenderToolError.invalidIsolationFilter("\(name) must use instrument:sample, for example 23:0.")
+        }
+        let instrumentIndex = try parsePositiveInt(String(parts[0]), name: name)
+        let sampleIndex = try parseNonNegativeInt(String(parts[1]), name: name)
+        return (instrumentIndex, sampleIndex)
     }
 
     private static func parsePositiveDouble(_ value: String, name: String) throws -> Double {
@@ -762,7 +808,8 @@ struct RenderTool {
                 orderCount: arguments.orderCount,
                 config: config,
                 frames: durationDiagnostics.effectiveFrameCap,
-                maximumFrameCount: maximumFrameCount
+                maximumFrameCount: maximumFrameCount,
+                isolationFilter: arguments.isolationFilter
             )
         }
         if let rows = arguments.rows {
@@ -772,7 +819,8 @@ struct RenderTool {
                 orderCount: arguments.orderCount,
                 config: config,
                 rows: rows,
-                maximumFrameCount: maximumFrameCount
+                maximumFrameCount: maximumFrameCount,
+                isolationFilter: arguments.isolationFilter
             )
         }
         let frames: Int
@@ -787,7 +835,8 @@ struct RenderTool {
             orderCount: arguments.orderCount,
             config: config,
             frames: frames,
-            maximumFrameCount: maximumFrameCount
+            maximumFrameCount: maximumFrameCount,
+            isolationFilter: arguments.isolationFilter
         )
     }
 
@@ -1064,6 +1113,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "requested_start_order_index": diagnostics.requestedStartOrderIndex,
             "requested_order_count": diagnostics.requestedOrderCount,
             "sample_rate": diagnostics.sampleRate,
+            "render_isolation": renderIsolationJSON(from: result),
             "render_duration_mode": renderDuration.mode.rawValue,
             "effective_frame_cap": renderDuration.effectiveFrameCap,
             "effective_duration_seconds": renderDuration.effectiveDurationSeconds,
@@ -1525,6 +1575,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "requested_order_count": diagnostics.requestedOrderCount,
                 "sample_rate": diagnostics.sampleRate,
                 "channel_count": result.block.config.channelCount,
+                "render_isolation": renderIsolationJSON(from: result),
+                "isolation_enabled": result.request.isolationFilter?.isEnabled ?? false,
                 "sample_interpolation": CSoftwareMixer.interpolationMode,
                 "sample_interpolation_enabled": CSoftwareMixer.interpolationEnabled,
                 "sample_interpolation_kernel": [
@@ -1820,6 +1872,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "pcm16_clipping_sample_count": diagnostics.pcm16ClippingSampleCount,
             "clipping_detected": diagnostics.clippingDetected,
             "recommendation": nullableJSONValue(diagnostics.recommendation),
+        ]
+    }
+
+    private static func renderIsolationJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {
+        let filter = result.request.isolationFilter
+        let includedEventIndices = PlaybackSongOfflineRenderer.includedEventIndices(
+            for: result.plan,
+            isolationFilter: filter
+        )
+        let totalEvents = result.plan.pattern.events.count
+        return [
+            "enabled": filter?.isEnabled ?? false,
+            "solo_channel_index": nullableJSONValue(filter?.soloChannelIndex),
+            "solo_instrument_index": nullableJSONValue(filter?.soloInstrumentIndex),
+            "solo_sample_index": nullableJSONValue(filter?.soloSampleIndex),
+            "total_scheduled_event_count": totalEvents,
+            "included_scheduled_event_count": includedEventIndices?.count ?? totalEvents,
+            "muted_scheduled_event_count": includedEventIndices.map { max(0, totalEvents - $0.count) } ?? 0,
+            "policy": "nonmatching scheduled voices start at zero gain and their later state updates are not applied; timing and adapter diagnostics are still planned from the full bounded song",
         ]
     }
 
@@ -4542,6 +4613,9 @@ func renderToolUsage() -> String {
       --until-song-end      Render to the bounded selected order-range end.
       --tail-seconds N      Add this many seconds after --until-song-end. Default: 0.
       --window-rows N       Opt into row-windowed offline scheduling for long local renders.
+      --solo-channel N      Render only zero-based VTX channel N; timing/global planning remains full-song.
+      --solo-instrument I   Render only one-based instrument I.
+      --solo-sample I:S     Render only one-based instrument I and zero-based sample S.
       --gain N              Apply linear export gain before PCM16 conversion. Default: 1.0.
       --headroom-db N       Apply dB headroom before PCM16 conversion; value must be <= 0.
       --auto-headroom       Compute safe export gain from the rendered Float32 peak with a -1 dB margin.
@@ -4554,6 +4628,7 @@ func renderToolUsage() -> String {
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --until-song-end, --seconds, --max-frames, and --rows are mutually exclusive duration modes.
     --until-song-end uses the bounded adapter's selected order-range timing, including supported Fxx changes and focused Dxx/Bxx/E6x traversal; it is not full FT2/OpenMPT song loop/restart parity.
+    --solo-channel may be combined with --solo-instrument or --solo-sample for local isolation diagnostics.
     Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
     This helper uses the offline C-backed PlaybackSongOfflineRenderer.exportWAV path only.
@@ -4600,6 +4675,7 @@ func renderToolSummary(
     } else {
         lines.append("Windowed render: disabled.")
     }
+    lines.append(renderIsolationSummaryLine(result.request.isolationFilter))
     lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
     lines.append("Render duration mode: \(durationDiagnostics.mode.summaryName)")
     if let calculatedSongEndFrames = durationDiagnostics.calculatedSongEndFrames {
@@ -4647,6 +4723,23 @@ func renderToolSummary(
     }
     lines.append("Export succeeded.")
     return lines.joined(separator: "\n")
+}
+
+private func renderIsolationSummaryLine(_ filter: PlaybackSongRenderIsolationFilter?) -> String {
+    guard let filter, filter.isEnabled else {
+        return "Render isolation: disabled."
+    }
+    var parts = [String]()
+    if let channel = filter.soloChannelIndex {
+        parts.append("channel \(channel)")
+    }
+    if let instrument = filter.soloInstrumentIndex {
+        parts.append("instrument \(instrument)")
+    }
+    if let sample = filter.soloSampleIndex {
+        parts.append("sample \(sample)")
+    }
+    return "Render isolation: " + parts.joined(separator: ", ") + "."
 }
 
 private func renderDurationDiagnostics(

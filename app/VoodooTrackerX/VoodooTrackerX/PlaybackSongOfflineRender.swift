@@ -1,5 +1,38 @@
 import Foundation
 
+struct PlaybackSongRenderIsolationFilter: Equatable {
+    let soloChannelIndex: Int?
+    let soloInstrumentIndex: Int?
+    let soloSampleIndex: Int?
+
+    init(
+        soloChannelIndex: Int? = nil,
+        soloInstrumentIndex: Int? = nil,
+        soloSampleIndex: Int? = nil
+    ) {
+        self.soloChannelIndex = soloChannelIndex.map { max(0, $0) }
+        self.soloInstrumentIndex = soloInstrumentIndex.map { max(1, $0) }
+        self.soloSampleIndex = soloSampleIndex.map { max(0, $0) }
+    }
+
+    var isEnabled: Bool {
+        soloChannelIndex != nil || soloInstrumentIndex != nil || soloSampleIndex != nil
+    }
+
+    func includes(_ mapping: PlaybackSongSyntheticEventMapping) -> Bool {
+        if let soloChannelIndex, mapping.channelIndex != soloChannelIndex {
+            return false
+        }
+        if let soloInstrumentIndex, mapping.instrumentIndex != soloInstrumentIndex {
+            return false
+        }
+        if let soloSampleIndex, mapping.sampleIndex != soloSampleIndex {
+            return false
+        }
+        return true
+    }
+}
+
 struct PlaybackSongOfflineRenderRequest: Equatable {
     static let defaultMaximumFrameCount = OfflineRenderRequest.defaultMaximumFrameCount
 
@@ -9,6 +42,7 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
     let config: MixerRenderConfig
     let requestedFrameCount: Int
     let maximumFrameCount: Int
+    let isolationFilter: PlaybackSongRenderIsolationFilter?
 
     var boundedFrameCount: Int {
         min(requestedFrameCount, maximumFrameCount)
@@ -24,7 +58,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
         orderCount: Int = 1,
         config: MixerRenderConfig = MixerRenderConfig(),
         frames: Int,
-        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount,
+        isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.song = song
         self.startOrderIndex = startOrderIndex
@@ -32,6 +67,7 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
         self.config = config
         requestedFrameCount = max(0, frames)
         self.maximumFrameCount = max(0, maximumFrameCount)
+        self.isolationFilter = isolationFilter?.isEnabled == true ? isolationFilter : nil
     }
 
     init(
@@ -39,7 +75,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
         orderIndex: Int,
         config: MixerRenderConfig = MixerRenderConfig(),
         frames: Int,
-        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount,
+        isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.init(
             song: song,
@@ -47,7 +84,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
             orderCount: 1,
             config: config,
             frames: frames,
-            maximumFrameCount: maximumFrameCount
+            maximumFrameCount: maximumFrameCount,
+            isolationFilter: isolationFilter
         )
     }
 
@@ -56,7 +94,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
         orderRange: Range<Int>,
         config: MixerRenderConfig = MixerRenderConfig(),
         frames: Int,
-        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount,
+        isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.init(
             song: song,
@@ -64,7 +103,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
             orderCount: orderRange.count,
             config: config,
             frames: frames,
-            maximumFrameCount: maximumFrameCount
+            maximumFrameCount: maximumFrameCount,
+            isolationFilter: isolationFilter
         )
     }
 
@@ -74,7 +114,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
         orderCount: Int = 1,
         config: MixerRenderConfig = MixerRenderConfig(),
         rows: Int,
-        maximumFrameCount: Int = Self.defaultMaximumFrameCount
+        maximumFrameCount: Int = Self.defaultMaximumFrameCount,
+        isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         let timing = PlaybackSongFxxTimingPlanner.plan(
             song,
@@ -88,7 +129,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
             orderCount: orderCount,
             config: config,
             frames: timing.frameFor(row: max(0, rows), tick: 0),
-            maximumFrameCount: maximumFrameCount
+            maximumFrameCount: maximumFrameCount,
+            isolationFilter: isolationFilter
         )
     }
 
@@ -99,7 +141,8 @@ struct PlaybackSongOfflineRenderRequest: Equatable {
             orderCount: orderCount,
             config: config,
             frames: frameCount,
-            maximumFrameCount: maximumFrameCount ?? self.maximumFrameCount
+            maximumFrameCount: maximumFrameCount ?? self.maximumFrameCount,
+            isolationFilter: isolationFilter
         )
     }
 }
@@ -336,11 +379,19 @@ final class PlaybackSongOfflineRenderSession {
 
     init(request: PlaybackSongOfflineRenderRequest) {
         self.request = request
-        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
             request.song,
             startOrderIndex: request.startOrderIndex,
             orderCount: request.orderCount,
             sampleRate: request.config.sampleRate
+        )
+        let includedEventIndices = PlaybackSongOfflineRenderer.includedEventIndices(
+            for: fullPlan,
+            isolationFilter: request.isolationFilter
+        )
+        let adaptedPlan = PlaybackSongOfflineRenderer.plan(
+            fullPlan,
+            mutingEventsNotIn: includedEventIndices
         )
         let preparedMixer = CSoftwareMixer(config: request.config)
         let scheduledResults = SyntheticPatternScheduler(config: adaptedPlan.timingConfig).scheduleWithResults(adaptedPlan.pattern, on: preparedMixer)
@@ -348,47 +399,56 @@ final class PlaybackSongOfflineRenderSession {
         PlaybackSongOfflineRenderer.scheduleVoiceStateUpdates(
             adaptedPlan.diagnostics.voiceStateUpdates,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleTonePortamentoStepUpdates(
             adaptedPlan.diagnostics.tonePortamentoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.schedulePortamentoSlideStepUpdates(
             adaptedPlan.diagnostics.portamentoSlideEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoUpStepUpdates(
             adaptedPlan.diagnostics.finePortamentoUpEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoDownStepUpdates(
             adaptedPlan.diagnostics.finePortamentoDownEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleArpeggioStepUpdates(
             adaptedPlan.diagnostics.arpeggioEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleVibratoStepUpdates(
             adaptedPlan.diagnostics.vibratoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleNoteCuts(
             adaptedPlan.diagnostics.noteCutEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         PlaybackSongOfflineRenderer.scheduleRetriggerCuts(
             adaptedPlan.diagnostics.retriggerEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         sameChannelVoiceLifetime = PlaybackSongOfflineRenderer.sameChannelVoiceLifetimeDiagnostics(
             for: adaptedPlan,
@@ -397,7 +457,8 @@ final class PlaybackSongOfflineRenderSession {
         PlaybackSongOfflineRenderer.scheduleSameChannelReplacementRamps(
             sameChannelVoiceLifetime.replacementEvents,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
-            on: preparedMixer
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
         )
         let rejectionReasons = scheduledResults.map(\.rejectionReason)
         let scheduledCapacityRejectedCount = rejectionReasons.filter { $0 == .scheduledVoiceCapacity }.count
@@ -444,6 +505,42 @@ final class PlaybackSongOfflineRenderer {
         self.maximumFrameCount = max(0, maximumFrameCount)
     }
 
+    static func includedEventIndices(
+        for plan: PlaybackSongSyntheticPlan,
+        isolationFilter: PlaybackSongRenderIsolationFilter?
+    ) -> Set<Int>? {
+        guard let isolationFilter, isolationFilter.isEnabled else {
+            return nil
+        }
+        return Set(plan.diagnostics.eventMappings.compactMap { mapping in
+            isolationFilter.includes(mapping) ? mapping.eventIndex : nil
+        })
+    }
+
+    static func plan(
+        _ plan: PlaybackSongSyntheticPlan,
+        mutingEventsNotIn includedEventIndices: Set<Int>?
+    ) -> PlaybackSongSyntheticPlan {
+        guard let includedEventIndices else {
+            return plan
+        }
+        let events = plan.pattern.events.enumerated().map { eventIndex, event in
+            includedEventIndices.contains(eventIndex) ? event : event.withGainPan(gain: 0)
+        }
+        return PlaybackSongSyntheticPlan(
+            timingConfig: plan.timingConfig,
+            pattern: SyntheticPattern(rowCount: plan.pattern.rowCount, events: events),
+            diagnostics: plan.diagnostics
+        )
+    }
+
+    private static func includesEvent(
+        _ eventIndex: Int,
+        includedEventIndices: Set<Int>?
+    ) -> Bool {
+        includedEventIndices?.contains(eventIndex) ?? true
+    }
+
     func prepare(_ request: PlaybackSongOfflineRenderRequest) -> PlaybackSongOfflineRenderSession {
         PlaybackSongOfflineRenderSession(request: effectiveRequest(from: request, frames: request.requestedFrameCount))
     }
@@ -468,11 +565,19 @@ final class PlaybackSongOfflineRenderer {
     ) -> PlaybackSongOfflineRenderResult {
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
-        let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
+        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
             effectiveRequest.song,
             startOrderIndex: effectiveRequest.startOrderIndex,
             orderCount: effectiveRequest.orderCount,
             sampleRate: effectiveRequest.config.sampleRate
+        )
+        let includedEventIndices = Self.includedEventIndices(
+            for: fullPlan,
+            isolationFilter: effectiveRequest.isolationFilter
+        )
+        let adaptedPlan = Self.plan(
+            fullPlan,
+            mutingEventsNotIn: includedEventIndices
         )
         let totalFrames = effectiveRequest.boundedFrameCount
         let windows = Self.windowSpecs(
@@ -505,7 +610,8 @@ final class PlaybackSongOfflineRenderer {
                 for: spec,
                 plan: adaptedPlan,
                 scheduler: scheduler,
-                sameChannelLifetime: sameChannelLifetime
+                sameChannelLifetime: sameChannelLifetime,
+                includedEventIndices: includedEventIndices
             )
             var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
             continuationResults.reserveCapacity(continuations.count)
@@ -539,70 +645,80 @@ final class PlaybackSongOfflineRenderer {
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleTonePortamentoStepUpdates(
                 adaptedPlan.diagnostics.tonePortamentoEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.schedulePortamentoSlideStepUpdates(
                 adaptedPlan.diagnostics.portamentoSlideEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleFinePortamentoUpStepUpdates(
                 adaptedPlan.diagnostics.finePortamentoUpEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleFinePortamentoDownStepUpdates(
                 adaptedPlan.diagnostics.finePortamentoDownEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleArpeggioStepUpdates(
                 adaptedPlan.diagnostics.arpeggioEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleVibratoStepUpdates(
                 adaptedPlan.diagnostics.vibratoEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleNoteCuts(
                 adaptedPlan.diagnostics.noteCutEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleRetriggerCuts(
                 adaptedPlan.diagnostics.retriggerEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             Self.scheduleSameChannelReplacementRamps(
                 sameChannelLifetime.replacementEvents,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
             )
             attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
                 PlaybackSongScheduledVoiceAttempt(
@@ -719,10 +835,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for update in updates where update.activeVoiceUpdated {
             guard let activeEventIndex = update.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -752,10 +870,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -781,10 +901,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -810,10 +932,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -839,10 +963,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -868,10 +994,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -897,10 +1025,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for diagnostic in diagnostics where diagnostic.applied {
             guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
                 continue
             }
@@ -926,10 +1056,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for cut in cuts where cut.applied {
             guard let activeEventIndex = cut.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
                   let voiceIndex = voiceIndexByEventIndex[activeEventIndex],
                   let scheduledFrame = cut.scheduledFrame else {
                 continue
@@ -955,11 +1087,13 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for retrigger in retriggers where retrigger.applied {
             for (eventIndex, scheduledFrame) in zip(retrigger.replacedEventIndices, retrigger.retriggerFrames) {
-                guard let voiceIndex = voiceIndexByEventIndex[eventIndex] else {
+                guard includesEvent(eventIndex, includedEventIndices: includedEventIndices),
+                      let voiceIndex = voiceIndexByEventIndex[eventIndex] else {
                     continue
                 }
                 guard scheduledFrame >= windowStartFrame else {
@@ -984,10 +1118,12 @@ final class PlaybackSongOfflineRenderer {
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
-        windowEndFrame: Int? = nil
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
     ) {
         for replacement in replacements {
-            guard let voiceIndex = voiceIndexByEventIndex[replacement.oldEventIndex] else {
+            guard includesEvent(replacement.oldEventIndex, includedEventIndices: includedEventIndices),
+                  let voiceIndex = voiceIndexByEventIndex[replacement.oldEventIndex] else {
                 continue
             }
             guard replacement.replacementFrame >= windowStartFrame else {
@@ -1197,7 +1333,8 @@ final class PlaybackSongOfflineRenderer {
         for window: RenderWindowSpec,
         plan: PlaybackSongSyntheticPlan,
         scheduler: SyntheticTrackerScheduler,
-        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
+        includedEventIndices: Set<Int>? = nil
     ) -> [WindowContinuation] {
         let windowStartFrame = window.startFrame
         guard windowStartFrame > 0 else {
@@ -1210,6 +1347,9 @@ final class PlaybackSongOfflineRenderer {
         )
         let mappingsByEventIndex = Dictionary(uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
         return plan.pattern.events.enumerated().compactMap { eventIndex, event in
+            guard includesEvent(eventIndex, includedEventIndices: includedEventIndices) else {
+                return nil
+            }
             let eventStartFrame = scheduler.frame(for: event)
             guard eventStartFrame < windowStartFrame else {
                 return nil

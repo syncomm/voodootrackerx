@@ -34,6 +34,60 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.exportPolicy.gain, 0.5)
         XCTAssertFalse(arguments.allowLongRender)
         XCTAssertFalse(arguments.progress)
+        XCTAssertNil(arguments.isolationFilter)
+    }
+
+    func testArgumentParsingAcceptsRenderIsolationFilters() throws {
+        let channelArguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--solo-channel", "4",
+        ])
+        XCTAssertEqual(channelArguments.isolationFilter?.soloChannelIndex, 4)
+        XCTAssertNil(channelArguments.isolationFilter?.soloInstrumentIndex)
+        XCTAssertNil(channelArguments.isolationFilter?.soloSampleIndex)
+
+        let sampleArguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--solo-channel", "4",
+            "--solo-sample", "23:0",
+        ])
+        XCTAssertEqual(sampleArguments.isolationFilter?.soloChannelIndex, 4)
+        XCTAssertEqual(sampleArguments.isolationFilter?.soloInstrumentIndex, 23)
+        XCTAssertEqual(sampleArguments.isolationFilter?.soloSampleIndex, 0)
+    }
+
+    func testInvalidRenderIsolationFiltersFailClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--solo-channel", "-1",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Invalid integer for --solo-channel"))
+        }
+
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--solo-sample", "23",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--solo-sample must use instrument:sample"))
+        }
+
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--solo-instrument", "23",
+            "--solo-sample", "23:0",
+        ])) { error in
+            XCTAssertEqual(error as? RenderToolError, .mutuallyExclusive("--solo-instrument", "--solo-sample"))
+        }
     }
 
     func testArgumentParsingAcceptsHeadroomDB() throws {
@@ -523,6 +577,101 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(defaultDiagnostics.autoHeadroomEnabled)
     }
 
+    func testSoloChannelRenderMutesOtherChannels() {
+        let song = twoChannelIsolationSong()
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 16)
+        let config = MixerRenderConfig(sampleRate: 1_000, channelCount: 1)
+
+        let full = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: config,
+            frames: 3
+        ))
+        let soloChannel0 = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: config,
+            frames: 3,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloChannelIndex: 0)
+        ))
+        let soloChannel1 = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: config,
+            frames: 3,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloChannelIndex: 1)
+        ))
+
+        XCTAssertEqual(full.block.interleavedPCM, [1.25, 1.25, 1.25])
+        XCTAssertEqual(soloChannel0.block.interleavedPCM, [1, 1, 1])
+        XCTAssertEqual(soloChannel1.block.interleavedPCM, [0.25, 0.25, 0.25])
+    }
+
+    func testSoloInstrumentAndSampleRenderFiltersMatchingEvents() {
+        let song = twoChannelIsolationSong()
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 16)
+        let config = MixerRenderConfig(sampleRate: 1_000, channelCount: 1)
+
+        let soloInstrument2 = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: config,
+            frames: 3,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloInstrumentIndex: 2)
+        ))
+        let soloSample1 = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: config,
+            frames: 3,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloInstrumentIndex: 2, soloSampleIndex: 0)
+        ))
+
+        XCTAssertEqual(soloInstrument2.block.interleavedPCM, [0.25, 0.25, 0.25])
+        XCTAssertEqual(soloSample1.block.interleavedPCM, [0.25, 0.25, 0.25])
+    }
+
+    func testWindowedSoloChannelDoesNotCarryMutedVoiceAfterGainUpdate() {
+        let song = nonMatchingVolumeSlideCarryoverSong()
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            startOrderIndex: 0,
+            orderCount: 1,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            rows: 2,
+            maximumFrameCount: 256,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloChannelIndex: 0)
+        )
+
+        let result = PlaybackSongOfflineRenderer(maximumFrameCount: 256).renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(result.renderedFrameCount, 240)
+        XCTAssertTrue(result.block.interleavedPCM.allSatisfy { $0 == 0 })
+    }
+
+    func testDiagnosticsJSONIncludesRenderIsolationSummary() throws {
+        let song = twoChannelIsolationSong()
+        let result = PlaybackSongOfflineRenderer(maximumFrameCount: 16).render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+            frames: 3,
+            isolationFilter: PlaybackSongRenderIsolationFilter(soloChannelIndex: 0)
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let isolation = try XCTUnwrap(render["render_isolation"] as? [String: Any])
+
+        XCTAssertEqual(render["isolation_enabled"] as? Bool, true)
+        XCTAssertEqual(isolation["enabled"] as? Bool, true)
+        XCTAssertEqual(isolation["solo_channel_index"] as? Int, 0)
+        XCTAssertEqual(isolation["total_scheduled_event_count"] as? Int, 2)
+        XCTAssertEqual(isolation["included_scheduled_event_count"] as? Int, 1)
+        XCTAssertEqual(isolation["muted_scheduled_event_count"] as? Int, 1)
+    }
+
     func testHelpAndSummaryDescribeClampAndOverrideBehavior() {
         let usage = renderToolUsage()
 
@@ -531,6 +680,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--until-song-end"))
         XCTAssertTrue(usage.contains("--tail-seconds N"))
         XCTAssertTrue(usage.contains("--window-rows N"))
+        XCTAssertTrue(usage.contains("--solo-channel N"))
+        XCTAssertTrue(usage.contains("--solo-instrument I"))
+        XCTAssertTrue(usage.contains("--solo-sample I:S"))
         XCTAssertTrue(usage.contains("--gain N"))
         XCTAssertTrue(usage.contains("--headroom-db N"))
         XCTAssertTrue(usage.contains("--auto-headroom"))
@@ -570,6 +722,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("Requested order range: 0..<1"))
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
         XCTAssertTrue(summary.contains("Windowed render: disabled"))
+        XCTAssertTrue(summary.contains("Render isolation: disabled"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
         XCTAssertTrue(summary.contains("Render duration mode: max frames"))
         XCTAssertTrue(summary.contains("Calculated song-end frames: not applicable"))
@@ -3598,6 +3751,86 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             restartOrderIndex: 0,
             endBehavior: .stopAtEnd,
             initialTiming: timing
+        )
+    }
+
+    private func twoChannelIsolationSong() -> PlaybackSong {
+        let firstSample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 1, 1],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 1_000,
+            loopStart: 0,
+            loopLength: 0,
+            loopType: 0
+        )
+        let secondSample = PlaybackSample(
+            instrumentIndex: 2,
+            sampleIndex: 0,
+            pcm: [0.25, 0.25, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 1_000,
+            loopStart: 0,
+            loopLength: 0,
+            loopType: 0
+        )
+        return PlaybackSong(
+            title: "isolation",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                        PlaybackCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0),
+                    ]),
+                ])
+            ],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [firstSample]),
+                2: PlaybackInstrument(index: 2, samples: [secondSample]),
+            ],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+    }
+
+    private func nonMatchingVolumeSlideCarryoverSong() -> PlaybackSong {
+        let sample = PlaybackSample(
+            instrumentIndex: 2,
+            sampleIndex: 0,
+            pcm: Array(repeating: Float(1), count: 512),
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 1_000,
+            loopStart: 0,
+            loopLength: 0,
+            loopType: 0
+        )
+        let empty = PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0)
+        return PlaybackSong(
+            title: "isolation-carryover",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        empty,
+                        PlaybackCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0x0A, effectParam: 0x0F),
+                    ]),
+                    PlaybackRow(index: 1, cells: [empty, empty]),
+                ])
+            ],
+            instrumentsByIndex: [
+                2: PlaybackInstrument(index: 2, samples: [sample]),
+            ],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 6, bpm: 125)
         )
     }
 

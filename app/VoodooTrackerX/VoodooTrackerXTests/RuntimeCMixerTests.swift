@@ -214,6 +214,38 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(gainUpdates.allSatisfy { $0.effectParam == 0x0F })
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsTonePortamentoVolumeSlide5xyMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, volumeColumn: 0x30),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, effectType: 0x05, effectParam: 0x02),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let stepUpdates = plan.events.filter {
+            $0.categories.contains("step_update") &&
+                $0.categories.contains("tone_portamento_volume_slide_5xy")
+        }
+        let gainUpdates = plan.events.filter {
+            $0.categories.contains("gain_pan_update") &&
+                $0.categories.contains("tone_portamento_volume_slide_5xy")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("tone_portamento_volume_slide_5xy"))
+        XCTAssertEqual(stepUpdates.map(\.effectType), [0x05, 0x05, 0x05])
+        XCTAssertEqual(stepUpdates.map(\.effectParam), [0x02, 0x02, 0x02])
+        XCTAssertEqual(stepUpdates.map(\.scheduledFrame), [9, 10, 11])
+        XCTAssertEqual(gainUpdates.map(\.effectType), [0x05, 0x05, 0x05])
+        XCTAssertEqual(gainUpdates.map(\.effectParam), [0x02, 0x02, 0x02])
+        XCTAssertEqual(gainUpdates.map(\.scheduledFrame), [9, 10, 11])
+    }
+
     func testRuntimeCMixerAdapterEventPlanIncludesVibrato4xyStepUpdates() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

@@ -272,8 +272,9 @@ tick-level `Axy` volume slide updates after tick 0, minimal `Fxx` speed/BPM
 timing changes, minimal `9xx` sample offsets on same-cell note triggers including
 per-channel `900` memory replay, minimal `0xy` arpeggio, minimal `1xx`/`2xx`
 portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
-portamento up, minimal `E2x` fine portamento down, minimal `EAx`/`EBx` fine
-volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and
+portamento up, minimal `E2x` fine portamento down, minimal `5xy` tone
+portamento + volume slide, minimal `EAx`/`EBx` fine volume slides, minimal
+`4xy` vibrato, minimal `6xy` vibrato + volume slide, and
 `E9x` retriggers for the tracked active adapted voice. The
 `1xx`/`2xx` foundation replays per-channel `100`/`200` memory from the prior
 nonzero same-family slide amount when available; unavailable memory remains a
@@ -294,6 +295,12 @@ volume-column vibrato remain deferred. The
 volume-slide/gain path; `600` can replay vibrato memory without volume-slide
 memory, while unavailable vibrato memory remains an effect-memory-deferred
 no-op.
+The `5xy` foundation reuses the current `3xx` tone-portamento target/speed and
+sample-step update path together with the `Axy` tick-level volume-slide gain
+path. Same-cell note rows set the target without retriggering, empty-note rows
+continue the existing target when memory exists, no-active/no-target/no-speed
+cases are diagnosed safely, and `500` volume-slide memory is kept as a
+diagnosed no-op/deferred case rather than broad new effect memory.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
@@ -305,8 +312,8 @@ gain and pan update events are smoothed by a fixed 32-frame deterministic
 micro-ramp in the C mixer, including empty-note and same-cell `3xx`
 no-retrigger volume-column set-volume/set-panning, `Cxx`, `8xx`, and nonzero
 tick-level `Axy` updates, minimal row-level `EAx`/`EBx` fine volume slides,
-minimal `6xy` volume-slide gain updates, and minimal row-level `Hxy` global
-volume slides that actually change an active voice.
+minimal `5xy` and `6xy` volume-slide gain updates, and minimal row-level `Hxy`
+global volume slides that actually change an active voice.
 `ECx` note cuts remain hard cuts. `H00` is diagnosed as a no-op without effect
 memory, and both-nibble `Hxy` parameters use the same safe up-nibble precedence
 policy as the current runtime effect helper.
@@ -368,7 +375,12 @@ scheduled sample-step update counts for first-pass `4xy` coverage.
 `vibrato_volume_slide_6xy_*` counters report detected, applied,
 no-active-voice, missing-memory deferred, memory-applied/missing counts,
 scheduled sample-step updates, and scheduled gain-update counts for first-pass
-`6xy` coverage. Sample-offset diagnostics include
+`6xy` coverage.
+`tone_portamento_volume_slide_5xy_effects` and render-level
+`tone_portamento_volume_slide_5xy_*` counters report detected, applied,
+no-active-voice, no-target/no-speed diagnostics, no-op/deferred buckets, first
+source coordinates, scheduled sample-step updates, and scheduled gain-update
+counts for first-pass `5xy` coverage. Sample-offset diagnostics include
 `effect_memory_reused`, `effect_memory_missing`, memory source/target metadata,
 and `900_sample_offset_memory_applied` for `900` replays.
 `portamento_slide_effects` and render-level `portamento_1xx_*`,
@@ -1068,13 +1080,14 @@ Effect-column `Kxx` key-off rows are reported as `Kxx key off` rather than
 generic note-off events, with applied/no-active counts and first tick/frame
 coordinates when bounded diagnostics expose them.
 Candidate diagnostics and the correlation report also include a focused
-pitch-modulation/deferred-effect summary for remaining deferred `5xy`, `7xy`,
-and volume-column vibrato/tone-portamento ranges. Applied `0xy` arpeggio,
+pitch-modulation/deferred-effect summary for remaining deferred `7xy` and
+volume-column vibrato/tone-portamento ranges. Applied `0xy` arpeggio,
 applied `1xx`/`2xx` portamento slides, applied `3xx` tone portamento, applied
 `E1x` fine portamento up, applied `E2x` fine portamento down, applied
-`EAx`/`EBx` fine volume slides, and applied `4xy`/`6xy` vibrato-family effects
-are reported in the general command frequency and dedicated diagnostics instead
-of the deferred pitch-modulation bucket. The report groups remaining deferred
+`5xy` tone portamento + volume slide, applied `EAx`/`EBx` fine volume slides,
+and applied `4xy`/`6xy` vibrato-family effects are reported in the general
+command frequency and dedicated diagnostics instead of the deferred
+pitch-modulation bucket. The report groups remaining deferred
 pitch-modulation counts into portamento-family, vibrato, and tremolo buckets,
 shows whether they appear near the worst mismatch windows, and recommends a
 conservative next pitch-effect PR only when one bucket dominates.
@@ -1125,9 +1138,8 @@ OpenMPT/MikMod for real modules because XM effect-column behavior,
 volume-column vibrato/tone-portamento and other unsupported volume-column
 semantics, true Amiga frequency-table behavior, tempo/BPM semantics beyond
 minimal bounded `Fxx`, `Gxx` set-global-volume behavior,
-tick-accurate volume and pitch-slide behavior, `5xy` tone portamento plus
-volume slide, full FT2/OpenMPT traversal parity, and full reference resampler
-parity remain deferred.
+broader tick-perfect effect parity, full FT2/OpenMPT traversal parity, and full
+reference resampler parity remain deferred.
 
 MikMod, OpenMPT, `openmpt123`, and libopenmpt are optional local tools. They are
 not CI dependencies, and tests for `scripts/audio-compare.py` use temporary
@@ -1665,10 +1677,10 @@ ranges, then lists:
   `Dxx`, `EEx`, contextual `Fxx`, and other observed `E` subcommands when
   diagnostics JSON contains them
 - pitch-modulation/deferred-effect counts near the worst windows and overall,
-  including remaining deferred portamento-family commands, vibrato, tremolo,
-  and deferred volume-column vibrato/tone-portamento commands; applied `0xy`
-  arpeggio appears in applied command frequency and `arpeggio_effects`
-  diagnostics instead
+  including remaining deferred volume-column tone-portamento commands, vibrato,
+  tremolo, and deferred volume-column vibrato commands; applied `0xy` arpeggio
+  appears in applied command frequency and `arpeggio_effects` diagnostics
+  instead
 - event-coverage totals and skipped-note hotspots when diagnostics JSON
   contains them
 - a transparent heuristic recommendation for the next narrow PR, such as
@@ -1755,7 +1767,7 @@ headroom/clipping diagnostics, or reference-render settings may be the better
 next investigation.
 For pitch-modulation diagnostics, prefer the specific pitch bucket that
 dominates the top mismatch windows: arpeggio for dense `0xy`, remaining
-portamento-family work for `5xy` or volume-column tone portamento, vibrato for
+portamento-family work for volume-column tone portamento, vibrato for
 volume-column vibrato, and tremolo for `7xy`. If counts are
 sparse or split, record the evidence and do not start an implementation PR from
 that signal alone. If windows line up with applied `1xx`/`2xx` or `3xx`, inspect

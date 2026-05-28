@@ -77,8 +77,13 @@ an instrument, the bounded/runtime adapter updates instrument/sample/default
 volume state and active-voice gain before later ticks schedule deterministic C
 mixer sample-step updates toward the target. No-active,
 missing-memory, no-target, no-speed, clamped, and non-linear pitch-table cases
-are diagnosed as applicable, while `5xy` and volume-column tone portamento
-remain deferred.
+are diagnosed as applicable. Minimal `5xy` tone portamento + volume slide now
+reuses the existing `3xx` tone-portamento target/speed and sample-step update
+path together with the `Axy` tick-level volume-slide gain path in the
+runtime/offline C mixer adapter. Same-cell notes set the tone-portamento target
+without retriggering, no-active/no-target/no-speed cases are diagnosed safely,
+and `500` volume-slide memory remains a diagnosed no-op/deferred case without
+broad new effect memory. Volume-column tone portamento remains deferred.
 Minimal `E1x` fine portamento up and `E2x` fine portamento down now use the
 same runtime/offline linear-frequency sample-step update path for one
 deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
@@ -371,7 +376,8 @@ It now also reports applied `0xy` arpeggio diagnostics, applied `1xx`/`2xx`
 portamento-slide diagnostics, applied `3xx` tone-portamento diagnostics,
 applied `E1x`/`E2x` fine-portamento diagnostics, applied `EAx`/`EBx`
 fine-volume-slide diagnostics, applied `4xy` vibrato diagnostics, applied
-`6xy` vibrato + volume slide diagnostics, explicit
+`5xy` tone-portamento + volume-slide diagnostics, applied `6xy` vibrato +
+volume slide diagnostics, explicit
 effect-memory reused/missing counts and source metadata for
 `900`/`1xx`/`2xx`/`4xy`/`6xy`,
 and deferred pitch-modulation counts and source coordinates for remaining
@@ -432,8 +438,8 @@ Windowed renders now carry practical active voice state across fresh C mixer
 windows where the bounded adapter can determine it, including source sample
 position, forward/ping-pong loop state, volume-envelope position,
 key-off/release, fadeout, gain, pan, and active `1xx`/`2xx`/`3xx`, `E1x`,
-`E2x`, `4xy`, `6xy`, `Kxx`, and supported sample-offset memory state, plus supported in-window
-`EAx`/`EBx` and `6xy` gain updates.
+`E2x`, `4xy`, `5xy`, `6xy`, `Kxx`, and supported sample-offset memory state, plus supported in-window
+`EAx`/`EBx`, `5xy`, and `6xy` gain updates.
 Unsupported/deferred effects and full tracker voice semantics remain separate
 targeted work. Developer-only bounded candidate WAV exports now also report
 Float32 output headroom/clipping diagnostics and can apply explicit `--gain` or
@@ -844,11 +850,12 @@ Features:
   runtime adapter paths, with deterministic base/x/y sample-step updates,
   same-cell note folding, no-active-voice diagnostics, `000` no-op behavior,
   and no broad arpeggio memory
-- minimal `1xx`/`2xx` portamento up/down and minimal `3xx` tone portamento
-  support for bounded offline adapted renders, with no-retrigger 3xx target
-  setting, per-channel `100`/`200` memory replay, generic C mixer sample-step
-  updates, diagnostics, and `5xy` plus volume-column tone portamento still
-  deferred
+- minimal `1xx`/`2xx` portamento up/down, minimal `3xx` tone portamento, and
+  minimal `5xy` tone portamento + volume slide support for bounded offline and
+  CoreAudio C mixer runtime adapter paths, with no-retrigger target setting,
+  per-channel `100`/`200` memory replay, generic C mixer sample-step updates,
+  `Axy`-style `5xy` gain updates, diagnostics, and volume-column tone
+  portamento still deferred
 - minimal `E2x` fine portamento down support through one row-level
   linear-period/sample-step adjustment in the runtime/offline C mixer adapter
   path, with same-cell note folding, no-active-voice diagnostics, `E20` effect

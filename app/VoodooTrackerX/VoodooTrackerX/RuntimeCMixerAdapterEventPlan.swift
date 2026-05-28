@@ -309,6 +309,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 categories.append("eax_fine_volume_slide_up")
             case .ebxFineVolumeSlideDown:
                 categories.append("ebx_fine_volume_slide_down")
+            case .effect5xyVolumeSlide:
+                categories.append("tone_portamento_volume_slide_5xy")
             case .effect6xyVolumeSlide:
                 categories.append("vibrato_volume_slide_6xy")
             default:
@@ -333,6 +335,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 continue
             }
             for update in diagnostic.stepUpdates {
+                var categories = ["step_update", "portamento_update"]
+                if diagnostic.effectType == 0x05 {
+                    categories.append("tone_portamento_volume_slide_5xy")
+                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -340,7 +346,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     syntheticTick: update.syntheticTick,
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
-                    categories: ["step_update", "portamento_update"]
+                    categories: categories,
+                    effectType: diagnostic.effectType == 0x05 ? diagnostic.effectType : nil,
+                    effectParam: diagnostic.effectType == 0x05 ? diagnostic.effectParam : nil
                 ))
                 nextID += 1
             }

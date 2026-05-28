@@ -30,9 +30,9 @@ external tracker feature completeness.
 | `0xy` | Arpeggio | Supported / first-pass | Deferred for broad memory | Yes | Yes | Deterministic tick-cycle sample-step updates; `000` is a no-op. |
 | `1xx` | Portamento up | Supported / first-pass | `100` memory supported | Yes | Yes | Linear-frequency sample-step updates only. |
 | `2xx` | Portamento down | Supported / first-pass | `200` memory supported | Yes | Yes | Linear-frequency sample-step updates only. |
-| `3xx` | Tone portamento | Supported / first-pass | No broad memory claim | Yes | Yes | No-retrigger target setting and sample-step updates; `5xy` remains separate. |
+| `3xx` | Tone portamento | Supported / first-pass | No broad memory claim | Yes | Yes | No-retrigger target setting and sample-step updates. |
 | `4xy` | Vibrato | Supported / first-pass | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
-| `5xy` | Tone portamento + volume slide | Deferred | Deferred | No | No | Next linear effect candidate after current foundations. |
+| `5xy` | Tone portamento + volume slide | Supported / first-pass | Uses existing `3xx` tone target/speed; `500` volume-slide memory deferred/no-op | Yes | Yes | Reuses `3xx` sample-step updates and `Axy` tick-level volume-slide policy; no broad new effect memory. |
 | `6xy` | Vibrato + volume slide | Supported / first-pass | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |
 | `7xy` | Tremolo | Deferred | Deferred | No | No | Legacy handler has decoder logic; default C mixer adapter support is not implemented. |
 | `8xx` | Set panning | Supported / first-pass | Not applicable | Yes | Yes | Row-level panning state update. |
@@ -96,7 +96,7 @@ external tracker feature completeness.
 
 - `E0x` filter toggle.
 - Amiga frequency-table pitch behavior.
-- `5xy`, `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, `Rxy`, and
+- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, `Rxy`, and
   `Txy` in the default C mixer adapter path.
 - OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by
   a future compatibility decision.

@@ -256,7 +256,7 @@ extension PlaybackSongSyntheticAdapter {
         }
     }
 
-    static func applyAxyVolumeSlide(
+    static func applyEffectColumnVolumeSlide(
         from cell: PlaybackCell,
         source: PlaybackPosition,
         channelIndex: Int,
@@ -266,12 +266,13 @@ extension PlaybackSongSyntheticAdapter {
         channelState: inout ChannelState,
         globalVolumeValue: Int
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
-        guard cell.effectType == 0x0A else {
+        guard cell.effectType == 0x0A || cell.effectType == 0x05 else {
             return []
         }
 
         let slide = axyVolumeSlideAmounts(effectParam: cell.effectParam)
         let rowSpeed = max(1, timingConfig.speed)
+        let command = volumeSlideCommand(for: cell, up: slide.up, down: slide.down)
         guard slide.amount > 0 else {
             let before = channelState
             return [
@@ -283,7 +284,7 @@ extension PlaybackSongSyntheticAdapter {
                     scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: 0),
                     cell: cell,
                     commandSource: .effectColumn,
-                    command: .axyVolumeSlide(up: 0, down: 0),
+                    command: command,
                     rawVolumeColumn: nil,
                     effectType: cell.effectType,
                     effectParam: cell.effectParam,
@@ -297,6 +298,7 @@ extension PlaybackSongSyntheticAdapter {
                     volumeSlideClamped: false,
                     volumeSlideTick0Suppressed: true,
                     volumeSlideRowSpeed: rowSpeed,
+                    volumeSlidePolicyOverride: zeroVolumeSlidePolicy(for: cell),
                     activeVoiceUpdatedOverride: false
                 ),
             ]
@@ -323,7 +325,7 @@ extension PlaybackSongSyntheticAdapter {
                 scheduledFrame: timingPlan.frameFor(row: syntheticRow, tick: tick),
                 cell: cell,
                 commandSource: .effectColumn,
-                command: .axyVolumeSlide(up: slide.up, down: slide.down),
+                command: command,
                 rawVolumeColumn: nil,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
@@ -341,6 +343,43 @@ extension PlaybackSongSyntheticAdapter {
             ))
         }
         return updates
+    }
+
+    static func applyAxyVolumeSlide(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState,
+        globalVolumeValue: Int
+    ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
+        applyEffectColumnVolumeSlide(
+            from: cell,
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            timingPlan: timingPlan,
+            channelState: &channelState,
+            globalVolumeValue: globalVolumeValue
+        )
+    }
+
+    static func volumeSlideCommand(
+        for cell: PlaybackCell,
+        up: Int,
+        down: Int
+    ) -> PlaybackSongSyntheticVoiceStateUpdateCommand {
+        if cell.effectType == 0x05 {
+            return .effect5xyVolumeSlide(up: up, down: down)
+        }
+        return .axyVolumeSlide(up: up, down: down)
+    }
+
+    static func zeroVolumeSlidePolicy(for cell: PlaybackCell) -> String? {
+        cell.effectType == 0x05 ? "500_no_volume_slide_memory_no_op" : nil
     }
 
     static func applyGlobalVolumeSet(
@@ -721,6 +760,7 @@ extension PlaybackSongSyntheticAdapter {
         volumeSlideClamped: Bool? = nil,
         volumeSlideTick0Suppressed: Bool? = nil,
         volumeSlideRowSpeed: Int? = nil,
+        volumeSlidePolicyOverride: String? = nil,
         activeVoiceUpdatedOverride: Bool? = nil
     ) -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic {
         let activeSampleVolumeBefore = channelStateBefore.activeSampleVolume
@@ -783,7 +823,7 @@ extension PlaybackSongSyntheticAdapter {
             volumeSlideRawUpNibble: volumeSlide?.rawUpNibble,
             volumeSlideRawDownNibble: volumeSlide?.rawDownNibble,
             volumeSlideBothNibblesNonzero: volumeSlide?.bothNibblesNonzero,
-            volumeSlidePolicy: volumeSlide?.policy,
+            volumeSlidePolicy: volumeSlidePolicyOverride ?? volumeSlide?.policy,
             volumeSlideClamped: volumeSlideClamped,
             volumeSlideTick0Suppressed: volumeSlideTick0Suppressed,
             volumeSlideRowSpeed: volumeSlideRowSpeed,

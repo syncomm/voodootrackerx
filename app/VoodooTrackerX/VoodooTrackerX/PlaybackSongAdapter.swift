@@ -532,7 +532,7 @@ enum PlaybackSongSyntheticAdapter {
             }
             var channelState = context.channelStates[channelIndex] ?? ChannelState()
             defer {
-                let axyUpdates = applyAxyVolumeSlide(
+                let axyUpdates = applyEffectColumnVolumeSlide(
                     from: cell,
                     source: source,
                     channelIndex: channelIndex,

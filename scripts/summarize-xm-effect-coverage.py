@@ -19,6 +19,7 @@ EFFECT_MEMORY_STATUS_MARKERS = {
     "effect_memory",
     "ignored_900_no_op",
     "ignored_e90_no_effect_memory",
+    "ignored_rxy_zero_interval_no_effect_memory",
     "zero_param_effect_memory_deferred",
     "zero_amount_effect_memory_deferred",
 }
@@ -841,7 +842,12 @@ def explicit_effect_memory_count(row: dict[str, Any]) -> int:
         reason_text = str(reason).lower()
         if "effect_memory_reused" in reason_text:
             continue
-        if "effect_memory" in reason_text or "ignored_900" in reason_text or "ignored_e90" in reason_text:
+        if (
+            "effect_memory" in reason_text
+            or "ignored_900" in reason_text
+            or "ignored_e90" in reason_text
+            or "ignored_rxy" in reason_text
+        ):
             total += int(count or 0)
     return total
 

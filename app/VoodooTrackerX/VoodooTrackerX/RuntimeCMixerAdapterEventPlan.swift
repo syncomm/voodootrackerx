@@ -188,9 +188,15 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if mapping.syntheticTick > 0 {
                 categories.append("note_delay")
             }
-            if mapping.effectType == 0x0E,
-               ((mapping.effectParam >> 4) & 0x0F) == 0x09 {
+            let isE9xRetrigger = mapping.effectType == 0x0E &&
+                ((mapping.effectParam >> 4) & 0x0F) == 0x09
+            let isRxyMultiRetrigger = mapping.effectType == 0x1B
+            if isE9xRetrigger {
                 categories.append("retrigger")
+            }
+            if isRxyMultiRetrigger {
+                categories.append("retrigger")
+                categories.append("rxy_multi_retrigger")
             }
             let isSetFinetune = mapping.effectType == 0x0E &&
                 ((mapping.effectParam >> 4) & 0x0F) == 0x05
@@ -263,6 +269,8 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 isVibratoVolumeSlide ||
                 isAxyVolumeSlide ||
                 isArpeggio ||
+                isE9xRetrigger ||
+                isRxyMultiRetrigger ||
                 bridgedPortamentoSlide != nil ||
                 mapping.sampleOffset.applied ||
                 keyOffDiagnostic?.effectType == 0x14

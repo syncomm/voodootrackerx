@@ -1369,6 +1369,10 @@ final class PlaybackSongOfflineRenderer {
                 eventIndex: eventIndex,
                 before: windowStartFrame,
                 plan: plan
+            ) || hasAppliedRetriggerCut(
+                eventIndex: eventIndex,
+                before: windowStartFrame,
+                plan: plan
             ) {
                 return nil
             }
@@ -1583,6 +1587,36 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
+    private static func hasAppliedRetriggerCut(
+        eventIndex: Int,
+        before boundaryFrame: Int,
+        plan: PlaybackSongSyntheticPlan
+    ) -> Bool {
+        plan.diagnostics.retriggerEffects.contains { retrigger in
+            guard retrigger.applied else {
+                return false
+            }
+            return zip(retrigger.replacedEventIndices, retrigger.retriggerFrames).contains { replacedEventIndex, frame in
+                replacedEventIndex == eventIndex && frame < boundaryFrame
+            }
+        }
+    }
+
+    private static func hasAppliedRetriggerCut(
+        eventIndex: Int,
+        atOrBefore boundaryFrame: Int,
+        plan: PlaybackSongSyntheticPlan
+    ) -> Bool {
+        plan.diagnostics.retriggerEffects.contains { retrigger in
+            guard retrigger.applied else {
+                return false
+            }
+            return zip(retrigger.replacedEventIndices, retrigger.retriggerFrames).contains { replacedEventIndex, frame in
+                replacedEventIndex == eventIndex && frame <= boundaryFrame
+            }
+        }
+    }
+
     private static func latestEventIndicesByChannel(
         atOrBefore boundaryFrame: Int,
         plan: PlaybackSongSyntheticPlan,
@@ -1733,6 +1767,10 @@ final class PlaybackSongOfflineRenderer {
             return false
         }
         if hasAppliedNoteCut(
+            eventIndex: voice.eventIndex,
+            atOrBefore: frame,
+            plan: plan
+        ) || hasAppliedRetriggerCut(
             eventIndex: voice.eventIndex,
             atOrBefore: frame,
             plan: plan

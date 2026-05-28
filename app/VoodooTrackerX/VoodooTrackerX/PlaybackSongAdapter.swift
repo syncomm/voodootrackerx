@@ -550,7 +550,7 @@ enum PlaybackSongSyntheticAdapter {
             let extendedSubcommand = cell.effectType == 0x0E ? ((cell.effectParam >> 4) & 0x0F) : nil
             let hasNoteCutEffect = extendedSubcommand == 0x0C
             let hasNoteDelayEffect = extendedSubcommand == 0x0D
-            let hasRetriggerEffect = extendedSubcommand == 0x09
+            let hasRetriggerEffect = isRetriggerEffect(cell)
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02

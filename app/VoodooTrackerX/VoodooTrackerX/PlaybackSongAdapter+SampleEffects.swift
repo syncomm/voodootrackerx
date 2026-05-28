@@ -1,6 +1,15 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    struct RetriggerVolumeAdjustment: Equatable {
+        let modeNibble: Int
+        let volumeBefore: Int
+        let volumeAfter: Int
+        let changed: Bool
+    }
+
+    static let rxyVolumeChangePolicy = "xm_common_multi_retrigger_volume_table_first_pass"
+
     static func handleKeyOff(
         source: PlaybackPosition,
         channelIndex: Int,
@@ -204,7 +213,8 @@ extension PlaybackSongSyntheticAdapter {
             return nil
         }
 
-        let interval = extendedEffectTick(cell)
+        let interval = retriggerIntervalNibble(from: cell)
+        let volumeModeNibble = retriggerVolumeModeNibble(from: cell)
         let rowSpeed = timingConfig.speed
         let rowBPM = timingConfig.bpm
         let activeEventIndexBefore = channelState.activeEventIndex
@@ -218,11 +228,16 @@ extension PlaybackSongSyntheticAdapter {
             ticks: [Int] = [],
             frames: [Int] = [],
             eventIndices: [Int] = [],
-            replacedEventIndices: [Int] = []
+            replacedEventIndices: [Int] = [],
+            volumeValuesBefore: [Int] = [],
+            volumeValuesAfter: [Int] = [],
+            retriggerGains: [Float] = []
         ) -> PlaybackSongSyntheticRetriggerDiagnostic {
             let applied = status == .applied
-            let deferred = status == .ignoredE90NoEffectMemory
+            let deferred = status == .ignoredE90NoEffectMemory ||
+                status == .ignoredRxyZeroIntervalNoEffectMemory
             let ignoredAsNoOp = status == .ignoredE90NoEffectMemory ||
+                status == .ignoredRxyZeroIntervalNoEffectMemory ||
                 status == .noActiveVoice ||
                 status == .outOfRowNoOp
             let outOfRow = status == .outOfRowNoOp
@@ -253,6 +268,13 @@ extension PlaybackSongSyntheticAdapter {
                 retriggerFrames: frames,
                 retriggerEventIndices: eventIndices,
                 replacedEventIndices: replacedEventIndices,
+                volumeModeNibble: volumeModeNibble,
+                intervalNibble: interval,
+                volumeChangePolicy: isRxyMultiRetriggerEffect(cell) ? Self.rxyVolumeChangePolicy : nil,
+                volumeChangeCount: zip(volumeValuesBefore, volumeValuesAfter).filter { $0.0 != $0.1 }.count,
+                volumeValuesBefore: volumeValuesBefore,
+                volumeValuesAfter: volumeValuesAfter,
+                retriggerGains: retriggerGains,
                 activeEventIndexBefore: activeEventIndexBefore,
                 selectedSampleIndex: activeMapping?.sampleIndex,
                 selectedSampleLength: activeMapping?.selectedSampleLength,
@@ -265,7 +287,9 @@ extension PlaybackSongSyntheticAdapter {
         }
 
         guard interval > 0 else {
-            let result = diagnostic(status: .ignoredE90NoEffectMemory)
+            let result = diagnostic(
+                status: isRxyMultiRetriggerEffect(cell) ? .ignoredRxyZeroIntervalNoEffectMemory : .ignoredE90NoEffectMemory
+            )
             retriggerEffects.append(result)
             return result
         }
@@ -286,21 +310,32 @@ extension PlaybackSongSyntheticAdapter {
 
         let sourceEvent = events[activeEventIndex]
         let sourceMapping = eventMappings[activeMappingIndex]
-        let gain = adaptedGain(
-            sampleVolume: activeSampleVolume,
-            channelVolume: channelState.volumeValue,
-            globalVolume: globalVolumeState.volumeValue
-        )
         let pan = channelState.pan
+        var currentVolumeValue = channelState.volumeValue
         var ticks = [Int]()
         var frames = [Int]()
         var eventIndices = [Int]()
         var replacedEventIndices = [Int]()
+        var volumeValuesBefore = [Int]()
+        var volumeValuesAfter = [Int]()
+        var retriggerGains = [Float]()
         var previousEventIndex = activeEventIndex
 
         var tick = interval
         while tick < rowSpeed {
             let frame = timingPlan.frameFor(row: syntheticRow, tick: tick)
+            let volumeBefore = currentVolumeValue
+            if isRxyMultiRetriggerEffect(cell) {
+                currentVolumeValue = retriggerVolumeAdjustment(
+                    modeNibble: volumeModeNibble,
+                    currentVolume: currentVolumeValue
+                ).volumeAfter
+            }
+            let gain = adaptedGain(
+                sampleVolume: activeSampleVolume,
+                channelVolume: currentVolumeValue,
+                globalVolume: globalVolumeState.volumeValue
+            )
             let eventIndex = events.count
             events.append(SyntheticTrackerEvent(
                 row: syntheticRow,
@@ -325,7 +360,7 @@ extension PlaybackSongSyntheticAdapter {
                 effectType: cell.effectType,
                 effectParam: cell.effectParam,
                 volumeColumn: volumeColumn,
-                effectiveVolumeValue: channelState.volumeValue,
+                effectiveVolumeValue: currentVolumeValue,
                 effectiveGlobalVolumeValue: globalVolumeState.volumeValue,
                 effectiveGlobalVolumeMultiplier: globalVolumeState.multiplier,
                 effectivePan: pan
@@ -339,6 +374,9 @@ extension PlaybackSongSyntheticAdapter {
             frames.append(frame)
             eventIndices.append(eventIndex)
             replacedEventIndices.append(previousEventIndex)
+            volumeValuesBefore.append(volumeBefore)
+            volumeValuesAfter.append(currentVolumeValue)
+            retriggerGains.append(gain)
             previousEventIndex = eventIndex
             tick += interval
         }
@@ -346,16 +384,69 @@ extension PlaybackSongSyntheticAdapter {
         channelState.activeEventIndex = previousEventIndex
         channelState.activeEventMappingIndex = eventMappings.count - 1
         channelState.activeSampleVolume = activeSampleVolume
+        channelState.volumeValue = currentVolumeValue
+        channelState.volumeValueZeroedByAxy = currentVolumeValue == 0
 
         let result = diagnostic(
             status: .applied,
             ticks: ticks,
             frames: frames,
             eventIndices: eventIndices,
-            replacedEventIndices: replacedEventIndices
+            replacedEventIndices: replacedEventIndices,
+            volumeValuesBefore: volumeValuesBefore,
+            volumeValuesAfter: volumeValuesAfter,
+            retriggerGains: retriggerGains
         )
         retriggerEffects.append(result)
         return result
+    }
+
+    static func retriggerVolumeAdjustment(
+        modeNibble: Int,
+        currentVolume: Int
+    ) -> RetriggerVolumeAdjustment {
+        let mode = min(15, max(0, modeNibble))
+        let before = clampedVolumeValue(currentVolume)
+        let unclampedAfter: Int
+        switch mode {
+        case 1:
+            unclampedAfter = before - 1
+        case 2:
+            unclampedAfter = before - 2
+        case 3:
+            unclampedAfter = before - 4
+        case 4:
+            unclampedAfter = before - 8
+        case 5:
+            unclampedAfter = before - 16
+        case 6:
+            unclampedAfter = (before * 2) / 3
+        case 7:
+            unclampedAfter = before / 2
+        case 9:
+            unclampedAfter = before + 1
+        case 10:
+            unclampedAfter = before + 2
+        case 11:
+            unclampedAfter = before + 4
+        case 12:
+            unclampedAfter = before + 8
+        case 13:
+            unclampedAfter = before + 16
+        case 14:
+            unclampedAfter = (before * 3) / 2
+        case 15:
+            unclampedAfter = before * 2
+        default:
+            unclampedAfter = before
+        }
+        let after = clampedVolumeValue(unclampedAfter)
+        return RetriggerVolumeAdjustment(
+            modeNibble: mode,
+            volumeBefore: before,
+            volumeAfter: after,
+            changed: before != after
+        )
     }
 
     static func handleNoteCut(

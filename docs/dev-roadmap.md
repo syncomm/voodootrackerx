@@ -111,7 +111,11 @@ Minimal `E9x` retrigger is also supported
 in bounded offline renders only; it schedules same-channel retrigger starts at
 the row's effective tick frames, preserves the tracked active voice's sample,
 offset, pitch, volume, pan, loop, and envelope mapping, and diagnoses `E90`,
-no-active-voice, and out-of-row cases without effect memory. Fractional
+no-active-voice, and out-of-row cases without effect memory.
+Minimal `Rxy` multi-retrigger is now supported in the shared runtime/offline C
+mixer adapter path; it reuses the retrigger scheduler, applies a first-pass
+common-XM volume-change table clamped to `0...64`, and keeps `R00` effect
+memory deferred/no-op. Fractional
 C-backed offline sample steps now have microfixture coverage for deterministic
 linear interpolation, double-precision sample positions/steps, safe no-loop
 ends, forward-loop wraps, and ping-pong turnarounds, with bounded render
@@ -731,6 +735,7 @@ Immediate audio accuracy sequence:
 100. Offline window same-channel voice replacement parity — done
 101. Residual effect classification / E0x deferral cleanup — recommended next effect PR
 102. Note-start fade-in / ordinary gain-pan smoothing diagnostics — done; next audio parity target: one-tick gain update smoothing experiment
+103. Minimal Rxy Multi Retrigger — current implementation PR
 
 ---
 
@@ -883,6 +888,9 @@ Features:
   memory deferred, and no broad E-command memory
 - minimal `E9x` retrigger support for bounded offline adapted renders, with
   `E90` effect memory and retrigger volume-change variants still deferred
+- minimal `Rxy` multi-retrigger support through the runtime/offline C mixer
+  adapter path, with first-pass common-XM volume modes, `R00` effect memory
+  deferred, and unrelated high-byte effects still deferred
 - minimal `Kxx` key-off scheduling through the existing key-off/release path in the runtime/offline C mixer adapter path, with no-active-voice diagnostics
 - minimal `ECx` note cut and `EDx` note delay support for bounded offline
   adapted renders, with broader effect parity still deferred
@@ -917,9 +925,9 @@ Features:
 - local/offline click/discontinuity diagnostics for candidate WAV
   adjacent-sample jumps and optional correlation with bounded adapter events,
   with the analyzer itself remaining diagnostics-only
-- minimal bounded/offline `E9x` retrigger, `ECx` note-cut, and `EDx`
-  note-delay diagnostics, including applied, no-active/no-note, E90 no-op, and
-  out-of-row cases
+- minimal bounded/offline `E9x`/`Rxy` retrigger, `ECx` note-cut, and `EDx`
+  note-delay diagnostics, including applied, no-active/no-note, E90/R00 no-op,
+  and out-of-row cases
 - pattern traversal/timing diagnostics for bounded offline renders, reporting
   applied/safe-diagnostic `Bxx`, `Dxx`, and `E6x` traversal plus deferred
   `EEx`, contextual `Fxx`, and other observed `E` subcommands

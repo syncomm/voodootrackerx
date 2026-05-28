@@ -115,6 +115,10 @@ update path for nonzero volume slides. `600` can replay vibrato memory without
 volume-slide memory; missing vibrato memory remains effect-memory-deferred.
 `Kxx` rows use the existing key-off/release path; same-cell note triggers keep
 the `Kxx` effect metadata and then release at the requested row tick.
+`Rxy` rows use the shared retrigger path for the active voice. Same-cell note
+rows trigger once at tick 0 and schedule generated retriggers on later interval
+ticks; `R00` remains an effect-memory-deferred no-op. First-pass volume modes
+use the common XM retrigger volume table and clamp channel volume to `0...64`.
 XM `E4x` vibrato control rows store per-channel deterministic vibrato
 waveform/control state for later `4xy`/`6xy` rows and emit no direct audio
 events. Supported first-pass controls cover sine/default, ramp-down, square,
@@ -622,7 +626,8 @@ Runtime C mixer trace rows may include:
 Adapter-sourced rows cover only event categories already supported by the
 offline adapter, such as note triggers, gain/pan updates, sample-step updates,
 `Hxy` global-volume updates, `ECx` note cuts, `EDx` note delays, `E9x`
-retriggers, `0xy` arpeggio updates, `1xx`/`2xx`/`3xx` portamento updates,
+retriggers, `Rxy` multi-retriggers, `0xy` arpeggio updates,
+`1xx`/`2xx`/`3xx` portamento updates,
 including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
 portamento up updates, minimal `E2x` fine portamento down updates, minimal
 `E4x` vibrato-control state, `4xy` vibrato sample-step updates, sample
@@ -634,7 +639,7 @@ volume/panning for empty-note rows and same-cell valid-note `3xx`
 no-retrigger rows that keep the carried voice active. Adapter diagnostics
 include `E4x` state rows; adapter-sourced `0xy`,
 `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
-`5xy`, `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the
+`5xy`, `Rxy`, `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the
 runtime update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
@@ -918,8 +923,8 @@ The summary focuses on runtime-only artifact evidence:
 - selected order-transition samples showing both the PlaybackEngine position
   and the C mixer sample-time-derived position
 - runtime evidence for categories that the richer offline adapter can emit:
-  gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`, and
-  `0xy`/`1xx`/`2xx`/`3xx` updates
+  gain/pan state updates, step/pitch updates, `Hxy`, `ECx`, `EDx`, `E9x`,
+  `Rxy`, and `0xy`/`1xx`/`2xx`/`3xx` updates
 
 The helper also records the current architectural interpretation: live runtime
 C mixer traces should now show whether events came from the precomputed

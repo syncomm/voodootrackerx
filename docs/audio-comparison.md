@@ -275,7 +275,7 @@ portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
 portamento up, minimal `E2x` fine portamento down, minimal `5xy` tone
 portamento + volume slide, minimal `EAx`/`EBx` fine volume slides, minimal
 `4xy` vibrato, minimal `6xy` vibrato + volume slide, and
-`E9x` retriggers for the tracked active adapted voice. The
+`E9x` and `Rxy` retriggers for the tracked active adapted voice. The
 `1xx`/`2xx` foundation replays per-channel `100`/`200` memory from the prior
 nonzero same-family slide amount when available; unavailable memory remains a
 diagnosed effect-memory-deferred no-op. The `E1x` foundation applies one
@@ -301,6 +301,11 @@ path. Same-cell note rows set the target without retriggering, empty-note rows
 continue the existing target when memory exists, no-active/no-target/no-speed
 cases are diagnosed safely, and `500` volume-slide memory is kept as a
 diagnosed no-op/deferred case rather than broad new effect memory.
+The `Rxy` foundation reuses the existing retrigger scheduling path for the
+active voice, starts same-cell notes only once at row tick 0, and schedules
+generated retriggers on later interval ticks. Volume modes use a first-pass
+common-XM retrigger volume table clamped to `0...64`; `R00` remains an
+effect-memory-deferred no-op, and unrelated high-byte effects remain deferred.
 The `EAx`/`EBx` foundation applies one deterministic row-level channel-volume
 change through the shared gain-update path, clamps to the XM `0...64` channel
 volume range, and leaves `EA0`/`EB0` as effect-memory-deferred no-ops.
@@ -380,7 +385,11 @@ scheduled sample-step updates, and scheduled gain-update counts for first-pass
 `tone_portamento_volume_slide_5xy_*` counters report detected, applied,
 no-active-voice, no-target/no-speed diagnostics, no-op/deferred buckets, first
 source coordinates, scheduled sample-step updates, and scheduled gain-update
-counts for first-pass `5xy` coverage. Sample-offset diagnostics include
+counts for first-pass `5xy` coverage.
+`retrigger_effects` and render-level `rxy_multi_retrigger_*` counters report
+detected/applied/no-active/no-op Rxy cases, first source coordinates, scheduled
+retrigger frames, interval and volume mode nibbles, and volume-change counts
+for first-pass `Rxy` coverage. Sample-offset diagnostics include
 `effect_memory_reused`, `effect_memory_missing`, memory source/target metadata,
 and `900_sample_offset_memory_applied` for `900` replays.
 `portamento_slide_effects` and render-level `portamento_1xx_*`,
@@ -1015,7 +1024,7 @@ hard stops.
 
 The summary includes a runtime-vs-offline-adapter category checklist for
 gain/pan state updates, step/pitch updates, `Hxy` global-volume updates,
-`ECx`/`EDx`/`E9x`, and `1xx`/`2xx`/`3xx` portamento updates. Runtime C mixer
+`ECx`/`EDx`/`E9x`/`Rxy`, and `1xx`/`2xx`/`3xx` portamento updates. Runtime C mixer
 trace rows now also report whether events came from the precomputed
 `offline_adapter_plan`, the simpler `playback_engine_simple` fallback, or a
 `hybrid` path. Inspect `adapterPlanGenerated`, `adapterPlanGenerationMS`,
@@ -1039,7 +1048,7 @@ windowed active-voice period/sample-step estimates, volume-column decisions,
 volume/panning/global-volume state-update diagnostics, Fxx timing changes,
 sample-offset decisions, `1xx`/`2xx` portamento-slide current sample-step
 diagnostics, `3xx` tone-portamento target/current sample-step diagnostics,
-`E9x` retrigger decisions and generated frames, envelope
+`E9x` and `Rxy` retrigger decisions and generated frames, envelope
 sustain/loop/key-off/fadeout status, and loop metadata.
 When bounded diagnostics include optional envelope snapshots, the envelope/gain
 section also reports mapped envelope point frames/values, envelope
@@ -1443,7 +1452,7 @@ format, peak/RMS, PCM16 clipping count when applicable, the largest
 adjacent-sample jumps per channel, threshold counts, and jumps per second. With
 `vtx_render_bounded_xm` diagnostics JSON, the report also maps top jumps to
 nearby local adapter events such as gain/pan state updates, volume-column
-updates, note triggers, `E9x` retriggers, `ECx` note cuts, `EDx` note delays,
+updates, note triggers, `E9x`/`Rxy` retriggers, `ECx` note cuts, `EDx` note delays,
 key-off/release or fadeout events, looped voices when exposed, carried voices,
 and row-window boundaries.
 
@@ -1637,7 +1646,7 @@ ranges, then lists:
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
   sample-offset status, minimal `1xx`/`2xx` portamento-slide diagnostics,
-  minimal `3xx` tone-portamento diagnostics, minimal `E9x` retrigger
+  minimal `3xx` tone-portamento diagnostics, minimal `E9x`/`Rxy` retrigger
   diagnostics, minimal `ECx` note-cut diagnostics, minimal `EDx` note-delay
   diagnostics, envelope status, loop mode, and render interpolation status when
   those fields are present
@@ -1758,7 +1767,7 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
 portamento, vibrato, arpeggio, or a focused follow-up to
-minimal `E1x`/`E2x`/`E9x`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
+minimal `E1x`/`E2x`/`E9x`/`Rxy`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
 foundation. If mismatch windows repeatedly line up with diagnosed `E90` no-ops
 or effect-memory families not covered by the foundation, decide separately
 whether another narrow memory PR is justified. If mismatch windows are broad and

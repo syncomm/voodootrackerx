@@ -166,6 +166,49 @@ sample-metadata bug; the next precise parity work should isolate ft2-clone/VTX
 individual-track versus full-mix contribution scaling, volume ramping, and
 final mix policy for the dominant channel group.
 
+A targeted ft2-clone mixer-scaling and ramping policy audit inspected only the
+local reference renderer's mixer, WAV writer, audio/config, ramping, and
+individual-track export paths. For the confirmed primary Linear profile,
+ft2-clone applies 32-bit float output amplification/master volume as
+`(amplification * masterVolume) / (32 * 256)`, so 10x amplification with master
+volume 256 is a final output factor of `0.3125`. The same path is used for full
+song rendering and individual-track rendering; individual-track export mutes
+non-target tracker channels and does not apply track-specific normalization or
+attenuation. The local `xm-corpus-025` ft2-clone individual-track references
+sum back to the full render with scalar `1.0`, correlation `1.0`, peak
+`0.506383`, RMS `0.102128`, and no overrange samples. ft2-clone's 32-bit float
+writer clamps post-amplification samples to `-1.0...1.0`, while VTX Float32
+export preserves post-gain overrange values.
+
+The same audit found ft2-clone uses FT2-style panning-table output gains; a
+centered full-volume voice is about `0.707` per stereo side before the
+amplification/master factor, giving an expected centered contribution near
+`0.707106 * 0.3125 = 0.220971`. VTX's offline C mixer has no equivalent final
+mix scale in the unity export path, and its current panning policy remains the
+existing linear policy. A 48 kHz Float32 VTX unity render for the local
+`xm-corpus-025` target reported peak `1.925131`, RMS `0.408609`, `206808`
+post-gain overrange samples, and zero PCM16 clipping count because the export
+was Float32. Against the ft2-clone Linear Float32 full render, the whole-song
+candidate-to-reference scalar was about `0.231827`; the focused dominant
+windows and solo-channel stem comparisons cluster around `0.220...0.223`.
+That explains the previously observed roughly `4.5x` dominant-channel loudness
+gap as reference output policy plus stereo contribution scaling, not as
+ft2-clone stem attenuation, VTX solo isolation scaling, dominant-sample PCM
+decode/scaling, or a 127-versus-128 sample divisor issue. Targeted ft2-clone
+sample conversion paths use signed 8-bit `/128` and signed 16-bit `/32768`
+semantics.
+
+ft2-clone volume ramping remains relevant to residual shape after scalar
+normalization, but it does not explain the primary raw level scalar. The
+inspected policy is linear per-sample ramping: note starts, note replacements,
+sample stops/key-offs, and quick volume/pan resets use a short ramp of about
+5 ms at the render rate, while ordinary volume and panning changes ramp over
+one tick. VTX currently uses fixed 32-frame linear replacement ramps and
+fixed 32-frame gain/pan update micro-ramps. Treat ramp-shape or gain-update
+smoothing as a later residual/timbre experiment after first documenting the
+reference output-level policy; do not change gain, panning, row/tick timing, or
+C mixer DSP from this audit alone.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

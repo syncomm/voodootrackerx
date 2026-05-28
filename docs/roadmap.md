@@ -95,6 +95,16 @@ Current stabilization note:
   WAV export gain, producing the expected centered full-volume contribution
   near `0.220971`. This is reference policy alignment only; WAV export
   gain/headroom and runtime CoreAudio device safety gain remain separate.
+- Smoothing diagnostics now classify `xm-corpus-025` FT2-profile top windows
+  against note starts, ordinary gain updates, pan updates, volume-column and
+  gain-slide/global-volume updates, replacement ramps, and note stop/cut
+  events. Current VTX note starts are immediate, ordinary gain/pan changes use
+  the fixed 32-frame C mixer micro-ramp, replacement voices ramp out over
+  32 frames, and note-cut/retrigger/transport stop paths remain hard stops.
+  Targeted ft2-clone inspection found about-5 ms quick note
+  start/replacement/stop fades and one-tick ordinary volume/pan smoothing. The
+  local top-window evidence points next at one-tick gain update smoothing, with
+  note-start fade-in secondary and pan smoothing not currently indicated.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
   sample steps. The diagnostics-only resampler/timbre follow-up documented the
@@ -849,6 +859,14 @@ offline-render responsibilities separate.
 - Ramping policy: ft2-clone uses linear per-sample volume ramping. Quick note-start/replacement/stop/reset ramps are about 5 ms at render rate, and ordinary volume/pan updates ramp over one tick. VTX currently uses fixed 32-frame linear replacement ramps and fixed 32-frame gain/pan update micro-ramps. Ramping remains a plausible residual/timbre factor after scalar normalization, but it does not explain the primary raw loudness scalar in the focused windows.
 - Verification: local ft2-clone full/stem references and VTX Float32 full/solo renders were compared with generated WAV/JSON artifacts kept under `/tmp` and out of git. Public docs use anonymized corpus labels only.
 - Status: diagnostics-only. Recommended next PR: VTX Final Mix Scale / Export Reference Policy. Do not implement the policy change in this audit branch.
+
+### PR 2.7.11br — Note-Start Fade-In / Ordinary Gain-Pan Smoothing Diagnostics
+- Scope: diagnostics-only classification of whether remaining `xm-corpus-025` FT2-profile residual windows line up with ft2-clone note-start quick fade-in or ordinary volume/panning smoothing. No playback behavior, gain behavior, C mixer DSP, panning law, period/sample-step formula, row/tick timing, runtime backend default, tracker viewport behavior, parser architecture, or XM effect coverage changes.
+- Findings: current VTX starts new notes immediately with no fade-in, uses fixed 32-frame ramps for ordinary active-voice gain/pan updates and outgoing same-channel replacement voices, and keeps note-cut/retrigger/transport stop paths hard. Targeted ft2-clone inspection found linear quick fades of about 5 ms for note starts/replacements/stops/resets and one-tick linear smoothing for ordinary volume/panning changes.
+- Window evidence: the FT2-profile full-song comparison remained about `0.927530` correlation with gain-normalized RMS about `0.038170`. The top 12 windows classified as note-start-active in 7, ordinary-gain-update-active in 7, pan-update-active in 0, replacement-ramp-active in 3, stop/cut-active in 0, and steady-state in 4. The top-ranked window is an ordinary `Axy` gain-update window without note-start or replacement-ramp overlap. Focused individual-track references for tracker channels 5-7 were used locally; channel 7 residual timing overlaps several full-mix top windows, while pan update evidence remains absent.
+- Change: `scripts/correlate-audio-comparison.py` now reports a smoothing/note-start window classification table and high-level policy notes. Synthetic tooling tests cover note-start fade-in windows, ordinary gain/pan update windows, volume-column/update counts, and steady-state windows without private fixtures.
+- Verification: synthetic audio-correlation tests cover the new diagnostics; local private full/stem WAVs and generated JSON/Markdown reports stayed under `/tmp` and out of git. Public docs use anonymized corpus labels only.
+- Status: diagnostics-only. Recommended next PR: One-Tick Gain Update Smoothing Experiment; keep Note-Start Fade-In Parity as secondary and do not target pan smoothing unless new evidence appears.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

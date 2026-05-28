@@ -24,6 +24,9 @@ MAX_SAMPLE_INSTRUMENT_EXAMPLES = 8
 MAX_LOOP_CROSSING_EXAMPLES = 8
 MAX_STEADY_STATE_LOOP_EXAMPLES = 8
 MAX_FULL_MIX_CONTRIBUTION_VOICES = 16
+MAX_SMOOTHING_EVENT_EXAMPLES = 6
+DEFAULT_VTX_GAIN_PAN_RAMP_FRAMES = 32
+FT2_QUICK_FADE_IN_MILLISECONDS = 5.0
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -375,6 +378,10 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         subcommand = (effect_param >> 4) & 0x0F
         if subcommand == 0x02:
             return "E2x fine portamento down"
+        if subcommand == 0x0A:
+            return "EAx fine volume slide up"
+        if subcommand == 0x0B:
+            return "EBx fine volume slide down"
         if subcommand == 0x09:
             return "E9x retrigger"
         if subcommand == 0x0C:
@@ -1613,6 +1620,136 @@ def build_steady_state_loop_summary(
         "window_count": len(windows),
         "classification_policy": "steady_state_loop_interior means looped, no estimated boundary crossing, and start/mid/end source positions remain at least max(1 frame, sample_step) away from loop edges",
         "contribution_policy": "final_gain^2 times active overlap frames; this is a stem proxy, not isolated audio RMS",
+        "window_summaries": window_summaries,
+    }
+
+
+def build_smoothing_event_summary(
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    sample_rate: int,
+) -> dict[str, Any]:
+    updates = normalize_gain_pan_updates(diagnostics, rows)
+    replacement_ramps = normalize_replacement_ramp_signals(diagnostics)
+    note_stop_cut_events = normalize_note_stop_cut_events(diagnostics, rows)
+    volume_column_events = normalize_volume_column_events(diagnostics, rows)
+    quick_fade_frames = max(1, int(round(sample_rate * FT2_QUICK_FADE_IN_MILLISECONDS / 1000.0)))
+    vtx_update_ramp_frames = vtx_gain_pan_ramp_frame_count(diagnostics)
+    window_summaries: list[dict[str, Any]] = []
+    rms_values: list[float] = []
+    note_flags: list[float] = []
+    gain_flags: list[float] = []
+    pan_flags: list[float] = []
+    ramp_flags: list[float] = []
+
+    for window in windows:
+        window_start = int(window["_start_frame"])
+        window_end = int(window["_end_frame"])
+        note_starts = [
+            note_start_signal(event, quick_fade_frames)
+            for event in events
+            if interval_overlaps_window(
+                integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0,
+                (integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0) + quick_fade_frames,
+                window,
+            )
+        ]
+        active_updates = [
+            update for update in updates
+            if interval_overlaps_window(
+                update["one_tick_start_frame"],
+                update["one_tick_end_frame"],
+                window,
+            )
+        ]
+        active_gain_updates = [update for update in active_updates if bool(update.get("gain_changed"))]
+        active_pan_updates = [update for update in active_updates if bool(update.get("pan_changed"))]
+        active_replacement_ramps = [
+            ramp for ramp in replacement_ramps
+            if interval_overlaps_window(int(ramp["start_frame"]), int(ramp["end_frame"]), window)
+        ]
+        active_stops_cuts = [
+            event for event in note_stop_cut_events
+            if interval_overlaps_window(int(event["start_frame"]), int(event["end_frame"]), window)
+        ]
+        active_volume_columns = [
+            event for event in volume_column_events
+            if interval_overlaps_window(int(event["start_frame"]), int(event["end_frame"]), window)
+        ]
+        classification = smoothing_window_classification(
+            note_start_active=bool(note_starts),
+            ordinary_gain_update_active=bool(active_gain_updates),
+            pan_update_active=bool(active_pan_updates),
+            replacement_ramp_active=bool(active_replacement_ramps),
+            stop_cut_active=bool(active_stops_cuts),
+        )
+        rms = number(window.get("rms_difference"))
+        if rms is not None:
+            rms_values.append(rms)
+            note_flags.append(1.0 if note_starts else 0.0)
+            gain_flags.append(1.0 if active_gain_updates else 0.0)
+            pan_flags.append(1.0 if active_pan_updates else 0.0)
+            ramp_flags.append(1.0 if active_replacement_ramps else 0.0)
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "start_frame": window_start,
+            "end_frame": window_end,
+            "rms_difference": rms,
+            "note_start_count": len(note_starts),
+            "ordinary_gain_update_count": len(active_gain_updates),
+            "pan_update_count": len(active_pan_updates),
+            "volume_column_update_count": len(active_volume_columns),
+            "axy_update_count": count_updates_by_effect(active_updates, 0x0A),
+            "eax_update_count": count_extended_updates_by_subcommand(active_updates, 0x0A),
+            "ebx_update_count": count_extended_updates_by_subcommand(active_updates, 0x0B),
+            "gxx_update_count": count_updates_by_effect(active_updates, 0x10),
+            "hxy_update_count": count_updates_by_effect(active_updates, 0x11),
+            "replacement_ramp_count": len(active_replacement_ramps),
+            "note_stop_cut_count": len(active_stops_cuts),
+            "note_start_active": bool(note_starts),
+            "ordinary_gain_update_active": bool(active_gain_updates),
+            "pan_update_active": bool(active_pan_updates),
+            "replacement_ramp_active": bool(active_replacement_ramps),
+            "stop_cut_active": bool(active_stops_cuts),
+            "steady_state": classification == ["steady-state"],
+            "classification": classification,
+            "examples": smoothing_event_examples(
+                note_starts,
+                active_gain_updates,
+                active_pan_updates,
+                active_replacement_ramps,
+                active_stops_cuts,
+            ),
+        })
+
+    return {
+        "window_count": len(window_summaries),
+        "sample_rate": sample_rate,
+        "ft2_quick_fade_in_milliseconds": FT2_QUICK_FADE_IN_MILLISECONDS,
+        "ft2_quick_fade_in_frames": quick_fade_frames,
+        "ft2_ordinary_update_window": "one_tick_from_update_frame",
+        "vtx_note_start_policy": "immediate_initial_gain_pan_no_fade_in",
+        "vtx_gain_pan_update_ramp_frames": vtx_update_ramp_frames,
+        "vtx_replacement_stop_ramp_frames": vtx_update_ramp_frames,
+        "classification_policy": (
+            "note starts use the inspected ft2-clone quick fade-in duration; ordinary gain/pan updates "
+            "use a conceptual one-tick smoothing interval; VTX replacement ramps use diagnostics "
+            "completion frames; steady-state means none of those intervals nor note stop/cut frames overlap"
+        ),
+        "note_start_active_count": sum(1 for item in window_summaries if item["note_start_active"]),
+        "ordinary_gain_update_active_count": sum(1 for item in window_summaries if item["ordinary_gain_update_active"]),
+        "pan_update_active_count": sum(1 for item in window_summaries if item["pan_update_active"]),
+        "replacement_ramp_active_count": sum(1 for item in window_summaries if item["replacement_ramp_active"]),
+        "stop_cut_active_count": sum(1 for item in window_summaries if item["stop_cut_active"]),
+        "steady_state_count": sum(1 for item in window_summaries if item["steady_state"]),
+        "note_start_to_window_rms_correlation": pearson_correlation(note_flags, rms_values),
+        "ordinary_gain_update_to_window_rms_correlation": pearson_correlation(gain_flags, rms_values),
+        "pan_update_to_window_rms_correlation": pearson_correlation(pan_flags, rms_values),
+        "replacement_ramp_to_window_rms_correlation": pearson_correlation(ramp_flags, rms_values),
         "window_summaries": window_summaries,
     }
 
@@ -2992,13 +3129,21 @@ def normalize_gain_pan_updates(diagnostics: dict[str, Any], rows: list[dict[str,
         volume_after = number(raw_update.get("effective_volume_after"))
         global_before = number(raw_update.get("global_volume_before"))
         global_after = number(raw_update.get("global_volume_after"))
-        updates.append({
+        update = {
             "frame": max(0, frame),
             "source": nested_dict(raw_update.get("source")),
             "channel_index": raw_update.get("target_channel_index", raw_update.get("channel_index")),
+            "source_channel_index": raw_update.get("channel_index"),
             "active_event_index": raw_update.get("active_event_index"),
             "command_name": raw_update.get("command_name") or raw_update.get("command_label") or raw_update.get("command"),
+            "command_label": raw_update.get("command_label"),
+            "command_source": raw_update.get("command_source"),
             "status": raw_update.get("status"),
+            "synthetic_row": raw_update.get("synthetic_row"),
+            "synthetic_tick": raw_update.get("synthetic_tick"),
+            "effect_type": integer(raw_update.get("effect_type")),
+            "effect_param": integer(raw_update.get("effect_param")),
+            "raw_volume_column": integer(raw_update.get("raw_volume_column")),
             "gain_before": gain_before,
             "gain_after": gain_after,
             "pan_before": pan_before,
@@ -3007,9 +3152,284 @@ def normalize_gain_pan_updates(diagnostics: dict[str, Any], rows: list[dict[str,
             "pan_changed": values_changed(pan_before, pan_after),
             "channel_volume_changed": values_changed(volume_before, volume_after),
             "global_volume_changed": values_changed(global_before, global_after),
-        })
+        }
+        one_tick_start, one_tick_end = one_tick_update_interval(update, rows)
+        update["one_tick_start_frame"] = one_tick_start
+        update["one_tick_end_frame"] = one_tick_end
+        updates.append(update)
     updates.sort(key=lambda item: (item["frame"], sort_int(item.get("channel_index")), str(item.get("command_name"))))
     return updates
+
+
+def row_for_diagnostic(diagnostic: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    source = nested_dict(diagnostic.get("source"))
+    if source:
+        key = source_row_key(source)
+        for row in rows:
+            if source_row_key(nested_dict(row.get("source"))) == key:
+                return row
+    synthetic_row = diagnostic.get("synthetic_row")
+    if synthetic_row is not None:
+        for row in rows:
+            if row.get("synthetic_row") == synthetic_row:
+                return row
+    frame = integer(diagnostic.get("frame"))
+    if frame is not None:
+        return row_for_frame(rows, frame)
+    return None
+
+
+def row_frames_per_tick(row: dict[str, Any]) -> float | None:
+    for key in ("frames_per_tick", "effective_frames_per_tick"):
+        value = number(row.get(key))
+        if value is not None and value > 0:
+            return value
+    speed = number(row.get("effective_speed"))
+    if speed is None or speed <= 0:
+        speed = number(row.get("speed"))
+    if speed is None or speed <= 0:
+        return None
+    duration = number(row.get("row_duration_frames"))
+    if duration is None:
+        start = number(row.get("_start_frame"))
+        end = number(row.get("_end_frame"))
+        if start is not None and end is not None:
+            duration = end - start
+    if duration is None or duration <= 0:
+        return None
+    return duration / speed
+
+
+def one_tick_update_interval(update: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[int, int]:
+    frame = max(0, integer(update.get("frame")) or 0)
+    row = row_for_diagnostic(update, rows) or row_for_frame(rows, frame)
+    if row is None:
+        return frame, frame + 1
+    row_start = number(row.get("row_start_exact_frame"))
+    if row_start is None:
+        row_start = number(row.get("_start_frame"))
+    row_end = integer(row.get("_end_frame"))
+    frames_per_tick = row_frames_per_tick(row)
+    if row_start is None or frames_per_tick is None or frames_per_tick <= 0:
+        return frame, max(frame + 1, row_end or frame + 1)
+    tick = integer(update.get("synthetic_tick"))
+    if tick is None:
+        tick = int(math.floor(max(0.0, frame - row_start) / frames_per_tick))
+    tick_end = int(math.floor(row_start + (max(0, tick) + 1) * frames_per_tick))
+    if row_end is not None:
+        tick_end = min(row_end, tick_end)
+    return frame, max(frame + 1, tick_end)
+
+
+def vtx_gain_pan_ramp_frame_count(diagnostics: dict[str, Any]) -> int:
+    render = nested_dict(diagnostics.get("render"))
+    summary = nested_dict(diagnostics.get("volume_panning_state_update_summary"))
+    for value in (
+        render.get("gain_pan_ramp_frame_count"),
+        summary.get("gain_pan_ramp_frame_count"),
+    ):
+        parsed = integer(value)
+        if parsed is not None and parsed >= 0:
+            return parsed
+    return DEFAULT_VTX_GAIN_PAN_RAMP_FRAMES
+
+
+def interval_overlaps_window(start_frame: int, end_frame: int, window: dict[str, Any]) -> bool:
+    return overlaps(
+        max(0, start_frame),
+        max(start_frame + 1, end_frame),
+        int(window["_start_frame"]),
+        int(window["_end_frame"]),
+    )
+
+
+def note_start_signal(event: dict[str, Any], quick_fade_frames: int) -> dict[str, Any]:
+    start = integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0
+    return {
+        "kind": "note_start",
+        "start_frame": max(0, start),
+        "end_frame": max(start + 1, start + quick_fade_frames),
+        "source": nested_dict(event.get("source")),
+        "channel_index": event.get("channel_index"),
+        "event_index": event.get("event_index"),
+        "note": event.get("note"),
+        "instrument_index": event.get("instrument_index"),
+        "sample_index": event.get("sample_index"),
+    }
+
+
+def normalize_note_stop_cut_events(diagnostics: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    events: list[dict[str, Any]] = []
+    for note_cut in nested_list(diagnostics.get("note_cut_effects")):
+        if not isinstance(note_cut, dict):
+            continue
+        frame, _ = frame_range_for_diagnostic(note_cut, rows_by_source, rows_by_synthetic)
+        if frame is None:
+            continue
+        events.append({
+            "kind": "note_cut",
+            "label": effect_command_label(note_cut.get("effect_type"), note_cut.get("effect_param")),
+            "status": note_cut_status(note_cut),
+            "start_frame": max(0, frame),
+            "end_frame": max(frame + 1, frame + 1),
+            "source": nested_dict(note_cut.get("source")),
+            "channel_index": note_cut.get("channel_index"),
+            "active_event_index": note_cut.get("active_event_index"),
+        })
+    for key_off in normalize_key_off_events(diagnostics, rows):
+        frame = integer(key_off.get("frame"))
+        if frame is None:
+            continue
+        events.append({
+            "kind": "key_off",
+            "label": "key-off / note-off",
+            "status": "applied" if bool(key_off.get("applied")) else format_optional(key_off.get("reason")),
+            "start_frame": max(0, frame),
+            "end_frame": frame + 1,
+            "source": nested_dict(key_off.get("source")),
+            "channel_index": key_off.get("channel_index"),
+            "active_event_index": None,
+        })
+    for retrigger in nested_list(diagnostics.get("retrigger_effects")):
+        if not isinstance(retrigger, dict):
+            continue
+        for frame in nested_list(retrigger.get("generated_retrigger_frames")) or nested_list(retrigger.get("retrigger_frames")):
+            parsed = integer(frame)
+            if parsed is None:
+                continue
+            events.append({
+                "kind": "retrigger_cut",
+                "label": effect_command_label(retrigger.get("effect_type"), retrigger.get("effect_param")),
+                "status": retrigger.get("status"),
+                "start_frame": max(0, parsed),
+                "end_frame": parsed + 1,
+                "source": nested_dict(retrigger.get("source")),
+                "channel_index": retrigger.get("channel_index"),
+                "active_event_index": retrigger.get("active_event_index_before"),
+            })
+    events.sort(key=lambda item: (item["start_frame"], sort_int(item.get("channel_index")), str(item.get("kind"))))
+    return events
+
+
+def normalize_volume_column_events(diagnostics: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows_by_source, rows_by_synthetic = row_frame_indexes(rows)
+    events: list[dict[str, Any]] = []
+    for mapping in nested_list(diagnostics.get("volume_column_mappings")):
+        if not isinstance(mapping, dict):
+            continue
+        volume_column = nested_dict(mapping.get("volume_column"))
+        status = volume_status(volume_column)
+        if status != "applied":
+            continue
+        frame, _ = frame_range_for_diagnostic(mapping, rows_by_source, rows_by_synthetic)
+        if frame is None:
+            continue
+        event = {
+            "frame": max(0, frame),
+            "source": nested_dict(mapping.get("source")),
+            "channel_index": mapping.get("channel_index"),
+            "synthetic_row": mapping.get("synthetic_row"),
+            "synthetic_tick": mapping.get("synthetic_tick"),
+            "label": volume_command_label(volume_column),
+            "status": status,
+            "raw_value": volume_column.get("raw_value"),
+        }
+        start, end = one_tick_update_interval(event, rows)
+        events.append({
+            **event,
+            "start_frame": start,
+            "end_frame": end,
+        })
+    events.sort(key=lambda item: (item["start_frame"], sort_int(item.get("channel_index")), str(item.get("label"))))
+    return events
+
+
+def count_updates_by_effect(updates: list[dict[str, Any]], effect_type: int) -> int:
+    return sum(1 for update in updates if integer(update.get("effect_type")) == effect_type)
+
+
+def count_extended_updates_by_subcommand(updates: list[dict[str, Any]], subcommand: int) -> int:
+    count = 0
+    for update in updates:
+        if integer(update.get("effect_type")) != 0x0E:
+            continue
+        effect_param = integer(update.get("effect_param"))
+        if effect_param is None:
+            continue
+        if ((effect_param >> 4) & 0x0F) == subcommand:
+            count += 1
+    return count
+
+
+def smoothing_window_classification(
+    *,
+    note_start_active: bool,
+    ordinary_gain_update_active: bool,
+    pan_update_active: bool,
+    replacement_ramp_active: bool,
+    stop_cut_active: bool,
+) -> list[str]:
+    labels = []
+    if note_start_active:
+        labels.append("note-start-active")
+    if ordinary_gain_update_active:
+        labels.append("ordinary-gain-update-active")
+    if pan_update_active:
+        labels.append("pan-update-active")
+    if replacement_ramp_active:
+        labels.append("ramp-active")
+    if stop_cut_active:
+        labels.append("stop-cut-active")
+    return labels or ["steady-state"]
+
+
+def smoothing_event_examples(
+    note_starts: list[dict[str, Any]],
+    gain_updates: list[dict[str, Any]],
+    pan_updates: list[dict[str, Any]],
+    replacement_ramps: list[dict[str, Any]],
+    stop_cut_events: list[dict[str, Any]],
+) -> list[str]:
+    examples: list[str] = []
+    for event in note_starts[:MAX_SMOOTHING_EVENT_EXAMPLES]:
+        examples.append(
+            f"note start {format_optional(event.get('start_frame'))}-{format_optional(event.get('end_frame'))} "
+            f"ch {format_optional(event.get('channel_index'))} event {format_optional(event.get('event_index'))} "
+            f"note {format_optional(event.get('note'))} "
+            f"inst/sample {format_optional(event.get('instrument_index'))}/{format_optional(event.get('sample_index'))}"
+        )
+    remaining = max(0, MAX_SMOOTHING_EVENT_EXAMPLES - len(examples))
+    for update in gain_updates[:remaining]:
+        examples.append(
+            f"gain one-tick {format_optional(update.get('one_tick_start_frame'))}-"
+            f"{format_optional(update.get('one_tick_end_frame'))} "
+            f"ch {format_optional(update.get('channel_index'))} "
+            f"{format_optional(update.get('command_label') or update.get('command_name'))} "
+            f"{format_optional_float(update.get('gain_before'))}->{format_optional_float(update.get('gain_after'))}"
+        )
+    remaining = max(0, MAX_SMOOTHING_EVENT_EXAMPLES - len(examples))
+    for update in pan_updates[:remaining]:
+        examples.append(
+            f"pan one-tick {format_optional(update.get('one_tick_start_frame'))}-"
+            f"{format_optional(update.get('one_tick_end_frame'))} "
+            f"ch {format_optional(update.get('channel_index'))} "
+            f"{format_optional(update.get('command_label') or update.get('command_name'))} "
+            f"{format_optional_float(update.get('pan_before'))}->{format_optional_float(update.get('pan_after'))}"
+        )
+    remaining = max(0, MAX_SMOOTHING_EVENT_EXAMPLES - len(examples))
+    for ramp in replacement_ramps[:remaining]:
+        examples.append(
+            f"replacement ramp {format_optional(ramp.get('start_frame'))}-{format_optional(ramp.get('end_frame'))} "
+            f"old event {format_optional(ramp.get('old_event_index'))} new event {format_optional(ramp.get('new_event_index'))}"
+        )
+    remaining = max(0, MAX_SMOOTHING_EVENT_EXAMPLES - len(examples))
+    for event in stop_cut_events[:remaining]:
+        examples.append(
+            f"{format_optional(event.get('label'))} {format_optional(event.get('start_frame'))} "
+            f"ch {format_optional(event.get('channel_index'))} {format_optional(event.get('status'))}"
+        )
+    return examples
 
 
 def normalize_key_off_events(diagnostics: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -3496,6 +3916,7 @@ def build_correlation_report(
     period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
     loop_crossing_timbre_summary = build_loop_crossing_timbre_summary(diagnostics, windows, events)
     steady_state_loop_summary = build_steady_state_loop_summary(diagnostics, windows, events, rows)
+    smoothing_event_summary = build_smoothing_event_summary(diagnostics, windows, events, rows, sample_rate)
     gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
     sample_instrument_gain_summary = build_sample_instrument_gain_summary(comparison, diagnostics, windows, events)
     full_mix_contribution_summary = build_full_mix_contribution_summary(
@@ -3556,6 +3977,7 @@ def build_correlation_report(
     append_period_sample_step_voice_summary(lines, period_sample_step_summary)
     append_loop_crossing_timbre_summary(lines, loop_crossing_timbre_summary)
     append_steady_state_loop_summary(lines, steady_state_loop_summary)
+    append_smoothing_event_summary(lines, smoothing_event_summary)
     append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
     append_sample_instrument_gain_summary(lines, sample_instrument_gain_summary)
     append_full_mix_contribution_summary(lines, full_mix_contribution_summary)
@@ -4041,6 +4463,69 @@ def append_steady_state_loop_summary(lines: list[str], summary: dict[str, Any]) 
             f"{format_phase_histogram(nested_dict(item.get('loop_phase_histogram')))} | "
             f"{loop_timbre_label(nested_dict(item.get('timbre')))} | "
             f"{dominant} | "
+            f"{examples} |"
+        )
+
+
+def append_smoothing_event_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    total_windows = format_optional(summary.get("window_count"))
+    lines.extend([
+        "",
+        "## Smoothing / Note-Start Window Classification",
+        f"- Classification policy: {format_optional(summary.get('classification_policy'))}",
+        "- ft2-clone conceptual note-start quick fade-in: "
+        f"{format_milliseconds(summary.get('ft2_quick_fade_in_milliseconds'))} ms = "
+        f"{format_optional(summary.get('ft2_quick_fade_in_frames'))} frames at "
+        f"{format_optional(summary.get('sample_rate'))} Hz",
+        f"- ft2-clone ordinary gain/pan update window: {format_optional(summary.get('ft2_ordinary_update_window'))}",
+        f"- VTX note-start policy: {format_optional(summary.get('vtx_note_start_policy'))}",
+        f"- VTX gain/pan update ramp: {format_optional(summary.get('vtx_gain_pan_update_ramp_frames'))} frames",
+        "- Active-window counts: "
+        f"note-start {format_optional(summary.get('note_start_active_count'))}/{total_windows}, "
+        f"gain-update {format_optional(summary.get('ordinary_gain_update_active_count'))}/{total_windows}, "
+        f"pan-update {format_optional(summary.get('pan_update_active_count'))}/{total_windows}, "
+        f"replacement-ramp {format_optional(summary.get('replacement_ramp_active_count'))}/{total_windows}, "
+        f"stop/cut {format_optional(summary.get('stop_cut_active_count'))}/{total_windows}, "
+        f"steady-state {format_optional(summary.get('steady_state_count'))}/{total_windows}",
+        "- Window RMS correlations: "
+        f"note-start {format_optional_float(summary.get('note_start_to_window_rms_correlation'))}, "
+        f"gain-update {format_optional_float(summary.get('ordinary_gain_update_to_window_rms_correlation'))}, "
+        f"pan-update {format_optional_float(summary.get('pan_update_to_window_rms_correlation'))}, "
+        f"replacement-ramp {format_optional_float(summary.get('replacement_ramp_to_window_rms_correlation'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window smoothing evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | RMS | Note Starts | Gain Updates | Pan Updates | Vol Col | Axy/EAx/EBx/Gxx/Hxy | Replacement Ramps | Stops/Cuts | Classification | Examples |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- |",
+    ])
+    for item in window_summaries:
+        effect_counts = (
+            f"{format_optional(item.get('axy_update_count'))}/"
+            f"{format_optional(item.get('eax_update_count'))}/"
+            f"{format_optional(item.get('ebx_update_count'))}/"
+            f"{format_optional(item.get('gxx_update_count'))}/"
+            f"{format_optional(item.get('hxy_update_count'))}"
+        )
+        classification = ", ".join(str(label) for label in nested_list(item.get("classification"))) or "unavailable"
+        examples = "; ".join(str(example) for example in nested_list(item.get("examples"))) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional_float(item.get('rms_difference'))} | "
+            f"{format_optional(item.get('note_start_count'))} | "
+            f"{format_optional(item.get('ordinary_gain_update_count'))} | "
+            f"{format_optional(item.get('pan_update_count'))} | "
+            f"{format_optional(item.get('volume_column_update_count'))} | "
+            f"{effect_counts} | "
+            f"{format_optional(item.get('replacement_ramp_count'))} | "
+            f"{format_optional(item.get('note_stop_cut_count'))} | "
+            f"{classification} | "
             f"{examples} |"
         )
 
@@ -4986,6 +5471,13 @@ def format_optional_float(value: Any) -> str:
     if numeric is None:
         return "unavailable"
     return f"{numeric:.8f}"
+
+
+def format_milliseconds(value: Any) -> str:
+    numeric = number(value)
+    if numeric is None:
+        return "unavailable"
+    return f"{numeric:.1f}"
 
 
 def format_distribution_range(distribution: dict[str, Any]) -> str:

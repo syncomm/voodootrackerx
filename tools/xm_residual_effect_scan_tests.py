@@ -41,6 +41,10 @@ class XMResidualEffectScanTests(unittest.TestCase):
                     [cell(scan, effect_type=0x1B, effect_param=0x00), cell(scan, effect_type=0x14, effect_param=0x09)],
                     [cell(scan, effect_type=0x05, effect_param=0x0F), cell(scan, effect_type=0x05, effect_param=0x00)],
                     [cell(scan, effect_type=0x1F, effect_param=0x44), cell(scan, effect_type=0x20, effect_param=0x55)],
+                    [cell(scan, effect_type=0x19, effect_param=0x12), cell(scan, effect_type=0x11, effect_param=0x00)],
+                    [cell(scan, effect_type=0x11, effect_param=0x12), cell(scan, effect_type=0x0E, effect_param=0x31)],
+                    [cell(scan, effect_type=0x0E, effect_param=0xE2), cell(scan, effect_type=0x1D, effect_param=0x34)],
+                    [cell(scan, effect_type=0x0E, effect_param=0x08), cell(scan)],
                 ])
             ],
             instruments=[scan.InstrumentEnvelope(), scan.InstrumentEnvelope(volume_enabled=True)],
@@ -72,11 +76,19 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertEqual(buckets["kxx"].count("out_of_row_no_op_count"), 1)
         self.assertEqual(buckets["5xy"].count("applied_count"), 1)
         self.assertEqual(buckets["5xy"].count("no_target_count"), 1)
+        self.assertEqual(buckets["pxy"].count("detected_count"), 1)
+        self.assertEqual(buckets["hxy"].count("detected_count"), 2)
+        self.assertEqual(buckets["hxy"].count("h00_no_op_count"), 1)
+        self.assertEqual(buckets["hxy"].count("both_nibbles_nonzero_count"), 1)
+        self.assertEqual(buckets["e3x"].count("detected_count"), 1)
+        self.assertEqual(buckets["eex"].count("detected_count"), 1)
+        self.assertEqual(buckets["txy"].count("detected_count"), 1)
+        self.assertEqual(buckets["e0x"].count("detected_count"), 1)
         self.assertEqual(buckets["unknown"].count("vxx_count"), 1)
         self.assertEqual(buckets["unknown"].count("wxx_count"), 1)
-        self.assertEqual(scan.recommend_next_pr(group), "Minimal Xxy Extra Fine Portamento")
+        self.assertEqual(scan.recommend_next_pr(group), "Minimal Lxx Set Envelope Position")
 
-    def test_recommendation_treats_axy_memory_as_completed_foundation(self):
+    def test_recommendation_treats_completed_foundations_as_low_priority(self):
         scan = load_module()
         group = scan.ScanGroup("linear")
         group.bucket("axy").add(
@@ -90,8 +102,14 @@ class XMResidualEffectScanTests(unittest.TestCase):
             scan.Coordinate("xm-corpus-002", 0, 0, 0, 0, "linear"),
         )
 
-        self.assertEqual(scan.recommend_next_pr(group), "Minimal Xxy Extra Fine Portamento")
+        self.assertEqual(scan.recommend_next_pr(group), "No narrow linear-XM implementation PR from this scan")
         self.assertIn("A00 replay", scan.status_note("axy", {}))
+
+        group.bucket("vol_f").add(
+            "xm-corpus-003",
+            scan.Coordinate("xm-corpus-003", 0, 0, 0, 0, "linear"),
+        )
+        self.assertEqual(scan.recommend_next_pr(group), "Volume-Column Tone Portamento Foundation")
 
     def test_amiga_scan_keeps_pitch_residuals_in_foundation_bucket(self):
         scan = load_module()

@@ -19,6 +19,7 @@ from typing import Any
 
 
 DEFAULT_LABEL_MAP = Path("/tmp/vtx-private-xm-corpus-label-map.json")
+DEFAULT_DOCS = Path("docs/xm-effect-support.md")
 LABEL_RE = re.compile(r"^xm-corpus-(\d{3,})$")
 
 
@@ -161,10 +162,16 @@ class ScanGroup:
             "3xx": FocusBucket("3xx tone-portamento memory"),
             "axy": FocusBucket("Axy volume-slide memory"),
             "7xy": FocusBucket("7xy tremolo and tremolo memory"),
+            "e0x": FocusBucket("E0x filter toggle"),
+            "e3x": FocusBucket("E3x glissando control"),
+            "eex": FocusBucket("EEx pattern delay"),
+            "pxy": FocusBucket("Pxy panning slide"),
+            "txy": FocusBucket("Txy tremor"),
             "vol_a": FocusBucket("Volume-column vibrato speed A0...AF"),
             "vol_b": FocusBucket("Volume-column vibrato depth B0...BF"),
             "vol_f": FocusBucket("Volume-column tone portamento F0...FF"),
             "rxy": FocusBucket("Rxy multi retrigger residuals"),
+            "hxy": FocusBucket("Hxy global volume slide residuals"),
             "kxx": FocusBucket("Kxx key-off residuals"),
             "5xy": FocusBucket("5xy tone portamento + volume slide residuals"),
             "unknown": FocusBucket("Unknown/classification-only high bytes"),
@@ -455,10 +462,16 @@ def scan_effect_cell(
         scan_axy(module, cell, coordinate, state, groups)
     elif effect_type == 0x07:
         scan_7xy(module, cell, coordinate, groups)
-    elif effect_type == 0x0E and ((effect_param >> 4) & 0x0F) == 0x07:
-        add_to_groups(groups, "7xy", module.label, coordinate, metric="e7x_control_count", family=f"E7{effect_param & 0x0F:X}")
+    elif effect_type == 0x0E:
+        scan_extended_gap(module, cell, coordinate, groups)
+    elif effect_type == 0x11:
+        scan_hxy(module, cell, coordinate, groups)
+    elif effect_type == 0x19:
+        scan_pxy(module, cell, coordinate, groups)
     elif effect_type == 0x1B:
         scan_rxy(module, cell, coordinate, state, speed, groups)
+    elif effect_type == 0x1D:
+        scan_txy(module, cell, coordinate, groups)
     elif effect_type == 0x14:
         scan_kxx(module, cell, coordinate, state, speed, groups)
     elif effect_type == 0x05:
@@ -555,6 +568,51 @@ def scan_7xy(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: lis
         add_to_groups(groups, "7xy", module.label, coordinate, metric="700_count")
     if up == 0 or down == 0:
         add_to_groups(groups, "7xy", module.label, coordinate, metric="zero_nibble_memory_case_count")
+
+
+def scan_extended_gap(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: list[ScanGroup]) -> None:
+    subcommand = (cell.effect_param >> 4) & 0x0F
+    amount = cell.effect_param & 0x0F
+    if subcommand == 0x00:
+        add_to_groups(groups, "e0x", module.label, coordinate, metric="detected_count", family=f"E0{amount:X}")
+    elif subcommand == 0x03:
+        add_to_groups(groups, "e3x", module.label, coordinate, metric="detected_count", family=f"E3{amount:X}")
+        if amount == 0:
+            add_to_groups(groups, "e3x", module.label, coordinate, metric="disable_count")
+        else:
+            add_to_groups(groups, "e3x", module.label, coordinate, metric="enable_or_mode_count")
+    elif subcommand == 0x07:
+        add_to_groups(groups, "7xy", module.label, coordinate, metric="e7x_control_count", family=f"E7{amount:X}")
+    elif subcommand == 0x0E:
+        add_to_groups(groups, "eex", module.label, coordinate, metric="detected_count", family=f"EE{amount:X}")
+
+
+def scan_hxy(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: list[ScanGroup]) -> None:
+    add_to_groups(groups, "hxy", module.label, coordinate, metric="detected_count")
+    up = (cell.effect_param >> 4) & 0x0F
+    down = cell.effect_param & 0x0F
+    if cell.effect_param == 0:
+        add_to_groups(groups, "hxy", module.label, coordinate, metric="h00_no_op_count")
+    else:
+        add_to_groups(groups, "hxy", module.label, coordinate, metric="nonzero_hxy_count")
+    if up > 0 and down > 0:
+        add_to_groups(groups, "hxy", module.label, coordinate, metric="both_nibbles_nonzero_count")
+
+
+def scan_pxy(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: list[ScanGroup]) -> None:
+    add_to_groups(groups, "pxy", module.label, coordinate, metric="detected_count")
+    right = (cell.effect_param >> 4) & 0x0F
+    left = cell.effect_param & 0x0F
+    if cell.effect_param == 0:
+        add_to_groups(groups, "pxy", module.label, coordinate, metric="p00_count")
+    if right == 0 or left == 0:
+        add_to_groups(groups, "pxy", module.label, coordinate, metric="zero_nibble_memory_case_count")
+
+
+def scan_txy(module: ModuleData, cell: Cell, coordinate: Coordinate, groups: list[ScanGroup]) -> None:
+    add_to_groups(groups, "txy", module.label, coordinate, metric="detected_count")
+    if cell.effect_param == 0:
+        add_to_groups(groups, "txy", module.label, coordinate, metric="t00_memory_case_count")
 
 
 def scan_rxy(
@@ -704,19 +762,19 @@ def build_scan(label_map_path: Path) -> dict[str, Any]:
 
 
 def recommend_next_pr(linear_group: ScanGroup) -> str:
-    xxy = linear_group.bucket("xxy").count()
+    pxy = linear_group.bucket("pxy").count("detected_count")
     volume_f = linear_group.bucket("vol_f").count()
     tremolo = linear_group.bucket("7xy").count("7xy_count")
     lxx = linear_group.bucket("lxx").count()
 
-    if volume_f > xxy and volume_f >= max(25, tremolo):
-        return "Volume-Column Tone Portamento Foundation"
-    if tremolo > xxy and tremolo >= max(25, volume_f):
-        return "Minimal 7xy Tremolo Foundation"
-    if xxy > 0:
-        return "Minimal Xxy Extra Fine Portamento"
     if lxx > 0:
-        return "Lxx Set Envelope Position"
+        return "Minimal Lxx Set Envelope Position"
+    if volume_f > 0:
+        return "Volume-Column Tone Portamento Foundation"
+    if pxy > 0:
+        return "Minimal Pxy Panning Slide"
+    if tremolo > 0:
+        return "Minimal 7xy Tremolo Foundation"
     return "No narrow linear-XM implementation PR from this scan"
 
 
@@ -760,16 +818,22 @@ def group_markdown(title: str, group: dict[str, Any]) -> list[str]:
     lines.append(bucket_line(buckets, "3xx", "C. `3xx` tone-portamento memory", three_xx_status))
     lines.append(bucket_line(buckets, "axy", "D. `Axy` volume-slide memory", axy_status))
     lines.append(bucket_line(buckets, "7xy", "E. `7xy` tremolo and tremolo memory", tremolo_status))
-    lines.append(bucket_line(buckets, "vol_a", "F. Volume-column vibrato speed `A0...AF`", volume_a_status))
-    lines.append(bucket_line(buckets, "vol_b", "G. Volume-column vibrato depth `B0...BF`", volume_b_status))
-    lines.append(bucket_line(buckets, "vol_f", "H. Volume-column tone portamento `F0...FF`", volume_f_status))
-    lines.append(bucket_line(buckets, "rxy", "I. `Rxy` residuals", rxy_status))
-    lines.append(bucket_line(buckets, "kxx", "I. `Kxx` residuals", kxx_status))
-    lines.append(bucket_line(buckets, "5xy", "I. `5xy` residuals", fivexy_status))
-    lines.append(bucket_line(buckets, "unknown", "J. Unknown/classification-only high bytes", unknown_status))
-    lines.append(bucket_line(buckets, "amiga", "K. Amiga frequency-table residuals", amiga_status))
+    lines.append(bucket_line(buckets, "pxy", "F. `Pxy` panning slide", simple_detected_status))
+    lines.append(bucket_line(buckets, "e3x", "G. `E3x` glissando control", simple_detected_status))
+    lines.append(bucket_line(buckets, "eex", "H. `EEx` pattern delay", simple_detected_status))
+    lines.append(bucket_line(buckets, "txy", "I. `Txy` tremor", simple_detected_status))
+    lines.append(bucket_line(buckets, "e0x", "J. `E0x` filter toggle", simple_detected_status))
+    lines.append(bucket_line(buckets, "vol_a", "K. Volume-column vibrato speed `A0...AF`", volume_a_status))
+    lines.append(bucket_line(buckets, "vol_b", "L. Volume-column vibrato depth `B0...BF`", volume_b_status))
+    lines.append(bucket_line(buckets, "vol_f", "M. Volume-column tone portamento `F0...FF`", volume_f_status))
+    lines.append(bucket_line(buckets, "rxy", "N. `Rxy` residuals", rxy_status))
+    lines.append(bucket_line(buckets, "hxy", "O. `Hxy` residuals", hxy_status))
+    lines.append(bucket_line(buckets, "kxx", "P. `Kxx` residuals", kxx_status))
+    lines.append(bucket_line(buckets, "5xy", "Q. `5xy` residuals", fivexy_status))
+    lines.append(bucket_line(buckets, "unknown", "R. Unknown/classification-only high bytes", unknown_status))
+    lines.append(bucket_line(buckets, "amiga", "S. Amiga frequency-table residuals", amiga_status))
     lines.extend(["", "### Command Families"])
-    for bucket_key in ("xxy", "7xy", "vol_a", "vol_b", "vol_f", "unknown", "amiga"):
+    for bucket_key in ("xxy", "7xy", "pxy", "e0x", "e3x", "eex", "txy", "vol_a", "vol_b", "vol_f", "unknown", "amiga"):
         bucket = buckets.get(bucket_key, {})
         families = bucket.get("family_counts", {}) if isinstance(bucket, dict) else {}
         if families:
@@ -836,6 +900,10 @@ def tremolo_status(counts: dict[str, Any]) -> str:
     )
 
 
+def simple_detected_status(counts: dict[str, Any]) -> str:
+    return str(counts.get("detected_count", counts.get("count", 0)))
+
+
 def volume_a_status(counts: dict[str, Any]) -> str:
     return str(counts.get("count", 0))
 
@@ -853,6 +921,14 @@ def rxy_status(counts: dict[str, Any]) -> str:
         f"detected={counts.get('detected_count', 0)}, applied={counts.get('applied_count', 0)}, "
         f"R?0/no-op={counts.get('no_op_effect_memory_deferred_count', 0)}, "
         f"no-active={counts.get('no_active_count', 0)}, out-of-row={counts.get('out_of_row_no_op_count', 0)}"
+    )
+
+
+def hxy_status(counts: dict[str, Any]) -> str:
+    return (
+        f"detected={counts.get('detected_count', 0)}, H00={counts.get('h00_no_op_count', 0)}, "
+        f"nonzero={counts.get('nonzero_hxy_count', 0)}, "
+        f"both-nibbles={counts.get('both_nibbles_nonzero_count', 0)}"
     )
 
 
@@ -892,7 +968,7 @@ def amiga_status(counts: dict[str, Any]) -> str:
 
 def status_note(key: str, counts: dict[str, Any]) -> str:
     if key == "xxy":
-        return "Deferred; recommend Minimal Xxy if this remains the largest meaningful linear-XM gap."
+        return "Supported first-pass; current residuals should be applied/no-active/no-op, not unsupported."
     if key == "lxx":
         return "Deferred; keep after Xxy unless envelope-position evidence dominates."
     if key == "3xx":
@@ -901,13 +977,23 @@ def status_note(key: str, counts: dict[str, Any]) -> str:
         return "Supported first-pass; A00 replay should appear as applied/memory-reused in adapter diagnostics."
     if key == "7xy":
         return "Deferred; E7x control should travel with tremolo if promoted."
+    if key == "pxy":
+        return "Deferred in the C mixer adapter; legacy Swift panning-slide handler exists."
+    if key == "e3x":
+        return "Deferred glissando-control state; useful only with portamento parity work."
+    if key == "eex":
+        return "Deferred traversal/timing hazard."
+    if key == "txy":
+        return "Deferred tremor effect."
+    if key == "e0x":
+        return "Deferred limited-use filter toggle."
     if key in {"vol_a", "vol_b"}:
         return "Deferred volume-column vibrato diagnostics only."
     if key == "vol_f":
         return "Deferred volume-column tone portamento diagnostics only."
     if key == "5xy":
         return "Supported first-pass; 500 replay should appear as applied/memory-reused in adapter diagnostics."
-    if key in {"rxy", "kxx"}:
+    if key in {"rxy", "hxy", "kxx"}:
         return "Supported first-pass; residuals are applied/no-active/no-op/out-of-row classifications."
     if key == "unknown":
         return "Classification-only; no playback work recommended without a concrete target."
@@ -920,6 +1006,356 @@ def format_counter(counter: dict[str, Any]) -> str:
     return ", ".join(f"{key}={value}" for key, value in sorted(counter.items(), key=lambda item: (-int(item[1]), item[0])))
 
 
+TRIAGE_COLUMNS = (
+    "key", "target", "docs_keys", "bucket", "metrics", "coverage_commands",
+    "legacy_swift", "legacy_evidence", "classic_legacy", "c_mixer_adapter",
+    "complexity", "risk", "priority", "docs_correction", "group", "prefer_coverage",
+)
+TRIAGE_ROWS = [
+    ("7xy", "7xy tremolo", ("7xy",), "7xy", ("7xy_count",), ("7xy tremolo",), "yes", "PlaybackEffectHandler.tremolo and applyTremolo", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
+    ("e7x", "E7x tremolo control", ("E7x",), "7xy", ("e7x_control_count",), ("E7x tremolo control",), "no", "classic handler stores tremolo waveform; Swift legacy path does not expose E7x", "yes", "no", "small with 7xy", "low", "pair with 7xy only", "no", "all", False),
+    ("pxy", "Pxy panning slide", ("Pxy",), "pxy", ("detected_count",), ("Pxy panning slide",), "yes", "PlaybackEffectHandler.panningSlide and applyPanningSlide", "yes", "no", "small", "low", "count-driven", "no", "all", False),
+    ("3xx", "3xx tone-portamento memory / 300", ("3xx",), "3xx", ("nonzero_3xx_count", "zero_300_count"), ("3xx tone portamento",), "yes", "PlaybackEffectHandler.tonePortamento has zero-param memory support", "yes", "yes", "small docs-only", "low", "docs correction", "yes: replace 'No broad memory claim' with the narrower supported 300 target/speed-memory behavior and residual caveats", "all", True),
+    ("5xy", "5xy tone portamento + volume slide memory", ("5xy",), "5xy", ("detected_count",), ("5xy tone portamento + volume slide",), "yes", "combinedTonePortamentoVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
+    ("axy", "Axy volume-slide memory / A00", ("Axy",), "axy", ("a00_count", "nonzero_axy_count"), ("Axy volume slide",), "yes", "PlaybackEffectHandler.volumeSlide has zero-param memory support", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
+    ("rxy", "Rxy multi retrigger / R00", ("Rxy",), "rxy", ("detected_count",), ("Rxy multi retrigger",), "partial", "current adapter implements Rxy; R00 remains no-op", "yes", "yes", "small for R00 only", "medium", "low", "no", "all", True),
+    ("hxy", "Hxy global volume slide / H00", ("Hxy",), "hxy", ("detected_count",), ("Hxy global volume slide",), "yes", "PlaybackEffectHandler.globalVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no", "all", True),
+    ("vol_a", "Volume-column A0...AF vibrato speed", ("Vibrato speed (A0...AF)",), "vol_a", ("count",), ("volume-column vibrato speed",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
+    ("vol_b", "Volume-column B0...BF vibrato depth", ("Vibrato depth (B0...BF)",), "vol_b", ("count",), ("volume-column vibrato",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
+    ("vol_f", "Volume-column F0...FF tone portamento", ("Tone portamento (F0...FF)",), "vol_f", ("count",), ("volume-column tone portamento",), "yes", "PlaybackVolumeColumnCommand.tonePortamento exists in legacy Swift path", "yes", "no", "small", "medium", "high after Lxx if corpus remains small and focused", "no", "all", True),
+    ("lxx", "Lxx set envelope position", ("Lxx",), "lxx", ("count",), ("Lxx set envelope position",), "no", "no current Swift adapter envelope-position setter", "yes", "no", "medium", "medium", "high", "no", "all", True),
+    ("eex", "EEx pattern delay", ("EEx",), "eex", ("detected_count",), ("EEx pattern delay",), "partial", "PlaybackEffectHandler decodes patternDelay; traversal adapter defers it", "yes", "no", "large", "high", "defer unless corpus appears", "no", "all", False),
+    ("txy", "Txy tremor", ("Txy",), "txy", ("detected_count",), ("Txy tremor",), "no", "no current Swift tremor continuous effect", "yes", "no", "medium", "medium", "defer unless corpus appears", "no", "all", False),
+    ("e3x", "E3x glissando control", ("E3x",), "e3x", ("detected_count",), ("E3x glissando control",), "no", "no current Swift glissando-control state in C mixer adapter", "yes", "no", "medium", "medium", "defer unless corpus appears", "no", "all", False),
+    ("xxy", "X1x/X2x extra fine portamento residuals", ("X1x / X2x",), "xxy", ("count",), ("Xxy extra fine portamento",), "no", "current C mixer adapter owns X1x/X2x support", "yes", "yes", "none", "low", "covered", "no", "all", True),
+    ("e0x", "E0x filter toggle", ("E0x",), "e0x", ("detected_count",), ("E0x filter toggle",), "no", "not implemented in current Swift adapter", "yes", "no", "medium", "low", "intentionally deferred", "no", "all", True),
+    ("amiga", "Amiga frequency-table 2xx/3xx and portamento cases", ("Amiga frequency table",), "amiga", ("amiga_2xx_count", "amiga_3xx_count", "amiga_5xy_count", "amiga_xxy_count", "amiga_volume_column_fxx_count"), (), "no", "current C mixer adapter is linear-frequency first-pass only", "yes", "no", "large", "high", "separate foundation", "no", "amiga", False),
+]
+TRIAGE_TARGETS = [
+    {
+        key: list(value) if key in {"docs_keys", "metrics", "coverage_commands"} else value
+        for key, value in zip(TRIAGE_COLUMNS, row)
+    }
+    for row in TRIAGE_ROWS
+]
+
+
+def normalized_doc_key(value: str) -> str:
+    text = re.sub(r"`([^`]*)`", r"\1", value)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_docs_status(path: Path) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    rows: dict[str, dict[str, str]] = {}
+    section = ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## Effect Column Commands"):
+            section = "effect"
+            continue
+        if line.startswith("## Volume Column Commands"):
+            section = "volume"
+            continue
+        if line.startswith("## Frequency Table Support"):
+            section = "frequency"
+            rows["Amiga frequency table"] = {
+                "command": "Amiga frequency table",
+                "status": "Deferred separate foundation",
+                "effect_memory": "not applicable",
+                "runtime_support": "No",
+                "offline_support": "No",
+                "notes": "Amiga frequency-table pitch behavior is explicitly deferred.",
+            }
+            continue
+        if not section or not line.startswith("|") or "---" in line:
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if section == "effect" and len(cells) >= 7:
+            key = normalized_doc_key(cells[0])
+            rows[key] = {
+                "command": key,
+                "name": normalized_doc_key(cells[1]),
+                "status": normalized_doc_key(cells[2]),
+                "effect_memory": normalized_doc_key(cells[3]),
+                "runtime_support": normalized_doc_key(cells[4]),
+                "offline_support": normalized_doc_key(cells[5]),
+                "notes": normalized_doc_key(cells[6]),
+            }
+        elif section == "volume" and len(cells) >= 5:
+            key = normalized_doc_key(cells[0])
+            rows[key] = {
+                "command": key,
+                "name": key,
+                "status": normalized_doc_key(cells[1]),
+                "effect_memory": "not applicable",
+                "runtime_support": normalized_doc_key(cells[2]),
+                "offline_support": normalized_doc_key(cells[3]),
+                "notes": normalized_doc_key(cells[4]),
+            }
+    return rows
+
+
+def load_coverage_rows(path: Path | None) -> dict[str, dict[str, Any]]:
+    if path is None:
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise XMResidualScanError(f"could not read coverage JSON: {error.strerror}") from error
+    except json.JSONDecodeError as error:
+        raise XMResidualScanError(f"malformed coverage JSON: line {error.lineno} column {error.colno}") from error
+    rows = payload.get("effect_coverage", []) if isinstance(payload, dict) else []
+    return {
+        str(row.get("command")): row
+        for row in rows
+        if isinstance(row, dict) and row.get("command") is not None
+    }
+
+
+def docs_summary_for_target(target: dict[str, Any], docs: dict[str, dict[str, str]]) -> dict[str, str]:
+    for key in target.get("docs_keys", []):
+        if key in docs:
+            return docs[key]
+    return {
+        "command": ", ".join(target.get("docs_keys", [])) or target["target"],
+        "status": "not found in docs/xm-effect-support.md",
+        "effect_memory": "unknown",
+        "runtime_support": "unknown",
+        "offline_support": "unknown",
+        "notes": "",
+    }
+
+
+def bucket_for_target(scan: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    groups = scan.get("groups", {})
+    group = groups.get(target.get("group", "all"), {})
+    buckets = group.get("buckets", {}) if isinstance(group, dict) else {}
+    bucket = buckets.get(target["bucket"], {})
+    return bucket if isinstance(bucket, dict) else {}
+
+
+def raw_count_for_target(bucket: dict[str, Any], target: dict[str, Any]) -> int:
+    counts = bucket.get("counts", {}) if isinstance(bucket.get("counts"), dict) else {}
+    return sum(int(counts.get(metric, 0)) for metric in target.get("metrics", ["count"]))
+
+
+def first_text_for_target(bucket: dict[str, Any], target: dict[str, Any]) -> str:
+    first_by_metric = bucket.get("first_by_metric", {}) if isinstance(bucket.get("first_by_metric"), dict) else {}
+    for metric in target.get("metrics", ["count"]):
+        coord = first_by_metric.get(metric)
+        if isinstance(coord, dict) and coord.get("text"):
+            return str(coord["text"])
+    first = bucket.get("first_coordinate")
+    if isinstance(first, dict) and first.get("text"):
+        return str(first["text"])
+    return "none"
+
+
+def aggregate_coverage_for_target(target: dict[str, Any], coverage: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    rows = [coverage[command] for command in target.get("coverage_commands", []) if command in coverage]
+    if not rows:
+        return {}
+    first = rows[0]
+    return {
+        "commands": [row.get("command") for row in rows],
+        "detected_count": sum(int(row.get("detected_count", 0)) for row in rows),
+        "applied_count": sum(int(row.get("applied_count", 0)) for row in rows),
+        "deferred_count": sum(int(row.get("deferred_count", 0)) for row in rows),
+        "unsupported_count": sum(int(row.get("unsupported_count", 0)) for row in rows),
+        "no_op_effect_memory_deferred_count": sum(int(row.get("no_op_effect_memory_deferred_count", 0)) for row in rows),
+        "effect_memory_reused_count": sum(int(row.get("effect_memory_reused_count", 0)) for row in rows),
+        "effect_memory_missing_count": sum(int(row.get("effect_memory_missing_count", 0)) for row in rows),
+        "first_input_label": first.get("first_input_label", "none"),
+        "first_coordinate": first.get("first_coordinate", "none"),
+        "recommended_implementation_priority": first.get("recommended_implementation_priority", "n/a"),
+    }
+
+
+def adapter_summary(coverage: dict[str, Any], c_mixer_adapter: str) -> str:
+    if coverage:
+        return (
+            f"detected={coverage.get('detected_count', 0)}, applied={coverage.get('applied_count', 0)}, "
+            f"deferred={coverage.get('deferred_count', 0)}, unsupported={coverage.get('unsupported_count', 0)}, "
+            f"no-op/memory={coverage.get('no_op_effect_memory_deferred_count', 0)}, "
+            f"memory reused={coverage.get('effect_memory_reused_count', 0)}, "
+            f"memory missing={coverage.get('effect_memory_missing_count', 0)}"
+        )
+    return "not implemented/reported in current C mixer coverage" if c_mixer_adapter == "no" else "coverage not provided"
+
+
+def build_gap_triage(scan: dict[str, Any], docs_path: Path, coverage_path: Path | None = None) -> dict[str, Any]:
+    docs = parse_docs_status(docs_path)
+    coverage_rows = load_coverage_rows(coverage_path)
+    targets = []
+    for target in TRIAGE_TARGETS:
+        bucket = bucket_for_target(scan, target)
+        coverage = aggregate_coverage_for_target(target, coverage_rows)
+        raw_count = raw_count_for_target(bucket, target)
+        raw_counts = bucket.get("counts", {}) if isinstance(bucket.get("counts"), dict) else {}
+        corpus_count = coverage.get("detected_count", raw_count) if target.get("prefer_coverage") else raw_count
+        best_label = bucket.get("best_target_label") or coverage.get("first_input_label") or "none"
+        if best_label == "none" and coverage.get("first_input_label"):
+            best_label = coverage["first_input_label"]
+        first = first_text_for_target(bucket, target)
+        if first == "none" and coverage.get("first_input_label") and coverage.get("first_coordinate"):
+            first = f"{coverage['first_input_label']} {coverage['first_coordinate']}"
+        targets.append({
+            "key": target["key"],
+            "target": target["target"],
+            "docs": docs_summary_for_target(target, docs),
+            "legacy_swift_handler_exists": target["legacy_swift"],
+            "legacy_handler_evidence": target["legacy_evidence"],
+            "classic_legacy_handler_exists": target["classic_legacy"],
+            "c_mixer_adapter_implementation_exists": target["c_mixer_adapter"],
+            "current_adapter_coverage": coverage,
+            "current_adapter_summary": adapter_summary(coverage, target["c_mixer_adapter"]),
+            "raw_counts": raw_counts,
+            "raw_corpus_count": raw_count,
+            "corpus_count": corpus_count,
+            "best_anonymized_target_label": best_label,
+            "first_coordinates": first,
+            "implementation_complexity": target["complexity"],
+            "risk": target["risk"],
+            "recommended_priority": target["priority"],
+            "docs_correction_needed": target["docs_correction"],
+        })
+    legacy_doc_mentions = [
+        {
+            "command": row.get("command", ""),
+            "name": row.get("name", ""),
+            "status": row.get("status", ""),
+            "runtime_support": row.get("runtime_support", ""),
+            "offline_support": row.get("offline_support", ""),
+            "notes": row.get("notes", ""),
+        }
+        for row in docs.values()
+        if "legacy" in row.get("notes", "").lower()
+    ]
+    return {
+        "schema_version": 1,
+        "tool": "scripts/summarize-xm-residual-effect-scan.py --triage-markdown",
+        "generated_at_utc": utc_now(),
+        "local_only": True,
+        "input_count": scan.get("input_count", 0),
+        "frequency_table_split": scan.get("frequency_table_split", {}),
+        "coverage_json_basename": coverage_path.name if coverage_path else None,
+        "privacy": scan.get("privacy", {}),
+        "legacy_doc_mentions": legacy_doc_mentions,
+        "targets": targets,
+        "answers": build_triage_answers(targets, legacy_doc_mentions),
+    }
+
+
+def target_by_key(targets: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    return next((target for target in targets if target["key"] == key), {})
+
+
+def build_triage_answers(targets: list[dict[str, Any]], legacy_doc_mentions: list[dict[str, Any]]) -> dict[str, Any]:
+    pxy_count = int(target_by_key(targets, "pxy").get("corpus_count", 0))
+    tremolo_count = int(target_by_key(targets, "7xy").get("corpus_count", 0))
+    vol_f_count = int(target_by_key(targets, "vol_f").get("corpus_count", 0))
+    lxx_count = int(target_by_key(targets, "lxx").get("corpus_count", 0))
+    rxy_raw_counts = target_by_key(targets, "rxy").get("raw_counts", {})
+    rxy_r00_count = int(rxy_raw_counts.get("no_op_effect_memory_deferred_count", 0)) if isinstance(rxy_raw_counts, dict) else 0
+    next_prs = []
+    if lxx_count > 0:
+        next_prs.append("Minimal Lxx set envelope position foundation")
+    if vol_f_count > 0:
+        next_prs.append("Volume-column F0...FF tone portamento foundation")
+    if pxy_count > 0:
+        next_prs.append("Minimal Pxy panning slide")
+    if rxy_r00_count > 0:
+        next_prs.append("R00 multi-retrigger memory refinement")
+    if len(next_prs) < 3:
+        next_prs.append("3xx/Axy/5xy memory wording and diagnostics correction, with no playback change")
+    if len(next_prs) < 3:
+        next_prs.append("Defer 7xy/E7x until corpus evidence appears")
+    return {
+        "legacy_docs_imply_current_support": "No: legacy-note rows still have Runtime/Offline support marked No, but 3xx memory wording is stale.",
+        "surgical_legacy_ports": "Pxy is surgical if corpus evidence exists; 7xy is medium and should carry E7x; volume-column Fxx is a small C mixer adapter port from existing tone-portamento state.",
+        "three_xx_memory_gap": "No broad linear 3xx memory gap is indicated; 300 target/speed memory is implemented for active linear voices, with residual no-active/no-target/no-speed caveats.",
+        "seven_xy_before_amiga": "No" if tremolo_count == 0 else "Maybe, because corpus evidence exists.",
+        "pxy_present": pxy_count > 0,
+        "pxy_count": pxy_count,
+        "rxy_r00_count": rxy_r00_count,
+        "volume_column_tone_portamento_count": vol_f_count,
+        "volume_column_tone_portamento_justified": vol_f_count > 0,
+        "legacy_doc_mentions": legacy_doc_mentions,
+        "recommended_next_three_prs_before_amiga": next_prs[:3],
+    }
+
+
+def build_gap_triage_markdown(triage: dict[str, Any]) -> str:
+    split = triage.get("frequency_table_split", {})
+    answers = triage.get("answers", {})
+    lines = [
+        "# Legacy Handler / C Mixer Effect Gap Triage",
+        "",
+        "Diagnostics-only local audit. Private module filenames and local paths are redacted; generated artifacts must stay under `/tmp` and out of git.",
+        "",
+        "## Summary",
+        f"- Corpus scanned: {triage.get('input_count', 0)} modules ({split.get('linear', 0)} linear, {split.get('amiga', 0)} Amiga).",
+        "- Playback behavior changed: no.",
+        "- Retired AVAudio backends returned: no.",
+        "- Private/local artifacts committed: no.",
+        "",
+        "## Legacy Docs Mentions",
+        "| Command | Docs status | Runtime | Offline | Notes |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    mentions = triage.get("legacy_doc_mentions", [])
+    if mentions:
+        for row in mentions:
+            lines.append(
+                f"| `{row.get('command')}` | {row.get('status')} | {row.get('runtime_support')} | "
+                f"{row.get('offline_support')} | {row.get('notes')} |"
+            )
+    else:
+        lines.append("| none | n/a | n/a | n/a | n/a |")
+    lines.extend([
+        "",
+        "## Target Matrix",
+        "| Target | Docs status | Legacy Swift handler | C mixer adapter | Corpus count | Best label | First coordinates | Complexity | Risk | Priority | Docs correction |",
+        "| --- | --- | --- | --- | ---: | --- | --- | --- | --- | --- | --- |",
+    ])
+    for target in triage.get("targets", []):
+        docs = target.get("docs", {})
+        docs_status = (
+            f"{docs.get('status', 'unknown')}; runtime {docs.get('runtime_support', 'unknown')}; "
+            f"offline {docs.get('offline_support', 'unknown')}"
+        )
+        lines.append(
+            f"| {target.get('target')} | {docs_status} | {target.get('legacy_swift_handler_exists')} | "
+            f"{target.get('c_mixer_adapter_implementation_exists')} | {target.get('corpus_count', 0)} | "
+            f"{target.get('best_anonymized_target_label')} | {target.get('first_coordinates')} | "
+            f"{target.get('implementation_complexity')} | {target.get('risk')} | "
+            f"{target.get('recommended_priority')} | {target.get('docs_correction_needed')} |"
+        )
+    lines.extend([
+        "",
+        "## Adapter Coverage Notes",
+        "| Target | Current adapter summary |",
+        "| --- | --- |",
+    ])
+    for target in triage.get("targets", []):
+        lines.append(f"| {target.get('target')} | {target.get('current_adapter_summary')} |")
+    lines.extend([
+        "",
+        "## Questions Answered",
+        f"1. Docs entries incorrectly implying legacy support is current support: {answers.get('legacy_docs_imply_current_support')}",
+        f"2. Surgical legacy-handler ports: {answers.get('surgical_legacy_ports')}",
+        f"3. 3xx memory gap status: {answers.get('three_xx_memory_gap')}",
+        f"4. Implement 7xy before Amiga when corpus count is zero: {answers.get('seven_xy_before_amiga')}",
+        f"5. Pxy present: {answers.get('pxy_present')} (count {answers.get('pxy_count')}).",
+        f"6. Volume-column tone portamento count: {answers.get('volume_column_tone_portamento_count')}; justified: {answers.get('volume_column_tone_portamento_justified')}.",
+        f"7. R00 raw memory/deferred count: {answers.get('rxy_r00_count')}. Recommended next three PRs before Amiga:",
+    ])
+    for index, item in enumerate(answers.get("recommended_next_three_prs_before_amiga", []), start=1):
+        lines.append(f"   {index}. {item}.")
+    return "\n".join(lines) + "\n"
+
+
 def write_json(scan: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(scan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -927,8 +1363,12 @@ def write_json(scan: dict[str, Any], path: Path) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--label-map", type=Path, default=DEFAULT_LABEL_MAP)
+    parser.add_argument("--docs", type=Path, default=DEFAULT_DOCS)
+    parser.add_argument("--coverage-json", type=Path, help="Optional redacted C mixer effect coverage JSON to fold into triage")
     parser.add_argument("--json", type=Path, help="Write redacted JSON report")
     parser.add_argument("--markdown", type=Path, help="Write redacted Markdown report")
+    parser.add_argument("--triage-json", type=Path, help="Write redacted legacy-handler/C mixer gap triage JSON")
+    parser.add_argument("--triage-markdown", type=Path, help="Write redacted legacy-handler/C mixer gap triage Markdown")
     return parser.parse_args(argv)
 
 
@@ -941,7 +1381,15 @@ def main(argv: list[str] | None = None) -> int:
             write_json(scan, args.json)
         if args.markdown:
             args.markdown.write_text(markdown, encoding="utf-8")
+        if args.triage_json or args.triage_markdown:
+            triage = build_gap_triage(scan, args.docs, args.coverage_json)
+            if args.triage_json:
+                write_json(triage, args.triage_json)
+            if args.triage_markdown:
+                args.triage_markdown.write_text(build_gap_triage_markdown(triage), encoding="utf-8")
         if not args.json and not args.markdown:
+            if args.triage_json or args.triage_markdown:
+                return 0
             print(markdown, end="")
         return 0
     except XMResidualScanError as error:

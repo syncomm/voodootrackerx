@@ -3763,6 +3763,64 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Looped events: 0/1", markdown)
             self.assertIn("| 1 | 1 | 0 | 0 | 0 | 0/0/0 |", markdown)
 
+    def test_correlation_includes_smoothing_note_start_window_classification(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["volume_panning_state_updates"] = [
+            {
+                "source": {"order": 0, "pattern": 2, "row": 4},
+                "channel_index": 1,
+                "target_channel_index": 1,
+                "synthetic_row": 4,
+                "synthetic_tick": 2,
+                "scheduled_frame": 125,
+                "command_name": "axyVolumeSlide",
+                "command_label": "Axy volume slide",
+                "command_source": "effect_column",
+                "effect_type": 0x0A,
+                "effect_param": 0x04,
+                "status": "applied",
+                "active_event_index": 0,
+                "effective_volume_before": 64,
+                "effective_volume_after": 32,
+                "global_volume_before": 64,
+                "global_volume_after": 64,
+                "gain_before": 0.5,
+                "gain_after": 0.25,
+                "pan_before": -0.25,
+                "pan_after": 0.25,
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Smoothing / Note-Start Window Classification", markdown)
+            self.assertIn("quick fade-in: 5.0 ms = 5 frames at 1000 Hz", markdown)
+            self.assertIn("note-start 1/1, gain-update 1/1, pan-update 1/1", markdown)
+            self.assertIn(
+                "| 1 | 0.25000000 | 1 | 1 | 1 | 1 | 1/0/0/0/0 | 0 | 0 | "
+                "note-start-active, ordinary-gain-update-active, pan-update-active |",
+                markdown,
+            )
+            self.assertIn("gain one-tick 125-130 ch 1 Axy volume slide 0.50000000->0.25000000", markdown)
+
+    def test_correlation_smoothing_classification_reports_steady_state_window(self):
+        diagnostics = synthetic_diagnostics_json(event_start=40, event_end=180)
+        diagnostics["volume_column_mappings"] = []
+        comparison = synthetic_comparison_json(start_frame=100, end_frame=150)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, comparison=comparison, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Smoothing / Note-Start Window Classification", markdown)
+            self.assertIn("steady-state 1/1", markdown)
+            self.assertIn(
+                "| 1 | 0.25000000 | 0 | 0 | 0 | 0 | 0/0/0/0/0 | 0 | 0 | steady-state |",
+                markdown,
+            )
+
     def test_correlation_includes_gain_pan_voice_distribution_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             report = self.run_correlation(tmpdir)

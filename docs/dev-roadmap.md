@@ -335,6 +335,21 @@ documented centered full-volume contribution near `0.220971`. This profile is
 for reference comparison only; WAV export headroom/gain and runtime CoreAudio
 device safety remain separate policies.
 
+A diagnostics-only smoothing classification pass now records the current VTX
+versus ft2-clone ramp policy and maps `xm-corpus-025` FT2-profile top windows
+to note starts, ordinary gain updates, pan updates, volume-column and
+`Axy`/`EAx`/`EBx`/`Gxx`/`Hxy` gain-path updates, replacement ramps, and
+stop/cut events. VTX currently starts new notes immediately, ramps ordinary
+gain/pan changes for 32 frames, ramps outgoing replacement voices for 32 frames,
+and uses hard cuts/stops for note-cut/retrigger/transport stop paths. The
+inspected ft2-clone Linear path quick-fades note starts/replacements/stops over
+about 5 ms and smooths ordinary volume/pan changes over one tick. The current
+FT2-profile top 12 windows classify as note-start-active in 7, ordinary
+gain-update-active in 7, pan-update-active in 0, replacement-ramp-active in 3,
+and steady-state in 4. The strongest next parity target is a one-tick gain
+update smoothing experiment; note-start fade-in remains secondary and pan
+smoothing is not currently supported by the top-window evidence.
+
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,
@@ -709,6 +724,7 @@ Immediate audio accuracy sequence:
 99. Focused Dxx/Bxx/E6x traversal foundation — done
 100. Offline window same-channel voice replacement parity — done
 101. Residual effect classification / E0x deferral cleanup — recommended next effect PR
+102. Note-start fade-in / ordinary gain-pan smoothing diagnostics — done; next audio parity target: one-tick gain update smoothing experiment
 
 ---
 

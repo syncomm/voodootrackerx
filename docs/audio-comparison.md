@@ -225,6 +225,36 @@ runtime CoreAudio device safety gain. Float32 export preserves the resulting
 profile-scaled Float32 values; PCM16 export still clamps/encodes according to
 the existing WAV exporter behavior.
 
+A diagnostics-only note-start/gain-pan smoothing pass kept playback behavior
+unchanged and added worst-window classification to the local correlation report.
+Current VTX behavior is: new notes start immediately at their initial gain/pan
+with no fade-in; same-channel replacement keeps the outgoing voice alive for a
+fixed 32-frame gain-to-zero ramp while the new voice starts immediately; note
+cuts/retrigger cuts and true transport/global stops are hard stops; ordinary
+active-voice gain or pan changes use the fixed 32-frame C mixer micro-ramp.
+Volume-column set/slide/pan commands, tick-level nonzero `Axy`, row-level
+`EAx`/`EBx`, `Gxx`, and `Hxy` all feed the same active-voice gain/pan update
+path when they change audible state, while sample-step changes remain immediate
+at their scheduled frame.
+
+The inspected ft2-clone Linear profile instead uses linear per-sample volume
+ramping with a quick about-5 ms note-start/replacement/stop/reset fade and
+ordinary volume/panning changes ramped over one tick. On the current
+`xm-corpus-025` FT2-profile comparison, the top 12 full-mix residual windows
+classified as note-start-active in 7/12, ordinary-gain-update-active in 7/12,
+pan-update-active in 0/12, replacement-ramp-active in 3/12, stop/cut-active in
+0/12, and steady-state in 4/12. Window RMS correlation was weak and mixed:
+note-start about `-0.439`, ordinary gain update about `0.178`, replacement
+ramp about `-0.190`, and pan unavailable. The highest-ranked window was an
+ordinary `Axy` gain-update window without a note start or replacement ramp.
+Focused individual-track references for tracker channels 5-7 remain useful:
+channel 7 shows several top windows where the VTX solo render is silent while
+the ft2-clone individual-track reference is not, matching full-mix residual
+timing. This weakens pan smoothing and replacement ramp shape as primary
+targets. Recommended next PR: One-Tick Gain Update Smoothing Experiment, with
+Note-Start Fade-In Parity kept secondary if gain-update smoothing does not move
+the top windows.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

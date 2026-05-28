@@ -23,6 +23,7 @@ MAX_GAIN_PAN_EXAMPLES = 8
 MAX_SAMPLE_INSTRUMENT_EXAMPLES = 8
 MAX_LOOP_CROSSING_EXAMPLES = 8
 MAX_STEADY_STATE_LOOP_EXAMPLES = 8
+MAX_FULL_MIX_CONTRIBUTION_VOICES = 16
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -1336,6 +1337,164 @@ def build_sample_instrument_gain_summary(
     }
 
 
+def build_full_mix_contribution_summary(
+    comparison: dict[str, Any],
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    focus_sample: tuple[int, int] | None = None,
+    focus_channels: list[int] | None = None,
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    gain_updates = normalize_gain_pan_updates(diagnostics, rows)
+    replacement_ramps = normalize_replacement_ramp_signals(diagnostics)
+    key_off_events = normalize_key_off_events(diagnostics, rows)
+    key_offs_by_event = key_off_history_by_event(key_off_events, events)
+    note_cuts_by_event = note_cut_history_by_event(diagnostics)
+    retriggers_by_event = retrigger_history_by_event(diagnostics)
+    focus_channel_set = None if focus_channels is None else set(focus_channels)
+    window_summaries: list[dict[str, Any]] = []
+    focus_sample_counts: list[float] = []
+    focus_sample_contributions: list[float] = []
+    focus_voice_counts: list[float] = []
+    window_rms_diffs: list[float] = []
+    all_focus_age_items: list[dict[str, Any]] = []
+    all_focus_sample_age_items: list[dict[str, Any]] = []
+
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        probe_frame = int(window["_start_frame"]) + max(0, (int(window["_end_frame"]) - int(window["_start_frame"])) // 2)
+        signals = [
+            full_mix_contribution_voice_signal(
+                event,
+                window,
+                rows,
+                probe_frame,
+                gain_updates,
+                replacement_ramps,
+                key_offs_by_event,
+                note_cuts_by_event,
+                retriggers_by_event,
+            )
+            for event in active
+        ]
+        for signal in signals:
+            signal["focus_sample_match"] = signal_matches_focus_sample(signal, focus_sample)
+        focus_voice_signals = [
+            signal for signal in signals
+            if focus_channel_set is None or signal.get("channel_index") in focus_channel_set
+        ]
+        focus_sample_signals = [
+            signal for signal in signals
+            if signal_matches_focus_sample(signal, focus_sample)
+        ]
+        focus_sample_focus_channel_signals = [
+            signal for signal in focus_voice_signals
+            if signal_matches_focus_sample(signal, focus_sample)
+        ]
+        total_contribution = sum(number(signal.get("contribution_estimate")) or 0.0 for signal in signals)
+        focus_sample_contribution = sum(
+            number(signal.get("contribution_estimate")) or 0.0
+            for signal in focus_sample_signals
+        )
+        focus_channel_contribution = sum(
+            number(signal.get("contribution_estimate")) or 0.0
+            for signal in focus_voice_signals
+        )
+        focus_channels_for_window = (
+            focus_channels
+            if focus_channels is not None
+            else sorted(
+                channel for channel in {integer(signal.get("channel_index")) for signal in signals}
+                if channel is not None
+            )
+        )
+        channel_summaries = full_mix_channel_summaries(
+            focus_voice_signals,
+            focus_channels_for_window,
+            focus_sample,
+        )
+        same_channel_counts = [
+            integer(item.get("active_voice_count")) or 0
+            for item in channel_summaries
+        ]
+        focus_age_histogram = voice_age_histogram(focus_voice_signals)
+        focus_sample_age_histogram = voice_age_histogram(focus_sample_focus_channel_signals)
+        all_focus_age_items.extend(focus_voice_signals)
+        all_focus_sample_age_items.extend(focus_sample_focus_channel_signals)
+        rms_diff = number(window.get("rms_difference"))
+        if rms_diff is not None:
+            window_rms_diffs.append(rms_diff)
+            focus_voice_counts.append(float(len(focus_voice_signals)))
+            focus_sample_counts.append(float(len(focus_sample_signals)))
+            focus_sample_contributions.append(focus_sample_contribution)
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "start_frame": int(window["_start_frame"]),
+            "end_frame": int(window["_end_frame"]),
+            "probe_frame": probe_frame,
+            "active_voice_count": len(signals),
+            "focus_channel_voice_count": len(focus_voice_signals),
+            "focus_channel_audible_voice_count": audible_signal_count(focus_voice_signals),
+            "focus_sample_voice_count": len(focus_sample_signals),
+            "focus_sample_focus_channel_voice_count": len(focus_sample_focus_channel_signals),
+            "audible_focus_sample_voice_count": audible_signal_count(focus_sample_signals),
+            "audible_focus_sample_focus_channel_voice_count": audible_signal_count(focus_sample_focus_channel_signals),
+            "total_contribution_estimate": total_contribution,
+            "focus_channel_contribution_estimate": focus_channel_contribution,
+            "focus_sample_contribution_estimate": focus_sample_contribution,
+            "focus_sample_contribution_ratio": (
+                focus_sample_contribution / total_contribution
+                if total_contribution > 0.0
+                else None
+            ),
+            "same_channel_max_voice_count": max(same_channel_counts) if same_channel_counts else 0,
+            "same_channel_excess_voice_count": sum(max(0, count - 2) for count in same_channel_counts),
+            "older_than_one_row_count": sum(signal_age_exceeds_rows(signal, 1.0) for signal in focus_voice_signals),
+            "older_than_two_rows_count": sum(signal_age_exceeds_rows(signal, 2.0) for signal in focus_voice_signals),
+            "replacement_ramp_count": sum(integer(signal.get("replacement_ramp_count")) or 0 for signal in focus_voice_signals),
+            "gain_update_count": sum(integer(signal.get("gain_update_count")) or 0 for signal in focus_voice_signals),
+            "note_cut_count": sum(integer(signal.get("note_cut_count")) or 0 for signal in focus_voice_signals),
+            "key_off_event_count": sum(integer(signal.get("key_off_event_count")) or 0 for signal in focus_voice_signals),
+            "retrigger_history_count": sum(integer(signal.get("retrigger_history_count")) or 0 for signal in focus_voice_signals),
+            "focus_voice_age": numeric_distribution(focus_voice_signals, "age_rows"),
+            "focus_sample_voice_age": numeric_distribution(focus_sample_focus_channel_signals, "age_rows"),
+            "focus_voice_age_histogram": focus_age_histogram,
+            "focus_sample_voice_age_histogram": focus_sample_age_histogram,
+            "channel_summaries": channel_summaries,
+            "voice_details": sorted(
+                focus_voice_signals,
+                key=lambda item: (
+                    sort_int(item.get("channel_index")),
+                    0 if bool(item.get("focus_sample_match")) else 1,
+                    sort_int(item.get("event_index")),
+                ),
+            )[:MAX_FULL_MIX_CONTRIBUTION_VOICES],
+        })
+
+    return {
+        "focus_sample": focus_sample,
+        "focus_channels": focus_channels,
+        "windowed_render_aware": bool(render_windows),
+        "render_window_count": len(render_windows),
+        "contribution_policy": "final_gain^2 times active overlap frames; this is a level-weighted estimate, not isolated audio RMS",
+        "voice_lifetime_policy": "same-channel replacement completion frames are folded into normalized event end frames before contribution accounting",
+        "global_candidate_scalar_to_reference": comparison_global_gain_scalar(comparison),
+        "focus_voice_count_to_window_rms_correlation": pearson_correlation(focus_voice_counts, window_rms_diffs),
+        "focus_sample_count_to_window_rms_correlation": pearson_correlation(focus_sample_counts, window_rms_diffs),
+        "focus_sample_contribution_to_window_rms_correlation": pearson_correlation(focus_sample_contributions, window_rms_diffs),
+        "focus_voice_age": numeric_distribution(all_focus_age_items, "age_rows"),
+        "focus_sample_voice_age": numeric_distribution(all_focus_sample_age_items, "age_rows"),
+        "focus_voice_age_histogram": voice_age_histogram(all_focus_age_items),
+        "focus_sample_voice_age_histogram": voice_age_histogram(all_focus_sample_age_items),
+        "window_summaries": window_summaries,
+    }
+
+
 def build_loop_crossing_timbre_summary(
     diagnostics: dict[str, Any],
     windows: list[dict[str, Any]],
@@ -2138,6 +2297,343 @@ def dominant_instrument_sample_groups(
         sort_int(item.get("sample_index")),
     ))
     return result[:MAX_SAMPLE_INSTRUMENT_EXAMPLES]
+
+
+def full_mix_contribution_voice_signal(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    rows: list[dict[str, Any]],
+    probe_frame: int,
+    gain_updates: list[dict[str, Any]],
+    replacement_ramps: list[dict[str, Any]],
+    key_offs_by_event: dict[int, list[dict[str, Any]]],
+    note_cuts_by_event: dict[int, list[dict[str, Any]]],
+    retriggers_by_event: dict[int, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    gain_signal = sample_instrument_gain_signal(event, probe_frame)
+    start_frame = integer(event.get("_start_frame"))
+    if start_frame is None:
+        start_frame = integer(event.get("scheduled_start_frame")) or 0
+    end_frame = integer(event.get("_end_frame"))
+    if end_frame is None:
+        end_frame = integer(event.get("estimated_end_frame")) or start_frame + 1
+    effective_start = integer(event.get("_effective_start_frame"))
+    if effective_start is None:
+        effective_start = start_frame
+    effective_end = integer(event.get("_effective_end_frame"))
+    if effective_end is None:
+        effective_end = end_frame
+    window_start = int(window["_start_frame"])
+    window_end = int(window["_end_frame"])
+    overlap_start = max(effective_start, window_start)
+    overlap_end = min(effective_end, window_end)
+    overlap_frames = max(0, overlap_end - overlap_start)
+    final_gain = number(gain_signal.get("final_gain"))
+    contribution = 0.0 if final_gain is None else final_gain * final_gain * float(overlap_frames)
+    start_position = estimate_source_position(event, overlap_start)
+    mid_position = estimate_source_position(event, probe_frame)
+    end_position = estimate_source_position(event, overlap_end)
+    pitch = nested_dict(event.get("pitch"))
+    event_index = integer(event.get("event_index"))
+    key_state = voice_key_state(event, probe_frame)
+    replacement_state = voice_replacement_state(event, window, replacement_ramps)
+    key_off_history = key_offs_by_event.get(event_index, []) if event_index is not None else []
+    note_cut_history = note_cuts_by_event.get(event_index, []) if event_index is not None else []
+    retrigger_history = retriggers_by_event.get(event_index, []) if event_index is not None else []
+    age_frames = max(0, probe_frame - start_frame)
+    age_rows = estimate_voice_age_rows(event, rows, probe_frame, age_frames)
+    signal = {
+        **gain_signal,
+        "note": event.get("note"),
+        "source": nested_dict(event.get("source")),
+        "start_frame": start_frame,
+        "end_frame": end_frame,
+        "effective_start_frame": effective_start,
+        "effective_end_frame": effective_end,
+        "overlap_frames": overlap_frames,
+        "age_frames": age_frames,
+        "age_rows": age_rows,
+        "sample_frame_count": integer(event.get("sample_frame_count")),
+        "loop_mode": str(event.get("loop_mode") or "none"),
+        "loop_start_frame": integer(event.get("loop_start_frame")),
+        "loop_end_frame": integer(event.get("loop_end_frame")),
+        "loop_length_frames": integer(event.get("loop_length_frames")),
+        "playback_step": number(pitch.get("playback_step")),
+        "sample_relative_note": integer(pitch.get("sample_relative_note")),
+        "sample_finetune": integer(pitch.get("sample_finetune")),
+        "start_source_position": start_position.rendered_position,
+        "mid_source_position": mid_position.rendered_position,
+        "end_source_position": end_position.rendered_position,
+        "start_loop_phase": loop_phase_for_position(start_position.rendered_position, event),
+        "mid_loop_phase": loop_phase_for_position(mid_position.rendered_position, event),
+        "end_loop_phase": loop_phase_for_position(end_position.rendered_position, event),
+        "contribution_estimate": contribution,
+        "contribution_rms_proxy": math.sqrt(contribution / max(1, window_end - window_start)),
+        "gain_update_count": count_updates_for_event(gain_updates, event, window),
+        "replacement_role": replacement_state.get("role"),
+        "replacement_ramp_count": replacement_state.get("ramp_count"),
+        "replacement_overlap_frames": replacement_state.get("overlap_frames"),
+        "replacement_completion_frame": replacement_state.get("completion_frame"),
+        "key_state": key_state,
+        "key_on_at_probe": key_state.get("key_on_at_probe"),
+        "key_off_frame": key_state.get("key_off_frame"),
+        "note_cut_count": len(note_cut_history),
+        "key_off_event_count": len(key_off_history),
+        "retrigger_history_count": len(retrigger_history),
+        "note_cut_history": note_cut_history,
+        "key_off_history": key_off_history,
+        "retrigger_history": retrigger_history,
+        "focus_sample_match": False,
+    }
+    return signal
+
+
+def note_cut_history_by_event(diagnostics: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+    by_event: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for note_cut in nested_list(diagnostics.get("note_cut_effects")):
+        if not isinstance(note_cut, dict):
+            continue
+        event_index = integer(note_cut.get("active_event_index"))
+        if event_index is None:
+            continue
+        by_event[event_index].append({
+            "frame": integer(note_cut.get("scheduled_frame")) or integer(note_cut.get("absolute_frame")),
+            "status": note_cut_status(note_cut),
+            "source": nested_dict(note_cut.get("source")),
+            "channel_index": note_cut.get("channel_index"),
+        })
+    return dict(by_event)
+
+
+def key_off_history_by_event(
+    key_offs: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[int, list[dict[str, Any]]]:
+    by_event: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for key_off in key_offs:
+        frame = integer(key_off.get("frame"))
+        channel = key_off.get("channel_index")
+        if frame is None:
+            continue
+        for event in events:
+            event_index = integer(event.get("event_index"))
+            if event_index is None or event.get("channel_index") != channel:
+                continue
+            start_frame = integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0
+            end_frame = integer(event.get("_end_frame", event.get("estimated_end_frame"))) or start_frame + 1
+            if start_frame <= frame < end_frame:
+                by_event[event_index].append(key_off)
+    return dict(by_event)
+
+
+def retrigger_history_by_event(diagnostics: dict[str, Any]) -> dict[int, list[dict[str, Any]]]:
+    by_event: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for retrigger in nested_list(diagnostics.get("retrigger_effects")):
+        if not isinstance(retrigger, dict):
+            continue
+        frames = [
+            value for value in (integer(frame) for frame in nested_list(retrigger.get("retrigger_frames")))
+            if value is not None
+        ]
+        summary = {
+            "frames": frames,
+            "status": retrigger_status(retrigger),
+            "source": nested_dict(retrigger.get("source")),
+            "channel_index": retrigger.get("channel_index"),
+        }
+        for event_index in nested_list(retrigger.get("retrigger_event_indices")):
+            parsed = integer(event_index)
+            if parsed is not None:
+                by_event[parsed].append({**summary, "role": "created_by_retrigger"})
+        for event_index in nested_list(retrigger.get("replaced_event_indices")):
+            parsed = integer(event_index)
+            if parsed is not None:
+                by_event[parsed].append({**summary, "role": "replaced_by_retrigger"})
+        active_before = integer(retrigger.get("active_event_index_before"))
+        if active_before is not None:
+            by_event[active_before].append({**summary, "role": "active_before_retrigger"})
+    return dict(by_event)
+
+
+def voice_replacement_state(
+    event: dict[str, Any],
+    window: dict[str, Any],
+    replacement_ramps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event_index = integer(event.get("event_index"))
+    if event_index is None:
+        return {"role": "none", "ramp_count": 0, "overlap_frames": 0, "completion_frame": None}
+    roles: list[str] = []
+    overlap_frames = 0
+    completion_frame = None
+    for ramp in replacement_ramps:
+        ramp_start = integer(ramp.get("start_frame"))
+        ramp_end = integer(ramp.get("end_frame"))
+        if ramp_start is None or ramp_end is None:
+            continue
+        if not overlaps(ramp_start, ramp_end, int(window["_start_frame"]), int(window["_end_frame"])):
+            continue
+        role = None
+        if integer(ramp.get("old_event_index")) == event_index:
+            role = "old_voice_ramping_out"
+        elif integer(ramp.get("new_event_index")) == event_index:
+            role = "new_voice_replacement"
+        if role is None:
+            continue
+        roles.append(role)
+        overlap_frames += max(0, min(ramp_end, int(window["_end_frame"])) - max(ramp_start, int(window["_start_frame"])))
+        completion = integer(ramp.get("completion_frame"))
+        if completion is not None and (completion_frame is None or completion > completion_frame):
+            completion_frame = completion
+    return {
+        "role": "+".join(sorted(set(roles))) if roles else "none",
+        "ramp_count": len(roles),
+        "overlap_frames": overlap_frames,
+        "completion_frame": completion_frame,
+    }
+
+
+def voice_key_state(event: dict[str, Any], probe_frame: int) -> dict[str, Any]:
+    envelope = nested_dict(event.get("volume_envelope"))
+    if not envelope:
+        return {
+            "label": "envelope unavailable",
+            "envelope_enabled": None,
+            "key_on_at_probe": None,
+            "key_off_frame": None,
+        }
+    enabled = bool(envelope.get("enabled")) or str(envelope.get("status") or "") == "mapped"
+    key_off_frame = integer(envelope.get("key_off_frame"))
+    if key_off_frame is None:
+        key_off_frame = integer(envelope.get("release_frame"))
+    if key_off_frame is None:
+        key_on = bool(envelope.get("key_on_at_start", True))
+    else:
+        key_on = probe_frame < key_off_frame
+    if not enabled:
+        label = "envelope disabled"
+    elif key_on:
+        label = "key-on"
+    else:
+        label = "key-off/release"
+    return {
+        "label": label,
+        "envelope_enabled": enabled,
+        "key_on_at_probe": key_on,
+        "key_off_frame": key_off_frame,
+        "key_off_applied": bool(envelope.get("key_off_applied")),
+        "key_off_deferred": bool(envelope.get("key_off_deferred")),
+    }
+
+
+def estimate_voice_age_rows(
+    event: dict[str, Any],
+    rows: list[dict[str, Any]],
+    probe_frame: int,
+    age_frames: int,
+) -> float | None:
+    if not rows:
+        return None
+    row = row_for_frame(rows, probe_frame)
+    event_row = row_for_frame(rows, integer(event.get("_start_frame", event.get("scheduled_start_frame"))) or 0)
+    if row is not None and event_row is not None:
+        current_synthetic = number(row.get("synthetic_row"))
+        event_synthetic = number(event_row.get("synthetic_row"))
+        if current_synthetic is not None and event_synthetic is not None and current_synthetic != event_synthetic:
+            return max(0.0, current_synthetic - event_synthetic)
+    durations = [
+        max(1.0, float(row["_end_frame"] - row["_start_frame"]))
+        for row in rows
+        if "_start_frame" in row and "_end_frame" in row
+    ]
+    if not durations:
+        return None
+    return age_frames / (sum(durations) / len(durations))
+
+
+def row_for_frame(rows: list[dict[str, Any]], frame: int) -> dict[str, Any] | None:
+    for row in rows:
+        if int(row["_start_frame"]) <= frame < int(row["_end_frame"]):
+            return row
+    previous = None
+    for row in rows:
+        if int(row["_start_frame"]) <= frame:
+            previous = row
+        else:
+            break
+    return previous
+
+
+def signal_matches_focus_sample(signal: dict[str, Any], focus_sample: tuple[int, int] | None) -> bool:
+    if focus_sample is None:
+        return True
+    return (
+        integer(signal.get("instrument_index")) == focus_sample[0]
+        and integer(signal.get("sample_index")) == focus_sample[1]
+    )
+
+
+def full_mix_channel_summaries(
+    signals: list[dict[str, Any]],
+    channels: list[int],
+    focus_sample: tuple[int, int] | None,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for channel in channels:
+        channel_signals = [signal for signal in signals if integer(signal.get("channel_index")) == channel]
+        sample_signals = [signal for signal in channel_signals if signal_matches_focus_sample(signal, focus_sample)]
+        total_contribution = sum(number(signal.get("contribution_estimate")) or 0.0 for signal in channel_signals)
+        sample_contribution = sum(number(signal.get("contribution_estimate")) or 0.0 for signal in sample_signals)
+        result.append({
+            "channel_index": channel,
+            "tracker_channel": channel + 1,
+            "active_voice_count": len(channel_signals),
+            "audible_voice_count": audible_signal_count(channel_signals),
+            "focus_sample_voice_count": len(sample_signals),
+            "audible_focus_sample_voice_count": audible_signal_count(sample_signals),
+            "contribution_estimate": total_contribution,
+            "focus_sample_contribution_estimate": sample_contribution,
+            "focus_sample_contribution_ratio": (
+                sample_contribution / total_contribution
+                if total_contribution > 0.0
+                else None
+            ),
+            "max_age_frames": max((integer(signal.get("age_frames")) or 0 for signal in channel_signals), default=0),
+            "age_rows": numeric_distribution(channel_signals, "age_rows"),
+            "age_histogram": voice_age_histogram(channel_signals),
+            "replacement_ramp_count": sum(integer(signal.get("replacement_ramp_count")) or 0 for signal in channel_signals),
+            "source_rows": sorted({
+                source_label(nested_dict(signal.get("source")))
+                for signal in channel_signals
+            }),
+        })
+    return result
+
+
+def audible_signal_count(signals: list[dict[str, Any]]) -> int:
+    return sum(1 for signal in signals if (number(signal.get("final_gain")) or 0.0) > AUDIBLE_GAIN_EPSILON)
+
+
+def signal_age_exceeds_rows(signal: dict[str, Any], threshold: float) -> bool:
+    age = number(signal.get("age_rows"))
+    return age is not None and age > threshold
+
+
+def voice_age_histogram(signals: list[dict[str, Any]]) -> dict[str, int]:
+    histogram = {"lt_1_row": 0, "1_2_rows": 0, "2_4_rows": 0, "4_plus_rows": 0, "missing": 0}
+    for signal in signals:
+        age = number(signal.get("age_rows"))
+        if age is None:
+            histogram["missing"] += 1
+        elif age < 1.0:
+            histogram["lt_1_row"] += 1
+        elif age < 2.0:
+            histogram["1_2_rows"] += 1
+        elif age < 4.0:
+            histogram["2_4_rows"] += 1
+        else:
+            histogram["4_plus_rows"] += 1
+    return histogram
 
 
 def sample_instrument_group_label(item: dict[str, Any]) -> str:
@@ -2982,6 +3478,8 @@ def build_correlation_report(
     *,
     label: str | None = None,
     metadata: str | None = None,
+    focus_sample: tuple[int, int] | None = None,
+    focus_channels: list[int] | None = None,
 ) -> str:
     sample_rate = extract_sample_rate(comparison, diagnostics)
     windows = extract_windows(comparison, sample_rate)
@@ -3000,6 +3498,15 @@ def build_correlation_report(
     steady_state_loop_summary = build_steady_state_loop_summary(diagnostics, windows, events, rows)
     gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
     sample_instrument_gain_summary = build_sample_instrument_gain_summary(comparison, diagnostics, windows, events)
+    full_mix_contribution_summary = build_full_mix_contribution_summary(
+        comparison,
+        diagnostics,
+        windows,
+        events,
+        rows,
+        focus_sample=focus_sample,
+        focus_channels=focus_channels,
+    )
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
@@ -3051,6 +3558,7 @@ def build_correlation_report(
     append_steady_state_loop_summary(lines, steady_state_loop_summary)
     append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
     append_sample_instrument_gain_summary(lines, sample_instrument_gain_summary)
+    append_full_mix_contribution_summary(lines, full_mix_contribution_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
 
     lines.extend([
@@ -3643,6 +4151,111 @@ def append_sample_instrument_gain_summary(lines: list[str], summary: dict[str, A
         )
 
 
+def append_full_mix_contribution_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    focus_voice_age = nested_dict(summary.get("focus_voice_age"))
+    focus_sample_voice_age = nested_dict(summary.get("focus_sample_voice_age"))
+    lines.extend([
+        "",
+        "## Full-Mix Contribution / Voice Lifetime Evidence",
+        f"- Focus channels: {format_focus_channels(summary.get('focus_channels'))}",
+        f"- Focus instrument/sample: {format_focus_sample(summary.get('focus_sample'))}",
+        f"- Windowed render-aware active-voice estimate: {str(bool(summary.get('windowed_render_aware'))).lower()}",
+        f"- Render windows: {format_optional(summary.get('render_window_count'))}",
+        f"- Contribution policy: {format_optional(summary.get('contribution_policy'))}",
+        f"- Voice lifetime policy: {format_optional(summary.get('voice_lifetime_policy'))}",
+        f"- Whole-song candidate scalar to reference: {format_optional_float(summary.get('global_candidate_scalar_to_reference'))}",
+        "- Focus voice age rows: "
+        f"{format_distribution_range(focus_voice_age)}; histogram "
+        f"{format_voice_age_histogram(nested_dict(summary.get('focus_voice_age_histogram')))}",
+        "- Focus-sample voice age rows: "
+        f"{format_distribution_range(focus_sample_voice_age)}; histogram "
+        f"{format_voice_age_histogram(nested_dict(summary.get('focus_sample_voice_age_histogram')))}",
+        "- Window RMS correlations: "
+        f"focus voices {format_optional_float(summary.get('focus_voice_count_to_window_rms_correlation'))}, "
+        f"focus sample count {format_optional_float(summary.get('focus_sample_count_to_window_rms_correlation'))}, "
+        f"focus sample contribution {format_optional_float(summary.get('focus_sample_contribution_to_window_rms_correlation'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window full-mix contribution evidence: unavailable")
+        return
+
+    lines.extend([
+        "",
+        "| Window | Active Voices | Focus Ch Voices | Focus Sample Voices | Audible Focus Sample | Same-Ch Max/Excess | Older >1/>2 Rows | Focus Sample Ratio | Focus Age Rows | Channel Summaries |",
+        "| ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- | --- |",
+    ])
+    for item in window_summaries:
+        channel_summaries = "; ".join(
+            full_mix_channel_summary_label(channel)
+            for channel in nested_list(item.get("channel_summaries"))
+            if isinstance(channel, dict)
+        ) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional(item.get('focus_channel_voice_count'))}/"
+            f"{format_optional(item.get('focus_channel_audible_voice_count'))} | "
+            f"{format_optional(item.get('focus_sample_voice_count'))}/"
+            f"{format_optional(item.get('focus_sample_focus_channel_voice_count'))} | "
+            f"{format_optional(item.get('audible_focus_sample_voice_count'))}/"
+            f"{format_optional(item.get('audible_focus_sample_focus_channel_voice_count'))} | "
+            f"{format_optional(item.get('same_channel_max_voice_count'))}/"
+            f"{format_optional(item.get('same_channel_excess_voice_count'))} | "
+            f"{format_optional(item.get('older_than_one_row_count'))}/"
+            f"{format_optional(item.get('older_than_two_rows_count'))} | "
+            f"{format_optional_float(item.get('focus_sample_contribution_ratio'))} | "
+            f"{format_distribution_range(nested_dict(item.get('focus_voice_age')))} "
+            f"{format_voice_age_histogram(nested_dict(item.get('focus_voice_age_histogram')))} | "
+            f"{channel_summaries} |"
+        )
+
+    lines.extend([
+        "",
+        "### Focus Voice Details",
+        "",
+        "| Window | Channel | Event | Source Row | Inst/Sample | Sample Match | Age | Source Position | Loop Phase | Gain | Ch/Global Vol | Replacement | Key State | Cut/Off/Retrigger |",
+        "| ---: | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ])
+    detail_count = 0
+    for item in window_summaries:
+        for voice in nested_list(item.get("voice_details")):
+            if not isinstance(voice, dict):
+                continue
+            detail_count += 1
+            lines.append(
+                f"| {format_optional(item.get('rank'))} | "
+                f"{channel_display_label(voice.get('channel_index'))} | "
+                f"{format_optional(voice.get('event_index'))} | "
+                f"{source_label(nested_dict(voice.get('source')))} | "
+                f"{format_optional(voice.get('instrument_index'))}/"
+                f"{format_optional(voice.get('sample_index'))} | "
+                f"{str(bool(voice.get('focus_sample_match'))).lower()} | "
+                f"{format_optional(voice.get('age_frames'))} frames / "
+                f"{format_optional_float(voice.get('age_rows'))} rows | "
+                f"{format_position(number(voice.get('start_source_position')))}->"
+                f"{format_position(number(voice.get('mid_source_position')))}->"
+                f"{format_position(number(voice.get('end_source_position')))} | "
+                f"{format_optional_float(voice.get('start_loop_phase'))}->"
+                f"{format_optional_float(voice.get('mid_loop_phase'))}->"
+                f"{format_optional_float(voice.get('end_loop_phase'))} | "
+                f"{format_optional_float(voice.get('base_gain'))}->"
+                f"{format_optional_float(voice.get('final_gain'))} "
+                f"score {format_optional_float(voice.get('contribution_estimate'))} "
+                f"rms-proxy {format_optional_float(voice.get('contribution_rms_proxy'))} | "
+                f"{format_optional(voice.get('channel_volume'))}/"
+                f"{format_optional(voice.get('global_volume'))} | "
+                f"{replacement_label(voice)} | "
+                f"{key_state_label(nested_dict(voice.get('key_state')))} | "
+                f"{voice_history_label(voice)} |"
+            )
+    if detail_count == 0:
+        lines.append("| unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable | unavailable |")
+
+
 def append_alignment_summary(lines: list[str], summary: dict[str, Any]) -> None:
     lines.extend(["", "## Local Alignment Evidence"])
     if not bool(summary.get("enabled")):
@@ -4140,6 +4753,13 @@ def source_label(source: dict[str, Any]) -> str:
     )
 
 
+def channel_display_label(channel: Any) -> str:
+    parsed = integer(channel)
+    if parsed is None:
+        return "ch unavailable"
+    return f"ch {parsed} (tracker {parsed + 1})"
+
+
 def pitch_label(pitch: dict[str, Any]) -> str:
     if not pitch:
         return "unavailable"
@@ -4259,6 +4879,94 @@ def envelope_label(envelope: dict[str, Any]) -> str:
     )
 
 
+def full_mix_channel_summary_label(item: dict[str, Any]) -> str:
+    sources = ", ".join(str(source) for source in nested_list(item.get("source_rows"))) or "source unavailable"
+    return (
+        f"{channel_display_label(item.get('channel_index'))} "
+        f"voices/audible {format_optional(item.get('active_voice_count'))}/"
+        f"{format_optional(item.get('audible_voice_count'))} "
+        f"focus {format_optional(item.get('focus_sample_voice_count'))}/"
+        f"{format_optional(item.get('audible_focus_sample_voice_count'))} "
+        f"score {format_optional_float(item.get('contribution_estimate'))} "
+        f"focus-ratio {format_optional_float(item.get('focus_sample_contribution_ratio'))} "
+        f"max-age {format_optional(item.get('max_age_frames'))}f "
+        f"age {format_distribution_range(nested_dict(item.get('age_rows')))} "
+        f"{format_voice_age_histogram(nested_dict(item.get('age_histogram')))} "
+        f"ramps {format_optional(item.get('replacement_ramp_count'))} "
+        f"sources {sources}"
+    )
+
+
+def format_focus_sample(value: Any) -> str:
+    if value is None:
+        return "all instruments/samples"
+    if isinstance(value, tuple) and len(value) == 2:
+        return f"inst/sample {value[0]}/{value[1]}"
+    return format_optional(value)
+
+
+def format_focus_channels(value: Any) -> str:
+    if value is None:
+        return "all active channels"
+    if not isinstance(value, list):
+        return format_optional(value)
+    if not value:
+        return "none"
+    zero_based = ",".join(str(channel) for channel in value)
+    tracker = ",".join(str(channel + 1) for channel in value)
+    return f"zero-based {zero_based} (tracker {tracker})"
+
+
+def format_voice_age_histogram(histogram: dict[str, Any]) -> str:
+    if not histogram:
+        return "unavailable"
+    keys = ("lt_1_row", "1_2_rows", "2_4_rows", "4_plus_rows", "missing")
+    return ", ".join(f"{key}={int_or_zero(histogram.get(key))}" for key in keys)
+
+
+def replacement_label(voice: dict[str, Any]) -> str:
+    role = str(voice.get("replacement_role") or "none")
+    count = integer(voice.get("replacement_ramp_count")) or 0
+    overlap_frames = integer(voice.get("replacement_overlap_frames")) or 0
+    completion = voice.get("replacement_completion_frame")
+    if count == 0:
+        return "none"
+    return (
+        f"{role} ramps {count} overlap {overlap_frames}f "
+        f"completion {format_optional(completion)}"
+    )
+
+
+def key_state_label(state: dict[str, Any]) -> str:
+    if not state:
+        return "unavailable"
+    return (
+        f"{format_optional(state.get('label'))} "
+        f"enabled {format_optional(state.get('envelope_enabled'))} "
+        f"key-on {format_optional(state.get('key_on_at_probe'))} "
+        f"key-off-frame {format_optional(state.get('key_off_frame'))}"
+    )
+
+
+def voice_history_label(voice: dict[str, Any]) -> str:
+    retrigger_roles = Counter(
+        str(item.get("role") or "unknown")
+        for item in nested_list(voice.get("retrigger_history"))
+        if isinstance(item, dict)
+    )
+    retrigger_suffix = ""
+    if retrigger_roles:
+        retrigger_suffix = " " + ",".join(
+            f"{role}={count}" for role, count in sorted(retrigger_roles.items())
+        )
+    return (
+        f"cut {format_optional(voice.get('note_cut_count'))} / "
+        f"off {format_optional(voice.get('key_off_event_count'))} / "
+        f"retrigger {format_optional(voice.get('retrigger_history_count'))}"
+        f"{retrigger_suffix}"
+    )
+
+
 def format_order_end(render: dict[str, Any]) -> str:
     start = integer(render.get("requested_start_order_index"))
     count = integer(render.get("requested_order_count"))
@@ -4308,6 +5016,37 @@ def int_or_zero(value: Any) -> int:
     return parsed if parsed is not None else 0
 
 
+def parse_focus_sample(value: str) -> tuple[int, int]:
+    normalized = value.replace("/", ":")
+    parts = normalized.split(":")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("expected instrument/sample as I:S")
+    try:
+        instrument = int(parts[0], 10)
+        sample = int(parts[1], 10)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("instrument/sample must be decimal integers") from error
+    if instrument < 0 or sample < 0:
+        raise argparse.ArgumentTypeError("instrument/sample indices must be non-negative")
+    return instrument, sample
+
+
+def parse_focus_channels(value: str) -> list[int]:
+    result: list[int] = []
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        try:
+            channel = int(part, 10)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError("focus channels must be comma-separated decimal integers") from error
+        if channel < 0:
+            raise argparse.ArgumentTypeError("focus channels must be non-negative zero-based indices")
+        result.append(channel)
+    return sorted(set(result))
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -4320,6 +5059,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-markdown", required=True, type=Path, help="Local correlation Markdown report path")
     parser.add_argument("--label", help="Optional local run label")
     parser.add_argument("--metadata", help="Optional local render/reference notes")
+    parser.add_argument(
+        "--focus-sample",
+        type=parse_focus_sample,
+        help="Optional internal instrument/sample pair to focus contribution accounting on, formatted as I:S",
+    )
+    parser.add_argument(
+        "--focus-channels",
+        type=parse_focus_channels,
+        help="Optional comma-separated zero-based channel indices to detail, for example 4,5,6",
+    )
     return parser.parse_args(argv)
 
 
@@ -4333,6 +5082,8 @@ def main(argv: list[str]) -> int:
             diagnostics,
             label=args.label,
             metadata=args.metadata,
+            focus_sample=args.focus_sample,
+            focus_channels=args.focus_channels,
         )
     except CorrelationError as error:
         print(f"audio-correlation: {error}", file=sys.stderr)

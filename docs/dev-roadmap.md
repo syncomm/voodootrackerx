@@ -285,9 +285,23 @@ exported sample, with matching frame count, peak/RMS, forward loop, sample
 volume `64/64`, relative note `0`, and finetune `16`; its volume and panning
 envelopes are disabled. The current evidence does not prove ft2-clone stem
 attenuation, VTX solo isolation scaling, VTX PCM decode/scaling, sample volume
-normalization, or envelope application as the cause. The next precise parity
-target should be full-mix contribution/later render gain around the dominant
-channel group.
+normalization, or envelope application as the cause. The follow-up full-mix
+contribution pass kept behavior unchanged and added focused contribution and
+voice-age reporting to the audio correlation helper. Local `xm-corpus-025`
+windows around `75.5...75.6s`, `67.8...67.9s`, and `79.3...79.4s` have one
+audible dominant-sample voice on each of tracker channels 5, 6, and 7, no
+replacement ramps, no note-off/cut/retrigger history, disabled envelopes,
+pre-loop source positions, and no excess same-channel voices. The dominant
+sample accounts for about `93...98%` of the level-weighted contribution
+estimate, while VTX solo channels at diagnostic gain `0.25` still need
+candidate-to-reference scalars near `0.869`, `0.894`, and `0.879` against the
+corresponding ft2-clone individual-track references. These are diagnostic-gain
+scalars; equivalent no-gain VTX scalars are about `0.217`, `0.223`, and
+`0.220`. The current evidence does not prove a VTX voice-lifetime,
+replacement/release, note-off, PCM decode, sample metadata, or sample-volume
+bug. The next precise parity target should isolate ft2-clone/VTX
+individual-track versus full-mix contribution scaling, volume ramping, and
+final mix policy for the dominant channel group.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

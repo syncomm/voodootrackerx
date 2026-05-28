@@ -144,6 +144,28 @@ envelope application; the next precise parity PR should analyze full-mix
 contribution and later render/mix gain around the dominant channel group
 without assuming a PCM decode bug.
 
+A full-mix contribution diagnostics pass kept playback behavior unchanged and
+expanded `scripts/correlate-audio-comparison.py` with optional
+`--focus-sample I:S` and `--focus-channels N,N` filters. The focused
+`xm-corpus-025` report for internal instrument/sample `23/0` on zero-based
+channels `4,5,6` shows that requested windows around `75.5...75.6s`,
+`67.8...67.9s`, and `79.3...79.4s` have exactly one audible dominant-sample
+voice per focused channel, no replacement ramps, no note-off/cut/retrigger
+history, disabled envelopes, pre-loop source positions, and no excess
+same-channel voices. The dominant sample contributes about `93...98%` of the
+level-weighted full-mix estimate in those windows. At diagnostic gain `0.25`,
+VTX solo channels 5, 6, and 7 still compare louder than the corresponding
+ft2-clone individual-track references, with whole-channel candidate-to-reference
+scalars about `0.869`, `0.894`, and `0.879`. Because those comparisons use
+VTX's `--gain 0.25` export, the equivalent no-gain VTX scalars are about
+`0.217`, `0.223`, and `0.220`; the diagnostic-gain renders are only about
+`1.0...1.2 dB` louder than the ft2-clone track references, while the no-gain
+renders are about `13 dB` louder. The remaining evidence therefore does not
+prove a VTX voice-lifetime, note-off, replacement-ramp, PCM decode, or
+sample-metadata bug; the next precise parity work should isolate ft2-clone/VTX
+individual-track versus full-mix contribution scaling, volume ramping, and
+final mix policy for the dominant channel group.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

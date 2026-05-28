@@ -3849,6 +3849,102 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("sample-vol 0.25000000...0.25000000", markdown)
             self.assertNotIn("sample-vol 0.50000000...0.50000000", markdown)
 
+    def test_correlation_includes_full_mix_contribution_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, focus_sample="7:2", focus_channels="1")
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Full-Mix Contribution / Voice Lifetime Evidence", markdown)
+            self.assertIn("- Focus channels: zero-based 1 (tracker 2)", markdown)
+            self.assertIn("- Focus instrument/sample: inst/sample 7/2", markdown)
+            self.assertIn("Contribution policy: final_gain^2 times active overlap frames", markdown)
+            self.assertIn("| 1 | 1 | 1/1 | 1/1 | 1/1 | 1/0 | 0/0 | 1.00000000 |", markdown)
+            self.assertIn("ch 1 (tracker 2) voices/audible 1/1 focus 1/1", markdown)
+            self.assertIn("| 1 | ch 1 (tracker 2) | 0 | order 0 pattern 2 row 4 | 7/2 | true | 15 frames / 0.25000000 rows |", markdown)
+            self.assertIn("0.50000000->0.35625000", markdown)
+            self.assertIn("64/64", markdown)
+            self.assertIn("key-off/release enabled True key-on False key-off-frame 120", markdown)
+
+    def test_correlation_full_mix_voice_age_histogram_counts_old_voices(self):
+        diagnostics = synthetic_diagnostics_json(event_start=40, event_end=180)
+        comparison = synthetic_comparison_json(start_frame=100, end_frame=150)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(
+                tmpdir,
+                comparison=comparison,
+                diagnostics=diagnostics,
+                focus_sample="7:2",
+                focus_channels="1",
+            )
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("1_2_rows=1", markdown)
+            self.assertIn("| 1 | 1 | 1/1 | 1/1 | 1/1 | 1/0 | 1/0 | 1.00000000 |", markdown)
+            self.assertIn("85 frames / 1.41666667 rows", markdown)
+
+    def test_correlation_full_mix_dominant_sample_contribution_ratio(self):
+        diagnostics = synthetic_diagnostics_json(event_start=110, event_end=145)
+        other_voice = dict(diagnostics["events"][0])
+        other_voice.update({
+            "event_index": 1,
+            "channel_index": 2,
+            "instrument_index": 8,
+            "sample_index": 1,
+            "gain": 0.25,
+            "sample_volume": 0.25,
+            "sample_volume_raw_estimate": 16,
+            "gain_construction": {
+                "sample_volume_normalized": 0.25,
+                "sample_volume_raw_estimate": 16,
+                "channel_volume_value": 64,
+                "channel_volume_multiplier": 1.0,
+                "global_volume_value": 64,
+                "global_volume_multiplier": 1.0,
+                "base_gain": 0.25,
+            },
+        })
+        diagnostics["events"].append(other_voice)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(
+                tmpdir,
+                diagnostics=diagnostics,
+                focus_sample="7:2",
+                focus_channels="1",
+            )
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| 1 | 2 | 1/1 | 1/1 | 1/1 | 1/0 | 0/0 | 0.80000000 |", markdown)
+            self.assertIn("ch 1 (tracker 2) voices/audible 1/1 focus 1/1", markdown)
+            self.assertIn("| 1 | ch 1 (tracker 2) | 0 | order 0 pattern 2 row 4 | 7/2 | true |", markdown)
+
+    def test_correlation_full_mix_contribution_handles_missing_optional_fields(self):
+        diagnostics = synthetic_diagnostics_json()
+        for field in (
+            "sample_volume",
+            "sample_volume_raw_estimate",
+            "effective_volume_value",
+            "effective_global_volume_value",
+            "gain_construction",
+            "pitch",
+            "volume_envelope",
+            "loop_mode",
+            "loop_start_frame",
+            "loop_end_frame",
+            "loop_length_frames",
+        ):
+            diagnostics["events"][0].pop(field)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics, focus_sample="7:2", focus_channels="1")
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Full-Mix Contribution / Voice Lifetime Evidence", markdown)
+            self.assertIn("source unavailable", markdown)
+            self.assertIn("unavailable->unavailable->unavailable", markdown)
+            self.assertIn("envelope unavailable enabled unavailable key-on unavailable key-off-frame unavailable", markdown)
+
     def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
         diagnostics = synthetic_diagnostics_json()
         diagnostics["arpeggio_effects"] = [
@@ -4586,7 +4682,16 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("sample_comparison.worst_windows", result.stderr)
 
-    def run_correlation(self, tmpdir, comparison=None, diagnostics=None, label=None, metadata=None):
+    def run_correlation(
+        self,
+        tmpdir,
+        comparison=None,
+        diagnostics=None,
+        label=None,
+        metadata=None,
+        focus_sample=None,
+        focus_channels=None,
+    ):
         tmpdir_path = Path(tmpdir)
         comparison_path = tmpdir_path / "comparison.json"
         diagnostics_path = tmpdir_path / "diagnostics.json"
@@ -4610,6 +4715,10 @@ class AudioCorrelationTests(unittest.TestCase):
             command.extend(["--label", label])
         if metadata is not None:
             command.extend(["--metadata", metadata])
+        if focus_sample is not None:
+            command.extend(["--focus-sample", focus_sample])
+        if focus_channels is not None:
+            command.extend(["--focus-channels", focus_channels])
 
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)

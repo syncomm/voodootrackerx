@@ -79,12 +79,28 @@
 		K00000000000000000000014 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000015 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
 		K00000000000000000000016 /* RuntimeCMixerAdapterEventPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */; };
+		K00000000000000000000017 /* PlaybackSongAdapter+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */; };
+		K00000000000000000000018 /* PlaybackSongAdapter+PitchEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */; };
+		K00000000000000000000019 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
+		K0000000000000000000001A /* PlaybackSongAdapter+SampleEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */; };
+		K0000000000000000000001B /* PlaybackSongAdapter+Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */; };
+		K0000000000000000000001C /* PlaybackSongAdapter+Traversal.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */; };
+		K0000000000000000000001D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */; };
+		K0000000000000000000001E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */; };
 		K00000000000000000000031 /* PlaybackModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000021 /* PlaybackModel.swift */; };
 		K00000000000000000000032 /* PlaybackSongAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000022 /* PlaybackSongAdapter.swift */; };
 		K00000000000000000000033 /* PlaybackSongDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000023 /* PlaybackSongDiagnostics.swift */; };
 		K00000000000000000000034 /* PlaybackSongOfflineRender.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000024 /* PlaybackSongOfflineRender.swift */; };
 		K00000000000000000000035 /* PlaybackVolumeColumnDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */; };
 		K00000000000000000000036 /* RuntimeCMixerAdapterEventPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000026 /* RuntimeCMixerAdapterEventPlan.swift */; };
+		K00000000000000000000037 /* PlaybackSongAdapter+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */; };
+		K00000000000000000000038 /* PlaybackSongAdapter+PitchEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */; };
+		K00000000000000000000039 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */; };
+		K0000000000000000000003A /* PlaybackSongAdapter+SampleEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */; };
+		K0000000000000000000003B /* PlaybackSongAdapter+Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */; };
+		K0000000000000000000003C /* PlaybackSongAdapter+Traversal.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */; };
+		K0000000000000000000003D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */; };
+		K0000000000000000000003E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -141,6 +157,14 @@
 		A00000000000000000000042 /* VoodooTrackerXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoodooTrackerXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		K00000000000000000000021 /* PlaybackModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackModel.swift; sourceTree = "<group>"; };
 		K00000000000000000000022 /* PlaybackSongAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongAdapter.swift; sourceTree = "<group>"; };
+		K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+Diagnostics.swift"; sourceTree = "<group>"; };
+		K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+PitchEffects.swift"; sourceTree = "<group>"; };
+		K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+RuntimeEvents.swift"; sourceTree = "<group>"; };
+		K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+SampleEffects.swift"; sourceTree = "<group>"; };
+		K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+Timing.swift"; sourceTree = "<group>"; };
+		K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+Traversal.swift"; sourceTree = "<group>"; };
+		K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+VolumeColumn.swift"; sourceTree = "<group>"; };
+		K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PlaybackSongAdapter+VolumeEffects.swift"; sourceTree = "<group>"; };
 		K00000000000000000000023 /* PlaybackSongDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongDiagnostics.swift; sourceTree = "<group>"; };
 		K00000000000000000000024 /* PlaybackSongOfflineRender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSongOfflineRender.swift; sourceTree = "<group>"; };
 		K00000000000000000000025 /* PlaybackVolumeColumnDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackVolumeColumnDecoder.swift; sourceTree = "<group>"; };
@@ -197,6 +221,14 @@
 				A00000000000000000000038 /* PlaybackEngine.swift */,
 				K00000000000000000000021 /* PlaybackModel.swift */,
 				K00000000000000000000022 /* PlaybackSongAdapter.swift */,
+				K00000000000000000000027 /* PlaybackSongAdapter+Diagnostics.swift */,
+				K00000000000000000000028 /* PlaybackSongAdapter+PitchEffects.swift */,
+				K00000000000000000000029 /* PlaybackSongAdapter+RuntimeEvents.swift */,
+				K0000000000000000000002A /* PlaybackSongAdapter+SampleEffects.swift */,
+				K0000000000000000000002B /* PlaybackSongAdapter+Timing.swift */,
+				K0000000000000000000002C /* PlaybackSongAdapter+Traversal.swift */,
+				K0000000000000000000002D /* PlaybackSongAdapter+VolumeColumn.swift */,
+				K0000000000000000000002E /* PlaybackSongAdapter+VolumeEffects.swift */,
 				A0000000000000000000003C /* PlaybackSongBuilder.swift */,
 				K00000000000000000000023 /* PlaybackSongDiagnostics.swift */,
 				K00000000000000000000024 /* PlaybackSongOfflineRender.swift */,
@@ -387,6 +419,14 @@
 				A00000000000000000000035 /* PlaybackEngine.swift in Sources */,
 				K00000000000000000000011 /* PlaybackModel.swift in Sources */,
 				K00000000000000000000012 /* PlaybackSongAdapter.swift in Sources */,
+				K00000000000000000000017 /* PlaybackSongAdapter+Diagnostics.swift in Sources */,
+				K00000000000000000000018 /* PlaybackSongAdapter+PitchEffects.swift in Sources */,
+				K00000000000000000000019 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */,
+				K0000000000000000000001A /* PlaybackSongAdapter+SampleEffects.swift in Sources */,
+				K0000000000000000000001B /* PlaybackSongAdapter+Timing.swift in Sources */,
+				K0000000000000000000001C /* PlaybackSongAdapter+Traversal.swift in Sources */,
+				K0000000000000000000001D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */,
+				K0000000000000000000001E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */,
 				A0000000000000000000003A /* PlaybackSongBuilder.swift in Sources */,
 				K00000000000000000000013 /* PlaybackSongDiagnostics.swift in Sources */,
 				K00000000000000000000014 /* PlaybackSongOfflineRender.swift in Sources */,
@@ -429,6 +469,14 @@
 				A00000000000000000000049 /* PlaybackEngine.swift in Sources */,
 				K00000000000000000000031 /* PlaybackModel.swift in Sources */,
 				K00000000000000000000032 /* PlaybackSongAdapter.swift in Sources */,
+				K00000000000000000000037 /* PlaybackSongAdapter+Diagnostics.swift in Sources */,
+				K00000000000000000000038 /* PlaybackSongAdapter+PitchEffects.swift in Sources */,
+				K00000000000000000000039 /* PlaybackSongAdapter+RuntimeEvents.swift in Sources */,
+				K0000000000000000000003A /* PlaybackSongAdapter+SampleEffects.swift in Sources */,
+				K0000000000000000000003B /* PlaybackSongAdapter+Timing.swift in Sources */,
+				K0000000000000000000003C /* PlaybackSongAdapter+Traversal.swift in Sources */,
+				K0000000000000000000003D /* PlaybackSongAdapter+VolumeColumn.swift in Sources */,
+				K0000000000000000000003E /* PlaybackSongAdapter+VolumeEffects.swift in Sources */,
 				K00000000000000000000033 /* PlaybackSongDiagnostics.swift in Sources */,
 				K00000000000000000000034 /* PlaybackSongOfflineRender.swift in Sources */,
 				A0000000000000000000003F /* PlaybackTiming.swift in Sources */,

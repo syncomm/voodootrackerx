@@ -63,11 +63,16 @@ external tracker feature completeness.
 | `Kxx` | Key off | Supported / first-pass | Not applicable | Yes | Yes | Schedules the existing key-off/release path; `K00` releases at row start. |
 | `Lxx` | Set envelope position | Deferred | Deferred | No | No | Envelope position setting is a separate future foundation. |
 | `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
-| `Rxy` | Multi retrigger | Deferred | Deferred | No | No | Retrigger volume-change behavior is intentionally separate from `E9x`. |
+| `Rxy` | Multi retrigger | Supported / first-pass | `R00` deferred/no-op | Yes | Yes | Reuses the retrigger scheduler for active voices and applies a common-XM volume-change table with channel volume clamped to `0...64`. |
 | `Txy` | Tremor | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
 | `X1x` / `X2x` | Extra fine portamento | Deferred / XM compatibility extension | Deferred | No | No | FT2/MilkyTracker-style extension, distinct from OpenMPT / ModPlug hack families. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug compatibility commands | Not targeted for v1 | Not targeted | No | No | Extension and hack families stay out of v1 unless a later compatibility target justifies them. |
 | `Vxx`, `Wxx` | High-byte unknowns in current diagnostics | Classification-only | Not applicable | No | No | Kept visible as unsupported diagnostics; no playback behavior is inferred. |
+
+`Rxy` volume mode handling is first-pass common XM behavior: modes `1...5`
+subtract `1, 2, 4, 8, 16`, modes `6...7` scale by `2/3` and `1/2`, mode `8`
+is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
+`3/2` and `2`. The result is clamped to the XM channel-volume range `0...64`.
 
 ## Volume Column Commands
 
@@ -96,7 +101,7 @@ external tracker feature completeness.
 
 - `E0x` filter toggle.
 - Amiga frequency-table pitch behavior.
-- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, `Rxy`, and
+- `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, and
   `Txy` in the default C mixer adapter path.
 - OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by
   a future compatibility decision.

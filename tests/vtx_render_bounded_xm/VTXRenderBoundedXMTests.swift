@@ -1903,6 +1903,112 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(first["envelope_policy"] as? String, "fresh_event_restarts_envelope")
     }
 
+    func testDiagnosticsJSONIncludesRxyMultiRetriggerDetails() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x1B, effectParam: 0xA2)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 6
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let retriggers = try XCTUnwrap(object["retrigger_effects"] as? [[String: Any]])
+        let first = try XCTUnwrap(retriggers.first)
+        let firstCoordinates = try XCTUnwrap(render["first_rxy_coordinates"] as? [[String: Any]])
+
+        XCTAssertEqual(render["rxy_multi_retrigger_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_detected_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_applied_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_no_op_effect_memory_deferred_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_out_of_row_no_op_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_scheduled_retrigger_count"] as? Int, 2)
+        XCTAssertEqual(render["rxy_multi_retrigger_volume_change_count"] as? Int, 2)
+        XCTAssertEqual(firstCoordinates.first?["effect_param"] as? Int, 0xA2)
+        XCTAssertEqual(firstCoordinates.first?["volume_mode_nibble"] as? Int, 10)
+        XCTAssertEqual(firstCoordinates.first?["interval_nibble"] as? Int, 2)
+        XCTAssertEqual(first["effect_type"] as? Int, 0x1B)
+        XCTAssertEqual(first["effect_label"] as? String, "Rxy multi retrigger")
+        XCTAssertEqual(first["status"] as? String, "applied")
+        XCTAssertEqual(first["volume_mode_nibble"] as? Int, 10)
+        XCTAssertEqual(first["interval_nibble"] as? Int, 2)
+        XCTAssertEqual(first["volume_change_policy"] as? String, "xm_common_multi_retrigger_volume_table_first_pass")
+        XCTAssertEqual(first["volume_values_before"] as? [Int], [32, 34])
+        XCTAssertEqual(first["volume_values_after"] as? [Int], [34, 36])
+        XCTAssertEqual(first["volume_change_count"] as? Int, 2)
+        XCTAssertEqual(first["retrigger_count"] as? Int, 2)
+        XCTAssertEqual(first["scheduled_retrigger_frames"] as? [Int], [2, 4])
+    }
+
+    func testDiagnosticsJSONReportsRxyOutOfRowNoOpSeparately() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [1, 0.5, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 100
+        )
+        let row = PlaybackRow(index: 0, cells: [
+            PlaybackCell(note: 49, instrument: 1, volumeColumn: 0x30, effectType: 0x1B, effectParam: 0x42)
+        ])
+        let song = PlaybackSong(
+            title: "diagnostics",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 2)],
+            patternsByIndex: [2: PlaybackPattern(index: 2, rows: [row])],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd,
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+        let result = PlaybackSongOfflineRenderer().render(PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 2
+        ))
+
+        let object = PlaybackSongDiagnosticsJSONExporter.jsonObject(from: result)
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+        let retriggers = try XCTUnwrap(object["retrigger_effects"] as? [[String: Any]])
+        let first = try XCTUnwrap(retriggers.first)
+
+        XCTAssertEqual(render["rxy_multi_retrigger_effect_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_detected_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_applied_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_no_active_voice_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_no_op_effect_memory_deferred_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_out_of_row_no_op_count"] as? Int, 1)
+        XCTAssertEqual(render["rxy_multi_retrigger_scheduled_retrigger_count"] as? Int, 0)
+        XCTAssertEqual(render["rxy_multi_retrigger_volume_change_count"] as? Int, 0)
+        XCTAssertEqual(first["status"] as? String, "out_of_row_no_op")
+        XCTAssertEqual(first["volume_mode_nibble"] as? Int, 4)
+        XCTAssertEqual(first["interval_nibble"] as? Int, 2)
+    }
+
     func testDiagnosticsJSONReportsCMixerVoiceCapacityRejections() throws {
         let sample = PlaybackSample(
             instrumentIndex: 1,

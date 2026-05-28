@@ -20,8 +20,24 @@ extension PlaybackSongSyntheticAdapter {
         extendedEffectSubcommand(cell) == 0x0D
     }
 
-    static func isRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+    static func isE9xRetriggerEffect(_ cell: PlaybackCell) -> Bool {
         extendedEffectSubcommand(cell) == 0x09
+    }
+
+    static func isRxyMultiRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x1B
+    }
+
+    static func isRetriggerEffect(_ cell: PlaybackCell) -> Bool {
+        isE9xRetriggerEffect(cell) || isRxyMultiRetriggerEffect(cell)
+    }
+
+    static func retriggerVolumeModeNibble(from cell: PlaybackCell) -> Int {
+        isRxyMultiRetriggerEffect(cell) ? Int((cell.effectParam & 0xF0) >> 4) : 0
+    }
+
+    static func retriggerIntervalNibble(from cell: PlaybackCell) -> Int {
+        isRxyMultiRetriggerEffect(cell) ? Int(cell.effectParam & 0x0F) : extendedEffectTick(cell)
     }
 
     static func isSetFinetuneEffect(_ cell: PlaybackCell) -> Bool {
@@ -305,7 +321,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00:
             return cell.effectParam != 0
-        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11:
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x1B:
             return true
         default:
             return false
@@ -343,8 +359,14 @@ extension PlaybackSongSyntheticAdapter {
             return .applied
         case 0x11:
             return cell.effectParam == 0 ? .ignoredNoOp : .applied
+        case 0x1B:
+            let interval = retriggerIntervalNibble(from: cell)
+            guard interval > 0 else {
+                return .ignoredNoOp
+            }
+            return interval < timingConfig.speed ? .applied : .ignoredNoOp
         case 0x0E where isRetriggerEffect(cell):
-            let interval = extendedEffectTick(cell)
+            let interval = retriggerIntervalNibble(from: cell)
             guard interval > 0 else {
                 return .ignoredNoOp
             }
@@ -427,6 +449,8 @@ extension PlaybackSongSyntheticAdapter {
             return "Hxy global volume slide"
         case 0x14:
             return "Kxx key off"
+        case 0x1B:
+            return "Rxy multi retrigger"
         default:
             return "unknown/unsupported"
         }
@@ -567,7 +591,7 @@ extension PlaybackSongSyntheticAdapter {
     }
 
     static func isSupportedRetriggerEffect(_ cell: PlaybackCell) -> Bool {
-        isRetriggerEffect(cell) && extendedEffectTick(cell) > 0
+        isRetriggerEffect(cell) && retriggerIntervalNibble(from: cell) > 0
     }
 
     static func isGlobalVolumeSlideEffect(_ cell: PlaybackCell) -> Bool {

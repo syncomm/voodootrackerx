@@ -246,6 +246,30 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(gainUpdates.map(\.scheduledFrame), [9, 10, 11])
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsRxyMultiRetriggerMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x1B, effectParam: 0xA2),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let rxyTriggers = plan.events.filter {
+            $0.categories.contains("note_trigger") &&
+                $0.categories.contains("rxy_multi_retrigger")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("rxy_multi_retrigger"))
+        XCTAssertEqual(rxyTriggers.map(\.syntheticTick), [0, 2, 4])
+        XCTAssertTrue(rxyTriggers.allSatisfy { $0.categories.contains("retrigger") })
+        XCTAssertTrue(rxyTriggers.allSatisfy { $0.effectType == 0x1B })
+        XCTAssertTrue(rxyTriggers.allSatisfy { $0.effectParam == 0xA2 })
+    }
+
     func testRuntimeCMixerAdapterEventPlanIncludesVibrato4xyStepUpdates() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

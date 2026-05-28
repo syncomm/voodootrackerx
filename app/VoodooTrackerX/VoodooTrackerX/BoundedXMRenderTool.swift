@@ -1273,7 +1273,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     }
 
     private static func retriggerCoverageJSON(_ diagnostic: PlaybackSongSyntheticRetriggerDiagnostic) -> [String: Any] {
-        baseEffectCoverageJSON(
+        var object = baseEffectCoverageJSON(
             source: diagnostic.source,
             channelIndex: diagnostic.channelIndex,
             syntheticTick: diagnostic.syntheticTick,
@@ -1284,6 +1284,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
             deferred: diagnostic.deferred,
             ignoredAsNoOp: diagnostic.ignoredAsNoOp
         )
+        object["volume_mode_nibble"] = diagnostic.volumeModeNibble
+        object["interval_nibble"] = diagnostic.intervalNibble
+        object["retrigger_count"] = diagnostic.retriggerEventIndices.count
+        object["scheduled_retrigger_frames"] = diagnostic.retriggerFrames
+        object["volume_change_count"] = diagnostic.volumeChangeCount
+        return object
     }
 
     private static func arpeggioCoverageJSON(_ diagnostic: PlaybackSongSyntheticArpeggioDiagnostic) -> [String: Any] {
@@ -1597,6 +1603,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let gainPanUpdateCount = changedVoiceStateUpdateCount(diagnostics.voiceStateUpdates)
         let gainPanInterruptedRampCount = interruptedRampCount(diagnostics.voiceStateUpdates)
         let kxxKeyOffEvents = diagnostics.keyOffEvents.filter { $0.effectType == 0x14 }
+        let rxyRetriggerEffects = diagnostics.retriggerEffects.filter { $0.effectType == 0x1B }
+        let rxyAppliedCount = rxyRetriggerEffects.filter(\.applied).count
+        let rxyNoActiveVoiceCount = rxyRetriggerEffects.filter { $0.status == .noActiveVoice }.count
+        let rxyNoOpEffectMemoryDeferredCount = rxyRetriggerEffects.filter { $0.status == .ignoredRxyZeroIntervalNoEffectMemory }.count
+        let rxyOutOfRowNoOpCount = rxyRetriggerEffects.filter(\.outOfRow).count
+        let rxyVolumeChangeCount = rxyRetriggerEffects.map(\.volumeChangeCount).reduce(0, +)
+        let rxyScheduledRetriggerCount = rxyRetriggerEffects.map(\.retriggerEventIndices.count).reduce(0, +)
         let first5xyCoordinates = Array(tonePortamento5xyEffects.prefix(5)).map { diagnostic -> [String: Any] in
             [
                 "source": positionJSON(diagnostic.source),
@@ -1605,6 +1618,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "synthetic_tick": diagnostic.syntheticTick,
                 "status": tonePortamentoStatusName(diagnostic.status),
                 "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
+        let firstRxyCoordinates = Array(rxyRetriggerEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "effect_type": Int(diagnostic.effectType),
+                "effect_param": Int(diagnostic.effectParam),
+                "effect_label": PlaybackSongSyntheticAdapter.effectCommandLabel(
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
+                ),
+                "status": retriggerStatusName(diagnostic.status),
+                "volume_mode_nibble": diagnostic.volumeModeNibble,
+                "interval_nibble": diagnostic.intervalNibble,
+                "scheduled_retrigger_frames": diagnostic.retriggerFrames,
+                "volume_change_count": diagnostic.volumeChangeCount,
             ]
         }
         let firstKxxKeyOffCoordinates = Array(kxxKeyOffEvents.prefix(5)).map { diagnostic -> [String: Any] in
@@ -1629,6 +1661,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 9xx sample offset is applied only in bounded offline adapter renders; 900 reuses prior nonzero 9xx per-channel memory when available and remains diagnosed as effect-memory-deferred/no-op when unavailable.",
             "Minimal ECx note cut and EDx note delay are applied only in bounded offline adapter renders.",
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
+            "Minimal Rxy multi retrigger is first-pass common-XM behavior in the shared runtime/offline C mixer adapter path; R00 effect memory remains deferred/no-op.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
             "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento remains deferred.",
             "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
@@ -1730,6 +1763,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "note_cut_effect_count": diagnostics.noteCutEffectCount,
                 "note_delay_effect_count": diagnostics.noteDelayEffectCount,
                 "retrigger_effect_count": diagnostics.retriggerEffectCount,
+                "rxy_multi_retrigger_effect_count": rxyRetriggerEffects.count,
+                "rxy_multi_retrigger_detected_count": rxyRetriggerEffects.count,
+                "rxy_multi_retrigger_applied_count": rxyAppliedCount,
+                "rxy_multi_retrigger_no_active_voice_count": rxyNoActiveVoiceCount,
+                "rxy_multi_retrigger_no_op_effect_memory_deferred_count": rxyNoOpEffectMemoryDeferredCount,
+                "rxy_multi_retrigger_out_of_row_no_op_count": rxyOutOfRowNoOpCount,
+                "rxy_multi_retrigger_scheduled_retrigger_count": rxyScheduledRetriggerCount,
+                "rxy_multi_retrigger_volume_change_count": rxyVolumeChangeCount,
+                "first_rxy_coordinates": firstRxyCoordinates,
                 "arpeggio_0xy_effect_count": diagnostics.arpeggioEffectCount,
                 "arpeggio_0xy_detected_count": diagnostics.arpeggioEffectCount,
                 "arpeggio_0xy_applied_count": arpeggioAppliedCount,
@@ -3972,7 +4014,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
+            "effect_label": PlaybackSongSyntheticAdapter.effectCommandLabel(effectType: diagnostic.effectType, effectParam: diagnostic.effectParam),
+            "decoded_label": PlaybackSongSyntheticAdapter.effectCommandLabel(effectType: diagnostic.effectType, effectParam: diagnostic.effectParam),
             "status": retriggerStatusName(diagnostic.status),
+            "current_status": retriggerStatusName(diagnostic.status),
             "detected": diagnostic.detected,
             "applied": diagnostic.applied,
             "deferred": diagnostic.deferred,
@@ -3981,11 +4026,20 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_voice_found": diagnostic.activeVoiceFound,
             "active_sample_found": diagnostic.activeVoiceFound,
             "retrigger_interval_ticks": diagnostic.retriggerIntervalTicks,
+            "interval_nibble": diagnostic.intervalNibble,
+            "volume_mode_nibble": diagnostic.volumeModeNibble,
+            "volume_change_policy": diagnostic.volumeChangePolicy.map { $0 as Any } ?? NSNull(),
+            "volume_change_count": diagnostic.volumeChangeCount,
+            "volume_values_before": diagnostic.volumeValuesBefore,
+            "volume_values_after": diagnostic.volumeValuesAfter,
+            "retrigger_gains": diagnostic.retriggerGains,
             "row_speed": diagnostic.rowSpeed,
             "row_bpm": diagnostic.rowBPM,
             "retrigger_ticks": diagnostic.retriggerTicks,
             "retrigger_frames": diagnostic.retriggerFrames,
             "generated_retrigger_frames": diagnostic.retriggerFrames,
+            "scheduled_retrigger_frames": diagnostic.retriggerFrames,
+            "retrigger_count": diagnostic.retriggerEventIndices.count,
             "retrigger_event_indices": diagnostic.retriggerEventIndices,
             "replaced_event_indices": diagnostic.replacedEventIndices,
             "active_event_index_before": diagnostic.activeEventIndexBefore.map { $0 as Any } ?? NSNull(),
@@ -4608,6 +4662,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "applied"
         case .ignoredE90NoEffectMemory:
             return "ignored_e90_no_effect_memory"
+        case .ignoredRxyZeroIntervalNoEffectMemory:
+            return "ignored_rxy_zero_interval_no_effect_memory"
         case .noActiveVoice:
             return "no_active_voice"
         case .outOfRowNoOp:
@@ -5187,15 +5243,22 @@ private func appendEventCoverageSummary(
     let appliedDelays = result.diagnostics.noteDelayEffects.filter(\.applied).count
     let deferredDelays = result.diagnostics.noteDelayEffects.filter(\.deferred).count
     let outOfRowDelays = result.diagnostics.noteDelayEffects.filter(\.outOfRow).count
-    let appliedRetriggers = result.diagnostics.retriggerEffects.filter(\.applied).count
-    let deferredRetriggers = result.diagnostics.retriggerEffects.filter(\.deferred).count
-    let noActiveRetriggers = result.diagnostics.retriggerEffects.filter { $0.status == .noActiveVoice }.count
-    let outOfRowRetriggers = result.diagnostics.retriggerEffects.filter(\.outOfRow).count
+    let e9xRetriggers = result.diagnostics.retriggerEffects.filter { $0.effectType == 0x0E }
+    let appliedRetriggers = e9xRetriggers.filter(\.applied).count
+    let deferredRetriggers = e9xRetriggers.filter(\.deferred).count
+    let noActiveRetriggers = e9xRetriggers.filter { $0.status == .noActiveVoice }.count
+    let outOfRowRetriggers = e9xRetriggers.filter(\.outOfRow).count
     lines.append(
         "Note cut/delay: ECx \(appliedCuts) applied, \(deferredCuts) deferred, \(noActiveCuts) no-active; EDx \(appliedDelays) applied, \(deferredDelays) deferred, \(outOfRowDelays) out-of-row."
     )
     lines.append(
         "Retrigger: E9x \(appliedRetriggers) applied, \(deferredRetriggers) deferred, \(noActiveRetriggers) no-active, \(outOfRowRetriggers) out-of-row/no-op."
+    )
+    let rxyRetriggers = result.diagnostics.retriggerEffects.filter { $0.effectType == 0x1B }
+    let rxyDeferredNoOp = rxyRetriggers.filter(\.deferred).count
+    let rxyOutOfRowNoOp = rxyRetriggers.filter(\.outOfRow).count
+    lines.append(
+        "Multi retrigger Rxy: \(rxyRetriggers.filter(\.applied).count) applied, \(rxyDeferredNoOp) deferred/no-op, \(rxyRetriggers.filter { $0.status == .noActiveVoice }.count) no-active, \(rxyOutOfRowNoOp) out-of-row/no-op, \(rxyRetriggers.map(\.volumeChangeCount).reduce(0, +)) volume changes."
     )
     lines.append(
         "Arpeggio 0xy: \(result.diagnostics.arpeggioEffects.filter(\.applied).count) applied, \(result.diagnostics.arpeggioEffects.filter(\.deferred).count) deferred, \(result.diagnostics.arpeggioEffects.filter { $0.status == .noActiveVoice }.count) no-active, \(result.diagnostics.arpeggioEffects.map(\.stepUpdates.count).reduce(0, +)) sample-step updates."

@@ -894,6 +894,7 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
         case ignoredE90NoEffectMemory
+        case ignoredRxyZeroIntervalNoEffectMemory
         case noActiveVoice
         case outOfRowNoOp
     }
@@ -918,6 +919,13 @@ struct PlaybackSongSyntheticRetriggerDiagnostic: Equatable {
     let retriggerFrames: [Int]
     let retriggerEventIndices: [Int]
     let replacedEventIndices: [Int]
+    let volumeModeNibble: Int
+    let intervalNibble: Int
+    let volumeChangePolicy: String?
+    let volumeChangeCount: Int
+    let volumeValuesBefore: [Int]
+    let volumeValuesAfter: [Int]
+    let retriggerGains: [Float]
     let activeEventIndexBefore: Int?
     let selectedSampleIndex: Int?
     let selectedSampleLength: Int?

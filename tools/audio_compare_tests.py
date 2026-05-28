@@ -524,24 +524,40 @@ def note_delay_effect(status="applied", row=4, channel=2, tick=2, original_frame
     }
 
 
-def retrigger_effect(status="applied", row=4, channel=1, interval=2, frames=None):
+def retrigger_effect(
+    status="applied",
+    row=4,
+    channel=1,
+    interval=2,
+    frames=None,
+    effect_type=0x0E,
+    effect_param=None,
+):
     frames = [112, 114] if frames is None else frames
+    if effect_param is None:
+        effect_param = 0x90 | interval if effect_type == 0x0E else interval
+    volume_mode = (effect_param >> 4) & 0x0F if effect_type == 0x1B else 0
     return {
         "source": {"order": 0, "pattern": 2, "row": row},
         "channel_index": channel,
         "synthetic_row": row,
         "synthetic_tick": 0,
-        "effect_type": 0x0E,
-        "effect_param": 0x90 | interval,
+        "effect_type": effect_type,
+        "effect_param": effect_param,
         "status": status,
+        "current_status": status,
         "detected": True,
         "applied": status == "applied",
-        "deferred": status == "ignored_e90_no_effect_memory",
+        "deferred": status in {"ignored_e90_no_effect_memory", "ignored_rxy_zero_interval_no_effect_memory"},
         "ignored_as_no_op": status != "applied",
         "out_of_row": status == "out_of_row_no_op",
         "active_voice_found": status != "no_active_voice",
         "active_sample_found": status != "no_active_voice",
         "retrigger_interval_ticks": interval,
+        "volume_mode_nibble": volume_mode,
+        "interval_nibble": interval,
+        "volume_change_count": len(frames) if status == "applied" and effect_type == 0x1B and volume_mode not in {0, 8} else 0,
+        "scheduled_retrigger_frames": frames if status == "applied" else [],
         "row_speed": 6,
         "row_bpm": 125,
         "retrigger_ticks": [interval, interval * 2] if status == "applied" else [],
@@ -2106,6 +2122,36 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["Kxx key off"]["applied_count"], 1)
         self.assertEqual(rows["Kxx key off"]["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(rows["Kxx key off"]["first_coordinates"][0]["tick"], 1)
+
+    def test_effect_coverage_summary_counts_rxy_retrigger_events_as_effect_column(self):
+        diagnostics = {
+            "retrigger_effects": [
+                retrigger_effect(effect_type=0x1B, effect_param=0xA2, channel=1, interval=2, frames=[112, 114]),
+                retrigger_effect(status="no_active_voice", effect_type=0x1B, effect_param=0xA2, channel=2, interval=2),
+                retrigger_effect(
+                    status="ignored_rxy_zero_interval_no_effect_memory",
+                    effect_type=0x1B,
+                    effect_param=0xA0,
+                    channel=3,
+                    interval=0,
+                    frames=[],
+                ),
+            ],
+        }
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+        row = rows["Rxy multi retrigger"]
+
+        self.assertEqual(row["detected_count"], 3)
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["unsupported_count"], 0)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 2)
+        self.assertEqual(row["first_effect_type_hex"], "1B")
+        self.assertEqual(row["first_effect_param_hex"], "A2")
+        self.assertEqual(row["reason_counts"]["ignored_rxy_zero_interval_no_effect_memory"], 1)
+        self.assertEqual(summary["unresolved_breakdown"]["no_active_voice"][0]["command"], "Rxy multi retrigger")
 
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {
@@ -4509,6 +4555,23 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- E9x retriggers: 1", markdown)
             self.assertIn("### Applied effect commands in worst windows", markdown)
             self.assertIn("| E9x retrigger | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
+
+    def test_correlation_report_counts_applied_rxy_multi_retrigger_in_worst_windows(self):
+        diagnostics = synthetic_diagnostics_json()
+        diagnostics["retrigger_effects"] = [
+            retrigger_effect(effect_type=0x1B, effect_param=0xA2, channel=1, interval=2, frames=[112, 114])
+        ]
+        diagnostics["pattern_traversal_timing_effects"] = [
+            traversal_effect(0x1B, 0xA2, "Rxy multi retrigger", channel=1, status="applied"),
+        ]
+        diagnostics["traversal_hazard_summary"] = traversal_summary(diagnostics["pattern_traversal_timing_effects"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("### Applied effect commands in worst windows", markdown)
+            self.assertIn("| Rxy multi retrigger | applied | 1 | 1 | order 0 pattern 2 row 4 ch 1 |", markdown)
 
     def test_correlation_report_counts_applied_9xx_separately_from_deferred_900_no_op(self):
         diagnostics = synthetic_diagnostics_json()

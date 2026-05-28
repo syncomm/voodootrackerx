@@ -43,6 +43,29 @@ PITCH_RECOMMENDATIONS = {
     "EBx fine volume slide down": "Minimal EAx/EBx Fine Volume Slide",
 }
 
+HIGH_EFFECT_COMMAND_LETTERS = {
+    0x10: "G",
+    0x11: "H",
+    0x12: "I",
+    0x13: "J",
+    0x14: "K",
+    0x15: "L",
+    0x16: "M",
+    0x17: "N",
+    0x18: "O",
+    0x19: "P",
+    0x1A: "Q",
+    0x1B: "R",
+    0x1C: "S",
+    0x1D: "T",
+    0x1E: "U",
+    0x1F: "V",
+    0x20: "W",
+    0x21: "X",
+    0x22: "Y",
+    0x23: "Z",
+}
+
 PORTAMENTO_MEMORY_COMMANDS = {
     "1xx portamento up",
     "2xx portamento down",
@@ -343,10 +366,21 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "Gxx set global volume"
     if effect_type == 0x11:
         return "Hxy global volume slide"
+    if effect_type == 0x14:
+        return "Kxx key off"
+    if effect_type == 0x15:
+        return "Lxx set envelope position"
     if effect_type == 0x19:
         return "Pxy panning slide"
+    if effect_type == 0x1B:
+        return "Rxy multi retrigger"
+    if effect_type == 0x1D:
+        return "Txy tremor"
     if effect_type == 0x21:
         return "Xxy extra fine portamento"
+    command_letter = HIGH_EFFECT_COMMAND_LETTERS.get(effect_type)
+    if command_letter is not None:
+        return f"{command_letter}xx unknown/unsupported"
     return f"{effect_type:02X}xx unknown/unsupported"
 
 
@@ -766,8 +800,10 @@ def effect_family(command: str, command_source: str) -> str:
         return "panning_slide"
     if command.startswith(("Gxx", "Hxy")):
         return "global_volume_global_slide"
-    if command.startswith(("E9x", "ECx", "EDx")):
+    if command.startswith(("E9x", "ECx", "EDx", "Kxx", "Rxy")):
         return "note_cut_delay_retrigger"
+    if command.startswith("Lxx"):
+        return "volume_envelope"
     if command.startswith(("Bxx", "Dxx", "EEx")) or "pattern loop" in command:
         return "pattern_break_jump_delay"
     if "sample offset" in command:
@@ -819,6 +855,14 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
         return "Minimal Pxy Panning Slide"
     if command.startswith("Gxx"):
         return "Minimal Gxx Global Volume"
+    if command.startswith("Kxx"):
+        return "Minimal Kxx Key-Off Effect"
+    if command.startswith("Lxx"):
+        return "Minimal Lxx Set Envelope Position"
+    if command.startswith("Rxy"):
+        return "Minimal Rxy Multi-Retrigger"
+    if command.startswith("Txy"):
+        return "Minimal Txy Tremor"
     if command.startswith(("Bxx", "Dxx", "EEx")):
         return "Pattern Delay / Break / Jump Runtime Parity Follow-Up"
     if command == "note off / key off":

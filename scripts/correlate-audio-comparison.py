@@ -46,6 +46,7 @@ PITCH_LABEL_TO_CATEGORY = {
     "5xy tone portamento + volume slide": "portamento",
     "tone portamento": "portamento",
     "E2x fine portamento down": "portamento",
+    "Xxy extra fine portamento": "portamento",
     "volume-column tone portamento": "portamento",
     "4xy vibrato": "vibrato",
     "6xy vibrato + volume slide": "vibrato",
@@ -66,6 +67,28 @@ PITCH_CATEGORY_RECOMMENDATIONS = {
     "portamento": "Minimal Portamento Foundation",
     "vibrato": "Minimal Vibrato Foundation",
     "tremolo": "Minimal Tremolo 7xy",
+}
+HIGH_EFFECT_COMMAND_LETTERS = {
+    0x10: "G",
+    0x11: "H",
+    0x12: "I",
+    0x13: "J",
+    0x14: "K",
+    0x15: "L",
+    0x16: "M",
+    0x17: "N",
+    0x18: "O",
+    0x19: "P",
+    0x1A: "Q",
+    0x1B: "R",
+    0x1C: "S",
+    0x1D: "T",
+    0x1E: "U",
+    0x1F: "V",
+    0x20: "W",
+    0x21: "X",
+    0x22: "Y",
+    0x23: "Z",
 }
 
 
@@ -397,6 +420,21 @@ def effect_command_label(effect_type_value: Any, effect_param_value: Any) -> str
         return "Gxx set global volume"
     if effect_type == 0x11:
         return "Hxy global volume slide"
+    if effect_type == 0x14:
+        return "Kxx key off"
+    if effect_type == 0x15:
+        return "Lxx set envelope position"
+    if effect_type == 0x19:
+        return "Pxy panning slide"
+    if effect_type == 0x1B:
+        return "Rxy multi retrigger"
+    if effect_type == 0x1D:
+        return "Txy tremor"
+    if effect_type == 0x21:
+        return "Xxy extra fine portamento"
+    command_letter = HIGH_EFFECT_COMMAND_LETTERS.get(effect_type)
+    if command_letter is not None:
+        return f"{command_letter}xx unknown/unsupported"
     return "unknown/unsupported"
 
 

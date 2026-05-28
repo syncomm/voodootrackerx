@@ -768,6 +768,13 @@ offline-render responsibilities separate.
 - Verification: synthetic Swift and Python tests cover the new diagnostics and microfixtures. Local private-module WAV/JSON/Markdown artifacts stayed under `/tmp` and out of git.
 - Status: diagnostics/tooling only. This PR does not solve the remaining `xm-corpus-025` mismatch and does not claim a direct parity improvement. Recommended next implementation PR: C Mixer Cubic/FT2-Compatible Resampler Experiment if matching ft2-clone's configured interpolation target is desired; otherwise investigate replacement ramp shape or sample/instrument volume normalization as secondary alternatives.
 
+### PR 2.7.11bk — ft2-clone Linear vs SINC8 Reference Comparison
+- Scope: local-only diagnostics comparison for `xm-corpus-025` using VTX current default linear render, ft2-clone linear reference, and ft2-clone SINC8/default reference. No playback behavior changes, no C mixer DSP changes, no SINC8 or cubic implementation, no XM effect work, no runtime backend changes, no tracker viewport changes, and no parser changes.
+- Findings: VTX linear is closer to ft2-clone linear than to ft2-clone SINC8/default, but only modestly. VTX-vs-ft2-linear correlation was about `0.927530` with gain-normalized RMS `0.038170`; VTX-vs-ft2-SINC8/default correlation was about `0.922506` with gain-normalized RMS `0.039823`. The ft2-clone linear and SINC8/default references differed with correlation about `0.998729`, raw RMS `0.005280`, gain-normalized RMS `0.005200`, and zero best local shift in top windows, so ft2-clone default is not equivalent to a linear renderer. The reference-mode delta is still far smaller than the remaining VTX mismatch.
+- Change: public-safe docs record the anonymized comparison outcome and preserve generated WAV/JSON/Markdown reports as local `/tmp` artifacts only.
+- Verification: `python3 -m unittest tools/audio_compare_tests.py`, `./scripts/check-files.sh`, `git diff --check`, and the repository privacy scan. Private/local modules, reference WAVs, generated WAVs, JSON, and Markdown reports stayed under `/tmp` or their existing local source locations and out of git.
+- Status: diagnostics-only. Do not carry cubic experiment code from this evidence. Recommended next PR: focused resampler-window analysis or a separate SINC8 candidate experiment; keep linear renderer parity and sample/instrument volume normalization as follow-up alternatives if VTX remains far from ft2-clone linear in focused windows.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

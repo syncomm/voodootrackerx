@@ -550,6 +550,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "portamento_slide_effects",
         "fine_portamento_up_effects",
         "fine_portamento_down_effects",
+        "xxy_extra_fine_portamento_effects",
         "vibrato_control_effects",
         "vibrato_effects",
     ):
@@ -608,6 +609,7 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         "portamento_slide_effects",
         "fine_portamento_up_effects",
         "fine_portamento_down_effects",
+        "xxy_extra_fine_portamento_effects",
         "vibrato_control_effects",
         "vibrato_effects",
     ):
@@ -871,8 +873,13 @@ def effect_memory_priority_for_command(command: str) -> str:
 
 
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
-    unresolved = counters["unsupported_count"] + counters["no_op_effect_memory_deferred_count"]
-    if unresolved <= 0:
+    effect_memory_no_ops = sum(
+        count for reason, count in dict(reason_counts or {}).items()
+        if any(marker in str(reason).lower() for marker in EFFECT_MEMORY_STATUS_MARKERS)
+    )
+    if counters["unsupported_count"] <= 0 and effect_memory_no_ops <= 0:
+        if counters["no_op_effect_memory_deferred_count"] > 0:
+            return "observed no-op/low"
         return "covered/low"
     if command in LIMITED_USEFULNESS_COMMANDS:
         return "deferred/limited"

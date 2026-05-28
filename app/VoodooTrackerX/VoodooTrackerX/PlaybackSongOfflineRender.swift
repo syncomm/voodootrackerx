@@ -180,7 +180,7 @@ struct PlaybackSongWindowedRenderSummary: Equatable {
     static let firstRejectingWindowLimit = 10
     static let stateCarryoverLimitations = [
         "Windowed offline renders now carry practical active voice state across fresh C mixer windows.",
-        "Carryover is computed from the bounded adapter plan and includes sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, and active 0xy/1xx/2xx/3xx/4xy sample-step state.",
+        "Carryover is computed from the bounded adapter plan and includes sample position, forward/ping-pong loop state, envelope position, key-off/release, fadeout, gain, pan, and active 0xy/1xx/2xx/3xx/4xy/Xxy sample-step state.",
         "Unsupported/deferred XM effects and full FT2/OpenMPT parity remain out of scope, so effect-driven continuity can still be approximate.",
     ]
 
@@ -422,6 +422,12 @@ final class PlaybackSongOfflineRenderSession {
         )
         PlaybackSongOfflineRenderer.scheduleFinePortamentoDownStepUpdates(
             adaptedPlan.diagnostics.finePortamentoDownEffects,
+            voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
+            on: preparedMixer,
+            includedEventIndices: includedEventIndices
+        )
+        PlaybackSongOfflineRenderer.scheduleExtraFinePortamentoStepUpdates(
+            adaptedPlan.diagnostics.extraFinePortamentoEffects,
             voiceIndexByEventIndex: Self.voiceIndexByEventIndex(from: voiceIndices),
             on: preparedMixer,
             includedEventIndices: includedEventIndices
@@ -674,6 +680,14 @@ final class PlaybackSongOfflineRenderer {
             )
             Self.scheduleFinePortamentoDownStepUpdates(
                 adaptedPlan.diagnostics.finePortamentoDownEffects,
+                voiceIndexByEventIndex: voiceIndexByEventIndex,
+                on: mixer,
+                windowStartFrame: spec.startFrame,
+                windowEndFrame: spec.endFrame,
+                includedEventIndices: includedEventIndices
+            )
+            Self.scheduleExtraFinePortamentoStepUpdates(
+                adaptedPlan.diagnostics.extraFinePortamentoEffects,
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -960,6 +974,37 @@ final class PlaybackSongOfflineRenderer {
 
     fileprivate static func scheduleFinePortamentoDownStepUpdates(
         _ diagnostics: [PlaybackSongSyntheticFinePortamentoDownDiagnostic],
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int = 0,
+        windowEndFrame: Int? = nil,
+        includedEventIndices: Set<Int>? = nil
+    ) {
+        for diagnostic in diagnostics where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  includesEvent(activeEventIndex, includedEventIndices: includedEventIndices),
+                  let voiceIndex = voiceIndexByEventIndex[activeEventIndex] else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                guard update.scheduledFrame >= windowStartFrame else {
+                    continue
+                }
+                if let windowEndFrame,
+                   update.scheduledFrame >= windowEndFrame {
+                    continue
+                }
+                _ = mixer.scheduleVoicePlaybackStepUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: update.scheduledFrame - windowStartFrame,
+                    playbackStep: update.playbackStepAfter
+                )
+            }
+        }
+    }
+
+    fileprivate static func scheduleExtraFinePortamentoStepUpdates(
+        _ diagnostics: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic],
         voiceIndexByEventIndex: [Int: Int],
         on mixer: CSoftwareMixer,
         windowStartFrame: Int = 0,
@@ -1534,13 +1579,16 @@ final class PlaybackSongOfflineRenderer {
         let finePortamentoDownUpdates = plan.diagnostics.finePortamentoDownEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
+        let extraFinePortamentoUpdates = plan.diagnostics.extraFinePortamentoEffects
+            .filter { $0.applied && $0.activeEventIndex == eventIndex }
+            .flatMap(\.stepUpdates)
         let arpeggioUpdates = plan.diagnostics.arpeggioEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
         let vibratoUpdates = plan.diagnostics.vibratoEffects
             .filter { $0.applied && $0.activeEventIndex == eventIndex }
             .flatMap(\.stepUpdates)
-        return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + arpeggioUpdates + vibratoUpdates)
+        return (toneUpdates + slideUpdates + finePortamentoUpUpdates + finePortamentoDownUpdates + extraFinePortamentoUpdates + arpeggioUpdates + vibratoUpdates)
             .sorted { lhs, rhs in
                 if lhs.scheduledFrame != rhs.scheduledFrame {
                     return lhs.scheduledFrame < rhs.scheduledFrame

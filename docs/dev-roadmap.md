@@ -89,7 +89,12 @@ Minimal `E1x` fine portamento up and `E2x` fine portamento down now use the
 same runtime/offline linear-frequency sample-step update path for one
 deterministic row-level pitch adjustment. Same-cell notes fold the adjustment
 into the note's initial playback step, no-note rows update the active voice at
-row start, and `E10`/`E20` remain effect-memory-deferred no-ops. Minimal `4xy`
+row start, and `E10`/`E20` remain effect-memory-deferred no-ops. Minimal `X1x`
+and `X2x` extra fine portamento now apply the same first-pass linear-period
+row-level adjustment through the shared runtime/offline C mixer adapter path;
+same-cell notes fold into the initial sample step, active no-note rows schedule
+row-start sample-step updates, `X10`/`X20` remain memory-deferred no-ops, and
+other `X` subcommands remain unsupported diagnostics. Minimal `4xy`
 vibrato now uses the same linear-frequency sample-step update foundation in the
 runtime/offline C mixer adapter path, with deterministic row-tick modulation
 diagnostics for speed/depth, E4x-selected sine/ramp/square/deterministic-random
@@ -125,8 +130,9 @@ memory is now implemented in the shared runtime/offline adapter path, including
 path. The same scan found 166 linear `Xxy` rows, 25 `Lxx` rows with envelope
 evidence, no `7xy`/`E7x`, no volume-column vibrato-speed/depth rows, 5
 volume-column tone-portamento rows, and kept Amiga `2xx`/`3xx` pitch behavior
-in a separate foundation bucket. The next residual effect target should be a
-separate `Xxy` extra-fine portamento investigation/foundation PR.
+in a separate foundation bucket. The `Xxy` bucket now has a minimal linear-table
+foundation; the remaining smaller linear effect target is `Lxx`, with Amiga
+frequency-table behavior still separate.
 Fractional
 C-backed offline sample steps now have microfixture coverage for deterministic
 linear interpolation, double-precision sample positions/steps, safe no-loop
@@ -749,7 +755,8 @@ Immediate audio accuracy sequence:
 102. Note-start fade-in / ordinary gain-pan smoothing diagnostics — done; next audio parity target: one-tick gain update smoothing experiment
 103. Minimal Rxy Multi Retrigger — done
 104. Expanded Corpus Residual Effect Memory / Volume Column Scan — diagnostics-only; follow-up Axy volume-slide memory foundation done
-105. Axy Volume-Slide Memory Foundation — done; next residual effect target: Xxy extra-fine portamento investigation/foundation
+105. Axy Volume-Slide Memory Foundation — done
+106. Minimal Xxy Extra Fine Portamento — done; next residual effect target: Lxx envelope-position foundation
 
 ---
 
@@ -884,6 +891,11 @@ Features:
   linear-period/sample-step adjustment in the runtime/offline C mixer adapter
   path, with same-cell note folding, no-active-voice diagnostics, `E10` effect
   memory deferred, and no broad E-command memory
+- minimal `X1x`/`X2x` extra fine portamento support through one row-level
+  linear-period/sample-step adjustment in the runtime/offline C mixer adapter
+  path, with same-cell note folding, no-active-voice diagnostics, `X10`/`X20`
+  effect memory deferred, unsupported-subcommand diagnostics for other `X`
+  commands, and no Amiga frequency-table behavior
 - minimal `4xy` vibrato support through deterministic linear-period
   sample-step updates in the runtime/offline C mixer adapter path, with `400`
   and single-zero nibbles replaying available per-channel vibrato memory and

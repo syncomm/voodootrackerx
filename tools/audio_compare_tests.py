@@ -1800,6 +1800,120 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["0xy arpeggio"]["unsupported_count"], 0)
         self.assertEqual(rows["0xy arpeggio"]["recommended_implementation_priority"], "covered/low")
 
+    def test_effect_coverage_summary_counts_xxy_extra_fine_portamento(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x21, 0x1F, "Xxy extra fine portamento", row=1, status="applied"),
+                traversal_effect(0x21, 0x20, "Xxy extra fine portamento", row=2, status="ignored/no-op"),
+                traversal_effect(0x21, 0x31, "Xxy extra fine portamento", row=3),
+            ],
+            "xxy_extra_fine_portamento_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 1},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x21,
+                    "effect_param": 0x1F,
+                    "status": "applied",
+                    "current_status": "applied",
+                    "detected": True,
+                    "applied": True,
+                    "deferred": False,
+                    "ignored_as_no_op": False,
+                    "direction": "up",
+                    "amount": 15,
+                },
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 2},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x21,
+                    "effect_param": 0x20,
+                    "status": "zero_amount_effect_memory_deferred",
+                    "current_status": "zero_amount_effect_memory_deferred",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": True,
+                    "ignored_as_no_op": True,
+                    "effect_memory_deferred": True,
+                    "direction": "down",
+                    "amount": 0,
+                },
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 3},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x21,
+                    "effect_param": 0x31,
+                    "status": "deferred/unsupported_subcommand",
+                    "current_status": "deferred/unsupported_subcommand",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": True,
+                    "ignored_as_no_op": False,
+                    "subcommand": 3,
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        row = {row["command"]: row for row in summary["effect_coverage"]}["Xxy extra fine portamento"]
+
+        self.assertEqual(row["detected_count"], 3)
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["deferred_count"], 1)
+        self.assertEqual(row["unsupported_count"], 1)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
+
+    def test_effect_coverage_summary_treats_xxy_no_active_voice_as_observed_no_op(self):
+        diagnostics = {
+            "xxy_extra_fine_portamento_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 1},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x21,
+                    "effect_param": 0x21,
+                    "status": "applied",
+                    "current_status": "applied",
+                    "detected": True,
+                    "applied": True,
+                    "deferred": False,
+                    "ignored_as_no_op": False,
+                    "direction": "down",
+                    "amount": 1,
+                },
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 2},
+                    "channel_index": 1,
+                    "synthetic_tick": 0,
+                    "effect_type": 0x21,
+                    "effect_param": 0x21,
+                    "status": "no_active_voice",
+                    "current_status": "no_active_voice",
+                    "detected": True,
+                    "applied": False,
+                    "deferred": False,
+                    "ignored_as_no_op": True,
+                    "direction": "down",
+                    "amount": 1,
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        row = {row["command"]: row for row in summary["effect_coverage"]}["Xxy extra fine portamento"]
+
+        self.assertEqual(row["applied_count"], 1)
+        self.assertEqual(row["unsupported_count"], 0)
+        self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
+        self.assertEqual(row["recommended_implementation_priority"], "observed no-op/low")
+        self.assertEqual(summary["summary"]["recommended_next_pr"], "No clear missing-effect implementation target")
+
     def test_effect_coverage_summary_counts_e4x_vibrato_control(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [

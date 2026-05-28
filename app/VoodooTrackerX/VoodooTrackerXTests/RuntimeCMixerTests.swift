@@ -155,6 +155,34 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(update.scheduledFrame, 4)
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsXxyMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x21, effectParam: 0x1F),
+                makePlaybackRow(index: 1, effectType: 0x21, effectParam: 0x21),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTrigger = try XCTUnwrap(plan.events.first { $0.categories.contains("note_trigger") })
+        let update = try XCTUnwrap(plan.events.first { $0.categories.contains("x2x_extra_fine_portamento_down") && $0.categories.contains("step_update") })
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("xxy_extra_fine_portamento"))
+        XCTAssertTrue(plan.categories.contains("x1x_extra_fine_portamento_up"))
+        XCTAssertTrue(plan.categories.contains("x2x_extra_fine_portamento_down"))
+        XCTAssertTrue(noteTrigger.categories.contains("xxy_extra_fine_portamento"))
+        XCTAssertTrue(noteTrigger.categories.contains("x1x_extra_fine_portamento_up"))
+        XCTAssertEqual(noteTrigger.effectType, 0x21)
+        XCTAssertEqual(noteTrigger.effectParam, 0x1F)
+        XCTAssertEqual(update.effectType, 0x21)
+        XCTAssertEqual(update.effectParam, 0x21)
+        XCTAssertEqual(update.scheduledFrame, 4)
+    }
+
     func testRuntimeCMixerAdapterEventPlanReportsFineVolumeSlideMetadata() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

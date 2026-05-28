@@ -344,6 +344,7 @@ enum PlaybackSongSyntheticAdapter {
         var portamentoSlideEffects = [PlaybackSongSyntheticPortamentoSlideDiagnostic]()
         var finePortamentoUpEffects = [PlaybackSongSyntheticFinePortamentoUpDiagnostic]()
         var finePortamentoDownEffects = [PlaybackSongSyntheticFinePortamentoDownDiagnostic]()
+        var extraFinePortamentoEffects = [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]()
         var arpeggioEffects = [PlaybackSongSyntheticArpeggioDiagnostic]()
         var vibratoControlEffects = [PlaybackSongSyntheticVibratoControlDiagnostic]()
         var vibratoEffects = [PlaybackSongSyntheticVibratoDiagnostic]()
@@ -464,6 +465,7 @@ enum PlaybackSongSyntheticAdapter {
                 portamentoSlideEffects: context.portamentoSlideEffects,
                 finePortamentoUpEffects: context.finePortamentoUpEffects,
                 finePortamentoDownEffects: context.finePortamentoDownEffects,
+                extraFinePortamentoEffects: context.extraFinePortamentoEffects,
                 arpeggioEffects: context.arpeggioEffects,
                 vibratoControlEffects: context.vibratoControlEffects,
                 vibratoEffects: context.vibratoEffects,
@@ -560,6 +562,7 @@ enum PlaybackSongSyntheticAdapter {
             let hasSetFinetuneEffect = extendedSubcommand == 0x05
             let hasFinePortamentoUpEffect = extendedSubcommand == 0x01
             let hasFinePortamentoDownEffect = extendedSubcommand == 0x02
+            let hasXxyExtraFinePortamentoEffect = isXxyExtraFinePortamentoEffect(cell)
             let hasVibratoControlEffect = extendedSubcommand == 0x04
             let hasArpeggio = isArpeggioEffect(cell)
             let hasPortamentoSlide = isPortamentoSlideEffect(cell)
@@ -726,6 +729,19 @@ enum PlaybackSongSyntheticAdapter {
                     channelState: &channelState
                 )
                 context.finePortamentoDownEffects.append(diagnostic)
+                context.channelStates[channelIndex] = channelState
+            }
+            if hasXxyExtraFinePortamentoEffect, !(1...96).contains(cell.note) {
+                let diagnostic = handleExtraFinePortamento(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    timingPlan: timingPlan,
+                    channelState: &channelState
+                )
+                context.extraFinePortamentoEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
             if hasVibrato, !(1...96).contains(cell.note), cell.note != 97 {
@@ -1022,6 +1038,18 @@ enum PlaybackSongSyntheticAdapter {
                     )
                     context.finePortamentoDownEffects.append(diagnostic)
                 }
+                if hasXxyExtraFinePortamentoEffect {
+                    let diagnostic = handleExtraFinePortamento(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.extraFinePortamentoEffects.append(diagnostic)
+                }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1085,6 +1113,18 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState
                     )
                     context.finePortamentoDownEffects.append(diagnostic)
+                }
+                if hasXxyExtraFinePortamentoEffect {
+                    let diagnostic = handleExtraFinePortamento(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.extraFinePortamentoEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1151,6 +1191,18 @@ enum PlaybackSongSyntheticAdapter {
                         channelState: &channelState
                     )
                     context.finePortamentoDownEffects.append(diagnostic)
+                }
+                if hasXxyExtraFinePortamentoEffect {
+                    let diagnostic = handleExtraFinePortamento(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.extraFinePortamentoEffects.append(diagnostic)
                 }
                 let ignored = ignoredCell(
                     source: source,
@@ -1314,6 +1366,18 @@ enum PlaybackSongSyntheticAdapter {
                     )
                     context.finePortamentoDownEffects.append(diagnostic)
                 }
+                if hasXxyExtraFinePortamentoEffect {
+                    let diagnostic = handleExtraFinePortamento(
+                        from: cell,
+                        source: source,
+                        channelIndex: channelIndex,
+                        syntheticRow: syntheticRow,
+                        timingConfig: timingConfig,
+                        timingPlan: timingPlan,
+                        channelState: &channelState
+                    )
+                    context.extraFinePortamentoEffects.append(diagnostic)
+                }
                 let ignored = ignoredCell(
                     source: source,
                     channelIndex: channelIndex,
@@ -1439,6 +1503,22 @@ enum PlaybackSongSyntheticAdapter {
                 )
                 pitchMapping = result.pitchMapping
                 context.finePortamentoDownEffects.append(result.diagnostic)
+            }
+            if hasXxyExtraFinePortamentoEffect {
+                let result = extraFinePortamentoAdjustedPitchMapping(
+                    from: cell,
+                    source: source,
+                    channelIndex: channelIndex,
+                    syntheticRow: syntheticRow,
+                    timingConfig: timingConfig,
+                    basePitchMapping: pitchMapping,
+                    baseSampleRate: sample.baseSampleRate,
+                    activeEventIndex: eventIndex,
+                    activeEventMappingIndex: context.eventMappings.count,
+                    scheduledFrame: scheduledNoteFrame
+                )
+                pitchMapping = result.pitchMapping
+                context.extraFinePortamentoEffects.append(result.diagnostic)
             }
             let gain = adaptedGain(
                 sampleVolume: sample.volume,

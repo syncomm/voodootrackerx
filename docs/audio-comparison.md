@@ -272,9 +272,9 @@ tick-level `Axy` volume slide updates after tick 0 including per-channel `A00`
 memory replay, minimal `Fxx` speed/BPM timing changes, minimal `9xx` sample offsets on same-cell note triggers including
 per-channel `900` memory replay, minimal `0xy` arpeggio, minimal `1xx`/`2xx`
 portamento up/down, minimal `3xx` tone portamento, minimal `E1x` fine
-portamento up, minimal `E2x` fine portamento down, minimal `5xy` tone
-portamento + volume slide, minimal `EAx`/`EBx` fine volume slides, minimal
-`4xy` vibrato, minimal `6xy` vibrato + volume slide, and
+portamento up, minimal `E2x` fine portamento down, minimal `X1x`/`X2x`
+extra fine portamento, minimal `5xy` tone portamento + volume slide, minimal
+`EAx`/`EBx` fine volume slides, minimal `4xy` vibrato, minimal `6xy` vibrato + volume slide, and
 `E9x` and `Rxy` retriggers for the tracked active adapted voice. The
 `1xx`/`2xx` foundation replays per-channel `100`/`200` memory from the prior
 nonzero same-family slide amount when available; unavailable memory remains a
@@ -283,6 +283,10 @@ deterministic row-level linear-period/sample-step
 pitch-up adjustment; `E10` remains an effect-memory-deferred no-op. The `E2x`
 foundation applies one deterministic row-level linear-period/sample-step
 pitch-down adjustment; `E20` remains an effect-memory-deferred no-op. The
+`Xxy` foundation applies `X1x`/`X2x` as one deterministic row-level
+linear-period/sample-step adjustment in linear-frequency modules; `X10`/`X20`
+remain effect-memory-deferred no-ops and other `X` subcommands remain deferred.
+The
 `E4x` vibrato control stores per-channel deterministic waveform/control state
 for later `4xy`/`6xy` rows without emitting direct audio events. Supported
 first-pass waveforms are sine/default, ramp-down, square, and deterministic
@@ -1649,8 +1653,9 @@ ranges, then lists:
   step, linear period/frequency intermediates, sample-selection method and
   mapped-sample validity, volume-column classification, Fxx timing changes,
   sample-offset status, minimal `1xx`/`2xx` portamento-slide diagnostics,
-  minimal `3xx` tone-portamento diagnostics, minimal `E9x`/`Rxy` retrigger
-  diagnostics, minimal `ECx` note-cut diagnostics, minimal `EDx` note-delay
+  minimal `3xx` tone-portamento diagnostics, minimal `Xxy` extra fine
+  portamento diagnostics, minimal `E9x`/`Rxy` retrigger diagnostics,
+  minimal `ECx` note-cut diagnostics, minimal `EDx` note-delay
   diagnostics, envelope status, loop mode, and render interpolation status when
   those fields are present
 - optional worst-window local alignment evidence from `scripts/audio-compare.py`
@@ -1770,8 +1775,8 @@ example, if high mismatch windows repeatedly line up with Amiga-table neutral
 fallbacks, choose Amiga pitch behavior. If they line up with applied or
 deferred effect-column events, choose one specific remaining effect such as
 portamento, vibrato, arpeggio, or a focused follow-up to
-minimal `E1x`/`E2x`/`E9x`/`Rxy`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy` memory
-foundation. If mismatch windows repeatedly line up with diagnosed `E90` no-ops
+minimal `E1x`/`E2x`/`Xxy`/`E9x`/`Rxy`/`ECx`/`EDx` or the supported `900`/`4xy`/`6xy`
+memory foundation. If mismatch windows repeatedly line up with diagnosed `E90` no-ops
 or effect-memory families not covered by the foundation, decide separately
 whether another narrow memory PR is justified. If mismatch windows are broad and
 steady while events look plausible, remaining resampling details, loop details,

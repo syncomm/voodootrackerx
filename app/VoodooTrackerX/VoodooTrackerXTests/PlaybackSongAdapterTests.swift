@@ -1407,6 +1407,158 @@ final class PlaybackSongAdapterTests: XCTestCase {
         })
     }
 
+    func testPlaybackSongSyntheticAdapterXxyExtraFinePortamentoDiagnostics() throws {
+        let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+        let rows = [
+            makePlaybackRow(index: 0, effectType: 0x21, effectParam: 0x1F),
+            makePlaybackRow(index: 1, note: 49, instrument: 1),
+            makePlaybackRow(index: 2, effectType: 0x21, effectParam: 0x11),
+            makePlaybackRow(index: 3, effectType: 0x21, effectParam: 0x21),
+            makePlaybackRow(index: 4, effectType: 0x21, effectParam: 0x10),
+            makePlaybackRow(index: 5, effectType: 0x21, effectParam: 0x20),
+            makePlaybackRow(index: 6, effectType: 0x21, effectParam: 0x31),
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let diagnostics = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics
+        let effects = diagnostics.extraFinePortamentoEffects
+        let noActive = try XCTUnwrap(effects.first { $0.status == .noActiveVoice })
+        let up = try XCTUnwrap(effects.first { $0.status == .applied && $0.direction == .up })
+        let down = try XCTUnwrap(effects.first { $0.status == .applied && $0.direction == .down })
+        let zeros = effects.filter { $0.status == .zeroAmountEffectMemoryDeferred }
+        let unsupported = try XCTUnwrap(effects.first { $0.status == .unsupportedSubcommand })
+        let commandStatuses = diagnostics.effectCommandDiagnostics
+            .filter { $0.decodedLabel == "Xxy extra fine portamento" }
+            .map(\.status)
+
+        XCTAssertEqual(diagnostics.extraFinePortamentoEffectCount, 6)
+        XCTAssertEqual(commandStatuses, [.applied, .applied, .applied, .ignoredNoOp, .ignoredNoOp, .deferredUnsupported])
+        XCTAssertEqual(noActive.direction, .up)
+        XCTAssertEqual(noActive.amount, 15)
+        XCTAssertFalse(noActive.activeVoiceFound)
+        XCTAssertEqual(up.subcommand, 1)
+        XCTAssertEqual(up.amount, 1)
+        XCTAssertEqual(up.stepUpdates.map(\.syntheticTick), [0])
+        XCTAssertEqual(up.stepUpdates.map(\.scheduledFrame), [8])
+        XCTAssertLessThan(try XCTUnwrap(up.currentLinearPeriodAfter), try XCTUnwrap(up.currentLinearPeriodBefore))
+        XCTAssertGreaterThan(try XCTUnwrap(up.currentPlaybackStepAfter), try XCTUnwrap(up.currentPlaybackStepBefore))
+        XCTAssertEqual(down.subcommand, 2)
+        XCTAssertEqual(down.amount, 1)
+        XCTAssertGreaterThan(try XCTUnwrap(down.currentLinearPeriodAfter), try XCTUnwrap(down.currentLinearPeriodBefore))
+        XCTAssertLessThan(try XCTUnwrap(down.currentPlaybackStepAfter), try XCTUnwrap(down.currentPlaybackStepBefore))
+        XCTAssertEqual(zeros.compactMap(\.direction), [.up, .down])
+        XCTAssertTrue(zeros.allSatisfy(\.effectMemoryDeferred))
+        XCTAssertEqual(unsupported.subcommand, 3)
+        XCTAssertTrue(unsupported.deferred)
+        XCTAssertEqual(unsupported.stepUpdates, [])
+    }
+
+    func testPlaybackSongSyntheticAdapterSameCellXxyFoldsIntoInitialStep() throws {
+        let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+        let baselineSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let xxySong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                PlaybackRow(index: 0, cells: [
+                    PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x21, effectParam: 0x1F),
+                    PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0x21, effectParam: 0x2F),
+                ])
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+
+        let baseline = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(baselineSong, orderIndex: 0, sampleRate: 100).diagnostics.eventMappings.first)
+        let plan = PlaybackSongSyntheticAdapter.adapt(xxySong, orderIndex: 0, sampleRate: 100)
+        let mappings = plan.diagnostics.eventMappings
+        let up = try XCTUnwrap(plan.diagnostics.extraFinePortamentoEffects.first { $0.direction == .up })
+        let down = try XCTUnwrap(plan.diagnostics.extraFinePortamentoEffects.first { $0.direction == .down })
+
+        XCTAssertEqual(mappings.count, 2)
+        XCTAssertEqual(plan.diagnostics.extraFinePortamentoEffects.map(\.status), [.applied, .applied])
+        XCTAssertTrue(up.appliedToInitialPlaybackStep)
+        XCTAssertTrue(down.appliedToInitialPlaybackStep)
+        XCTAssertEqual(up.stepUpdates, [])
+        XCTAssertEqual(down.stepUpdates, [])
+        XCTAssertGreaterThan(mappings[0].playbackStep, baseline.playbackStep)
+        XCTAssertLessThan(mappings[1].playbackStep, baseline.playbackStep)
+    }
+
+    func testPlaybackSongSyntheticAdapterXxyClampsLinearPeriodBounds() throws {
+        let highSample = makeRampPlaybackSample(
+            frameCount: 600,
+            instrumentIndex: 1,
+            relativeNote: 23,
+            finetune: 127,
+            baseSampleRate: 100
+        )
+        let lowSample = makeRampPlaybackSample(
+            frameCount: 600,
+            instrumentIndex: 2,
+            relativeNote: -100,
+            finetune: -128,
+            baseSampleRate: 100
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 96, instrument: 1, effectType: 0x21, effectParam: 0x1F),
+                makePlaybackRow(index: 1, note: 1, instrument: 2, effectType: 0x21, effectParam: 0x2F),
+            ]],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, samples: [highSample]),
+                2: PlaybackInstrument(index: 2, samples: [lowSample]),
+            ]
+        )
+
+        let effects = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.extraFinePortamentoEffects
+        let upClamp = try XCTUnwrap(effects.first { $0.direction == .up })
+        let downClamp = try XCTUnwrap(effects.first { $0.direction == .down })
+
+        XCTAssertTrue(upClamp.clamped)
+        XCTAssertTrue(downClamp.clamped)
+        XCTAssertEqual(try XCTUnwrap(upClamp.currentLinearPeriodAfter), PlaybackSongSyntheticAdapter.xmLinearMinimumSafePeriod, accuracy: 0.000000001)
+        XCTAssertEqual(try XCTUnwrap(downClamp.currentLinearPeriodAfter), PlaybackSongSyntheticAdapter.xmLinearMaximumSafePeriod, accuracy: 0.000000001)
+    }
+
+    func testPlaybackSongSyntheticAdapterXxySplitAndWindowedRenderDeterministic() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x21, effectParam: 0x1F),
+                makePlaybackRow(index: 1, effectType: 0x21, effectParam: 0x21),
+                makePlaybackRow(index: 2, note: 49, instrument: 1, effectType: 0x21, effectParam: 0x2F),
+                makePlaybackRow(index: 3, effectType: 0x21, effectParam: 0x11),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 16
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let single = renderer.render(request)
+        let repeated = renderer.render(request)
+        let split = renderer.render(request, splitFrameCounts: [3, 5, 8])
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertEqual(single.diagnostics.extraFinePortamentoEffectCount, 4)
+        XCTAssertFloatArrayEqual(repeated.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(split.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, single.block.interleavedPCM)
+    }
+
     func testPlaybackSongSyntheticAdapterSampleAndOutputRatesAffectPlaybackStep() throws {
         let baseSample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
         let higherBaseSample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 200)

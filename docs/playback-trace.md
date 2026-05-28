@@ -85,6 +85,12 @@ the deterministic first-pass policy folds the fine downward pitch adjustment
 into the new note's initial sample step. No-note `E2x` rows with an active
 voice are emitted as row-start sample-step updates, while `E20` remains an
 effect-memory-deferred no-op.
+Same-cell `X1x`/`X2x` extra fine portamento note triggers keep effect metadata
+when the supported linear-frequency adjustment is bridged; the first-pass
+policy folds the row-level adjustment into the new note's initial sample step.
+No-note `X1x`/`X2x` rows with an active voice are emitted as row-start
+sample-step updates, `X10`/`X20` remain effect-memory-deferred no-ops, and
+other `X` subcommands remain deferred diagnostics.
 Same-cell `EAx`/`EBx` fine volume slide note triggers keep effect metadata and
 trigger with the row-level adjusted channel volume. Empty-note nonzero
 `EAx`/`EBx` rows with an active voice are emitted as row-start gain updates,
@@ -633,7 +639,8 @@ retriggers, `Rxy` multi-retriggers, `0xy` arpeggio updates,
 `1xx`/`2xx`/`3xx` portamento updates,
 including `100`/`200` memory-replayed sample-step updates, minimal `E1x` fine
 portamento up updates, minimal `E2x` fine portamento down updates, minimal
-`E4x` vibrato-control state, `4xy` vibrato sample-step updates, sample
+`X1x`/`X2x` extra fine portamento updates, minimal `E4x` vibrato-control
+state, `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `5xy` tone-portamento + volume-slide
 sample-step/gain updates, minimal `6xy` vibrato + volume slide

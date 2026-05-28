@@ -1539,6 +1539,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let sameChannelVoiceLifetime = result.sameChannelVoiceLifetime
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         let traversalSummary = diagnostics.traversalSummary
+        let samplePCMStats = samplePCMStatsJSON(from: result.request.song)
         let notes = [
             "Approximate bounded adapter diagnostics only; not proof of reference correctness.",
             "Generated diagnostics are local artifacts and must not be committed.",
@@ -1621,6 +1622,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "uses_linear_frequency_table": diagnostics.usesLinearFrequencyTable,
                 "synthetic_row_count": diagnostics.syntheticRowCount,
                 "emitted_event_count": diagnostics.emittedEventCount,
+                "sample_pcm_stat_count": samplePCMStats.count,
                 "ignored_cell_count": diagnostics.ignoredCellCount,
                 "empty_or_skipped_row_count": diagnostics.emptyOrSkippedRowCount,
                 "sample_offset_effect_count": diagnostics.sampleOffsetEffectCount,
@@ -1819,6 +1821,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "row_timing": diagnostics.rowTiming.map { rowTimingJSON($0, sampleRate: diagnostics.sampleRate) },
             "timing_changes": diagnostics.timingChanges.map(timingChangeJSON),
             "row_diagnostics": diagnostics.rowDiagnostics.map(rowDiagnosticJSON),
+            "sample_pcm_stats": samplePCMStats,
             "volume_column_mappings": diagnostics.volumeColumnMappings.map(volumeColumnMappingJSON),
             "volume_panning_state_update_summary": voiceStateUpdateSummaryJSON(diagnostics.voiceStateUpdates),
             "volume_panning_state_updates": diagnostics.voiceStateUpdates.map(voiceStateUpdateJSON),
@@ -2005,6 +2008,98 @@ enum PlaybackSongDiagnosticsJSONExporter {
         result.diagnostics.eventMappings.map { mapping in
             eventJSON(for: mapping, from: result)
         }
+    }
+
+    private static func samplePCMStatsJSON(from song: PlaybackSong) -> [[String: Any]] {
+        song.instrumentsByIndex.values
+            .sorted { $0.index < $1.index }
+            .flatMap { instrument in
+                instrument.samples
+                    .sorted { $0.sampleIndex < $1.sampleIndex }
+                    .map(samplePCMStatJSON)
+            }
+    }
+
+    private struct SamplePCMStats {
+        let minimum: Float?
+        let maximum: Float?
+        let rms: Float
+        let peak: Float
+        let zeroCrossingCount: Int
+    }
+
+    private static func samplePCMStats(_ pcm: [Float]) -> SamplePCMStats {
+        guard let first = pcm.first else {
+            return SamplePCMStats(
+                minimum: nil,
+                maximum: nil,
+                rms: 0,
+                peak: 0,
+                zeroCrossingCount: 0
+            )
+        }
+        var minimum = first
+        var maximum = first
+        var squareSum = Double(0)
+        var peak = Float(0)
+        var zeroCrossingCount = 0
+        var previousSign = first < 0 ? -1 : (first > 0 ? 1 : 0)
+        for sample in pcm {
+            minimum = min(minimum, sample)
+            maximum = max(maximum, sample)
+            peak = max(peak, abs(sample))
+            squareSum += Double(sample) * Double(sample)
+            let sign = sample < 0 ? -1 : (sample > 0 ? 1 : 0)
+            if sign != 0, previousSign != 0, sign != previousSign {
+                zeroCrossingCount += 1
+            }
+            if sign != 0 {
+                previousSign = sign
+            }
+        }
+        return SamplePCMStats(
+            minimum: minimum,
+            maximum: maximum,
+            rms: Float(sqrt(squareSum / Double(pcm.count))),
+            peak: peak,
+            zeroCrossingCount: zeroCrossingCount
+        )
+    }
+
+    private static func samplePCMStatJSON(_ sample: PlaybackSample) -> [String: Any] {
+        let stats = samplePCMStats(sample.pcm)
+        let loop = sample.loopRegion
+        return [
+            "instrument_index": sample.instrumentIndex,
+            "sample_index": sample.sampleIndex,
+            "frame_count": sample.pcm.count,
+            "sample_length": sample.sampleLength,
+            "min": nullableJSONValue(stats.minimum.map { Double($0) }),
+            "max": nullableJSONValue(stats.maximum.map { Double($0) }),
+            "rms": Double(stats.rms),
+            "peak": Double(stats.peak),
+            "zero_crossing_count": stats.zeroCrossingCount,
+            "loop_start_frame": loop.startFrame,
+            "loop_end_frame": loop.endFrame,
+            "loop_length_frames": loop.lengthFrames,
+            "loop_enabled": loop.isEnabled,
+            "loop_type": loop.loopType,
+            "loop_type_name": loop.loopTypeName,
+            "sample_volume": Double(sample.volume),
+            "sample_volume_raw_estimate": Int((sample.volume * 64).rounded()),
+            "sample_volume_raw_range": "0...64",
+            "relative_note": sample.relativeNote,
+            "finetune": sample.finetune,
+            "base_sample_rate": sample.baseSampleRate,
+            "pcm_value_domain": "PlaybackSample.pcm Float32 values after XM delta decode or synthetic construction",
+            "source_bit_depth_bits": nullableJSONValue(sample.sourceBitDepthBits),
+            "source_16_bit": nullableJSONValue(sample.sourceBitDepthBits.map { $0 == 16 }),
+            "source_signedness": sample.sourceIsSignedPCM.map { $0 ? "signed" : "unsigned" } ?? NSNull(),
+            "source_delta_encoded": nullableJSONValue(sample.sourceIsDeltaEncoded),
+            "source_format_note": sample.sourceBitDepthBits == nil
+                ? "source sample bit depth and signedness are not available for synthetic samples"
+                : "XM sample payload is delta-decoded into PlaybackSample.pcm Float32 values",
+        ]
     }
 
     private static func eventCoverageJSON(from result: PlaybackSongOfflineRenderResult) -> [String: Any] {

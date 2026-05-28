@@ -67,6 +67,16 @@ Current stabilization note:
 - Local-only bounded candidate/reference comparison reports now have a committed blank findings template and workflow guidance for private local XM modules, plus a developer-only `vtx_render_bounded_xm` helper for producing bounded candidate WAVs and optional adapter diagnostics JSON through the existing offline export path. A local correlation script can map worst comparison windows to approximate bounded adapter rows/events, including pitch step/period/frequency, sample-selection method and fallback diagnostics, sample-offset diagnostics, minimal `0xy`/`1xx`/`2xx`/`3xx`/`E9x`/`ECx`/`EDx` diagnostics, focused `Dxx`/`Bxx`/`E6x` traversal diagnostics, volume/panning/global-volume state updates, event-coverage totals, skipped-note reasons, C mixer scheduled/active capacity values, rejected event coordinates, and remaining traversal/timing hazards, and can summarize applied, ignored/no-op, deferred/unsupported, and unknown effect-column, volume-column, and state-update command frequency for follow-up diagnosis. Filled reports and generated artifacts remain outside git.
 - Local-only XM effect coverage summaries can now aggregate bounded offline diagnostics JSON and runtime C mixer JSONL traces into detected/applied/deferred/unsupported/no-op command counts, effect-memory reused/missing counts, first source coordinates, unresolved key-off/no-active buckets, effect-family counts, and a conservative next-effect recommendation. Private/local modules and generated reports remain outside git.
 - Reference-render parity triage summaries can now aggregate anonymized `scripts/audio-compare.py` JSON metrics across a small local corpus, including scalar gain-normalized evidence, missing-reference status, worst-window metrics, and a conservative next-PR recommendation. This is diagnostics-only; private/local modules, generated WAVs, JSON, and Markdown reports remain outside git.
+- Stem scaling diagnostics can now sum local stem WAVs or VTX solo-channel
+  renders into a synthetic full mix before using them as per-channel amplitude
+  references, and bounded diagnostics JSON now reports per-sample decoded PCM
+  stats. The local `xm-corpus-025` audit found that both ft2-clone
+  individual-track references and VTX solo-channel renders reconstruct their
+  corresponding full renders. Dominant instrument/sample `23/0` also decodes
+  byte-identically to the ft2-clone exported sample, with matching loop,
+  volume, finetune, and relative-note metadata and disabled envelopes. This is
+  diagnostics-only and does not change gain, C mixer DSP, effects, tracker
+  viewport behavior, parser architecture, or runtime backend defaults.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
   sample steps. The diagnostics-only resampler/timbre follow-up documented the

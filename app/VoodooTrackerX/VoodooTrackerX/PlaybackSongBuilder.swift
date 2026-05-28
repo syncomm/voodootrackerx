@@ -170,7 +170,10 @@ enum PlaybackSongBuilder {
                     sampleLength: pcm.count,
                     loopStart: header.safeLoopStartInSamples,
                     loopLength: header.safeLoopLengthInSamples,
-                    loopType: header.loopType
+                    loopType: header.loopType,
+                    sourceBitDepthBits: header.is16Bit ? 16 : 8,
+                    sourceIsSignedPCM: true,
+                    sourceIsDeltaEncoded: true
                 )
             }
             instruments[instrumentIndex] = PlaybackInstrument(

@@ -20,6 +20,9 @@ struct PlaybackSample: Equatable {
     let loopStart: Int
     let loopLength: Int
     let loopType: Int
+    let sourceBitDepthBits: Int?
+    let sourceIsSignedPCM: Bool?
+    let sourceIsDeltaEncoded: Bool?
 
     init(
         instrumentIndex: Int,
@@ -32,7 +35,10 @@ struct PlaybackSample: Equatable {
         sampleLength: Int? = nil,
         loopStart: Int = 0,
         loopLength: Int = 0,
-        loopType: Int = 0
+        loopType: Int = 0,
+        sourceBitDepthBits: Int? = nil,
+        sourceIsSignedPCM: Bool? = nil,
+        sourceIsDeltaEncoded: Bool? = nil
     ) {
         self.instrumentIndex = instrumentIndex
         self.sampleIndex = sampleIndex
@@ -45,6 +51,9 @@ struct PlaybackSample: Equatable {
         self.loopStart = loopStart
         self.loopLength = loopLength
         self.loopType = loopType
+        self.sourceBitDepthBits = sourceBitDepthBits
+        self.sourceIsSignedPCM = sourceIsSignedPCM
+        self.sourceIsDeltaEncoded = sourceIsDeltaEncoded
     }
 
     var isPlayable: Bool {

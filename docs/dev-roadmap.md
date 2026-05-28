@@ -275,6 +275,19 @@ accumulation-only cause. A diagnostic windowed-isolation carryover bug was fixed
 with synthetic coverage; no normal playback behavior, C mixer DSP, XM effects,
 timing, panning, tracker viewport, runtime backend default, or parser
 architecture changed.
+A stem scaling and sample PCM normalization audit kept behavior unchanged while
+adding a local stem-summing diagnostic helper and per-sample PCM stats to
+bounded diagnostics JSON. For `xm-corpus-025`, ft2-clone individual-track
+references reconstruct the ft2-clone full render, and VTX solo-channel renders
+reconstruct the VTX full render, so focused stem comparisons remain valid.
+Dominant instrument/sample `23/0` decodes byte-identically to the ft2-clone
+exported sample, with matching frame count, peak/RMS, forward loop, sample
+volume `64/64`, relative note `0`, and finetune `16`; its volume and panning
+envelopes are disabled. The current evidence does not prove ft2-clone stem
+attenuation, VTX solo isolation scaling, VTX PCM decode/scaling, sample volume
+normalization, or envelope application as the cause. The next precise parity
+target should be full-mix contribution/later render gain around the dominant
+channel group.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

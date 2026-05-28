@@ -11,8 +11,8 @@ Inventoried files:
 - 15 files under `scripts/`.
 - 3 Python test helper modules under `tools/`.
 - 2 SwiftPM command entrypoints under `tools/`.
-- 1 active Swift command implementation currently located under the app source
-  tree.
+- 1 active Swift command implementation under tool-owned SwiftPM support
+  sources.
 
 The Swift test suite also invokes `scripts/audio-compare.py` from
 `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift`; that test file is
@@ -66,7 +66,7 @@ Classification terms:
 | `scripts/update-private-xm-corpus-label-map.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Updates a private XM corpus label map and writes a redacted summary. | Archived reports, `tools/private_xm_corpus_label_map_tests.py`. | Yes; source modules and full label map stay local, defaulting to `/tmp`. | Yes for map and summaries. | Keep for now. | Fold into `corpus_map update`; preserve redaction behavior and tests. |
 | `tools/mc_dump/main.c` | Active workflow; SwiftPM C CLI entrypoint | Dumps parsed MOD/XM metadata and optional XM pattern events for tests and diagnostics. | `Package.swift`, `README.md`, `docs/testing.md`, `docs/contributing.md`, ADR 001, `scripts/run-golden.sh`, focused diagnostics. | Can read private modules if manually invoked; private JSON dumps stay local. | Yes for private/local dumps; golden outputs are intentional test artifacts. | Keep. | Leave as a parser CLI unless a broader tool package layout is introduced. |
 | `tools/vtx_render_bounded_xm/main.swift` | Active workflow; SwiftPM CLI entrypoint | Tiny executable entrypoint for the bounded XM render/export tool. | `Package.swift`, `README.md`, `docs/agent-current-state.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, render tests. | Reads local/private XM modules; WAVs and diagnostics must stay local unless explicitly public-safe. | Yes for local renders and diagnostics. | Keep. | Preserve as the stable CLI entrypoint even if the implementation moves. |
-| `app/VoodooTrackerX/VoodooTrackerX/BoundedXMRenderTool.swift` | Active diagnostic/export tool implementation; candidate move/refactor PR | Implements the developer-only bounded XM render/export CLI used by `tools/vtx_render_bounded_xm/main.swift`. | `tools/vtx_render_bounded_xm/main.swift`, `Package.swift`, render tests, workflow docs via the CLI name. | Reads local/private XM modules and writes local WAV/diagnostics/coverage artifacts. | Yes for local outputs. | Keep only for this PR. | M4: move or split into `tools/vtx_render_bounded_xm/` or a dedicated tooling module while preserving behavior, CLI entrypoint, tests, Package.swift inclusion/exclusion, Xcode app build exclusion, and runtime playback behavior. |
+| `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift` | Active diagnostic/export tool implementation; M4 source-location refactor complete | Implements the developer-only bounded XM render/export CLI used by `tools/vtx_render_bounded_xm/main.swift`. | `tools/vtx_render_bounded_xm/main.swift`, `Package.swift`, render tests, workflow docs via the CLI name. | Reads local/private XM modules and writes local WAV/diagnostics/coverage artifacts. | Yes for local outputs. | Keep. | Leave behavior unchanged; keep this under tool-owned support sources unless a later tooling module/package design supersedes it. |
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for residual effect scan classification and recommendation logic. | Required when residual/corpus tooling is referenced or touched. | Uses synthetic module structures. | No persistent output. | Keep. | Move beside future `residual_scan` CLI package tests. |
 | `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
@@ -129,7 +129,7 @@ Golden/test helpers:
 Bounded render/export:
 
 - `tools/vtx_render_bounded_xm/main.swift`
-- `app/VoodooTrackerX/VoodooTrackerX/BoundedXMRenderTool.swift`
+- `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift`
 
 ## Future Unified CLI Shape
 
@@ -155,8 +155,10 @@ them:
 
 - `mc_dump` remains the parser inspection/golden helper.
 - `vtx_render_bounded_xm` remains the bounded render/export CLI entrypoint.
-- `BoundedXMRenderTool.swift` should move out of the app source tree in a
-  dedicated follow-up while preserving the public CLI behavior.
+- `BoundedXMRenderTool.swift` now lives under
+  `tools/vtx_render_bounded_xm/Support/`; keep that implementation separate
+  from future Python diagnostic consolidation unless a later Swift tooling
+  module design explicitly supersedes it.
 
 Compatibility rule for consolidation PRs: keep existing script paths as
 wrappers until all docs, tests, prompts, and local workflows have migrated.
@@ -183,43 +185,42 @@ Not archive candidates:
   `scripts/summarize-xm-residual-effect-scan.py`,
   `scripts/update-private-xm-corpus-label-map.py`,
   `tools/mc_dump/main.c`, `tools/vtx_render_bounded_xm/main.swift`, and
-  `app/VoodooTrackerX/VoodooTrackerX/BoundedXMRenderTool.swift`.
+  `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift`.
 
 ## M4: BoundedXMRenderTool Source Location
 
-Current state:
+Completed state:
 
-- `app/VoodooTrackerX/VoodooTrackerX/BoundedXMRenderTool.swift` contains the
-  developer-only bounded XM render tool implementation.
+- The developer-only bounded XM render implementation moved from
+  `app/VoodooTrackerX/VoodooTrackerX/BoundedXMRenderTool.swift` to
+  `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift`.
 - `tools/vtx_render_bounded_xm/main.swift` is intentionally tiny and imports the
   tool body through the SwiftPM support target.
 - The file is not referenced by the Xcode app project, while `Package.swift`
   includes it in the `VoodooTrackerXPlaybackSupport` target used by the CLI.
-- This makes the source tree confusing because CLI implementation code lives
-  beside app source files.
+- The Xcode app project should continue to exclude the implementation from the
+  app target.
 
 Classification:
 
 - Active diagnostic/export tool implementation.
 - Not an archive candidate.
-- Strong candidate for a dedicated follow-up move/refactor PR.
+- M4 move/refactor completed.
 
-Recommended future PR:
+Preserved behavior:
 
-- Move `BoundedXMRenderTool.swift`, or split its implementation, into
-  `tools/vtx_render_bounded_xm/` or a dedicated tooling module/package
-  location.
 - Preserve `vtx_render_bounded_xm` behavior, the existing CLI entrypoint, all
   tests, `Package.swift` source inclusion/exclusion behavior, Xcode app build
   exclusion, and runtime playback behavior.
-- Do not pair that move with playback, parser, or diagnostic behavior changes.
+- Do not pair source-location maintenance with playback, parser, or diagnostic
+  behavior changes.
 
 ## Future PR Sequence
 
 1. Land this inventory and consolidation plan without script behavior changes.
-2. M4 follow-up: move or split `BoundedXMRenderTool.swift` into a tool-owned
-   location while preserving the CLI entrypoint, tests, Package.swift behavior,
-   and Xcode app exclusion.
+2. Move or split `BoundedXMRenderTool.swift` into a tool-owned location while
+   preserving the CLI entrypoint, tests, Package.swift behavior, and Xcode app
+   exclusion. Completed in M4.
 3. Add a minimal unified diagnostic CLI/package skeleton with no behavior
    changes and with compatibility wrappers for existing script paths.
 4. Move audio comparison and smoke-wrapper behavior behind the unified

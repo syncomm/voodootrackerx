@@ -35,6 +35,7 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidRenderLimit(String)
     case invalidWindowRows(String)
     case invalidExportGainPolicy(String)
+    case invalidWAVFormat(String)
     case invalidIsolationFilter(String)
     case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
 
@@ -62,6 +63,7 @@ enum RenderToolError: LocalizedError, Equatable {
              let .invalidRenderLimit(message),
              let .invalidWindowRows(message),
              let .invalidExportGainPolicy(message),
+             let .invalidWAVFormat(message),
              let .invalidIsolationFilter(message):
             return message
         case let .longRenderRequiresAllowLongRender(frames, defaultLimit):
@@ -135,6 +137,7 @@ struct RenderToolArguments: Equatable {
     let gain: Double?
     let headroomDB: Double?
     let autoHeadroom: Bool
+    let wavFormat: MixerWAVFormat
     let isolationFilter: PlaybackSongRenderIsolationFilter?
 
     init(
@@ -156,6 +159,7 @@ struct RenderToolArguments: Equatable {
         gain: Double? = nil,
         headroomDB: Double? = nil,
         autoHeadroom: Bool = false,
+        wavFormat: MixerWAVFormat = .pcm16,
         isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.inputPath = inputPath
@@ -176,6 +180,7 @@ struct RenderToolArguments: Equatable {
         self.gain = gain
         self.headroomDB = headroomDB
         self.autoHeadroom = autoHeadroom
+        self.wavFormat = wavFormat
         self.isolationFilter = isolationFilter?.isEnabled == true ? isolationFilter : nil
     }
 
@@ -198,6 +203,7 @@ struct RenderToolArguments: Equatable {
         var gain: Double?
         var headroomDB: Double?
         var autoHeadroom = false
+        var wavFormat = MixerWAVFormat.pcm16
         var soloChannelIndex: Int?
         var soloInstrumentIndex: Int?
         var soloSampleIndex: Int?
@@ -279,6 +285,8 @@ struct RenderToolArguments: Equatable {
                 gain = try parseExportGain(value, name: argument)
             case "--headroom-db":
                 headroomDB = try parseHeadroomDB(value, name: argument)
+            case "--wav-format":
+                wavFormat = try parseWAVFormat(value)
             case "--solo-channel":
                 soloChannelIndex = try parseNonNegativeInt(value, name: argument)
             case "--solo-instrument":
@@ -354,6 +362,7 @@ struct RenderToolArguments: Equatable {
             gain: gain,
             headroomDB: headroomDB,
             autoHeadroom: autoHeadroom,
+            wavFormat: wavFormat,
             isolationFilter: isolationFilter
         )
     }
@@ -510,6 +519,14 @@ struct RenderToolArguments: Equatable {
         return parsed
     }
 
+    private static func parseWAVFormat(_ value: String) throws -> MixerWAVFormat {
+        guard let format = MixerWAVFormat(rawValue: value.lowercased()) else {
+            let allowed = MixerWAVFormat.allCases.map(\.rawValue).joined(separator: ", ")
+            throw RenderToolError.invalidWAVFormat("--wav-format must be one of: \(allowed).")
+        }
+        return format
+    }
+
     private static func validateExplicitRenderLimit(
         maxFrames: Int?,
         seconds: Double?,
@@ -633,9 +650,10 @@ struct RenderTool {
             emitProgress(renderCompletedProgressLine(for: result, startedAt: startedAt), arguments: arguments)
             emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
             let exportPolicy = arguments.exportPolicy(for: result.block)
-            let diagnostics = try MixerWAVExporter.writePCM16WAV(
+            let diagnostics = try MixerWAVExporter.writeWAV(
                 from: result.block,
                 to: outputURL,
+                format: arguments.wavFormat,
                 exportPolicy: exportPolicy
             )
             emitProgress("writing WAV completed", arguments: arguments)
@@ -643,9 +661,10 @@ struct RenderTool {
         }
         let result = renderer.render(request)
         let exportPolicy = arguments.exportPolicy(for: result.block)
-        let diagnostics = try MixerWAVExporter.writePCM16WAV(
+        let diagnostics = try MixerWAVExporter.writeWAV(
             from: result.block,
             to: outputURL,
+            format: arguments.wavFormat,
             exportPolicy: exportPolicy
         )
         return result.replacingExportDiagnostics(diagnostics)
@@ -669,9 +688,10 @@ struct RenderTool {
         }
         emitProgress(wavWritingProgressLine(arguments: arguments), arguments: arguments)
         let exportPolicy = arguments.exportPolicy(for: result.block)
-        let diagnostics = try MixerWAVExporter.writePCM16WAV(
+        let diagnostics = try MixerWAVExporter.writeWAV(
             from: result.block,
             to: outputURL,
+            format: arguments.wavFormat,
             exportPolicy: exportPolicy
         )
         emitProgress("writing WAV completed", arguments: arguments)
@@ -779,10 +799,16 @@ struct RenderTool {
     }
 
     func wavWritingProgressLine(arguments: RenderToolArguments) -> String {
-        if arguments.autoHeadroom {
-            return "writing WAV (auto-headroom)"
+        guard arguments.wavFormat != .pcm16 else {
+            if arguments.autoHeadroom {
+                return "writing WAV (auto-headroom)"
+            }
+            return String(format: "writing WAV (export gain %.6f)", arguments.exportPolicy.gain)
         }
-        return String(format: "writing WAV (export gain %.6f)", arguments.exportPolicy.gain)
+        if arguments.autoHeadroom {
+            return "writing WAV (\(arguments.wavFormat.rawValue), auto-headroom)"
+        }
+        return String(format: "writing WAV (%@, export gain %.6f)", arguments.wavFormat.rawValue, arguments.exportPolicy.gain)
     }
 
     func renderCompletedProgressLine(for result: PlaybackSongOfflineRenderResult, startedAt: Date) -> String {
@@ -1568,7 +1594,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "When Bxx and Dxx share a row, Bxx selects the target order and Dxx supplies the target row.",
             "E6x loop starts and loop counts are scoped per channel/order/pattern; missing loop starts are diagnosed without inventing a row-0 loop.",
             "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
-            "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before PCM16 conversion.",
+            "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before WAV encoding.",
             "Until-song-end duration is the bounded selected order-range end from the adapter timing model, not full FT2/OpenMPT song loop/restart parity.",
         ]
         let render: [String: Any] = [
@@ -1576,6 +1602,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "requested_order_count": diagnostics.requestedOrderCount,
                 "sample_rate": diagnostics.sampleRate,
                 "channel_count": result.block.config.channelCount,
+                "wav_format": exportDiagnostics.wavFormat.rawValue,
+                "wav_format_code": Int(exportDiagnostics.wavFormat.wavFormatCode),
+                "wav_bits_per_sample": exportDiagnostics.wavFormat.bitsPerSample,
                 "render_isolation": renderIsolationJSON(from: result),
                 "isolation_enabled": result.request.isolationFilter?.isEnabled ?? false,
                 "sample_interpolation": CSoftwareMixer.interpolationMode,
@@ -1792,6 +1821,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "computed_headroom_db": exportDiagnostics.computedHeadroomDB,
                 "post_gain_peak": Double(exportDiagnostics.postGainPeak),
                 "post_gain_per_channel_peak": exportDiagnostics.postGainPerChannelPeak.map { Double($0) },
+                "post_gain_overrange_sample_count": exportDiagnostics.postGainOverrangeSampleCount,
                 "post_gain_rms": Double(exportDiagnostics.postGainRMS),
                 "pcm16_clipping_count": exportDiagnostics.pcm16ClippingSampleCount,
                 "pcm16_clipping_sample_count": exportDiagnostics.pcm16ClippingSampleCount,
@@ -1858,6 +1888,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         _ diagnostics: MixerWAVExportDiagnostics
     ) -> [String: Any] {
         [
+            "wav_format": diagnostics.wavFormat.rawValue,
+            "wav_format_code": Int(diagnostics.wavFormat.wavFormatCode),
+            "wav_bits_per_sample": diagnostics.wavFormat.bitsPerSample,
             "auto_headroom_enabled": diagnostics.autoHeadroomEnabled,
             "auto_headroom_safety_db": nullableJSONValue(diagnostics.autoHeadroomSafetyDB),
             "export_gain": Double(diagnostics.policy.gain),
@@ -1870,6 +1903,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "computed_headroom_db": diagnostics.computedHeadroomDB,
             "post_gain_peak": Double(diagnostics.postGainPeak),
             "post_gain_per_channel_peak": diagnostics.postGainPerChannelPeak.map { Double($0) },
+            "post_gain_overrange_sample_count": diagnostics.postGainOverrangeSampleCount,
             "post_gain_rms": Double(diagnostics.postGainRMS),
             "pcm16_clipping_count": diagnostics.pcm16ClippingSampleCount,
             "pcm16_clipping_sample_count": diagnostics.pcm16ClippingSampleCount,
@@ -4711,8 +4745,9 @@ func renderToolUsage() -> String {
       --solo-channel N      Render only zero-based VTX channel N; timing/global planning remains full-song.
       --solo-instrument I   Render only one-based instrument I.
       --solo-sample I:S     Render only one-based instrument I and zero-based sample S.
-      --gain N              Apply linear export gain before PCM16 conversion. Default: 1.0.
-      --headroom-db N       Apply dB headroom before PCM16 conversion; value must be <= 0.
+      --wav-format FORMAT   Output WAV format: pcm16 or float32. Default: pcm16.
+      --gain N              Apply linear export gain before WAV encoding. Default: 1.0.
+      --headroom-db N       Apply dB headroom before WAV encoding; value must be <= 0.
       --auto-headroom       Compute safe export gain from the rendered Float32 peak with a -1 dB margin.
       --allow-long-render   Required when --seconds/--max-frames exceeds the default safety clamp.
       --progress            Print render percentage and phase/status messages to stderr.
@@ -4720,13 +4755,14 @@ func renderToolUsage() -> String {
 
     Default safety clamp: \(PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) frames (60 seconds at 44100 Hz).
     --gain, --headroom-db, and --auto-headroom are mutually exclusive and do not change mixer math or runtime playback.
+    --wav-format float32 writes IEEE float WAV format code 3 and preserves post-gain overrange samples.
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --until-song-end, --seconds, --max-frames, and --rows are mutually exclusive duration modes.
     --until-song-end uses the bounded adapter's selected order-range timing, including supported Fxx changes and focused Dxx/Bxx/E6x traversal; it is not full FT2/OpenMPT song loop/restart parity.
     --solo-channel may be combined with --solo-instrument or --solo-sample for local isolation diagnostics.
     Keep long outputs under /tmp or ignored scratch paths.
     Generated WAVs are local diagnostic artifacts and must not be committed.
-    This helper uses the offline C-backed PlaybackSongOfflineRenderer.exportWAV path only.
+    This helper uses the offline C-backed PlaybackSongOfflineRenderer render path only.
     """
 }
 
@@ -4742,7 +4778,8 @@ func renderToolSummary(
         : 0
     let exportDiagnostics = result.exportDiagnostics ?? MixerWAVExporter.diagnostics(
         for: result.block,
-        exportPolicy: arguments.exportPolicy(for: result.block)
+        exportPolicy: arguments.exportPolicy(for: result.block),
+        wavFormat: arguments.wavFormat
     )
     let durationDiagnostics = renderDurationDiagnostics(from: result, arguments: arguments)
     var lines = [
@@ -4771,7 +4808,9 @@ func renderToolSummary(
         lines.append("Windowed render: disabled.")
     }
     lines.append(renderIsolationSummaryLine(result.request.isolationFilter))
+    lines.append("WAV format: \(exportDiagnostics.wavFormat.rawValue) (format code \(exportDiagnostics.wavFormat.wavFormatCode), \(exportDiagnostics.wavFormat.bitsPerSample)-bit)")
     lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
+    lines.append("Channels: \(result.block.config.channelCount)")
     lines.append("Render duration mode: \(durationDiagnostics.mode.summaryName)")
     if let calculatedSongEndFrames = durationDiagnostics.calculatedSongEndFrames {
         lines.append("Calculated song-end frames: \(calculatedSongEndFrames)")
@@ -4802,12 +4841,18 @@ func renderToolSummary(
     lines.append(String(format: "Pre-export peak: %.6f", exportDiagnostics.preExportPeak))
     lines.append(String(format: "Post-gain peak: %.6f", exportDiagnostics.postGainPeak))
     lines.append("Pre-export overrange samples: \(exportDiagnostics.preExportOverrangeSampleCount)")
-    lines.append("PCM16 clipping/clamping samples after gain: \(exportDiagnostics.pcm16ClippingSampleCount)")
+    if exportDiagnostics.wavFormat == .pcm16 {
+        lines.append("PCM16 clipping/clamping samples after gain: \(exportDiagnostics.pcm16ClippingSampleCount)")
+    } else {
+        lines.append("Float32 overrange samples after gain: \(exportDiagnostics.postGainOverrangeSampleCount)")
+    }
     lines.append(String(format: "Overall RMS before/after gain: %.6f / %.6f", exportDiagnostics.preExportRMS, exportDiagnostics.postGainRMS))
     if let recommendation = exportDiagnostics.recommendation {
         lines.append("Warning: \(recommendation)")
-    } else if exportDiagnostics.preExportOverrangeDetected {
+    } else if exportDiagnostics.wavFormat == .pcm16 && exportDiagnostics.preExportOverrangeDetected {
         lines.append("Notice: Pre-export overrange samples were present, but export gain kept PCM16 output below clipping.")
+    } else if exportDiagnostics.wavFormat == .float32 && exportDiagnostics.postGainOverrangeSampleCount > 0 {
+        lines.append("Notice: Float32 export preserved overrange samples after gain; no PCM16 clipping/clamping was applied.")
     }
     if result.wasFrameCountBounded {
         lines.append("Frame count was clamped to \(result.maximumFrameCount) frames.")

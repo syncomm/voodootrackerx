@@ -254,10 +254,37 @@ enum MixerWAVExportError: LocalizedError, Equatable {
     }
 }
 
-/// Output policy for local/offline PCM16 WAV export.
+enum MixerWAVFormat: String, CaseIterable, Equatable {
+    case pcm16
+    case float32
+
+    var wavFormatCode: UInt16 {
+        switch self {
+        case .pcm16:
+            return 1
+        case .float32:
+            return 3
+        }
+    }
+
+    var bitsPerSample: Int {
+        switch self {
+        case .pcm16:
+            return 16
+        case .float32:
+            return 32
+        }
+    }
+
+    var bytesPerSample: Int {
+        bitsPerSample / 8
+    }
+}
+
+/// Output policy for local/offline WAV export.
 ///
-/// The gain is applied only at the WAV export boundary, after offline Float32 rendering and before PCM16
-/// conversion. It does not change mixer state, C mixer DSP, or runtime playback.
+/// The gain is applied only at the WAV export boundary, after offline Float32 rendering and before
+/// WAV encoding. It does not change mixer state, C mixer DSP, or runtime playback.
 struct MixerWAVExportPolicy: Equatable {
     static let unity = MixerWAVExportPolicy(gain: 1)
     static let autoHeadroomSafetyDB = -1.0
@@ -307,8 +334,9 @@ struct MixerWAVExportPolicy: Equatable {
     }
 }
 
-/// Export-time level statistics for local PCM16 WAV diagnostics.
+/// Export-time level statistics for local WAV diagnostics.
 struct MixerWAVExportDiagnostics: Equatable {
+    let wavFormat: MixerWAVFormat
     let policy: MixerWAVExportPolicy
     let preExportPeak: Float
     let preExportPerChannelPeak: [Float]
@@ -316,6 +344,7 @@ struct MixerWAVExportDiagnostics: Equatable {
     let preExportRMS: Float
     let postGainPeak: Float
     let postGainPerChannelPeak: [Float]
+    let postGainOverrangeSampleCount: Int
     let postGainRMS: Float
     let pcm16ClippingSampleCount: Int
 
@@ -340,11 +369,11 @@ struct MixerWAVExportDiagnostics: Equatable {
     }
 
     var clippingDetected: Bool {
-        pcm16ClippingSampleCount > 0
+        wavFormat == .pcm16 && pcm16ClippingSampleCount > 0
     }
 
     var recommendation: String? {
-        guard clippingDetected else {
+        guard wavFormat == .pcm16, clippingDetected else {
             return nil
         }
         return "PCM16 clipping/clamping detected after export gain; rerender with --headroom-db <negative dB> or --gain <linear gain>."
@@ -356,22 +385,52 @@ struct MixerWAVExportResult: Equatable {
     let diagnostics: MixerWAVExportDiagnostics
 }
 
-/// Deterministic RIFF/WAVE PCM16 writer for offline mixer render blocks.
+/// Deterministic RIFF/WAVE writer for offline mixer render blocks.
 ///
 /// This helper is local/offline infrastructure only. It does not add a runtime playback backend,
 /// change mixer DSP behavior, parse modules, or compare candidate audio against references.
 enum MixerWAVExporter {
-    static let bitsPerSample = 16
+    static let bitsPerSample = MixerWAVFormat.pcm16.bitsPerSample
 
     static func pcm16WAVData(
         from block: MixerRenderBlock,
         exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> Data {
-        try pcm16WAVExport(from: block, exportPolicy: exportPolicy).data
+        try wavExport(from: block, format: .pcm16, exportPolicy: exportPolicy).data
     }
 
     static func pcm16WAVExport(
         from block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportResult {
+        try wavExport(from: block, format: .pcm16, exportPolicy: exportPolicy)
+    }
+
+    static func float32WAVData(
+        from block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> Data {
+        try wavExport(from: block, format: .float32, exportPolicy: exportPolicy).data
+    }
+
+    static func float32WAVExport(
+        from block: MixerRenderBlock,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportResult {
+        try wavExport(from: block, format: .float32, exportPolicy: exportPolicy)
+    }
+
+    static func wavData(
+        from block: MixerRenderBlock,
+        format: MixerWAVFormat = .pcm16,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> Data {
+        try wavExport(from: block, format: format, exportPolicy: exportPolicy).data
+    }
+
+    static func wavExport(
+        from block: MixerRenderBlock,
+        format: MixerWAVFormat = .pcm16,
         exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> MixerWAVExportResult {
         let channelCount = block.config.channelCount
@@ -395,7 +454,7 @@ enum MixerWAVExporter {
             )
         }
 
-        let (dataByteCount, dataByteCountOverflow) = expectedSampleCount.multipliedReportingOverflow(by: MemoryLayout<Int16>.size)
+        let (dataByteCount, dataByteCountOverflow) = expectedSampleCount.multipliedReportingOverflow(by: format.bytesPerSample)
         let (riffChunkSize, riffChunkSizeOverflow) = dataByteCount.addingReportingOverflow(36)
         guard !dataByteCountOverflow,
               !riffChunkSizeOverflow,
@@ -405,7 +464,7 @@ enum MixerWAVExporter {
         }
 
         let sampleRate = UInt32(roundedSampleRate)
-        let blockAlign = channelCount * MemoryLayout<Int16>.size
+        let blockAlign = channelCount * format.bytesPerSample
         let byteRate = UInt64(sampleRate) * UInt64(blockAlign)
         guard blockAlign <= Int(UInt16.max),
               byteRate <= UInt64(UInt32.max) else {
@@ -419,21 +478,27 @@ enum MixerWAVExporter {
         appendASCII("WAVE", to: &data)
         appendASCII("fmt ", to: &data)
         appendLE32(16, to: &data)
-        appendLE16(1, to: &data)
+        appendLE16(format.wavFormatCode, to: &data)
         appendLE16(UInt16(channelCount), to: &data)
         appendLE32(sampleRate, to: &data)
         appendLE32(UInt32(byteRate), to: &data)
         appendLE16(UInt16(blockAlign), to: &data)
-        appendLE16(UInt16(bitsPerSample), to: &data)
+        appendLE16(UInt16(format.bitsPerSample), to: &data)
         appendASCII("data", to: &data)
         appendLE32(UInt32(dataByteCount), to: &data)
 
         for sample in block.interleavedPCM {
-            appendLEInt16(pcm16Sample(from: scaledSample(sample, gain: exportPolicy.gain)), to: &data)
+            let scaledSample = scaledSample(sample, gain: exportPolicy.gain)
+            switch format {
+            case .pcm16:
+                appendLEInt16(pcm16Sample(from: scaledSample), to: &data)
+            case .float32:
+                appendLEFloat32(scaledSample, to: &data)
+            }
         }
         return MixerWAVExportResult(
             data: data,
-            diagnostics: diagnostics(for: block, exportPolicy: exportPolicy)
+            diagnostics: diagnostics(for: block, exportPolicy: exportPolicy, wavFormat: format)
         )
     }
 
@@ -443,14 +508,38 @@ enum MixerWAVExporter {
         to url: URL,
         exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> MixerWAVExportDiagnostics {
-        let result = try pcm16WAVExport(from: block, exportPolicy: exportPolicy)
+        let result = try wavExport(from: block, format: .pcm16, exportPolicy: exportPolicy)
+        try result.data.write(to: url, options: [])
+        return result.diagnostics
+    }
+
+    @discardableResult
+    static func writeFloat32WAV(
+        from block: MixerRenderBlock,
+        to url: URL,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportDiagnostics {
+        let result = try wavExport(from: block, format: .float32, exportPolicy: exportPolicy)
+        try result.data.write(to: url, options: [])
+        return result.diagnostics
+    }
+
+    @discardableResult
+    static func writeWAV(
+        from block: MixerRenderBlock,
+        to url: URL,
+        format: MixerWAVFormat = .pcm16,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws -> MixerWAVExportDiagnostics {
+        let result = try wavExport(from: block, format: format, exportPolicy: exportPolicy)
         try result.data.write(to: url, options: [])
         return result.diagnostics
     }
 
     static func diagnostics(
         for block: MixerRenderBlock,
-        exportPolicy: MixerWAVExportPolicy = .unity
+        exportPolicy: MixerWAVExportPolicy = .unity,
+        wavFormat: MixerWAVFormat = .pcm16
     ) -> MixerWAVExportDiagnostics {
         let channelCount = max(1, block.config.channelCount)
         var prePerChannelPeak = Array(repeating: Float(0), count: channelCount)
@@ -460,6 +549,7 @@ enum MixerWAVExporter {
         var prePeak = Float(0)
         var postPeak = Float(0)
         var preOverrange = 0
+        var postOverrange = 0
         var pcm16Clipping = 0
 
         for (sampleIndex, sample) in block.interleavedPCM.enumerated() {
@@ -478,13 +568,17 @@ enum MixerWAVExporter {
             if preAbs > 1 {
                 preOverrange += 1
             }
-            if abs(Double(finiteSample) * Double(exportPolicy.gain)) >= 1 {
+            if postAbs > 1 {
+                postOverrange += 1
+            }
+            if wavFormat == .pcm16 && abs(Double(finiteSample) * Double(exportPolicy.gain)) >= 1 {
                 pcm16Clipping += 1
             }
         }
 
         let sampleCount = max(1, block.interleavedPCM.count)
         return MixerWAVExportDiagnostics(
+            wavFormat: wavFormat,
             policy: exportPolicy,
             preExportPeak: prePeak,
             preExportPerChannelPeak: prePerChannelPeak,
@@ -492,6 +586,7 @@ enum MixerWAVExporter {
             preExportRMS: Float(sqrt(preSquareSum / Double(sampleCount))),
             postGainPeak: postPeak,
             postGainPerChannelPeak: postPerChannelPeak,
+            postGainOverrangeSampleCount: postOverrange,
             postGainRMS: Float(sqrt(postSquareSum / Double(sampleCount))),
             pcm16ClippingSampleCount: pcm16Clipping
         )
@@ -541,6 +636,11 @@ enum MixerWAVExporter {
 
     private static func appendLEInt16(_ value: Int16, to data: inout Data) {
         var littleEndianValue = value.littleEndian
+        withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+    }
+
+    private static func appendLEFloat32(_ value: Float, to data: inout Data) {
+        var littleEndianValue = value.bitPattern.littleEndian
         withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
     }
 }

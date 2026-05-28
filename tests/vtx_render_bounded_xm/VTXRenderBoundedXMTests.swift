@@ -15,6 +15,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--sample-rate", "48000",
             "--max-frames", "96000",
             "--window-rows", "64",
+            "--wav-format", "float32",
             "--gain", "0.5",
         ])
 
@@ -28,6 +29,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.sampleRate, 48_000)
         XCTAssertEqual(arguments.maxFrames, 96_000)
         XCTAssertEqual(arguments.windowRows, 64)
+        XCTAssertEqual(arguments.wavFormat, .float32)
         XCTAssertEqual(arguments.gain, 0.5)
         XCTAssertNil(arguments.headroomDB)
         XCTAssertFalse(arguments.autoHeadroom)
@@ -101,6 +103,27 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertNil(arguments.gain)
         XCTAssertEqual(arguments.headroomDB, -6)
         XCTAssertEqual(arguments.exportPolicy.gain, Float(pow(10.0, -6.0 / 20.0)), accuracy: 0.000_001)
+    }
+
+    func testArgumentParsingDefaultsToPCM16WAVFormat() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+        ])
+
+        XCTAssertEqual(arguments.wavFormat, .pcm16)
+    }
+
+    func testInvalidWAVFormatFailsClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--wav-format", "pcm24",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--wav-format must be one of: pcm16, float32"))
+        }
     }
 
     func testArgumentParsingAcceptsAutoHeadroom() throws {
@@ -577,6 +600,46 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(defaultDiagnostics.autoHeadroomEnabled)
     }
 
+    func testPCM16WAVFormatMatchesExistingPCM16Exporter() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1),
+            frameCount: 5,
+            interleavedPCM: [-1, -0.25, 0, 0.25, 1]
+        )
+
+        let legacyData = try MixerWAVExporter.pcm16WAVData(from: block)
+        let explicitPCM16Data = try MixerWAVExporter.wavData(from: block, format: .pcm16)
+
+        XCTAssertEqual(explicitPCM16Data, legacyData)
+    }
+
+    func testFloat32WAVExportWritesIEEEFloatAndPreservesOverrangeSamples() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2),
+            frameCount: 2,
+            interleavedPCM: [0.25, -0.5, 1.25, -1.25]
+        )
+
+        let export = try MixerWAVExporter.wavExport(from: block, format: .float32)
+        let wav = try parseFloat32WAV(export.data)
+
+        XCTAssertEqual(wav.riffSize, UInt32(export.data.count - 8))
+        XCTAssertEqual(wav.formatCode, 3)
+        XCTAssertEqual(wav.sampleRate, 48_000)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(wav.bitsPerSample, 32)
+        XCTAssertEqual(wav.byteRate, 384_000)
+        XCTAssertEqual(wav.blockAlign, 8)
+        XCTAssertEqual(wav.dataSize, 16)
+        XCTAssertEqual(wav.samples, [0.25, -0.5, 1.25, -1.25])
+        XCTAssertEqual(export.diagnostics.wavFormat, .float32)
+        XCTAssertEqual(export.diagnostics.preExportPeak, 1.25)
+        XCTAssertEqual(export.diagnostics.postGainPeak, 1.25)
+        XCTAssertEqual(export.diagnostics.postGainOverrangeSampleCount, 2)
+        XCTAssertEqual(export.diagnostics.pcm16ClippingSampleCount, 0)
+        XCTAssertFalse(export.diagnostics.clippingDetected)
+    }
+
     func testSoloChannelRenderMutesOtherChannels() {
         let song = twoChannelIsolationSong()
         let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 16)
@@ -683,6 +746,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--solo-channel N"))
         XCTAssertTrue(usage.contains("--solo-instrument I"))
         XCTAssertTrue(usage.contains("--solo-sample I:S"))
+        XCTAssertTrue(usage.contains("--wav-format FORMAT"))
         XCTAssertTrue(usage.contains("--gain N"))
         XCTAssertTrue(usage.contains("--headroom-db N"))
         XCTAssertTrue(usage.contains("--auto-headroom"))
@@ -690,7 +754,8 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--allow-long-render"))
         XCTAssertTrue(usage.contains("--progress"))
         XCTAssertTrue(usage.contains("Default safety clamp"))
-        XCTAssertTrue(usage.contains("before PCM16 conversion"))
+        XCTAssertTrue(usage.contains("before WAV encoding"))
+        XCTAssertTrue(usage.contains("format code 3"))
         XCTAssertTrue(usage.contains("rendered frames or row windows"))
         XCTAssertTrue(usage.contains("not full FT2/OpenMPT song loop/restart parity"))
 
@@ -723,7 +788,9 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("Requested rows: not specified"))
         XCTAssertTrue(summary.contains("Windowed render: disabled"))
         XCTAssertTrue(summary.contains("Render isolation: disabled"))
+        XCTAssertTrue(summary.contains("WAV format: pcm16"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
+        XCTAssertTrue(summary.contains("Channels: 1"))
         XCTAssertTrue(summary.contains("Render duration mode: max frames"))
         XCTAssertTrue(summary.contains("Calculated song-end frames: not applicable"))
         XCTAssertTrue(summary.contains("Tail: 0.000 seconds (0 frames)"))
@@ -1152,6 +1219,40 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(outputURL.path.hasPrefix(URL(fileURLWithPath: NSTemporaryDirectory()).path))
     }
 
+    func testRendersGeneratedPlayableXMToFloat32WAVReadableByAudioCompare() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("generated-playable-float32-candidate.wav")
+        let comparisonJSONURL = directory.appendingPathComponent("generated-playable-float32-audio-compare.json")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: nil,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 48_000,
+            maxFrames: nil,
+            seconds: nil,
+            wavFormat: .float32
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let wav = try parseFloat32WAV(Data(contentsOf: outputURL))
+        let comparison = try runAudioCompare(reference: outputURL, candidate: outputURL, json: comparisonJSONURL)
+        let candidate = try XCTUnwrap(comparison["candidate"] as? [String: Any])
+        let candidateInfo = try XCTUnwrap(candidate["info"] as? [String: Any])
+
+        XCTAssertGreaterThan(result.renderedFrameCount, 0)
+        XCTAssertEqual(result.exportDiagnostics?.wavFormat, .float32)
+        XCTAssertEqual(wav.formatCode, 3)
+        XCTAssertEqual(wav.sampleRate, 48_000)
+        XCTAssertEqual(wav.channelCount, 2)
+        XCTAssertEqual(candidateInfo["sample_format"] as? String, "ieee_float")
+        XCTAssertEqual(candidateInfo["wav_format_code"] as? Int, 3)
+    }
+
     func testMinimalXMFixtureRemainsParserHelperPlumbingSmokeOnly() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1204,6 +1305,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let rowTickPolicy = try XCTUnwrap(diagnostics["row_tick_frame_mapping_policy"] as? [String: Any])
         let eventTimingPolicy = try XCTUnwrap(diagnostics["event_application_timing_policy"] as? [String: Any])
         let coverage = try XCTUnwrap(diagnostics["event_coverage"] as? [String: Any])
+        let exportDiagnosticsJSON = try XCTUnwrap(diagnostics["export_diagnostics"] as? [String: Any])
         let events = try XCTUnwrap(diagnostics["events"] as? [[String: Any]])
         let firstEvent = try XCTUnwrap(events.first)
         let samplePCMStats = try XCTUnwrap(diagnostics["sample_pcm_stats"] as? [[String: Any]])
@@ -1227,6 +1329,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "note_trigger",
         ])
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
+        XCTAssertEqual(render["channel_count"] as? Int, 2)
+        XCTAssertEqual(render["wav_format"] as? String, "pcm16")
+        XCTAssertEqual(render["wav_format_code"] as? Int, 1)
+        XCTAssertEqual(render["wav_bits_per_sample"] as? Int, 16)
         XCTAssertEqual(render["sample_interpolation"] as? String, "linear")
         XCTAssertEqual(render["sample_interpolation_enabled"] as? Bool, true)
         let interpolationKernel = try XCTUnwrap(render["sample_interpolation_kernel"] as? [String: Any])
@@ -1268,11 +1374,15 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(render["computed_headroom_db"] as? Double, 0)
         XCTAssertNotNil(render["post_gain_peak"] as? Double)
         XCTAssertNotNil(render["post_gain_per_channel_peak"] as? [Double])
+        XCTAssertNotNil(render["post_gain_overrange_sample_count"] as? Int)
         XCTAssertNotNil(render["post_gain_rms"] as? Double)
         XCTAssertNotNil(render["pcm16_clipping_count"] as? Int)
         XCTAssertNotNil(render["pcm16_clipping_sample_count"] as? Int)
         XCTAssertNotNil(render["clipping_detected"] as? Bool)
-        XCTAssertNotNil(diagnostics["export_diagnostics"] as? [String: Any])
+        XCTAssertEqual(exportDiagnosticsJSON["wav_format"] as? String, "pcm16")
+        XCTAssertEqual(exportDiagnosticsJSON["wav_format_code"] as? Int, 1)
+        XCTAssertEqual(exportDiagnosticsJSON["wav_bits_per_sample"] as? Int, 16)
+        XCTAssertNotNil(exportDiagnosticsJSON["post_gain_overrange_sample_count"] as? Int)
         XCTAssertEqual(render["windowed_render_enabled"] as? Bool, false)
         XCTAssertEqual(render["rendered_frame_count"] as? Int, result.renderedFrameCount)
         XCTAssertEqual(render["maximum_frame_count"] as? Int, result.maximumFrameCount)
@@ -3683,6 +3793,127 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private struct ParsedFloat32WAV: Equatable {
+        let riffSize: UInt32
+        let formatCode: UInt16
+        let sampleRate: UInt32
+        let channelCount: UInt16
+        let byteRate: UInt32
+        let blockAlign: UInt16
+        let bitsPerSample: UInt16
+        let dataSize: UInt32
+        let samples: [Float]
+    }
+
+    private enum Float32WAVParseError: Error {
+        case invalidData
+    }
+
+    private func parseFloat32WAV(_ data: Data) throws -> ParsedFloat32WAV {
+        guard data.count >= 44,
+              String(decoding: data[0..<4], as: UTF8.self) == "RIFF",
+              String(decoding: data[8..<12], as: UTF8.self) == "WAVE" else {
+            throw Float32WAVParseError.invalidData
+        }
+
+        var formatCode: UInt16?
+        var channelCount: UInt16?
+        var sampleRate: UInt32?
+        var byteRate: UInt32?
+        var blockAlign: UInt16?
+        var bitsPerSample: UInt16?
+        var dataChunkOffset: Int?
+        var dataSize: UInt32?
+        var offset = 12
+        while offset + 8 <= data.count {
+            let chunkID = String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
+            let chunkSize = Int(readLE32(data, at: offset + 4))
+            let payloadOffset = offset + 8
+            guard chunkSize >= 0,
+                  payloadOffset + chunkSize <= data.count else {
+                throw Float32WAVParseError.invalidData
+            }
+            if chunkID == "fmt " {
+                guard chunkSize >= 16 else {
+                    throw Float32WAVParseError.invalidData
+                }
+                formatCode = readLE16(data, at: payloadOffset)
+                channelCount = readLE16(data, at: payloadOffset + 2)
+                sampleRate = readLE32(data, at: payloadOffset + 4)
+                byteRate = readLE32(data, at: payloadOffset + 8)
+                blockAlign = readLE16(data, at: payloadOffset + 12)
+                bitsPerSample = readLE16(data, at: payloadOffset + 14)
+            } else if chunkID == "data" {
+                dataChunkOffset = payloadOffset
+                dataSize = UInt32(chunkSize)
+            }
+            offset = payloadOffset + chunkSize + (chunkSize % 2)
+        }
+
+        guard formatCode == 3,
+              bitsPerSample == 32,
+              let sampleRate,
+              let channelCount,
+              let byteRate,
+              let blockAlign,
+              let dataChunkOffset,
+              let dataSize,
+              Int(dataSize) % MemoryLayout<Float>.size == 0 else {
+            throw Float32WAVParseError.invalidData
+        }
+
+        var samples = [Float]()
+        samples.reserveCapacity(Int(dataSize) / MemoryLayout<Float>.size)
+        for sampleOffset in stride(from: dataChunkOffset, to: dataChunkOffset + Int(dataSize), by: MemoryLayout<Float>.size) {
+            samples.append(Float(bitPattern: readLE32(data, at: sampleOffset)))
+        }
+
+        return ParsedFloat32WAV(
+            riffSize: readLE32(data, at: 4),
+            formatCode: formatCode ?? 0,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            byteRate: byteRate,
+            blockAlign: blockAlign,
+            bitsPerSample: bitsPerSample ?? 0,
+            dataSize: dataSize,
+            samples: samples
+        )
+    }
+
+    private func runAudioCompare(reference: URL, candidate: URL, json: URL) throws -> [String: Any] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            repoRoot().appendingPathComponent("scripts/audio-compare.py").path,
+            "--reference", reference.path,
+            "--candidate", candidate.path,
+            "--seconds", "1",
+            "--json", json.path,
+        ]
+        let standardError = Pipe()
+        process.standardError = standardError
+        try process.run()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            let errorData = standardError.fileHandleForReading.readDataToEndOfFile()
+            let errorText = String(decoding: errorData, as: UTF8.self)
+            XCTFail("audio-compare.py failed with status \(process.terminationStatus): \(errorText)")
+        }
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: json)) as? [String: Any])
+    }
+
+    private func readLE16(_ data: Data, at offset: Int) -> UInt16 {
+        UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private func readLE32(_ data: Data, at offset: Int) -> UInt32 {
+        UInt32(data[offset])
+            | (UInt32(data[offset + 1]) << 8)
+            | (UInt32(data[offset + 2]) << 16)
+            | (UInt32(data[offset + 3]) << 24)
     }
 
     private func fixturePath(_ name: String) -> URL {

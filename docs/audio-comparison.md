@@ -171,7 +171,8 @@ segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.
 The developer-only `vtx_render_bounded_xm` helper now provides a durable local
 command for building an XM through the existing metadata loader and
-`PlaybackSongBuilder`, then calling `PlaybackSongOfflineRenderer.exportWAV(...)`.
+`PlaybackSongBuilder`, then exporting the bounded render block as PCM16 or
+Float32 WAV.
 This is not a full module render command and there is no app UI or live playback
 integration. The helper is intended for tiny, explicit, bounded local candidate
 renders only. Candidate renders now include conservative adapter support for
@@ -308,11 +309,11 @@ restoration, envelope-reset modeling status, tone target/sample-step before and
 after, expected audible onset, and whether the C mixer received a new voice or
 only gain/step state updates. Keep those focused reports under `/tmp` or
 another untracked local path.
-The helper also reports export-level headroom and clipping diagnostics for the
-Float32 render block before PCM16 conversion. Optional `--gain`,
-`--headroom-db`, and `--auto-headroom` controls apply only at the WAV export
-boundary, after Float32 offline rendering and before PCM16 encoding. Default
-export gain remains unchanged when none of those options is passed.
+The helper also reports export-level headroom, overrange, and clipping
+diagnostics for the Float32 render block before WAV encoding. Optional
+`--gain`, `--headroom-db`, and `--auto-headroom` controls apply only at the WAV
+export boundary, after Float32 offline rendering. Default export gain remains
+unchanged when none of those options is passed.
 Worst-window timbre diagnostics include derivative high-frequency proxy,
 zero-crossing rate, transient derivative RMS, a rough centroid proxy, and
 low/mid/high band-energy proxies for the mono reference, candidate, and
@@ -1190,29 +1191,34 @@ duration cap, and the final WAV-writing phase.
 
 ## Export Headroom And Clipping Diagnostics
 
-`vtx_render_bounded_xm` writes PCM16 WAV files, so Float32 samples outside the
-`-1.0...1.0` range must be clamped during export. Full-scale saturation can
-make local candidate renders crackle or mask other offline-render issues. The
-helper now reports export-level diagnostics in its command summary and optional
-diagnostics JSON:
+`vtx_render_bounded_xm` writes PCM16 WAV files by default and can explicitly
+write IEEE Float32 WAV files with `--wav-format float32`. PCM16 export clamps
+post-gain samples outside the `-1.0...1.0` range; Float32 export writes WAV
+format code `3` and preserves post-gain overrange float samples without
+normalization, dithering, or PCM16 clipping. The helper reports export-level
+diagnostics in its command summary and optional diagnostics JSON:
 
+- WAV format, WAV format code, bits per sample, sample rate, and channel count
 - effective export gain
 - requested export headroom dB when supplied
 - pre-export Float32 peak and per-channel peak
 - pre-export overrange sample count where `abs(sample) > 1.0`
 - pre-export RMS
 - post-gain peak and per-channel peak
+- post-gain overrange sample count
 - post-gain RMS
 - auto-headroom enabled flag and fixed safety margin when used
 - computed export gain and equivalent computed headroom dB
-- PCM16 clipping/clamping sample count after gain
+- PCM16 clipping/clamping sample count after gain, when exporting PCM16
 - clipping-detected flag for post-gain PCM16 clipping/clamping and a recommendation
   to rerender with headroom when that count is nonzero
 
 Use `--headroom-db` for a dB-style attenuation or `--gain` for an explicit
 linear multiplier. Use `--auto-headroom` when a local developer candidate WAV
 should choose its own export gain from the rendered Float32 peak. These options
-are mutually exclusive, and all three are applied before PCM16 conversion.
+are mutually exclusive, and all three are applied before WAV encoding. PCM16
+remains the default; use `--wav-format float32` for direct comparison against
+ft2-clone Float32 exports without an implicit PCM16 range decision.
 Treat any numeric headroom value in examples as a starting point, not a
 guarantee that clipping is eliminated. Inspect the reported pre-export peak
 first, then choose attenuation from that peak or rerender with
@@ -1226,8 +1232,8 @@ appropriate than a smaller example attenuation.
 `--auto-headroom` uses a fixed `-1 dB` safety margin. If the rendered Float32
 peak is at or below `1.0`, it keeps export gain at `1.0`. If the peak is above
 `1.0`, it computes `gain = (1.0 / peak) * pow(10, -1.0 / 20.0)`, reports the
-computed gain and equivalent dB, and applies that gain only before PCM16 WAV
-encoding.
+computed gain and equivalent dB, and applies that gain only before WAV
+encoding. Auto-headroom remains opt-in for both PCM16 and Float32 output.
 
 Auto-headroom is local/offline candidate-export policy only. It does not change
 runtime playback, does not switch the app to the C mixer, does not change C
@@ -1285,6 +1291,23 @@ swift run vtx_render_bounded_xm \
   --allow-long-render \
   --window-rows 64 \
   --auto-headroom \
+  --progress
+```
+
+Float32 form:
+
+```bash
+swift run vtx_render_bounded_xm \
+  --input /path/to/local-reference-module.xm \
+  --output /tmp/vtx-float32-candidate.wav \
+  --diagnostics-json /tmp/vtx-float32-diagnostics.json \
+  --order 0 \
+  --order-count 4 \
+  --sample-rate 48000 \
+  --seconds 240 \
+  --allow-long-render \
+  --window-rows 64 \
+  --wav-format float32 \
   --progress
 ```
 
@@ -1403,8 +1426,8 @@ automatic fix.
 2. If a local/private XM module exists on the developer workstation, render a
    bounded candidate WAV with `swift run vtx_render_bounded_xm`, which loads the
    XM through `ModuleMetadataLoader`, `PlaybackSongBuilder`, and
-   `PlaybackSongOfflineRenderer.exportWAV`. Write the WAV under `/tmp` or
-   another ignored local output directory.
+   the offline `PlaybackSongOfflineRenderer` render path. Write the WAV under
+   `/tmp` or another ignored local output directory.
 3. Render a matching bounded reference WAV with a local reference renderer such
    as OpenMPT/libopenmpt/`openmpt123` or MikMod. Match sample rate, channels,
    duration, gain, interpolation, and compatibility settings as closely as the
@@ -1956,5 +1979,5 @@ For this workflow:
 - confirm `VTX_AUDIO_BACKEND=av_audio` falls back to the CoreAudio C mixer with
   `fallbackReason=retired_backend`
 - confirm tracker viewport and parser architecture code were not modified
-- confirm export gain/headroom, when used, was applied before PCM16 conversion
+- confirm export gain/headroom, when used, was applied before WAV encoding
 - confirm generated WAVs and diagnostics JSON remain local and unstaged

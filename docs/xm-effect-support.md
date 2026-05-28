@@ -94,8 +94,8 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
   runtime/offline C mixer adapter path.
 - Amiga frequency table: deferred as a separate foundation target, including
   Amiga-table interactions with `2xx`/`3xx` and related pitch effects.
-- The current private Amiga-table target is tracked locally as
-  `xm-corpus-036`; do not publish private filenames or paths.
+- Private Amiga-table coverage is tracked locally; do not publish private
+  filenames, local paths, or corpus details.
 
 ## Explicitly Deferred / Not V1
 

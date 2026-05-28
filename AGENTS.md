@@ -123,8 +123,9 @@ When operating autonomously, an agent MUST:
    - Test verification
    - Manual validation steps
 6. NEVER merge its own PRs.
-7. Read `docs/roadmap.md` and `docs/legacy-map.md` at the start of work (when present) to maintain continuity.
-8. Begin all development sessions by loading `docs/dev-session-bootstrap.md`.
+7. Read `docs/agent-current-state.md` first for current backend state and context-loading guidance.
+8. Read `docs/roadmap.md` and `docs/legacy-map.md` at the start of work (when present) to maintain continuity.
+9. Begin all development sessions by loading `docs/dev-session-bootstrap.md`.
 
 ---
 
@@ -151,21 +152,42 @@ Do not merge the PR. Do not ask for confirmation unless the branch, diff, or unc
 Future agents should load only the documents needed for the current task.
 
 All development sessions should begin by loading:
+- `docs/agent-current-state.md`
 - `docs/dev-session-bootstrap.md`
 
 For tracker UI work:
+- `docs/agent-current-state.md`
 - `docs/dev-session-bootstrap.md`
 - `docs/tracker-behavior-spec.md`
 - `docs/architecture.md`
 - `docs/ui-debugging.md`
 - `docs/visual-verification.md`
 
+For effect work:
+- `docs/agent-current-state.md`
+- `docs/xm-effect-support.md`
+
+For render/reference comparison work:
+- `docs/agent-current-state.md`
+- `docs/audio-comparison.md`
+
+For runtime trace or diagnostic work:
+- `docs/agent-current-state.md`
+- `docs/playback-trace.md`
+
 For general development:
+- `docs/agent-current-state.md`
 - `docs/dev-roadmap.md`
 
 Load `docs/task-templates.md` only when it helps structure a new task or clarify expected deliverables. Do not load it by default for every session.
 
 Avoid loading unnecessary documentation when it does not help the task, to reduce token usage and preserve focus.
+
+Do not append long investigation reports to `docs/roadmap.md`,
+`docs/dev-roadmap.md`, `docs/audio-comparison.md`, or
+`docs/playback-trace.md`. Put public-safe long reports under `docs/reports/`
+only when explicitly requested. Put private/local reports and generated
+artifacts under `/tmp` or another untracked local path.
 
 ---
 

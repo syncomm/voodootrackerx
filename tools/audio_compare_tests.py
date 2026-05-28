@@ -270,6 +270,21 @@ def synthetic_diagnostics_json(event_start=110, event_end=145):
                 "sample_frame_count": 35,
                 "initial_source_frame": 18,
                 "gain": 0.5,
+                "sample_volume": 0.5,
+                "sample_volume_raw_estimate": 32,
+                "effective_volume_value": 64,
+                "effective_volume_multiplier": 1.0,
+                "effective_global_volume_value": 64,
+                "effective_global_volume_multiplier": 1.0,
+                "gain_construction": {
+                    "sample_volume_normalized": 0.5,
+                    "sample_volume_raw_estimate": 32,
+                    "channel_volume_value": 64,
+                    "channel_volume_multiplier": 1.0,
+                    "global_volume_value": 64,
+                    "global_volume_multiplier": 1.0,
+                    "base_gain": 0.5,
+                },
                 "pan": -0.25,
                 "loop_mode": "forward",
                 "loop_start_frame": 10,
@@ -3580,6 +3595,66 @@ class AudioCorrelationTests(unittest.TestCase):
             self.assertIn("- Event pan range: -0.25000000...-0.25000000; mean -0.25000000; missing 0", markdown)
             self.assertIn("| 1 | 1 | 125 | 0.35625000...0.35625000 | -0.25000000...-0.25000000 | 0.35625000...0.35625000 |", markdown)
             self.assertIn("gain 0.50000000->0.35625000 pan -0.25000000 L/R 0.35625000/0.26718750", markdown)
+
+    def test_correlation_includes_sample_instrument_gain_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Sample / Instrument Gain Evidence", markdown)
+            self.assertIn("sample_volume * (channel_volume / 64) * (global_volume / 64)", markdown)
+            self.assertIn("- Event sample-volume range: 0.50000000...0.50000000; raw 32.00000000...32.00000000; missing 0", markdown)
+            self.assertIn("Dominant instrument/sample score: final_gain^2 times active overlap frames", markdown)
+            self.assertIn("- Event channel/global-volume range: channel 64.00000000...64.00000000, global 64.00000000...64.00000000", markdown)
+            self.assertIn("zero=0, 0_0.125=0, 0.125_0.25=0, 0.25_0.5=1", markdown)
+            self.assertIn("inst/sample 7/2 voices 1", markdown)
+
+    def test_correlation_sample_instrument_summary_handles_missing_fields(self):
+        diagnostics = synthetic_diagnostics_json()
+        for field in ("sample_volume", "sample_volume_raw_estimate", "effective_volume_value", "effective_volume_multiplier", "effective_global_volume_value", "effective_global_volume_multiplier", "gain_construction"):
+            diagnostics["events"][0].pop(field)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("## Sample / Instrument Gain Evidence", markdown)
+            self.assertIn("- Event sample-volume range: unavailable...unavailable; raw unavailable...unavailable; missing 1", markdown)
+            self.assertIn("inst/sample 7/2 voices 1", markdown)
+
+    def test_correlation_sample_instrument_summary_honors_same_channel_replacement_lifetime(self):
+        diagnostics = synthetic_diagnostics_json(event_start=80, event_end=220)
+        replacement_voice = dict(diagnostics["events"][0])
+        replacement_voice.update({
+            "event_index": 1,
+            "scheduled_start_frame": 120,
+            "estimated_end_frame": 220,
+            "estimated_duration_frames": 100,
+            "gain": 0.25,
+            "sample_volume": 0.25,
+            "sample_volume_raw_estimate": 16,
+        })
+        diagnostics["events"].append(replacement_voice)
+        diagnostics["same_channel_voice_lifetime"] = {
+            "replacement_events": [{
+                "old_event_index": 0,
+                "new_event_index": 1,
+                "source_channel_index": 1,
+                "replacement_frame": 120,
+                "completion_frame": 152,
+                "old_voice_kept_reason": "replacement_ramp_overlap",
+            }]
+        }
+        comparison = synthetic_comparison_json(start_frame=160, end_frame=180)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report = self.run_correlation(tmpdir, comparison=comparison, diagnostics=diagnostics)
+            markdown = report.read_text(encoding="utf-8")
+
+            self.assertIn("| 1 | 1 |", markdown)
+            self.assertIn("inst/sample 7/2 voices 1", markdown)
+            self.assertIn("sample-vol 0.25000000...0.25000000", markdown)
+            self.assertNotIn("sample-vol 0.50000000...0.50000000", markdown)
 
     def test_correlation_rendering_mechanics_counts_sample_step_updates(self):
         diagnostics = synthetic_diagnostics_json()

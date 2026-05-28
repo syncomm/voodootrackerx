@@ -20,6 +20,7 @@ MAX_MECHANICS_EXAMPLES = 5
 MAX_ENVELOPE_GAIN_EXAMPLES = 5
 MAX_PERIOD_SAMPLE_STEP_EXAMPLES = 8
 MAX_GAIN_PAN_EXAMPLES = 8
+MAX_SAMPLE_INSTRUMENT_EXAMPLES = 8
 FRACTION_EPSILON = 1.0e-9
 AUDIBLE_GAIN_EPSILON = 1.0e-6
 TRAVERSAL_HAZARD_LABELS = {"Bxx position jump", "Dxx pattern break", "E6x pattern loop", "EEx pattern delay"}
@@ -180,6 +181,7 @@ def extract_windows(comparison: dict[str, Any], sample_rate: int) -> list[dict[s
 
 def normalize_events(diagnostics: dict[str, Any], sample_rate: int) -> list[dict[str, Any]]:
     events = []
+    replacement_completion_by_event = replacement_completion_frames_by_event(diagnostics)
     for raw_event in nested_list(diagnostics.get("events")):
         if not isinstance(raw_event, dict):
             continue
@@ -201,14 +203,36 @@ def normalize_events(diagnostics: dict[str, Any], sample_rate: int) -> list[dict
                 end_frame = int(math.ceil(end_seconds * sample_rate))
         if end_frame is None:
             end_frame = start_frame + 1
+        event_index = integer(raw_event.get("event_index"))
+        replacement_completion_frame = None
+        if event_index is not None:
+            replacement_completion_frame = replacement_completion_by_event.get(event_index)
+            if replacement_completion_frame is not None:
+                end_frame = min(end_frame, max(start_frame + 1, replacement_completion_frame))
         event = {
             **raw_event,
             "_start_frame": max(0, start_frame),
             "_end_frame": max(start_frame + 1, end_frame),
         }
+        if replacement_completion_frame is not None:
+            event["_same_channel_replacement_completion_frame"] = replacement_completion_frame
         events.append(event)
     events.sort(key=lambda item: (item["_start_frame"], item.get("event_index", 0)))
     return events
+
+
+def replacement_completion_frames_by_event(diagnostics: dict[str, Any]) -> dict[int, int]:
+    completions: dict[int, int] = {}
+    for replacement in nested_list(nested_dict(diagnostics.get("same_channel_voice_lifetime")).get("replacement_events")):
+        if not isinstance(replacement, dict):
+            continue
+        old_event_index, completion_frame = integer(replacement.get("old_event_index")), integer(replacement.get("completion_frame"))
+        if old_event_index is None or completion_frame is None:
+            continue
+        existing = completions.get(old_event_index)
+        if existing is None or completion_frame < existing:
+            completions[old_event_index] = completion_frame
+    return completions
 
 
 def normalize_row_timing(diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1249,6 +1273,67 @@ def build_gain_pan_voice_summary(
     }
 
 
+def build_sample_instrument_gain_summary(
+    comparison: dict[str, Any],
+    diagnostics: dict[str, Any],
+    windows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    render_windows = normalize_render_windows(diagnostics)
+    all_voice_signals = [sample_instrument_gain_signal(event, None) for event in events]
+    voice_counts: list[float] = []
+    window_rms_diffs: list[float] = []
+    window_summaries: list[dict[str, Any]] = []
+    window_scalars: list[float] = []
+    for window in windows:
+        active = active_events_for_window(window, events, render_windows)
+        probe_frame = int(window["_start_frame"]) + max(0, (int(window["_end_frame"]) - int(window["_start_frame"])) // 2)
+        voice_signals = [sample_instrument_gain_signal(event, probe_frame) for event in active]
+        scalar = window_gain_scalar(window)
+        if scalar is not None:
+            window_scalars.append(scalar)
+        rms_diff = number(window.get("rms_difference"))
+        if rms_diff is not None:
+            voice_counts.append(float(len(active)))
+            window_rms_diffs.append(rms_diff)
+        window_summaries.append({
+            "rank": int(window["_rank"]),
+            "start_seconds": window["_start_seconds"],
+            "end_seconds": window["_end_seconds"],
+            "probe_frame": probe_frame,
+            "active_voice_count": len(active),
+            "sample_volume": numeric_distribution(voice_signals, "sample_volume"),
+            "sample_volume_raw_estimate": numeric_distribution(voice_signals, "sample_volume_raw_estimate"),
+            "channel_volume": numeric_distribution(voice_signals, "channel_volume"),
+            "global_volume": numeric_distribution(voice_signals, "global_volume"),
+            "base_gain": numeric_distribution(voice_signals, "base_gain"),
+            "final_gain": numeric_distribution(voice_signals, "final_gain"),
+            "final_gain_histogram": final_gain_histogram(voice_signals),
+            "candidate_scalar_to_reference": scalar,
+            "dominant": dominant_instrument_sample_groups(voice_signals, window),
+        })
+    return {
+        "gain_construction": "sample_volume * (channel_volume / 64) * (global_volume / 64), then C mixer volume_envelope * fadeout before panning",
+        "sample_volume_source": "XM sample header volume raw 0...64 normalized once into PlaybackSample.volume",
+        "c_mixer_gain_expectation": "C mixer receives generic finite event gain; bounded adapter event gain is already normalized and clamped to 0...1",
+        "active_voice_lifetime": "same-channel replacement completion frames are folded into event end frames when diagnostics are present",
+        "global_candidate_scalar_to_reference": comparison_global_gain_scalar(comparison),
+        "window_candidate_scalar": numeric_distribution(
+            [{"value": value} for value in window_scalars],
+            "value",
+        ),
+        "voice_count_to_window_rms_correlation": pearson_correlation(voice_counts, window_rms_diffs),
+        "event_count": len(events),
+        "sample_volume": numeric_distribution(all_voice_signals, "sample_volume"),
+        "sample_volume_raw_estimate": numeric_distribution(all_voice_signals, "sample_volume_raw_estimate"),
+        "channel_volume": numeric_distribution(all_voice_signals, "channel_volume"),
+        "global_volume": numeric_distribution(all_voice_signals, "global_volume"),
+        "base_gain": numeric_distribution(all_voice_signals, "base_gain"),
+        "windowed_render_aware": bool(render_windows),
+        "window_summaries": window_summaries,
+    }
+
+
 def gain_pan_voice_signal(event: dict[str, Any], probe_frame: int | None) -> dict[str, Any]:
     base_gain = number(event.get("gain"))
     pan = number(event.get("pan"))
@@ -1339,6 +1424,179 @@ def gain_pan_voice_label(item: dict[str, Any]) -> str:
         f"L/R {format_optional_float(item.get('left_gain'))}/"
         f"{format_optional_float(item.get('right_gain'))}"
     )
+
+
+def sample_instrument_gain_signal(event: dict[str, Any], probe_frame: int | None) -> dict[str, Any]:
+    construction = nested_dict(event.get("gain_construction"))
+    base_gain = number(event.get("gain"))
+    channel_volume = integer(event.get("effective_volume_value"))
+    if channel_volume is None:
+        channel_volume = integer(construction.get("channel_volume_value"))
+    global_volume = integer(event.get("effective_global_volume_value"))
+    if global_volume is None:
+        global_volume = integer(construction.get("global_volume_value"))
+    channel_multiplier = number(event.get("effective_volume_multiplier"))
+    if channel_multiplier is None:
+        channel_multiplier = number(construction.get("channel_volume_multiplier"))
+    if channel_multiplier is None and channel_volume is not None:
+        channel_multiplier = normalized_xm_volume_multiplier(channel_volume)
+    global_multiplier = number(event.get("effective_global_volume_multiplier"))
+    if global_multiplier is None:
+        global_multiplier = number(construction.get("global_volume_multiplier"))
+    if global_multiplier is None and global_volume is not None:
+        global_multiplier = normalized_xm_volume_multiplier(global_volume)
+    sample_volume = number(event.get("sample_volume"))
+    if sample_volume is None:
+        sample_volume = number(construction.get("sample_volume_normalized"))
+    if sample_volume is None and base_gain is not None and channel_multiplier is not None and global_multiplier is not None:
+        denominator = channel_multiplier * global_multiplier
+        if abs(denominator) > FRACTION_EPSILON:
+            sample_volume = base_gain / denominator
+    sample_volume_raw = integer(event.get("sample_volume_raw_estimate"))
+    if sample_volume_raw is None:
+        sample_volume_raw = integer(construction.get("sample_volume_raw_estimate"))
+    if sample_volume_raw is None and sample_volume is not None:
+        sample_volume_raw = max(0, min(64, int(round(sample_volume * 64.0))))
+
+    final_gain = base_gain
+    envelope_value = None
+    fadeout_value = None
+    if probe_frame is not None:
+        snapshot = event_envelope_snapshot(event, probe_frame)
+        if snapshot is not None:
+            final_gain = number(snapshot.get("final_voice_gain"))
+            envelope_value = number(snapshot.get("value"))
+            fadeout_value = number(snapshot.get("fadeout_value"))
+    return {
+        "source": nested_dict(event.get("source")),
+        "channel_index": event.get("channel_index"),
+        "event_index": event.get("event_index"),
+        "instrument_index": integer(event.get("instrument_index")),
+        "sample_index": integer(event.get("sample_index")),
+        "sample_volume": sample_volume,
+        "sample_volume_raw_estimate": sample_volume_raw,
+        "channel_volume": channel_volume,
+        "channel_multiplier": channel_multiplier,
+        "global_volume": global_volume,
+        "global_multiplier": global_multiplier,
+        "base_gain": base_gain,
+        "final_gain": final_gain,
+        "envelope_value": envelope_value,
+        "fadeout_value": fadeout_value,
+        "effective_start_frame": integer(event.get("_effective_start_frame", event.get("_start_frame"))),
+        "effective_end_frame": integer(event.get("_effective_end_frame", event.get("_end_frame"))),
+    }
+
+
+def normalized_xm_volume_multiplier(value: int) -> float:
+    return float(min(64, max(0, value))) / 64.0
+
+
+def comparison_global_gain_scalar(comparison: dict[str, Any]) -> float | None:
+    sample_comparison = nested_dict(comparison.get("sample_comparison"))
+    gain_normalized = nested_dict(sample_comparison.get("gain_normalized"))
+    return number(gain_normalized.get("candidate_scalar_to_reference"))
+
+
+def window_gain_scalar(window: dict[str, Any]) -> float | None:
+    gain_normalized = nested_dict(window.get("gain_normalized"))
+    return number(gain_normalized.get("candidate_scalar_to_reference"))
+
+
+def pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+    pairs = [(x, y) for x, y in zip(xs, ys) if math.isfinite(x) and math.isfinite(y)]
+    if len(pairs) < 2:
+        return None
+    mean_x = sum(x for x, _ in pairs) / len(pairs)
+    mean_y = sum(y for _, y in pairs) / len(pairs)
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in pairs)
+    denominator_x = math.sqrt(sum((x - mean_x) * (x - mean_x) for x, _ in pairs))
+    denominator_y = math.sqrt(sum((y - mean_y) * (y - mean_y) for _, y in pairs))
+    denominator = denominator_x * denominator_y
+    if denominator == 0.0:
+        return None
+    return numerator / denominator
+
+
+def final_gain_histogram(signals: list[dict[str, Any]]) -> dict[str, int]:
+    keys = ("zero", "0_0.125", "0.125_0.25", "0.25_0.5", "0.5_0.75", "0.75_1.0", "gt_1.0", "missing")
+    buckets = (
+        (AUDIBLE_GAIN_EPSILON, "zero"),
+        (0.125, "0_0.125"),
+        (0.25, "0.125_0.25"),
+        (0.5, "0.25_0.5"),
+        (0.75, "0.5_0.75"),
+        (1.0, "0.75_1.0"),
+    )
+    histogram = dict.fromkeys(keys, 0)
+    for signal in signals:
+        value = number(signal.get("final_gain"))
+        if value is None:
+            histogram["missing"] += 1
+        else:
+            bucket = next((label for threshold, label in buckets if value <= threshold), "gt_1.0")
+            histogram[bucket] += 1
+    return histogram
+
+
+def dominant_instrument_sample_groups(
+    signals: list[dict[str, Any]],
+    window: dict[str, Any],
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[Any, Any], dict[str, Any]] = {}
+    window_start = int(window["_start_frame"])
+    window_end = int(window["_end_frame"])
+    for signal in signals:
+        instrument = signal.get("instrument_index")
+        sample = signal.get("sample_index")
+        key = (instrument, sample)
+        start = integer(signal.get("effective_start_frame"))
+        end = integer(signal.get("effective_end_frame"))
+        overlap_frames = 1
+        if start is not None and end is not None:
+            overlap_frames = max(0, min(end, window_end) - max(start, window_start))
+        final_gain = number(signal.get("final_gain"))
+        contribution = 0.0 if final_gain is None else final_gain * final_gain * float(overlap_frames)
+        group = groups.setdefault(key, {
+            "instrument_index": instrument,
+            "sample_index": sample,
+            "voice_count": 0,
+            "contribution_estimate": 0.0,
+            "_sample_volume_items": [],
+            "_channel_volume_items": [],
+            "_global_volume_items": [],
+            "_final_gain_items": [],
+        })
+        group["voice_count"] += 1
+        group["contribution_estimate"] += contribution
+        for field in ("sample_volume", "channel_volume", "global_volume", "final_gain"):
+            group[f"_{field}_items"].append({field: signal.get(field)})
+    result = []
+    total = sum(number(group.get("contribution_estimate")) or 0.0 for group in groups.values())
+    for group in groups.values():
+        contribution = number(group.get("contribution_estimate")) or 0.0
+        result.append({
+            "instrument_index": group.get("instrument_index"),
+            "sample_index": group.get("sample_index"),
+            "voice_count": group.get("voice_count"),
+            "contribution_estimate": contribution,
+            "contribution_ratio": contribution / total if total > 0.0 else None,
+            "sample_volume": numeric_distribution(nested_list(group.get("_sample_volume_items")), "sample_volume"),
+            "channel_volume": numeric_distribution(nested_list(group.get("_channel_volume_items")), "channel_volume"),
+            "global_volume": numeric_distribution(nested_list(group.get("_global_volume_items")), "global_volume"),
+            "final_gain": numeric_distribution(nested_list(group.get("_final_gain_items")), "final_gain"),
+        })
+    result.sort(key=lambda item: (
+        -(number(item.get("contribution_estimate")) or 0.0),
+        -sort_int(item.get("voice_count")),
+        sort_int(item.get("instrument_index")),
+        sort_int(item.get("sample_index")),
+    ))
+    return result[:MAX_SAMPLE_INSTRUMENT_EXAMPLES]
+
+
+def sample_instrument_group_label(item: dict[str, Any]) -> str:
+    return f"inst/sample {format_optional(item.get('instrument_index'))}/{format_optional(item.get('sample_index'))} voices {format_optional(item.get('voice_count'))} score {format_optional_float(item.get('contribution_estimate'))} ratio {format_optional_float(item.get('contribution_ratio'))} sample-vol {format_distribution_range(nested_dict(item.get('sample_volume')))} chan-vol {format_distribution_range(nested_dict(item.get('channel_volume')))} global-vol {format_distribution_range(nested_dict(item.get('global_volume')))} final-gain {format_distribution_range(nested_dict(item.get('final_gain')))}"
 
 
 def period_sample_step_voice_label(
@@ -2092,6 +2350,7 @@ def build_correlation_report(
     rendering_mechanics = build_rendering_mechanics_summary(comparison, diagnostics, windows, events, rows)
     period_sample_step_summary = build_period_sample_step_voice_summary(diagnostics, windows, events, rows)
     gain_pan_voice_summary = build_gain_pan_voice_summary(diagnostics, windows, events)
+    sample_instrument_gain_summary = build_sample_instrument_gain_summary(comparison, diagnostics, windows, events)
     envelope_gain_summary = build_envelope_gain_summary(diagnostics, windows, events, rows)
     traversal_effects = tag_traversal_effects_with_windows(
         normalize_traversal_effects(diagnostics, rows),
@@ -2140,6 +2399,7 @@ def build_correlation_report(
     append_rendering_mechanics_summary(lines, rendering_mechanics)
     append_period_sample_step_voice_summary(lines, period_sample_step_summary)
     append_gain_pan_voice_summary(lines, gain_pan_voice_summary)
+    append_sample_instrument_gain_summary(lines, sample_instrument_gain_summary)
     append_envelope_gain_summary(lines, envelope_gain_summary)
 
     lines.extend([
@@ -2570,6 +2830,67 @@ def append_gain_pan_voice_summary(lines: list[str], summary: dict[str, Any]) -> 
             f"{format_optional(item.get('hard_left_voice_count'))}/"
             f"{format_optional(item.get('hard_right_voice_count'))} | "
             f"{examples} |"
+        )
+
+
+def append_sample_instrument_gain_summary(lines: list[str], summary: dict[str, Any]) -> None:
+    sample_volume = nested_dict(summary.get("sample_volume"))
+    raw_sample_volume = nested_dict(summary.get("sample_volume_raw_estimate"))
+    channel_volume = nested_dict(summary.get("channel_volume"))
+    global_volume = nested_dict(summary.get("global_volume"))
+    base_gain = nested_dict(summary.get("base_gain"))
+    window_scalar = nested_dict(summary.get("window_candidate_scalar"))
+    lines.extend([
+        "",
+        "## Sample / Instrument Gain Evidence",
+        f"- Gain construction: {format_optional(summary.get('gain_construction'))}",
+        f"- Sample volume source: {format_optional(summary.get('sample_volume_source'))}",
+        f"- C mixer gain expectation: {format_optional(summary.get('c_mixer_gain_expectation'))}",
+        f"- Active voice lifetime: {format_optional(summary.get('active_voice_lifetime'))}",
+        f"- Whole-song candidate scalar to reference: {format_optional_float(summary.get('global_candidate_scalar_to_reference'))}",
+        "- Worst-window candidate scalar range: "
+        f"{format_distribution_range(window_scalar)}; mean {format_optional_float(window_scalar.get('mean'))}; "
+        f"missing {format_optional(window_scalar.get('missing_count'))}",
+        f"- Voice count vs window RMS-diff correlation: {format_optional_float(summary.get('voice_count_to_window_rms_correlation'))}",
+        "- Dominant instrument/sample score: final_gain^2 times active overlap frames; this is a level-weighted estimate, not isolated audio RMS",
+        "- Event sample-volume range: "
+        f"{format_distribution_range(sample_volume)}; raw {format_distribution_range(raw_sample_volume)}; "
+        f"missing {format_optional(sample_volume.get('missing_count'))}",
+        "- Event channel/global-volume range: "
+        f"channel {format_distribution_range(channel_volume)}, "
+        f"global {format_distribution_range(global_volume)}",
+        "- Event base-gain range: "
+        f"{format_distribution_range(base_gain)}; mean {format_optional_float(base_gain.get('mean'))}; "
+        f"missing {format_optional(base_gain.get('missing_count'))}",
+    ])
+    window_summaries = [
+        item for item in nested_list(summary.get("window_summaries"))
+        if isinstance(item, dict)
+    ]
+    if not window_summaries:
+        lines.append("- Worst-window sample/instrument gain evidence: unavailable")
+        return
+    lines.extend([
+        "",
+        "| Window | Active Voices | Scalar | Sample Vol | Raw Sample Vol | Channel Vol | Global Vol | Final Gain Histogram | Dominant Instruments/Samples |",
+        "| ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+    ])
+    for item in window_summaries:
+        dominant = "; ".join(
+            sample_instrument_group_label(group)
+            for group in nested_list(item.get("dominant"))
+            if isinstance(group, dict)
+        ) or "none"
+        lines.append(
+            f"| {format_optional(item.get('rank'))} | "
+            f"{format_optional(item.get('active_voice_count'))} | "
+            f"{format_optional_float(item.get('candidate_scalar_to_reference'))} | "
+            f"{format_distribution_range(nested_dict(item.get('sample_volume')))} | "
+            f"{format_distribution_range(nested_dict(item.get('sample_volume_raw_estimate')))} | "
+            f"{format_distribution_range(nested_dict(item.get('channel_volume')))} | "
+            f"{format_distribution_range(nested_dict(item.get('global_volume')))} | "
+            f"{format_final_gain_histogram(nested_dict(item.get('final_gain_histogram')))} | "
+            f"{dominant} |"
         )
 
 
@@ -3217,6 +3538,13 @@ def format_distribution_range(distribution: dict[str, Any]) -> str:
         f"{format_optional_float(distribution.get('min'))}..."
         f"{format_optional_float(distribution.get('max'))}"
     )
+
+
+def format_final_gain_histogram(histogram: dict[str, Any]) -> str:
+    if not histogram:
+        return "unavailable"
+    keys = ("zero", "0_0.125", "0.125_0.25", "0.25_0.5", "0.5_0.75", "0.75_1.0", "gt_1.0", "missing")
+    return ", ".join(f"{key}={int_or_zero(histogram.get(key))}" for key in keys)
 
 
 def int_or_zero(value: Any) -> int:

@@ -1540,6 +1540,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
                     "point_sampling_fallback": CSoftwareMixer.interpolationPointSamplingFallback,
                 ],
                 "sample_step_precision_mode": CSoftwareMixer.sampleStepPrecisionMode,
+                "gain_construction_policy": [
+                    "sample_volume_source": "XM sample header volume normalized once as raw_volume / 64 into PlaybackSample.volume",
+                    "sample_volume_raw_range": "0...64",
+                    "channel_volume_range": "0...64",
+                    "global_volume_range": "0...64",
+                    "event_gain_formula": "sample_volume * (channel_volume / 64) * (global_volume / 64)",
+                    "c_mixer_render_multiplier": "event_gain * volume_envelope * fadeout before panning",
+                    "c_mixer_expected_gain_range": "finite non-negative Float32; bounded adapter clamps event gain to 0...1",
+                    "normalization_notes": [
+                        "sample volume is not divided by 64 again in the C mixer",
+                        "volume envelopes and fadeout are separate C-side multipliers",
+                    ],
+                ],
                 "render_duration_mode": renderDuration.mode.rawValue,
                 "calculated_song_end_frames": nullableJSONValue(renderDuration.calculatedSongEndFrames),
                 "tail_seconds": renderDuration.tailSeconds,
@@ -2414,6 +2427,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["sample_frame_count"] = sampleFrameCount
         object["initial_source_frame"] = initialSourceFrame
         object["gain"] = Double(event?.gain ?? 0)
+        object["sample_volume"] = Double(mapping.sampleVolume)
+        object["sample_volume_raw_estimate"] = mapping.sampleVolumeRawEstimate
+        object["sample_volume_source"] = "xm_sample_header_volume_div_64"
+        object["sample_volume_raw_range"] = "0...64"
+        object["effective_volume_multiplier"] = Double(normalizedVolumeMultiplier(mapping.effectiveVolumeValue))
         object["pan"] = Double(event?.pan ?? mapping.effectivePan)
         object["loop_mode"] = loopModeName(mapping.loopMode)
         object["loop_start_frame"] = event?.loop.startFrame ?? 0
@@ -2427,6 +2445,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         object["effective_global_volume_value"] = mapping.effectiveGlobalVolumeValue
         object["effective_global_volume_multiplier"] = Double(mapping.effectiveGlobalVolumeMultiplier)
         object["effective_pan"] = Double(mapping.effectivePan)
+        object["gain_construction"] = gainConstructionJSON(mapping: mapping, event: event)
         object["volume_envelope"] = eventVolumeEnvelopeJSON(mapping, event: event, startFrame: startFrame)
         object["pitch"] = eventPitchJSON(mapping)
         if let startSeconds = seconds(forFrame: startFrame, sampleRate: result.block.config.sampleRate) {
@@ -2834,6 +2853,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "mapping_applied": mapping.pitchMappingApplied,
             "used_neutral_step": mapping.pitchMappingUsedNeutralStep,
             "fallback_neutral_step_used": mapping.pitchMappingUsedNeutralStep,
+        ]
+    }
+
+    private static func gainConstructionJSON(
+        mapping: PlaybackSongSyntheticEventMapping,
+        event: SyntheticTrackerEvent?
+    ) -> [String: Any] {
+        let channelMultiplier = normalizedVolumeMultiplier(mapping.effectiveVolumeValue)
+        return [
+            "sample_volume_source": "XM sample header volume normalized once as raw_volume / 64 into PlaybackSample.volume",
+            "sample_volume_raw_range": "0...64",
+            "sample_volume_raw_estimate": mapping.sampleVolumeRawEstimate,
+            "sample_volume_normalized": Double(mapping.sampleVolume),
+            "channel_volume_value": mapping.effectiveVolumeValue,
+            "channel_volume_multiplier": Double(channelMultiplier),
+            "global_volume_value": mapping.effectiveGlobalVolumeValue,
+            "global_volume_multiplier": Double(mapping.effectiveGlobalVolumeMultiplier),
+            "base_gain_formula": "sample_volume * channel_volume_multiplier * global_volume_multiplier",
+            "base_gain": Double(event?.gain ?? 0),
+            "envelope_and_fadeout_applied_in_c_mixer": true,
+            "normalization_applied_once": true,
         ]
     }
 
@@ -4067,6 +4107,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
 
     private static func nullableJSONValue(_ value: Any?) -> Any {
         value ?? NSNull()
+    }
+
+    private static func normalizedVolumeMultiplier(_ value: Int) -> Float {
+        Float(min(64, max(0, value))) / 64.0
     }
 
     private static func seconds(forFrame frame: Int, sampleRate: Double) -> Double? {

@@ -782,6 +782,8 @@ func makeSyntheticEventMapping(
         note: note,
         instrumentIndex: instrumentIndex,
         sampleIndex: sampleIndex,
+        sampleVolume: 1,
+        sampleVolumeRawEstimate: 64,
         selectedSampleLength: selectedSampleLength,
         sampleMapKeymapPresent: false,
         mappedSampleIndex: nil,

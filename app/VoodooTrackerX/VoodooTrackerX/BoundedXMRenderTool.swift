@@ -1420,6 +1420,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "channel_index": field.channelIndex,
             "volume_column_raw": Int(field.volumeColumn),
             "volume_column": volumeColumnCoverageJSON(field.volumeColumnDiagnostic),
+            "effect_type": Int(field.effectType),
+            "effect_param": Int(field.effectParam),
             "field": deferredFieldName(field.field),
         ]
     }

@@ -615,6 +615,11 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
         for mapping in nested_list(payload.get("volume_column_mappings"))
         if isinstance(mapping, dict)
     }
+    effect_occurrence_keys = {
+        (occurrence.source.key(), occurrence.effect_type, occurrence.effect_param)
+        for occurrence in occurrences
+        if occurrence.command_source == "effect_column"
+    }
     for field in nested_list(payload.get("deferred_fields")):
         if not isinstance(field, dict):
             continue
@@ -631,6 +636,27 @@ def offline_occurrences(payload: dict[str, Any], input_name: str) -> list[Covera
                 reason=str(volume_column.get("classification") or "deferred"),
                 source=coord,
                 raw_volume_column=parse_byte(field.get("volume_column_raw")),
+                input_name=input_name,
+            ))
+        elif field.get("field") == "effect":
+            effect_type = parse_byte(field.get("effect_type"))
+            effect_param = parse_byte(field.get("effect_param")) or 0
+            label = effect_command_label(effect_type, effect_param)
+            if label == "none":
+                continue
+            coord = source_coordinate(nested_dict(field.get("source")), channel=field.get("channel_index"), fallback=field)
+            key = (coord.key(), effect_type, effect_param)
+            if key in effect_occurrence_keys:
+                continue
+            occurrences.append(CoverageOccurrence(
+                command=label,
+                command_source="effect_column",
+                category="offline_bounded_render",
+                status=str(field.get("status") or "deferred/unsupported"),
+                reason=str(field.get("reason") or field.get("current_status") or "deferred/unsupported"),
+                source=coord,
+                effect_type=effect_type,
+                effect_param=effect_param,
                 input_name=input_name,
             ))
 

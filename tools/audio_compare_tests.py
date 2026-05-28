@@ -2061,6 +2061,32 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertIn("7Fxx unknown/unsupported", rows)
         self.assertEqual(rows["7Fxx unknown/unsupported"]["unsupported_count"], 1)
 
+    def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 4},
+                    "channel_index": 1,
+                    "effect_type": 0x0E,
+                    "effect_param": 0x02,
+                    "effect_label": "E0x filter toggle",
+                    "status": "deferred/unsupported",
+                    "current_status": "deferred/unsupported",
+                }
+            ],
+            "deferred_fields": [
+                deferred_effect_field(0x0E, 0x02, row=4, channel=1),
+                deferred_effect_field(0x20, 0x01, row=4, channel=2),
+            ],
+        }
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["E0x filter toggle"]["unsupported_count"], 1)
+        self.assertEqual(rows["20xx unknown/unsupported"]["unsupported_count"], 1)
+
     def test_effect_coverage_summary_handles_volume_column_commands(self):
         summary = effect_coverage.build_summary_from_payloads([
             ("offline_diagnostics", "synthetic-diagnostics.json", synthetic_effect_coverage_diagnostics())

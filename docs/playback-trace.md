@@ -644,12 +644,12 @@ state, `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `5xy` tone-portamento + volume-slide
 sample-step/gain updates, minimal `6xy` vibrato + volume slide
-sample-step/gain updates, and volume-column set
+sample-step/gain updates, minimal `Lxx` volume-envelope-position updates, and volume-column set
 volume/panning for empty-note rows and same-cell valid-note `3xx`
 no-retrigger rows that keep the carried voice active. Adapter diagnostics
 include `E4x` state rows; adapter-sourced `0xy`,
 `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
-`5xy`, `Rxy`, `EAx`/`EBx`, and `6xy` rows carry the effect type/parameter on the
+`5xy`, `Rxy`, `EAx`/`EBx`, `6xy`, and `Lxx` rows carry the effect type/parameter on the
 runtime update row so coverage summaries can count applied updates. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
@@ -724,7 +724,8 @@ Offline-adapter event rows may include:
   target a carried channel voice at order boundaries
 - `runtimeEventCategory`: normalized categories such as `note_trigger`,
   `replacement_stop_ramp`, `gain_pan_update`, `step_pitch_update`,
-  `ecx_edx_e9x`, `hxy_global_volume`, `key_off_fadeout`, and
+  `lxx_set_envelope_position`, `ecx_edx_e9x`, `hxy_global_volume`,
+  `key_off_fadeout`, and
   `row_transition`
 - `eventApplicationTiming`: `exact_frame`, `callback_start`, `late`,
   `tick_boundary`, `row_boundary`, or `unknown`
@@ -732,7 +733,8 @@ Offline-adapter event rows may include:
 Within the runtime C mixer render queue, same-frame planned events are
 applied in a deterministic order that matches the offline C mixer frame
 boundary: gain/pan and sample-step voice-state updates first, note cuts next,
-and note triggers last. Same-channel replacement ramps remain part of the note
+note triggers next, and same-frame envelope-position updates after note triggers
+so same-cell note+`Lxx` targets the newly triggered voice. Same-channel replacement ramps remain part of the note
 trigger path and are traced with the burst diagnostics above.
 
 When a precomputed adapter plan is available, runtime trace rows also resolve

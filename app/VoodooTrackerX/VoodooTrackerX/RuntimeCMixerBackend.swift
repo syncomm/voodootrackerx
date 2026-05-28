@@ -846,6 +846,9 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         if event.categories.contains("global_volume_update") {
             return "global_volume"
         }
+        if event.categories.contains("lxx_set_envelope_position") {
+            return "lxx_set_envelope_position"
+        }
         if event.categories.contains("note_cut") ||
             event.categories.contains("note_delay") ||
             event.categories.contains("retrigger") {
@@ -858,6 +861,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return "gain_pan_update"
         case .stepUpdate:
             return "step_pitch_update"
+        case .envelopePositionUpdate:
+            return "lxx_set_envelope_position"
         case .noteCut:
             return "ecx_edx_e9x"
         }
@@ -1066,6 +1071,24 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
                 adapterEventCategory: diagnostic.event.primaryCategory,
                 eventTiming: eventTimingTraceFields(for: diagnostic)
+            )
+            if result.targetVoiceIndex == nil {
+                eventCounters.skippedUnmatchedPlannedEventCount &+= 1
+            }
+
+        case let .envelopePositionUpdate(result):
+            recordRuntimeEvent(
+                action: "c_mixer_adapter_envelope_position_update",
+                context: eventContext,
+                targetScope: "channel",
+                snapshotBefore: result.snapshotBefore,
+                snapshot: result.snapshotAfter,
+                succeeded: result.succeeded,
+                targetVoiceIndex: result.targetVoiceIndex,
+                runtimeEventSource: RuntimeCMixerAdapterEventSource.offlineAdapterPlan.rawValue,
+                adapterEventCategory: diagnostic.event.primaryCategory,
+                eventTiming: eventTimingTraceFields(for: diagnostic),
+                reason: result.reason
             )
             if result.targetVoiceIndex == nil {
                 eventCounters.skippedUnmatchedPlannedEventCount &+= 1

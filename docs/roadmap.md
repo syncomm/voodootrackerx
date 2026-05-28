@@ -102,12 +102,16 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. `Lxx` set envelope position foundation.
-2. Volume-column `F0...FF` tone portamento.
-3. `R00` memory refinement for multi-retrigger.
-4. Amiga frequency-table foundation, including Amiga-table pitch/effect
+1. Volume-column `F0...FF` tone portamento.
+2. `R00` memory refinement for multi-retrigger.
+3. Amiga frequency-table foundation, including Amiga-table pitch/effect
    behavior as its own milestone.
-5. Backend hardening and cleanup after the linear-XM foundation is frozen.
+4. Backend hardening and cleanup after the linear-XM foundation is frozen.
+
+Recently completed:
+
+- `Lxx` set envelope position foundation for active volume envelopes in the
+  shared runtime/offline C mixer path.
 
 Each behavior-changing PR should include focused tests and update
 `docs/xm-effect-support.md` when support changes.

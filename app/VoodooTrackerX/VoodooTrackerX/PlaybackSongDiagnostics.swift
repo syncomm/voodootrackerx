@@ -22,6 +22,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let voiceStateUpdates: [PlaybackSongSyntheticVoiceStateUpdateDiagnostic]
     let sampleOffsetEffects: [PlaybackSongSyntheticSampleOffsetDiagnostic]
     let setFinetuneEffects: [PlaybackSongSyntheticSetFinetuneDiagnostic]
+    let envelopePositionEffects: [PlaybackSongSyntheticEnvelopePositionDiagnostic]
     let noteCutEffects: [PlaybackSongSyntheticNoteCutDiagnostic]
     let noteDelayEffects: [PlaybackSongSyntheticNoteDelayDiagnostic]
     let retriggerEffects: [PlaybackSongSyntheticRetriggerDiagnostic]
@@ -69,6 +70,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var setFinetuneEffectCount: Int {
         setFinetuneEffects.count
+    }
+
+    var envelopePositionEffectCount: Int {
+        envelopePositionEffects.count
     }
 
     var noteCutEffectCount: Int {
@@ -260,6 +265,7 @@ extension PlaybackSongSyntheticDiagnostics {
             voiceStateUpdates: voiceStateUpdates,
             sampleOffsetEffects: sampleOffsetEffects,
             setFinetuneEffects: setFinetuneEffects,
+            envelopePositionEffects: envelopePositionEffects,
             noteCutEffects: noteCutEffects,
             noteDelayEffects: noteDelayEffects,
             retriggerEffects: retriggerEffects,
@@ -353,6 +359,38 @@ struct PlaybackSongSyntheticKeyOffDiagnostic: Equatable {
     let activeVoiceFound: Bool
     let activeVoiceReleased: Bool
     let activeEventIndex: Int?
+}
+
+struct PlaybackSongSyntheticEnvelopePositionDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noActiveVoice
+        case noEnvelope
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let scheduledFrame: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let status: Status
+    let requestedPosition: Int
+    let requestedPositionFrame: Int
+    let appliedPositionFrame: Int?
+    let clamped: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let volumeEnvelopeStatus: PlaybackSongSyntheticEventMapping.VolumeEnvelopeStatus?
+    let sourceVolumeEnvelopePointCount: Int
+    let mappedVolumeEnvelopePointCount: Int
+    let policy: String
 }
 
 struct PlaybackSongSyntheticTimingChangeDiagnostic: Equatable {

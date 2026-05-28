@@ -87,9 +87,10 @@ static int vtx_c_mixer_voice_state_event_is_valid(
     int update_pan,
     float pan,
     int update_sample_step,
-    double sample_step
+    double sample_step,
+    int update_volume_envelope_position
 ) {
-    if (!update_gain && !update_pan && !update_sample_step) {
+    if (!update_gain && !update_pan && !update_sample_step && !update_volume_envelope_position) {
         return 0;
     }
     if (update_gain && !isfinite(gain)) {
@@ -494,6 +495,9 @@ static void vtx_c_mixer_apply_voice_state_events(VTXCMixerState *state, uint64_t
             }
             if (event->update_sample_step) {
                 voice->sample_step = vtx_c_mixer_sanitized_sample_step(event->sample_step);
+            }
+            if (event->update_volume_envelope_position) {
+                voice->volume_envelope.position_frame = event->volume_envelope_position_frame;
             }
         }
         state->next_voice_state_event_index++;
@@ -1492,6 +1496,8 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     float pan,
     int update_sample_step,
     double sample_step,
+    int update_volume_envelope_position,
+    uint32_t volume_envelope_position_frame,
     int ramp_enabled,
     uint32_t ramp_frame_count,
     int deactivate_after_gain_ramp
@@ -1512,7 +1518,8 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
             update_pan,
             pan,
             update_sample_step,
-            sample_step
+            sample_step,
+            update_volume_envelope_position
         )) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
@@ -1529,6 +1536,8 @@ static VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_internal(
     event.pan = vtx_c_mixer_sanitized_pan(pan);
     event.update_sample_step = update_sample_step ? 1 : 0;
     event.sample_step = vtx_c_mixer_sanitized_sample_step(sample_step);
+    event.update_volume_envelope_position = update_volume_envelope_position ? 1 : 0;
+    event.volume_envelope_position_frame = volume_envelope_position_frame;
     event.ramp_enabled = ramp_enabled ? 1 : 0;
     event.ramp_frame_count = event.ramp_enabled && ramp_frame_count > 0u
         ? ramp_frame_count
@@ -1567,6 +1576,8 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update(
         pan,
         0,
         1.0,
+        0,
+        0u,
         1,
         VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES,
         0
@@ -1589,6 +1600,32 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_sample_step_update(
         0.0f,
         1,
         sample_step,
+        0,
+        0u,
+        0,
+        VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES,
+        0
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_schedule_voice_volume_envelope_position_update(
+    VTXCMixerState *state,
+    uint32_t voice_index,
+    uint64_t scheduled_frame,
+    uint32_t volume_envelope_position_frame
+) {
+    return vtx_c_mixer_schedule_voice_gain_pan_update_internal(
+        state,
+        voice_index,
+        scheduled_frame,
+        0,
+        0.0f,
+        0,
+        0.0f,
+        0,
+        1.0,
+        1,
+        volume_envelope_position_frame,
         0,
         VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES,
         0
@@ -1615,6 +1652,8 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(
         pan,
         1,
         sample_step,
+        0,
+        0u,
         1,
         VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES,
         0
@@ -1641,6 +1680,8 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
         0,
         1.0,
         0,
+        0u,
+        0,
         VTX_C_MIXER_GAIN_PAN_UPDATE_RAMP_FRAMES,
         0
     );
@@ -1665,6 +1706,8 @@ VTXCMixerStatus vtx_c_mixer_schedule_voice_ramp_down_and_deactivate(
         0.0f,
         0,
         1.0,
+        0,
+        0u,
         1,
         ramp_frame_count,
         1

@@ -39,11 +39,15 @@ The app is still under active development and is not production-ready.
 
 Next implementation work should stay narrow:
 
-1. `Lxx` set envelope position.
-2. Volume-column `F0...FF` tone portamento.
-3. `R00` memory refinement.
-4. Amiga frequency-table foundation as a separate milestone.
-5. Backend hardening/cleanup after the linear-XM foundation is frozen.
+1. Volume-column `F0...FF` tone portamento.
+2. `R00` memory refinement.
+3. Amiga frequency-table foundation as a separate milestone.
+4. Backend hardening/cleanup after the linear-XM foundation is frozen.
+
+Recently completed narrow target:
+
+- `Lxx` set envelope position first-pass support for active volume envelopes in
+  the shared runtime/offline C mixer path.
 
 Behavior-changing effect PRs should include focused tests and update
 `docs/xm-effect-support.md`.

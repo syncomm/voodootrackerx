@@ -2061,6 +2061,27 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertIn("7Fxx unknown/unsupported", rows)
         self.assertEqual(rows["7Fxx unknown/unsupported"]["unsupported_count"], 1)
 
+    def test_effect_coverage_summary_labels_known_high_xm_effect_bytes(self):
+        diagnostics = {
+            "deferred_fields": [
+                deferred_effect_field(0x14, 0x00, row=1, channel=1),
+                deferred_effect_field(0x15, 0x04, row=2, channel=1),
+                deferred_effect_field(0x1B, 0x42, row=3, channel=1),
+                deferred_effect_field(0x1D, 0x12, row=4, channel=1),
+                deferred_effect_field(0x20, 0x01, row=5, channel=1),
+            ],
+        }
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "synthetic-diagnostics.json", diagnostics)
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["Kxx key off"]["unsupported_count"], 1)
+        self.assertEqual(rows["Lxx set envelope position"]["unsupported_count"], 1)
+        self.assertEqual(rows["Rxy multi retrigger"]["unsupported_count"], 1)
+        self.assertEqual(rows["Txy tremor"]["unsupported_count"], 1)
+        self.assertEqual(rows["Wxx unknown/unsupported"]["unsupported_count"], 1)
+
     def test_effect_coverage_summary_counts_generic_deferred_effect_fields(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
@@ -2085,7 +2106,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
         self.assertEqual(rows["E0x filter toggle"]["unsupported_count"], 1)
-        self.assertEqual(rows["20xx unknown/unsupported"]["unsupported_count"], 1)
+        self.assertEqual(rows["Wxx unknown/unsupported"]["unsupported_count"], 1)
 
     def test_effect_coverage_summary_handles_volume_column_commands(self):
         summary = effect_coverage.build_summary_from_payloads([

@@ -113,6 +113,12 @@ def effect_category(effect_type: int, effect_param: int) -> str | None:
         0x0F: "Fxx speed/BPM",
         0x10: "Gxx set global volume",
         0x11: "Hxy global volume slide",
+        0x14: "Kxx key off",
+        0x15: "Lxx set envelope position",
+        0x19: "Pxy panning slide",
+        0x1B: "Rxy multi retrigger",
+        0x1D: "Txy tremor",
+        0x21: "Xxy extra fine portamento",
     }
     if effect_type == 0x0E:
         subcommand = (effect_param >> 4) & 0x0F

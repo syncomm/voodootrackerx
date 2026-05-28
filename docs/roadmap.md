@@ -77,6 +77,17 @@ Current stabilization note:
   volume, finetune, and relative-note metadata and disabled envelopes. This is
   diagnostics-only and does not change gain, C mixer DSP, effects, tracker
   viewport behavior, parser architecture, or runtime backend defaults.
+- The ft2-clone mixer-scaling/ramping policy audit found that the primary
+  48 kHz Float32 Linear reference applies 10x amplification and master volume
+  256 as a final `0.3125` output factor, and that full renders and
+  individual-track exports share the same scaling path. Combined with
+  ft2-clone's about-`0.707` centered panning contribution, the expected
+  centered full-volume scale is about `0.220971`, matching the local
+  dominant-channel VTX-to-ft2 stem scalars at unity. VTX Float32 export now
+  preserves overrange values for diagnostics; the full local target reported
+  peak `1.925131`, RMS `0.408609`, and `206808` overrange Float32 samples at
+  unity. This is diagnostics-only and points the next work at final mix/export
+  reference policy before ramp-shape experiments.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
   sample steps. The diagnostics-only resampler/timbre follow-up documented the
@@ -823,6 +834,14 @@ offline-render responsibilities separate.
 - Change: `scripts/correlate-audio-comparison.py` now accepts `--focus-sample I:S` and `--focus-channels N,N`, and reports per-window focused active/audible voice counts, per-channel contribution estimates, per-voice age, source row, source sample position, loop phase, gain, channel/global volume, replacement state, key state, and cut/off/retrigger history. The change is diagnostics-only.
 - Verification: synthetic audio-correlation tests cover per-voice contribution summaries, dominant-sample contribution ratios, voice-age histograms, and missing optional diagnostics fields. Local private WAV/JSON/Markdown artifacts stayed under `/tmp` and out of git.
 - Status: diagnostics-only. Recommended next parity PR: ft2-clone/VTX Individual-Track vs Full-Mix Contribution Scaling, Volume Ramping, and Final Mix Policy for the dominant channel group.
+
+### PR 2.7.11bq — ft2-clone Mixer Scaling / Volume Ramping Policy Audit
+- Scope: diagnostics-only audit of ft2-clone final mix scaling, individual-track export, volume ramping, sample scaling, and VTX current contribution/export behavior for `xm-corpus-025`. No playback behavior, gain behavior, C mixer DSP, panning law, period/sample-step formula, row/tick timing, runtime backend default, tracker viewport behavior, parser architecture, or XM effect coverage changes.
+- Findings: targeted local ft2-clone inspection found the 32-bit float output path applies amplification/master volume as `(amplification * masterVolume) / (32 * 256)`, so the primary Linear profile's 10x amplification and master volume 256 produce a final `0.3125` output factor. Full render and individual-track render use the same mix/export scaling path, and individual-track export mutes non-target channels without per-track normalization or attenuation. The local ft2-clone stem sum reconstructs the full render with scalar `1.0`, correlation `1.0`, peak `0.506383`, RMS `0.102128`, and zero overrange samples.
+- Comparison: VTX 48 kHz Float32 unity export preserves overrange values and reported peak `1.925131`, RMS `0.408609`, `206808` Float32 overrange samples, and zero PCM16 clipping count for the full local target. The whole-song VTX-to-ft2 scalar was about `0.231827`; dominant-channel solo-to-stem scalars at unity were about `0.217`, `0.223`, and `0.220`, and focused worst windows clustered around `0.220971`. That matches ft2-clone's `0.3125` output scale combined with its about-`0.707` centered panning contribution, and weakens stem attenuation, VTX solo isolation scaling, dominant-sample PCM decode/scaling, sample-volume normalization, and 8-bit divisor hypotheses.
+- Ramping policy: ft2-clone uses linear per-sample volume ramping. Quick note-start/replacement/stop/reset ramps are about 5 ms at render rate, and ordinary volume/pan updates ramp over one tick. VTX currently uses fixed 32-frame linear replacement ramps and fixed 32-frame gain/pan update micro-ramps. Ramping remains a plausible residual/timbre factor after scalar normalization, but it does not explain the primary raw loudness scalar in the focused windows.
+- Verification: local ft2-clone full/stem references and VTX Float32 full/solo renders were compared with generated WAV/JSON artifacts kept under `/tmp` and out of git. Public docs use anonymized corpus labels only.
+- Status: diagnostics-only. Recommended next PR: VTX Final Mix Scale / Export Reference Policy. Do not implement the policy change in this audit branch.
 
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist

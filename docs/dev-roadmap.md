@@ -302,6 +302,30 @@ replacement/release, note-off, PCM decode, sample metadata, or sample-volume
 bug. The next precise parity target should isolate ft2-clone/VTX
 individual-track versus full-mix contribution scaling, volume ramping, and
 final mix policy for the dominant channel group.
+
+A diagnostics-only mixer-policy audit of the same target inspected the local
+ft2-clone mixer, WAV writer, audio/config, ramping, and individual-track export
+paths without copying source. For the primary 48 kHz Float32 Linear profile,
+ft2-clone applies amplification/master volume as
+`(amplification * masterVolume) / (32 * 256)`, so 10x amplification and master
+volume 256 yield a final `0.3125` output factor. Its full render and
+individual-track export use that same scaling path; local ft2-clone stems sum
+back to the full render with scalar `1.0`, correlation `1.0`, peak `0.506383`,
+RMS `0.102128`, and zero overrange samples. ft2-clone's centered panning output
+is about `0.707` per side, so the expected centered full-volume contribution
+scale is about `0.220971` after the 10x/master scale. A VTX 48 kHz Float32
+unity render reported peak `1.925131`, RMS `0.408609`, and `206808` preserved
+overrange Float32 samples; dominant-channel VTX-to-ft2 stem scalars at unity
+were about `0.217`, `0.223`, and `0.220`, with worst-window scalars clustered
+around `0.220971`. The observed dominant-channel loudness gap is therefore best
+classified as reference output policy plus stereo contribution scaling, not
+stem attenuation, solo isolation scaling, PCM decode/scaling, sample-volume
+normalization, or an 8-bit 127-versus-128 divisor issue. ft2-clone linear
+volume ramping remains a residual/timbre candidate because it ramps note
+starts/replacements/stops and volume/pan updates over about 5 ms or one tick,
+while VTX currently uses fixed 32-frame linear replacement and gain/pan update
+ramps. Recommended next PR: VTX Final Mix Scale / Export Reference Policy.
+
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

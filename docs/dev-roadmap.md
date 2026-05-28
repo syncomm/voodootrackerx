@@ -220,6 +220,18 @@ showed substantially higher reference high-frequency and transient proxy
 energy. No tiny C mixer interpolation boundary bug was proven; the remaining
 mismatch is likely resampler/timbre-related, with replacement ramp shape or
 level normalization left as secondary alternatives.
+A local `xm-corpus-025` ft2-clone linear-vs-SINC8/default reference check kept
+playback behavior unchanged and compared VTX's current default linear render
+against both ft2-clone reference modes. VTX linear was modestly closer to the
+ft2-clone linear reference than to the ft2-clone SINC8/default reference
+(`0.927530` versus `0.922506` correlation, `0.038170` versus `0.039823`
+gain-normalized RMS difference), while ft2-clone linear and SINC8/default
+themselves differed much less (`0.998729` correlation, `0.005280` raw RMS
+difference). The ft2-clone default reference is therefore not equivalent to
+linear, but the remaining VTX mismatch is not explained primarily by reference
+resampler mode alone. Next work should favor focused resampler-window analysis
+or a separate SINC8 candidate experiment, with sample/instrument volume
+normalization kept as the level-focused fallback.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

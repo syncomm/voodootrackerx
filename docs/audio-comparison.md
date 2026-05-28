@@ -52,6 +52,22 @@ ft2-clone residuals. No C mixer DSP, gain policy, panning law, sample-step,
 loop-endpoint, effect, tracker viewport, or parser change is implied by that
 diagnostic result.
 
+A follow-up local `xm-corpus-025` reference comparison used VTX's current
+default linear render, an ft2-clone linear reference, and an ft2-clone
+SINC8/default reference. All three files were 48 kHz, 182.88 seconds, and
+zero-clipping/zero-overrange for the analyzed files after export/reference
+leveling. VTX linear was closer to the ft2-clone linear reference than to the
+ft2-clone SINC8/default reference, but only modestly: correlation was
+`0.927530` versus `0.922506`, and gain-normalized RMS difference was
+`0.038170` versus `0.039823`. The ft2-clone linear and SINC8/default
+references themselves differed with correlation `0.998729` and raw RMS
+difference `0.005280`, so the ft2-clone default reference is not equivalent to
+a linear renderer. However, that reference-mode delta is much smaller than the
+remaining VTX-to-ft2-clone mismatch. Treat the current mismatch as not merely a
+SINC8/default reference-mode artifact; the strongest next work is focused
+resampler-window analysis or a separate SINC8 candidate investigation, with
+sample/instrument volume normalization kept as a level-focused alternative.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

@@ -214,6 +214,7 @@ def update_label_map(source_dir: Path, map_path: Path) -> tuple[dict[str, Any], 
                 **parse_xm(xm_file),
             }
         )
+        entry["metadata_notes"] = metadata_notes(entry)
 
     label_map.update(
         {
@@ -231,6 +232,8 @@ def update_label_map(source_dir: Path, map_path: Path) -> tuple[dict[str, Any], 
 def build_summary(label_map: dict[str, Any], new_labels: list[str]) -> dict[str, Any]:
     entries = [entry for entry in label_map.get("entries", []) if isinstance(entry, dict)]
     channels = [entry["channel_count"] for entry in entries if isinstance(entry.get("channel_count"), int)]
+    patterns = [entry["pattern_count"] for entry in entries if isinstance(entry.get("pattern_count"), int)]
+    instruments = [entry["instrument_count"] for entry in entries if isinstance(entry.get("instrument_count"), int)]
     return {
         "generated_at_utc": utc_now(),
         "total_mapped_modules": len(entries),
@@ -238,6 +241,11 @@ def build_summary(label_map: dict[str, Any], new_labels: list[str]) -> dict[str,
         "frequency_table_counts": dict(sorted(Counter(entry.get("frequency_table") or "unknown" for entry in entries).items())),
         "tracker_version_counts": dict(sorted(Counter(tracker_version(entry) for entry in entries).items())),
         "channel_count_range": {"min": min(channels) if channels else None, "max": max(channels) if channels else None},
+        "pattern_count_range": {"min": min(patterns) if patterns else None, "max": max(patterns) if patterns else None},
+        "instrument_count_range": {
+            "min": min(instruments) if instruments else None,
+            "max": max(instruments) if instruments else None,
+        },
         "amiga_frequency_table_labels": labels_where(entries, lambda entry: entry.get("frequency_table") == "amiga"),
         "unusual_metadata": unusual_metadata(entries),
     }
@@ -251,27 +259,32 @@ def labels_where(entries: list[dict[str, Any]], predicate: Any) -> list[str]:
     return [entry["label"] for entry in entries if isinstance(entry.get("label"), str) and predicate(entry)]
 
 
+def metadata_notes(entry: dict[str, Any]) -> list[str]:
+    notes = []
+    if entry.get("format") != "XM":
+        notes.append("format not parsed as XM")
+    if entry.get("frequency_table") == "amiga":
+        notes.append("Amiga frequency table")
+    if isinstance(entry.get("xm_flags"), int) and entry["xm_flags"] not in (0, 1):
+        notes.append(f"XM flags {entry['xm_flags']}")
+    if entry.get("xm_version") not in (None, "1.04"):
+        notes.append(f"XM version {entry['xm_version']}")
+    channels = entry.get("channel_count")
+    if isinstance(channels, int) and (channels <= 0 or channels > 32 or channels % 2 != 0):
+        notes.append(f"channel count {channels}")
+    if entry.get("playable_order_count") != entry.get("order_count"):
+        notes.append(f"playable orders {entry.get('playable_order_count')} of {entry.get('order_count')}")
+    if entry.get("sample_count_status") not in (None, "complete"):
+        notes.append(f"sample count {entry.get('sample_count_status')}")
+    if entry.get("parse_warnings"):
+        notes.append("parse warnings present")
+    return notes
+
+
 def unusual_metadata(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = []
     for entry in entries:
-        notes = []
-        if entry.get("format") != "XM":
-            notes.append("format not parsed as XM")
-        if entry.get("frequency_table") == "amiga":
-            notes.append("Amiga frequency table")
-        if isinstance(entry.get("xm_flags"), int) and entry["xm_flags"] not in (0, 1):
-            notes.append(f"XM flags {entry['xm_flags']}")
-        if entry.get("xm_version") not in (None, "1.04"):
-            notes.append(f"XM version {entry['xm_version']}")
-        channels = entry.get("channel_count")
-        if isinstance(channels, int) and (channels <= 0 or channels > 32 or channels % 2 != 0):
-            notes.append(f"channel count {channels}")
-        if entry.get("playable_order_count") != entry.get("order_count"):
-            notes.append(f"playable orders {entry.get('playable_order_count')} of {entry.get('order_count')}")
-        if entry.get("sample_count_status") not in (None, "complete"):
-            notes.append(f"sample count {entry.get('sample_count_status')}")
-        if entry.get("parse_warnings"):
-            notes.append("parse warnings present")
+        notes = metadata_notes(entry)
         if notes and isinstance(entry.get("label"), str):
             items.append({"label": entry["label"], "notes": notes})
     return items
@@ -292,6 +305,8 @@ def write_markdown(path: Path, summary: dict[str, Any]) -> None:
         f"- Newly added labels: {label_list(summary['newly_added_labels'])}",
         f"- Frequency table counts: {counts(summary['frequency_table_counts'])}",
         f"- Channel count range: {range_text(summary['channel_count_range'])}",
+        f"- Pattern count range: {range_text(summary['pattern_count_range'])}",
+        f"- Instrument count range: {range_text(summary['instrument_count_range'])}",
         "",
         "## Tracker / Version Counts",
         "",

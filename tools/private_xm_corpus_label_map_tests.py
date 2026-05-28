@@ -45,10 +45,18 @@ class PrivateXMCorpusLabelMapTests(unittest.TestCase):
             self.assertEqual(label_map["entries"][0]["frequency_table"], "linear")
             self.assertEqual(label_map["entries"][1]["frequency_table"], "amiga")
             self.assertEqual(label_map["entries"][1]["sample_count"], 3)
+            self.assertEqual(
+                label_map["entries"][1]["metadata_notes"],
+                ["Amiga frequency table", "XM version 1.02", "channel count 3"],
+            )
             self.assertEqual(summary["frequency_table_counts"], {"amiga": 1, "linear": 1})
+            self.assertEqual(summary["pattern_count_range"], {"min": 1, "max": 1})
+            self.assertEqual(summary["instrument_count_range"], {"min": 1, "max": 2})
             self.assertEqual(summary["amiga_frequency_table_labels"], ["xm-corpus-002"])
             self.assertIn("XM version 1.02", markdown)
             self.assertIn("channel count 3", markdown)
+            self.assertIn("Pattern count range: 1...1", markdown)
+            self.assertIn("Instrument count range: 1...2", markdown)
             self.assertNotIn(str(new), markdown)
             self.assertNotIn(new.name, markdown)
 

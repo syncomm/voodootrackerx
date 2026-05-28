@@ -1729,7 +1729,14 @@ python3 scripts/update-private-xm-corpus-label-map.py \
 
 The helper scans only `.xm` files in the selected directory, preserves existing
 labels, appends new labels, enriches the local map with header metadata, and
-omits private filenames and paths from the generated summaries.
+omits private filenames and paths from the generated summaries. The redacted
+summary includes frequency-table and tracker/version counts, channel,
+pattern, and instrument count ranges, Amiga-table labels, and unusual-metadata
+labels only.
+
+Compact `--effect-coverage-json` exports preserve deferred effect command bytes
+so public-safe coverage summaries can distinguish generic unknown effect
+buckets without requiring bulky full diagnostics JSON.
 
 Use the correlation report to choose the next smallest implementation PR. For
 example, if high mismatch windows repeatedly line up with Amiga-table neutral

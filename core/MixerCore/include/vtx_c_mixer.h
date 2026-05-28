@@ -43,9 +43,16 @@ typedef enum {
     VTX_C_MIXER_LOOP_PING_PONG = 2,
 } VTXCMixerLoopMode;
 
+typedef enum {
+    VTX_C_MIXER_PAN_LAW_LINEAR = 0,
+    VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER = 1,
+} VTXCMixerPanLaw;
+
 typedef struct {
     double sample_rate;
     uint32_t channel_count;
+    VTXCMixerPanLaw pan_law;
+    float output_scale;
 } VTXCMixerConfig;
 
 typedef struct {
@@ -176,6 +183,8 @@ typedef struct {
 } VTXCMixerState;
 
 VTXCMixerConfig vtx_c_mixer_default_config(void);
+float vtx_c_mixer_pan_left_gain(VTXCMixerPanLaw pan_law, float pan);
+float vtx_c_mixer_pan_right_gain(VTXCMixerPanLaw pan_law, float pan);
 uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void);
 uint32_t vtx_c_mixer_replacement_stop_ramp_frame_count(void);
 uint32_t vtx_c_mixer_loaded_voice_count(const VTXCMixerState *state);

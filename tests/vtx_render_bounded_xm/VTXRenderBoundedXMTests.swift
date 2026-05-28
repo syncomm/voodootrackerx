@@ -15,6 +15,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--sample-rate", "48000",
             "--max-frames", "96000",
             "--window-rows", "64",
+            "--mix-profile", "ft2",
             "--wav-format", "float32",
             "--gain", "0.5",
         ])
@@ -29,6 +30,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(arguments.sampleRate, 48_000)
         XCTAssertEqual(arguments.maxFrames, 96_000)
         XCTAssertEqual(arguments.windowRows, 64)
+        XCTAssertEqual(arguments.mixProfile, .ft2)
         XCTAssertEqual(arguments.wavFormat, .float32)
         XCTAssertEqual(arguments.gain, 0.5)
         XCTAssertNil(arguments.headroomDB)
@@ -123,6 +125,17 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             "--wav-format", "pcm24",
         ])) { error in
             XCTAssertTrue(error.localizedDescription.contains("--wav-format must be one of: pcm16, float32"))
+        }
+    }
+
+    func testInvalidMixProfileFailsClearly() {
+        XCTAssertThrowsError(try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--mix-profile", "reference",
+        ])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("--mix-profile must be one of: vtx, ft2"))
         }
     }
 
@@ -746,6 +759,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("--solo-channel N"))
         XCTAssertTrue(usage.contains("--solo-instrument I"))
         XCTAssertTrue(usage.contains("--solo-sample I:S"))
+        XCTAssertTrue(usage.contains("--mix-profile PROFILE"))
         XCTAssertTrue(usage.contains("--wav-format FORMAT"))
         XCTAssertTrue(usage.contains("--gain N"))
         XCTAssertTrue(usage.contains("--headroom-db N"))
@@ -756,6 +770,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(usage.contains("Default safety clamp"))
         XCTAssertTrue(usage.contains("before WAV encoding"))
         XCTAssertTrue(usage.contains("format code 3"))
+        XCTAssertTrue(usage.contains("ft2-clone Linear reference output scale"))
         XCTAssertTrue(usage.contains("rendered frames or row windows"))
         XCTAssertTrue(usage.contains("not full FT2/OpenMPT song loop/restart parity"))
 
@@ -791,6 +806,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertTrue(summary.contains("WAV format: pcm16"))
         XCTAssertTrue(summary.contains("Sample rate: 44100 Hz"))
         XCTAssertTrue(summary.contains("Channels: 1"))
+        XCTAssertTrue(summary.contains("Mix profile: vtx"))
+        XCTAssertTrue(summary.contains("Mix pan law: linear"))
+        XCTAssertTrue(summary.contains("Mix output scale: 1.000000"))
+        XCTAssertTrue(summary.contains("Centered pan output contribution: 1.000000"))
         XCTAssertTrue(summary.contains("Render duration mode: max frames"))
         XCTAssertTrue(summary.contains("Calculated song-end frames: not applicable"))
         XCTAssertTrue(summary.contains("Tail: 0.000 seconds (0 frames)"))
@@ -1253,6 +1272,38 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(candidateInfo["wav_format_code"] as? Int, 3)
     }
 
+    func testRenderToolAppliesFT2MixProfileToFloat32Render() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let inputURL = try generatedPlayableXMPath(in: directory)
+        let outputURL = directory.appendingPathComponent("generated-playable-ft2-profile.wav")
+        let diagnosticsURL = directory.appendingPathComponent("generated-playable-ft2-profile.json")
+        let arguments = RenderToolArguments(
+            inputPath: inputURL.path,
+            outputPath: outputURL.path,
+            diagnosticsJSONPath: diagnosticsURL.path,
+            order: 0,
+            orderCount: 1,
+            rows: 1,
+            sampleRate: 48_000,
+            maxFrames: nil,
+            seconds: nil,
+            wavFormat: .float32,
+            mixProfile: .ft2
+        )
+
+        let result = try RenderTool(currentDirectory: repoRoot()).run(arguments)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: diagnosticsURL)) as? [String: Any])
+        let render = try XCTUnwrap(object["render"] as? [String: Any])
+
+        XCTAssertEqual(result.block.config.mixProfile, .ft2)
+        XCTAssertEqual(result.exportDiagnostics?.wavFormat, .float32)
+        XCTAssertEqual(render["mix_profile"] as? String, "ft2")
+        XCTAssertEqual(render["mix_pan_law"] as? String, "ft2_equal_power")
+        XCTAssertEqual(render["mix_output_scale"] as? Double, 0.3125)
+        XCTAssertEqual(render["center_pan_output_contribution"] as? Double ?? 0, 0.220_970_87, accuracy: 0.000_001)
+    }
+
     func testMinimalXMFixtureRemainsParserHelperPlumbingSmokeOnly() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1330,6 +1381,18 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         ])
         XCTAssertEqual(render["sample_rate"] as? Double, 44_100)
         XCTAssertEqual(render["channel_count"] as? Int, 2)
+        XCTAssertEqual(render["mix_profile"] as? String, "vtx")
+        XCTAssertEqual(render["mix_pan_law"] as? String, "linear")
+        XCTAssertEqual(render["mix_output_scale"] as? Double, 1)
+        XCTAssertEqual(render["mix_output_scale_policy"] as? String, "unity")
+        XCTAssertEqual(render["mix_output_scale_formula"] as? String, "1.0")
+        XCTAssertEqual(render["mix_output_scale_applied_before_wav_export_gain"] as? Bool, true)
+        XCTAssertEqual(render["ft2_reference_amplification"] as? Double, 10)
+        XCTAssertEqual(render["ft2_reference_master_volume"] as? Double, 256)
+        XCTAssertEqual(render["ft2_reference_output_divisor"] as? Double, 8192)
+        XCTAssertEqual(render["center_pan_left_gain"] as? Double, 1)
+        XCTAssertEqual(render["center_pan_right_gain"] as? Double, 1)
+        XCTAssertEqual(render["center_pan_output_contribution"] as? Double, 1)
         XCTAssertEqual(render["wav_format"] as? String, "pcm16")
         XCTAssertEqual(render["wav_format_code"] as? Int, 1)
         XCTAssertEqual(render["wav_bits_per_sample"] as? Int, 16)

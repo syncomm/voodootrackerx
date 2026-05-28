@@ -3335,6 +3335,93 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertEqual(output, [1, 0, -1, 0, 1, 0, -1, 0, 1, 0])
     }
 
+    func testCSoftwareMixerForwardLoopSteadyStateInteriorWindowDoesNotCrossBoundary() {
+        let output = cMixerMonoOutput(
+            sample: [0, -1, -0.5, 0, 0.5, 1, 99],
+            frames: 4,
+            playbackStep: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 6),
+            initialSourceFrame: 2
+        )
+
+        XCTAssertEqual(output, [-0.5, -0.25, 0, 0.25])
+    }
+
+    func testCSoftwareMixerForwardLoopRepeatedInteriorRegionKeepsExpectedEnergy() {
+        let output = cMixerMonoOutput(
+            sample: [0, 0.25, -0.25, 0.25, -0.25, 99],
+            frames: 8,
+            playbackStep: 1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 5),
+            initialSourceFrame: 1
+        )
+
+        XCTAssertEqual(output, [0.25, -0.25, 0.25, -0.25, 0.25, -0.25, 0.25, -0.25])
+        XCTAssertEqual(rootMeanSquare(output), 0.25, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerForwardLoopHighFrequencyProxyExceedsLowFrequencyProxy() {
+        let high = cMixerMonoOutput(
+            sample: [0, 1, -1, 1, -1, 99],
+            frames: 8,
+            playbackStep: 1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 5),
+            initialSourceFrame: 1
+        )
+        let low = cMixerMonoOutput(
+            sample: [0, 0, 0.25, 0.5, 0.25, 0, 99],
+            frames: 10,
+            playbackStep: 1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 6),
+            initialSourceFrame: 1
+        )
+
+        XCTAssertGreaterThan(derivativeRootMeanSquare(high), derivativeRootMeanSquare(low))
+        XCTAssertGreaterThan(rootMeanSquare(high), rootMeanSquare(low))
+    }
+
+    func testCSoftwareMixerLoopedFullAndHalfVolumeScaleEnergyPredictably() {
+        let full = cMixerMonoOutput(
+            sample: [1, -1, 1, -1],
+            frames: 8,
+            playbackStep: 1,
+            gain: 1,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 4)
+        )
+        let half = cMixerMonoOutput(
+            sample: [1, -1, 1, -1],
+            frames: 8,
+            playbackStep: 1,
+            gain: 0.5,
+            loop: MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: 4)
+        )
+
+        XCTAssertEqual(rootMeanSquare(half), rootMeanSquare(full) * 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(meanSquare(half), meanSquare(full) * 0.25, accuracy: 0.000_001)
+    }
+
+    func testCSoftwareMixerForwardLoopSteadyStateSplitRenderMatchesSingleRender() {
+        let sample: [Float] = [0, -0.75, -0.25, 0.25, 0.75, 0.25, 99]
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 6)
+        let single = cMixerMonoOutput(
+            sample: sample,
+            frames: 16,
+            playbackStep: 0.75,
+            loop: loop,
+            initialSourceFrame: 2
+        )
+        let split = cMixerMonoOutput(
+            sample: sample,
+            frames: 16,
+            playbackStep: 0.75,
+            loop: loop,
+            initialSourceFrame: 2,
+            splitFrameCounts: [5, 4, 7]
+        )
+
+        XCTAssertEqual(split, single)
+    }
+
     func testCSoftwareMixerForwardLoopTransientFixtureMatchesSplitRender() {
         let sample: [Float] = [0, 0, 1, 0, 0, 99]
         let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 5)
@@ -3526,6 +3613,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         sample: [Float],
         frames: Int,
         playbackStep: Double,
+        gain: Float = 1,
         loop: MixerSampleLoop = .none,
         initialSourceFrame: Int = 0,
         splitFrameCounts: [Int] = []
@@ -3533,6 +3621,7 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1))
         mixer.addVoice(
             sample: MixerSampleBuffer(monoPCM: sample),
+            gain: gain,
             playbackStep: playbackStep,
             loop: loop,
             initialSourceFrame: initialSourceFrame
@@ -3542,5 +3631,28 @@ final class VTXRenderBoundedXMTests: XCTestCase {
             return splitFrameCounts.flatMap { mixer.render(frames: $0).interleavedPCM }
         }
         return mixer.render(frames: frames).interleavedPCM
+    }
+
+    private func meanSquare(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else {
+            return 0
+        }
+        return samples.reduce(Float(0)) { partialResult, sample in
+            partialResult + (sample * sample)
+        } / Float(samples.count)
+    }
+
+    private func rootMeanSquare(_ samples: [Float]) -> Float {
+        sqrt(meanSquare(samples))
+    }
+
+    private func derivativeRootMeanSquare(_ samples: [Float]) -> Float {
+        guard samples.count > 1 else {
+            return 0
+        }
+        let derivatives = zip(samples.dropFirst(), samples).map { current, previous in
+            current - previous
+        }
+        return rootMeanSquare(derivatives)
     }
 }

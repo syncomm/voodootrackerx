@@ -65,7 +65,7 @@ external tracker feature completeness.
 | `Pxy` | Panning slide | Deferred | Deferred | No | No | Legacy handler support exists, but the default C mixer adapter path has no implementation yet. |
 | `Rxy` | Multi retrigger | Supported / first-pass | `R00` deferred/no-op | Yes | Yes | Reuses the retrigger scheduler for active voices and applies a common-XM volume-change table with channel volume clamped to `0...64`. |
 | `Txy` | Tremor | Deferred | Deferred | No | No | No current C mixer adapter behavior. |
-| `X1x` / `X2x` | Extra fine portamento | Deferred / XM compatibility extension | Deferred | No | No | FT2/MilkyTracker-style extension, distinct from OpenMPT / ModPlug hack families. |
+| `X1x` / `X2x` | Extra fine portamento | Supported / first-pass | `X10`/`X20` deferred/no-op | Yes | Yes | Linear-frequency row-level adjustment only; other `X` subcommands remain deferred. |
 | `X5x`, `X6x`, `X9x`, `XAx`, `Yxy`, `Zxx` | OpenMPT / ModPlug compatibility commands | Not targeted for v1 | Not targeted | No | No | Extension and hack families stay out of v1 unless a later compatibility target justifies them. |
 | `Vxx`, `Wxx` | High-byte unknowns in current diagnostics | Classification-only | Not applicable | No | No | Kept visible as unsupported diagnostics; no playback behavior is inferred. |
 
@@ -103,6 +103,7 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 - Amiga frequency-table pitch behavior.
 - `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Lxx`, `Pxy`, and
   `Txy` in the default C mixer adapter path.
+- `X` subcommands other than `X1x` and `X2x`.
 - OpenMPT / ModPlug hacks and non-v1 extensions unless explicitly promoted by
   a future compatibility decision.
 

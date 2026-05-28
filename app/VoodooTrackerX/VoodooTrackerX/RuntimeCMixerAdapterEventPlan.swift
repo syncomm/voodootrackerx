@@ -147,6 +147,16 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 .filter(\.applied)
                 .compactMap(\.activeEventIndex)
         )
+        let appliedExtraFinePortamentoByEventIndex = adaptedPlan.diagnostics.extraFinePortamentoEffects
+            .filter(\.applied)
+            .reduce(into: [Int: PlaybackSongSyntheticExtraFinePortamentoDiagnostic]()) { result, diagnostic in
+                guard diagnostic.appliedToInitialPlaybackStep,
+                      let activeEventIndex = diagnostic.activeEventIndex,
+                      result[activeEventIndex] == nil else {
+                    return
+                }
+                result[activeEventIndex] = diagnostic
+            }
         func portamentoSlideTriggerKey(
             eventIndex: Int,
             source: PlaybackPosition,
@@ -225,6 +235,16 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isFinePortamentoDown {
                 categories.append("e2x_fine_portamento_down")
             }
+            let bridgedExtraFinePortamento: PlaybackSongSyntheticExtraFinePortamentoDiagnostic? =
+                mapping.effectType == 0x21 ? appliedExtraFinePortamentoByEventIndex[eventIndex] : nil
+            if let bridgedExtraFinePortamento {
+                categories.append("xxy_extra_fine_portamento")
+                if bridgedExtraFinePortamento.direction == .up {
+                    categories.append("x1x_extra_fine_portamento_up")
+                } else if bridgedExtraFinePortamento.direction == .down {
+                    categories.append("x2x_extra_fine_portamento_down")
+                }
+            }
             let fineVolumeSlideAmount = mapping.effectParam & 0x0F
             let isFineVolumeSlideUp = mapping.effectType == 0x0E &&
                 ((mapping.effectParam >> 4) & 0x0F) == 0x0A &&
@@ -280,6 +300,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             let hasBridgedEffectMetadata = isSetFinetune ||
                 isFinePortamentoUp ||
                 isFinePortamentoDown ||
+                bridgedExtraFinePortamento != nil ||
                 isFineVolumeSlideUp ||
                 isFineVolumeSlideDown ||
                 isVibratoVolumeSlide ||
@@ -455,6 +476,32 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
                     categories: ["step_update", "e2x_fine_portamento_down"],
+                    effectType: diagnostic.effectType,
+                    effectParam: diagnostic.effectParam
+                ))
+                nextID += 1
+            }
+        }
+
+        for diagnostic in adaptedPlan.diagnostics.extraFinePortamentoEffects where diagnostic.applied && !diagnostic.appliedToInitialPlaybackStep {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            for update in diagnostic.stepUpdates {
+                var categories = ["step_update", "xxy_extra_fine_portamento"]
+                if diagnostic.direction == .up {
+                    categories.append("x1x_extra_fine_portamento_up")
+                } else if diagnostic.direction == .down {
+                    categories.append("x2x_extra_fine_portamento_down")
+                }
+                events.append(RuntimeCMixerAdapterEvent(
+                    id: nextID,
+                    source: diagnostic.source,
+                    channelIndex: diagnostic.channelIndex,
+                    syntheticTick: update.syntheticTick,
+                    scheduledFrame: update.scheduledFrame,
+                    action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
+                    categories: categories,
                     effectType: diagnostic.effectType,
                     effectParam: diagnostic.effectParam
                 ))

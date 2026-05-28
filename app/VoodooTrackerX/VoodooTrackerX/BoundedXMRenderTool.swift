@@ -1143,6 +1143,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
         try writeJSONArray("portamento_slide_effects", diagnostics.portamentoSlideEffects, firstKey: &firstKey, to: handle, transform: portamentoSlideCoverageJSON)
         try writeJSONArray("fine_portamento_up_effects", diagnostics.finePortamentoUpEffects, firstKey: &firstKey, to: handle, transform: finePortamentoUpCoverageJSON)
         try writeJSONArray("fine_portamento_down_effects", diagnostics.finePortamentoDownEffects, firstKey: &firstKey, to: handle, transform: finePortamentoDownCoverageJSON)
+        try writeJSONArray("xxy_extra_fine_portamento_effects", diagnostics.extraFinePortamentoEffects, firstKey: &firstKey, to: handle, transform: extraFinePortamentoCoverageJSON)
         try writeJSONArray("vibrato_control_effects", diagnostics.vibratoControlEffects, firstKey: &firstKey, to: handle, transform: vibratoControlCoverageJSON)
         try writeJSONArray("vibrato_effects", diagnostics.vibratoEffects, firstKey: &firstKey, to: handle, transform: vibratoCoverageJSON)
         try writeJSONArray("key_off_events", diagnostics.keyOffEvents, firstKey: &firstKey, to: handle, transform: keyOffEventJSON)
@@ -1367,6 +1368,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
         )
     }
 
+    private static func extraFinePortamentoCoverageJSON(_ diagnostic: PlaybackSongSyntheticExtraFinePortamentoDiagnostic) -> [String: Any] {
+        var object = baseEffectCoverageJSON(
+            source: diagnostic.source,
+            channelIndex: diagnostic.channelIndex,
+            syntheticTick: diagnostic.syntheticTick,
+            effectType: diagnostic.effectType,
+            effectParam: diagnostic.effectParam,
+            status: extraFinePortamentoStatusName(diagnostic.status),
+            applied: diagnostic.applied,
+            deferred: diagnostic.deferred,
+            ignoredAsNoOp: diagnostic.ignoredAsNoOp
+        )
+        object["direction"] = diagnostic.direction.map { $0.rawValue as Any } ?? NSNull()
+        object["amount"] = diagnostic.amount
+        object["subcommand"] = diagnostic.subcommand
+        object["effect_memory_deferred"] = diagnostic.effectMemoryDeferred
+        return object
+    }
+
     private static func vibratoControlCoverageJSON(_ diagnostic: PlaybackSongSyntheticVibratoControlDiagnostic) -> [String: Any] {
         baseEffectCoverageJSON(
             source: diagnostic.source,
@@ -1538,6 +1558,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let finePortamentoDownZeroAmountCount = diagnostics.finePortamentoDownEffects.filter { $0.status == .zeroAmountEffectMemoryDeferred }.count
         let finePortamentoDownDeferredCount = diagnostics.finePortamentoDownEffects.filter(\.deferred).count
         let finePortamentoDownScheduledStepUpdateCount = diagnostics.finePortamentoDownEffects.map(\.stepUpdates.count).reduce(0, +)
+        let extraFinePortamentoAppliedCount = diagnostics.extraFinePortamentoEffects.filter(\.applied).count
+        let extraFinePortamentoNoActiveVoiceCount = diagnostics.extraFinePortamentoEffects.filter { $0.status == .noActiveVoice }.count
+        let extraFinePortamentoZeroAmountCount = diagnostics.extraFinePortamentoEffects.filter { $0.status == .zeroAmountEffectMemoryDeferred }.count
+        let extraFinePortamentoUnsupportedSubcommandCount = diagnostics.extraFinePortamentoEffects.filter { $0.status == .unsupportedSubcommand }.count
+        let extraFinePortamentoDeferredCount = diagnostics.extraFinePortamentoEffects.filter(\.deferred).count
+        let extraFinePortamentoScheduledStepUpdateCount = diagnostics.extraFinePortamentoEffects.map(\.stepUpdates.count).reduce(0, +)
         let setFinetuneAppliedCount = diagnostics.setFinetuneEffects.filter(\.applied).count
         let setFinetuneNoNoteDeferredCount = diagnostics.setFinetuneEffects.filter { $0.status == .noNoteDeferred }.count
         let setFinetuneNoActiveVoiceCount = diagnostics.setFinetuneEffects.filter { $0.status == .noActiveVoice }.count
@@ -1681,6 +1707,21 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
             ]
         }
+        let firstXxyCoordinates = Array(diagnostics.extraFinePortamentoEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "effect_type": Int(diagnostic.effectType),
+                "effect_param": Int(diagnostic.effectParam),
+                "effect_label": "Xxy extra fine portamento",
+                "status": extraFinePortamentoStatusName(diagnostic.status),
+                "direction": diagnostic.direction.map { $0.rawValue as Any } ?? NSNull(),
+                "amount": diagnostic.amount,
+                "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
         let sameChannelVoiceLifetime = result.sameChannelVoiceLifetime
         let pitchModulationDeferredEffectCount = pitchModulationSummary["total_deferred_pitch_modulation_effect_count"] as? Int ?? 0
         let traversalSummary = diagnostics.traversalSummary
@@ -1700,6 +1741,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
+            "Minimal Xxy extra fine portamento applies X1x/X2x as one deterministic row-level linear-period adjustment through the shared runtime/offline sample-step path; X10/X20 effect memory and other X subcommands remain deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
             "Minimal E4x vibrato control stores deterministic sine/ramp/square/random waveform state for later 4xy/6xy vibrato; unsupported control values remain explicitly deferred and E4x emits no direct audio event.",
             "Minimal 4xy vibrato uses deterministic linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory and volume-column vibrato remain deferred.",
@@ -1863,6 +1905,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "e2x_fine_portamento_down_zero_amount_effect_memory_deferred_count": finePortamentoDownZeroAmountCount,
                 "e2x_fine_portamento_down_deferred_count": finePortamentoDownDeferredCount,
                 "e2x_fine_portamento_down_scheduled_sample_step_update_count": finePortamentoDownScheduledStepUpdateCount,
+                "xxy_extra_fine_portamento_effect_count": diagnostics.extraFinePortamentoEffectCount,
+                "xxy_extra_fine_portamento_detected_count": diagnostics.extraFinePortamentoEffectCount,
+                "xxy_extra_fine_portamento_applied_count": extraFinePortamentoAppliedCount,
+                "xxy_extra_fine_portamento_no_active_voice_count": extraFinePortamentoNoActiveVoiceCount,
+                "xxy_extra_fine_portamento_zero_amount_effect_memory_deferred_count": extraFinePortamentoZeroAmountCount,
+                "xxy_extra_fine_portamento_unsupported_subcommand_count": extraFinePortamentoUnsupportedSubcommandCount,
+                "xxy_extra_fine_portamento_deferred_count": extraFinePortamentoDeferredCount,
+                "xxy_extra_fine_portamento_scheduled_sample_step_update_count": extraFinePortamentoScheduledStepUpdateCount,
+                "first_xxy_extra_fine_portamento_coordinates": firstXxyCoordinates,
                 "e5x_set_finetune_effect_count": diagnostics.setFinetuneEffectCount,
                 "e5x_set_finetune_detected_count": diagnostics.setFinetuneEffectCount,
                 "e5x_set_finetune_applied_count": setFinetuneAppliedCount,
@@ -2043,6 +2094,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "e1x_fine_portamento_up_effects": diagnostics.finePortamentoUpEffects.map(finePortamentoUpDiagnosticJSON),
             "fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
             "e2x_fine_portamento_down_effects": diagnostics.finePortamentoDownEffects.map(finePortamentoDownDiagnosticJSON),
+            "xxy_extra_fine_portamento_effects": diagnostics.extraFinePortamentoEffects.map(extraFinePortamentoDiagnosticJSON),
             "vibrato_effects": diagnostics.vibratoEffects.map(vibratoDiagnosticJSON),
             "vibrato_control_effects": diagnostics.vibratoControlEffects.map(vibratoControlDiagnosticJSON),
             "vibrato_volume_slide_6xy_effects": diagnostics.vibratoEffects.filter { $0.effectType == 0x06 }.map(vibratoDiagnosticJSON),
@@ -4340,6 +4392,56 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func extraFinePortamentoDiagnosticJSON(
+        _ diagnostic: PlaybackSongSyntheticExtraFinePortamentoDiagnostic
+    ) -> [String: Any] {
+        [
+            "source": positionJSON(diagnostic.source),
+            "channel_index": diagnostic.channelIndex,
+            "synthetic_row": diagnostic.syntheticRow,
+            "synthetic_tick": diagnostic.syntheticTick,
+            "effect_type": Int(diagnostic.effectType),
+            "effect_param": Int(diagnostic.effectParam),
+            "effect_label": "Xxy extra fine portamento",
+            "decoded_label": "Xxy extra fine portamento",
+            "status": extraFinePortamentoStatusName(diagnostic.status),
+            "current_status": extraFinePortamentoStatusName(diagnostic.status),
+            "detected": diagnostic.detected,
+            "applied": diagnostic.applied,
+            "deferred": diagnostic.deferred,
+            "ignored_as_no_op": diagnostic.ignoredAsNoOp,
+            "effect_memory_deferred": diagnostic.effectMemoryDeferred,
+            "active_voice_found": diagnostic.activeVoiceFound,
+            "active_event_index": diagnostic.activeEventIndex.map { $0 as Any } ?? NSNull(),
+            "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
+            "subcommand": diagnostic.subcommand,
+            "direction": diagnostic.direction.map { $0.rawValue as Any } ?? NSNull(),
+            "amount": diagnostic.amount,
+            "amount_nibble": diagnostic.amountNibble,
+            "fine_amount": diagnostic.amount,
+            "fine_amount_nibble": diagnostic.amountNibble,
+            "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "original_linear_period": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "adjusted_linear_period": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
+            "current_playback_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
+            "row_speed": diagnostic.rowSpeed,
+            "row_bpm": diagnostic.rowBPM,
+            "scheduled_frame": diagnostic.scheduledFrame.map { $0 as Any } ?? NSNull(),
+            "applied_to_initial_playback_step": diagnostic.appliedToInitialPlaybackStep,
+            "active_voice_update_count": diagnostic.applied ? diagnostic.stepUpdates.count : 0,
+            "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            "sample_step_update_count": diagnostic.stepUpdates.count,
+            "step_update_count": diagnostic.stepUpdates.count,
+            "step_updates": diagnostic.stepUpdates.map(tonePortamentoStepUpdateJSON),
+            "clamped": diagnostic.clamped,
+            "policy": diagnostic.policy,
+        ]
+    }
+
     private static func vibratoDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticVibratoDiagnostic
     ) -> [String: Any] {
@@ -4835,6 +4937,25 @@ enum PlaybackSongDiagnosticsJSONExporter {
             return "no_active_voice"
         case .zeroAmountEffectMemoryDeferred:
             return "zero_amount_effect_memory_deferred"
+        case .unsupportedFrequencyTable:
+            return "deferred/unsupported_frequency_table"
+        case .outOfRange:
+            return "out_of_range"
+        }
+    }
+
+    private static func extraFinePortamentoStatusName(
+        _ status: PlaybackSongSyntheticExtraFinePortamentoDiagnostic.Status
+    ) -> String {
+        switch status {
+        case .applied:
+            return "applied"
+        case .noActiveVoice:
+            return "no_active_voice"
+        case .zeroAmountEffectMemoryDeferred:
+            return "zero_amount_effect_memory_deferred"
+        case .unsupportedSubcommand:
+            return "deferred/unsupported_subcommand"
         case .unsupportedFrequencyTable:
             return "deferred/unsupported_frequency_table"
         case .outOfRange:
@@ -5356,6 +5477,9 @@ private func appendEventCoverageSummary(
     )
     lines.append(
         "Fine portamento: E1x \(result.diagnostics.finePortamentoUpEffects.filter(\.applied).count) applied, \(result.diagnostics.finePortamentoUpEffects.filter(\.deferred).count) deferred, \(result.diagnostics.finePortamentoUpEffects.filter { $0.status == .noActiveVoice }.count) no-active; E2x \(result.diagnostics.finePortamentoDownEffects.filter(\.applied).count) applied, \(result.diagnostics.finePortamentoDownEffects.filter(\.deferred).count) deferred, \(result.diagnostics.finePortamentoDownEffects.filter { $0.status == .noActiveVoice }.count) no-active."
+    )
+    lines.append(
+        "Extra fine portamento Xxy: \(result.diagnostics.extraFinePortamentoEffects.filter(\.applied).count) applied, \(result.diagnostics.extraFinePortamentoEffects.filter(\.deferred).count) deferred, \(result.diagnostics.extraFinePortamentoEffects.filter { $0.status == .noActiveVoice }.count) no-active, \(result.diagnostics.extraFinePortamentoEffects.filter { $0.status == .unsupportedSubcommand }.count) unsupported-subcommand."
     )
     lines.append(
         "Traversal hazards: Bxx \(traversal.totalBxxPositionJump), Dxx \(traversal.totalDxxPatternBreak), EEx \(traversal.totalEExPatternDelay), total \(traversal.totalTraversalHazards), likely ignored \(traversal.likelyIgnoresStructureChangingBehavior)."

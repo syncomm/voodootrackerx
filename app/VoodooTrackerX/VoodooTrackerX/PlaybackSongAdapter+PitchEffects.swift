@@ -982,6 +982,451 @@ extension PlaybackSongSyntheticAdapter {
         )
     }
 
+    static func handleExtraFinePortamento(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        timingPlan: PlaybackSongFxxTimingPlan,
+        channelState: inout ChannelState
+    ) -> PlaybackSongSyntheticExtraFinePortamentoDiagnostic {
+        let subcommand = xxySubcommand(from: cell)
+        let amount = xxyAmount(from: cell)
+        let direction = xxyDirection(from: cell)
+        let hasActiveVoice = channelState.activeEventIndex != nil
+        let currentLinearPeriodBefore = channelState.activeLinearPeriod
+        let currentPlaybackStepBefore = channelState.activePlaybackStep
+        let scheduledFrame = timingPlan.frameFor(row: syntheticRow, tick: 0)
+
+        guard let direction else {
+            return extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedSubcommand,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: nil,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "xxy_unsupported_subcommand_deferred"
+            )
+        }
+
+        guard amount > 0 else {
+            return extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: hasActiveVoice,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: direction == .up
+                    ? "x10_effect_memory_deferred_no_op"
+                    : "x20_effect_memory_deferred_no_op"
+            )
+        }
+
+        guard hasActiveVoice else {
+            return extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .noActiveVoice,
+                activeVoiceFound: false,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "no_active_voice_no_playback_invented"
+            )
+        }
+
+        guard channelState.activeUsesLinearFrequencyTable == true,
+              let currentLinearPeriod = channelState.activeLinearPeriod,
+              let currentPlaybackStep = channelState.activePlaybackStep,
+              let baseSampleRate = channelState.activeSampleBaseSampleRate else {
+            return extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedFrequencyTable,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "linear_frequency_only_first_pass"
+            )
+        }
+
+        let rawAfter = direction == .up
+            ? currentLinearPeriod - Double(amount)
+            : currentLinearPeriod + Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: channelState.activeEventIndex,
+                activeEventMappingIndex: channelState.activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: channelState.activeLinearPeriod,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: channelState.activePlaybackStep,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "xxy_extra_fine_portamento_pitch_out_of_range"
+            )
+        }
+
+        let update = PlaybackSongSyntheticTonePortamentoStepUpdate(
+            syntheticTick: 0,
+            scheduledFrame: scheduledFrame,
+            linearPeriodBefore: currentLinearPeriod,
+            linearPeriodAfter: afterPeriod,
+            playbackStepBefore: currentPlaybackStep,
+            playbackStepAfter: nextStep,
+            reachedTarget: false,
+            clamped: clamped
+        )
+        channelState.activeLinearPeriod = afterPeriod
+        channelState.activePlaybackStep = nextStep
+
+        return extraFinePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: channelState.activeEventIndex,
+            activeEventMappingIndex: channelState.activeEventMappingIndex,
+            subcommand: subcommand,
+            direction: direction,
+            amount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: channelState.activeLinearPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: channelState.activePlaybackStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: false,
+            stepUpdates: [update],
+            clamped: clamped,
+            policy: direction == .up
+                ? "row_start_x1x_extra_fine_linear_period_up_first_pass"
+                : "row_start_x2x_extra_fine_linear_period_down_first_pass"
+        )
+    }
+
+    static func extraFinePortamentoAdjustedPitchMapping(
+        from cell: PlaybackCell,
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        basePitchMapping: PlaybackStepMapping,
+        baseSampleRate: Double,
+        activeEventIndex: Int,
+        activeEventMappingIndex: Int,
+        scheduledFrame: Int
+    ) -> (pitchMapping: PlaybackStepMapping, diagnostic: PlaybackSongSyntheticExtraFinePortamentoDiagnostic) {
+        let subcommand = xxySubcommand(from: cell)
+        let amount = xxyAmount(from: cell)
+        let direction = xxyDirection(from: cell)
+        let currentLinearPeriodBefore = basePitchMapping.linearPeriod
+        let currentPlaybackStepBefore = basePitchMapping.applied ? basePitchMapping.playbackStep : nil
+
+        guard let direction else {
+            return (basePitchMapping, extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .unsupportedSubcommand,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: nil,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: "xxy_unsupported_subcommand_deferred"
+            ))
+        }
+
+        guard amount > 0 else {
+            return (basePitchMapping, extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .zeroAmountEffectMemoryDeferred,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: direction == .up
+                    ? "x10_effect_memory_deferred_no_op"
+                    : "x20_effect_memory_deferred_no_op"
+            ))
+        }
+
+        guard basePitchMapping.applied,
+              let linearPeriod = basePitchMapping.linearPeriod,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            let status: PlaybackSongSyntheticExtraFinePortamentoDiagnostic.Status =
+                basePitchMapping.amigaFrequencyDeferred ? .unsupportedFrequencyTable : .outOfRange
+            return (basePitchMapping, extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: status,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: false,
+                policy: status == .unsupportedFrequencyTable
+                    ? "linear_frequency_only_first_pass"
+                    : "xxy_extra_fine_portamento_pitch_out_of_range"
+            ))
+        }
+
+        let rawAfter = direction == .up
+            ? linearPeriod - Double(amount)
+            : linearPeriod + Double(amount)
+        let afterPeriod = clampedLinearPeriod(rawAfter)
+        let clamped = abs(afterPeriod - rawAfter) > 0.000000001
+        guard let nextStep = playbackStep(
+            linearPeriod: afterPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: timingConfig.sampleRate
+        ) else {
+            return (basePitchMapping, extraFinePortamentoDiagnostic(
+                source: source,
+                channelIndex: channelIndex,
+                syntheticRow: syntheticRow,
+                timingConfig: timingConfig,
+                cell: cell,
+                status: .outOfRange,
+                activeVoiceFound: true,
+                activeEventIndex: activeEventIndex,
+                activeEventMappingIndex: activeEventMappingIndex,
+                subcommand: subcommand,
+                direction: direction,
+                amount: amount,
+                currentLinearPeriodBefore: currentLinearPeriodBefore,
+                currentLinearPeriodAfter: currentLinearPeriodBefore,
+                currentPlaybackStepBefore: currentPlaybackStepBefore,
+                currentPlaybackStepAfter: currentPlaybackStepBefore,
+                scheduledFrame: scheduledFrame,
+                appliedToInitialPlaybackStep: false,
+                stepUpdates: [],
+                clamped: clamped,
+                policy: "xxy_extra_fine_portamento_pitch_out_of_range"
+            ))
+        }
+
+        let adjustedMapping = PlaybackStepMapping(
+            playbackStep: nextStep,
+            outputSampleRate: basePitchMapping.outputSampleRate,
+            effectiveNoteValue: basePitchMapping.effectiveNoteValue,
+            effectiveNoteIndex: basePitchMapping.effectiveNoteIndex,
+            effectiveFinetune: basePitchMapping.effectiveFinetune,
+            linearPeriod: afterPeriod,
+            linearFrequency: nextStep * basePitchMapping.outputSampleRate,
+            finetuneStatus: basePitchMapping.finetuneStatus,
+            frequencyTableStatus: basePitchMapping.frequencyTableStatus,
+            linearFrequencyApplied: true,
+            amigaFrequencyDeferred: false,
+            applied: true,
+            usedNeutralStep: abs(nextStep - 1.0) <= 0.000000001
+        )
+        return (adjustedMapping, extraFinePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            timingConfig: timingConfig,
+            cell: cell,
+            status: .applied,
+            activeVoiceFound: true,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            subcommand: subcommand,
+            direction: direction,
+            amount: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: afterPeriod,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: nextStep,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: true,
+            stepUpdates: [],
+            clamped: clamped,
+            policy: direction == .up
+                ? "same_cell_note_initial_playback_step_x1x_extra_fine_linear_period_up_first_pass"
+                : "same_cell_note_initial_playback_step_x2x_extra_fine_linear_period_down_first_pass"
+        ))
+    }
+
+    static func extraFinePortamentoDiagnostic(
+        source: PlaybackPosition,
+        channelIndex: Int,
+        syntheticRow: Int,
+        timingConfig: SyntheticTrackerTimingConfig,
+        cell: PlaybackCell,
+        status: PlaybackSongSyntheticExtraFinePortamentoDiagnostic.Status,
+        activeVoiceFound: Bool,
+        activeEventIndex: Int?,
+        activeEventMappingIndex: Int?,
+        subcommand: Int,
+        direction: PlaybackSongSyntheticPortamentoSlideDirection?,
+        amount: Int,
+        currentLinearPeriodBefore: Double?,
+        currentLinearPeriodAfter: Double?,
+        currentPlaybackStepBefore: Double?,
+        currentPlaybackStepAfter: Double?,
+        scheduledFrame: Int?,
+        appliedToInitialPlaybackStep: Bool,
+        stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate],
+        clamped: Bool,
+        policy: String
+    ) -> PlaybackSongSyntheticExtraFinePortamentoDiagnostic {
+        let applied = status == .applied
+        let effectMemoryDeferred = status == .zeroAmountEffectMemoryDeferred
+        return PlaybackSongSyntheticExtraFinePortamentoDiagnostic(
+            source: source,
+            channelIndex: channelIndex,
+            syntheticRow: syntheticRow,
+            syntheticTick: 0,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam,
+            status: status,
+            detected: true,
+            applied: applied,
+            deferred: effectMemoryDeferred ||
+                status == .unsupportedSubcommand ||
+                status == .unsupportedFrequencyTable ||
+                status == .outOfRange,
+            ignoredAsNoOp: status == .noActiveVoice || effectMemoryDeferred,
+            effectMemoryDeferred: effectMemoryDeferred,
+            activeVoiceFound: activeVoiceFound,
+            activeEventIndex: activeEventIndex,
+            activeEventMappingIndex: activeEventMappingIndex,
+            subcommand: subcommand,
+            direction: direction,
+            amount: amount,
+            amountNibble: amount,
+            currentLinearPeriodBefore: currentLinearPeriodBefore,
+            currentLinearPeriodAfter: currentLinearPeriodAfter,
+            currentPlaybackStepBefore: currentPlaybackStepBefore,
+            currentPlaybackStepAfter: currentPlaybackStepAfter,
+            rowSpeed: timingConfig.speed,
+            rowBPM: timingConfig.bpm,
+            scheduledFrame: scheduledFrame,
+            appliedToInitialPlaybackStep: appliedToInitialPlaybackStep,
+            stepUpdates: stepUpdates,
+            clamped: clamped,
+            policy: policy
+        )
+    }
+
     static func handleArpeggio(
         from cell: PlaybackCell,
         source: PlaybackPosition,

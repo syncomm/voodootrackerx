@@ -29,6 +29,7 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
     let portamentoSlideEffects: [PlaybackSongSyntheticPortamentoSlideDiagnostic]
     let finePortamentoUpEffects: [PlaybackSongSyntheticFinePortamentoUpDiagnostic]
     let finePortamentoDownEffects: [PlaybackSongSyntheticFinePortamentoDownDiagnostic]
+    let extraFinePortamentoEffects: [PlaybackSongSyntheticExtraFinePortamentoDiagnostic]
     let arpeggioEffects: [PlaybackSongSyntheticArpeggioDiagnostic]
     let vibratoControlEffects: [PlaybackSongSyntheticVibratoControlDiagnostic]
     let vibratoEffects: [PlaybackSongSyntheticVibratoDiagnostic]
@@ -96,6 +97,10 @@ struct PlaybackSongSyntheticDiagnostics: Equatable {
 
     var finePortamentoDownEffectCount: Int {
         finePortamentoDownEffects.count
+    }
+
+    var extraFinePortamentoEffectCount: Int {
+        extraFinePortamentoEffects.count
     }
 
     var arpeggioEffectCount: Int {
@@ -262,6 +267,7 @@ extension PlaybackSongSyntheticDiagnostics {
             portamentoSlideEffects: portamentoSlideEffects,
             finePortamentoUpEffects: finePortamentoUpEffects,
             finePortamentoDownEffects: finePortamentoDownEffects,
+            extraFinePortamentoEffects: extraFinePortamentoEffects,
             arpeggioEffects: arpeggioEffects,
             vibratoControlEffects: vibratoControlEffects,
             vibratoEffects: vibratoEffects,
@@ -578,6 +584,8 @@ struct PlaybackSongSyntheticEffectCommandDiagnostic: Equatable {
         case 0x00:
             return effectParam != 0
         case 0x01...0x07:
+            return true
+        case 0x21:
             return true
         default:
             return false
@@ -1144,6 +1152,48 @@ struct PlaybackSongSyntheticFinePortamentoDownDiagnostic: Equatable {
     let activeEventMappingIndex: Int?
     let fineAmount: Int
     let fineAmountNibble: Int
+    let currentLinearPeriodBefore: Double?
+    let currentLinearPeriodAfter: Double?
+    let currentPlaybackStepBefore: Double?
+    let currentPlaybackStepAfter: Double?
+    let rowSpeed: Int
+    let rowBPM: Int
+    let scheduledFrame: Int?
+    let appliedToInitialPlaybackStep: Bool
+    let stepUpdates: [PlaybackSongSyntheticTonePortamentoStepUpdate]
+    let clamped: Bool
+    let policy: String
+}
+
+struct PlaybackSongSyntheticExtraFinePortamentoDiagnostic: Equatable {
+    enum Status: Equatable {
+        case applied
+        case noActiveVoice
+        case zeroAmountEffectMemoryDeferred
+        case unsupportedSubcommand
+        case unsupportedFrequencyTable
+        case outOfRange
+    }
+
+    let source: PlaybackPosition
+    let channelIndex: Int
+    let syntheticRow: Int
+    let syntheticTick: Int
+    let effectType: UInt8
+    let effectParam: UInt8
+    let status: Status
+    let detected: Bool
+    let applied: Bool
+    let deferred: Bool
+    let ignoredAsNoOp: Bool
+    let effectMemoryDeferred: Bool
+    let activeVoiceFound: Bool
+    let activeEventIndex: Int?
+    let activeEventMappingIndex: Int?
+    let subcommand: Int
+    let direction: PlaybackSongSyntheticPortamentoSlideDirection?
+    let amount: Int
+    let amountNibble: Int
     let currentLinearPeriodBefore: Double?
     let currentLinearPeriodAfter: Double?
     let currentPlaybackStepBefore: Double?

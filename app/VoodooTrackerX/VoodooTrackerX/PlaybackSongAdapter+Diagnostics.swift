@@ -60,6 +60,40 @@ extension PlaybackSongSyntheticAdapter {
         Int(cell.effectParam & 0x0F)
     }
 
+    static func isXxyExtraFinePortamentoEffect(_ cell: PlaybackCell) -> Bool {
+        cell.effectType == 0x21
+    }
+
+    static func xxySubcommand(from cell: PlaybackCell) -> Int {
+        Int((cell.effectParam >> 4) & 0x0F)
+    }
+
+    static func xxyAmount(from cell: PlaybackCell) -> Int {
+        Int(cell.effectParam & 0x0F)
+    }
+
+    static func isXxyExtraFinePortamentoUpEffect(_ cell: PlaybackCell) -> Bool {
+        isXxyExtraFinePortamentoEffect(cell) && xxySubcommand(from: cell) == 0x01
+    }
+
+    static func isXxyExtraFinePortamentoDownEffect(_ cell: PlaybackCell) -> Bool {
+        isXxyExtraFinePortamentoEffect(cell) && xxySubcommand(from: cell) == 0x02
+    }
+
+    static func xxyDirection(from cell: PlaybackCell) -> PlaybackSongSyntheticPortamentoSlideDirection? {
+        if isXxyExtraFinePortamentoUpEffect(cell) {
+            return .up
+        }
+        if isXxyExtraFinePortamentoDownEffect(cell) {
+            return .down
+        }
+        return nil
+    }
+
+    static func isSupportedXxyExtraFinePortamentoEffect(_ cell: PlaybackCell) -> Bool {
+        isXxyExtraFinePortamentoUpEffect(cell) || isXxyExtraFinePortamentoDownEffect(cell)
+    }
+
     static func isFineVolumeSlideUpEffect(_ cell: PlaybackCell) -> Bool {
         extendedEffectSubcommand(cell) == 0x0A
     }
@@ -321,7 +355,7 @@ extension PlaybackSongSyntheticAdapter {
         switch cell.effectType {
         case 0x00:
             return cell.effectParam != 0
-        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x1B:
+        case 0x01...0x08, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x1B, 0x21:
             return true
         default:
             return false
@@ -365,6 +399,11 @@ extension PlaybackSongSyntheticAdapter {
                 return .ignoredNoOp
             }
             return interval < timingConfig.speed ? .applied : .ignoredNoOp
+        case 0x21:
+            guard isSupportedXxyExtraFinePortamentoEffect(cell) else {
+                return .deferredUnsupported
+            }
+            return xxyAmount(from: cell) == 0 ? .ignoredNoOp : .applied
         case 0x0E where isRetriggerEffect(cell):
             let interval = retriggerIntervalNibble(from: cell)
             guard interval > 0 else {
@@ -451,6 +490,8 @@ extension PlaybackSongSyntheticAdapter {
             return "Kxx key off"
         case 0x1B:
             return "Rxy multi retrigger"
+        case 0x21:
+            return "Xxy extra fine portamento"
         default:
             return "unknown/unsupported"
         }
@@ -517,6 +558,7 @@ extension PlaybackSongSyntheticAdapter {
             isSetFinetuneEffect(cell) ||
             isFinePortamentoUpEffect(cell) ||
             isFinePortamentoDownEffect(cell) ||
+            isSupportedXxyExtraFinePortamentoEffect(cell) ||
             isFineVolumeSlideEffect(cell) ||
             (isVibratoControlEffect(cell) && supportedVibratoWaveform(controlValue: Int(cell.effectParam & 0x0F)) != nil) ||
             isSupportedRetriggerEffect(cell) ||

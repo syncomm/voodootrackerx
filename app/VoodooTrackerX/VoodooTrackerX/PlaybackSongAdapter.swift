@@ -2366,6 +2366,8 @@ enum PlaybackSongSyntheticAdapter {
                 note: cell.note,
                 instrumentIndex: instrumentIndex,
                 sampleIndex: sample.sampleIndex,
+                sampleVolume: sample.volume,
+                sampleVolumeRawEstimate: sampleVolumeRawEstimate(for: sample.volume),
                 selectedSampleLength: sampleLength,
                 sampleMapKeymapPresent: sampleSelection.sampleMapKeymapPresent,
                 mappedSampleIndex: sampleSelection.mappedSampleIndex,
@@ -6096,6 +6098,8 @@ enum PlaybackSongSyntheticAdapter {
             note: mapping.note,
             instrumentIndex: mapping.instrumentIndex,
             sampleIndex: mapping.sampleIndex,
+            sampleVolume: mapping.sampleVolume,
+            sampleVolumeRawEstimate: mapping.sampleVolumeRawEstimate,
             selectedSampleLength: mapping.selectedSampleLength,
             sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
             mappedSampleIndex: mapping.mappedSampleIndex,
@@ -6167,6 +6171,8 @@ enum PlaybackSongSyntheticAdapter {
             note: mapping.note,
             instrumentIndex: mapping.instrumentIndex,
             sampleIndex: mapping.sampleIndex,
+            sampleVolume: mapping.sampleVolume,
+            sampleVolumeRawEstimate: mapping.sampleVolumeRawEstimate,
             selectedSampleLength: mapping.selectedSampleLength,
             sampleMapKeymapPresent: mapping.sampleMapKeymapPresent,
             mappedSampleIndex: mapping.mappedSampleIndex,
@@ -6265,6 +6271,13 @@ enum PlaybackSongSyntheticAdapter {
         // Hxy global-volume slides are another Swift-side row-level multiplier.
         // Parsed volume envelopes remain separate C mixer envelopes and multiply this gain at render time.
         return clampedGain(baseGain * volumeMultiplier * globalMultiplier)
+    }
+
+    private static func sampleVolumeRawEstimate(for sampleVolume: Float) -> Int {
+        guard sampleVolume.isFinite else {
+            return 0
+        }
+        return clampedVolumeValue(Int((sampleVolume * 64.0).rounded()))
     }
 
     private static func volumeMultiplier(for volumeValue: Int) -> Float {

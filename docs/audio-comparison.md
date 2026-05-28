@@ -41,6 +41,16 @@ For FT2-style XM parity investigations, ft2-clone is the preferred primary
 local reference when an appropriately configured export is available. MikMod,
 Renoise, OpenMPT, and libopenmpt remain useful secondary references for
 triangulation, but fixes should not be chosen from reference correlation alone.
+Every ft2-clone comparison report should record the reference configuration
+profile used: output rate, export bit depth/format, amplification, master
+volume, interpolation mode, frequency-slide mode, volume-ramping setting,
+precise-BPM setting, and whether individual tracks/stems were rendered. Do not
+mix ft2-clone renders generated with different settings in one comparison
+unless the report explicitly labels it as a settings experiment.
+The confirmed primary `xm-corpus-025` linear reference profile is 48 kHz 32-bit
+float, amplification 10x, master volume 256, Linear (FT2) interpolation,
+Linear frequency slides, volume ramping enabled, precise BPM disabled, and no
+individual track rendering.
 For the local `xm-corpus-025` parity target, direct comparison against the
 ft2-clone 48 kHz 32-bit float export confirms the same result previously seen
 through a temporary PCM conversion: correlation is about `0.939009`, global
@@ -67,6 +77,8 @@ remaining VTX-to-ft2-clone mismatch. Treat the current mismatch as not merely a
 SINC8/default reference-mode artifact; the strongest next work is focused
 resampler-window analysis or a separate SINC8 candidate investigation, with
 sample/instrument volume normalization kept as a level-focused alternative.
+
+A focused sample/instrument volume diagnostics pass kept playback behavior unchanged and reported the gain path explicitly: XM sample header volume `0...64` is normalized once into `PlaybackSample.volume`, note-trigger gain is `sample_volume * (channel_volume / 64) * (global_volume / 64)`, and the C mixer applies `event_gain * volume_envelope * fadeout` before panning. The primary linear-reference comparison still reports correlation about `0.927530`, raw RMS difference about `0.101857`, and gain-normalized RMS difference about `0.038170`; VTX RMS is about `0.189161` against ft2-clone linear RMS about `0.102128`. Worst-window local scalar needs cluster around `0.462...0.489`, with global volume fixed at 64 and no envelope events in those windows. The dominant windows are mostly the same full-volume instrument/sample group, so this is local instrument/timbre-heavy evidence, not a proven double-normalization or default-volume bug.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`

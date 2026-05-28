@@ -1346,6 +1346,8 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let note: UInt8
     let instrumentIndex: Int
     let sampleIndex: Int
+    let sampleVolume: Float
+    let sampleVolumeRawEstimate: Int
     let selectedSampleLength: Int
     let sampleMapKeymapPresent: Bool
     let mappedSampleIndex: Int?

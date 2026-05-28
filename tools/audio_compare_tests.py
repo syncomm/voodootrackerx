@@ -655,6 +655,40 @@ def write_pcm16_wav(path, sample_rate=8000, channels=1, frames=None):
         wav_file.writeframes(bytes(pcm))
 
 
+def write_float32_wav(path, sample_rate=8000, channels=1, frames=None):
+    frames = frames if frames is not None else sine_frames(sample_rate, channels)
+    data = bytearray()
+    for frame in frames:
+        values = frame if isinstance(frame, tuple) else (frame,)
+        if len(values) != channels:
+            raise ValueError("frame channel count mismatch")
+        for sample in values:
+            data.extend(struct.pack("<f", float(sample)))
+
+    block_align = channels * 4
+    byte_rate = sample_rate * block_align
+    fmt_chunk = struct.pack(
+        "<HHIIHH",
+        3,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        32,
+    )
+    riff_size = 4 + (8 + len(fmt_chunk)) + (8 + len(data))
+    with path.open("wb") as wav_file:
+        wav_file.write(b"RIFF")
+        wav_file.write(struct.pack("<I", riff_size))
+        wav_file.write(b"WAVE")
+        wav_file.write(b"fmt ")
+        wav_file.write(struct.pack("<I", len(fmt_chunk)))
+        wav_file.write(fmt_chunk)
+        wav_file.write(b"data")
+        wav_file.write(struct.pack("<I", len(data)))
+        wav_file.write(bytes(data))
+
+
 def sine_frames(sample_rate=8000, channels=1, seconds=0.25, amplitude=0.5):
     frame_count = int(sample_rate * seconds)
     frames = []
@@ -2790,6 +2824,79 @@ class AudioCompareTests(unittest.TestCase):
             self.assertEqual(sample_comparison["comparison_modes"]["right"]["normalized_correlation"], 1.0)
             self.assertIsNone(sample_comparison["first_difference_seconds"])
 
+    def test_float32_wav_read_preserves_samples(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "float32.wav"
+            write_float32_wav(path, channels=2, frames=[(0.25, -0.5), (1.25, -1.25)])
+
+            info, samples = audio_compare.read_wav(path, seconds=1.0)
+
+            self.assertEqual(info.sample_rate, 8000)
+            self.assertEqual(info.channels, 2)
+            self.assertEqual(info.sample_width, 4)
+            self.assertEqual(info.format_code, 3)
+            self.assertEqual(info.sample_format, "ieee_float")
+            self.assertEqual(info.frame_count, 2)
+            self.assertEqual(samples, [0.25, -0.5, 1.25, -1.25])
+
+    def test_float32_peak_and_rms_are_reported_without_implicit_normalization(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_float32_wav(reference, frames=[0.0, 0.5, -0.5, 1.5])
+            write_float32_wav(candidate, frames=[0.0, 0.5, -0.5, 1.5])
+
+            comparison = audio_compare.build_comparison(reference, candidate, seconds=1.0)
+            stats = comparison["reference"]["stats"]
+
+            self.assertEqual(comparison["reference"]["info"]["sample_format"], "ieee_float")
+            self.assertEqual(stats["overall_peak"], 1.5)
+            self.assertAlmostEqual(stats["overall_rms"], math.sqrt(2.75 / 4.0), places=9)
+            self.assertEqual(stats["clipping_count"], 1)
+
+    def test_float32_candidate_reference_comparison_reports_scalar_difference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_float32_wav(reference, frames=[0.0, 0.25, -0.5, 0.75])
+            write_float32_wav(candidate, frames=[0.0, 0.125, -0.25, 0.375])
+
+            comparison = audio_compare.build_comparison(reference, candidate, seconds=1.0)
+            normalized = comparison["sample_comparison"]["gain_normalized"]
+
+            self.assertTrue(comparison["format"]["sample_comparison_available"])
+            self.assertEqual(comparison["sample_comparison"]["normalized_correlation"], 1.0)
+            self.assertAlmostEqual(normalized["candidate_scalar_to_reference"], 2.0, places=9)
+            self.assertEqual(normalized["diff"]["overall_rms_difference"], 0.0)
+
+    def test_float32_sample_rate_mismatch_still_skips_sample_comparison(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "reference.wav"
+            candidate = Path(tmpdir) / "candidate.wav"
+            write_float32_wav(reference, sample_rate=8000)
+            write_float32_wav(candidate, sample_rate=11025)
+
+            comparison = audio_compare.build_comparison(reference, candidate, seconds=1.0)
+            report = audio_compare.build_markdown_report(comparison)
+
+            self.assertFalse(comparison["format"]["sample_rate_matches"])
+            self.assertIsNone(comparison["sample_comparison"])
+            self.assertIn("Sample rate: mismatch (reference 8000 Hz, candidate 11025 Hz)", report)
+
+    def test_pcm16_read_behavior_remains_scaled_to_full_scale(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "pcm16.wav"
+            write_pcm16_wav(path, frames=[0.0, 0.5, -1.0])
+
+            info, samples = audio_compare.read_wav(path, seconds=1.0)
+
+            self.assertEqual(info.format_code, 1)
+            self.assertEqual(info.sample_format, "pcm")
+            self.assertEqual(info.sample_width, 2)
+            self.assertAlmostEqual(samples[0], 0.0, places=9)
+            self.assertAlmostEqual(samples[1], 16383 / 32768.0, places=9)
+            self.assertAlmostEqual(samples[2], -1.0, places=9)
+
     def test_amplitude_mismatch_reports_rms_and_max_difference(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             reference = Path(tmpdir) / "reference.wav"
@@ -2823,6 +2930,38 @@ class AudioCompareTests(unittest.TestCase):
             self.assertGreater(diff["overall_rms_difference"], 0.31)
             self.assertGreater(diff["max_abs_sample_difference"], 0.49)
             self.assertEqual(comparison["sample_comparison"]["worst_windows"][0]["start_frame"], 0)
+
+    def test_worst_window_timbre_metrics_report_high_frequency_residual(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reference = Path(tmpdir) / "low.wav"
+            candidate = Path(tmpdir) / "high.wav"
+            sample_rate = 16000
+            frame_count = 1024
+            low_frames = [
+                math.sin(2.0 * math.pi * 250.0 * index / sample_rate) * 0.5
+                for index in range(frame_count)
+            ]
+            high_frames = [
+                math.sin(2.0 * math.pi * 6000.0 * index / sample_rate) * 0.5
+                for index in range(frame_count)
+            ]
+            write_pcm16_wav(reference, sample_rate=sample_rate, frames=low_frames)
+            write_pcm16_wav(candidate, sample_rate=sample_rate, frames=high_frames)
+
+            comparison = audio_compare.build_comparison(
+                reference,
+                candidate,
+                seconds=1.0,
+                window_ms=64.0,
+                top_windows=1,
+            )
+            timbre = comparison["sample_comparison"]["worst_windows"][0]["timbre_metrics"]["mono"]
+            report = audio_compare.build_markdown_report(comparison)
+
+            self.assertLess(timbre["reference"]["high_frequency_proxy_ratio"], 0.20)
+            self.assertGreater(timbre["candidate"]["high_frequency_proxy_ratio"], 1.0)
+            self.assertGreater(timbre["candidate"]["zero_crossing_rate"], timbre["reference"]["zero_crossing_rate"])
+            self.assertIn("timbre:", report)
 
     def test_gain_normalized_metrics_identify_scalar_loudness_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:

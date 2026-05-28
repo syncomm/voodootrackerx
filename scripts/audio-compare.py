@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Compare two local PCM WAV renders and emit deterministic diagnostic metrics."""
+"""Compare two local WAV renders and emit deterministic diagnostic metrics."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import struct
 import sys
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -20,6 +20,9 @@ DEFAULT_WINDOW_MS = 100.0
 DEFAULT_TOP_WINDOWS = 5
 DEFAULT_ALIGNMENT_SEARCH_FRAMES = 0
 FLOAT_DIGITS = 9
+WAVE_FORMAT_PCM = 1
+WAVE_FORMAT_IEEE_FLOAT = 3
+WAVE_FORMAT_EXTENSIBLE = 0xFFFE
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class WavInfo:
     channels: int
     sample_width: int
     frame_count: int
+    format_code: int
+    sample_format: str
 
     @property
     def duration_seconds(self) -> float:
@@ -42,6 +47,8 @@ class WavInfo:
             "sample_rate": self.sample_rate,
             "channel_count": self.channels,
             "sample_width_bits": self.sample_width * 8,
+            "wav_format_code": self.format_code,
+            "sample_format": self.sample_format,
             "frame_count": self.frame_count,
             "duration_seconds": rounded(self.duration_seconds),
         }
@@ -111,29 +118,136 @@ def format_db(value: float | None) -> str:
 
 
 def read_wav(path: Path, seconds: float) -> tuple[WavInfo, list[float]]:
-    with wave.open(str(path), "rb") as wav_file:
-        compression = wav_file.getcomptype()
+    info, sample_bytes = read_wav_sample_bytes(path, seconds)
+    if info.sample_format == "pcm":
+        samples = decode_pcm_samples(sample_bytes, info.sample_width)
+    elif info.sample_format == "ieee_float":
+        samples = decode_float_samples(sample_bytes, info.sample_width)
+    else:
+        raise ValueError(f"{path}: unsupported WAV sample format: {info.sample_format}")
+    return info, samples
+
+
+def read_wav_sample_bytes(path: Path, seconds: float) -> tuple[WavInfo, bytes]:
+    with path.open("rb") as wav_file:
+        riff = read_exact(wav_file, 12, path)
+        if riff[0:4] != b"RIFF" or riff[8:12] != b"WAVE":
+            raise ValueError(f"{path}: expected RIFF/WAVE file")
+
+        fmt: dict[str, int | str] | None = None
+        data_bytes: bytes | None = None
+        data_chunk_size: int | None = None
+
+        while True:
+            header = wav_file.read(8)
+            if not header:
+                break
+            if len(header) != 8:
+                raise ValueError(f"{path}: truncated WAV chunk header")
+            chunk_id, chunk_size = struct.unpack("<4sI", header)
+            if chunk_id == b"fmt ":
+                fmt = parse_fmt_chunk(read_exact(wav_file, chunk_size, path), path)
+            elif chunk_id == b"data":
+                data_chunk_size = chunk_size
+                if fmt is None:
+                    data_bytes = read_exact(wav_file, chunk_size, path)
+                else:
+                    data_bytes = read_data_chunk(wav_file, chunk_size, fmt, seconds, path)
+            else:
+                wav_file.seek(chunk_size, 1)
+            if chunk_size % 2 == 1:
+                wav_file.seek(1, 1)
+
+        if fmt is None:
+            raise ValueError(f"{path}: missing WAV fmt chunk")
+        if data_chunk_size is None or data_bytes is None:
+            raise ValueError(f"{path}: missing WAV data chunk")
+
+        block_align = int(fmt["block_align"])
+        frame_count = data_chunk_size // block_align if block_align > 0 else 0
         info = WavInfo(
             path=path,
-            sample_rate=wav_file.getframerate(),
-            channels=wav_file.getnchannels(),
-            sample_width=wav_file.getsampwidth(),
-            frame_count=wav_file.getnframes(),
+            sample_rate=int(fmt["sample_rate"]),
+            channels=int(fmt["channels"]),
+            sample_width=int(fmt["sample_width"]),
+            frame_count=frame_count,
+            format_code=int(fmt["format_code"]),
+            sample_format=str(fmt["sample_format"]),
         )
+        validate_wav_info(path, info)
+        return info, data_bytes
 
-        if compression != "NONE":
-            raise ValueError(f"{path}: only uncompressed PCM WAV files are supported")
-        if info.channels <= 0:
-            raise ValueError(f"{path}: channel count must be greater than zero")
-        if info.sample_rate <= 0:
-            raise ValueError(f"{path}: sample rate must be greater than zero")
-        if info.sample_width not in (1, 2, 3, 4):
-            raise ValueError(f"{path}: unsupported sample width: {info.sample_width} bytes")
 
-        frames_to_read = min(info.frame_count, max(0, int(seconds * info.sample_rate)))
-        pcm = wav_file.readframes(frames_to_read)
-        samples = decode_pcm_samples(pcm, info.sample_width)
-        return info, samples
+def read_exact(file_object, byte_count: int, path: Path) -> bytes:
+    data = file_object.read(byte_count)
+    if len(data) != byte_count:
+        raise ValueError(f"{path}: truncated WAV data")
+    return data
+
+
+def parse_fmt_chunk(chunk: bytes, path: Path) -> dict[str, int | str]:
+    if len(chunk) < 16:
+        raise ValueError(f"{path}: truncated WAV fmt chunk")
+    format_code, channels, sample_rate, byte_rate, block_align, bits_per_sample = struct.unpack(
+        "<HHIIHH",
+        chunk[:16],
+    )
+    if format_code == WAVE_FORMAT_EXTENSIBLE:
+        format_code = extensible_subformat_code(chunk, path)
+    if bits_per_sample % 8 != 0:
+        raise ValueError(f"{path}: unsupported non-byte-aligned WAV sample width: {bits_per_sample} bits")
+    sample_width = bits_per_sample // 8
+    sample_format = sample_format_name(format_code)
+    return {
+        "format_code": format_code,
+        "channels": channels,
+        "sample_rate": sample_rate,
+        "byte_rate": byte_rate,
+        "block_align": block_align,
+        "bits_per_sample": bits_per_sample,
+        "sample_width": sample_width,
+        "sample_format": sample_format,
+    }
+
+
+def extensible_subformat_code(chunk: bytes, path: Path) -> int:
+    if len(chunk) < 40:
+        raise ValueError(f"{path}: truncated WAVE_FORMAT_EXTENSIBLE fmt chunk")
+    return struct.unpack_from("<I", chunk, 24)[0]
+
+
+def sample_format_name(format_code: int) -> str:
+    if format_code == WAVE_FORMAT_PCM:
+        return "pcm"
+    if format_code == WAVE_FORMAT_IEEE_FLOAT:
+        return "ieee_float"
+    raise ValueError(f"unsupported WAV format code: {format_code}")
+
+
+def validate_wav_info(path: Path, info: WavInfo) -> None:
+    if info.channels <= 0:
+        raise ValueError(f"{path}: channel count must be greater than zero")
+    if info.sample_rate <= 0:
+        raise ValueError(f"{path}: sample rate must be greater than zero")
+    if info.sample_format == "pcm" and info.sample_width not in (1, 2, 3, 4):
+        raise ValueError(f"{path}: unsupported PCM sample width: {info.sample_width} bytes")
+    if info.sample_format == "ieee_float" and info.sample_width not in (4, 8):
+        raise ValueError(f"{path}: unsupported IEEE float sample width: {info.sample_width} bytes")
+
+
+def read_data_chunk(file_object, chunk_size: int, fmt: dict[str, int | str], seconds: float, path: Path) -> bytes:
+    block_align = int(fmt["block_align"])
+    sample_rate = int(fmt["sample_rate"])
+    if block_align <= 0:
+        raise ValueError(f"{path}: WAV block align must be greater than zero")
+    frame_count = chunk_size // block_align
+    frames_to_read = min(frame_count, max(0, int(seconds * sample_rate)))
+    bytes_to_read = min(chunk_size, frames_to_read * block_align)
+    data = read_exact(file_object, bytes_to_read, path)
+    remaining = chunk_size - bytes_to_read
+    if remaining > 0:
+        file_object.seek(remaining, 1)
+    return data
 
 
 def decode_pcm_samples(pcm: bytes, sample_width: int) -> list[float]:
@@ -151,18 +265,30 @@ def decode_pcm_samples(pcm: bytes, sample_width: int) -> list[float]:
     return samples
 
 
+def decode_float_samples(sample_bytes: bytes, sample_width: int) -> list[float]:
+    if sample_width == 4:
+        return [float(value[0]) for value in struct.iter_unpack("<f", sample_bytes)]
+    if sample_width == 8:
+        return [float(value[0]) for value in struct.iter_unpack("<d", sample_bytes)]
+    raise ValueError(f"unsupported IEEE float sample width: {sample_width} bytes")
+
+
 def stats_for(
     samples: Iterable[float],
     channels: int,
     sample_rate: int,
     sample_width: int,
     near_silence_threshold: float,
+    sample_format: str = "pcm",
 ) -> AudioStats:
     sample_list = list(samples)
     count = len(sample_list)
     frames = count // channels if channels > 0 else 0
     duration = frames / sample_rate if sample_rate > 0 else 0.0
-    clipping_threshold = 1.0 - (1.0 / float(1 << ((sample_width * 8) - 1)))
+    if sample_format == "ieee_float":
+        clipping_threshold = 1.0
+    else:
+        clipping_threshold = 1.0 - (1.0 / float(1 << ((sample_width * 8) - 1)))
 
     square_sum = sum(sample * sample for sample in sample_list)
     peak = max((abs(sample) for sample in sample_list), default=0.0)
@@ -353,6 +479,13 @@ def window_signal_metrics(reference: list[float], candidate: list[float]) -> dic
         "candidate_rms": rounded(candidate_rms),
         "rms_difference": diff["overall_rms_difference"],
         "normalized_correlation": rounded_optional(normalized_correlation(reference, candidate)),
+        "gain_normalized": gain_normalized_metrics(
+            reference,
+            candidate,
+            1,
+            reference_rms,
+            float(diff["overall_rms_difference"]),
+        ),
     }
     if reference_rms > 0.0 or candidate_rms > 0.0:
         result["reference_energy"] = rounded(reference_rms * reference_rms)
@@ -391,6 +524,70 @@ def window_stereo_mono_metrics(
             stereo_side_signal(candidate_window, channels),
         )
     return metrics
+
+
+def timbre_profile(samples: list[float], sample_rate: int) -> dict[str, object]:
+    if not samples:
+        return {
+            "first_10ms_rms": 0.0,
+            "derivative_rms": 0.0,
+            "max_abs_delta": 0.0,
+            "high_frequency_proxy_ratio": None,
+            "zero_crossing_rate": None,
+        }
+    first_10ms_frames = max(1, min(len(samples), int(sample_rate * 0.010))) if sample_rate > 0 else len(samples)
+    deltas = [samples[index] - samples[index - 1] for index in range(1, len(samples))]
+    rms = signal_rms(samples)
+    derivative_rms = signal_rms(deltas)
+    zero_crossings = sum(
+        1
+        for index in range(1, len(samples))
+        if (samples[index - 1] < 0.0 <= samples[index]) or (samples[index - 1] > 0.0 >= samples[index])
+    )
+    return {
+        "first_10ms_rms": rounded(signal_rms(samples[:first_10ms_frames])),
+        "derivative_rms": rounded(derivative_rms),
+        "max_abs_delta": rounded(max((abs(delta) for delta in deltas), default=0.0)),
+        "high_frequency_proxy_ratio": rounded_optional(derivative_rms / rms if rms > 0.0 else None),
+        "zero_crossing_rate": rounded_optional(zero_crossings / (len(samples) - 1) if len(samples) > 1 else None),
+    }
+
+
+def residual_signal(reference: list[float], candidate: list[float]) -> list[float]:
+    sample_count = min(len(reference), len(candidate))
+    return [candidate[index] - reference[index] for index in range(sample_count)]
+
+
+def window_timbre_metrics(
+    reference: list[float],
+    candidate: list[float],
+    channels: int,
+    sample_rate: int,
+    start_frame: int,
+    end_frame: int,
+) -> dict[str, object]:
+    reference_window = frame_slice(reference, channels, start_frame, end_frame)
+    candidate_window = frame_slice(candidate, channels, start_frame, end_frame)
+    reference_mono = mono_sum_signal(reference_window, channels)
+    candidate_mono = mono_sum_signal(candidate_window, channels)
+    residual_mono = residual_signal(reference_mono, candidate_mono)
+    reference_mono_rms = signal_rms(reference_mono)
+    residual_rms = signal_rms(residual_mono)
+
+    result: dict[str, object] = {
+        "mono": {
+            "reference": timbre_profile(reference_mono, sample_rate),
+            "candidate": timbre_profile(candidate_mono, sample_rate),
+            "residual": timbre_profile(residual_mono, sample_rate),
+            "residual_rms": rounded(residual_rms),
+            "residual_peak": rounded(max((abs(sample) for sample in residual_mono), default=0.0)),
+            "residual_mean": rounded(sum(residual_mono) / len(residual_mono) if residual_mono else 0.0),
+            "residual_to_reference_rms": rounded_optional(
+                residual_rms / reference_mono_rms if reference_mono_rms > 0.0 else None
+            ),
+        },
+    }
+    return result
 
 
 def aligned_window_metrics(
@@ -629,6 +826,9 @@ def worst_mismatch_windows(
             square_sum += diff * diff
             max_abs = max(max_abs, abs(diff))
         rms = math.sqrt(square_sum / sample_count)
+        reference_window = reference[start_sample:end_sample]
+        candidate_window = candidate[start_sample:end_sample]
+        reference_window_rms = signal_rms(reference_window)
         windows.append({
             "start_frame": start_frame,
             "end_frame": end_frame,
@@ -636,6 +836,13 @@ def worst_mismatch_windows(
             "end_seconds": rounded(end_frame / sample_rate),
             "rms_difference": rounded(rms),
             "max_abs_sample_difference": rounded(max_abs),
+            "gain_normalized": gain_normalized_metrics(
+                reference_window,
+                candidate_window,
+                channels,
+                reference_window_rms,
+                rms,
+            ),
         })
 
     windows.sort(key=lambda item: (-float(item["rms_difference"]), int(item["start_frame"])))
@@ -656,6 +863,14 @@ def worst_mismatch_windows(
             reference,
             candidate,
             channels,
+            start_frame,
+            end_frame,
+        )
+        window["timbre_metrics"] = window_timbre_metrics(
+            reference,
+            candidate,
+            channels,
+            sample_rate,
             start_frame,
             end_frame,
         )
@@ -681,6 +896,7 @@ def build_comparison(
         reference_info.sample_rate,
         reference_info.sample_width,
         near_silence_threshold,
+        reference_info.sample_format,
     )
     candidate_stats = stats_for(
         candidate_samples,
@@ -688,6 +904,7 @@ def build_comparison(
         candidate_info.sample_rate,
         candidate_info.sample_width,
         near_silence_threshold,
+        candidate_info.sample_format,
     )
 
     sample_rate_matches = reference_info.sample_rate == candidate_info.sample_rate
@@ -816,6 +1033,7 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
         f"- Sample rate: {format_match(reference_info['sample_rate'], candidate_info['sample_rate'], 'Hz')}",
         f"- Channels: {format_match(reference_info['channel_count'], candidate_info['channel_count'], '')}",
         f"- Sample width: {format_match(reference_info['sample_width_bits'], candidate_info['sample_width_bits'], 'bit')}",
+        f"- Sample format: {format_text_match(reference_info['sample_format'], candidate_info['sample_format'])}",
         f"- Reference frames/duration: {reference_info['frame_count']} / {reference_info['duration_seconds']:.6f} s",
         f"- Candidate frames/duration: {candidate_info['frame_count']} / {candidate_info['duration_seconds']:.6f} s",
         f"- Duration delta: {format_info['duration_delta_seconds']:+.6f} s",
@@ -932,6 +1150,15 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
                     f"rms_diff={window['rms_difference']:.8f}, "
                     f"max_abs_diff={window['max_abs_sample_difference']:.8f}"
                 )
+                window_gain = window.get("gain_normalized")
+                if isinstance(window_gain, dict) and isinstance(window_gain.get("diff"), dict):
+                    window_gain_diff = window_gain["diff"]
+                    assert isinstance(window_gain_diff, dict)
+                    lines.append(
+                        "   gain_normalized: "
+                        f"scalar={format_optional_float(window_gain.get('candidate_scalar_to_reference'))}, "
+                        f"rms_diff={format_optional_float(window_gain_diff.get('overall_rms_difference'))}"
+                    )
                 alignment = window.get("local_alignment")
                 if isinstance(alignment, dict):
                     best_shift = alignment.get("best_shift")
@@ -948,6 +1175,9 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
                 mode_metrics = window.get("stereo_mono_metrics")
                 if isinstance(mode_metrics, dict):
                     lines.append(f"   stereo_mono: {format_window_mode_summary(mode_metrics)}")
+                timbre_metrics = window.get("timbre_metrics")
+                if isinstance(timbre_metrics, dict):
+                    lines.append(f"   timbre: {format_window_timbre_summary(timbre_metrics)}")
         lines.append("")
 
     lines.extend([
@@ -962,7 +1192,7 @@ def build_markdown_report(comparison: dict[str, object]) -> str:
 def format_info(info: WavInfo) -> str:
     return (
         f"  format: {info.sample_rate} Hz, {info.channels} channel(s), "
-        f"{info.sample_width * 8}-bit PCM, {info.frame_count} frames, "
+        f"{info.sample_width * 8}-bit {info.sample_format}, {info.frame_count} frames, "
         f"{info.duration_seconds:.6f} s"
     )
 
@@ -972,6 +1202,12 @@ def format_match(reference: int, candidate: int, unit: str) -> str:
     if reference == candidate:
         return f"match ({reference}{suffix})"
     return f"mismatch (reference {reference}{suffix}, candidate {candidate}{suffix})"
+
+
+def format_text_match(reference: object, candidate: object) -> str:
+    if reference == candidate:
+        return f"match ({reference})"
+    return f"mismatch (reference {reference}, candidate {candidate})"
 
 
 def db_difference(candidate: float, reference: float) -> str:
@@ -1032,6 +1268,28 @@ def format_window_mode_summary(metrics: dict[str, object]) -> str:
             f"{format_optional_float(mode.get('rms_difference'))}"
         )
     return "; ".join(parts) if parts else "unavailable"
+
+
+def format_window_timbre_summary(metrics: dict[str, object]) -> str:
+    mono = nested_dict_value(metrics, "mono")
+    reference = nested_dict_value(mono, "reference")
+    candidate = nested_dict_value(mono, "candidate")
+    residual = nested_dict_value(mono, "residual")
+    parts = [
+        "hf_proxy ref/cand/resid "
+        f"{format_optional_float(reference.get('high_frequency_proxy_ratio'))}/"
+        f"{format_optional_float(candidate.get('high_frequency_proxy_ratio'))}/"
+        f"{format_optional_float(residual.get('high_frequency_proxy_ratio'))}",
+        "delta_rms ref/cand/resid "
+        f"{format_optional_float(reference.get('derivative_rms'))}/"
+        f"{format_optional_float(candidate.get('derivative_rms'))}/"
+        f"{format_optional_float(residual.get('derivative_rms'))}",
+        "zero_cross ref/cand "
+        f"{format_optional_float(reference.get('zero_crossing_rate'))}/"
+        f"{format_optional_float(candidate.get('zero_crossing_rate'))}",
+        f"residual_rms_ratio={format_optional_float(mono.get('residual_to_reference_rms'))}",
+    ]
+    return "; ".join(parts)
 
 
 def format_timestamp(value: float | None) -> str:
@@ -1130,7 +1388,7 @@ def main(argv: list[str]) -> int:
             args.top_windows,
             args.alignment_search_frames,
         )
-    except (FileNotFoundError, wave.Error, ValueError) as error:
+    except (FileNotFoundError, ValueError) as error:
         print(f"audio-compare: {error}", file=sys.stderr)
         return 1
 

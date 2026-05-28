@@ -191,9 +191,19 @@ secondary references. Against that reference the remaining largest windows are
 mostly zero-shift, high-correlation differences around louder reference output,
 loop crossings, and occasional replacement/gain events; no consistent
 row-boundary, `3xx` sample-step, or event-ordering audio-render fix was proven.
-The likely next parity target is amplitude/timbre comparison, especially C
-mixer resampler/timbre and per-voice level normalization evidence, rather than
-gain/export policy alone.
+The follow-up amplitude/timbre investigation added direct IEEE float WAV input
+for ft2-clone exports plus per-window gain-normalized and timbre diagnostics.
+Direct comparison against the original ft2-clone float export matched the prior
+temporary PCM-converted result for `xm-corpus-025`: correlation remains about
+`0.939009`, global gain-normalized RMS difference remains about `0.036238`, and
+the worst windows still choose zero local shift. The highest-correlation worst
+windows collapse mostly under local scalar normalization, while several
+remaining windows show brighter ft2-clone residuals and higher reference
+transient/high-frequency-proxy energy. No tiny mixer, gain, pan, sample-step,
+loop-endpoint, event, tracker viewport, or parser bug was proven. The strongest
+next parity target is a diagnostics-first C mixer resampler/interpolation
+timbre microfixture PR, with sample/instrument volume normalization kept as the
+next level-specific alternative.
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

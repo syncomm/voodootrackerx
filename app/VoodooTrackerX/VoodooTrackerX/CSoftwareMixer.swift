@@ -747,16 +747,44 @@ final class CSoftwareMixer {
             : UInt32(MixerRenderConfig.defaultChannelCount)
         return VTXCMixerConfig(
             sample_rate: config.sampleRate,
-            channel_count: channelCount
+            channel_count: channelCount,
+            pan_law: cPanLaw(from: config.panLaw),
+            output_scale: config.outputScale
         )
     }
 
     private static func swiftConfig(from config: VTXCMixerConfig) -> MixerRenderConfig {
-        MixerRenderConfig(
+        let panLaw = swiftPanLaw(from: config.pan_law)
+        let mixProfile = MixerMixProfile.matching(
+            panLaw: panLaw,
+            outputScale: config.output_scale
+        ) ?? .vtx
+        return MixerRenderConfig(
             sampleRate: config.sample_rate,
             channelCount: Int(config.channel_count),
-            isInterleaved: true
+            isInterleaved: true,
+            mixProfile: mixProfile
         )
+    }
+
+    private static func cPanLaw(from panLaw: MixerPanLaw) -> VTXCMixerPanLaw {
+        switch panLaw {
+        case .linear:
+            return VTX_C_MIXER_PAN_LAW_LINEAR
+        case .ft2EqualPower:
+            return VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER
+        }
+    }
+
+    private static func swiftPanLaw(from panLaw: VTXCMixerPanLaw) -> MixerPanLaw {
+        switch panLaw {
+        case VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER:
+            return .ft2EqualPower
+        case VTX_C_MIXER_PAN_LAW_LINEAR:
+            fallthrough
+        default:
+            return .linear
+        }
     }
 
     private static func cLoopMode(from mode: MixerSampleLoopMode) -> VTXCMixerLoopMode {

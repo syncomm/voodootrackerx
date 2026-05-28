@@ -1,5 +1,115 @@
 import Foundation
 
+enum MixerPanLaw: String, Equatable {
+    case linear
+    case ft2EqualPower = "ft2_equal_power"
+
+    func leftGain(for pan: Float) -> Float {
+        let sanitizedPan = Self.sanitizedPan(pan)
+        switch self {
+        case .linear:
+            return sanitizedPan <= 0 ? 1 : 1 - sanitizedPan
+        case .ft2EqualPower:
+            if sanitizedPan <= -1 {
+                return 1
+            }
+            if sanitizedPan >= 1 {
+                return 0
+            }
+            let position = (Double(sanitizedPan) + 1.0) * 0.5
+            return Float(cos(position * Double.pi / 2.0))
+        }
+    }
+
+    func rightGain(for pan: Float) -> Float {
+        let sanitizedPan = Self.sanitizedPan(pan)
+        switch self {
+        case .linear:
+            return sanitizedPan >= 0 ? 1 : 1 + sanitizedPan
+        case .ft2EqualPower:
+            if sanitizedPan <= -1 {
+                return 0
+            }
+            if sanitizedPan >= 1 {
+                return 1
+            }
+            let position = (Double(sanitizedPan) + 1.0) * 0.5
+            return Float(sin(position * Double.pi / 2.0))
+        }
+    }
+
+    private static func sanitizedPan(_ pan: Float) -> Float {
+        guard pan.isFinite else {
+            return 0
+        }
+        return min(1, max(-1, pan))
+    }
+}
+
+/// Explicit offline/reference mix policy applied inside the mixer before WAV export gain.
+///
+/// This intentionally separates reference-render panning/output scale from WAV export headroom and
+/// runtime device safety gain.
+enum MixerMixProfile: String, CaseIterable, Equatable {
+    case vtx
+    case ft2
+
+    static let ft2ReferenceAmplification: Float = 10
+    static let ft2ReferenceMasterVolume: Float = 256
+    static let ft2ReferenceOutputDivisor: Float = 32 * 256
+    static let ft2ReferenceOutputScale = (ft2ReferenceAmplification * ft2ReferenceMasterVolume) / ft2ReferenceOutputDivisor
+
+    var panLaw: MixerPanLaw {
+        switch self {
+        case .vtx:
+            return .linear
+        case .ft2:
+            return .ft2EqualPower
+        }
+    }
+
+    var outputScale: Float {
+        switch self {
+        case .vtx:
+            return 1
+        case .ft2:
+            return Self.ft2ReferenceOutputScale
+        }
+    }
+
+    var outputScalePolicy: String {
+        switch self {
+        case .vtx:
+            return "unity"
+        case .ft2:
+            return "ft2_clone_amplification_master_float_export"
+        }
+    }
+
+    var outputScaleFormula: String {
+        switch self {
+        case .vtx:
+            return "1.0"
+        case .ft2:
+            return "(amplification * master_volume) / (32 * 256)"
+        }
+    }
+
+    var centerPanContribution: Float {
+        panLaw.leftGain(for: 0)
+    }
+
+    var centeredOutputContribution: Float {
+        centerPanContribution * outputScale
+    }
+
+    static func matching(panLaw: MixerPanLaw, outputScale: Float) -> MixerMixProfile? {
+        allCases.first { profile in
+            profile.panLaw == panLaw && abs(profile.outputScale - outputScale) <= 0.000_001
+        }
+    }
+}
+
 /// Deterministic software mixer configuration for offline rendering and a later runtime backend migration.
 ///
 /// This offline path remains separate from the CoreAudio-hosted runtime C mixer.
@@ -10,12 +120,27 @@ struct MixerRenderConfig: Equatable {
     let sampleRate: Double
     let channelCount: Int
     let isInterleaved: Bool
+    let mixProfile: MixerMixProfile
+
+    var panLaw: MixerPanLaw {
+        mixProfile.panLaw
+    }
+
+    var outputScale: Float {
+        mixProfile.outputScale
+    }
 
     /// Creates a safe render configuration, falling back to deterministic defaults for invalid values.
-    init(sampleRate: Double = defaultSampleRate, channelCount: Int = defaultChannelCount, isInterleaved: Bool = true) {
+    init(
+        sampleRate: Double = defaultSampleRate,
+        channelCount: Int = defaultChannelCount,
+        isInterleaved: Bool = true,
+        mixProfile: MixerMixProfile = .vtx
+    ) {
         self.sampleRate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : Self.defaultSampleRate
         self.channelCount = channelCount > 0 ? channelCount : Self.defaultChannelCount
         self.isInterleaved = isInterleaved
+        self.mixProfile = mixProfile
     }
 }
 
@@ -127,11 +252,11 @@ struct MixerVoice: Equatable {
     }
 
     var leftPanGain: Float {
-        pan <= 0 ? 1 : 1 - pan
+        MixerPanLaw.linear.leftGain(for: pan)
     }
 
     var rightPanGain: Float {
-        pan >= 0 ? 1 : 1 + pan
+        MixerPanLaw.linear.rightGain(for: pan)
     }
 
     mutating func reset() {
@@ -805,6 +930,7 @@ final class SoftwareMixer {
                 }
                 mix(monoSample, from: voices[voiceIndex], into: &interleavedPCM, at: frameOffset)
             }
+            applyOutputScale(to: &interleavedPCM, at: frameOffset)
         }
 
         return MixerRenderBlock(
@@ -830,8 +956,18 @@ final class SoftwareMixer {
             return
         }
 
-        interleavedPCM[frameOffset] += monoSample * voice.leftPanGain
-        interleavedPCM[frameOffset + 1] += monoSample * voice.rightPanGain
+        interleavedPCM[frameOffset] += monoSample * config.panLaw.leftGain(for: voice.pan)
+        interleavedPCM[frameOffset + 1] += monoSample * config.panLaw.rightGain(for: voice.pan)
+    }
+
+    private func applyOutputScale(to interleavedPCM: inout [Float], at frameOffset: Int) {
+        let scale = config.outputScale
+        guard scale != 1 else {
+            return
+        }
+        for channelIndex in 0..<config.channelCount {
+            interleavedPCM[frameOffset + channelIndex] *= scale
+        }
     }
 }
 

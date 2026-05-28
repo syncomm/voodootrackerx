@@ -209,6 +209,22 @@ smoothing as a later residual/timbre experiment after first documenting the
 reference output-level policy; do not change gain, panning, row/tick timing, or
 C mixer DSP from this audit alone.
 
+The bounded offline helper now exposes an explicit mix profile for this
+reference-policy distinction. `--mix-profile vtx` is the default and preserves
+the existing VTX policy: linear pan contribution, center pan at full amplitude
+in both stereo channels, hard-left/hard-right at `1/0` and `0/1`, and unity
+offline mix output scale. `--mix-profile ft2` is opt-in for FT2-style
+comparison renders: it applies equal-power stereo panning so center pan is
+about `0.707106` per side, keeps hard-left/hard-right at `1/0` and `0/1`, and
+applies the ft2-clone Linear reference output scale
+`(10 * 256) / (32 * 256) = 0.3125` inside the offline render block before WAV
+export gain. The expected centered full-volume contribution is therefore about
+`0.220971`. This is separate from `--gain`, `--headroom-db`, and
+`--auto-headroom`, which remain WAV export-boundary policies, and separate from
+runtime CoreAudio device safety gain. Float32 export preserves the resulting
+profile-scaled Float32 values; PCM16 export still clamps/encodes according to
+the existing WAV exporter behavior.
+
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
 helper can write those bounded render blocks as deterministic PCM16 WAV files.

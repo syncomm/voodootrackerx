@@ -88,6 +88,13 @@ Current stabilization note:
   peak `1.925131`, RMS `0.408609`, and `206808` overrange Float32 samples at
   unity. This is diagnostics-only and points the next work at final mix/export
   reference policy before ramp-shape experiments.
+- The bounded offline render helper now has an explicit opt-in FT2 reference
+  mix profile. `--mix-profile vtx` remains the default linear-pan/unity-scale
+  path. `--mix-profile ft2` applies equal-power center panning and the
+  ft2-clone Linear `0.3125` output scale inside the offline render block before
+  WAV export gain, producing the expected centered full-volume contribution
+  near `0.220971`. This is reference policy alignment only; WAV export
+  gain/headroom and runtime CoreAudio device safety gain remain separate.
 - The interpolation/sample-step parity pass found that the C mixer already uses
   deterministic linear interpolation with double-precision sample positions and
   sample steps. The diagnostics-only resampler/timbre follow-up documented the

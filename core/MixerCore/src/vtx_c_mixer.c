@@ -18,10 +18,28 @@ static uint32_t vtx_c_mixer_sanitized_channel_count(uint32_t channel_count) {
         : VTX_C_MIXER_DEFAULT_CHANNEL_COUNT;
 }
 
+static VTXCMixerPanLaw vtx_c_mixer_sanitized_pan_law(VTXCMixerPanLaw pan_law) {
+    switch (pan_law) {
+    case VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER:
+        return VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER;
+    case VTX_C_MIXER_PAN_LAW_LINEAR:
+    default:
+        return VTX_C_MIXER_PAN_LAW_LINEAR;
+    }
+}
+
+static float vtx_c_mixer_sanitized_output_scale(float output_scale) {
+    return isfinite(output_scale) && output_scale > 0.0f
+        ? output_scale
+        : 1.0f;
+}
+
 static VTXCMixerConfig vtx_c_mixer_sanitized_config(VTXCMixerConfig config) {
     VTXCMixerConfig sanitized;
     sanitized.sample_rate = vtx_c_mixer_sanitized_sample_rate(config.sample_rate);
     sanitized.channel_count = vtx_c_mixer_sanitized_channel_count(config.channel_count);
+    sanitized.pan_law = vtx_c_mixer_sanitized_pan_law(config.pan_law);
+    sanitized.output_scale = vtx_c_mixer_sanitized_output_scale(config.output_scale);
     return sanitized;
 }
 
@@ -84,14 +102,6 @@ static int vtx_c_mixer_voice_state_event_is_valid(
         return 0;
     }
     return 1;
-}
-
-static float vtx_c_mixer_left_pan_gain(float pan) {
-    return pan <= 0.0f ? 1.0f : 1.0f - pan;
-}
-
-static float vtx_c_mixer_right_pan_gain(float pan) {
-    return pan >= 0.0f ? 1.0f : 1.0f + pan;
 }
 
 static float vtx_c_mixer_effective_ramped_value(
@@ -853,7 +863,41 @@ VTXCMixerConfig vtx_c_mixer_default_config(void) {
     VTXCMixerConfig config;
     config.sample_rate = VTX_C_MIXER_DEFAULT_SAMPLE_RATE;
     config.channel_count = VTX_C_MIXER_DEFAULT_CHANNEL_COUNT;
+    config.pan_law = VTX_C_MIXER_PAN_LAW_LINEAR;
+    config.output_scale = 1.0f;
     return config;
+}
+
+float vtx_c_mixer_pan_left_gain(VTXCMixerPanLaw pan_law, float pan) {
+    const float sanitized_pan = vtx_c_mixer_sanitized_pan(pan);
+    if (vtx_c_mixer_sanitized_pan_law(pan_law) == VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER) {
+        const double half_pi = 1.57079632679489661923;
+        const double position = ((double)sanitized_pan + 1.0) * 0.5;
+        if (sanitized_pan <= -1.0f) {
+            return 1.0f;
+        }
+        if (sanitized_pan >= 1.0f) {
+            return 0.0f;
+        }
+        return (float)cos(position * half_pi);
+    }
+    return sanitized_pan <= 0.0f ? 1.0f : 1.0f - sanitized_pan;
+}
+
+float vtx_c_mixer_pan_right_gain(VTXCMixerPanLaw pan_law, float pan) {
+    const float sanitized_pan = vtx_c_mixer_sanitized_pan(pan);
+    if (vtx_c_mixer_sanitized_pan_law(pan_law) == VTX_C_MIXER_PAN_LAW_FT2_EQUAL_POWER) {
+        const double half_pi = 1.57079632679489661923;
+        const double position = ((double)sanitized_pan + 1.0) * 0.5;
+        if (sanitized_pan <= -1.0f) {
+            return 0.0f;
+        }
+        if (sanitized_pan >= 1.0f) {
+            return 1.0f;
+        }
+        return (float)sin(position * half_pi);
+    }
+    return sanitized_pan >= 0.0f ? 1.0f : 1.0f + sanitized_pan;
 }
 
 uint32_t vtx_c_mixer_gain_pan_update_ramp_frame_count(void) {
@@ -1700,14 +1744,20 @@ VTXCMixerStatus vtx_c_mixer_render(
                     vtx_c_mixer_effective_pan(voice) +
                     vtx_c_mixer_evaluate_envelope(&voice->pan_envelope, 0.0f)
                 );
-                output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_left_pan_gain(effective_pan);
-                output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_right_pan_gain(effective_pan);
+                output_interleaved_float32[frame_offset] += mono_sample * vtx_c_mixer_pan_left_gain(state->config.pan_law, effective_pan);
+                output_interleaved_float32[frame_offset + 1] += mono_sample * vtx_c_mixer_pan_right_gain(state->config.pan_law, effective_pan);
             }
 
             vtx_c_mixer_advance_sample_position(voice);
             vtx_c_mixer_advance_voice_envelopes(voice);
             vtx_c_mixer_advance_value_ramps(state, voice);
             vtx_c_mixer_advance_voice_fadeout(voice);
+        }
+        if (state->config.output_scale != 1.0f) {
+            size_t channel_index;
+            for (channel_index = 0; channel_index < channel_count_size; channel_index++) {
+                output_interleaved_float32[frame_offset + channel_index] *= state->config.output_scale;
+            }
         }
         vtx_c_mixer_advance_render_cursor(state);
     }

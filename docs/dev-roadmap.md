@@ -326,6 +326,15 @@ starts/replacements/stops and volume/pan updates over about 5 ms or one tick,
 while VTX currently uses fixed 32-frame linear replacement and gain/pan update
 ramps. Recommended next PR: VTX Final Mix Scale / Export Reference Policy.
 
+An opt-in FT2 reference mix profile now separates that reference output policy
+from default playback/render behavior. `--mix-profile vtx` remains the default
+with linear pan contribution and unity output scale. `--mix-profile ft2`
+applies equal-power center panning and the ft2-clone Linear `0.3125` output
+scale inside the offline render block before WAV export gain, giving the
+documented centered full-volume contribution near `0.220971`. This profile is
+for reference comparison only; WAV export headroom/gain and runtime CoreAudio
+device safety remain separate policies.
+
 Bounded offline note
 triggers now use parsed XM instrument sample maps/keymaps when a valid
 multi-sample mapping is present,

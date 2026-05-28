@@ -35,6 +35,7 @@ enum RenderToolError: LocalizedError, Equatable {
     case invalidRenderLimit(String)
     case invalidWindowRows(String)
     case invalidExportGainPolicy(String)
+    case invalidMixProfile(String)
     case invalidWAVFormat(String)
     case invalidIsolationFilter(String)
     case longRenderRequiresAllowLongRender(frames: Int, defaultLimit: Int)
@@ -63,6 +64,7 @@ enum RenderToolError: LocalizedError, Equatable {
              let .invalidRenderLimit(message),
              let .invalidWindowRows(message),
              let .invalidExportGainPolicy(message),
+             let .invalidMixProfile(message),
              let .invalidWAVFormat(message),
              let .invalidIsolationFilter(message):
             return message
@@ -138,6 +140,7 @@ struct RenderToolArguments: Equatable {
     let headroomDB: Double?
     let autoHeadroom: Bool
     let wavFormat: MixerWAVFormat
+    let mixProfile: MixerMixProfile
     let isolationFilter: PlaybackSongRenderIsolationFilter?
 
     init(
@@ -160,6 +163,7 @@ struct RenderToolArguments: Equatable {
         headroomDB: Double? = nil,
         autoHeadroom: Bool = false,
         wavFormat: MixerWAVFormat = .pcm16,
+        mixProfile: MixerMixProfile = .vtx,
         isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.inputPath = inputPath
@@ -181,6 +185,7 @@ struct RenderToolArguments: Equatable {
         self.headroomDB = headroomDB
         self.autoHeadroom = autoHeadroom
         self.wavFormat = wavFormat
+        self.mixProfile = mixProfile
         self.isolationFilter = isolationFilter?.isEnabled == true ? isolationFilter : nil
     }
 
@@ -204,6 +209,7 @@ struct RenderToolArguments: Equatable {
         var headroomDB: Double?
         var autoHeadroom = false
         var wavFormat = MixerWAVFormat.pcm16
+        var mixProfile = MixerMixProfile.vtx
         var soloChannelIndex: Int?
         var soloInstrumentIndex: Int?
         var soloSampleIndex: Int?
@@ -287,6 +293,8 @@ struct RenderToolArguments: Equatable {
                 headroomDB = try parseHeadroomDB(value, name: argument)
             case "--wav-format":
                 wavFormat = try parseWAVFormat(value)
+            case "--mix-profile":
+                mixProfile = try parseMixProfile(value)
             case "--solo-channel":
                 soloChannelIndex = try parseNonNegativeInt(value, name: argument)
             case "--solo-instrument":
@@ -363,6 +371,7 @@ struct RenderToolArguments: Equatable {
             headroomDB: headroomDB,
             autoHeadroom: autoHeadroom,
             wavFormat: wavFormat,
+            mixProfile: mixProfile,
             isolationFilter: isolationFilter
         )
     }
@@ -527,6 +536,14 @@ struct RenderToolArguments: Equatable {
         return format
     }
 
+    private static func parseMixProfile(_ value: String) throws -> MixerMixProfile {
+        guard let profile = MixerMixProfile(rawValue: value.lowercased()) else {
+            let allowed = MixerMixProfile.allCases.map(\.rawValue).joined(separator: ", ")
+            throw RenderToolError.invalidMixProfile("--mix-profile must be one of: \(allowed).")
+        }
+        return profile
+    }
+
     private static func validateExplicitRenderLimit(
         maxFrames: Int?,
         seconds: Double?,
@@ -602,7 +619,11 @@ struct RenderTool {
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: inputURL.path)
         try validateOrderRange(start: arguments.order, count: arguments.orderCount, orderTotal: song.orders.count)
 
-        let config = MixerRenderConfig(sampleRate: arguments.sampleRate, channelCount: MixerRenderConfig.defaultChannelCount)
+        let config = MixerRenderConfig(
+            sampleRate: arguments.sampleRate,
+            channelCount: MixerRenderConfig.defaultChannelCount,
+            mixProfile: arguments.mixProfile
+        )
         let durationDiagnostics = try renderDurationDiagnostics(song: song, arguments: arguments, config: config)
         let request = try renderRequest(song: song, arguments: arguments, config: config)
         let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: request.maximumFrameCount)
@@ -1594,7 +1615,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "When Bxx and Dxx share a row, Bxx selects the target order and Dxx supplies the target row.",
             "E6x loop starts and loop counts are scoped per channel/order/pattern; missing loop starts are diagnosed without inventing a row-0 loop.",
             "Windowed renders are developer/offline helper renders only; practical active voice state is carried across fresh C mixer windows where supported.",
+            "Mix profile panning and output scale are applied inside the offline render block before WAV export gain.",
             "Export gain/headroom, including auto-headroom, is applied after Float32 offline rendering and before WAV encoding.",
+            "Runtime device output safety gain is separate from this offline mix profile.",
             "Until-song-end duration is the bounded selected order-range end from the adapter timing model, not full FT2/OpenMPT song loop/restart parity.",
         ]
         let render: [String: Any] = [
@@ -1602,6 +1625,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "requested_order_count": diagnostics.requestedOrderCount,
                 "sample_rate": diagnostics.sampleRate,
                 "channel_count": result.block.config.channelCount,
+                "mix_profile": result.block.config.mixProfile.rawValue,
+                "mix_pan_law": result.block.config.panLaw.rawValue,
+                "mix_output_scale": Double(result.block.config.outputScale),
+                "mix_output_scale_policy": result.block.config.mixProfile.outputScalePolicy,
+                "mix_output_scale_formula": result.block.config.mixProfile.outputScaleFormula,
+                "mix_output_scale_applied_before_wav_export_gain": true,
+                "mix_profile_runtime_output_safety_policy": "separate_runtime_coreaudio_output_gain",
+                "ft2_reference_amplification": Double(MixerMixProfile.ft2ReferenceAmplification),
+                "ft2_reference_master_volume": Double(MixerMixProfile.ft2ReferenceMasterVolume),
+                "ft2_reference_output_divisor": Double(MixerMixProfile.ft2ReferenceOutputDivisor),
+                "center_pan_left_gain": Double(result.block.config.panLaw.leftGain(for: 0)),
+                "center_pan_right_gain": Double(result.block.config.panLaw.rightGain(for: 0)),
+                "center_pan_output_contribution": Double(result.block.config.mixProfile.centeredOutputContribution),
                 "wav_format": exportDiagnostics.wavFormat.rawValue,
                 "wav_format_code": Int(exportDiagnostics.wavFormat.wavFormatCode),
                 "wav_bits_per_sample": exportDiagnostics.wavFormat.bitsPerSample,
@@ -4745,6 +4781,7 @@ func renderToolUsage() -> String {
       --solo-channel N      Render only zero-based VTX channel N; timing/global planning remains full-song.
       --solo-instrument I   Render only one-based instrument I.
       --solo-sample I:S     Render only one-based instrument I and zero-based sample S.
+      --mix-profile PROFILE Offline mix profile: vtx or ft2. Default: vtx.
       --wav-format FORMAT   Output WAV format: pcm16 or float32. Default: pcm16.
       --gain N              Apply linear export gain before WAV encoding. Default: 1.0.
       --headroom-db N       Apply dB headroom before WAV encoding; value must be <= 0.
@@ -4754,6 +4791,7 @@ func renderToolUsage() -> String {
       --help                Show this help.
 
     Default safety clamp: \(PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount) frames (60 seconds at 44100 Hz).
+    --mix-profile ft2 applies equal-power pan contribution plus the ft2-clone Linear reference output scale before WAV export gain.
     --gain, --headroom-db, and --auto-headroom are mutually exclusive and do not change mixer math or runtime playback.
     --wav-format float32 writes IEEE float WAV format code 3 and preserves post-gain overrange samples.
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
@@ -4811,6 +4849,10 @@ func renderToolSummary(
     lines.append("WAV format: \(exportDiagnostics.wavFormat.rawValue) (format code \(exportDiagnostics.wavFormat.wavFormatCode), \(exportDiagnostics.wavFormat.bitsPerSample)-bit)")
     lines.append("Sample rate: \(Int(result.block.config.sampleRate)) Hz")
     lines.append("Channels: \(result.block.config.channelCount)")
+    lines.append("Mix profile: \(result.block.config.mixProfile.rawValue)")
+    lines.append("Mix pan law: \(result.block.config.panLaw.rawValue)")
+    lines.append(String(format: "Mix output scale: %.6f", result.block.config.outputScale))
+    lines.append(String(format: "Centered pan output contribution: %.6f", result.block.config.mixProfile.centeredOutputContribution))
     lines.append("Render duration mode: \(durationDiagnostics.mode.summaryName)")
     if let calculatedSongEndFrames = durationDiagnostics.calculatedSongEndFrames {
         lines.append("Calculated song-end frames: \(calculatedSongEndFrames)")

@@ -282,6 +282,12 @@ docs/tracker-behavior-spec.md
 ## Automation Hooks
 
 - Scripts in `/scripts/` must be idempotent.
+- Do not add new one-off root or diagnostic scripts without documenting them in
+  `docs/diagnostic-tools.md`.
+- Prefer extending existing diagnostic tooling over adding hyper-specific
+  scripts.
+- Keep private diagnostic inputs and generated outputs under `/tmp` or another
+  ignored local path.
 - CI must remain green on `main`.
 - Agents should prefer adding tests before modifying production code.
 

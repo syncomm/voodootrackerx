@@ -16,6 +16,8 @@ relevant to the task.
 - `docs/xm-effect-support.md` - canonical XM effect support table.
 - `docs/audio-comparison.md` - current render/reference comparison workflow.
 - `docs/playback-trace.md` - runtime trace and capture diagnostics.
+- `docs/diagnostic-tools.md` - diagnostic script inventory and consolidation
+  plan.
 - `docs/design/parsed-xm-to-c-mixer-adapter.md` - parsed-XM adapter design.
 - `docs/decisions/` - architecture decision records.
 

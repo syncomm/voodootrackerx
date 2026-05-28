@@ -107,6 +107,11 @@ proposing playback behavior changes.
 `docs/xm-effect-support.md` is the canonical current effect support table.
 Read it before effect work and update it when an effect PR changes support.
 
+## Diagnostic Tooling Pointer
+
+For diagnostic script inventory and consolidation planning, see
+`docs/diagnostic-tools.md`.
+
 ## Current Remaining Backend Targets
 
 Keep these as separate, small PRs:

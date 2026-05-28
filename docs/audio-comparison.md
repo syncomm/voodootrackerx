@@ -5,8 +5,8 @@ PCM WAV renders:
 
 - a candidate WAV from VoodooTracker X, a manual capture, or the bounded
   C-backed offline render export helper
-- a reference WAV from OpenMPT/libopenmpt/openmpt123, MikMod, or another local
-  renderer
+- a reference WAV from ft2-clone, OpenMPT/libopenmpt/openmpt123, MikMod, or
+  another local renderer
 
 This workflow is diagnostic evidence only. It does not prove tracker semantic
 correctness, it does not automatically choose fixes, and it must not drive broad
@@ -36,6 +36,21 @@ falls back to the CoreAudio C mixer with a diagnostic fallback reason. The
 retired AVAudioSourceNode-hosted C mixer backend is no longer selectable.
 Offline candidate/reference comparison remains the authoritative render
 validation path.
+
+For FT2-style XM parity investigations, ft2-clone is the preferred primary
+local reference when an appropriately configured export is available. MikMod,
+Renoise, OpenMPT, and libopenmpt remain useful secondary references for
+triangulation, but fixes should not be chosen from reference correlation alone.
+For the local `xm-corpus-025` parity target, direct comparison against the
+ft2-clone 48 kHz 32-bit float export confirms the same result previously seen
+through a temporary PCM conversion: correlation is about `0.939009`, global
+gain-normalized RMS difference is about `0.036238`, and top local-alignment
+windows are zero-shift. The remaining mismatch is therefore classified as
+amplitude/timbre-first, with per-window evidence pointing at scalar level
+differences in the highest-correlation windows and a smaller set of brighter
+ft2-clone residuals. No C mixer DSP, gain policy, panning law, sample-step,
+loop-endpoint, effect, tracker viewport, or parser change is implied by that
+diagnostic result.
 
 The bounded offline C-backed path can render tiny adapted `PlaybackSong`
 segments in memory, and the local-only `PlaybackSongOfflineRenderer.exportWAV`
@@ -1321,6 +1336,9 @@ ranges, then lists:
 - stereo/mono comparison evidence from `scripts/audio-compare.py`, including
   stereo-as-is, mono-summed, left-only, right-only, side-channel, and
   gain-normalized metrics for panning/stereo versus gain/level triage.
+- per-window gain-normalized RMS differences plus simple timbre diagnostics
+  from `scripts/audio-compare.py`, including a mono high-frequency proxy,
+  zero-crossing rate, transient derivative RMS, and residual shape evidence
 - sample-step/interpolation mechanics summaries, including estimated loop
   boundary crossings, forward-loop wraps, ping-pong turnarounds, playback-step
   range, sample base-rate range, and missing pitch/step diagnostic counts
@@ -1547,8 +1565,12 @@ python3 scripts/audio-compare.py \
   --json /tmp/vtx-audio-compare.json
 ```
 
-The script supports uncompressed PCM WAV input. It does not resample, downmix,
-upmix, or compensate for renderer latency. The optional local alignment search
+The script supports uncompressed PCM WAV input and IEEE float WAV input with
+WAV format code `3`, including 32-bit float exports from ft2-clone. Float
+samples are read as stored; the tool does not normalize, resample, downmix,
+upmix, or compensate for renderer latency. Sample width and sample format may
+differ between candidate and reference; direct sample comparison is available
+when sample rate and channel count match. The optional local alignment search
 does not change the main comparison metrics; it only reports whether each worst
 window improves when the candidate slice is shifted within the requested frame
 radius. Positive `candidate_shift_frames` means the candidate comparison slice

@@ -743,6 +743,13 @@ offline-render responsibilities separate.
 - Verification: synthetic tests cover diagnostics JSON timing-policy fields, focused-window optional-field handling and timing tables, and fractional row-start runtime planned-frame mapping.
 - Status: narrow diagnostics/planning parity fix only; reference correlation is expected to stay effectively unchanged. Recommended next parity PR: use ft2-clone as the preferred XM reference for `xm-corpus-025` and compare C mixer resampler/timbre plus per-voice level normalization evidence before changing gain/export policy.
 
+### PR 2.7.11bi — ft2-clone Amplitude / Timbre Parity Investigation
+- Scope: diagnostics-first comparison tooling and local `xm-corpus-025` ft2-clone evidence. No C mixer DSP, gain math, panning law, sample-step behavior, XM effect behavior, runtime backend, tracker viewport, or parser architecture changes.
+- Findings: `scripts/audio-compare.py` can now read IEEE float WAV format code `3` directly, so ft2-clone 32-bit float exports no longer require temporary PCM conversion. Direct float comparison matches the prior converted-reference result: correlation about `0.939009`, global gain-normalized RMS about `0.036238`, and zero best local shift in the top windows. The highest-correlation windows are mostly scalar amplitude differences, while lower-correlation worst windows show ft2-clone retaining more high-frequency-proxy/transient energy than VTX.
+- Change: audio comparison JSON/Markdown now reports sample format/code, per-window gain-normalized RMS difference, mono high-frequency proxy, zero-crossing rate, transient derivative RMS, and residual shape evidence. Public docs record ft2-clone as the preferred FT2-style reference when an export is available.
+- Verification: synthetic audio comparison tests cover 32-bit float WAV reading, float peak/RMS, float candidate/reference comparison, sample-rate mismatch rejection, unchanged PCM16 scaling, and timbre metrics. Local private WAV/JSON/Markdown artifacts stayed under `/tmp` and out of git.
+- Status: diagnostics/tooling only. Recommended next parity PR: C Mixer Resampler / Interpolation Timbre Parity microfixtures first; keep Sample/Instrument Volume Normalization Edge Case as the next level-focused alternative if timbre microfixtures do not reproduce the residual.
+
 ### PR 2.7.12 — Reference Comparison Stabilization Against MikMod/OpenMPT
 - Scope: use local comparison findings to close targeted audible gaps after bounded candidate WAV export and enough mixer behavior exist
 - Verification: documented local comparison reports kept out of the repository

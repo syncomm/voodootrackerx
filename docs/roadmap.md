@@ -102,15 +102,21 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. Focused Amiga-table 3xx period/phase parity follow-up, using synthetic
-   coverage for tone-portamento target/rounding/tick timing plus local
-   validation against the current Amiga reference corpus.
+1. Remaining Amiga-table looped-sample phase/ramp parity in the late 3xx-heavy
+   reference windows, now that Amiga target periods use an FT2-compatible
+   quantized period lookup.
 2. `R00` memory refinement for multi-retrigger as a later parity-watch
    cleanup unless new linear-corpus evidence promotes it.
 3. Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed:
 
+- Amiga 3xx period/phase follow-up corrected Amiga note/target period
+  calculation to use the FT2-compatible quantized period lookup while
+  preserving VTX's existing 4x period scale and tick-level slide units. Local
+  reference comparison for the anonymized Amiga target improved full-song
+  correlation and RMS substantially; the remaining late-window mismatch still
+  presents as looped-sample phase/timing rather than a broad period-table issue.
 - Amiga reference/parity diagnostics for the narrow Amiga-table note/`2xx`/`3xx`
   foundation. Local ft2-clone comparison confirmed Amiga note, `2xx`, and
   effect-column `3xx` paths now apply without neutral-step fallback, while the

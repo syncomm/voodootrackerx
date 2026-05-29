@@ -19,7 +19,6 @@ enum PlaybackSongSyntheticAdapter {
         - (127.0 / 2.0)
     static let xmLinearMaximumSafePeriod = xmLinearPeriodBase + 64.0
     static let xmAmigaC4Period = 6_848.0
-    static let xmAmigaPitchUnitsPerOctave = 3_072.0
     static let xmAmigaPortamentoUnitsPerParam = 16.0
     static let xmAmigaMinimumSafePeriod = 107.0
     static let xmAmigaMaximumSafePeriod = 438_272.0

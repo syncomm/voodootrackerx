@@ -39,14 +39,20 @@ The app is still under active development and is not production-ready.
 
 Next implementation work should stay narrow:
 
-1. Amiga reference/parity follow-up for the newly landed narrow Amiga-table
-   note/`2xx`/`3xx` foundation.
+1. Focused Amiga-table 3xx period/phase parity follow-up, using synthetic
+   coverage for tone-portamento target/rounding/tick timing plus local
+   validation against the current Amiga reference corpus.
 2. `R00` memory refinement as a later parity-watch cleanup unless new
    linear-corpus evidence promotes it.
 3. Backend hardening/cleanup after the linear-XM foundation is frozen.
 
 Recently completed narrow target:
 
+- Amiga reference/parity diagnostics for the narrow Amiga-table note/`2xx`/`3xx`
+  foundation. Local ft2-clone comparison confirmed Amiga note, `2xx`, and
+  effect-column `3xx` paths now apply without neutral-step fallback, while the
+  largest remaining mismatch clusters point at Amiga pitch/phase behavior under
+  looped sample playback rather than a broad level, stereo, or traversal issue.
 - Amiga frequency-table foundation for note period/frequency/sample-step
   calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
   and effect-column `3xx` tone portamento in the shared runtime/offline C

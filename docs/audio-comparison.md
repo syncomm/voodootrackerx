@@ -51,11 +51,14 @@ Write candidates and diagnostics outside the repository:
 
 ```bash
 LOCAL_XM="path-to-untracked-local-module.xm"
+ORDER_COUNT="module-song-length"
 
 swift run vtx_render_bounded_xm \
   --input "$LOCAL_XM" \
   --output /tmp/vtx-ft2-profile-candidate.wav \
   --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
+  --order 0 \
+  --order-count "$ORDER_COUNT" \
   --sample-rate 48000 \
   --until-song-end \
   --tail-seconds 3 \
@@ -64,6 +67,10 @@ swift run vtx_render_bounded_xm \
   --wav-format float32 \
   --mix-profile ft2
 ```
+
+Use the module's effective song length for `ORDER_COUNT` when rendering a full
+one-pass local comparison. Keep the resolved private module path and generated
+diagnostics under `/tmp` or another ignored local path.
 
 For shorter bounded checks, constrain the render:
 

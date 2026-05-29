@@ -119,14 +119,17 @@ For diagnostic script inventory and consolidation planning, see
 
 Keep these as separate, small PRs:
 
-- `R00` memory refinement.
 - Amiga frequency-table foundation and Amiga-table pitch/effect behavior.
+- `R00` memory refinement as a later parity-watch cleanup unless new
+  linear-corpus evidence promotes it.
 - Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed narrow targets:
 
 - `Lxx` set envelope position foundation.
 - Volume-column `F0...FF` tone portamento foundation.
+- Final expanded-corpus linear-XM effect coverage before Amiga; no deferred
+  linear command was promoted ahead of Amiga frequency-table work.
 
 Retired AVAudio backend cleanup belongs to docs/tooling or deletion tasks only;
 do not reintroduce retired playback paths.

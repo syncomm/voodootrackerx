@@ -764,7 +764,11 @@ def extract_command_occurrences(
             end_frame = max(frames) + 1
         occurrences.append(CommandOccurrence(
             domain="effect",
-            label=effect_command_label(tone_portamento.get("effect_type"), tone_portamento.get("effect_param")),
+            label=str(
+                tone_portamento.get("effect_label")
+                or tone_portamento.get("decoded_label")
+                or effect_command_label(tone_portamento.get("effect_type"), tone_portamento.get("effect_param"))
+            ),
             status=tone_portamento_status(tone_portamento),
             source=nested_dict(tone_portamento.get("source")),
             channel=tone_portamento.get("channel_index"),

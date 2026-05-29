@@ -103,6 +103,11 @@ memory remains a diagnosed no-op/deferred case. Mixed nibbles keep the
 MikMod-observed up-nibble precedence policy.
 Same-cell `9xx` note triggers keep effect metadata, and `900` note triggers are
 tagged when they reuse prior same-channel nonzero `9xx` sample-offset memory.
+Volume-column `F0...FF` tone-portamento rows emit adapter step updates with
+the `volume_column_tone_portamento` category and `volumeColumn` metadata when
+they can reuse the existing `3xx` target/sample-step path; no-active,
+no-target, and no-speed cases remain bounded diagnostics rather than invented
+playback.
 Same-cell nonzero `0xy` arpeggio note triggers keep effect metadata and trigger
 once at the base note pitch; subsequent arpeggio ticks are emitted as planned
 sample-step updates. Empty-note nonzero `0xy` rows with an active voice emit the
@@ -644,13 +649,15 @@ state, `4xy` vibrato sample-step updates, sample
 offsets including `900` memory replay metadata, minimal `EAx`/`EBx` fine
 volume slide gain updates, minimal `5xy` tone-portamento + volume-slide
 sample-step/gain updates, minimal `6xy` vibrato + volume slide
-sample-step/gain updates, minimal `Lxx` volume-envelope-position updates, and volume-column set
-volume/panning for empty-note rows and same-cell valid-note `3xx`
+sample-step/gain updates, minimal `Lxx` volume-envelope-position updates,
+volume-column `F0...FF` tone-portamento sample-step updates, and volume-column
+set volume/panning for empty-note rows and same-cell valid-note `3xx`
 no-retrigger rows that keep the carried voice active. Adapter diagnostics
 include `E4x` state rows; adapter-sourced `0xy`,
 `1xx`/`2xx`, `E1x`, `E2x`, `4xy`,
 `5xy`, `Rxy`, `EAx`/`EBx`, `6xy`, and `Lxx` rows carry the effect type/parameter on the
-runtime update row so coverage summaries can count applied updates. Memory-replayed
+runtime update row so coverage summaries can count applied updates. Volume-column
+tone-portamento update rows carry `volumeColumn` metadata instead. Memory-replayed
 sample-offset, portamento-slide, and vibrato updates carry
 `effect_memory_reused` categories plus effect-specific memory-applied tags in
 the planned adapter event stream. Volume-column vibrato and broader
@@ -849,7 +856,9 @@ python3 scripts/summarize-xm-effect-coverage.py \
 The effect coverage summary reports detected, applied, deferred, unsupported,
 and no-op/effect-memory command counts, first source coordinates, runtime versus
 offline category, unresolved key-off/no-active buckets, and a conservative
-next-effect recommendation. Bounded offline diagnostics also include
+next-effect recommendation. Bounded offline diagnostics include volume-column
+tone-portamento detected/applied/no-active/no-target/no-speed counts and first
+coordinates under the render summary. They also include
 `traversal_summary` and `traversal_effects` for focused `Dxx` pattern break,
 `Bxx` position jump, and `E6x` pattern loop planning. Those records report
 source coordinates, target order/pattern/row, stop reason, guard hits, applied

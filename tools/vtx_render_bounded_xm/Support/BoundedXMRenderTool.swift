@@ -1335,7 +1335,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
     }
 
     private static func tonePortamentoCoverageJSON(_ diagnostic: PlaybackSongSyntheticTonePortamentoDiagnostic) -> [String: Any] {
-        baseEffectCoverageJSON(
+        var object = baseEffectCoverageJSON(
             source: diagnostic.source,
             channelIndex: diagnostic.channelIndex,
             syntheticTick: diagnostic.syntheticTick,
@@ -1346,6 +1346,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             deferred: diagnostic.deferred,
             ignoredAsNoOp: diagnostic.ignoredAsNoOp
         )
+        object["command_source"] = diagnostic.commandSource.rawValue
+        object["raw_volume_column"] = diagnostic.rawVolumeColumn.map { Int($0) as Any } ?? NSNull()
+        object["effect_label"] = tonePortamentoEffectLabel(diagnostic)
+        object["decoded_label"] = tonePortamentoEffectLabel(diagnostic)
+        return object
     }
 
     private static func portamentoSlideCoverageJSON(_ diagnostic: PlaybackSongSyntheticPortamentoSlideDiagnostic) -> [String: Any] {
@@ -1549,13 +1554,27 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let arpeggioNoActiveVoiceCount = diagnostics.arpeggioEffects.filter { $0.status == .noActiveVoice }.count
         let arpeggioDeferredCount = diagnostics.arpeggioEffects.filter(\.deferred).count
         let arpeggioScheduledStepUpdateCount = diagnostics.arpeggioEffects.map(\.stepUpdates.count).reduce(0, +)
-        let tonePortamento3xxEffects = diagnostics.tonePortamentoEffects.filter { $0.effectType == 0x03 }
+        let tonePortamento3xxEffects = diagnostics.tonePortamentoEffects.filter {
+            $0.commandSource == .effectColumn && $0.effectType == 0x03
+        }
         let tonePortamento3xxEffectCount = tonePortamento3xxEffects.count
         let tonePortamento3xxAppliedCount = tonePortamento3xxEffects.filter(\.applied).count
         let tonePortamento3xxNoActiveVoiceCount = tonePortamento3xxEffects.filter { $0.status == .noActiveVoice }.count
         let tonePortamento3xxNoTargetCount = tonePortamento3xxEffects.filter { $0.status == .noTarget }.count
         let tonePortamento3xxDeferredCount = tonePortamento3xxEffects.filter(\.deferred).count
-        let tonePortamento5xyEffects = diagnostics.tonePortamentoEffects.filter { $0.effectType == 0x05 }
+        let volumeColumnTonePortamentoEffects = diagnostics.tonePortamentoEffects.filter {
+            $0.commandSource == .volumeColumn
+        }
+        let volumeColumnTonePortamentoAppliedCount = volumeColumnTonePortamentoEffects.filter(\.applied).count
+        let volumeColumnTonePortamentoNoActiveVoiceCount = volumeColumnTonePortamentoEffects.filter { $0.status == .noActiveVoice }.count
+        let volumeColumnTonePortamentoNoTargetCount = volumeColumnTonePortamentoEffects.filter { $0.status == .noTarget }.count
+        let volumeColumnTonePortamentoNoSpeedCount = volumeColumnTonePortamentoEffects.filter { $0.status == .noSpeed }.count
+        let volumeColumnTonePortamentoDeferredCount = volumeColumnTonePortamentoEffects.filter(\.deferred).count
+        let volumeColumnTonePortamentoIgnoredNoOpCount = volumeColumnTonePortamentoEffects.filter(\.ignoredAsNoOp).count
+        let volumeColumnTonePortamentoScheduledStepUpdateCount = volumeColumnTonePortamentoEffects.map(\.stepUpdates.count).reduce(0, +)
+        let tonePortamento5xyEffects = diagnostics.tonePortamentoEffects.filter {
+            $0.commandSource == .effectColumn && $0.effectType == 0x05
+        }
         let tonePortamento5xyAppliedCount = tonePortamento5xyEffects.filter(\.applied).count
         let tonePortamento5xyNoActiveVoiceCount = tonePortamento5xyEffects.filter { $0.status == .noActiveVoice }.count
         let tonePortamento5xyNoTargetCount = tonePortamento5xyEffects.filter { $0.status == .noTarget }.count
@@ -1711,6 +1730,19 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             ]
         }
+        let firstVolumeColumnTonePortamentoCoordinates = Array(volumeColumnTonePortamentoEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "command_source": diagnostic.commandSource.rawValue,
+                "raw_volume_column": diagnostic.rawVolumeColumn.map { Int($0) as Any } ?? NSNull(),
+                "effect_label": "volume-column tone portamento",
+                "status": tonePortamentoStatusName(diagnostic.status),
+                "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
         let firstRxyCoordinates = Array(rxyRetriggerEffects.prefix(5)).map { diagnostic -> [String: Any] in
             [
                 "source": positionJSON(diagnostic.source),
@@ -1786,7 +1818,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E9x retrigger is applied only in bounded offline adapter renders; E90 effect memory is not implemented.",
             "Minimal Rxy multi retrigger is first-pass common-XM behavior in the shared runtime/offline C mixer adapter path; R00 effect memory remains deferred/no-op.",
             "XM instrument sample-map/keymap selection is applied only in bounded offline adapter renders.",
-            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento remains deferred.",
+            "Minimal 1xx/2xx portamento up/down and 3xx tone portamento are applied only in bounded offline adapter renders; 100/200 replay prior nonzero same-family per-channel memory when available, while missing memory remains diagnosed as effect-memory-deferred/no-op. 5xy reuses the existing 3xx tone-portamento target/speed and Axy-style volume-slide paths; volume-column tone portamento reuses the 3xx target/sample-step path as a first pass.",
             "Minimal 0xy arpeggio applies deterministic tick-level sample-step updates through the shared runtime/offline C mixer adapter path; 000 remains a no-op and arpeggio effect memory is intentionally deferred.",
             "Minimal E1x fine portamento up applies one deterministic row-level linear-period decrease through the shared runtime/offline sample-step path; E10 effect memory remains deferred.",
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
@@ -1909,6 +1941,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
                 "tone_portamento_3xx_no_target_count": tonePortamento3xxNoTargetCount,
                 "tone_portamento_3xx_deferred_count": tonePortamento3xxDeferredCount,
+                "volume_column_tone_portamento_effect_count": volumeColumnTonePortamentoEffects.count,
+                "volume_column_tone_portamento_detected_count": volumeColumnTonePortamentoEffects.count,
+                "volume_column_tone_portamento_applied_count": volumeColumnTonePortamentoAppliedCount,
+                "volume_column_tone_portamento_no_active_voice_count": volumeColumnTonePortamentoNoActiveVoiceCount,
+                "volume_column_tone_portamento_no_target_count": volumeColumnTonePortamentoNoTargetCount,
+                "volume_column_tone_portamento_no_speed_count": volumeColumnTonePortamentoNoSpeedCount,
+                "volume_column_tone_portamento_ignored_no_op_count": volumeColumnTonePortamentoIgnoredNoOpCount,
+                "volume_column_tone_portamento_deferred_count": volumeColumnTonePortamentoDeferredCount,
+                "volume_column_tone_portamento_scheduled_sample_step_update_count": volumeColumnTonePortamentoScheduledStepUpdateCount,
+                "first_volume_column_tone_portamento_coordinates": firstVolumeColumnTonePortamentoCoordinates,
                 "tone_portamento_volume_slide_5xy_effect_count": tonePortamento5xyEffects.count,
                 "tone_portamento_volume_slide_5xy_detected_count": tonePortamento5xyEffects.count,
                 "tone_portamento_volume_slide_5xy_applied_count": tonePortamento5xyAppliedCount,
@@ -4278,6 +4320,15 @@ enum PlaybackSongDiagnosticsJSONExporter {
         ]
     }
 
+    private static func tonePortamentoEffectLabel(
+        _ diagnostic: PlaybackSongSyntheticTonePortamentoDiagnostic
+    ) -> String {
+        if diagnostic.commandSource == .volumeColumn {
+            return "volume-column tone portamento"
+        }
+        return diagnostic.effectType == 0x05 ? "5xy tone portamento + volume slide" : "3xx tone portamento"
+    }
+
     private static func tonePortamentoDiagnosticJSON(
         _ diagnostic: PlaybackSongSyntheticTonePortamentoDiagnostic
     ) -> [String: Any] {
@@ -4288,8 +4339,10 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "synthetic_tick": diagnostic.syntheticTick,
             "effect_type": Int(diagnostic.effectType),
             "effect_param": Int(diagnostic.effectParam),
-            "effect_label": diagnostic.effectType == 0x05 ? "5xy tone portamento + volume slide" : "3xx tone portamento",
-            "decoded_label": diagnostic.effectType == 0x05 ? "5xy tone portamento + volume slide" : "3xx tone portamento",
+            "command_source": diagnostic.commandSource.rawValue,
+            "raw_volume_column": diagnostic.rawVolumeColumn.map { Int($0) as Any } ?? NSNull(),
+            "effect_label": tonePortamentoEffectLabel(diagnostic),
+            "decoded_label": tonePortamentoEffectLabel(diagnostic),
             "status": tonePortamentoStatusName(diagnostic.status),
             "current_status": tonePortamentoStatusName(diagnostic.status),
             "detected": diagnostic.detected,

@@ -116,11 +116,14 @@ For diagnostic script inventory and consolidation planning, see
 
 Keep these as separate, small PRs:
 
-- `Lxx` set envelope position foundation.
-- Volume-column `F0...FF` tone portamento.
 - `R00` memory refinement.
 - Amiga frequency-table foundation and Amiga-table pitch/effect behavior.
 - Backend hardening and cleanup after the linear-XM foundation is frozen.
+
+Recently completed narrow targets:
+
+- `Lxx` set envelope position foundation.
+- Volume-column `F0...FF` tone portamento foundation.
 
 Retired AVAudio backend cleanup belongs to docs/tooling or deletion tasks only;
 do not reintroduce retired playback paths.

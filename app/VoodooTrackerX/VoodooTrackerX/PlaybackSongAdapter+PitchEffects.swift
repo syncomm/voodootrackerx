@@ -2243,8 +2243,17 @@ extension PlaybackSongSyntheticAdapter {
         instrumentStateAfter: ChannelState? = nil,
         instrumentDefaultVolumeApplied: Bool = false,
         sampleSelectedBefore: Int? = nil,
-        sampleSelectedAfter: Int? = nil
+        sampleSelectedAfter: Int? = nil,
+        volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic? = nil
     ) -> PlaybackSongSyntheticTonePortamentoDiagnostic {
+        let volumeColumnTonePortamentoAmount: Int?
+        if case let .tonePortamento(amount) = volumeColumn?.command {
+            volumeColumnTonePortamentoAmount = amount
+        } else {
+            volumeColumnTonePortamentoAmount = nil
+        }
+        let commandSource: PlaybackSongSyntheticTonePortamentoCommandSource =
+            volumeColumnTonePortamentoAmount == nil ? .effectColumn : .volumeColumn
         let hasActiveVoice = channelState.activeEventIndex != nil
         let targetExistsBefore = channelState.tonePortamentoTargetPlaybackStep != nil &&
             channelState.tonePortamentoTargetLinearPeriod != nil
@@ -2272,6 +2281,11 @@ extension PlaybackSongSyntheticAdapter {
         if cell.effectType == 0x03, cell.effectParam > 0 {
             channelState.tonePortamentoSpeed = Int(cell.effectParam)
         }
+        if cell.effectType != 0x03,
+           let volumeColumnTonePortamentoAmount,
+           volumeColumnTonePortamentoAmount > 0 {
+            channelState.tonePortamentoSpeed = volumeColumnTonePortamentoAmount
+        }
 
         guard hasActiveVoice else {
             return tonePortamentoDiagnostic(
@@ -2280,6 +2294,8 @@ extension PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
+                commandSource: commandSource,
+                rawVolumeColumn: volumeColumn?.rawValue,
                 status: .noActiveVoice,
                 activeVoiceFound: false,
                 activeEventIndex: channelState.activeEventIndex,
@@ -2310,6 +2326,8 @@ extension PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     cell: cell,
+                    commandSource: commandSource,
+                    rawVolumeColumn: volumeColumn?.rawValue,
                     status: .unsupportedFrequencyTable,
                     activeVoiceFound: true,
                     activeEventIndex: channelState.activeEventIndex,
@@ -2341,6 +2359,8 @@ extension PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     cell: cell,
+                    commandSource: commandSource,
+                    rawVolumeColumn: volumeColumn?.rawValue,
                     status: .outOfRange,
                     activeVoiceFound: true,
                     activeEventIndex: channelState.activeEventIndex,
@@ -2375,6 +2395,8 @@ extension PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
+                commandSource: commandSource,
+                rawVolumeColumn: volumeColumn?.rawValue,
                 status: .noTarget,
                 activeVoiceFound: true,
                 activeEventIndex: channelState.activeEventIndex,
@@ -2390,9 +2412,11 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: cell.effectType == 0x05
-                    ? "5xy_no_existing_tone_portamento_target"
-                    : "no_existing_target"
+                policy: commandSource == .volumeColumn
+                    ? "volume_column_tone_portamento_no_existing_target"
+                    : cell.effectType == 0x05
+                        ? "5xy_no_existing_tone_portamento_target"
+                        : "no_existing_target"
             )
         }
         guard let speed = channelState.tonePortamentoSpeed,
@@ -2403,6 +2427,8 @@ extension PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
+                commandSource: commandSource,
+                rawVolumeColumn: volumeColumn?.rawValue,
                 status: .noSpeed,
                 activeVoiceFound: true,
                 activeEventIndex: channelState.activeEventIndex,
@@ -2418,9 +2444,11 @@ extension PlaybackSongSyntheticAdapter {
                 currentPlaybackStepAfter: channelState.activePlaybackStep,
                 portamentoSpeed: channelState.tonePortamentoSpeed ?? 0,
                 stepUpdates: [],
-                policy: cell.effectType == 0x05
-                    ? "5xy_no_existing_3xx_speed_memory"
-                    : "no_3xx_speed_memory"
+                policy: commandSource == .volumeColumn
+                    ? "volume_column_tone_portamento_no_speed"
+                    : cell.effectType == 0x05
+                        ? "5xy_no_existing_3xx_speed_memory"
+                        : "no_3xx_speed_memory"
             )
         }
         guard var currentLinearPeriod = channelState.activeLinearPeriod,
@@ -2432,6 +2460,8 @@ extension PlaybackSongSyntheticAdapter {
                 syntheticRow: syntheticRow,
                 timingConfig: timingConfig,
                 cell: cell,
+                commandSource: commandSource,
+                rawVolumeColumn: volumeColumn?.rawValue,
                 status: .unsupportedFrequencyTable,
                 activeVoiceFound: true,
                 activeEventIndex: channelState.activeEventIndex,
@@ -2499,6 +2529,8 @@ extension PlaybackSongSyntheticAdapter {
             syntheticRow: syntheticRow,
             timingConfig: timingConfig,
             cell: cell,
+            commandSource: commandSource,
+            rawVolumeColumn: volumeColumn?.rawValue,
             status: .applied,
             activeVoiceFound: true,
             activeEventIndex: channelState.activeEventIndex,
@@ -2536,9 +2568,11 @@ extension PlaybackSongSyntheticAdapter {
             currentPlaybackStepAfter: channelState.activePlaybackStep,
             portamentoSpeed: speed,
             stepUpdates: stepUpdates,
-            policy: cell.effectType == 0x05
-                ? "5xy_reuses_existing_3xx_tone_portamento_target_and_speed_plus_axy_volume_slide"
-                : "linear_period_units_per_tick_row_level_first_pass"
+            policy: commandSource == .volumeColumn
+                ? "volume_column_tone_portamento_reuses_3xx_target_and_sample_step_path_first_pass"
+                : cell.effectType == 0x05
+                    ? "5xy_reuses_existing_3xx_tone_portamento_target_and_speed_plus_axy_volume_slide"
+                    : "linear_period_units_per_tick_row_level_first_pass"
         )
     }
 
@@ -2548,6 +2582,8 @@ extension PlaybackSongSyntheticAdapter {
         syntheticRow: Int,
         timingConfig: SyntheticTrackerTimingConfig,
         cell: PlaybackCell,
+        commandSource: PlaybackSongSyntheticTonePortamentoCommandSource = .effectColumn,
+        rawVolumeColumn: UInt8? = nil,
         status: PlaybackSongSyntheticTonePortamentoDiagnostic.Status,
         activeVoiceFound: Bool,
         activeEventIndex: Int?,
@@ -2594,6 +2630,8 @@ extension PlaybackSongSyntheticAdapter {
             syntheticTick: 0,
             effectType: cell.effectType,
             effectParam: cell.effectParam,
+            commandSource: commandSource,
+            rawVolumeColumn: rawVolumeColumn,
             status: status,
             detected: true,
             applied: applied,

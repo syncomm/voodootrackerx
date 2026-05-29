@@ -344,6 +344,33 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(gainUpdates.map(\.scheduledFrame), [9, 10, 11])
     }
 
+    func testRuntimeCMixerAdapterEventPlanReportsVolumeColumnTonePortamentoMetadata() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x40),
+                makePlaybackRow(index: 2, volumeColumn: 0xF4),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250)
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let stepUpdates = plan.events.filter {
+            $0.categories.contains("step_update") &&
+                $0.categories.contains("volume_column_tone_portamento")
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertTrue(plan.categories.contains("volume_column_tone_portamento"))
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.categories.contains("portamento_update") })
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.effectType == nil })
+        XCTAssertTrue(stepUpdates.allSatisfy { $0.effectParam == nil })
+        XCTAssertEqual(stepUpdates.map(\.volumeColumn), [0xF4, 0xF4, 0xF4])
+        XCTAssertEqual(stepUpdates.map(\.scheduledFrame), [9, 10, 11])
+    }
+
     func testRuntimeCMixerAdapterEventPlanReports500VolumeSlideMemoryMetadata() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

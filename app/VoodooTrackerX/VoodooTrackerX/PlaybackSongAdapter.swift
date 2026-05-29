@@ -581,11 +581,14 @@ enum PlaybackSongSyntheticAdapter {
             let hasVibratoVolumeSlide = isVibratoVolumeSlideEffect(cell)
             let hasKxxKeyOff = isKxxKeyOffEffect(cell)
             let hasLxxSetEnvelopePosition = isLxxSetEnvelopePositionEffect(cell)
+            var volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
+            let hasVolumeColumnTonePortamento = isTonePortamentoVolumeColumn(volumeColumn)
+            let handlesTonePortamento = hasTonePortamento || hasVolumeColumnTonePortamento
             let hasValidImmediateNoteInstrument = (1...96).contains(cell.note) &&
                 cell.instrument > 0 &&
                 !hasNoteDelayEffect
             let resetsInstrumentVolumeBeforeTrigger = hasValidImmediateNoteInstrument &&
-                !hasTonePortamento &&
+                !handlesTonePortamento &&
                 cell.effectType == 0 &&
                 cell.effectParam == 0 &&
                 cell.volumeColumn == 0 &&
@@ -594,9 +597,8 @@ enum PlaybackSongSyntheticAdapter {
                 channelState.volumeValue = 64
                 channelState.volumeValueZeroedByAxy = false
             }
-            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && hasTonePortamento
+            let delaysInstrumentVolumeState = hasValidImmediateNoteInstrument && handlesTonePortamento
             let channelStateBeforeVolumeColumn = channelState
-            var volumeColumn = PlaybackSongVolumeColumnDecoder.decode(cell.volumeColumn)
             if !delaysInstrumentVolumeState {
                 volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
             }
@@ -781,7 +783,7 @@ enum PlaybackSongSyntheticAdapter {
                 context.vibratoEffects.append(diagnostic)
                 context.channelStates[channelIndex] = channelState
             }
-            if hasTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
+            if handlesTonePortamento, cell.note != 97, !delaysInstrumentVolumeState {
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -789,7 +791,8 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
-                    channelState: &channelState
+                    channelState: &channelState,
+                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil
                 )
                 context.tonePortamentoEffects.append(diagnostic)
                 if let noteDelay {
@@ -1307,7 +1310,7 @@ enum PlaybackSongSyntheticAdapter {
                 let instrumentStateBefore = channelState
                 channelState.volumeValue = 64
                 channelState.volumeValueZeroedByAxy = false
-                if hasTonePortamento {
+                if handlesTonePortamento {
                     channelState.activeInstrumentIndex = instrumentIndex
                     channelState.activeSampleIndex = sample.sampleIndex
                     channelState.activeSampleVolume = sample.volume
@@ -1326,7 +1329,7 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 tonePortamentoInstrumentDefaultVolumeApplied = instrumentStateBefore.volumeValue != channelState.volumeValue ||
                     instrumentStateBefore.activeSampleVolume != channelState.activeSampleVolume
-                if hasTonePortamento {
+                if handlesTonePortamento {
                     context.voiceStateUpdates.append(voiceStateUpdateDiagnostic(
                         source: source,
                         channelIndex: channelIndex,
@@ -1351,7 +1354,7 @@ enum PlaybackSongSyntheticAdapter {
                 }
                 let beforeVolumeColumn = channelState
                 volumeColumn = applyVolumeColumn(volumeColumn, to: &channelState)
-                if hasTonePortamento {
+                if handlesTonePortamento {
                     tonePortamentoInstrumentStateAfter = channelState
                 }
                 if let update = voiceStateUpdate(
@@ -1470,7 +1473,7 @@ enum PlaybackSongSyntheticAdapter {
                 continue
             }
 
-            if hasTonePortamento {
+            if handlesTonePortamento {
                 let diagnostic = handleTonePortamento(
                     from: cell,
                     source: source,
@@ -1483,7 +1486,8 @@ enum PlaybackSongSyntheticAdapter {
                     instrumentStateAfter: tonePortamentoInstrumentStateAfter,
                     instrumentDefaultVolumeApplied: tonePortamentoInstrumentDefaultVolumeApplied,
                     sampleSelectedBefore: tonePortamentoInstrumentStateBefore?.activeSampleIndex,
-                    sampleSelectedAfter: sample.sampleIndex
+                    sampleSelectedAfter: sample.sampleIndex,
+                    volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil
                 )
                 context.tonePortamentoEffects.append(diagnostic)
                 if let noteDelay {

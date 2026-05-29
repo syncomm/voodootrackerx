@@ -85,7 +85,7 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 | Vibrato depth (`B0...BF`) | Deferred | No | No | Decoded for diagnostics only. |
 | Set panning (`C0...CF`) | Supported / first-pass | Yes | Yes | Maps XM panning to the C mixer pan range. |
 | Panning slide left/right (`D0...EF`) | Supported / first-pass | Yes | Yes | Row-level approximation in the adapter path. |
-| Tone portamento (`F0...FF`) | Deferred | No | No | Decoded for diagnostics only. |
+| Tone portamento (`F0...FF`) | Supported / first-pass | Yes | Yes | Reuses the existing `3xx` target and sample-step update path; no-retrigger same-cell note handling is first-pass linear-frequency behavior. |
 | Unsupported / unknown volume-column bytes | Classification-only | No | No | Kept visible in diagnostics when encountered. |
 
 ## Frequency Table Support
@@ -100,7 +100,8 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 ## Explicitly Deferred / Not V1
 
 - `E0x` filter toggle.
-- Amiga frequency-table pitch behavior.
+- Amiga frequency-table pitch behavior, including Amiga-table
+  volume-column tone-portamento parity.
 - `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Pxy`, and
   `Txy` in the default C mixer adapter path.
 - `X` subcommands other than `X1x` and `X2x`.

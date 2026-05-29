@@ -1,6 +1,15 @@
 import Foundation
 
 extension PlaybackSongSyntheticAdapter {
+    static func isTonePortamentoVolumeColumn(
+        _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic
+    ) -> Bool {
+        if case .tonePortamento = volumeColumn.command {
+            return true
+        }
+        return false
+    }
+
     static func applyVolumeColumn(
         _ volumeColumn: PlaybackSongSyntheticVolumeColumnDiagnostic,
         to state: inout ChannelState

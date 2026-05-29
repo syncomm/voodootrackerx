@@ -219,6 +219,10 @@ sample offset, retrigger, note cut/delay, unsupported effect, or unknown.
 Candidate diagnostics JSON includes `lxx_set_envelope_position_effects` for
 first-pass effect-column `Lxx` volume-envelope-position updates, including
 applied/no-active/no-envelope status and requested/applied envelope positions.
+It also reports volume-column `F0...FF` tone portamento through
+`tone_portamento_effects` with `command_source: "volume_column"`,
+`raw_volume_column`, applied/no-active/no-target/no-speed status, and scheduled
+sample-step update counts.
 
 ## Runtime Capture Checks
 

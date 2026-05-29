@@ -106,6 +106,9 @@ proposing playback behavior changes.
 
 `docs/xm-effect-support.md` is the canonical current effect support table.
 Read it before effect work and update it when an effect PR changes support.
+It uses Implemented / Implemented, parity-watch / Deferred terminology to
+separate current VTX support from tracked parity gaps and unimplemented
+commands.
 
 ## Diagnostic Tooling Pointer
 

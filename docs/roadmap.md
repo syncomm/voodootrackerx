@@ -102,14 +102,18 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. Amiga frequency-table foundation, including Amiga-table pitch/effect
-   behavior as its own milestone.
+1. Amiga reference/parity follow-up for the narrow Amiga-table
+   note/`2xx`/`3xx` foundation.
 2. `R00` memory refinement for multi-retrigger as a later parity-watch
    cleanup unless new linear-corpus evidence promotes it.
 3. Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed:
 
+- Amiga frequency-table foundation for note period/frequency/sample-step
+  calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
+  and effect-column `3xx` tone portamento in the shared runtime/offline C
+  mixer adapter path.
 - `Lxx` set envelope position foundation for active volume envelopes in the
   shared runtime/offline C mixer path.
 - Volume-column `F0...FF` tone portamento foundation reusing the existing
@@ -200,7 +204,8 @@ Do not expand into broad feature work until:
 - parser and tracker foundation are stable
 - CoreAudio C mixer remains the only runtime backend path
 - remaining linear-XM backend targets are closed or explicitly deferred
-- Amiga frequency-table support has an agreed foundation plan
+- Amiga frequency-table support has the narrow foundation landed and any
+  reference/parity follow-up is scoped separately
 - local comparison workflow is documented and generated artifacts stay out of
   git
 - CI and `scripts/check-files.sh` remain green

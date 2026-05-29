@@ -280,6 +280,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             if isArpeggio {
                 categories.append("arpeggio_0xy")
             }
+            if mapping.frequencyTableStatus == .amigaApplied {
+                categories.append("amiga_frequency_table")
+                categories.append("amiga_period_sample_step")
+            }
             if let bridgedPortamentoSlide {
                 categories.append("portamento_update")
                 categories.append(bridgedPortamentoSlide.direction == .up ? "portamento_1xx" : "portamento_2xx")
@@ -401,6 +405,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     categories.append("volume_column_tone_portamento")
                     categories.append("volume_column_update")
                 }
+                if diagnostic.frequencyTableStatus == .amigaApplied {
+                    categories.append("amiga_frequency_table")
+                    categories.append("amiga_period_sample_step")
+                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -434,6 +442,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                             ? "portamento_1xx_memory_reused"
                             : "portamento_2xx_memory_reused"
                     )
+                }
+                if diagnostic.frequencyTableStatus == .amigaApplied {
+                    categories.append("amiga_frequency_table")
+                    categories.append("amiga_period_sample_step")
                 }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,

@@ -35,9 +35,9 @@ hardware configuration.
 | Command | Name | Status | Effect memory | Runtime support | Offline support | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | `0xy` | Arpeggio | Implemented, parity-watch | Deferred for broad memory | Yes | Yes | Deterministic tick-cycle sample-step updates; `000` is a no-op. |
-| `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table pitch behavior remains separate and deferred. |
-| `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table pitch behavior remains separate and deferred. |
-| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and sample-step updates; no-active/no-target/no-speed/missing-memory residuals remain parity-watch. Amiga-table pitch behavior remains separate and deferred. |
+| `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table `1xx` remains deferred. |
+| `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear-frequency sample-step updates plus a narrow Amiga-table period/sample-step path for `2xx` down. |
+| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and sample-step updates for linear and effect-column Amiga-table `3xx`; no-active/no-target/no-speed/missing-memory residuals remain parity-watch. |
 | `4xy` | Vibrato | Implemented | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses `3xx` sample-step updates and `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
 | `6xy` | Vibrato + volume slide | Implemented | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |
@@ -92,23 +92,28 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 | Vibrato depth (`B0...BF`) | Deferred | No | No | Decoded for diagnostics only. |
 | Set panning (`C0...CF`) | Implemented | Yes | Yes | Maps XM panning to the C mixer pan range. |
 | Panning slide left/right (`D0...EF`) | Implemented, parity-watch | Yes | Yes | Row-level approximation in the adapter path. |
-| Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Reuses the existing `3xx` target and sample-step update path; no-retrigger same-cell note handling uses current linear-frequency behavior. |
+| Tone portamento (`F0...FF`) | Implemented, parity-watch | Yes | Yes | Reuses the existing `3xx` target and sample-step update path; no-retrigger same-cell note handling uses current linear-frequency behavior. Amiga-table volume-column tone portamento remains deferred. |
 | Unsupported / unknown volume-column bytes | Classification-only | No | No | Kept visible in diagnostics when encountered. |
 
 ## Frequency Table Support
 
 - Linear frequency table: primary v1 target and currently supported by the
   runtime/offline C mixer adapter path.
-- Amiga frequency table: deferred as a separate foundation target, including
-  Amiga-table interactions with `2xx`/`3xx` and related pitch effects.
+- Amiga frequency table: narrow foundation implemented for note
+  period/frequency/sample-step calculation, sample finetune metadata, `2xx`
+  portamento down, and effect-column `3xx` tone portamento in the
+  runtime/offline C mixer adapter path.
+- Broader Amiga-table pitch effects remain separate parity work; `1xx`,
+  `E1x`/`E2x`, `X1x`/`X2x`, same-cell `E5x`, `5xy`, and volume-column
+  tone portamento are not broadened by the Amiga foundation.
 - Private Amiga-table coverage is tracked locally; do not publish private
   filenames, local paths, or corpus details.
 
 ## Explicitly Deferred / Not V1
 
 - `E0x` filter toggle.
-- Amiga frequency-table pitch behavior, including Amiga-table
-  volume-column tone-portamento parity.
+- Broader Amiga frequency-table pitch parity beyond the narrow note,
+  `2xx` down, and effect-column `3xx` foundation.
 - `7xy`, `E3x`, `E7x`, `E8x`, `EEx`, `EFx`, `Pxy`, and
   `Txy` in the default C mixer adapter path.
 - `X` subcommands other than `X1x` and `X2x`.

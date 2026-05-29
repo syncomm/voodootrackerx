@@ -18,6 +18,11 @@ enum PlaybackSongSyntheticAdapter {
         - (Double(xmLinearMaximumRealNoteIndex) * xmLinearPeriodUnitsPerSemitone)
         - (127.0 / 2.0)
     static let xmLinearMaximumSafePeriod = xmLinearPeriodBase + 64.0
+    static let xmAmigaC4Period = 6_848.0
+    static let xmAmigaPitchUnitsPerOctave = 3_072.0
+    static let xmAmigaPortamentoUnitsPerParam = 16.0
+    static let xmAmigaMinimumSafePeriod = 107.0
+    static let xmAmigaMaximumSafePeriod = 438_272.0
 
     struct ChannelState: Equatable {
         var volumeValue = 64
@@ -30,6 +35,7 @@ enum PlaybackSongSyntheticAdapter {
         var activeSampleVolume: Float?
         var activePlaybackStep: Double?
         var activeLinearPeriod: Double?
+        var activeAmigaPeriod: Double?
         var activeSampleBaseSampleRate: Double?
         var activeSampleRelativeNote: Int?
         var activeSampleFinetune: Int?
@@ -40,6 +46,7 @@ enum PlaybackSongSyntheticAdapter {
         var activeVolumeEnvelopeMappedPointCount = 0
         var tonePortamentoTargetNote: UInt8?
         var tonePortamentoTargetLinearPeriod: Double?
+        var tonePortamentoTargetAmigaPeriod: Double?
         var tonePortamentoTargetPlaybackStep: Double?
         var tonePortamentoSpeed: Int?
         var sampleOffsetMemory: SampleOffsetMemory?
@@ -156,6 +163,7 @@ enum PlaybackSongSyntheticAdapter {
         state.activeSampleVolume = nil
         state.activePlaybackStep = nil
         state.activeLinearPeriod = nil
+        state.activeAmigaPeriod = nil
         state.activeSampleBaseSampleRate = nil
         state.activeSampleRelativeNote = nil
         state.activeSampleFinetune = nil
@@ -166,6 +174,7 @@ enum PlaybackSongSyntheticAdapter {
         state.activeVolumeEnvelopeMappedPointCount = 0
         state.tonePortamentoTargetNote = nil
         state.tonePortamentoTargetLinearPeriod = nil
+        state.tonePortamentoTargetAmigaPeriod = nil
         state.tonePortamentoTargetPlaybackStep = nil
     }
 
@@ -713,6 +722,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState
                 )
                 context.portamentoSlideEffects.append(diagnostic)
@@ -791,6 +801,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState,
                     volumeColumn: hasVolumeColumnTonePortamento ? volumeColumn : nil
                 )
@@ -1481,6 +1492,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState,
                     instrumentStateBefore: tonePortamentoInstrumentStateBefore,
                     instrumentStateAfter: tonePortamentoInstrumentStateAfter,
@@ -1521,7 +1533,9 @@ enum PlaybackSongSyntheticAdapter {
             )
             let scheduledNoteFrame = noteDelay?.delayedFrame ?? scheduledStartFrame
             let scheduledNoteTick = noteDelay?.applied == true ? noteDelay?.requestedTick ?? 0 : 0
-            let setFinetuneOverride = hasSetFinetuneEffect ? setFinetuneValue(from: cell) : nil
+            let setFinetuneOverride = hasSetFinetuneEffect && song.usesLinearFrequencyTable
+                ? setFinetuneValue(from: cell)
+                : nil
             var pitchMapping = playbackStepMapping(
                 note: cell.note,
                 sample: sample,
@@ -1536,7 +1550,9 @@ enum PlaybackSongSyntheticAdapter {
                     channelIndex: channelIndex,
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
-                    status: setFinetuneStatus(for: pitchMapping),
+                    status: song.usesLinearFrequencyTable
+                        ? setFinetuneStatus(for: pitchMapping)
+                        : .unsupportedFrequencyTable,
                     activeVoiceFound: true,
                     activeEventIndex: eventIndex,
                     activeEventMappingIndex: context.eventMappings.count,
@@ -1625,6 +1641,7 @@ enum PlaybackSongSyntheticAdapter {
             channelState.activeSampleVolume = sample.volume
             channelState.activePlaybackStep = pitchMapping.playbackStep
             channelState.activeLinearPeriod = pitchMapping.linearPeriod
+            channelState.activeAmigaPeriod = pitchMapping.amigaPeriod
             channelState.activeSampleBaseSampleRate = sample.baseSampleRate
             channelState.activeSampleRelativeNote = sample.relativeNote
             channelState.activeSampleFinetune = pitchMapping.effectiveFinetune ?? sample.finetune
@@ -1632,6 +1649,7 @@ enum PlaybackSongSyntheticAdapter {
             applyActiveVolumeEnvelopeMapping(envelopeMapping, to: &channelState)
             channelState.tonePortamentoTargetNote = nil
             channelState.tonePortamentoTargetLinearPeriod = nil
+            channelState.tonePortamentoTargetAmigaPeriod = nil
             channelState.tonePortamentoTargetPlaybackStep = nil
             channelState.volumeValueZeroedByAxy = false
             context.channelStates[channelIndex] = channelState
@@ -1682,10 +1700,13 @@ enum PlaybackSongSyntheticAdapter {
                 effectiveFinetune: pitchMapping.effectiveFinetune,
                 linearPeriod: pitchMapping.linearPeriod,
                 linearFrequency: pitchMapping.linearFrequency,
+                amigaPeriod: pitchMapping.amigaPeriod,
+                amigaFrequency: pitchMapping.amigaFrequency,
                 finetuneStatus: pitchMapping.finetuneStatus,
                 usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                 frequencyTableStatus: pitchMapping.frequencyTableStatus,
                 linearFrequencyApplied: pitchMapping.linearFrequencyApplied,
+                amigaFrequencyApplied: pitchMapping.amigaFrequencyApplied,
                 amigaFrequencyDeferred: pitchMapping.amigaFrequencyDeferred,
                 playbackStep: pitchMapping.playbackStep,
                 pitchMappingApplied: pitchMapping.applied,
@@ -1724,6 +1745,7 @@ enum PlaybackSongSyntheticAdapter {
                     syntheticRow: syntheticRow,
                     timingConfig: timingConfig,
                     timingPlan: timingPlan,
+                    usesLinearFrequencyTable: song.usesLinearFrequencyTable,
                     channelState: &channelState
                 )
                 context.portamentoSlideEffects.append(diagnostic)

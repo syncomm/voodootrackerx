@@ -39,13 +39,18 @@ The app is still under active development and is not production-ready.
 
 Next implementation work should stay narrow:
 
-1. Amiga frequency-table foundation as a separate milestone.
+1. Amiga reference/parity follow-up for the newly landed narrow Amiga-table
+   note/`2xx`/`3xx` foundation.
 2. `R00` memory refinement as a later parity-watch cleanup unless new
    linear-corpus evidence promotes it.
 3. Backend hardening/cleanup after the linear-XM foundation is frozen.
 
 Recently completed narrow target:
 
+- Amiga frequency-table foundation for note period/frequency/sample-step
+  calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
+  and effect-column `3xx` tone portamento in the shared runtime/offline C
+  mixer adapter path.
 - `Lxx` set envelope position first-pass support for active volume envelopes in
   the shared runtime/offline C mixer path.
 - Volume-column `F0...FF` tone portamento first-pass support reusing the

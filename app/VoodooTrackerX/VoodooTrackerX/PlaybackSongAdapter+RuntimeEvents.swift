@@ -52,10 +52,13 @@ extension PlaybackSongSyntheticAdapter {
             effectiveFinetune: mapping.effectiveFinetune,
             linearPeriod: mapping.linearPeriod,
             linearFrequency: mapping.linearFrequency,
+            amigaPeriod: mapping.amigaPeriod,
+            amigaFrequency: mapping.amigaFrequency,
             finetuneStatus: mapping.finetuneStatus,
             usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
             frequencyTableStatus: mapping.frequencyTableStatus,
             linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyApplied: mapping.amigaFrequencyApplied,
             amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
             playbackStep: mapping.playbackStep,
             pitchMappingApplied: mapping.pitchMappingApplied,
@@ -125,10 +128,13 @@ extension PlaybackSongSyntheticAdapter {
             effectiveFinetune: mapping.effectiveFinetune,
             linearPeriod: mapping.linearPeriod,
             linearFrequency: mapping.linearFrequency,
+            amigaPeriod: mapping.amigaPeriod,
+            amigaFrequency: mapping.amigaFrequency,
             finetuneStatus: mapping.finetuneStatus,
             usesLinearFrequencyTable: mapping.usesLinearFrequencyTable,
             frequencyTableStatus: mapping.frequencyTableStatus,
             linearFrequencyApplied: mapping.linearFrequencyApplied,
+            amigaFrequencyApplied: mapping.amigaFrequencyApplied,
             amigaFrequencyDeferred: mapping.amigaFrequencyDeferred,
             playbackStep: mapping.playbackStep,
             pitchMappingApplied: mapping.pitchMappingApplied,
@@ -154,9 +160,12 @@ extension PlaybackSongSyntheticAdapter {
         let effectiveFinetune: Int?
         let linearPeriod: Double?
         let linearFrequency: Double?
+        let amigaPeriod: Double?
+        let amigaFrequency: Double?
         let finetuneStatus: PlaybackSongSyntheticEventMapping.FinetuneStatus
         let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
         let linearFrequencyApplied: Bool
+        let amigaFrequencyApplied: Bool
         let amigaFrequencyDeferred: Bool
         let applied: Bool
         let usedNeutralStep: Bool
@@ -166,6 +175,15 @@ extension PlaybackSongSyntheticAdapter {
         let linearPeriod: Double
         let playbackStep: Double
         let linearFrequency: Double
+        let effectiveNoteValue: Int
+        let effectiveNoteIndex: Int
+        let effectiveFinetune: Int
+    }
+
+    struct AmigaPitchTarget: Equatable {
+        let amigaPeriod: Double
+        let playbackStep: Double
+        let amigaFrequency: Double
         let effectiveNoteValue: Int
         let effectiveNoteIndex: Int
         let effectiveFinetune: Int
@@ -229,20 +247,51 @@ extension PlaybackSongSyntheticAdapter {
     ) -> PlaybackStepMapping {
         let outputSampleRate = timingConfig.sampleRate
         guard usesLinearFrequencyTable else {
+            guard let target = amigaPitchTarget(
+                note: note,
+                relativeNote: sample.relativeNote,
+                finetune: finetuneOverride ?? sample.finetune,
+                baseSampleRate: sample.baseSampleRate,
+                outputSampleRate: outputSampleRate
+            ) else {
+                let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: sample.relativeNote)
+                let effectiveNoteIndex = effectiveNoteValue - 1
+                return PlaybackStepMapping(
+                    playbackStep: 1,
+                    outputSampleRate: outputSampleRate,
+                    effectiveNoteValue: effectiveNoteValue,
+                    effectiveNoteIndex: effectiveNoteIndex,
+                    effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
+                    linearPeriod: nil,
+                    linearFrequency: nil,
+                    amigaPeriod: nil,
+                    amigaFrequency: nil,
+                    finetuneStatus: .deferred,
+                    frequencyTableStatus: .amigaTableDeferredNeutralFallback,
+                    linearFrequencyApplied: false,
+                    amigaFrequencyApplied: false,
+                    amigaFrequencyDeferred: true,
+                    applied: false,
+                    usedNeutralStep: true
+                )
+            }
             return PlaybackStepMapping(
-                playbackStep: 1,
+                playbackStep: target.playbackStep,
                 outputSampleRate: outputSampleRate,
-                effectiveNoteValue: nil,
-                effectiveNoteIndex: nil,
-                effectiveFinetune: nil,
+                effectiveNoteValue: target.effectiveNoteValue,
+                effectiveNoteIndex: target.effectiveNoteIndex,
+                effectiveFinetune: target.effectiveFinetune,
                 linearPeriod: nil,
                 linearFrequency: nil,
-                finetuneStatus: .deferred,
-                frequencyTableStatus: .amigaTableDeferredNeutralFallback,
+                amigaPeriod: target.amigaPeriod,
+                amigaFrequency: target.amigaFrequency,
+                finetuneStatus: .applied,
+                frequencyTableStatus: .amigaApplied,
                 linearFrequencyApplied: false,
-                amigaFrequencyDeferred: true,
-                applied: false,
-                usedNeutralStep: true
+                amigaFrequencyApplied: true,
+                amigaFrequencyDeferred: false,
+                applied: true,
+                usedNeutralStep: abs(target.playbackStep - 1.0) <= 0.000000001
             )
         }
 
@@ -259,9 +308,12 @@ extension PlaybackSongSyntheticAdapter {
                 effectiveFinetune: nil,
                 linearPeriod: nil,
                 linearFrequency: nil,
+                amigaPeriod: nil,
+                amigaFrequency: nil,
                 finetuneStatus: .deferred,
                 frequencyTableStatus: .linearApplied,
                 linearFrequencyApplied: false,
+                amigaFrequencyApplied: false,
                 amigaFrequencyDeferred: false,
                 applied: false,
                 usedNeutralStep: true
@@ -285,9 +337,12 @@ extension PlaybackSongSyntheticAdapter {
                 effectiveFinetune: clampedFinetune(finetuneOverride ?? sample.finetune),
                 linearPeriod: nil,
                 linearFrequency: nil,
+                amigaPeriod: nil,
+                amigaFrequency: nil,
                 finetuneStatus: .deferred,
                 frequencyTableStatus: .linearApplied,
                 linearFrequencyApplied: false,
+                amigaFrequencyApplied: false,
                 amigaFrequencyDeferred: false,
                 applied: false,
                 usedNeutralStep: true
@@ -302,9 +357,12 @@ extension PlaybackSongSyntheticAdapter {
             effectiveFinetune: target.effectiveFinetune,
             linearPeriod: target.linearPeriod,
             linearFrequency: target.linearFrequency,
+            amigaPeriod: nil,
+            amigaFrequency: nil,
             finetuneStatus: .applied,
             frequencyTableStatus: .linearApplied,
             linearFrequencyApplied: true,
+            amigaFrequencyApplied: false,
             amigaFrequencyDeferred: false,
             applied: true,
             usedNeutralStep: abs(target.playbackStep - 1.0) <= 0.000000001
@@ -386,11 +444,84 @@ extension PlaybackSongSyntheticAdapter {
         return step
     }
 
+    static func amigaPitchTarget(
+        note: UInt8,
+        relativeNote: Int,
+        finetune: Int,
+        baseSampleRate: Double,
+        outputSampleRate: Double
+    ) -> AmigaPitchTarget? {
+        guard outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return nil
+        }
+        let effectiveNoteValue = clampedEffectiveNoteValue(note: note, relativeNote: relativeNote)
+        let effectiveNoteIndex = effectiveNoteValue - 1
+        let effectiveFinetune = clampedFinetune(finetune)
+        let pitchUnits = ((49 - effectiveNoteValue) * 256) - (effectiveFinetune * 2)
+        let amigaPeriod = clampedAmigaPeriod(
+            xmAmigaC4Period * pow(2.0, Double(pitchUnits) / xmAmigaPitchUnitsPerOctave)
+        )
+        guard let step = playbackStep(
+            amigaPeriod: amigaPeriod,
+            baseSampleRate: baseSampleRate,
+            outputSampleRate: outputSampleRate
+        ) else {
+            return nil
+        }
+        let amigaFrequency = step * outputSampleRate
+        return AmigaPitchTarget(
+            amigaPeriod: amigaPeriod,
+            playbackStep: step,
+            amigaFrequency: amigaFrequency,
+            effectiveNoteValue: effectiveNoteValue,
+            effectiveNoteIndex: effectiveNoteIndex,
+            effectiveFinetune: effectiveFinetune
+        )
+    }
+
+    static func playbackStep(
+        amigaPeriod: Double,
+        baseSampleRate: Double,
+        outputSampleRate: Double
+    ) -> Double? {
+        guard amigaPeriod.isFinite,
+              amigaPeriod > 0,
+              outputSampleRate.isFinite,
+              outputSampleRate > 0,
+              baseSampleRate.isFinite,
+              baseSampleRate > 0 else {
+            return nil
+        }
+        let amigaFrequency = baseSampleRate * xmAmigaC4Period / amigaPeriod
+        let step = amigaFrequency / outputSampleRate
+        guard amigaFrequency.isFinite,
+              amigaFrequency > 0,
+              step.isFinite,
+              step > 0,
+              step <= Double(UInt32.max) else {
+            return nil
+        }
+        return step
+    }
+
     static func clampedLinearPeriod(_ linearPeriod: Double) -> Double {
         guard linearPeriod.isFinite else {
             return xmLinearC4Period
         }
         return min(xmLinearMaximumSafePeriod, max(xmLinearMinimumSafePeriod, linearPeriod))
+    }
+
+    static func clampedAmigaPeriod(_ amigaPeriod: Double) -> Double {
+        guard amigaPeriod.isFinite else {
+            return xmAmigaC4Period
+        }
+        return min(
+            xmAmigaMaximumSafePeriod,
+            max(xmAmigaMinimumSafePeriod, amigaPeriod.rounded())
+        )
     }
 
     static func clampedEffectiveNoteValue(note: UInt8, relativeNote: Int) -> Int {

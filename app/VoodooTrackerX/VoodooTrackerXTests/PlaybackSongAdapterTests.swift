@@ -1587,7 +1587,7 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(higherOutputRateMapping.outputSampleRate, 200)
     }
 
-    func testPlaybackSongSyntheticAdapterReportsLinearAndDeferredAmigaFrequencyTableStatus() throws {
+    func testPlaybackSongSyntheticAdapterReportsLinearAndAmigaFrequencyTableStatus() throws {
         let sample = makePlaybackSample(pcm: [0, 1, 2, 3], baseSampleRate: 100)
         let linearSong = makePlaybackSong(
             orderPatternIndices: [2],
@@ -1609,13 +1609,86 @@ final class PlaybackSongAdapterTests: XCTestCase {
 
         XCTAssertTrue(linear.diagnostics.usesLinearFrequencyTable)
         XCTAssertEqual(linearMapping.frequencyTableStatus, .linearApplied)
+        XCTAssertEqual(try XCTUnwrap(linearMapping.linearFrequency), 200, accuracy: 0.000000001)
         XCTAssertFalse(amiga.diagnostics.usesLinearFrequencyTable)
-        XCTAssertEqual(amigaMapping.frequencyTableStatus, .amigaTableDeferredNeutralFallback)
-        XCTAssertEqual(amigaMapping.playbackStep, 1, accuracy: 0.000000001)
-        XCTAssertFalse(amigaMapping.pitchMappingApplied)
-        XCTAssertTrue(amigaMapping.pitchMappingUsedNeutralStep)
+        XCTAssertEqual(amigaMapping.frequencyTableStatus, .amigaApplied)
+        XCTAssertEqual(try XCTUnwrap(amigaMapping.amigaPeriod), 3_424, accuracy: 0.000000001)
+        XCTAssertEqual(try XCTUnwrap(amigaMapping.amigaFrequency), 200, accuracy: 0.000000001)
+        XCTAssertEqual(amigaMapping.playbackStep, 2, accuracy: 0.000000001)
+        XCTAssertTrue(amigaMapping.pitchMappingApplied)
+        XCTAssertFalse(amigaMapping.pitchMappingUsedNeutralStep)
         XCTAssertFalse(amigaMapping.linearFrequencyApplied)
-        XCTAssertTrue(amigaMapping.amigaFrequencyDeferred)
+        XCTAssertTrue(amigaMapping.amigaFrequencyApplied)
+        XCTAssertFalse(amigaMapping.amigaFrequencyDeferred)
+    }
+
+    func testPlaybackSongSyntheticAdapterAmigaPitchHelperExpectedValues() throws {
+        let c4 = try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+            note: 49,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            outputSampleRate: 48_000
+        ))
+        let c5 = try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+            note: 61,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            outputSampleRate: 48_000
+        ))
+        let relativeC5 = try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+            note: 49,
+            relativeNote: 12,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            outputSampleRate: 48_000
+        ))
+        let finetunedUp = try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+            note: 49,
+            relativeNote: 0,
+            finetune: 64,
+            baseSampleRate: 8_363,
+            outputSampleRate: 48_000
+        ))
+        let finetunedDown = try XCTUnwrap(PlaybackSongSyntheticAdapter.amigaPitchTarget(
+            note: 49,
+            relativeNote: 0,
+            finetune: -128,
+            baseSampleRate: 8_363,
+            outputSampleRate: 48_000
+        ))
+
+        XCTAssertEqual(c4.amigaPeriod, 6_848, accuracy: 0.000000001)
+        XCTAssertEqual(c4.amigaFrequency, 8_363, accuracy: 0.000000001)
+        XCTAssertEqual(c4.playbackStep, 8_363.0 / 48_000.0, accuracy: 0.000000001)
+        XCTAssertEqual(c5.amigaPeriod, 3_424, accuracy: 0.000000001)
+        XCTAssertEqual(c5.amigaFrequency, 16_726, accuracy: 0.000000001)
+        XCTAssertEqual(relativeC5.amigaPeriod, c5.amigaPeriod, accuracy: 0.000000001)
+        XCTAssertEqual(finetunedUp.amigaPeriod, 6_653, accuracy: 0.000000001)
+        XCTAssertGreaterThan(finetunedUp.amigaFrequency, c4.amigaFrequency)
+        XCTAssertEqual(finetunedDown.amigaPeriod, 7_255, accuracy: 0.000000001)
+        XCTAssertLessThan(finetunedDown.amigaFrequency, c4.amigaFrequency)
+    }
+
+    func testPlaybackSongSyntheticAdapterAmigaE5xSetFinetuneRemainsDeferred() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1, effectType: 0x0E, effectParam: 0x5F),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 300, baseSampleRate: 8_363)])],
+            usesLinearFrequencyTable: false
+        )
+
+        let result = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 48_000)
+        let mapping = try XCTUnwrap(result.diagnostics.eventMappings.first)
+        let diagnostic = try XCTUnwrap(result.diagnostics.setFinetuneEffects.first)
+
+        XCTAssertEqual(mapping.frequencyTableStatus, .amigaApplied)
+        XCTAssertEqual(mapping.effectiveFinetune, 0)
+        XCTAssertEqual(diagnostic.status, .unsupportedFrequencyTable)
+        XCTAssertFalse(diagnostic.applied)
     }
 
     func testPlaybackSongSyntheticAdapterInvalidSampleRateFallsBackToNeutralStep() throws {
@@ -2222,6 +2295,83 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(fastDiagnostic.portamentoSpeed, 0x80)
     }
 
+    func testPlaybackSongAdapterAmigaTonePortamento3xxSlidesTowardTargetPeriod() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let plan = PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+        let diagnostic = try XCTUnwrap(plan.diagnostics.tonePortamentoEffects.first)
+        let firstUpdate = try XCTUnwrap(diagnostic.stepUpdates.first)
+
+        XCTAssertEqual(plan.diagnostics.eventMappings.count, 1)
+        XCTAssertEqual(plan.pattern.events.count, 1)
+        XCTAssertTrue(diagnostic.applied)
+        XCTAssertEqual(diagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertTrue(diagnostic.sameCellNote)
+        XCTAssertFalse(diagnostic.noteTriggerEventCreated)
+        XCTAssertTrue(diagnostic.cMixerReceivesOnlyStateUpdates)
+        XCTAssertEqual(diagnostic.targetNote, 61)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.targetAmigaPeriod), 3_424, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.currentAmigaPeriodBefore), 6_848, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(firstUpdate.amigaPeriodBefore), 6_848, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(firstUpdate.amigaPeriodAfter), 6_848 - (0x10 * 16), accuracy: 0.000_001)
+        XCTAssertGreaterThan(firstUpdate.playbackStepAfter, firstUpdate.playbackStepBefore)
+    }
+
+    func testPlaybackSongAdapterAmigaTonePortamento3xxDiagnosticsCoverNoActiveNoTargetAndNoSpeed() throws {
+        let sample = makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)
+        let noActive = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+        let noTarget = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x03, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+        let noSpeed = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let noActiveDiagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(noActive, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let noTargetDiagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(noTarget, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+        let noSpeedDiagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(noSpeed, orderIndex: 0, sampleRate: 100).diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertEqual(noActiveDiagnostic.status, .noActiveVoice)
+        XCTAssertEqual(noTargetDiagnostic.status, .noTarget)
+        XCTAssertEqual(noSpeedDiagnostic.status, .noSpeed)
+        XCTAssertEqual(noActiveDiagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertEqual(noTargetDiagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertEqual(noSpeedDiagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertFalse(noActiveDiagnostic.applied)
+        XCTAssertFalse(noTargetDiagnostic.applied)
+        XCTAssertFalse(noSpeedDiagnostic.applied)
+        XCTAssertEqual(noSpeedDiagnostic.targetAmigaPeriod, 3_424)
+    }
+
     func testPlaybackSongAdapterTonePortamento3xxClampsAtTargetWithoutOvershooting() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],
@@ -2403,13 +2553,64 @@ final class PlaybackSongAdapterTests: XCTestCase {
             initialTiming: PlaybackTiming(speed: 4, bpm: 250)
         )
 
-        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
+        let diagnostic = try XCTUnwrap(
+            PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+                .diagnostics.portamentoSlideEffects.first
+        )
 
         XCTAssertEqual(diagnostic.status, .applied)
         XCTAssertEqual(diagnostic.direction, .down)
         XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
         XCTAssertGreaterThan(try XCTUnwrap(diagnostic.currentLinearPeriodAfter), try XCTUnwrap(diagnostic.currentLinearPeriodBefore))
         XCTAssertLessThan(try XCTUnwrap(diagnostic.currentPlaybackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
+    }
+
+    func testPlaybackSongAdapterAmigaPortamento2xxSlidesPeriodDownOverTicks() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let diagnostic = try XCTUnwrap(
+            PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100)
+                .diagnostics.portamentoSlideEffects.first
+        )
+        let firstUpdate = try XCTUnwrap(diagnostic.stepUpdates.first)
+
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertEqual(diagnostic.direction, .down)
+        XCTAssertEqual(diagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertEqual(diagnostic.stepUpdates.map(\.scheduledFrame), [5, 6, 7])
+        XCTAssertEqual(try XCTUnwrap(diagnostic.currentAmigaPeriodBefore), 6_848, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.currentAmigaPeriodAfter), 6_848 + (3 * 0x10 * 16), accuracy: 0.000_001)
+        XCTAssertGreaterThan(try XCTUnwrap(firstUpdate.amigaPeriodAfter), try XCTUnwrap(firstUpdate.amigaPeriodBefore))
+        XCTAssertLessThan(try XCTUnwrap(diagnostic.currentPlaybackStepAfter), try XCTUnwrap(diagnostic.currentPlaybackStepBefore))
+    }
+
+    func testPlaybackSongAdapterAmigaPortamento2xxClampsAtSafePeriodBound() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 1, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0xFF),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 100, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
+
+        XCTAssertEqual(diagnostic.status, .applied)
+        XCTAssertTrue(diagnostic.clamped)
+        XCTAssertEqual(try XCTUnwrap(diagnostic.currentAmigaPeriodAfter), PlaybackSongSyntheticAdapter.xmAmigaMaximumSafePeriod, accuracy: 0.000_001)
+        XCTAssertTrue(try XCTUnwrap(diagnostic.stepUpdates.last).clamped)
     }
 
     func testPlaybackSongAdapterPortamentoSlideParameterChangesAmount() throws {
@@ -2618,6 +2819,53 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertTrue(memoryReplayed.allSatisfy { !$0.stepUpdates.isEmpty })
     }
 
+    func testPlaybackSongAdapterAmigaPortamentoWindowedCarryoverMatchesDefaultRender() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x10),
+                makePlaybackRow(index: 2, note: 61, instrument: 1, effectType: 0x03, effectParam: 0x10),
+                makePlaybackRow(index: 3, effectType: 0x03, effectParam: 0x00),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 800, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 16
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let defaultRender = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, defaultRender.block.interleavedPCM)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
+    }
+
+    func testRuntimeAdapterPlanMarksAmigaPitchStepUpdates() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1, effectType: 0x02, effectParam: 0x10),
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let stepUpdate = try XCTUnwrap(plan.events.first { $0.categories.contains("portamento_2xx") })
+
+        XCTAssertTrue(stepUpdate.categories.contains("amiga_frequency_table"))
+        XCTAssertTrue(stepUpdate.categories.contains("amiga_period_sample_step"))
+    }
+
     func testPlaybackSongAdapterPortamentoDirectStartWithoutPriorMemoryIsDeterministic() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -2671,6 +2919,22 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertFalse(diagnostic.applied)
         XCTAssertFalse(diagnostic.activeVoiceFound)
         XCTAssertEqual(diagnostic.direction, .down)
+    }
+
+    func testPlaybackSongAdapterAmigaPortamento2xxNoActiveVoiceIsDiagnosed() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, effectType: 0x02, effectParam: 0x20)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makeRampPlaybackSample(frameCount: 600, baseSampleRate: 100)])],
+            initialTiming: PlaybackTiming(speed: 4, bpm: 250),
+            usesLinearFrequencyTable: false
+        )
+
+        let diagnostic = try XCTUnwrap(PlaybackSongSyntheticAdapter.adapt(song, orderIndex: 0, sampleRate: 100).diagnostics.portamentoSlideEffects.first)
+
+        XCTAssertEqual(diagnostic.status, .noActiveVoice)
+        XCTAssertEqual(diagnostic.frequencyTableStatus, .amigaApplied)
+        XCTAssertFalse(diagnostic.applied)
     }
 
     func testPlaybackSongAdapterPortamentoSlideClampsSafely() throws {

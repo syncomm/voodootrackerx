@@ -99,7 +99,7 @@ is no change, modes `9...D` add `1, 2, 4, 8, 16`, and modes `E...F` scale by
 
 - Linear frequency table: primary v1 target and currently supported by the
   runtime/offline C mixer adapter path.
-- Amiga frequency table: narrow foundation implemented for note
+- Amiga frequency table: narrow foundation implemented, parity-watch, for note
   period/frequency/sample-step calculation, sample finetune metadata, `2xx`
   portamento down, and effect-column `3xx` tone portamento in the
   runtime/offline C mixer adapter path.

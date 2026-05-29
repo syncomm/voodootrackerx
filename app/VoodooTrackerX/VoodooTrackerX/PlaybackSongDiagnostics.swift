@@ -992,6 +992,8 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
     let scheduledFrame: Int
     let linearPeriodBefore: Double
     let linearPeriodAfter: Double
+    let amigaPeriodBefore: Double?
+    let amigaPeriodAfter: Double?
     let playbackStepBefore: Double
     let playbackStepAfter: Double
     let reachedTarget: Bool
@@ -1002,6 +1004,8 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         scheduledFrame: Int,
         linearPeriodBefore: Double,
         linearPeriodAfter: Double,
+        amigaPeriodBefore: Double? = nil,
+        amigaPeriodAfter: Double? = nil,
         playbackStepBefore: Double,
         playbackStepAfter: Double,
         reachedTarget: Bool,
@@ -1011,6 +1015,8 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
         self.scheduledFrame = scheduledFrame
         self.linearPeriodBefore = linearPeriodBefore
         self.linearPeriodAfter = linearPeriodAfter
+        self.amigaPeriodBefore = amigaPeriodBefore
+        self.amigaPeriodAfter = amigaPeriodAfter
         self.playbackStepBefore = playbackStepBefore
         self.playbackStepAfter = playbackStepAfter
         self.reachedTarget = reachedTarget
@@ -1072,11 +1078,15 @@ struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     let cMixerReceivesOnlyStateUpdates: Bool
     let targetExistsBefore: Bool
     let targetExistsAfter: Bool
+    let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
     let targetNote: UInt8?
     let targetLinearPeriod: Double?
+    let targetAmigaPeriod: Double?
     let targetPlaybackStep: Double?
     let currentLinearPeriodBefore: Double?
     let currentLinearPeriodAfter: Double?
+    let currentAmigaPeriodBefore: Double?
+    let currentAmigaPeriodAfter: Double?
     let currentPlaybackStepBefore: Double?
     let currentPlaybackStepAfter: Double?
     let portamentoSpeed: Int
@@ -1121,8 +1131,11 @@ struct PlaybackSongSyntheticPortamentoSlideDiagnostic: Equatable {
     let activeEventMappingIndex: Int?
     let direction: PlaybackSongSyntheticPortamentoSlideDirection
     let slideAmount: Int
+    let frequencyTableStatus: PlaybackSongSyntheticEventMapping.FrequencyTableStatus
     let currentLinearPeriodBefore: Double?
     let currentLinearPeriodAfter: Double?
+    let currentAmigaPeriodBefore: Double?
+    let currentAmigaPeriodAfter: Double?
     let currentPlaybackStepBefore: Double?
     let currentPlaybackStepAfter: Double?
     let rowSpeed: Int
@@ -1459,6 +1472,7 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
 
     enum FrequencyTableStatus: Equatable {
         case linearApplied
+        case amigaApplied
         case amigaTableDeferredNeutralFallback
     }
 
@@ -1508,10 +1522,13 @@ struct PlaybackSongSyntheticEventMapping: Equatable {
     let effectiveFinetune: Int?
     let linearPeriod: Double?
     let linearFrequency: Double?
+    let amigaPeriod: Double?
+    let amigaFrequency: Double?
     let finetuneStatus: FinetuneStatus
     let usesLinearFrequencyTable: Bool
     let frequencyTableStatus: FrequencyTableStatus
     let linearFrequencyApplied: Bool
+    let amigaFrequencyApplied: Bool
     let amigaFrequencyDeferred: Bool
     let playbackStep: Double
     let pitchMappingApplied: Bool

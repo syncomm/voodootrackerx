@@ -1561,7 +1561,9 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let tonePortamento3xxAppliedCount = tonePortamento3xxEffects.filter(\.applied).count
         let tonePortamento3xxNoActiveVoiceCount = tonePortamento3xxEffects.filter { $0.status == .noActiveVoice }.count
         let tonePortamento3xxNoTargetCount = tonePortamento3xxEffects.filter { $0.status == .noTarget }.count
+        let tonePortamento3xxNoSpeedCount = tonePortamento3xxEffects.filter { $0.status == .noSpeed }.count
         let tonePortamento3xxDeferredCount = tonePortamento3xxEffects.filter(\.deferred).count
+        let amigaPitchEventMappings = diagnostics.eventMappings.filter { $0.frequencyTableStatus == .amigaApplied }
         let volumeColumnTonePortamentoEffects = diagnostics.tonePortamentoEffects.filter {
             $0.commandSource == .volumeColumn
         }
@@ -1584,6 +1586,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         let tonePortamento5xyScheduledStepUpdateCount = tonePortamento5xyEffects.map(\.stepUpdates.count).reduce(0, +)
         let portamentoUpEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .up }
         let portamentoDownEffects = diagnostics.portamentoSlideEffects.filter { $0.direction == .down }
+        let amigaTonePortamento3xxEffects = tonePortamento3xxEffects.filter { $0.frequencyTableStatus == .amigaApplied }
+        let amigaPortamentoDownEffects = portamentoDownEffects.filter { $0.frequencyTableStatus == .amigaApplied }
         let portamentoSlideAppliedCount = diagnostics.portamentoSlideEffects.filter(\.applied).count
         let portamentoSlideNoActiveVoiceCount = diagnostics.portamentoSlideEffects.filter { $0.status == .noActiveVoice }.count
         let portamentoSlideZeroParamCount = diagnostics.portamentoSlideEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count
@@ -1730,6 +1734,31 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
             ]
         }
+        let firstAmigaPortamento2xxCoordinates = Array(amigaPortamentoDownEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "status": portamentoSlideStatusName(diagnostic.status),
+                "current_amiga_period_before": diagnostic.currentAmigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+                "current_amiga_period_after": diagnostic.currentAmigaPeriodAfter.map { $0 as Any } ?? NSNull(),
+                "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
+        let firstAmigaTonePortamento3xxCoordinates = Array(amigaTonePortamento3xxEffects.prefix(5)).map { diagnostic -> [String: Any] in
+            [
+                "source": positionJSON(diagnostic.source),
+                "channel_index": diagnostic.channelIndex,
+                "synthetic_row": diagnostic.syntheticRow,
+                "synthetic_tick": diagnostic.syntheticTick,
+                "status": tonePortamentoStatusName(diagnostic.status),
+                "target_amiga_period": diagnostic.targetAmigaPeriod.map { $0 as Any } ?? NSNull(),
+                "current_amiga_period_before": diagnostic.currentAmigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+                "current_amiga_period_after": diagnostic.currentAmigaPeriodAfter.map { $0 as Any } ?? NSNull(),
+                "scheduled_sample_step_update_count": diagnostic.stepUpdates.count,
+            ]
+        }
         let firstVolumeColumnTonePortamentoCoordinates = Array(volumeColumnTonePortamentoEffects.prefix(5)).map { diagnostic -> [String: Any] in
             [
                 "source": positionJSON(diagnostic.source),
@@ -1824,6 +1853,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "Minimal E2x fine portamento down applies one deterministic row-level linear-period increase through the shared runtime/offline sample-step path; E20 effect memory remains deferred.",
             "Minimal Xxy extra fine portamento applies X1x/X2x as one deterministic row-level linear-period adjustment through the shared runtime/offline sample-step path; X10/X20 effect memory and other X subcommands remain deferred.",
             "Minimal E5x set finetune is applied only for same-cell note triggers through the linear-frequency sample-step path; no-note/effect-memory and non-linear table cases remain deferred.",
+            "Narrow Amiga frequency-table support applies note period/frequency/sample-step mapping, sample finetune metadata, 2xx down, and effect-column 3xx tone portamento; broader Amiga pitch effects remain deferred.",
             "Minimal E4x vibrato control stores deterministic sine/ramp/square/random waveform state for later 4xy/6xy vibrato; unsupported control values remain explicitly deferred and E4x emits no direct audio event.",
             "Minimal 4xy vibrato uses deterministic linear-period sample-step updates in the shared runtime/offline C mixer adapter path; 400 and single-zero nibbles reuse available per-channel vibrato memory, while unavailable memory and volume-column vibrato remain deferred.",
             "Minimal 6xy vibrato + volume slide reuses prior channel vibrato memory plus its existing row-level volume-slide/gain path; 600 can replay vibrato memory without volume-slide memory, while unavailable vibrato memory remains effect-memory-deferred/no-op.",
@@ -1909,6 +1939,12 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "initial_speed": diagnostics.initialSpeed,
                 "initial_bpm": diagnostics.initialBPM,
                 "uses_linear_frequency_table": diagnostics.usesLinearFrequencyTable,
+                "frequency_table_used": diagnostics.usesLinearFrequencyTable ? "linear" : "amiga",
+                "amiga_frequency_table_pitch_event_count": amigaPitchEventMappings.count,
+                "amiga_frequency_table_pitch_applied_count": amigaPitchEventMappings.filter(\.amigaFrequencyApplied).count,
+                "amiga_frequency_table_pitch_deferred_count": diagnostics.eventMappings.filter(\.amigaFrequencyDeferred).count,
+                "amiga_frequency_table_period_clamp_min": PlaybackSongSyntheticAdapter.xmAmigaMinimumSafePeriod,
+                "amiga_frequency_table_period_clamp_max": PlaybackSongSyntheticAdapter.xmAmigaMaximumSafePeriod,
                 "synthetic_row_count": diagnostics.syntheticRowCount,
                 "emitted_event_count": diagnostics.emittedEventCount,
                 "sample_pcm_stat_count": samplePCMStats.count,
@@ -1940,7 +1976,16 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "tone_portamento_3xx_applied_count": tonePortamento3xxAppliedCount,
                 "tone_portamento_3xx_no_active_voice_count": tonePortamento3xxNoActiveVoiceCount,
                 "tone_portamento_3xx_no_target_count": tonePortamento3xxNoTargetCount,
+                "tone_portamento_3xx_no_speed_count": tonePortamento3xxNoSpeedCount,
                 "tone_portamento_3xx_deferred_count": tonePortamento3xxDeferredCount,
+                "amiga_tone_portamento_3xx_effect_count": amigaTonePortamento3xxEffects.count,
+                "amiga_tone_portamento_3xx_applied_count": amigaTonePortamento3xxEffects.filter(\.applied).count,
+                "amiga_tone_portamento_3xx_no_active_voice_count": amigaTonePortamento3xxEffects.filter { $0.status == .noActiveVoice }.count,
+                "amiga_tone_portamento_3xx_no_target_count": amigaTonePortamento3xxEffects.filter { $0.status == .noTarget }.count,
+                "amiga_tone_portamento_3xx_no_speed_count": amigaTonePortamento3xxEffects.filter { $0.status == .noSpeed }.count,
+                "amiga_tone_portamento_3xx_deferred_count": amigaTonePortamento3xxEffects.filter(\.deferred).count,
+                "amiga_tone_portamento_3xx_scheduled_sample_step_update_count": amigaTonePortamento3xxEffects.map(\.stepUpdates.count).reduce(0, +),
+                "first_amiga_tone_portamento_3xx_coordinates": firstAmigaTonePortamento3xxCoordinates,
                 "volume_column_tone_portamento_effect_count": volumeColumnTonePortamentoEffects.count,
                 "volume_column_tone_portamento_detected_count": volumeColumnTonePortamentoEffects.count,
                 "volume_column_tone_portamento_applied_count": volumeColumnTonePortamentoAppliedCount,
@@ -1966,6 +2011,7 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "portamento_1xx_applied_count": portamentoUpEffects.filter(\.applied).count,
                 "portamento_1xx_no_active_voice_count": portamentoUpEffects.filter { $0.status == .noActiveVoice }.count,
                 "portamento_1xx_zero_param_effect_memory_deferred_count": portamentoUpEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_1xx_deferred_count": portamentoUpEffects.filter(\.deferred).count,
                 "portamento_1xx_memory_reused_count": portamentoUpMemoryReusedCount,
                 "portamento_1xx_memory_missing_count": portamentoUpMemoryMissingCount,
                 "portamento_1xx_scheduled_sample_step_update_count": portamentoUpEffects.map(\.stepUpdates.count).reduce(0, +),
@@ -1973,9 +2019,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
                 "portamento_2xx_applied_count": portamentoDownEffects.filter(\.applied).count,
                 "portamento_2xx_no_active_voice_count": portamentoDownEffects.filter { $0.status == .noActiveVoice }.count,
                 "portamento_2xx_zero_param_effect_memory_deferred_count": portamentoDownEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "portamento_2xx_deferred_count": portamentoDownEffects.filter(\.deferred).count,
                 "portamento_2xx_memory_reused_count": portamentoDownMemoryReusedCount,
                 "portamento_2xx_memory_missing_count": portamentoDownMemoryMissingCount,
                 "portamento_2xx_scheduled_sample_step_update_count": portamentoDownEffects.map(\.stepUpdates.count).reduce(0, +),
+                "amiga_portamento_2xx_effect_count": amigaPortamentoDownEffects.count,
+                "amiga_portamento_2xx_applied_count": amigaPortamentoDownEffects.filter(\.applied).count,
+                "amiga_portamento_2xx_no_active_voice_count": amigaPortamentoDownEffects.filter { $0.status == .noActiveVoice }.count,
+                "amiga_portamento_2xx_zero_param_effect_memory_deferred_count": amigaPortamentoDownEffects.filter { $0.status == .zeroParamEffectMemoryDeferred }.count,
+                "amiga_portamento_2xx_deferred_count": amigaPortamentoDownEffects.filter(\.deferred).count,
+                "amiga_portamento_2xx_scheduled_sample_step_update_count": amigaPortamentoDownEffects.map(\.stepUpdates.count).reduce(0, +),
+                "first_amiga_portamento_2xx_coordinates": firstAmigaPortamento2xxCoordinates,
                 "portamento_slide_effect_count": diagnostics.portamentoSlideEffectCount,
                 "portamento_slide_applied_count": portamentoSlideAppliedCount,
                 "portamento_slide_no_active_voice_count": portamentoSlideNoActiveVoiceCount,
@@ -3372,10 +3426,13 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "effective_finetune": nullableJSONValue(mapping.effectiveFinetune),
             "linear_period": nullableJSONValue(mapping.linearPeriod),
             "linear_frequency": nullableJSONValue(mapping.linearFrequency),
+            "amiga_period": nullableJSONValue(mapping.amigaPeriod),
+            "amiga_frequency": nullableJSONValue(mapping.amigaFrequency),
             "finetune_status": finetuneStatusName(mapping.finetuneStatus),
             "uses_linear_frequency_table": mapping.usesLinearFrequencyTable,
             "frequency_table_status": frequencyTableStatusName(mapping.frequencyTableStatus),
             "linear_frequency_applied": mapping.linearFrequencyApplied,
+            "amiga_frequency_applied": mapping.amigaFrequencyApplied,
             "amiga_frequency_deferred": mapping.amigaFrequencyDeferred,
             "playback_step": mapping.playbackStep,
             "mapping_applied": mapping.pitchMappingApplied,
@@ -4377,13 +4434,17 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "c_mixer_received_only_state_updates": diagnostic.cMixerReceivesOnlyStateUpdates,
             "target_exists_before": diagnostic.targetExistsBefore,
             "target_exists_after": diagnostic.targetExistsAfter,
+            "frequency_table_status": frequencyTableStatusName(diagnostic.frequencyTableStatus),
             "target_note": diagnostic.targetNote.map { Int($0) as Any } ?? NSNull(),
             "target_note_text": diagnostic.targetNote.map(noteText) ?? NSNull(),
             "target_linear_period": diagnostic.targetLinearPeriod.map { $0 as Any } ?? NSNull(),
+            "target_amiga_period": diagnostic.targetAmigaPeriod.map { $0 as Any } ?? NSNull(),
             "target_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
             "target_playback_step": diagnostic.targetPlaybackStep.map { $0 as Any } ?? NSNull(),
             "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
             "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_amiga_period_before": diagnostic.currentAmigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_amiga_period_after": diagnostic.currentAmigaPeriodAfter.map { $0 as Any } ?? NSNull(),
             "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
             "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
             "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
@@ -4434,8 +4495,11 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "active_event_mapping_index": diagnostic.activeEventMappingIndex.map { $0 as Any } ?? NSNull(),
             "slide_direction": diagnostic.direction.rawValue,
             "slide_amount": diagnostic.slideAmount,
+            "frequency_table_status": frequencyTableStatusName(diagnostic.frequencyTableStatus),
             "current_linear_period_before": diagnostic.currentLinearPeriodBefore.map { $0 as Any } ?? NSNull(),
             "current_linear_period_after": diagnostic.currentLinearPeriodAfter.map { $0 as Any } ?? NSNull(),
+            "current_amiga_period_before": diagnostic.currentAmigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "current_amiga_period_after": diagnostic.currentAmigaPeriodAfter.map { $0 as Any } ?? NSNull(),
             "current_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
             "current_step_after": diagnostic.currentPlaybackStepAfter.map { $0 as Any } ?? NSNull(),
             "current_playback_step_before": diagnostic.currentPlaybackStepBefore.map { $0 as Any } ?? NSNull(),
@@ -4698,6 +4762,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
             "absolute_frame": update.scheduledFrame,
             "linear_period_before": update.linearPeriodBefore,
             "linear_period_after": update.linearPeriodAfter,
+            "amiga_period_before": update.amigaPeriodBefore.map { $0 as Any } ?? NSNull(),
+            "amiga_period_after": update.amigaPeriodAfter.map { $0 as Any } ?? NSNull(),
             "playback_step_before": update.playbackStepBefore,
             "playback_step_after": update.playbackStepAfter,
             "current_step_before": update.playbackStepBefore,
@@ -5228,6 +5294,8 @@ enum PlaybackSongDiagnosticsJSONExporter {
         switch status {
         case .linearApplied:
             return "linear_applied"
+        case .amigaApplied:
+            return "amiga_applied"
         case .amigaTableDeferredNeutralFallback:
             return "amiga_table_deferred_neutral_fallback"
         }

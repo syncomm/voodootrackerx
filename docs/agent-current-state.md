@@ -119,13 +119,18 @@ For diagnostic script inventory and consolidation planning, see
 
 Keep these as separate, small PRs:
 
-- Amiga frequency-table foundation and Amiga-table pitch/effect behavior.
+- Amiga reference/parity follow-up for the narrow Amiga-table note/`2xx`/`3xx`
+  foundation.
 - `R00` memory refinement as a later parity-watch cleanup unless new
   linear-corpus evidence promotes it.
 - Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed narrow targets:
 
+- Amiga frequency-table foundation for note period/frequency/sample-step
+  calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
+  and effect-column `3xx` tone portamento in the shared runtime/offline C
+  mixer adapter path.
 - `Lxx` set envelope position foundation.
 - Volume-column `F0...FF` tone portamento foundation.
 - Final expanded-corpus linear-XM effect coverage before Amiga; no deferred

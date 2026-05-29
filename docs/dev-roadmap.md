@@ -39,8 +39,9 @@ The app is still under active development and is not production-ready.
 
 Next implementation work should stay narrow:
 
-1. `R00` memory refinement.
-2. Amiga frequency-table foundation as a separate milestone.
+1. Amiga frequency-table foundation as a separate milestone.
+2. `R00` memory refinement as a later parity-watch cleanup unless new
+   linear-corpus evidence promotes it.
 3. Backend hardening/cleanup after the linear-XM foundation is frozen.
 
 Recently completed narrow target:
@@ -49,6 +50,8 @@ Recently completed narrow target:
   the shared runtime/offline C mixer path.
 - Volume-column `F0...FF` tone portamento first-pass support reusing the
   existing `3xx` target/sample-step path.
+- Final expanded-corpus linear-XM effect coverage before the Amiga foundation;
+  no deferred linear command was promoted ahead of Amiga frequency-table work.
 
 Behavior-changing effect PRs should include focused tests and update
 `docs/xm-effect-support.md`.

@@ -102,9 +102,10 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. `R00` memory refinement for multi-retrigger.
-2. Amiga frequency-table foundation, including Amiga-table pitch/effect
+1. Amiga frequency-table foundation, including Amiga-table pitch/effect
    behavior as its own milestone.
+2. `R00` memory refinement for multi-retrigger as a later parity-watch
+   cleanup unless new linear-corpus evidence promotes it.
 3. Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed:
@@ -113,6 +114,8 @@ Recently completed:
   shared runtime/offline C mixer path.
 - Volume-column `F0...FF` tone portamento foundation reusing the existing
   `3xx` tone target/sample-step path.
+- Final expanded-corpus linear-XM effect coverage before the Amiga foundation:
+  no deferred linear command was promoted ahead of Amiga frequency-table work.
 
 Each behavior-changing PR should include focused tests and update
 `docs/xm-effect-support.md` when support changes.

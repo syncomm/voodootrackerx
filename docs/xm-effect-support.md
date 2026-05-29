@@ -37,7 +37,7 @@ hardware configuration.
 | `0xy` | Arpeggio | Implemented, parity-watch | Deferred for broad memory | Yes | Yes | Deterministic tick-cycle sample-step updates; `000` is a no-op. |
 | `1xx` | Portamento up | Implemented, parity-watch | `100` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table pitch behavior remains separate and deferred. |
 | `2xx` | Portamento down | Implemented, parity-watch | `200` memory supported | Yes | Yes | Linear-frequency sample-step updates only; Amiga-table pitch behavior remains separate and deferred. |
-| `3xx` | Tone portamento | Implemented, parity-watch | No broad memory claim | Yes | Yes | No-retrigger target setting and sample-step updates; Amiga-table pitch behavior remains separate and deferred. |
+| `3xx` | Tone portamento | Implemented, parity-watch | `300` reuses existing target/speed when available; no broad quirk claim | Yes | Yes | No-retrigger target setting, `300` target/speed memory, and sample-step updates; no-active/no-target/no-speed/missing-memory residuals remain parity-watch. Amiga-table pitch behavior remains separate and deferred. |
 | `4xy` | Vibrato | Implemented | `400` / zero-nibble memory supported | Yes | Yes | Uses supported `E4x` waveform state where available. |
 | `5xy` | Tone portamento + volume slide | Implemented, parity-watch | Uses existing `3xx` tone target/speed; `500` reuses shared Axy-style volume-slide memory when available | Yes | Yes | Reuses `3xx` sample-step updates and `Axy` tick-level volume-slide policy; missing `500` volume-slide memory remains no-op/deferred. |
 | `6xy` | Vibrato + volume slide | Implemented | Vibrato memory supported | Yes | Yes | Reuses vibrato memory plus current volume-slide gain path. |

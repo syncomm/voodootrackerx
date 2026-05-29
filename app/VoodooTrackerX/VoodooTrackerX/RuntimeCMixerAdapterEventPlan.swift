@@ -397,6 +397,10 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 if diagnostic.effectType == 0x05 {
                     categories.append("tone_portamento_volume_slide_5xy")
                 }
+                if diagnostic.commandSource == .volumeColumn {
+                    categories.append("volume_column_tone_portamento")
+                    categories.append("volume_column_update")
+                }
                 events.append(RuntimeCMixerAdapterEvent(
                     id: nextID,
                     source: diagnostic.source,
@@ -405,8 +409,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                     scheduledFrame: update.scheduledFrame,
                     action: .stepUpdate(activeEventIndex: activeEventIndex, playbackStep: update.playbackStepAfter),
                     categories: categories,
-                    effectType: diagnostic.effectType == 0x05 ? diagnostic.effectType : nil,
-                    effectParam: diagnostic.effectType == 0x05 ? diagnostic.effectParam : nil
+                    effectType: diagnostic.commandSource == .effectColumn && diagnostic.effectType == 0x05 ? diagnostic.effectType : nil,
+                    effectParam: diagnostic.commandSource == .effectColumn && diagnostic.effectType == 0x05 ? diagnostic.effectParam : nil,
+                    volumeColumn: diagnostic.commandSource == .volumeColumn ? diagnostic.rawVolumeColumn : nil
                 ))
                 nextID += 1
             }

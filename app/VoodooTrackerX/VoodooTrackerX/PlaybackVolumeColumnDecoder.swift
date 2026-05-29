@@ -205,7 +205,12 @@ enum PlaybackSongVolumeColumnDecoder {
                 behavior: .rowLevelApproximation
             )
         case 0xF0...0xFF:
-            return diagnostic(rawValue: rawValue, command: .tonePortamento(amount: Int(rawValue & 0x0F)), classification: .deferred)
+            return diagnostic(
+                rawValue: rawValue,
+                command: .tonePortamento(amount: Int(rawValue & 0x0F)),
+                classification: .supported,
+                behavior: .tickLevelAfterTick0
+            )
         default:
             return diagnostic(rawValue: rawValue, command: .unsupported(rawValue: rawValue), classification: .deferred)
         }

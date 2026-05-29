@@ -1018,6 +1018,11 @@ struct PlaybackSongSyntheticTonePortamentoStepUpdate: Equatable {
     }
 }
 
+enum PlaybackSongSyntheticTonePortamentoCommandSource: String, Equatable {
+    case effectColumn = "effect_column"
+    case volumeColumn = "volume_column"
+}
+
 struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     enum Status: Equatable {
         case applied
@@ -1034,6 +1039,8 @@ struct PlaybackSongSyntheticTonePortamentoDiagnostic: Equatable {
     let syntheticTick: Int
     let effectType: UInt8
     let effectParam: UInt8
+    let commandSource: PlaybackSongSyntheticTonePortamentoCommandSource
+    let rawVolumeColumn: UInt8?
     let status: Status
     let detected: Bool
     let applied: Bool

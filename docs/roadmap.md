@@ -102,15 +102,21 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. Remaining Amiga-table looped-sample phase/ramp parity in the late 3xx-heavy
-   reference windows, now that Amiga target periods use an FT2-compatible
-   quantized period lookup.
+1. Amiga-table parity-watch isolation for the remaining late looped-sample
+   phase residual: use reference-side/per-voice evidence before changing VTX
+   loop, ramp, or replacement behavior.
 2. `R00` memory refinement for multi-retrigger as a later parity-watch
    cleanup unless new linear-corpus evidence promotes it.
 3. Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed:
 
+- Amiga looped-sample phase/ramp diagnostics for the anonymized Amiga target
+  kept playback unchanged. The remaining late-window residual is concentrated
+  around order 26 / pattern 32 / rows 32-39 with no sample offsets or note
+  replacements in the worst 204s windows. Local evidence correlates the cluster
+  with sustained looped voices and a stable local alignment shift, while an
+  experimental tick-length gain-ramp check did not improve full-song metrics.
 - Amiga 3xx period/phase follow-up corrected Amiga note/target period
   calculation to use the FT2-compatible quantized period lookup while
   preserving VTX's existing 4x period scale and tick-level slide units. Local

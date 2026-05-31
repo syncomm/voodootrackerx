@@ -3201,6 +3201,62 @@ class StemScalingDiagnosticsTests(unittest.TestCase):
             self.assertNotIn("comparison", diagnostics)
             self.assertEqual(diagnostics["stem_inputs"][0]["stats"]["frames_analyzed"], 2)
 
+    def test_matched_stem_window_ranking_identifies_shifted_channel(self):
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            reference_a = directory / "reference-a.wav"
+            reference_b = directory / "reference-b.wav"
+            candidate_a = directory / "candidate-a.wav"
+            candidate_b = directory / "candidate-b.wav"
+            summed = directory / "summed.wav"
+            sample_rate = 1000
+            frame_count = 100
+            reference_a_frames = [0.0] * frame_count
+            candidate_a_frames = [0.0] * frame_count
+            for index, value in enumerate([0.8, 0.0, -0.8, 0.0, 0.8]):
+                reference_a_frames[50 + index] = value
+                candidate_a_frames[52 + index] = value
+            reference_b_frames = [0.05] * frame_count
+            candidate_b_frames = [0.05] * frame_count
+
+            write_float32_wav(reference_a, sample_rate=sample_rate, frames=reference_a_frames)
+            write_float32_wav(reference_b, sample_rate=sample_rate, frames=reference_b_frames)
+            write_float32_wav(candidate_a, sample_rate=sample_rate, frames=candidate_a_frames)
+            write_float32_wav(candidate_b, sample_rate=sample_rate, frames=candidate_b_frames)
+
+            diagnostics = stem_scaling.build_diagnostics(
+                [reference_a, reference_b],
+                summed,
+                candidate_stem_paths=[candidate_a, candidate_b],
+                focus_windows=[stem_scaling.FocusWindow(0.050, 0.060)],
+                top_channels=2,
+                alignment_search_frames=4,
+            )
+
+            window = diagnostics["matched_stem_windows"]["windows"][0]
+            top = window["top_channels"][0]
+            self.assertEqual(top["tracker_channel"], 1)
+            self.assertEqual(top["ranking"]["classification"], "timing_or_phase_shift")
+            self.assertEqual(top["ranking"]["best_shift_frames"], 2)
+            self.assertGreater(top["ranking"]["raw_rms_difference"], 0.5)
+            self.assertEqual(window["top_channels"][1]["tracker_channel"], 2)
+            self.assertEqual(window["top_channels"][1]["ranking"]["raw_rms_difference"], 0.0)
+
+    def test_matched_stem_window_requires_matching_candidate_count(self):
+        with tempfile.TemporaryDirectory() as directory_name:
+            directory = Path(directory_name)
+            stem = directory / "stem.wav"
+            summed = directory / "summed.wav"
+            write_float32_wav(stem, sample_rate=1000, frames=[0.0, 0.1])
+
+            with self.assertRaises(stem_scaling.StemDiagnosticsError):
+                stem_scaling.build_diagnostics(
+                    [stem],
+                    summed,
+                    candidate_stem_paths=[stem, stem],
+                    focus_windows=[stem_scaling.FocusWindow(0.0, 0.1)],
+                )
+
 
 class AudioCompareTests(unittest.TestCase):
     def test_identical_stereo_files_report_zero_difference(self):

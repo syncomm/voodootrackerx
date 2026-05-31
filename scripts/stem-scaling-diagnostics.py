@@ -5,18 +5,20 @@ from __future__ import annotations
 
 import argparse
 import array
+import dataclasses
 import importlib.util
 import json
 import math
 import struct
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import BinaryIO, Iterable
 
 
 FLOAT_DIGITS = 9
 DEFAULT_SECONDS = 24.0 * 60.0 * 60.0
 DEFAULT_NEAR_SILENCE_THRESHOLD = 1.0e-5
+DEFAULT_ALIGNMENT_ANALYSIS_FRAMES = 12_000
 
 
 def load_audio_compare_module():
@@ -34,6 +36,22 @@ audio_compare = load_audio_compare_module()
 
 class StemDiagnosticsError(Exception):
     """User-facing stem diagnostic input error."""
+
+
+@dataclasses.dataclass(frozen=True)
+class FocusWindow:
+    start_seconds: float
+    end_seconds: float
+
+    def to_json(self, sample_rate: int) -> dict[str, object]:
+        start_frame = max(0, int(round(self.start_seconds * sample_rate)))
+        end_frame = max(start_frame, int(round(self.end_seconds * sample_rate)))
+        return {
+            "start_seconds": rounded(self.start_seconds),
+            "end_seconds": rounded(self.end_seconds),
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+        }
 
 
 def rounded(value: float) -> float:
@@ -129,6 +147,81 @@ def write_float32_wav(path: Path, *, samples: array.array, sample_rate: int, cha
         handle.write(b"data")
         handle.write(struct.pack("<I", data_size))
         handle.write(output_samples.tobytes())
+
+
+def read_windowed_wav(path: Path, *, start_frame: int, end_frame: int) -> tuple[object, list[float]]:
+    if end_frame < start_frame:
+        raise StemDiagnosticsError("window end frame must be greater than or equal to start frame")
+
+    with path.open("rb") as wav_file:
+        riff = read_exact(wav_file, 12, path)
+        if riff[0:4] != b"RIFF" or riff[8:12] != b"WAVE":
+            raise StemDiagnosticsError(f"{path}: expected RIFF/WAVE file")
+
+        fmt: dict[str, int | str] | None = None
+        data_offset: int | None = None
+        data_chunk_size: int | None = None
+
+        while True:
+            header = wav_file.read(8)
+            if not header:
+                break
+            if len(header) != 8:
+                raise StemDiagnosticsError(f"{path}: truncated WAV chunk header")
+            chunk_id, chunk_size = struct.unpack("<4sI", header)
+            chunk_data_offset = wav_file.tell()
+            if chunk_id == b"fmt ":
+                fmt = audio_compare.parse_fmt_chunk(read_exact(wav_file, chunk_size, path), path)
+            elif chunk_id == b"data":
+                data_offset = chunk_data_offset
+                data_chunk_size = chunk_size
+                wav_file.seek(chunk_size, 1)
+            else:
+                wav_file.seek(chunk_size, 1)
+            if chunk_size % 2 == 1:
+                wav_file.seek(1, 1)
+
+        if fmt is None:
+            raise StemDiagnosticsError(f"{path}: missing WAV fmt chunk")
+        if data_offset is None or data_chunk_size is None:
+            raise StemDiagnosticsError(f"{path}: missing WAV data chunk")
+
+        block_align = int(fmt["block_align"])
+        if block_align <= 0:
+            raise StemDiagnosticsError(f"{path}: WAV block align must be greater than zero")
+        full_frame_count = data_chunk_size // block_align
+        safe_start = max(0, min(start_frame, full_frame_count))
+        safe_end = max(safe_start, min(end_frame, full_frame_count))
+        frame_count = safe_end - safe_start
+        byte_count = frame_count * block_align
+
+        wav_file.seek(data_offset + (safe_start * block_align))
+        sample_bytes = read_exact(wav_file, byte_count, path) if byte_count > 0 else b""
+
+    info = audio_compare.WavInfo(
+        path=path,
+        sample_rate=int(fmt["sample_rate"]),
+        channels=int(fmt["channels"]),
+        sample_width=int(fmt["sample_width"]),
+        frame_count=full_frame_count,
+        format_code=int(fmt["format_code"]),
+        sample_format=str(fmt["sample_format"]),
+    )
+    audio_compare.validate_wav_info(path, info)
+    if info.sample_format == "pcm":
+        samples = audio_compare.decode_pcm_samples(sample_bytes, info.sample_width)
+    elif info.sample_format == "ieee_float":
+        samples = audio_compare.decode_float_samples(sample_bytes, info.sample_width)
+    else:
+        raise StemDiagnosticsError(f"{path}: unsupported WAV sample format: {info.sample_format}")
+    return info, samples
+
+
+def read_exact(file_object: BinaryIO, byte_count: int, path: Path) -> bytes:
+    data = file_object.read(byte_count)
+    if len(data) != byte_count:
+        raise StemDiagnosticsError(f"{path}: truncated WAV data")
+    return data
 
 
 def extend_with_zeros(samples: array.array, additional_count: int) -> None:
@@ -253,11 +346,273 @@ def reconstruction_summary(comparison: dict[str, object]) -> dict[str, object]:
     }
 
 
+def parse_focus_window(value: str) -> FocusWindow:
+    try:
+        start_text, end_text = value.split(":", 1)
+        start = float(start_text)
+        end = float(end_text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("focus windows must use START:END seconds") from error
+    if start < 0.0 or end <= start:
+        raise argparse.ArgumentTypeError("focus window end must be greater than start and both must be non-negative")
+    return FocusWindow(start_seconds=start, end_seconds=end)
+
+
+def pair_window_metrics(
+    reference_samples: list[float],
+    candidate_samples: list[float],
+    *,
+    channels: int,
+    sample_rate: int,
+    focus_start_frame: int,
+    focus_end_frame: int,
+    alignment_search_frames: int,
+    alignment_analysis_frames: int | None,
+) -> dict[str, object]:
+    available_frames = min(len(reference_samples), len(candidate_samples)) // channels if channels > 0 else 0
+    safe_start = max(0, min(focus_start_frame, available_frames))
+    safe_end = max(safe_start, min(focus_end_frame, available_frames))
+    frame_count = safe_end - safe_start
+    start_sample = safe_start * channels
+    end_sample = safe_end * channels
+    reference_window = reference_samples[start_sample:end_sample]
+    candidate_window = candidate_samples[start_sample:end_sample]
+    reference_stats = audio_compare.stats_for(
+        reference_window,
+        channels,
+        sample_rate,
+        4,
+        DEFAULT_NEAR_SILENCE_THRESHOLD,
+        "ieee_float",
+    )
+    candidate_stats = audio_compare.stats_for(
+        candidate_window,
+        channels,
+        sample_rate,
+        4,
+        DEFAULT_NEAR_SILENCE_THRESHOLD,
+        "ieee_float",
+    )
+    raw_diff = audio_compare.diff_metrics(reference_window, candidate_window, channels, reference_stats.rms)
+    gain_normalized = audio_compare.gain_normalized_metrics(
+        reference_window,
+        candidate_window,
+        channels,
+        reference_stats.rms,
+        float(raw_diff["overall_rms_difference"]),
+    )
+    alignment_start = safe_start
+    alignment_end = safe_end
+    if alignment_analysis_frames is not None and alignment_analysis_frames > 0:
+        alignment_end = min(alignment_end, alignment_start + alignment_analysis_frames)
+
+    alignment = audio_compare.local_alignment_search(
+        reference_samples,
+        candidate_samples,
+        channels,
+        sample_rate,
+        alignment_start,
+        alignment_end,
+        alignment_search_frames,
+    )
+    return {
+        "overlap_frames": frame_count,
+        "reference_stats": reference_stats.to_json(),
+        "candidate_stats": candidate_stats.to_json(),
+        "normalized_correlation": audio_compare.rounded_optional(
+            audio_compare.normalized_correlation(reference_window, candidate_window)
+        ),
+        "diff": raw_diff,
+        "gain_normalized": gain_normalized,
+        "local_alignment": alignment,
+        "local_alignment_focus": {
+            "start_frame": alignment_start,
+            "end_frame": alignment_end,
+            "frame_count": max(0, alignment_end - alignment_start),
+            "truncated": alignment_end < safe_end,
+        },
+        "mismatch_classification": classify_pair_window(
+            reference_stats.rms,
+            candidate_stats.rms,
+            raw_diff,
+            gain_normalized,
+            reference_window,
+            candidate_window,
+            channels,
+            alignment,
+        ),
+    }
+
+
+def classify_pair_window(
+    reference_rms: float,
+    candidate_rms: float,
+    raw_diff: dict[str, object],
+    gain_normalized: dict[str, object],
+    reference_samples: list[float],
+    candidate_samples: list[float],
+    channels: int,
+    alignment: dict[str, object],
+) -> str:
+    silence = 1.0e-7
+    if reference_rms <= silence and candidate_rms > silence:
+        return "extra_voice_or_reference_silence"
+    if candidate_rms <= silence and reference_rms > silence:
+        return "missing_voice_or_candidate_silence"
+
+    raw_rms = float(raw_diff.get("overall_rms_difference", 0.0))
+    gain_diff = gain_normalized.get("diff")
+    reduction = gain_normalized.get("rms_difference_reduction_ratio")
+    if isinstance(gain_diff, dict) and isinstance(reduction, (int, float)):
+        normalized_rms = float(gain_diff.get("overall_rms_difference", raw_rms))
+        if reduction >= 0.75 and (raw_rms == 0.0 or normalized_rms <= raw_rms * 0.35):
+            return "amplitude_scalar"
+
+    zero = alignment.get("zero_shift")
+    best = alignment.get("best_shift")
+    if isinstance(zero, dict) and isinstance(best, dict):
+        zero_corr = zero.get("normalized_correlation")
+        best_corr = best.get("normalized_correlation")
+        zero_rms = zero.get("rms_difference")
+        best_rms = best.get("rms_difference")
+        best_shift = int(best.get("candidate_shift_frames", 0))
+        if (
+            best_shift != 0
+            and isinstance(zero_corr, (int, float))
+            and isinstance(best_corr, (int, float))
+            and isinstance(zero_rms, (int, float))
+            and isinstance(best_rms, (int, float))
+            and (best_corr >= zero_corr + 0.10 or best_rms <= zero_rms * 0.80)
+        ):
+            return "timing_or_phase_shift"
+
+    correlation = audio_compare.normalized_correlation(reference_samples, candidate_samples)
+    if correlation is not None and correlation >= 0.85:
+        return "phase_or_small_shape_difference"
+    return "timbre_or_content_difference"
+
+
+def build_channel_pair_diagnostics(
+    reference_stem_paths: list[Path],
+    candidate_stem_paths: list[Path],
+    focus_windows: list[FocusWindow],
+    *,
+    top_channels: int,
+    alignment_search_frames: int,
+    alignment_analysis_frames: int | None,
+) -> dict[str, object]:
+    if len(reference_stem_paths) != len(candidate_stem_paths):
+        raise StemDiagnosticsError("--candidate-stem count must match --stem count")
+    if not focus_windows:
+        raise StemDiagnosticsError("--focus-window is required when --candidate-stem is used")
+
+    windows_json: list[dict[str, object]] = []
+    for focus_window in focus_windows:
+        window_rows: list[dict[str, object]] = []
+        sample_rate: int | None = None
+        channels: int | None = None
+        start_frame: int | None = None
+        end_frame: int | None = None
+
+        for index, (reference_path, candidate_path) in enumerate(zip(reference_stem_paths, candidate_stem_paths)):
+            if sample_rate is None:
+                info, _ = audio_compare.read_wav(reference_path, 0.001)
+                sample_rate = info.sample_rate
+                channels = info.channels
+                start_frame = max(0, int(round(focus_window.start_seconds * sample_rate)))
+                end_frame = max(start_frame, int(round(focus_window.end_seconds * sample_rate)))
+            assert sample_rate is not None and channels is not None and start_frame is not None and end_frame is not None
+            context_start_frame = max(0, start_frame - alignment_search_frames)
+            context_end_frame = end_frame + alignment_search_frames
+
+            reference_info, reference_samples = read_windowed_wav(
+                reference_path,
+                start_frame=context_start_frame,
+                end_frame=context_end_frame,
+            )
+            candidate_info, candidate_samples = read_windowed_wav(
+                candidate_path,
+                start_frame=context_start_frame,
+                end_frame=context_end_frame,
+            )
+            if (
+                reference_info.sample_rate != candidate_info.sample_rate
+                or reference_info.channels != candidate_info.channels
+            ):
+                raise StemDiagnosticsError("matched stem WAVs must have the same sample rate and channel count")
+            if reference_info.sample_rate != sample_rate or reference_info.channels != channels:
+                raise StemDiagnosticsError("all reference stems must share sample rate and channel count")
+
+            metrics = pair_window_metrics(
+                reference_samples,
+                candidate_samples,
+                channels=channels,
+                sample_rate=sample_rate,
+                focus_start_frame=start_frame - context_start_frame,
+                focus_end_frame=end_frame - context_start_frame,
+                alignment_search_frames=alignment_search_frames,
+                alignment_analysis_frames=alignment_analysis_frames,
+            )
+            raw_diff = metrics.get("diff") if isinstance(metrics.get("diff"), dict) else {}
+            gain = metrics.get("gain_normalized") if isinstance(metrics.get("gain_normalized"), dict) else {}
+            gain_diff = gain.get("diff") if isinstance(gain.get("diff"), dict) else {}
+            alignment = metrics.get("local_alignment") if isinstance(metrics.get("local_alignment"), dict) else {}
+            best_shift = alignment.get("best_shift") if isinstance(alignment.get("best_shift"), dict) else {}
+            window_rows.append({
+                "stem_index": index,
+                "tracker_channel": index + 1,
+                "vtx_channel_index": index,
+                "reference_path_name": reference_path.name,
+                "candidate_path_name": candidate_path.name,
+                "metrics": metrics,
+                "ranking": {
+                    "raw_rms_difference": raw_diff.get("overall_rms_difference"),
+                    "gain_normalized_rms_difference": gain_diff.get("overall_rms_difference"),
+                    "normalized_correlation": metrics.get("normalized_correlation"),
+                    "best_shift_frames": best_shift.get("candidate_shift_frames"),
+                    "reference_rms": metrics["reference_stats"].get("overall_rms"),
+                    "candidate_rms": metrics["candidate_stats"].get("overall_rms"),
+                    "classification": metrics.get("mismatch_classification"),
+                },
+            })
+
+        window_rows.sort(
+            key=lambda item: (
+                -float(item["ranking"].get("raw_rms_difference") or 0.0),
+                int(item["stem_index"]),
+            )
+        )
+        assert sample_rate is not None and start_frame is not None and end_frame is not None
+        windows_json.append({
+            **focus_window.to_json(sample_rate),
+            "top_channels": window_rows[:top_channels],
+        })
+
+    return {
+        "available": True,
+        "reference_stem_count": len(reference_stem_paths),
+        "candidate_stem_count": len(candidate_stem_paths),
+        "alignment_search_frames": alignment_search_frames,
+        "alignment_analysis_frames": alignment_analysis_frames,
+        "top_channel_count": top_channels,
+        "windows": windows_json,
+        "notes": [
+            "Ranking is by raw RMS difference inside each explicit focus window.",
+            "Local alignment search may use a bounded prefix of long focus windows; raw RMS still covers the full focus window.",
+            "Mismatch classification is heuristic diagnostic evidence, not a playback-correctness proof.",
+        ],
+    }
+
+
 def build_diagnostics(
     stem_paths: list[Path],
     output_path: Path,
     *,
     full_render_path: Path | None = None,
+    candidate_stem_paths: list[Path] | None = None,
+    focus_windows: list[FocusWindow] | None = None,
+    top_channels: int = 8,
+    alignment_analysis_frames: int | None = DEFAULT_ALIGNMENT_ANALYSIS_FRAMES,
     seconds: float | None = None,
     chunk_frames: int | None = None,
     near_silence_threshold: float = DEFAULT_NEAR_SILENCE_THRESHOLD,
@@ -277,30 +632,50 @@ def build_diagnostics(
             "available": False,
             "classification": "not_requested",
         }
-        return diagnostics
+    else:
+        comparison = audio_compare.build_comparison(
+            full_render_path,
+            output_path,
+            seconds if seconds is not None else DEFAULT_SECONDS,
+            audio_compare.DEFAULT_DIFF_THRESHOLD,
+            near_silence_threshold,
+            window_ms,
+            top_windows,
+            alignment_search_frames,
+        )
+        diagnostics["full_render"] = {"path_name": full_render_path.name}
+        diagnostics["full_render_reconstruction"] = reconstruction_summary(comparison)
+        diagnostics["comparison"] = comparison
 
-    comparison = audio_compare.build_comparison(
-        full_render_path,
-        output_path,
-        seconds if seconds is not None else DEFAULT_SECONDS,
-        audio_compare.DEFAULT_DIFF_THRESHOLD,
-        near_silence_threshold,
-        window_ms,
-        top_windows,
-        alignment_search_frames,
-    )
-    diagnostics["full_render"] = {"path_name": full_render_path.name}
-    diagnostics["full_render_reconstruction"] = reconstruction_summary(comparison)
-    diagnostics["comparison"] = comparison
+    if candidate_stem_paths:
+        diagnostics["matched_stem_windows"] = build_channel_pair_diagnostics(
+            stem_paths,
+            candidate_stem_paths,
+            focus_windows or [],
+            top_channels=top_channels,
+            alignment_search_frames=alignment_search_frames,
+            alignment_analysis_frames=alignment_analysis_frames,
+        )
+    else:
+        diagnostics["matched_stem_windows"] = {"available": False, "classification": "not_requested"}
     return diagnostics
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sum local WAV stems and compare them to an optional full render.")
     parser.add_argument("--stem", action="append", required=True, type=Path, help="Stem WAV path; pass once per stem")
+    parser.add_argument("--candidate-stem", action="append", type=Path, help="Matching candidate/VTX stem WAV path; pass once per stem")
     parser.add_argument("--sum-output", required=True, type=Path, help="Output 32-bit float WAV path for the summed stems")
     parser.add_argument("--full-render", type=Path, help="Optional full-render WAV path for reconstruction comparison")
     parser.add_argument("--json", dest="json_output", type=Path, help="Optional JSON diagnostics output path")
+    parser.add_argument("--focus-window", action="append", type=parse_focus_window, help="Focused START:END seconds for matched-stem ranking")
+    parser.add_argument("--top-channels", type=int, default=8)
+    parser.add_argument(
+        "--alignment-analysis-frames",
+        type=int,
+        default=DEFAULT_ALIGNMENT_ANALYSIS_FRAMES,
+        help="Maximum frames from each focus window used for local shift search; use 0 for full-window alignment",
+    )
     parser.add_argument("--seconds", type=float, help="Optional duration cap in seconds")
     parser.add_argument("--near-silence-threshold", type=float, default=DEFAULT_NEAR_SILENCE_THRESHOLD)
     parser.add_argument("--window-ms", type=float, default=audio_compare.DEFAULT_WINDOW_MS)
@@ -323,8 +698,14 @@ def main(argv: list[str]) -> int:
     if args.top_windows < 0:
         print("--top-windows must be zero or greater", file=sys.stderr)
         return 2
+    if args.top_channels <= 0:
+        print("--top-channels must be greater than zero", file=sys.stderr)
+        return 2
     if args.alignment_search_frames < 0:
         print("--alignment-search-frames must be zero or greater", file=sys.stderr)
+        return 2
+    if args.alignment_analysis_frames < 0:
+        print("--alignment-analysis-frames must be zero or greater", file=sys.stderr)
         return 2
 
     try:
@@ -332,6 +713,10 @@ def main(argv: list[str]) -> int:
             args.stem,
             args.sum_output,
             full_render_path=args.full_render,
+            candidate_stem_paths=args.candidate_stem,
+            focus_windows=args.focus_window,
+            top_channels=args.top_channels,
+            alignment_analysis_frames=args.alignment_analysis_frames if args.alignment_analysis_frames > 0 else None,
             seconds=args.seconds,
             near_silence_threshold=args.near_silence_threshold,
             window_ms=args.window_ms,

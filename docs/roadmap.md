@@ -102,15 +102,23 @@ Current comparison policy:
 
 Keep these as small, separately verifiable PRs:
 
-1. Amiga-table parity-watch isolation for the remaining late looped-sample
-   phase residual: use reference-side/per-voice evidence before changing VTX
-   loop, ramp, or replacement behavior.
+1. Amiga-table follow-up for the remaining late looped-sample phase residual:
+   use the reference-stem/per-voice diagnostics before changing VTX loop,
+   ramp, timing, or sample-step behavior.
 2. `R00` memory refinement for multi-retrigger as a later parity-watch
    cleanup unless new linear-corpus evidence promotes it.
 3. Backend hardening and cleanup after the linear-XM foundation is frozen.
 
 Recently completed:
 
+- Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga
+  target kept playback unchanged. ft2-clone individual-track exports did not
+  reconstruct the full render, and VTX isolated-channel sums were close but not
+  exact, so stem evidence is diagnostic rather than an amplitude proof. The
+  203.9-204.7s residual still improves with +256...+309 frame shifts; channels
+  1 and 14 are the strongest post-204s contributors. Focused VTX diagnostics
+  show sustained row-32 looped voices through row-33 `3xx`, no sample offsets,
+  no post-204.0 replacements/ramps, no sample-position reset, and many loops.
 - Amiga looped-sample phase/ramp diagnostics for the anonymized Amiga target
   kept playback unchanged. The remaining late-window residual is concentrated
   around order 26 / pattern 32 / rows 32-39 with no sample offsets or note

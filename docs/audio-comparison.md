@@ -196,6 +196,16 @@ input. It does not resample, normalize, downmix, upmix, or compensate for
 renderer latency. Match sample rate, channel count, duration, and bounds before
 interpreting sample-level metrics.
 
+## Stem Checks
+
+Use `scripts/stem-scaling-diagnostics.py` for local stem-sum validation under
+`/tmp`. For matched reference/candidate stems, pass one `--candidate-stem` per
+`--stem` plus one or more `--focus-window START:END` values. Ranking is by raw
+RMS difference inside each focus window, and `--alignment-analysis-frames`
+bounds expensive local-shift searches for long windows. Treat stem evidence as
+diagnostic until the relevant stem sums are shown to reconstruct their full
+renders closely enough for the conclusion being drawn.
+
 ## Correlate Worst Windows
 
 When candidate diagnostics JSON is available, correlate comparison windows with

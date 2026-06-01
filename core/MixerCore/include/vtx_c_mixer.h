@@ -137,6 +137,7 @@ typedef struct {
     uint32_t channel_tag;
     float gain;
     float pan;
+    double sample_position;
     double sample_step;
     float effective_gain;
     float effective_pan;

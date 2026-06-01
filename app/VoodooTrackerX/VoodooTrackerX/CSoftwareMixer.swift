@@ -69,6 +69,7 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
     let channelTag: Int?
     let gain: Float
     let pan: Float
+    let samplePosition: Double
     let sampleStep: Double
     let effectiveGain: Float
     let effectivePan: Float
@@ -84,6 +85,7 @@ struct CSoftwareMixerVoiceDiagnostic: Equatable {
         channelTag = diagnostic.has_channel_tag == 0 ? nil : Int(diagnostic.channel_tag)
         gain = diagnostic.gain
         pan = diagnostic.pan
+        samplePosition = diagnostic.sample_position
         sampleStep = diagnostic.sample_step
         effectiveGain = diagnostic.effective_gain
         effectivePan = diagnostic.effective_pan

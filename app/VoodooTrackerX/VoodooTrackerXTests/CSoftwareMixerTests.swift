@@ -658,6 +658,69 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(resetSecond, single)
     }
 
+    func testCSoftwareMixerShortForwardLoopSampleStepUpdatesPreservePhaseAfterManyCrossings() throws {
+        let loopLength = 188
+        let sample = MixerSampleBuffer(monoPCM: (0..<loopLength).map { Float($0) / Float(loopLength - 1) })
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 0, endFrame: loopLength)
+        let startPosition = 186.28167527251867
+        let initialStep = 0.17113042646777588
+        let stepUpdates = [
+            (frame: 960, step: 0.17514993149344293),
+            (frame: 1_920, step: 0.17936279815594305),
+            (frame: 2_880, step: 0.18378332306428424),
+            (frame: 3_840, step: 0.18842724784165088),
+            (frame: 4_800, step: 0.19206718179866925),
+        ]
+        let totalFrames = 33_600
+
+        func configuredMixer() -> (mixer: CSoftwareMixer, voiceIndex: Int) {
+            let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1))
+            let voiceIndex = mixer.addVoice(sample: sample, playbackStep: initialStep, loop: loop)
+            mixer.setRuntimeState(
+                CSoftwareMixerVoiceRuntimeState(samplePosition: startPosition),
+                forVoiceAt: voiceIndex
+            )
+            for update in stepUpdates {
+                XCTAssertTrue(mixer.scheduleVoicePlaybackStepUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: update.frame,
+                    playbackStep: update.step
+                ).wasAccepted)
+            }
+            return (mixer, voiceIndex)
+        }
+
+        let single = configuredMixer()
+        let split = configuredMixer()
+        let singleBlock = single.mixer.render(frames: totalFrames)
+        let splitPCM = [511, 600, 1_409, 1_234, 2_222, 14_000, 13_624].flatMap {
+            split.mixer.render(frames: $0).interleavedPCM
+        }
+
+        var rawPosition = startPosition
+        var cursorFrame = 0
+        var step = initialStep
+        for update in stepUpdates {
+            rawPosition += Double(update.frame - cursorFrame) * step
+            cursorFrame = update.frame
+            step = update.step
+        }
+        rawPosition += Double(totalFrames - cursorFrame) * step
+        let expectedCrossings = Int(rawPosition / Double(loopLength))
+        let expectedLoopPosition = rawPosition.truncatingRemainder(dividingBy: Double(loopLength))
+
+        XCTAssertEqual(expectedCrossings, 34)
+        XCTAssertEqual(expectedLoopPosition, 187.75608901636588, accuracy: 0.000000001)
+        XCTAssertFloatArrayEqual(splitPCM, singleBlock.interleavedPCM)
+
+        let singleDiagnostic = try XCTUnwrap(single.mixer.voiceDiagnostic(forVoiceAt: single.voiceIndex))
+        let splitDiagnostic = try XCTUnwrap(split.mixer.voiceDiagnostic(forVoiceAt: split.voiceIndex))
+        XCTAssertTrue(singleDiagnostic.active)
+        XCTAssertEqual(singleDiagnostic.sampleStep, try XCTUnwrap(stepUpdates.last?.step), accuracy: 0.000000000001)
+        XCTAssertEqual(singleDiagnostic.samplePosition, expectedLoopPosition, accuracy: 0.000000001)
+        XCTAssertEqual(splitDiagnostic.samplePosition, singleDiagnostic.samplePosition, accuracy: 0.000000001)
+    }
+
     func testCSoftwareMixerGainPanRampSplitAndResetRemainDeterministic() {
         let sample = MixerSampleBuffer(monoPCM: Array(repeating: Float(1), count: 80))
         let singleMixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 1))

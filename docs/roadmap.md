@@ -100,17 +100,30 @@ Current comparison policy:
 
 ## Next Backend Targets
 
-Keep these as small, separately verifiable PRs:
+The current recommendation is to enter a temporary backend foundation freeze so
+development can return to GUI, editor, and product milestones. During the
+freeze, keep backend work docs/tooling-only unless a narrow blocker is
+promoted.
 
-1. Amiga-table follow-up for the remaining late looped-sample phase residual:
-   use the reference-stem/per-voice diagnostics before changing VTX loop,
-   ramp, timing, or sample-step behavior.
-2. `R00` memory refinement for multi-retrigger as a later parity-watch
-   cleanup unless new linear-corpus evidence promotes it.
-3. Backend hardening and cleanup after the linear-XM foundation is frozen.
+Recommended next PR sequence:
+
+1. Align XM diagnostic recommendation wording with the current support table.
+2. Start the first small pattern-entry/editor workflow slice.
+3. Audit module-open performance boundaries so expensive diagnostics stay
+   explicit and local-only.
+
+Parked parity-watch items:
+
+- Amiga-table follow-up for the remaining late looped-sample phase residual:
+  use reference-stem/per-voice diagnostics before changing VTX loop, ramp,
+  timing, or sample-step behavior.
+- `R00` memory refinement for multi-retrigger as a later parity-watch cleanup
+  unless new linear-corpus evidence promotes it.
 
 Recently completed:
 
+- XM backend freeze / hardening audit for the temporary backend foundation
+  freeze recommendation; no playback behavior changed.
 - Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga
   target kept playback unchanged. ft2-clone individual-track exports did not
   reconstruct the full render, and VTX isolated-channel sums were close but not
@@ -152,15 +165,16 @@ Each behavior-changing PR should include focused tests and update
 
 ## Backend Cleanup / Hardening
 
-Allowed after the current linear-XM target set is stable:
+Allowed during the temporary backend foundation freeze:
 
 - remove or simplify obsolete diagnostics that no longer support active work
 - inventory scripts before consolidation
 - document which tools are current, historical, or local-only
 - keep runtime, parser, tracker viewport, and offline render responsibilities
   separate
+- align diagnostic recommendation wording with current support status
 
-Not allowed in this docs milestone:
+Not allowed during the freeze unless a narrow blocker is promoted:
 
 - playback behavior changes
 - script behavior changes

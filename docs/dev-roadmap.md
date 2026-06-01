@@ -37,17 +37,31 @@ The app is still under active development and is not production-ready.
 
 ## Current Backend Targets
 
-Next implementation work should stay narrow:
+The XM backend is ready for a temporary backend foundation freeze, pending the
+normal docs/tooling verification for the freeze-audit PR. During the freeze,
+avoid behavior-changing effect, C mixer DSP, parser architecture, runtime
+backend, and tracker viewport work unless a narrow blocker is promoted.
 
-1. Amiga-table follow-up for the remaining late looped-sample phase residual:
-   use the reference-stem/per-voice diagnostics before changing VTX loop,
-   ramp, timing, or sample-step behavior.
-2. `R00` memory refinement as a later parity-watch cleanup unless new
-   linear-corpus evidence promotes it.
-3. Backend hardening/cleanup after the linear-XM foundation is frozen.
+Recommended next work should return to docs/tooling hardening and GUI/editor
+milestones:
+
+1. Align XM diagnostic recommendation wording with the current support table.
+2. Start the first small pattern-entry/editor workflow slice.
+3. Audit module-open performance boundaries so expensive diagnostics stay
+   explicit and local-only.
+
+Parked parity-watch items:
+
+- Amiga-table follow-up for the remaining late looped-sample phase residual:
+  use reference-stem/per-voice diagnostics before changing VTX loop, ramp,
+  timing, or sample-step behavior.
+- `R00` memory refinement as a later parity-watch cleanup unless new
+  linear-corpus evidence promotes it.
 
 Recently completed narrow target:
 
+- XM backend freeze / hardening audit for the temporary backend foundation
+  freeze recommendation; no playback behavior changed.
 - Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga
   target kept playback unchanged. ft2-clone individual-track exports did not
   reconstruct the full render, and VTX isolated-channel sums were close but not

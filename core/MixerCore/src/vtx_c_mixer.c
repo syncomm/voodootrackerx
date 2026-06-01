@@ -1074,6 +1074,7 @@ VTXCMixerStatus vtx_c_mixer_get_voice_diagnostic(
     out_diagnostic->channel_tag = voice->channel_tag;
     out_diagnostic->gain = voice->gain;
     out_diagnostic->pan = voice->pan;
+    out_diagnostic->sample_position = voice->sample_position;
     out_diagnostic->sample_step = voice->sample_step;
     out_diagnostic->effective_gain = vtx_c_mixer_effective_gain(voice);
     out_diagnostic->effective_pan = vtx_c_mixer_effective_pan(voice);

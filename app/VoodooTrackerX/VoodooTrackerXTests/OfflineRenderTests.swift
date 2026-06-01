@@ -747,6 +747,62 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(result.block.interleavedPCM, [0, 2, 1, 3, 2, 1])
     }
 
+    func testPlaybackSongOfflineRendererShortForwardLoopAmiga3xxWindowedRenderPreservesPhase() throws {
+        let sample = makePlaybackSample(
+            pcm: (0..<188).map { Float($0) / 187.0 },
+            finetune: -39,
+            baseSampleRate: 8_363,
+            loopStart: 0,
+            loopLength: 188,
+            loopType: 1
+        )
+        let rows = [
+            makePlaybackRow(index: 0, note: 49, instrument: 1),
+            makePlaybackRow(index: 1, note: 51, instrument: 1, effectType: 0x03, effectParam: 0x0A),
+            makePlaybackRow(index: 2),
+            makePlaybackRow(index: 3),
+            makePlaybackRow(index: 4),
+            makePlaybackRow(index: 5),
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [32],
+            patternRowsByIndex: [32: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 125),
+            usesLinearFrequencyTable: false
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 48_000, channelCount: 1),
+            frames: 33_600
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let single = renderer.render(request)
+        let windowed = renderer.renderWindowed(request, windowRows: 1)
+        let mapping = try XCTUnwrap(single.diagnostics.eventMappings.first)
+        let tonePortamento = try XCTUnwrap(single.diagnostics.tonePortamentoEffects.first)
+
+        XCTAssertFloatArrayEqual(windowed.block.interleavedPCM, single.block.interleavedPCM)
+        XCTAssertEqual(mapping.loopMode, .forward)
+        XCTAssertEqual(mapping.selectedSampleLength, 188)
+        XCTAssertEqual(try XCTUnwrap(mapping.amigaPeriod), 6_972, accuracy: 0.000000001)
+        XCTAssertEqual(mapping.playbackStep, 0.17113042646777588, accuracy: 0.000000000001)
+        XCTAssertTrue(tonePortamento.applied)
+        XCTAssertEqual(tonePortamento.activeEventIndex, 0)
+        XCTAssertTrue(tonePortamento.sameCellNote)
+        XCTAssertFalse(tonePortamento.samplePositionReset)
+        XCTAssertFalse(tonePortamento.cMixerReceivesNewVoice)
+        XCTAssertTrue(tonePortamento.cMixerReceivesOnlyStateUpdates)
+        XCTAssertEqual(try XCTUnwrap(tonePortamento.targetAmigaPeriod), 6_212, accuracy: 0.000000001)
+        XCTAssertEqual(tonePortamento.stepUpdates.map(\.syntheticTick), [1, 2, 3, 4, 5])
+        XCTAssertEqual(tonePortamento.stepUpdates.map(\.scheduledFrame), [6_720, 7_680, 8_640, 9_600, 10_560])
+        XCTAssertEqual(tonePortamento.stepUpdates.map { $0.amigaPeriodAfter ?? 0 }, [6_812, 6_652, 6_492, 6_332, 6_212])
+        XCTAssertEqual(windowed.windowedRenderSummary?.totalDroppedAtWindowBoundaries, 0)
+        XCTAssertGreaterThan(windowed.windowedRenderSummary?.totalCarriedTonePortamentoVoices ?? 0, 0)
+    }
+
     func testPlaybackSongOfflineRendererWindowedAppliesECxCutToCarriedVoice() throws {
         let sample = makePlaybackSample(pcm: [1, 1], baseSampleRate: 100, loopStart: 0, loopLength: 2, loopType: 1)
         let song = makePlaybackSong(

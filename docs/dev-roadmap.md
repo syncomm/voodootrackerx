@@ -37,17 +37,14 @@ The app is still under active development and is not production-ready.
 
 ## Current Backend Targets
 
-The XM backend is ready for a temporary backend foundation freeze, pending the
-normal docs/tooling verification for the freeze-audit PR. During the freeze,
+The XM backend is in a temporary backend foundation freeze. During the freeze,
 avoid behavior-changing effect, C mixer DSP, parser architecture, runtime
-backend, and tracker viewport work unless a narrow blocker is promoted.
+backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
-Recommended next work should return to docs/tooling hardening and GUI/editor
-milestones:
+Recommended next work should return to GUI/editor and product milestones:
 
-1. Align XM diagnostic recommendation wording with the current support table.
-2. Start the first small pattern-entry/editor workflow slice.
-3. Audit module-open performance boundaries so expensive diagnostics stay
+1. Start the first small pattern-entry/editor workflow slice.
+2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
 Parked parity-watch items:
@@ -60,6 +57,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- XM diagnostic and residual-scan recommendation wording alignment with the
+  current support table and backend-freeze posture; no playback behavior
+  changed.
 - XM backend freeze / hardening audit for the temporary backend foundation
   freeze recommendation; no playback behavior changed.
 - Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga

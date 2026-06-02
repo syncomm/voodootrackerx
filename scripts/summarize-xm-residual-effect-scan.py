@@ -21,6 +21,16 @@ from typing import Any
 DEFAULT_LABEL_MAP = Path("/tmp/vtx-private-xm-corpus-label-map.json")
 DEFAULT_DOCS = Path("docs/xm-effect-support.md")
 LABEL_RE = re.compile(r"^xm-corpus-(\d{3,})$")
+BACKEND_FREEZE_NEXT_PR_RECOMMENDATION = (
+    "No behavior-changing XM effect PR is recommended under the current backend freeze."
+)
+BACKEND_FREEZE_PRIORITIZATION_NOTE = (
+    "Use docs/xm-effect-support.md and docs/reports/xm-backend-freeze-hardening-audit.md "
+    "for current prioritization."
+)
+BACKEND_FREEZE_PROMOTION_NOTE = (
+    "Promote a backend PR only if a freeze-exit criterion is met."
+)
 
 
 class XMResidualScanError(Exception):
@@ -175,7 +185,7 @@ class ScanGroup:
             "kxx": FocusBucket("Kxx key-off residuals"),
             "5xy": FocusBucket("5xy tone portamento + volume slide residuals"),
             "unknown": FocusBucket("Unknown/classification-only high bytes"),
-            "amiga": FocusBucket("Amiga frequency-table foundation"),
+            "amiga": FocusBucket("Amiga frequency-table parity-watch"),
         }
 
     def add_module(self, module: ModuleData) -> None:
@@ -761,21 +771,12 @@ def build_scan(label_map_path: Path) -> dict[str, Any]:
     }
 
 
-def recommend_next_pr(linear_group: ScanGroup) -> str:
-    pxy = linear_group.bucket("pxy").count("detected_count")
-    volume_f = linear_group.bucket("vol_f").count()
-    tremolo = linear_group.bucket("7xy").count("7xy_count")
-    lxx = linear_group.bucket("lxx").count()
-
-    if lxx > 0:
-        return "Minimal Lxx Set Envelope Position"
-    if volume_f > 0:
-        return "Volume-Column Tone Portamento Foundation"
-    if pxy > 0:
-        return "Minimal Pxy Panning Slide"
-    if tremolo > 0:
-        return "Minimal 7xy Tremolo Foundation"
-    return "No narrow linear-XM implementation PR from this scan"
+def recommend_next_pr(_linear_group: ScanGroup) -> str:
+    return " ".join((
+        BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        BACKEND_FREEZE_PRIORITIZATION_NOTE,
+        BACKEND_FREEZE_PROMOTION_NOTE,
+    ))
 
 
 def build_markdown_report(scan: dict[str, Any]) -> str:
@@ -789,7 +790,7 @@ def build_markdown_report(scan: dict[str, Any]) -> str:
         f"- Corpus scanned: {scan.get('input_count', 0)} modules.",
         f"- Linear frequency-table modules: {split.get('linear', 0)}.",
         f"- Amiga frequency-table modules: {split.get('amiga', 0)}.",
-        f"- Recommended next implementation PR: **{scan.get('recommended_next_implementation_pr')}**.",
+        f"- Backend-freeze recommendation: **{scan.get('recommended_next_implementation_pr')}**.",
         "- Playback behavior changed: no.",
         "",
     ]
@@ -968,37 +969,39 @@ def amiga_status(counts: dict[str, Any]) -> str:
 
 def status_note(key: str, counts: dict[str, Any]) -> str:
     if key == "xxy":
-        return "Supported first-pass; current residuals should be applied/no-active/no-op, not unsupported."
+        return "Implemented, parity-watch; X10/X20 no-op cases stay classified."
     if key == "lxx":
-        return "Deferred; keep after Xxy unless envelope-position evidence dominates."
+        return "Implemented, parity-watch; no-active/no-envelope cases are diagnostic no-ops."
     if key == "3xx":
-        return "Supported first-pass; zero-param memory evidence is classified separately."
+        return "Implemented, parity-watch; no-active/no-target/no-speed cases stay classified."
     if key == "axy":
-        return "Supported first-pass; A00 replay should appear as applied/memory-reused in adapter diagnostics."
+        return "Implemented, parity-watch; A00 memory is supported where current policy applies."
     if key == "7xy":
-        return "Deferred; E7x control should travel with tremolo if promoted."
+        return "Deferred by design during the backend freeze; E7x travels with tremolo only if promoted."
     if key == "pxy":
-        return "Deferred in the C mixer adapter; legacy Swift panning-slide handler exists."
+        return "Deferred by design during the backend freeze; promote only with concrete corpus/reference evidence."
     if key == "e3x":
-        return "Deferred glissando-control state; useful only with portamento parity work."
+        return "Deferred by design; useful only with a future portamento parity target."
     if key == "eex":
-        return "Deferred traversal/timing hazard."
+        return "Deferred by design traversal/timing hazard."
     if key == "txy":
-        return "Deferred tremor effect."
+        return "Deferred by design tremor effect."
     if key == "e0x":
-        return "Deferred limited-use filter toggle."
+        return "Limited-usefulness deferred filter toggle."
     if key in {"vol_a", "vol_b"}:
-        return "Deferred volume-column vibrato diagnostics only."
+        return "Deferred by design volume-column vibrato diagnostics only."
     if key == "vol_f":
-        return "Deferred volume-column tone portamento diagnostics only."
+        return "Implemented, parity-watch; Amiga volume-column tone portamento remains parked."
     if key == "5xy":
-        return "Supported first-pass; 500 replay should appear as applied/memory-reused in adapter diagnostics."
+        return "Implemented, parity-watch; no-active/no-target/no-speed/500 no-op cases stay classified."
     if key in {"rxy", "hxy", "kxx"}:
-        return "Supported first-pass; residuals are applied/no-active/no-op/out-of-row classifications."
+        if key == "rxy":
+            return "Implemented, parity-watch; R00 memory refinement is parked unless maintainer-promoted."
+        return "Implemented; residuals are applied/no-active/no-op/out-of-row classifications."
     if key == "unknown":
         return "Classification-only; no playback work recommended without a concrete target."
     if key == "amiga":
-        return "Separate Amiga Frequency Table Foundation bucket."
+        return "Amiga foundation implemented, parity-watch; broader parity is parked unless maintainer-promoted."
     return "n/a"
 
 
@@ -1012,24 +1015,24 @@ TRIAGE_COLUMNS = (
     "complexity", "risk", "priority", "docs_correction", "group", "prefer_coverage",
 )
 TRIAGE_ROWS = [
-    ("7xy", "7xy tremolo", ("7xy",), "7xy", ("7xy_count",), ("7xy tremolo",), "yes", "PlaybackEffectHandler.tremolo and applyTremolo", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
-    ("e7x", "E7x tremolo control", ("E7x",), "7xy", ("e7x_control_count",), ("E7x tremolo control",), "no", "classic handler stores tremolo waveform; Swift legacy path does not expose E7x", "yes", "no", "small with 7xy", "low", "pair with 7xy only", "no", "all", False),
-    ("pxy", "Pxy panning slide", ("Pxy",), "pxy", ("detected_count",), ("Pxy panning slide",), "yes", "PlaybackEffectHandler.panningSlide and applyPanningSlide", "yes", "no", "small", "low", "count-driven", "no", "all", False),
-    ("3xx", "3xx tone-portamento memory / 300", ("3xx",), "3xx", ("nonzero_3xx_count", "zero_300_count"), ("3xx tone portamento",), "yes", "PlaybackEffectHandler.tonePortamento has zero-param memory support", "yes", "yes", "small docs-only", "low", "docs correction", "yes: replace 'No broad memory claim' with the narrower supported 300 target/speed-memory behavior and residual caveats", "all", True),
+    ("7xy", "7xy tremolo", ("7xy",), "7xy", ("7xy_count",), ("7xy tremolo",), "yes", "PlaybackEffectHandler.tremolo and applyTremolo", "yes", "no", "medium", "medium", "deferred by design during backend freeze", "no", "all", False),
+    ("e7x", "E7x tremolo control", ("E7x",), "7xy", ("e7x_control_count",), ("E7x tremolo control",), "no", "classic handler stores tremolo waveform; Swift legacy path does not expose E7x", "yes", "no", "small with 7xy", "low", "deferred by design with 7xy", "no", "all", False),
+    ("pxy", "Pxy panning slide", ("Pxy",), "pxy", ("detected_count",), ("Pxy panning slide",), "yes", "PlaybackEffectHandler.panningSlide and applyPanningSlide", "yes", "no", "small", "low", "deferred by design unless freeze-exit evidence promotes it", "no", "all", False),
+    ("3xx", "3xx tone-portamento memory / 300", ("3xx",), "3xx", ("nonzero_3xx_count", "zero_300_count"), ("3xx tone portamento",), "yes", "PlaybackEffectHandler.tonePortamento has zero-param memory support", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
     ("5xy", "5xy tone portamento + volume slide memory", ("5xy",), "5xy", ("detected_count",), ("5xy tone portamento + volume slide",), "yes", "combinedTonePortamentoVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
     ("axy", "Axy volume-slide memory / A00", ("Axy",), "axy", ("a00_count", "nonzero_axy_count"), ("Axy volume slide",), "yes", "PlaybackEffectHandler.volumeSlide has zero-param memory support", "yes", "yes", "none", "low", "covered", "no material correction", "all", True),
-    ("rxy", "Rxy multi retrigger / R00", ("Rxy",), "rxy", ("detected_count",), ("Rxy multi retrigger",), "partial", "current adapter implements Rxy; R00 remains no-op", "yes", "yes", "small for R00 only", "medium", "low", "no", "all", True),
+    ("rxy", "Rxy multi retrigger / R00", ("Rxy",), "rxy", ("detected_count",), ("Rxy multi retrigger",), "partial", "current adapter implements Rxy; R00 remains no-op/parity-watch", "yes", "yes", "small for R00 only", "medium", "R00 parked unless maintainer-promoted", "no", "all", True),
     ("hxy", "Hxy global volume slide / H00", ("Hxy",), "hxy", ("detected_count",), ("Hxy global volume slide",), "yes", "PlaybackEffectHandler.globalVolumeSlide exists", "yes", "yes", "none", "low", "covered", "no", "all", True),
-    ("vol_a", "Volume-column A0...AF vibrato speed", ("Vibrato speed (A0...AF)",), "vol_a", ("count",), ("volume-column vibrato speed",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
-    ("vol_b", "Volume-column B0...BF vibrato depth", ("Vibrato depth (B0...BF)",), "vol_b", ("count",), ("volume-column vibrato",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "low unless corpus appears", "no", "all", False),
-    ("vol_f", "Volume-column F0...FF tone portamento", ("Tone portamento (F0...FF)",), "vol_f", ("count",), ("volume-column tone portamento",), "yes", "PlaybackVolumeColumnCommand.tonePortamento exists in legacy Swift path", "yes", "no", "small", "medium", "high after Lxx if corpus remains small and focused", "no", "all", True),
-    ("lxx", "Lxx set envelope position", ("Lxx",), "lxx", ("count",), ("Lxx set envelope position",), "no", "no current Swift adapter envelope-position setter", "yes", "no", "medium", "medium", "high", "no", "all", True),
-    ("eex", "EEx pattern delay", ("EEx",), "eex", ("detected_count",), ("EEx pattern delay",), "partial", "PlaybackEffectHandler decodes patternDelay; traversal adapter defers it", "yes", "no", "large", "high", "defer unless corpus appears", "no", "all", False),
-    ("txy", "Txy tremor", ("Txy",), "txy", ("detected_count",), ("Txy tremor",), "no", "no current Swift tremor continuous effect", "yes", "no", "medium", "medium", "defer unless corpus appears", "no", "all", False),
-    ("e3x", "E3x glissando control", ("E3x",), "e3x", ("detected_count",), ("E3x glissando control",), "no", "no current Swift glissando-control state in C mixer adapter", "yes", "no", "medium", "medium", "defer unless corpus appears", "no", "all", False),
+    ("vol_a", "Volume-column A0...AF vibrato speed", ("Vibrato speed (A0...AF)",), "vol_a", ("count",), ("volume-column vibrato speed",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
+    ("vol_b", "Volume-column B0...BF vibrato depth", ("Vibrato depth (B0...BF)",), "vol_b", ("count",), ("volume-column vibrato",), "no-op decode only", "decoded in volumeColumnCommand but apply returns false", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
+    ("vol_f", "Volume-column F0...FF tone portamento", ("Tone portamento (F0...FF)",), "vol_f", ("count",), ("volume-column tone portamento",), "yes", "PlaybackVolumeColumnCommand.tonePortamento exists in legacy Swift path and current C mixer adapter", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
+    ("lxx", "Lxx set envelope position", ("Lxx",), "lxx", ("count",), ("Lxx set envelope position",), "no", "current C mixer adapter supports active mapped volume-envelope position", "yes", "yes", "none", "low", "implemented/parity-watch", "no", "all", True),
+    ("eex", "EEx pattern delay", ("EEx",), "eex", ("detected_count",), ("EEx pattern delay",), "partial", "PlaybackEffectHandler decodes patternDelay; traversal adapter defers it", "yes", "no", "large", "high", "deferred by design unless freeze-exit evidence promotes it", "no", "all", False),
+    ("txy", "Txy tremor", ("Txy",), "txy", ("detected_count",), ("Txy tremor",), "no", "no current Swift tremor continuous effect", "yes", "no", "medium", "medium", "deferred by design; not targeted for v1", "no", "all", False),
+    ("e3x", "E3x glissando control", ("E3x",), "e3x", ("detected_count",), ("E3x glissando control",), "no", "no current Swift glissando-control state in C mixer adapter", "yes", "no", "medium", "medium", "deferred by design with a future portamento parity target", "no", "all", False),
     ("xxy", "X1x/X2x extra fine portamento residuals", ("X1x / X2x",), "xxy", ("count",), ("Xxy extra fine portamento",), "no", "current C mixer adapter owns X1x/X2x support", "yes", "yes", "none", "low", "covered", "no", "all", True),
-    ("e0x", "E0x filter toggle", ("E0x",), "e0x", ("detected_count",), ("E0x filter toggle",), "no", "not implemented in current Swift adapter", "yes", "no", "medium", "low", "intentionally deferred", "no", "all", True),
-    ("amiga", "Amiga frequency-table 2xx/3xx and portamento cases", ("Amiga frequency table",), "amiga", ("amiga_2xx_count", "amiga_3xx_count", "amiga_5xy_count", "amiga_xxy_count", "amiga_volume_column_fxx_count"), (), "no", "current C mixer adapter is linear-frequency first-pass only", "yes", "no", "large", "high", "separate foundation", "no", "amiga", False),
+    ("e0x", "E0x filter toggle", ("E0x",), "e0x", ("detected_count",), ("E0x filter toggle",), "no", "not implemented in current Swift adapter", "yes", "no", "medium", "low", "limited-usefulness deferred", "no", "all", True),
+    ("amiga", "Amiga frequency-table parity-watch cases", ("Amiga frequency table",), "amiga", ("amiga_2xx_count", "amiga_3xx_count", "amiga_5xy_count", "amiga_xxy_count", "amiga_volume_column_fxx_count"), (), "partial", "narrow Amiga note, 2xx, and effect-column 3xx foundation is implemented; broader parity remains parked", "yes", "yes", "large", "high", "parity-watch unless freeze-exit evidence promotes it", "no", "amiga", False),
 ]
 TRIAGE_TARGETS = [
     {
@@ -1061,11 +1064,11 @@ def parse_docs_status(path: Path) -> dict[str, dict[str, str]]:
             section = "frequency"
             rows["Amiga frequency table"] = {
                 "command": "Amiga frequency table",
-                "status": "Deferred separate foundation",
+                "status": "Implemented, parity-watch",
                 "effect_memory": "not applicable",
-                "runtime_support": "No",
-                "offline_support": "No",
-                "notes": "Amiga frequency-table pitch behavior is explicitly deferred.",
+                "runtime_support": "Yes",
+                "offline_support": "Yes",
+                "notes": "Narrow foundation implemented; broader Amiga parity is parked unless maintainer-promoted.",
             }
             continue
         if not section or not line.startswith("|") or "---" in line:
@@ -1255,34 +1258,28 @@ def build_triage_answers(targets: list[dict[str, Any]], legacy_doc_mentions: lis
     pxy_count = int(target_by_key(targets, "pxy").get("corpus_count", 0))
     tremolo_count = int(target_by_key(targets, "7xy").get("corpus_count", 0))
     vol_f_count = int(target_by_key(targets, "vol_f").get("corpus_count", 0))
-    lxx_count = int(target_by_key(targets, "lxx").get("corpus_count", 0))
     rxy_raw_counts = target_by_key(targets, "rxy").get("raw_counts", {})
     rxy_r00_count = int(rxy_raw_counts.get("no_op_effect_memory_deferred_count", 0)) if isinstance(rxy_raw_counts, dict) else 0
-    next_prs = []
-    if lxx_count > 0:
-        next_prs.append("Minimal Lxx set envelope position foundation")
-    if vol_f_count > 0:
-        next_prs.append("Volume-column F0...FF tone portamento foundation")
-    if pxy_count > 0:
-        next_prs.append("Minimal Pxy panning slide")
-    if rxy_r00_count > 0:
-        next_prs.append("R00 multi-retrigger memory refinement")
-    if len(next_prs) < 3:
-        next_prs.append("3xx/Axy/5xy memory wording and diagnostics correction, with no playback change")
-    if len(next_prs) < 3:
-        next_prs.append("Defer 7xy/E7x until corpus evidence appears")
+    freeze_notes = [
+        BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        BACKEND_FREEZE_PRIORITIZATION_NOTE,
+        BACKEND_FREEZE_PROMOTION_NOTE,
+    ]
     return {
-        "legacy_docs_imply_current_support": "No: legacy-note rows still have Runtime/Offline support marked No, but 3xx memory wording is stale.",
-        "surgical_legacy_ports": "Pxy is surgical if corpus evidence exists; 7xy is medium and should carry E7x; volume-column Fxx is a small C mixer adapter port from existing tone-portamento state.",
+        "legacy_docs_imply_current_support": "No: docs/xm-effect-support.md is the current support source; legacy handler evidence is not a recommendation to port behavior during the freeze.",
+        "surgical_legacy_ports": "No behavior-changing legacy-handler port is recommended during the backend freeze; Pxy, 7xy/E7x, and volume-column vibrato remain deferred unless freeze-exit evidence promotes them.",
         "three_xx_memory_gap": "No broad linear 3xx memory gap is indicated; 300 target/speed memory is implemented for active linear voices, with residual no-active/no-target/no-speed caveats.",
-        "seven_xy_before_amiga": "No" if tremolo_count == 0 else "Maybe, because corpus evidence exists.",
+        "seven_xy_before_amiga": (
+            "No" if tremolo_count == 0
+            else "Only if maintainer-promoted under a freeze-exit criterion."
+        ),
         "pxy_present": pxy_count > 0,
         "pxy_count": pxy_count,
         "rxy_r00_count": rxy_r00_count,
         "volume_column_tone_portamento_count": vol_f_count,
-        "volume_column_tone_portamento_justified": vol_f_count > 0,
+        "volume_column_tone_portamento_justified": False,
         "legacy_doc_mentions": legacy_doc_mentions,
-        "recommended_next_three_prs_before_amiga": next_prs[:3],
+        "recommended_next_three_prs_before_amiga": freeze_notes,
     }
 
 
@@ -1346,10 +1343,10 @@ def build_gap_triage_markdown(triage: dict[str, Any]) -> str:
         f"1. Docs entries incorrectly implying legacy support is current support: {answers.get('legacy_docs_imply_current_support')}",
         f"2. Surgical legacy-handler ports: {answers.get('surgical_legacy_ports')}",
         f"3. 3xx memory gap status: {answers.get('three_xx_memory_gap')}",
-        f"4. Implement 7xy before Amiga when corpus count is zero: {answers.get('seven_xy_before_amiga')}",
+        f"4. 7xy/E7x promotion posture: {answers.get('seven_xy_before_amiga')}",
         f"5. Pxy present: {answers.get('pxy_present')} (count {answers.get('pxy_count')}).",
-        f"6. Volume-column tone portamento count: {answers.get('volume_column_tone_portamento_count')}; justified: {answers.get('volume_column_tone_portamento_justified')}.",
-        f"7. R00 raw memory/deferred count: {answers.get('rxy_r00_count')}. Recommended next three PRs before Amiga:",
+        f"6. Volume-column tone portamento count: {answers.get('volume_column_tone_portamento_count')}; behavior PR justified: {answers.get('volume_column_tone_portamento_justified')}.",
+        f"7. R00 raw memory/deferred count: {answers.get('rxy_r00_count')}. Backend-freeze recommendation notes:",
     ])
     for index, item in enumerate(answers.get("recommended_next_three_prs_before_amiga", []), start=1):
         lines.append(f"   {index}. {item}.")

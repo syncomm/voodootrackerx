@@ -115,18 +115,28 @@ commands.
 For diagnostic script inventory and consolidation planning, see
 `docs/diagnostic-tools.md`.
 
-## Current Remaining Backend Targets
+## Backend Freeze Posture
 
-Keep these as separate, small PRs:
+The XM backend is under a temporary foundation freeze. Do not promote
+behavior-changing effect, C mixer DSP, parser architecture, runtime backend, or
+tracker viewport work by default.
 
-- Amiga reference/parity follow-up for the narrow Amiga-table note/`2xx`/`3xx`
-  foundation.
-- `R00` memory refinement as a later parity-watch cleanup unless new
-  linear-corpus evidence promotes it.
-- Backend hardening and cleanup after the linear-XM foundation is frozen.
+Backend PRs should be promoted only for release-blocking crashes,
+deterministic runtime/offline mismatches, severe open-time/performance
+regressions, or maintainer-promoted compatibility blockers.
+
+Parked parity-watch items:
+
+- Broader Amiga-table follow-up for the remaining late looped-sample phase
+  residual; use reference-stem/per-voice diagnostics before changing VTX loop,
+  ramp, timing, or sample-step behavior.
+- `R00` memory refinement as a later parity-watch cleanup unless the maintainer
+  promotes it under a freeze-exit criterion.
 
 Recently completed narrow targets:
 
+- XM diagnostic and residual-scan recommendation wording aligned with the
+  backend freeze and `docs/xm-effect-support.md`; no playback behavior changed.
 - Amiga frequency-table foundation for note period/frequency/sample-step
   calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
   and effect-column `3xx` tone portamento in the shared runtime/offline C

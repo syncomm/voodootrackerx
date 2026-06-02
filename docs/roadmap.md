@@ -100,16 +100,14 @@ Current comparison policy:
 
 ## Next Backend Targets
 
-The current recommendation is to enter a temporary backend foundation freeze so
-development can return to GUI, editor, and product milestones. During the
-freeze, keep backend work docs/tooling-only unless a narrow blocker is
-promoted.
+The backend is in a temporary foundation freeze so development can return to
+GUI, editor, and product milestones. During the freeze, keep backend work
+docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Align XM diagnostic recommendation wording with the current support table.
-2. Start the first small pattern-entry/editor workflow slice.
-3. Audit module-open performance boundaries so expensive diagnostics stay
+1. Start the first small pattern-entry/editor workflow slice.
+2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
 Parked parity-watch items:
@@ -122,6 +120,9 @@ Parked parity-watch items:
 
 Recently completed:
 
+- XM diagnostic and residual-scan recommendation wording alignment with the
+  current support table and backend-freeze posture; no playback behavior
+  changed.
 - XM backend freeze / hardening audit for the temporary backend foundation
   freeze recommendation; no playback behavior changed.
 - Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga
@@ -182,9 +183,9 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 - tracker viewport changes
 - retired AVAudio backend reintroduction
 
-Recommended next docs/tooling PR:
+Recommended next product PR:
 
-- Diagnostic Script Inventory / Consolidation Plan
+- First small pattern-entry/editor workflow slice.
 
 ## Milestone 3: UI / Tracker Feel
 

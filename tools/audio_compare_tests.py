@@ -1912,7 +1912,10 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["unsupported_count"], 0)
         self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(row["recommended_implementation_priority"], "observed no-op/low")
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "No clear missing-effect implementation target")
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
     def test_effect_coverage_summary_counts_e4x_vibrato_control(self):
         diagnostics = {
@@ -1992,7 +1995,7 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(rows["4xy vibrato"]["input_labels"], ["xm-corpus-001", "xm-corpus-002"])
         self.assertEqual(rows["4xy vibrato"]["input_count"], 2)
 
-    def test_effect_coverage_summary_recommends_minimal_e1x(self):
+    def test_effect_coverage_summary_marks_e1x_as_parity_watch_under_freeze(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
                 traversal_effect(0x0E, 0x11, "E1x fine portamento up"),
@@ -2005,10 +2008,16 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         row = summary["effect_coverage"][0]
 
         self.assertEqual(row["command"], "E1x fine portamento up")
-        self.assertEqual(row["recommended_implementation_priority"], "Minimal E1x Fine Portamento Up")
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "Minimal E1x Fine Portamento Up")
+        self.assertEqual(
+            row["recommended_implementation_priority"],
+            effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY,
+        )
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
-    def test_effect_coverage_summary_recommends_effect_memory_when_markers_dominate(self):
+    def test_effect_coverage_summary_keeps_effect_memory_markers_under_freeze(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
                 traversal_effect(0x0E, 0x11, "E1x fine portamento up"),
@@ -2041,9 +2050,76 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
         ])
 
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "Effect Memory Foundation")
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
-    def test_effect_coverage_summary_recommends_documenting_e0x_when_only_limited_bucket_remains(self):
+    def test_effect_coverage_summary_does_not_recommend_completed_foundations_as_next_work(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x05, 0x34, "5xy tone portamento + volume slide", row=1),
+                traversal_effect(0x14, 0x00, "Kxx key off", row=2),
+                traversal_effect(0x15, 0x04, "Lxx set envelope position", row=3),
+                traversal_effect(0x1B, 0x42, "Rxy multi retrigger", row=4),
+                traversal_effect(0x21, 0x11, "Xxy extra fine portamento", row=5),
+                traversal_effect(0x0A, 0x00, "Axy volume slide", row=6, status="ignored/no-op"),
+            ],
+            "volume_panning_state_updates": [
+                {
+                    **traversal_effect(0x0A, 0x00, "Axy volume slide", row=6, status="ignored/no-op"),
+                    "effect_memory_missing": True,
+                    "memory_unavailable_reason": "effect_memory_missing",
+                },
+            ],
+            "volume_column_mappings": [
+                {
+                    "source": {"order": 0, "pattern": 2, "row": 7},
+                    "channel_index": 1,
+                    "volume_column": {
+                        "raw_value": 0xF4,
+                        "command": {"name": "tonePortamento"},
+                        "classification": "deferred",
+                    },
+                },
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.diagnostics.json", diagnostics),
+        ])
+        rows = {row["command"]: row for row in summary["effect_coverage"]}
+
+        self.assertEqual(rows["5xy tone portamento + volume slide"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
+        self.assertEqual(rows["Kxx key off"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PRIORITY)
+        self.assertEqual(rows["Lxx set envelope position"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
+        self.assertEqual(rows["Rxy multi retrigger"]["recommended_implementation_priority"], effect_coverage.R00_PARKED_PRIORITY)
+        self.assertEqual(rows["Xxy extra fine portamento"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
+        self.assertEqual(rows["Axy volume slide"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
+        self.assertEqual(rows["volume-column tone portamento"]["recommended_implementation_priority"], effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY)
+        self.assertEqual(summary["summary"]["recommended_next_pr"], effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION)
+        self.assertNotIn("Foundation", summary["summary"]["recommended_next_pr"])
+
+    def test_effect_coverage_summary_uses_backend_freeze_wording_for_parity_watch_and_deferred_residuals(self):
+        diagnostics = {
+            "pattern_traversal_timing_effects": [
+                traversal_effect(0x15, 0x04, "Lxx set envelope position", row=1),
+                traversal_effect(0x0E, 0x01, "E0x filter toggle", row=2),
+                traversal_effect(0x20, 0x01, "Wxx unknown/unsupported", row=3),
+            ],
+        }
+
+        summary = effect_coverage.build_summary_from_payloads([
+            ("offline_diagnostics", "xm-corpus-001.effect-coverage.json", diagnostics),
+        ])
+        recommendation = summary["summary"]["recommended_next_pr"]
+
+        self.assertIn("No behavior-changing XM effect PR is recommended", recommendation)
+        self.assertIn("docs/xm-effect-support.md", recommendation)
+        self.assertIn("docs/reports/xm-backend-freeze-hardening-audit.md", recommendation)
+        self.assertIn("freeze-exit criterion", recommendation)
+
+    def test_effect_coverage_summary_keeps_e0x_limited_deferred_under_freeze(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
                 traversal_effect(0x0E, 0x01, "E0x filter toggle"),
@@ -2054,9 +2130,14 @@ class EffectCoverageSummaryTests(unittest.TestCase):
             ("offline_diagnostics", "xm-corpus-001.effect-coverage.json", diagnostics),
         ])
 
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "Document E0x Filter Toggle Deferral")
+        row = summary["effect_coverage"][0]
+        self.assertEqual(row["recommended_implementation_priority"], effect_coverage.LIMITED_DEFERRED_PRIORITY)
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
-    def test_effect_coverage_summary_recommends_portamento_memory_when_zero_param_portamento_dominates(self):
+    def test_effect_coverage_summary_marks_zero_param_portamento_as_parity_watch(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
                 traversal_effect(0x00, 0x12, "0xy arpeggio"),
@@ -2096,14 +2177,14 @@ class EffectCoverageSummaryTests(unittest.TestCase):
 
         self.assertEqual(
             rows["1xx portamento up"]["recommended_implementation_priority"],
-            "1xx/2xx Portamento Effect Memory Expansion",
+            effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY,
         )
         self.assertEqual(
             summary["summary"]["recommended_next_pr"],
-            "1xx/2xx Portamento Effect Memory Expansion",
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
         )
 
-    def test_effect_coverage_summary_defers_e0x_when_arpeggio_is_largest_useful_target(self):
+    def test_effect_coverage_summary_does_not_promote_completed_arpeggio_under_freeze(self):
         diagnostics = {
             "pattern_traversal_timing_effects": [
                 *[
@@ -2122,12 +2203,15 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         ])
         rows = {row["command"]: row for row in summary["effect_coverage"]}
 
-        self.assertEqual(rows["E0x filter toggle"]["recommended_implementation_priority"], "deferred/limited")
+        self.assertEqual(rows["E0x filter toggle"]["recommended_implementation_priority"], effect_coverage.LIMITED_DEFERRED_PRIORITY)
         self.assertEqual(
             rows["0xy arpeggio"]["recommended_implementation_priority"],
-            "Minimal 0xy Arpeggio Foundation",
+            effect_coverage.IMPLEMENTED_PARITY_WATCH_PRIORITY,
         )
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "Minimal 0xy Arpeggio Foundation")
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
     def test_effect_coverage_summary_handles_empty_diagnostics(self):
         summary = effect_coverage.build_summary_from_payloads([
@@ -2393,7 +2477,10 @@ class EffectCoverageSummaryTests(unittest.TestCase):
         self.assertEqual(row["unsupported_count"], 0)
         self.assertEqual(row["no_op_effect_memory_deferred_count"], 1)
         self.assertEqual(row["recommended_implementation_priority"], "observed no-op/low")
-        self.assertEqual(summary["summary"]["recommended_next_pr"], "No clear missing-effect implementation target")
+        self.assertEqual(
+            summary["summary"]["recommended_next_pr"],
+            effect_coverage.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+        )
 
     def test_effect_coverage_summary_handles_runtime_trace_effect_fields(self):
         runtime_events = [

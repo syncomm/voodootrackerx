@@ -28,20 +28,74 @@ NO_OP_STATUS_MARKERS = EFFECT_MEMORY_STATUS_MARKERS | {
     "out_of_row_no_op",
 }
 
-PITCH_RECOMMENDATIONS = {
-    "0xy arpeggio": "Minimal 0xy Arpeggio Foundation",
-    "E1x fine portamento up": "Minimal E1x Fine Portamento Up",
-    "5xy tone portamento + volume slide": "Minimal 5xy Tone Portamento + Volume Slide",
-    "6xy vibrato + volume slide": "Minimal 6xy Vibrato + Volume Slide",
-    "4xy vibrato": "Minimal Vibrato Foundation",
-    "7xy tremolo": "Minimal 7xy Tremolo",
-    "volume-column vibrato speed": "Volume-Column Vibrato / Vibrato Speed Split",
-    "volume-column vibrato": "Volume-Column Vibrato / Vibrato Speed Split",
-    "volume-column tone portamento": "Volume-Column Tone Portamento",
-    "E2x fine portamento down": "Minimal E2x Fine Portamento Down",
-    "E5x set finetune": "Minimal E5x Set Finetune",
-    "EAx fine volume slide up": "Minimal EAx/EBx Fine Volume Slide",
-    "EBx fine volume slide down": "Minimal EAx/EBx Fine Volume Slide",
+BACKEND_FREEZE_NEXT_PR_RECOMMENDATION = (
+    "No behavior-changing XM effect PR is recommended under the current backend freeze; "
+    "use docs/xm-effect-support.md and docs/reports/xm-backend-freeze-hardening-audit.md "
+    "for current prioritization; promote a backend PR only if a freeze-exit criterion is met."
+)
+IMPLEMENTED_PRIORITY = "implemented; no behavior-changing PR recommended during backend freeze"
+IMPLEMENTED_PARITY_WATCH_PRIORITY = (
+    "implemented/parity-watch; no behavior-changing PR recommended during backend freeze"
+)
+EXPECTED_NO_OP_PRIORITY = "expected no-op/effect-memory-deferred classification"
+DEFERRED_BY_DESIGN_PRIORITY = "deferred by design; not a backend-freeze PR"
+LIMITED_DEFERRED_PRIORITY = "deferred/limited-usefulness"
+CLASSIFICATION_ONLY_PRIORITY = "classification-only; no playback work inferred"
+NOT_TARGETED_FOR_V1_PRIORITY = "not targeted for v1"
+R00_PARKED_PRIORITY = "implemented/parity-watch; R00 memory refinement parked unless maintainer-promoted"
+
+COMMAND_RECOMMENDATION_STATUSES = {
+    "0xy arpeggio": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "1xx portamento up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "2xx portamento down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "3xx tone portamento": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "4xy vibrato": IMPLEMENTED_PRIORITY,
+    "5xy tone portamento + volume slide": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "6xy vibrato + volume slide": IMPLEMENTED_PRIORITY,
+    "7xy tremolo": DEFERRED_BY_DESIGN_PRIORITY,
+    "8xx set panning": IMPLEMENTED_PRIORITY,
+    "900 sample offset / effect memory": IMPLEMENTED_PRIORITY,
+    "9xx sample offset": IMPLEMENTED_PRIORITY,
+    "Axy volume slide": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "Bxx position jump": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "Cxx set volume": IMPLEMENTED_PRIORITY,
+    "Dxx pattern break": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E0x filter toggle": LIMITED_DEFERRED_PRIORITY,
+    "E1x fine portamento up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E2x fine portamento down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E3x glissando control": DEFERRED_BY_DESIGN_PRIORITY,
+    "E4x vibrato control": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E5x set finetune": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E6x pattern loop": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "E7x tremolo control": DEFERRED_BY_DESIGN_PRIORITY,
+    "E8x set panning": DEFERRED_BY_DESIGN_PRIORITY,
+    "E9x retrigger": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "EAx fine volume slide up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "EBx fine volume slide down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "ECx note cut": IMPLEMENTED_PRIORITY,
+    "EDx note delay": IMPLEMENTED_PRIORITY,
+    "EEx pattern delay": DEFERRED_BY_DESIGN_PRIORITY,
+    "EFx invert loop": DEFERRED_BY_DESIGN_PRIORITY,
+    "Fxx speed/BPM": IMPLEMENTED_PRIORITY,
+    "Gxx set global volume": IMPLEMENTED_PRIORITY,
+    "Hxy global volume slide": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "Kxx key off": IMPLEMENTED_PRIORITY,
+    "Lxx set envelope position": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "Pxy panning slide": DEFERRED_BY_DESIGN_PRIORITY,
+    "Rxy multi retrigger": R00_PARKED_PRIORITY,
+    "Txy tremor": DEFERRED_BY_DESIGN_PRIORITY,
+    "Xxy extra fine portamento": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column set volume": IMPLEMENTED_PRIORITY,
+    "volume-column volume slide down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column volume slide up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column fine volume slide down": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column fine volume slide up": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column vibrato speed": DEFERRED_BY_DESIGN_PRIORITY,
+    "volume-column vibrato": DEFERRED_BY_DESIGN_PRIORITY,
+    "volume-column set panning": IMPLEMENTED_PRIORITY,
+    "volume-column panning slide left": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column panning slide right": IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    "volume-column tone portamento": IMPLEMENTED_PARITY_WATCH_PRIORITY,
 }
 
 HIGH_EFFECT_COMMAND_LETTERS = {
@@ -72,7 +126,7 @@ PORTAMENTO_MEMORY_COMMANDS = {
     "2xx portamento down",
 }
 
-PORTAMENTO_MEMORY_RECOMMENDATION = "1xx/2xx Portamento Effect Memory Expansion"
+PORTAMENTO_MEMORY_RECOMMENDATION = IMPLEMENTED_PARITY_WATCH_PRIORITY
 
 LIMITED_USEFULNESS_COMMANDS = {
     "E0x filter toggle",
@@ -81,7 +135,15 @@ LIMITED_USEFULNESS_COMMANDS = {
 NON_IMPLEMENTATION_PRIORITIES = {
     "covered/low",
     "deferred/limited",
+    LIMITED_DEFERRED_PRIORITY,
     "observed no-op/low",
+    IMPLEMENTED_PRIORITY,
+    IMPLEMENTED_PARITY_WATCH_PRIORITY,
+    EXPECTED_NO_OP_PRIORITY,
+    DEFERRED_BY_DESIGN_PRIORITY,
+    CLASSIFICATION_ONLY_PRIORITY,
+    NOT_TARGETED_FOR_V1_PRIORITY,
+    R00_PARKED_PRIORITY,
 }
 
 EFFECT_FAMILY_ORDER = (
@@ -869,7 +931,9 @@ def explicit_effect_memory_count(row: dict[str, Any]) -> int:
 def effect_memory_priority_for_command(command: str) -> str:
     if command in PORTAMENTO_MEMORY_COMMANDS:
         return PORTAMENTO_MEMORY_RECOMMENDATION
-    return "Effect Memory Foundation"
+    if command in COMMAND_RECOMMENDATION_STATUSES:
+        return COMMAND_RECOMMENDATION_STATUSES[command]
+    return EXPECTED_NO_OP_PRIORITY
 
 
 def priority_for_command(command: str, counters: Counter, reason_counts: Counter | dict[str, Any] | None = None) -> str:
@@ -882,32 +946,34 @@ def priority_for_command(command: str, counters: Counter, reason_counts: Counter
             return "observed no-op/low"
         return "covered/low"
     if command in LIMITED_USEFULNESS_COMMANDS:
-        return "deferred/limited"
-    if command in PITCH_RECOMMENDATIONS:
-        return PITCH_RECOMMENDATIONS[command]
+        return LIMITED_DEFERRED_PRIORITY
+    if command in COMMAND_RECOMMENDATION_STATUSES:
+        return COMMAND_RECOMMENDATION_STATUSES[command]
     if command.startswith("Pxy"):
-        return "Minimal Pxy Panning Slide"
+        return DEFERRED_BY_DESIGN_PRIORITY
     if command.startswith("Gxx"):
-        return "Minimal Gxx Global Volume"
+        return IMPLEMENTED_PRIORITY
     if command.startswith("Kxx"):
-        return "Minimal Kxx Key-Off Effect"
+        return IMPLEMENTED_PRIORITY
     if command.startswith("Lxx"):
-        return "Minimal Lxx Set Envelope Position"
+        return IMPLEMENTED_PARITY_WATCH_PRIORITY
     if command.startswith("Rxy"):
-        return "Minimal Rxy Multi-Retrigger"
+        return R00_PARKED_PRIORITY
     if command.startswith("Txy"):
-        return "Minimal Txy Tremor"
+        return DEFERRED_BY_DESIGN_PRIORITY
     if command.startswith(("Bxx", "Dxx", "EEx")):
-        return "Pattern Delay / Break / Jump Runtime Parity Follow-Up"
+        return DEFERRED_BY_DESIGN_PRIORITY if command.startswith("EEx") else IMPLEMENTED_PARITY_WATCH_PRIORITY
     if command == "note off / key off":
-        return "Key-Off / Fadeout Edge Case Follow-Up"
+        return IMPLEMENTED_PRIORITY
     if has_effect_memory_gap(command, reason_counts):
         return effect_memory_priority_for_command(command)
     if counters["unsupported_count"] == 0 and counters["no_op_effect_memory_deferred_count"] > 0:
         return "observed no-op/low"
     if command.endswith("unknown/unsupported"):
-        return "Classify Unknown XM Effect Command"
-    return f"{command} Follow-Up"
+        return CLASSIFICATION_ONLY_PRIORITY
+    if command.startswith(("X5x", "X6x", "X9x", "XAx", "Y", "Z")):
+        return NOT_TARGETED_FOR_V1_PRIORITY
+    return DEFERRED_BY_DESIGN_PRIORITY
 
 
 def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: list[str]) -> dict[str, Any]:
@@ -1089,68 +1155,12 @@ def summarize_occurrences(occurrences: list[CoverageOccurrence], input_names: li
 
 
 def recommend_next_pr(
-    rows: list[dict[str, Any]],
-    unsupported_deferred: Counter,
-    no_active: Counter,
-    key_off: Counter,
+    _rows: list[dict[str, Any]],
+    _unsupported_deferred: Counter,
+    _no_active: Counter,
+    _key_off: Counter,
 ) -> str:
-    unresolved_rows = [
-        row for row in rows
-        if int(row["unsupported_count"]) > 0
-        or (
-            int(row["no_op_effect_memory_deferred_count"]) > 0
-            and has_effect_memory_gap(str(row.get("command") or ""), nested_dict(row.get("reason_counts")))
-        )
-    ]
-    if not unresolved_rows:
-        return "No clear missing-effect implementation target"
-
-    effect_memory_rows = [
-        row for row in unresolved_rows
-        if int(row["no_op_effect_memory_deferred_count"]) > 0
-        and int(row["unsupported_count"]) == 0
-        and "no_active_voice" not in json.dumps(row.get("reason_counts", {}))
-    ]
-    unsupported_rows = [row for row in unresolved_rows if int(row["unsupported_count"]) > 0]
-    effect_memory_marker_rows = [
-        row for row in unresolved_rows
-        if explicit_effect_memory_count(row) > 0
-    ]
-    effect_memory_marker_total = sum(explicit_effect_memory_count(row) for row in effect_memory_marker_rows)
-    top_unsupported_count = max((int(row["unsupported_count"]) for row in unsupported_rows), default=0)
-    if len(effect_memory_marker_rows) >= 2 and effect_memory_marker_total > top_unsupported_count:
-        portamento_memory_total = sum(
-            explicit_effect_memory_count(row)
-            for row in effect_memory_marker_rows
-            if str(row.get("command") or "") in PORTAMENTO_MEMORY_COMMANDS
-        )
-        if portamento_memory_total > top_unsupported_count and portamento_memory_total * 2 >= effect_memory_marker_total:
-            return PORTAMENTO_MEMORY_RECOMMENDATION
-        return "Effect Memory Foundation"
-
-    useful_unsupported_rows = [
-        row for row in unsupported_rows
-        if str(row.get("recommended_implementation_priority")) not in NON_IMPLEMENTATION_PRIORITIES
-    ]
-    if unsupported_rows and not useful_unsupported_rows:
-        unsupported_commands = {str(row.get("command") or "") for row in unsupported_rows}
-        if unsupported_commands <= LIMITED_USEFULNESS_COMMANDS:
-            return "Document E0x Filter Toggle Deferral"
-    candidate_rows = useful_unsupported_rows or unsupported_rows or effect_memory_rows or unresolved_rows
-    candidate_rows.sort(key=lambda row: (
-        -int(row["unsupported_count"]),
-        -int(row["no_op_effect_memory_deferred_count"]),
-        -int(row["detected_count"]),
-        str(row["command"]),
-    ))
-    priority = str(candidate_rows[0]["recommended_implementation_priority"])
-    if priority not in NON_IMPLEMENTATION_PRIORITIES:
-        return priority
-    if key_off and not unsupported_deferred:
-        return "Key-Off / Fadeout Edge Case Follow-Up"
-    if no_active and not unsupported_deferred:
-        return "No-Active Voice Classification Follow-Up"
-    return f"{candidate_rows[0]['command']} Follow-Up"
+    return BACKEND_FREEZE_NEXT_PR_RECOMMENDATION
 
 
 def build_summary_from_payloads(payloads: list[tuple[str, str, Any]]) -> dict[str, Any]:
@@ -1189,7 +1199,7 @@ def build_markdown_report(summary: dict[str, Any], *, top: int | None = None) ->
         f"- No-op/effect-memory deferred: {totals.get('no_op_effect_memory_deferred_count', 0)}",
         f"- Effect memory reused: {totals.get('effect_memory_reused_count', 0)}",
         f"- Effect memory missing: {totals.get('effect_memory_missing_count', 0)}",
-        f"- Recommended next PR: {totals.get('recommended_next_pr', 'No clear missing-effect implementation target')}",
+        f"- Recommended next PR: {totals.get('recommended_next_pr', BACKEND_FREEZE_NEXT_PR_RECOMMENDATION)}",
         "",
         "## Coverage Table",
         "| Command | Source | Runtime/offline | Detected | Applied | Deferred | Unsupported | No-op/effect-memory | Memory reused | Memory missing | First input | First coordinates | Recommended priority |",
@@ -1199,7 +1209,7 @@ def build_markdown_report(summary: dict[str, Any], *, top: int | None = None) ->
     if top is not None and top > 0:
         rows = rows[:top]
     if not rows:
-        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | none | none | No clear missing-effect implementation target |")
+        lines.append("| none | n/a | n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 | none | none | n/a |")
     for row in rows:
         lines.append(
             f"| {row.get('command')} | {row.get('command_source')} | {row.get('runtime_offline_category')} | "

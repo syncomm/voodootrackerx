@@ -86,32 +86,63 @@ class XMResidualEffectScanTests(unittest.TestCase):
         self.assertEqual(buckets["e0x"].count("detected_count"), 1)
         self.assertEqual(buckets["unknown"].count("vxx_count"), 1)
         self.assertEqual(buckets["unknown"].count("wxx_count"), 1)
-        self.assertEqual(scan.recommend_next_pr(group), "Minimal Lxx Set Envelope Position")
+        self.assertEqual(
+            scan.recommend_next_pr(group),
+            " ".join((
+                scan.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+                scan.BACKEND_FREEZE_PRIORITIZATION_NOTE,
+                scan.BACKEND_FREEZE_PROMOTION_NOTE,
+            )),
+        )
 
     def test_recommendation_treats_completed_foundations_as_low_priority(self):
         scan = load_module()
         group = scan.ScanGroup("linear")
         group.bucket("axy").add(
             "xm-corpus-001",
-            scan.Coordinate("xm-corpus-001", 0, 0, 0, 0, "linear"),
+            scan.Coordinate("xm-corpus-001", "linear", 0, 0, 0, 0),
             metric="a00_reuse_if_implemented_count",
             amount=1000,
         )
         group.bucket("xxy").add(
             "xm-corpus-002",
-            scan.Coordinate("xm-corpus-002", 0, 0, 0, 0, "linear"),
+            scan.Coordinate("xm-corpus-002", "linear", 0, 0, 0, 0),
         )
 
-        self.assertEqual(scan.recommend_next_pr(group), "No narrow linear-XM implementation PR from this scan")
-        self.assertIn("A00 replay", scan.status_note("axy", {}))
+        freeze_recommendation = " ".join((
+            scan.BACKEND_FREEZE_NEXT_PR_RECOMMENDATION,
+            scan.BACKEND_FREEZE_PRIORITIZATION_NOTE,
+            scan.BACKEND_FREEZE_PROMOTION_NOTE,
+        ))
+        self.assertEqual(scan.recommend_next_pr(group), freeze_recommendation)
+        self.assertIn("A00 memory is supported", scan.status_note("axy", {}))
 
         group.bucket("vol_f").add(
             "xm-corpus-003",
-            scan.Coordinate("xm-corpus-003", 0, 0, 0, 0, "linear"),
+            scan.Coordinate("xm-corpus-003", "linear", 0, 0, 0, 0),
         )
-        self.assertEqual(scan.recommend_next_pr(group), "Volume-Column Tone Portamento Foundation")
+        self.assertEqual(scan.recommend_next_pr(group), freeze_recommendation)
+        self.assertIn("Implemented, parity-watch", scan.status_note("vol_f", {}))
 
-    def test_amiga_scan_keeps_pitch_residuals_in_foundation_bucket(self):
+    def test_recommendation_freezes_completed_and_parity_watch_buckets(self):
+        scan = load_module()
+        group = scan.ScanGroup("linear")
+        for key in ("lxx", "kxx", "5xy", "rxy", "vol_f"):
+            group.bucket(key).add(
+                "xm-corpus-001",
+                scan.Coordinate("xm-corpus-001", "linear", 0, 0, 0, 0),
+            )
+
+        recommendation = scan.recommend_next_pr(group)
+
+        self.assertIn("No behavior-changing XM effect PR is recommended", recommendation)
+        self.assertIn("docs/xm-effect-support.md", recommendation)
+        self.assertIn("freeze-exit criterion", recommendation)
+        self.assertNotIn("Minimal Lxx", recommendation)
+        self.assertNotIn("Tone Portamento Foundation", recommendation)
+        self.assertIn("R00 memory refinement is parked", scan.status_note("rxy", {}))
+
+    def test_amiga_scan_keeps_pitch_residuals_in_parity_watch_bucket(self):
         scan = load_module()
         module = scan.ModuleData(
             label="xm-corpus-036",

@@ -64,6 +64,7 @@ struct TestPatternCursor: Equatable {
 enum TestPatternEditInput {
     case clearField
     case hexDigit(UInt8)
+    case keyOff
 }
 
 struct TestXMPatternEventCell: Equatable {
@@ -133,6 +134,11 @@ enum TestPatternEditEngine {
                 let value = ((cell.effectParam & 0x0F) << 4) | nibble
                 return TestXMPatternEventCell(note: cell.note, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: value)
             }
+        case .keyOff:
+            guard field == .note else {
+                return nil
+            }
+            return TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
         }
     }
 }

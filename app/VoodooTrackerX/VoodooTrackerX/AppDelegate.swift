@@ -607,18 +607,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
         guard interactionMode == .edit,
               cursor.field == .note,
-              case let .noteKey(character) = input,
               var document = blankDocument,
               loadedMetadata == nil else {
             return false
         }
 
-        guard document.enterNote(
-            trackerKey: character,
-            octave: selectedOctave,
-            row: cursor.row,
-            channel: cursor.channel
-        ) else {
+        let didMutate: Bool
+        switch input {
+        case let .noteKey(character):
+            didMutate = document.enterNote(
+                trackerKey: character,
+                octave: selectedOctave,
+                row: cursor.row,
+                channel: cursor.channel
+            )
+        case .keyOff:
+            didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel)
+        case .clearField:
+            didMutate = document.clearNote(row: cursor.row, channel: cursor.channel)
+        case .hexDigit:
+            didMutate = false
+        }
+
+        guard didMutate else {
             return false
         }
 

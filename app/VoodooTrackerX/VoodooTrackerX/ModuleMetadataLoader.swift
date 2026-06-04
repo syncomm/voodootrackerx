@@ -4,6 +4,8 @@ import ModuleCore
 #endif
 
 struct XMPatternEventCell: Equatable {
+    static let keyOffNoteValue: UInt8 = 97
+
     let note: UInt8
     let instrument: UInt8
     let volumeColumn: UInt8
@@ -134,7 +136,7 @@ public struct ModuleMetadataLoader {
         if note == 0 {
             return "..."
         }
-        if note == 97 {
+        if note == XMPatternEventCell.keyOffNoteValue {
             return "==="
         }
         guard note <= 96 else {

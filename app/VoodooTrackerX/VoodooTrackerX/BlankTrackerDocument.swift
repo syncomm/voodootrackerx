@@ -1,22 +1,35 @@
 import Foundation
 
-enum TrackerNaturalNoteKeyMap {
-    private static let naturalNoteSemitonesByKey: [Character: UInt8] = [
+enum TrackerNoteKeyMap {
+    static let keyOffNoteValue = XMPatternEventCell.keyOffNoteValue
+    // Backtick is the Mac-friendly FT2/MilkyTracker-style key-below-Escape default.
+    static let keyOffKey: Character = "`"
+
+    private static let noteSemitonesByKey: [Character: UInt8] = [
         "z": 0,
+        "s": 1,
         "x": 2,
+        "d": 3,
         "c": 4,
         "v": 5,
+        "g": 6,
         "b": 7,
+        "h": 8,
         "n": 9,
+        "j": 10,
         "m": 11
     ]
 
     static func isTrackerNoteKey(_ character: Character) -> Bool {
-        naturalNoteSemitone(forTrackerKey: character) != nil
+        noteSemitone(forTrackerKey: character) != nil
+    }
+
+    static func isKeyOffKey(_ character: Character) -> Bool {
+        character == keyOffKey
     }
 
     static func noteValue(forTrackerKey character: Character, octave: Int) -> UInt8? {
-        guard let semitone = naturalNoteSemitone(forTrackerKey: character) else {
+        guard let semitone = noteSemitone(forTrackerKey: character) else {
             return nil
         }
         let noteValue = octave * 12 + Int(semitone) + 1
@@ -26,13 +39,15 @@ enum TrackerNaturalNoteKeyMap {
         return UInt8(noteValue)
     }
 
-    private static func naturalNoteSemitone(forTrackerKey character: Character) -> UInt8? {
+    private static func noteSemitone(forTrackerKey character: Character) -> UInt8? {
         guard let lowercased = String(character).lowercased().first else {
             return nil
         }
-        return naturalNoteSemitonesByKey[lowercased]
+        return noteSemitonesByKey[lowercased]
     }
 }
+
+typealias TrackerNaturalNoteKeyMap = TrackerNoteKeyMap
 
 enum TrackerEditStep {
     static let defaultStep = 1
@@ -126,10 +141,35 @@ struct BlankTrackerDocument: Equatable {
     mutating func enterNote(trackerKey: Character, octave: Int, row: Int, channel: Int) -> Bool {
         guard pattern.rows.indices.contains(row),
               pattern.rows[row].indices.contains(channel),
-              let note = TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: octave) else {
+              let note = TrackerNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: octave) else {
             return false
         }
 
+        setNoteValue(note, row: row, channel: channel)
+        return true
+    }
+
+    mutating func enterKeyOff(row: Int, channel: Int) -> Bool {
+        guard pattern.rows.indices.contains(row),
+              pattern.rows[row].indices.contains(channel) else {
+            return false
+        }
+
+        setNoteValue(TrackerNoteKeyMap.keyOffNoteValue, row: row, channel: channel)
+        return true
+    }
+
+    mutating func clearNote(row: Int, channel: Int) -> Bool {
+        guard pattern.rows.indices.contains(row),
+              pattern.rows[row].indices.contains(channel) else {
+            return false
+        }
+
+        setNoteValue(0, row: row, channel: channel)
+        return true
+    }
+
+    private mutating func setNoteValue(_ note: UInt8, row: Int, channel: Int) {
         let cell = pattern.rows[row][channel]
         pattern.rows[row][channel] = XMPatternEventCell(
             note: note,
@@ -138,7 +178,6 @@ struct BlankTrackerDocument: Equatable {
             effectType: cell.effectType,
             effectParam: cell.effectParam
         )
-        return true
     }
 }
 

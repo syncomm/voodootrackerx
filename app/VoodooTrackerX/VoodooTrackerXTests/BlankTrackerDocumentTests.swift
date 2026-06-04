@@ -177,7 +177,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNotEqual(previousPattern.rows[0][0], reset.pattern.rows[0][0])
     }
 
-    func testEnteringTrackerNoteMutatesSelectedBlankPatternCell() {
+    func testEnteringNaturalTrackerNoteMutatesSelectedBlankPatternCell() {
         var document = BlankTrackerDocument.makeDefault()
 
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
@@ -186,7 +186,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.pattern.rows[0][1], .empty)
     }
 
-    func testEditedBlankPatternCellFormatsExpectedNoteText() {
+    func testEditedBlankPatternCellFormatsExpectedNaturalNoteText() {
         var document = BlankTrackerDocument.makeDefault()
 
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
@@ -201,6 +201,55 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(document.pattern.rows[3][2].note, 96)
         XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[3][2].note), "B-7")
+    }
+
+    func testAccidentalNoteEntryUsesSelectedOctave() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "s", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "j", octave: 5, row: 1, channel: 1))
+
+        XCTAssertEqual(document.pattern.rows[0][0].note, 50)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[0][0].note), "C#4")
+        XCTAssertEqual(document.pattern.rows[1][1].note, 71)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[1][1].note), "A#5")
+    }
+
+    func testKeyOffEntryUsesDistinctNoteOffValueAndFormatsAsEquals() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterKeyOff(row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[0][0].note), "===")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "=== .. .. ...")
+        XCTAssertNotEqual(document.pattern.rows[0][0], .empty)
+    }
+
+    func testKeyOffDisplayIsDistinctFromEmptyCellDisplay() {
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(0), "...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(.empty), "... .. .. ...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(TrackerNoteKeyMap.keyOffNoteValue), "===")
+        XCTAssertNotEqual(ModuleMetadataLoader.formatXMNote(0), ModuleMetadataLoader.formatXMNote(TrackerNoteKeyMap.keyOffNoteValue))
+    }
+
+    func testClearNoteReturnsSelectedNoteCellToEmptyDisplay() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterKeyOff(row: 0, channel: 0))
+        XCTAssertTrue(document.clearNote(row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[0][0].note), "...")
+    }
+
+    func testNoteKeyOffAndClearEntryUseOneRowEditStepAndClampAtFinalRow() {
+        var row = 10
+        row = TrackerEditStep.advancedRow(after: row, rowCount: BlankTrackerDocument.defaultRowCount)
+        XCTAssertEqual(row, 11)
+
+        row = TrackerEditStep.advancedRow(after: 63, rowCount: BlankTrackerDocument.defaultRowCount)
+        XCTAssertEqual(row, 63)
     }
 
     func testFinalRowNoteEntryIsSafeAndClampsEditAdvance() {
@@ -223,6 +272,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 8, row: 0, channel: 0))
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 64, channel: 0))
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 8))
+        XCTAssertFalse(document.enterKeyOff(row: 64, channel: 0))
+        XCTAssertFalse(document.clearNote(row: 0, channel: 8))
         XCTAssertEqual(document.pattern.rows[0][0], .empty)
     }
 

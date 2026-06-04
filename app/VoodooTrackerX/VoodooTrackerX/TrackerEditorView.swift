@@ -386,16 +386,21 @@ enum PatternNavigationCommand {
 enum PatternEditInput {
     case clearField
     case hexDigit(UInt8)
+    case keyOff
     case noteKey(Character)
 }
 
 enum PatternEditEngine {
     static func isTrackerNoteKey(_ character: Character) -> Bool {
-        TrackerNaturalNoteKeyMap.isTrackerNoteKey(character)
+        TrackerNoteKeyMap.isTrackerNoteKey(character)
+    }
+
+    static func isKeyOffKey(_ character: Character) -> Bool {
+        TrackerNoteKeyMap.isKeyOffKey(character)
     }
 
     static func noteValue(forTrackerKey character: Character, octave: Int) -> UInt8? {
-        TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: character, octave: octave)
+        TrackerNoteKeyMap.noteValue(forTrackerKey: character, octave: octave)
     }
 
     static func hexNibble(from character: Character) -> UInt8? {
@@ -432,6 +437,17 @@ enum PatternEditEngine {
                 return nil
             }
             return applyingHexNibble(nibble, to: cell, field: field)
+        case .keyOff:
+            guard field == .note else {
+                return nil
+            }
+            return XMPatternEventCell(
+                note: TrackerNoteKeyMap.keyOffNoteValue,
+                instrument: cell.instrument,
+                volumeColumn: cell.volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam
+            )
         case .noteKey:
             return nil
         }
@@ -641,6 +657,9 @@ final class PatternTextView: NSTextView {
             if let characters = event.charactersIgnoringModifiers, let character = characters.first {
                 if PatternEditEngine.isTrackerNoteKey(character),
                    editInputHandler?(.noteKey(character)) == true {
+                    return
+                } else if PatternEditEngine.isKeyOffKey(character),
+                          editInputHandler?(.keyOff) == true {
                     return
                 } else if character == "." {
                     if editInputHandler?(.clearField) == true {

@@ -185,10 +185,14 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- First small pattern-entry/editor workflow slice.
+- Note accidentals and octave/edit-step polish after the first blank-document
+  note-entry slice.
 
 Recently completed product foundation:
 
+- First in-memory note entry for blank tracker documents lets edit mode write
+  natural notes into the selected note cell and advance by a clamped one-row
+  edit step, while opened modules remain read-only.
 - macOS menu foundation now provides a normal AppKit menu structure with
   standard app/file/edit/view/transport/window/help menus, preserving blank
   startup, File New, module open, transport, parser, backend, and tracker

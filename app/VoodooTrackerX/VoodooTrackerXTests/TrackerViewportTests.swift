@@ -206,6 +206,13 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 2, field: .effectParam))
     }
 
+    func testEditStepAdvanceClampsAtFinalRowWithoutNavigationWrap() {
+        XCTAssertEqual(TrackerEditStep.advancedRow(after: 62, rowCount: 64), 63)
+        XCTAssertEqual(TrackerEditStep.advancedRow(after: 63, rowCount: 64), 63)
+        XCTAssertEqual(TrackerEditStep.advancedRow(after: -1, rowCount: 64), 1)
+        XCTAssertEqual(TrackerEditStep.advancedRow(after: 12, rowCount: 0), 0)
+    }
+
     func testCursorOutlineGeometryExpandsFieldRectAndReservesVisibleBounds() {
         let fieldRect = CGRect(x: 100, y: 8, width: 18, height: 15)
         let strokeRect = TestPatternCursorOutlineGeometry.strokeRect(for: fieldRect)
@@ -295,6 +302,16 @@ final class TrackerViewportTests: XCTestCase {
             hasControlModifier: false
         ))
         XCTAssertNil(TestPatternEditEngine.hexNibble(from: " "))
+    }
+
+    func testTrackerNaturalNoteKeyMappingUsesXMNoteValues() {
+        XCTAssertTrue(TrackerNaturalNoteKeyMap.isTrackerNoteKey("z"))
+        XCTAssertTrue(TrackerNaturalNoteKeyMap.isTrackerNoteKey("C"))
+        XCTAssertFalse(TrackerNaturalNoteKeyMap.isTrackerNoteKey("q"))
+        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "z", octave: 4), 49)
+        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "x", octave: 4), 51)
+        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "m", octave: 7), 96)
+        XCTAssertNil(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "z", octave: 8))
     }
 
     func testTrackerTransportShortcutMatchesPlainSpacebarOnly() {

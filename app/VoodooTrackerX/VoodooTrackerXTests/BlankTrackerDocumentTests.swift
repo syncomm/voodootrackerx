@@ -177,6 +177,55 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNotEqual(previousPattern.rows[0][0], reset.pattern.rows[0][0])
     }
 
+    func testEnteringTrackerNoteMutatesSelectedBlankPatternCell() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0].note, 49)
+        XCTAssertEqual(document.pattern.rows[0][1], .empty)
+    }
+
+    func testEditedBlankPatternCellFormatsExpectedNoteText() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+    }
+
+    func testNoteEntryUsesSelectedOctave() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "m", octave: 7, row: 3, channel: 2))
+
+        XCTAssertEqual(document.pattern.rows[3][2].note, 96)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[3][2].note), "B-7")
+    }
+
+    func testFinalRowNoteEntryIsSafeAndClampsEditAdvance() {
+        var document = BlankTrackerDocument.makeDefault()
+        let selectedRow = 63
+        let selectedChannel = 0
+
+        XCTAssertTrue(document.enterNote(trackerKey: "x", octave: 4, row: selectedRow, channel: selectedChannel))
+        let advancedRow = TrackerEditStep.advancedRow(after: selectedRow, rowCount: document.pattern.rowCount)
+
+        XCTAssertEqual(document.pattern.rows[63][0].note, 51)
+        XCTAssertEqual(advancedRow, 63)
+        XCTAssertEqual(document.pattern.rows.count, BlankTrackerDocument.defaultRowCount)
+    }
+
+    func testBlankDocumentNoteEntryRejectsNonNoteKeysAndOutOfRangeCoordinates() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertFalse(document.enterNote(trackerKey: "q", octave: 4, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 8, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 64, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 8))
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+    }
+
     func testBlankDocumentDoesNotRequirePlaybackOrAudioState() {
         let document = BlankTrackerDocument.makeDefault()
 

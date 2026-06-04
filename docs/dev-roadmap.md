@@ -41,7 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Plan selected instrument/sample display and preview behavior.
+1. Add the two-row tracker keyboard map.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +55,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Blank documents now carry selected 1-based instrument/sample slot state and
+  show those slots truthfully in the control panel, without adding preview
+  playback, backend dependencies, or loaded-module editing.
 - Blank-document note entry now includes the lower-row natural/sharp keymap,
   backtick key-off entry rendered as `===`, note-cell clear back to `...`, and
   the centralized default one-row edit-step behavior, without opening loaded
@@ -95,11 +98,19 @@ Implemented:
 
 Remaining:
 
-- selected instrument/sample display and preview planning
+- two-row tracker keyboard map
+- note preview/audition follow-through after selection and keyboard foundations
 - instrument/effect entry
 - copy/paste workflows
 - pattern length/edit operations
 - broader keyboard workflow parity
+
+Note audition remains a later editor/audio-boundary milestone. The intended
+sequence is selected 1-based instrument/sample state, optional upper keyboard
+row, then note audition from the selected source. Key release should only send
+preview key-off; pattern key-off remains explicit `===` entry. Loaded modules
+may become auditionable before they are editable, while XI import, sample
+loading, instrument editing, and sample editing remain later milestones.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 

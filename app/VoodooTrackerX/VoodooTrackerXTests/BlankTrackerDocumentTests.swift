@@ -14,6 +14,26 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.pattern.channels, 8)
         XCTAssertEqual(document.tempo, 125)
         XCTAssertEqual(document.speed, 6)
+        XCTAssertEqual(document.selection, .default)
+        XCTAssertEqual(document.selection.selectedInstrument, 1)
+        XCTAssertEqual(document.selection.selectedSample, 1)
+    }
+
+    func testTrackerEditorSelectionUsesOneBasedTrackerDefaultsAndClampsToSlotRange() {
+        XCTAssertEqual(TrackerEditorSelection.default.selectedInstrument, 1)
+        XCTAssertEqual(TrackerEditorSelection.default.selectedSample, 1)
+        XCTAssertEqual(TrackerEditorSelection.default.instrumentDisplayTitle, "I01")
+        XCTAssertEqual(TrackerEditorSelection.default.sampleDisplayTitle, "S01")
+
+        let clampedLow = TrackerEditorSelection(selectedInstrument: 0, selectedSample: -8)
+        XCTAssertEqual(clampedLow.selectedInstrument, 1)
+        XCTAssertEqual(clampedLow.selectedSample, 1)
+
+        let clampedHigh = TrackerEditorSelection(selectedInstrument: 999, selectedSample: 300)
+        XCTAssertEqual(clampedHigh.selectedInstrument, 255)
+        XCTAssertEqual(clampedHigh.selectedSample, 255)
+        XCTAssertEqual(clampedHigh.instrumentDisplayTitle, "IFF")
+        XCTAssertEqual(clampedHigh.sampleDisplayTitle, "SFF")
     }
 
     func testDefaultBlankDocumentExposesOneEmptyPattern() {
@@ -41,6 +61,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata.restartPosition, "00")
         XCTAssertEqual(metadata.patternRowCount, "64")
         XCTAssertEqual(metadata.channelCount, "8")
+        XCTAssertEqual(metadata.selectedInstrumentDisplay, "I01")
+        XCTAssertEqual(metadata.selectedSampleDisplay, "S01")
         XCTAssertEqual(metadata.tempo, "125")
         XCTAssertEqual(metadata.speed, "06")
         XCTAssertEqual(metadata.songPositionValue, 0)
@@ -65,6 +87,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.restartPosition, "00")
         XCTAssertEqual(content.patternRowCount, "64")
         XCTAssertEqual(content.channelCount, "8")
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01")
         XCTAssertEqual(content.tempo, "125")
         XCTAssertEqual(content.speed, "06")
         XCTAssertEqual(content.selectedOctave, 4)
@@ -83,6 +107,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         loadedLikeContent.restartPosition = "02"
         loadedLikeContent.patternRowCount = "48"
         loadedLikeContent.channelCount = "16"
+        loadedLikeContent.selectedInstrumentDisplay = "I07"
+        loadedLikeContent.selectedSampleDisplay = "S03"
         loadedLikeContent.tempo = "180"
         loadedLikeContent.speed = "03"
         loadedLikeContent.selectedOctave = 7
@@ -104,6 +130,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.restartPosition, "00")
         XCTAssertEqual(content.patternRowCount, "64")
         XCTAssertEqual(content.channelCount, "8")
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01")
         XCTAssertEqual(content.tempo, "125")
         XCTAssertEqual(content.speed, "06")
         XCTAssertEqual(content.selectedOctave, 4)
@@ -147,6 +175,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.restartPosition, "02")
         XCTAssertEqual(content.patternRowCount, "48")
         XCTAssertEqual(content.channelCount, "6")
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
+        XCTAssertEqual(content.selectedSampleDisplay, "Sample Map")
         XCTAssertEqual(content.tempo, "180")
         XCTAssertEqual(content.speed, "03")
         XCTAssertEqual(content.selectedOctave, 7)
@@ -174,6 +204,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let reset = BlankTrackerDocument.makeDefault()
 
         XCTAssertEqual(reset.pattern.rows[0][0], .empty)
+        XCTAssertEqual(reset.selection, .default)
         XCTAssertNotEqual(previousPattern.rows[0][0], reset.pattern.rows[0][0])
     }
 
@@ -285,5 +316,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.defaultBPM, 125)
         XCTAssertEqual(document.metadata.defaultTempo, 6)
         XCTAssertEqual(document.metadata.restartPosition, 0)
+        XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I01")
+        XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01")
     }
 }

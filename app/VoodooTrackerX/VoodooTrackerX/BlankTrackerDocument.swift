@@ -60,6 +60,35 @@ enum TrackerEditStep {
     }
 }
 
+struct TrackerEditorSelection: Equatable {
+    static let defaultInstrument = 1
+    static let defaultSample = 1
+    static let `default` = TrackerEditorSelection()
+
+    let selectedInstrument: Int
+    let selectedSample: Int
+
+    init(
+        selectedInstrument: Int = Self.defaultInstrument,
+        selectedSample: Int = Self.defaultSample
+    ) {
+        self.selectedInstrument = Self.clampedTrackerIndex(selectedInstrument)
+        self.selectedSample = Self.clampedTrackerIndex(selectedSample)
+    }
+
+    var instrumentDisplayTitle: String {
+        String(format: "I%02X", selectedInstrument)
+    }
+
+    var sampleDisplayTitle: String {
+        String(format: "S%02X", selectedSample)
+    }
+
+    private static func clampedTrackerIndex(_ value: Int) -> Int {
+        min(255, max(1, value))
+    }
+}
+
 struct BlankTrackerDocument: Equatable {
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
@@ -78,6 +107,7 @@ struct BlankTrackerDocument: Equatable {
     let currentPatternIndex: Int
     let tempo: Int
     let speed: Int
+    let selection: TrackerEditorSelection
     var pattern: XMPatternData
 
     static func makeDefault() -> BlankTrackerDocument {
@@ -93,6 +123,7 @@ struct BlankTrackerDocument: Equatable {
             currentPatternIndex: defaultPatternIndex,
             tempo: defaultTempo,
             speed: defaultSpeed,
+            selection: .default,
             pattern: XMPatternData(
                 index: defaultPatternIndex,
                 rowCount: defaultRowCount,
@@ -128,6 +159,8 @@ struct BlankTrackerDocument: Equatable {
             restartPosition: String(format: "%02d", restartPosition),
             patternRowCount: "\(pattern.rowCount)",
             channelCount: "\(pattern.channels)",
+            selectedInstrumentDisplay: selection.instrumentDisplayTitle,
+            selectedSampleDisplay: selection.sampleDisplayTitle,
             tempo: "\(tempo)",
             speed: String(format: "%02d", speed),
             songPositionValue: currentPosition,
@@ -188,6 +221,8 @@ struct BlankTrackerControlPanelMetadata: Equatable {
     let restartPosition: String
     let patternRowCount: String
     let channelCount: String
+    let selectedInstrumentDisplay: String
+    let selectedSampleDisplay: String
     let tempo: String
     let speed: String
     let songPositionValue: Int

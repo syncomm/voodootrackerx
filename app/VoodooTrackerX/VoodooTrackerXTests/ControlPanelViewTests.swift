@@ -54,4 +54,21 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertTrue(view.instrumentSelector.isEnabled)
         XCTAssertTrue(view.sampleSelector.isEnabled)
     }
+
+    func testApplyMapsSelectedInstrumentAndSampleDisplayWithoutAudioState() {
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.selectedInstrumentDisplay = "I01"
+        content.selectedSampleDisplay = "S01"
+        content.selectedOctave = 4
+        content.areInstrumentPlaceholdersEnabled = false
+
+        view.apply(content)
+
+        XCTAssertEqual(view.instrumentSelector.titleOfSelectedItem, "I01")
+        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S01")
+        XCTAssertEqual(view.octaveSelector.titleOfSelectedItem, "4")
+        XCTAssertFalse(view.instrumentSelector.isEnabled)
+        XCTAssertFalse(view.sampleSelector.isEnabled)
+    }
 }

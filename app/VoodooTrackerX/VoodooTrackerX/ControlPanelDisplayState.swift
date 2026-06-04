@@ -7,6 +7,8 @@ struct ControlPanelContent: Equatable {
     var restartPosition = "00"
     var patternRowCount = "64"
     var channelCount = "8"
+    var selectedInstrumentDisplay = TrackerEditorSelection.default.instrumentDisplayTitle
+    var selectedSampleDisplay = TrackerEditorSelection.default.sampleDisplayTitle
     var tempo = "125"
     var speed = "06"
     var selectedOctave = 4
@@ -36,6 +38,8 @@ enum ControlPanelDisplayState {
         content.restartPosition = metadata.restartPosition
         content.patternRowCount = metadata.patternRowCount
         content.channelCount = metadata.channelCount
+        content.selectedInstrumentDisplay = metadata.selectedInstrumentDisplay
+        content.selectedSampleDisplay = metadata.selectedSampleDisplay
         content.tempo = metadata.tempo
         content.speed = metadata.speed
         content.selectedOctave = selectedOctave
@@ -81,11 +85,15 @@ enum ControlPanelDisplayState {
             content.channelCount = "\(pattern.channels)"
             content.isPatternControlsEnabled = true
             content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
+            content.selectedInstrumentDisplay = metadata.instruments > 0 ? "I01" : "No Inst"
+            content.selectedSampleDisplay = metadata.instruments > 0 ? "Sample Map" : "No Sample"
         } else {
             content.patternRowCount = "--"
             content.channelCount = twoDigit(metadata.channels)
             content.isPatternControlsEnabled = false
             content.areInstrumentPlaceholdersEnabled = false
+            content.selectedInstrumentDisplay = "No Inst"
+            content.selectedSampleDisplay = "No Sample"
         }
 
         return content

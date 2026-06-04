@@ -185,11 +185,13 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Selected instrument/sample display and preview planning after the blank-document
-  note keymap, key-off, and edit-step polish slice.
+- Two-row tracker keyboard map for upper-row note entry.
 
 Recently completed product foundation:
 
+- Blank-document editor state now tracks selected 1-based instrument/sample
+  slots and displays them in the control panel as selected slots, while keeping
+  blank documents in memory and opened modules read-only.
 - Blank-document note entry now covers the lower-row natural/sharp keymap,
   explicit backtick key-off entry displayed as `===`, note-cell clear back to
   `...`, and centralized one-row edit-step advance while opened modules remain
@@ -227,12 +229,26 @@ Current implemented foundation:
 
 Next editor targets after backend foundation freeze:
 
-- note entry and row advance
+- upper-row note entry and future note audition follow-through
 - instrument and effect entry
 - copy/paste rows and selections
 - pattern insert/delete/length editing
 - order/program display and pattern switching
 - keyboard workflow parity
+
+### Future Note Audition Path
+
+The editor selection state should remain independent from parser internals and
+audio backends. Planned sequencing is:
+
+- keep selected 1-based instrument/sample slots as editor state first
+- add the optional upper keyboard row before preview behavior
+- add note audition later using the selected instrument/sample source
+- treat key release as preview key-off only
+- keep pattern key-off as explicit `===` entry through the tracker key binding
+- allow loaded modules to become auditionable before they become editable
+- defer XI import, sample loading, instrument editor, and sample editor to later
+  milestones
 
 Tracker viewport work must follow `docs/tracker-behavior-spec.md`,
 `docs/ui-debugging.md`, and `docs/visual-verification.md`.

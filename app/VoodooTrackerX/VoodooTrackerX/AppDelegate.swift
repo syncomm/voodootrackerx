@@ -606,32 +606,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
         guard interactionMode == .edit,
-              var metadata = loadedMetadata,
-              metadata.type == "XM",
-              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+              cursor.field == .note,
+              case let .noteKey(character) = input,
+              var document = blankDocument,
+              loadedMetadata == nil else {
             return false
         }
 
-        var pattern = metadata.xmPatterns[currentPatternIndex]
-        guard pattern.rows.indices.contains(cursor.row),
-              pattern.rows[cursor.row].indices.contains(cursor.channel) else {
-            return false
-        }
-
-        let currentCell = pattern.rows[cursor.row][cursor.channel]
-        guard let updatedCell = PatternEditEngine.apply(
-            input: input,
-            to: currentCell,
-            field: cursor.field,
-            editModeEnabled: isEditModeEnabled
+        guard document.enterNote(
+            trackerKey: character,
+            octave: selectedOctave,
+            row: cursor.row,
+            channel: cursor.channel
         ) else {
             return false
         }
 
-        pattern.rows[cursor.row][cursor.channel] = updatedCell
-        metadata.xmPatterns[currentPatternIndex] = pattern
-        loadedMetadata = metadata
-        renderCurrentPattern(metadata: metadata)
+        cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: document.pattern.rowCount)
+        blankDocument = document
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
         return true
     }
 

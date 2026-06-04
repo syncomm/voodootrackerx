@@ -41,7 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Start the first small pattern-entry/editor workflow slice.
+1. Polish blank-document note entry with accidentals and octave/edit-step
+   behavior.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +56,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- First blank-document pattern-entry slice adds in-memory natural-note entry
+  for the selected note cell with immediate display refresh and clamped
+  one-row edit advance, without making opened modules editable.
 - macOS menu foundation adds a normal minimal AppKit menu structure while
   leaving backend, parser, playback planning, and tracker viewport behavior
   unchanged.
@@ -88,8 +92,8 @@ Implemented:
 
 Remaining:
 
-- edit mode
-- note/instrument/effect entry
+- note accidentals and octave/edit-step polish
+- instrument/effect entry
 - copy/paste workflows
 - pattern length/edit operations
 - broader keyboard workflow parity

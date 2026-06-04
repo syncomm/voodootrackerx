@@ -1,5 +1,50 @@
 import Foundation
 
+enum TrackerNaturalNoteKeyMap {
+    private static let naturalNoteSemitonesByKey: [Character: UInt8] = [
+        "z": 0,
+        "x": 2,
+        "c": 4,
+        "v": 5,
+        "b": 7,
+        "n": 9,
+        "m": 11
+    ]
+
+    static func isTrackerNoteKey(_ character: Character) -> Bool {
+        naturalNoteSemitone(forTrackerKey: character) != nil
+    }
+
+    static func noteValue(forTrackerKey character: Character, octave: Int) -> UInt8? {
+        guard let semitone = naturalNoteSemitone(forTrackerKey: character) else {
+            return nil
+        }
+        let noteValue = octave * 12 + Int(semitone) + 1
+        guard (1...96).contains(noteValue) else {
+            return nil
+        }
+        return UInt8(noteValue)
+    }
+
+    private static func naturalNoteSemitone(forTrackerKey character: Character) -> UInt8? {
+        guard let lowercased = String(character).lowercased().first else {
+            return nil
+        }
+        return naturalNoteSemitonesByKey[lowercased]
+    }
+}
+
+enum TrackerEditStep {
+    static let defaultStep = 1
+
+    static func advancedRow(after row: Int, rowCount: Int, editStep: Int = defaultStep) -> Int {
+        guard rowCount > 0 else {
+            return 0
+        }
+        return min(rowCount - 1, max(0, row) + max(0, editStep))
+    }
+}
+
 struct BlankTrackerDocument: Equatable {
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
@@ -18,7 +63,7 @@ struct BlankTrackerDocument: Equatable {
     let currentPatternIndex: Int
     let tempo: Int
     let speed: Int
-    let pattern: XMPatternData
+    var pattern: XMPatternData
 
     static func makeDefault() -> BlankTrackerDocument {
         let rows = Array(
@@ -76,6 +121,24 @@ struct BlankTrackerDocument: Equatable {
             isPatternControlsEnabled: true,
             areInstrumentPlaceholdersEnabled: false
         )
+    }
+
+    mutating func enterNote(trackerKey: Character, octave: Int, row: Int, channel: Int) -> Bool {
+        guard pattern.rows.indices.contains(row),
+              pattern.rows[row].indices.contains(channel),
+              let note = TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: octave) else {
+            return false
+        }
+
+        let cell = pattern.rows[row][channel]
+        pattern.rows[row][channel] = XMPatternEventCell(
+            note: note,
+            instrument: cell.instrument,
+            volumeColumn: cell.volumeColumn,
+            effectType: cell.effectType,
+            effectParam: cell.effectParam
+        )
+        return true
     }
 }
 

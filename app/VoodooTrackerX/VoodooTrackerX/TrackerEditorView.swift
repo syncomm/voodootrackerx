@@ -386,9 +386,18 @@ enum PatternNavigationCommand {
 enum PatternEditInput {
     case clearField
     case hexDigit(UInt8)
+    case noteKey(Character)
 }
 
 enum PatternEditEngine {
+    static func isTrackerNoteKey(_ character: Character) -> Bool {
+        TrackerNaturalNoteKeyMap.isTrackerNoteKey(character)
+    }
+
+    static func noteValue(forTrackerKey character: Character, octave: Int) -> UInt8? {
+        TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: character, octave: octave)
+    }
+
     static func hexNibble(from character: Character) -> UInt8? {
         guard let scalar = String(character).unicodeScalars.first else {
             return nil
@@ -423,6 +432,8 @@ enum PatternEditEngine {
                 return nil
             }
             return applyingHexNibble(nibble, to: cell, field: field)
+        case .noteKey:
+            return nil
         }
     }
 
@@ -628,7 +639,10 @@ final class PatternTextView: NSTextView {
             super.keyDown(with: event)
         default:
             if let characters = event.charactersIgnoringModifiers, let character = characters.first {
-                if character == "." {
+                if PatternEditEngine.isTrackerNoteKey(character),
+                   editInputHandler?(.noteKey(character)) == true {
+                    return
+                } else if character == "." {
                     if editInputHandler?(.clearField) == true {
                         return
                     }

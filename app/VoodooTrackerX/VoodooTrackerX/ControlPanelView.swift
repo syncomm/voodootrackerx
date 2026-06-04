@@ -59,6 +59,8 @@ final class ControlPanelView: NSView {
         restartPositionField.stringValue = content.restartPosition
         patternRowCountField.stringValue = content.patternRowCount
         channelCountField.stringValue = content.channelCount
+        selectOrReplaceSinglePopupItem(instrumentSelector, title: content.selectedInstrumentDisplay)
+        selectOrReplaceSinglePopupItem(sampleSelector, title: content.selectedSampleDisplay)
         tempoField.stringValue = content.tempo
         speedField.stringValue = content.speed
         octaveSelector.selectItem(withTitle: String(content.selectedOctave))
@@ -72,6 +74,17 @@ final class ControlPanelView: NSView {
         patternSelector.isEnabled = content.isPatternControlsEnabled
         instrumentSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
         sampleSelector.isEnabled = content.areInstrumentPlaceholdersEnabled
+    }
+
+    private func selectOrReplaceSinglePopupItem(_ popup: NSPopUpButton, title: String) {
+        if popup.item(withTitle: title) != nil {
+            popup.selectItem(withTitle: title)
+            return
+        }
+
+        popup.removeAllItems()
+        popup.addItem(withTitle: title)
+        popup.selectItem(at: 0)
     }
 
     private func buildHierarchy() {

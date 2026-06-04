@@ -134,7 +134,7 @@ public struct ModuleMetadataLoader {
         if note == 0 {
             return "..."
         }
-        if note == 97 {
+        if note == TrackerNoteKeyMap.keyOffNoteValue {
             return "==="
         }
         guard note <= 96 else {

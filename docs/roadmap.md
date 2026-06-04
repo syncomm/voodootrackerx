@@ -185,11 +185,15 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Note accidentals and octave/edit-step polish after the first blank-document
-  note-entry slice.
+- Selected instrument/sample display and preview planning after the blank-document
+  note keymap, key-off, and edit-step polish slice.
 
 Recently completed product foundation:
 
+- Blank-document note entry now covers the lower-row natural/sharp keymap,
+  explicit backtick key-off entry displayed as `===`, note-cell clear back to
+  `...`, and centralized one-row edit-step advance while opened modules remain
+  read-only.
 - First in-memory note entry for blank tracker documents lets edit mode write
   natural notes into the selected note cell and advance by a clamped one-row
   edit step, while opened modules remain read-only.

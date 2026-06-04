@@ -41,8 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Polish blank-document note entry with accidentals and octave/edit-step
-   behavior.
+1. Plan selected instrument/sample display and preview behavior.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +55,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Blank-document note entry now includes the lower-row natural/sharp keymap,
+  backtick key-off entry rendered as `===`, note-cell clear back to `...`, and
+  the centralized default one-row edit-step behavior, without opening loaded
+  modules for mutation.
 - First blank-document pattern-entry slice adds in-memory natural-note entry
   for the selected note cell with immediate display refresh and clamped
   one-row edit advance, without making opened modules editable.
@@ -92,7 +95,7 @@ Implemented:
 
 Remaining:
 
-- note accidentals and octave/edit-step polish
+- selected instrument/sample display and preview planning
 - instrument/effect entry
 - copy/paste workflows
 - pattern length/edit operations

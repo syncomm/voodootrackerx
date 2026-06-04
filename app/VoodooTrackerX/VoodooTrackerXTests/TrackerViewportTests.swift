@@ -240,6 +240,17 @@ final class TrackerViewportTests: XCTestCase {
         )
     }
 
+    func testEditEngineKeyOffAppliesOnlyToNoteField() {
+        let source = TestXMPatternEventCell(note: 24, instrument: 0x2A, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
+
+        XCTAssertEqual(
+            TestPatternEditEngine.apply(input: .keyOff, to: source, field: .note, editModeEnabled: true),
+            TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: 0x2A, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
+        )
+        XCTAssertNil(TestPatternEditEngine.apply(input: .keyOff, to: source, field: .instrument, editModeEnabled: true))
+        XCTAssertNil(TestPatternEditEngine.apply(input: .keyOff, to: source, field: .note, editModeEnabled: false))
+    }
+
     func testEditEngineHexEntryRulesAndBounds() {
         var cell = TestXMPatternEventCell(note: 0, instrument: 0x00, volumeColumn: 0x00, effectType: 0x00, effectParam: 0x00)
         cell = TestPatternEditEngine.apply(input: .hexDigit(0x0A), to: cell, field: .instrument, editModeEnabled: true) ?? cell
@@ -304,14 +315,24 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertNil(TestPatternEditEngine.hexNibble(from: " "))
     }
 
-    func testTrackerNaturalNoteKeyMappingUsesXMNoteValues() {
-        XCTAssertTrue(TrackerNaturalNoteKeyMap.isTrackerNoteKey("z"))
-        XCTAssertTrue(TrackerNaturalNoteKeyMap.isTrackerNoteKey("C"))
-        XCTAssertFalse(TrackerNaturalNoteKeyMap.isTrackerNoteKey("q"))
-        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "z", octave: 4), 49)
-        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "x", octave: 4), 51)
-        XCTAssertEqual(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "m", octave: 7), 96)
-        XCTAssertNil(TrackerNaturalNoteKeyMap.noteValue(forTrackerKey: "z", octave: 8))
+    func testTrackerNoteKeyMappingUsesXMNoteValues() {
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("z"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("C"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("s"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("J"))
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("q"))
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "z", octave: 4), 49)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "s", octave: 4), 50)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "x", octave: 4), 51)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "j", octave: 4), 59)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "m", octave: 7), 96)
+        XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: "z", octave: 8))
+    }
+
+    func testTrackerKeyOffBindingUsesBacktickAndDoesNotOverlapNoteKeys() {
+        XCTAssertEqual(TrackerNoteKeyMap.keyOffKey, "`")
+        XCTAssertTrue(TrackerNoteKeyMap.isKeyOffKey("`"))
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("`"))
     }
 
     func testTrackerTransportShortcutMatchesPlainSpacebarOnly() {

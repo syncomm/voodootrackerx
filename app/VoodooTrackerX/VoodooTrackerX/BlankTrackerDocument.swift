@@ -1,7 +1,7 @@
 import Foundation
 
 enum TrackerNoteKeyMap {
-    static let keyOffNoteValue: UInt8 = 97
+    static let keyOffNoteValue = XMPatternEventCell.keyOffNoteValue
     // Backtick is the Mac-friendly FT2/MilkyTracker-style key-below-Escape default.
     static let keyOffKey: Character = "`"
 

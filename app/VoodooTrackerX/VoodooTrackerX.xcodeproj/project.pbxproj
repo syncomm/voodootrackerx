@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		A00000000000000000000011 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* AppDelegate.swift */; };
+		A10000000000000000000011 /* ApplicationMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* ApplicationMenuBuilder.swift */; };
+		A10000000000000000000012 /* ApplicationMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* ApplicationMenuBuilder.swift */; };
+		A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */; };
 		D15A00000000000000000101 /* ControlPanelDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000103 /* ControlPanelDisplayState.swift */; };
 		D15A00000000000000000102 /* ControlPanelDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000103 /* ControlPanelDisplayState.swift */; };
 		D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000105 /* ControlPanelViewTests.swift */; };
@@ -117,6 +120,8 @@
 
 /* Begin PBXFileReference section */
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A10000000000000000000021 /* ApplicationMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationMenuBuilder.swift; sourceTree = "<group>"; };
+		A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationMenuBuilderTests.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000103 /* BlankTrackerDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlankTrackerDocument.swift; sourceTree = "<group>"; };
 		D15A00000000000000000103 /* ControlPanelDisplayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelDisplayState.swift; sourceTree = "<group>"; };
 		A00000000000000000000036 /* PlaybackTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTypes.swift; sourceTree = "<group>"; };
@@ -225,6 +230,7 @@
 			sourceTree = "<group>";
 			children = (
 				A00000000000000000000021 /* AppDelegate.swift */,
+				A10000000000000000000021 /* ApplicationMenuBuilder.swift */,
 				CAFE00000000000000000103 /* BlankTrackerDocument.swift */,
 				A00000000000000000000045 /* AudioEngine.swift */,
 				F00000000000000000000021 /* AudioBackendSelection.swift */,
@@ -279,6 +285,7 @@
 			sourceTree = "<group>";
 			children = (
 				T00000000000000000000001 /* TestSupport.swift */,
+				A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */,
 				CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */,
 				D15A00000000000000000105 /* ControlPanelViewTests.swift */,
 				T00000000000000000000002 /* CSoftwareMixerTests.swift */,
@@ -430,6 +437,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
+				A10000000000000000000011 /* ApplicationMenuBuilder.swift in Sources */,
 				CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */,
 				D15A00000000000000000101 /* ControlPanelDisplayState.swift in Sources */,
 				A00000000000000000000043 /* AudioEngine.swift in Sources */,
@@ -516,12 +524,14 @@
 				F0000000000000000000003C /* RuntimeCMixerRenderCore.swift in Sources */,
 				F0000000000000000000003E /* RuntimeCMixerBackend.swift in Sources */,
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
+				A10000000000000000000012 /* ApplicationMenuBuilder.swift in Sources */,
 				CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */,
 				CAFE00000000000000000106 /* ModuleMetadataLoader.swift in Sources */,
 				D15A00000000000000000102 /* ControlPanelDisplayState.swift in Sources */,
 				D15A00000000000000000106 /* TrackerTheme.swift in Sources */,
 				D15A00000000000000000107 /* ControlPanelView.swift in Sources */,
 				T00000000000000000000101 /* TestSupport.swift in Sources */,
+				A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */,
 				CAFE00000000000000000104 /* BlankTrackerDocumentTests.swift in Sources */,
 				D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */,
 				T00000000000000000000102 /* CSoftwareMixerTests.swift in Sources */,

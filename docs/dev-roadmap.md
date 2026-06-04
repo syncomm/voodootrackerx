@@ -55,6 +55,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- macOS menu foundation adds a normal minimal AppKit menu structure while
+  leaving backend, parser, playback planning, and tracker viewport behavior
+  unchanged.
 - Main window control-panel readouts and tooltips now reflect blank startup,
   File New reset, and loaded-module metadata without changing playback,
   parser architecture, or tracker viewport behavior.

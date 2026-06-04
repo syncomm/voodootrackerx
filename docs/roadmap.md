@@ -187,6 +187,12 @@ Recommended next product PR:
 
 - First small pattern-entry/editor workflow slice.
 
+Recently completed product foundation:
+
+- Blank tracker startup and File New foundation now initialize an in-memory
+  untitled tracker document so startup opens on an editable-grid foundation
+  instead of the old no-module placeholder.
+
 ## Milestone 3: UI / Tracker Feel
 
 Status: read-only tracker display and stable viewport behavior are implemented;
@@ -195,6 +201,7 @@ full editing remains future work after backend foundation freeze.
 Current implemented foundation:
 
 - AppKit tracker shell
+- blank tracker startup and File New foundation
 - module open/load flow
 - metadata display
 - tracker-style pattern grid display

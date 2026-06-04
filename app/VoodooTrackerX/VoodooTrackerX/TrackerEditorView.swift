@@ -797,7 +797,7 @@ final class TrackerEditorView: NSView {
         configureMetadataTextView()
         configureOverlayViews()
         buildHierarchy()
-        applyEmptyStateMessage()
+        applyInitialBlankState()
     }
 
     @available(*, unavailable)
@@ -910,14 +910,10 @@ final class TrackerEditorView: NSView {
         addSubview(trackerDividerUnderlayView, positioned: .below, relativeTo: trackerChromeOverlayView)
     }
 
-    private func applyEmptyStateMessage() {
+    private func applyInitialBlankState() {
         metadataTextView.textStorage?.setAttributedString(
             NSAttributedString(
-                string: """
-                VoodooTracker X
-
-                File > Open… to load a .mod or .xm file and inspect parsed header metadata.
-                """,
+                string: "",
                 attributes: [
                     .font: TrackerThemeFonts.trackerBody,
                     .foregroundColor: theme.text

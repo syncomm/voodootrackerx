@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var retainedDelegate: AppDelegate?
     private var windowController: TrackerWindowController?
+    private var blankDocument: BlankTrackerDocument?
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
@@ -44,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var trackerChromeOverlayView: TrackerChromeOverlayView? { trackerEditorView?.trackerChromeOverlayView }
     private var patternSelector: NSPopUpButton? { controlPanelView?.patternSelector }
     private var editModeCheckbox: NSButton? { controlPanelView?.editModeButton }
+    private var displayedMetadata: ParsedModuleMetadata? { loadedMetadata ?? blankDocument?.metadata }
 
     static func main() {
         let app = NSApplication.shared
@@ -67,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             windowController = controller
             lastGridViewportSize = controller.trackerEditorView.gridScrollView.contentView.bounds.size
-            syncControlPanelView()
+            resetToBlankTrackerDocument()
         }
         windowController?.showWindowAndActivate()
         if let metadataTextView {
@@ -162,6 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenuItem.submenu = fileMenu
         fileMenu.addItem(
+            withTitle: "New",
+            action: #selector(newTrackerDocument(_:)),
+            keyEquivalent: "n"
+        )
+        fileMenu.addItem(
             withTitle: "Open…",
             action: #selector(openModuleFile(_:)),
             keyEquivalent: "o"
@@ -230,9 +237,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadModule(from: url)
     }
 
+    @objc
+    private func newTrackerDocument(_ sender: Any?) {
+        resetToBlankTrackerDocument()
+    }
+
     private func loadModule(from url: URL) {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
+            blankDocument = nil
             loadedMetadata = metadata
             playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path))
             selectedPatternSelectionIndex = 0
@@ -289,9 +302,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func resetToBlankTrackerDocument() {
+        let document = BlankTrackerDocument.makeDefault()
+        blankDocument = document
+        loadedMetadata = nil
+        playbackEngine.load(song: nil)
+        debugStopTimer?.invalidate()
+        debugStopTimer = nil
+        displayedPatternEntries = [
+            ModuleMetadataLoader.PatternSelectionEntry(
+                patternIndex: document.currentPatternIndex,
+                isUsed: true,
+                rowCount: document.pattern.rowCount
+            )
+        ]
+        invalidReferencedPatternIndices = []
+        selectedPatternSelectionIndex = 0
+        selectedSongPositionIndex = document.currentPosition
+        currentPatternIndex = document.currentPatternIndex
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        visibleGridRangesByRow = [:]
+        currentViewportState = nil
+        currentViewportLayout = nil
+        isEditModeEnabled = false
+        isLoopPlaybackEnabled = false
+        editModeCheckbox?.state = .off
+
+        patternInfoLabel?.isHidden = true
+        patternHeaderScrollView?.isHidden = false
+        trackerDividerUnderlayView?.isHidden = false
+        trackerChromeOverlayView?.isHidden = false
+        patternSelector?.removeAllItems()
+        patternSelector?.addItem(withTitle: formattedPatternSelectorTitle(patternIndex: document.currentPatternIndex, rowCount: document.pattern.rowCount))
+        patternSelector?.selectItem(at: 0)
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
+    }
+
     @objc
     private func patternSelectionChanged(_ sender: NSPopUpButton) {
-        guard let metadata = loadedMetadata else {
+        guard let metadata = displayedMetadata else {
             return
         }
         selectedPatternSelectionIndex = max(0, sender.indexOfSelectedItem)
@@ -306,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func currentSongPositionStepperChanged(_ sender: NSStepper) {
-        guard let metadata = loadedMetadata else {
+        guard let metadata = displayedMetadata else {
             return
         }
         applySongPosition(sender.integerValue, in: metadata)
@@ -595,7 +645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
-        guard let metadata = loadedMetadata, metadata.type == "XM",
+        guard let metadata = displayedMetadata, metadata.type == "XM",
               metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
         }
@@ -637,7 +687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handlePatternWheel(deltaY: CGFloat) {
-        guard let metadata = loadedMetadata,
+        guard let metadata = displayedMetadata,
               metadata.type == "XM",
               metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
@@ -859,7 +909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defer { isSyncingScroll = false }
         let viewportSize = clipView.bounds.size
         if viewportSize != lastGridViewportSize,
-           let metadata = loadedMetadata,
+           let metadata = displayedMetadata,
            metadata.type == "XM",
            metadata.xmPatterns.indices.contains(currentPatternIndex) {
             pendingHorizontalViewportOrigin = liveResizeHorizontalOrigin ?? lastStableGridHorizontalOrigin
@@ -949,6 +999,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.isLoopEnabled = isLoopPlaybackEnabled
         content.isEditModeEnabled = isEditModeEnabled
         content.isPlaybackActive = playbackEngine.state.isPlaying
+
+        if let blankDocument {
+            let metadata = blankDocument.controlPanelMetadata
+            var content = ControlPanelContent()
+            content.songTitle = metadata.songTitle
+            content.songLength = metadata.songLength
+            content.songPosition = metadata.songPosition
+            content.restartPosition = metadata.restartPosition
+            content.patternRowCount = metadata.patternRowCount
+            content.channelCount = metadata.channelCount
+            content.tempo = metadata.tempo
+            content.speed = metadata.speed
+            content.selectedOctave = selectedOctave
+            content.songPositionValue = metadata.songPositionValue
+            content.maximumSongPosition = metadata.maximumSongPosition
+            content.isLoopEnabled = isLoopPlaybackEnabled
+            content.isEditModeEnabled = isEditModeEnabled
+            content.isPlaybackActive = playbackEngine.state.isPlaying
+            content.isSongPositionEnabled = metadata.isSongPositionEnabled
+            content.isPatternControlsEnabled = metadata.isPatternControlsEnabled
+            content.areInstrumentPlaceholdersEnabled = metadata.areInstrumentPlaceholdersEnabled
+            reloadInstrumentPlaceholders(for: nil)
+            controlPanelView?.apply(content)
+            return
+        }
 
         if let metadata = loadedMetadata {
             content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title

@@ -41,9 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Start blank tracker startup / File New foundation.
-2. Start the first small pattern-entry/editor workflow slice.
-3. Audit module-open performance boundaries so expensive diagnostics stay
+1. Start the first small pattern-entry/editor workflow slice.
+2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
 Parked parity-watch items:
@@ -74,6 +73,7 @@ implemented.
 
 Implemented:
 
+- blank tracker startup and File New foundation
 - static highlight row
 - shared slot model for gutter/body alignment
 - wrap behavior
@@ -118,7 +118,6 @@ Current recommended product phase after the backend foundation freeze.
 
 Planned scope:
 
-- blank tracker startup / File New foundation
 - note entry and row advance
 - instrument entry
 - effect entry

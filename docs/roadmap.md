@@ -189,6 +189,10 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- macOS menu foundation now provides a normal AppKit menu structure with
+  standard app/file/edit/view/transport/window/help menus, preserving blank
+  startup, File New, module open, transport, parser, backend, and tracker
+  viewport behavior.
 - Main window control-panel wiring and tooltip audit now keeps blank-document
   and loaded-module readouts synchronized with current UI metadata, including
   tempo/speed and restart-position display where metadata is available.

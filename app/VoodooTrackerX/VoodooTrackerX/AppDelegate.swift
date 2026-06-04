@@ -86,6 +86,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case ApplicationMenuBuilder.Actions.newTrackerDocument,
+             ApplicationMenuBuilder.Actions.openModuleFile:
+            return true
+        case ApplicationMenuBuilder.Actions.play:
+            return loadedMetadata != nil && !playbackEngine.state.isPlaying
+        case ApplicationMenuBuilder.Actions.stop:
+            return playbackEngine.state.isPlaying
+        case ApplicationMenuBuilder.Actions.toggleLoop:
+            menuItem.state = isLoopPlaybackEnabled ? .on : .off
+            return true
+        case ApplicationMenuBuilder.Actions.toggleEditMode:
+            menuItem.state = isEditModeEnabled ? .on : .off
+            return true
+        case #selector(NSWindow.performClose(_:)):
+            return mainWindow != nil
+        default:
+            return true
+        }
+    }
+
     // AppDelegate owns mutable tracker/module state and pushes view updates into the window-controller tree.
     private func wireTrackerWindowController(_ controller: TrackerWindowController) {
         controller.trackerEditorView.metadataTextView.navigationHandler = { [weak self] command in
@@ -136,89 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureMenu() {
-        let mainMenu = NSMenu()
-
-        let appMenuItem = NSMenuItem()
-        appMenuItem.title = "VoodooTracker X"
-        mainMenu.addItem(appMenuItem)
-
-        let appMenu = NSMenu()
-        appMenuItem.submenu = appMenu
-
-        appMenu.addItem(
-            withTitle: "About VoodooTracker X",
-            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-            keyEquivalent: ""
-        )
-        appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(
-            withTitle: "Quit VoodooTracker X",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-
-        let fileMenuItem = NSMenuItem()
-        fileMenuItem.title = "File"
-        mainMenu.addItem(fileMenuItem)
-
-        let fileMenu = NSMenu(title: "File")
-        fileMenuItem.submenu = fileMenu
-        fileMenu.addItem(
-            withTitle: "New",
-            action: #selector(newTrackerDocument(_:)),
-            keyEquivalent: "n"
-        )
-        fileMenu.addItem(
-            withTitle: "Open…",
-            action: #selector(openModuleFile(_:)),
-            keyEquivalent: "o"
-        )
-        fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(
-            withTitle: "Close Window",
-            action: #selector(NSWindow.performClose(_:)),
-            keyEquivalent: "w"
-        )
-
-        let debugMenuItem = NSMenuItem()
-        debugMenuItem.title = "Debug"
-        mainMenu.addItem(debugMenuItem)
-
-        let debugMenu = NSMenu(title: "Debug")
-        debugMenuItem.submenu = debugMenu
-        let previousOrderItem = debugMenu.addItem(
-            withTitle: "Jump to Previous Order",
-            action: #selector(debugJumpToPreviousOrder(_:)),
-            keyEquivalent: "["
-        )
-        previousOrderItem.keyEquivalentModifierMask = [.command, .option]
-        let nextOrderItem = debugMenu.addItem(
-            withTitle: "Jump to Next Order",
-            action: #selector(debugJumpToNextOrder(_:)),
-            keyEquivalent: "]"
-        )
-        nextOrderItem.keyEquivalentModifierMask = [.command, .option]
-        let restartOrderItem = debugMenu.addItem(
-            withTitle: "Restart Current Order",
-            action: #selector(debugRestartCurrentOrder(_:)),
-            keyEquivalent: "\\"
-        )
-        restartOrderItem.keyEquivalentModifierMask = [.command, .option]
-
-        let windowMenuItem = NSMenuItem()
-        windowMenuItem.title = "Window"
-        mainMenu.addItem(windowMenuItem)
-
-        let windowMenu = NSMenu(title: "Window")
-        windowMenuItem.submenu = windowMenu
-        windowMenu.addItem(
-            withTitle: "Minimize",
-            action: #selector(NSWindow.performMiniaturize(_:)),
-            keyEquivalent: "m"
-        )
-
-        NSApp.mainMenu = mainMenu
-        NSApp.windowsMenu = windowMenu
+        let builtMenu = ApplicationMenuBuilder.build(target: self)
+        NSApp.mainMenu = builtMenu.mainMenu
+        NSApp.windowsMenu = builtMenu.windowMenu
     }
 
     @objc
@@ -364,19 +306,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
-    private func editModeToggled(_ sender: NSButton) {
-        isEditModeEnabled = sender.state == .on
+    private func editModeToggled(_ sender: Any?) {
+        if let button = sender as? NSButton {
+            isEditModeEnabled = button.state == .on
+        } else {
+            isEditModeEnabled.toggle()
+        }
         syncControlPanelView()
     }
 
     @objc
-    private func playPressed(_ sender: NSButton) {
+    private func playPressed(_ sender: Any?) {
         playbackEngine.play(from: currentPlaybackStartContext())
         syncControlPanelView()
     }
 
     @objc
-    private func stopPressed(_ sender: NSButton) {
+    private func stopPressed(_ sender: Any?) {
         playbackEngine.stop()
         syncControlPanelView()
     }
@@ -391,8 +337,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
-    private func loopToggled(_ sender: NSButton) {
-        isLoopPlaybackEnabled = sender.state == .on
+    private func loopToggled(_ sender: Any?) {
+        if let button = sender as? NSButton {
+            isLoopPlaybackEnabled = button.state == .on
+        } else {
+            isLoopPlaybackEnabled.toggle()
+        }
         syncControlPanelView()
     }
 

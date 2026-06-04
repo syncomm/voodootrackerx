@@ -62,6 +62,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/AppDelegate.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/AudioBackendSelection.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/AudioEngine.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/ControlPanelDisplayState.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ControlPanelView.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/LogoPanelView.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ModuleCoreBridge.h",

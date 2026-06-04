@@ -189,6 +189,9 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Main window control-panel wiring and tooltip audit now keeps blank-document
+  and loaded-module readouts synchronized with current UI metadata, including
+  tempo/speed and restart-position display where metadata is available.
 - Blank tracker startup and File New foundation now initialize an in-memory
   untitled tracker document so startup opens on an editable-grid foundation
   instead of the old no-module placeholder.

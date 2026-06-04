@@ -29,13 +29,11 @@ The app is still under active development and is not production-ready.
   CoreAudio C mixer with a diagnostic fallback reason.
 - Retired AVAudio playback paths must not return.
 - Offline C mixer render/export is the deterministic reference comparison path.
-- Runtime CoreAudio capture and offline render have been shown equivalent for
-  tested modules when settings and bounds match.
-- `vtx_render_bounded_xm` supports Float32 WAV export and the FT2 mix profile.
-- ft2-clone Linear is the primary FT2-style XM reference when local settings
-  are recorded and match the candidate.
 
-## Current Backend Targets
+For backend history, comparison policy, and command groups, read
+`docs/agent-current-state.md` and `docs/roadmap.md`.
+
+## Backend Freeze And Next Targets
 
 The XM backend is in a temporary backend foundation freeze. During the freeze,
 avoid behavior-changing effect, C mixer DSP, parser architecture, runtime
@@ -43,8 +41,9 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Start the first small pattern-entry/editor workflow slice.
-2. Audit module-open performance boundaries so expensive diagnostics stay
+1. Start blank tracker startup / File New foundation.
+2. Start the first small pattern-entry/editor workflow slice.
+3. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
 Parked parity-watch items:
@@ -57,46 +56,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- XM diagnostic and residual-scan recommendation wording alignment with the
-  current support table and backend-freeze posture; no playback behavior
-  changed.
-- XM backend freeze / hardening audit for the temporary backend foundation
-  freeze recommendation; no playback behavior changed.
-- Amiga reference stem/per-voice isolation diagnostics for the anonymized Amiga
-  target kept playback unchanged. ft2-clone individual-track exports did not
-  reconstruct the full render, and VTX isolated-channel sums were close but not
-  exact, so stem evidence is diagnostic rather than an amplitude proof. The
-  203.9-204.7s residual still improves with +256...+309 frame shifts; channels
-  1 and 14 are the strongest post-204s contributors. Focused VTX diagnostics
-  show sustained row-32 looped voices through row-33 `3xx`, no sample offsets,
-  no post-204.0 replacements/ramps, no sample-position reset, and many loops.
-- Amiga looped-sample phase/ramp diagnostics for the anonymized Amiga target
-  kept playback unchanged. The remaining late-window residual is concentrated
-  around order 26 / pattern 32 / rows 32-39 with no sample offsets or note
-  replacements in the worst 204s windows. Local evidence correlates the cluster
-  with sustained looped voices and a stable local alignment shift, while an
-  experimental tick-length gain-ramp check did not improve full-song metrics.
-- Amiga 3xx period/phase follow-up corrected Amiga note/target period
-  calculation to use the FT2-compatible quantized period lookup while
-  preserving VTX's existing 4x period scale and tick-level slide units. Local
-  reference comparison for the anonymized Amiga target improved full-song
-  correlation and RMS substantially; the remaining late-window mismatch still
-  presents as looped-sample phase/timing rather than a broad period-table issue.
-- Amiga reference/parity diagnostics for the narrow Amiga-table note/`2xx`/`3xx`
-  foundation. Local ft2-clone comparison confirmed Amiga note, `2xx`, and
-  effect-column `3xx` paths now apply without neutral-step fallback, while the
-  largest remaining mismatch clusters point at Amiga pitch/phase behavior under
-  looped sample playback rather than a broad level, stereo, or traversal issue.
-- Amiga frequency-table foundation for note period/frequency/sample-step
-  calculation, sample finetune metadata, Amiga-table `2xx` portamento down,
-  and effect-column `3xx` tone portamento in the shared runtime/offline C
-  mixer adapter path.
-- `Lxx` set envelope position first-pass support for active volume envelopes in
-  the shared runtime/offline C mixer path.
-- Volume-column `F0...FF` tone portamento first-pass support reusing the
-  existing `3xx` target/sample-step path.
-- Final expanded-corpus linear-XM effect coverage before the Amiga foundation;
-  no deferred linear command was promoted ahead of Amiga frequency-table work.
+- Backend-freeze and diagnostic wording cleanup recently landed without
+  playback behavior changes.
+- Current effect support and parity-watch items live in
+  `docs/xm-effect-support.md`.
+- Detailed backend sequencing and historical notes live in `docs/roadmap.md`.
 
 Behavior-changing effect PRs should include focused tests and update
 `docs/xm-effect-support.md`.
@@ -128,7 +92,8 @@ Remaining:
 
 Goal: deterministic, reference-comparable playback.
 
-Status: active backend foundation.
+Status: temporary backend foundation freeze; behavior changes require a
+promoted freeze-exit blocker.
 
 Current responsibilities:
 
@@ -149,11 +114,11 @@ Current non-goals:
 
 ## Phase 3: Pattern Editing
 
-Begin after the backend foundation is stable enough that editor work is not
-blocked by playback churn.
+Current recommended product phase after the backend foundation freeze.
 
 Planned scope:
 
+- blank tracker startup / File New foundation
 - note entry and row advance
 - instrument entry
 - effect entry

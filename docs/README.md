@@ -43,6 +43,8 @@ relevant to the task.
 
 - `docs/reports/` - public-safe committed reports and archived history.
 - `docs/reports/audio-comparison-history.md` - older audio comparison history.
+- `docs/project-checkpoint.md` - archived early-development snapshot; do not
+  use as current state.
 
 Do not put private module names, local absolute paths, or private/local
 artifacts in committed docs. Keep generated reports under `/tmp` unless a

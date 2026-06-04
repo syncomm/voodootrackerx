@@ -1,3 +1,5 @@
+// Swift reference/spec mixer types. Audible runtime playback currently uses the
+// CoreAudio-hosted C mixer path bridged through CSoftwareMixer.
 import Foundation
 
 enum MixerPanLaw: String, Equatable {

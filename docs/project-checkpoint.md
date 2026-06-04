@@ -1,5 +1,17 @@
 # VoodooTracker X — Project Checkpoint
 
+**Archived historical snapshot:** This file is an early-development checkpoint.
+It is preserved for history only and must not be used as current project state
+or current agent guidance.
+
+For current state, read:
+
+- `docs/agent-current-state.md`
+- `docs/roadmap.md`
+- `docs/dev-roadmap.md`
+
+---
+
 ## Project
 VoodooTracker X is a modern resurrection of the classic 1990s Linux tracker **VoodooTracker**, originally written by Gregory Hayes and featured in the book *Linux Music and Sound*.
 
@@ -303,4 +315,3 @@ Focus on:
 - visual rhythm clarity
 - keyboard-driven workflow
 - creative exploration
-

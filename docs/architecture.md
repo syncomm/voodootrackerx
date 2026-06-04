@@ -13,10 +13,14 @@ Target Platform: macOS
 Major systems:
 
 - Module Parser
-- Pattern Editor
-- Audio Engine
-- Instrument System
-- Visualization System
+- Tracker Editor
+- Playback Runtime
+- Offline Render/Export Diagnostics
+
+Future systems:
+
+- Instrument and Sample Editing
+- Visualization Scopes
 
 ---
 
@@ -29,10 +33,13 @@ TrackerWindowController
 
 Core UI Components:
 
-PatternGridView  
-PatternViewportMetrics  
-PatternCursor  
-PatternRenderer  
+- TrackerEditorView
+- PatternTextView
+- TrackerChromeOverlayView
+- TrackerDividerUnderlayView
+- PatternViewportMetrics
+- PatternCursor
+- ControlPanelView
 
 ---
 
@@ -40,13 +47,13 @@ PatternRenderer
 
 Handles reading tracker formats.
 
-Current supported format:
+Current read-only compatibility baseline:
 
-XM (FastTracker II modules)
+- XM (FastTracker II modules)
+- MOD foundation
 
 Planned:
 
-MOD  
 IT  
 S3M
 
@@ -132,7 +139,7 @@ PatternCursor
 
 # Rendering Layer
 
-PatternGridView
+TrackerEditorView
 
 Responsibilities:
 
@@ -143,8 +150,10 @@ Responsibilities:
 
 Rendering approach:
 
-- custom NSView drawing
-- minimal subviews
+- AppKit view composition with `PatternTextView` for tracker text
+- overlay/underlay views for chrome, row highlights, cursor outlines, gutter,
+  and channel dividers
+- minimal subviews inside the tracker region
 
 ## Tracker Editor Architecture Principles
 
@@ -159,28 +168,39 @@ Rendering approach:
 
 Current runtime architecture:
 
-PlaybackEngine
-RuntimeCMixerAudioEngine
-CoreAudio DefaultOutput Audio Unit
-CSoftwareMixer
+- PlaybackEngine
+- PlaybackAudioOutputFactory
+- RuntimeAudioBackendSelection
+- RuntimeCMixerAudioEngine
+- RuntimeCMixerDefaultOutputUnitHost
+- RuntimeCMixerRenderCore
+- CSoftwareMixer
+- CoreAudio DefaultOutput Audio Unit
 
 The current audible playback path uses the CoreAudio-hosted C mixer by default.
 `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` select the
-same host. The first-pass `AVAudioPlayerNode` / `AVAudioUnitVarispeed` backend
-has been retired.
+same CoreAudio DefaultOutput Audio Unit host. Unset `VTX_AUDIO_BACKEND` also
+uses this path. `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value that
+falls back to the CoreAudio C mixer with a diagnostic fallback reason.
+
+Retired AVAudio backend paths, including the first-pass
+`AVAudioPlayerNode` / `AVAudioUnitVarispeed` path and the former
+`AVAudioSourceNode` C mixer host, are historical context only and must not be
+presented as live architecture or reintroduced as runtime backends.
 
 Planned long-term architecture:
 
-AudioEngine  
-PatternPlayer  
-ChannelMixer  
-SampleVoice
+- richer tracker/editing playback workflow
+- instrument and sample editing
+- visualization scopes fed by the active playback path
 
 Backend direction:
 
-The C mixer remains behind playback/audio boundaries. Audio and DSP logic should
-stay out of AppKit view/controller code, and offline render/export validation
-remains separate from runtime smoke testing.
+The C mixer remains behind playback/audio boundaries. `SoftwareMixer` is the
+Swift reference/spec mixer; `CSoftwareMixer` is the Swift bridge over the C
+mixer used by offline renders and the runtime C mixer render core. Audio and
+DSP logic should stay out of AppKit view/controller code, and offline
+render/export validation remains separate from runtime smoke testing.
 
 For the accepted first-pass backend decision and future mixer path, see:
 
@@ -188,17 +208,17 @@ For the accepted first-pass backend decision and future mixer path, see:
 
 ---
 
-# Visualization
+# Future Visualization
 
-Scopes system.
+Planned scopes system.
 
-Displays waveform activity per channel.
+Target behavior: display waveform activity per channel.
 
 Phase 1:
 synthetic data
 
 Phase 2:
-audio engine integration
+active playback path integration
 
 Legacy reference:
 
@@ -208,12 +228,15 @@ legacy/voodootracker-classic/app/scope-group.c
 
 # Editing System
 
-Modes:
+Current editor foundation:
 
-Navigation  
-Edit  
-Play  
-Record
+- Navigation
+- Edit
+
+Future modes/workflow:
+
+- Play
+- Record
 
 Future live note entry will feed events into Pattern data model.
 

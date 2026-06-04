@@ -1,3 +1,5 @@
+// Swift bridge over the C mixer core used by offline renders and the
+// CoreAudio-hosted runtime C mixer path.
 import Foundation
 #if canImport(MixerCore)
 import MixerCore

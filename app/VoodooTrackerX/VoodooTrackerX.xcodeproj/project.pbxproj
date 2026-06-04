@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		A00000000000000000000011 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* AppDelegate.swift */; };
+		D15A00000000000000000101 /* ControlPanelDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000103 /* ControlPanelDisplayState.swift */; };
+		D15A00000000000000000102 /* ControlPanelDisplayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000103 /* ControlPanelDisplayState.swift */; };
+		D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15A00000000000000000105 /* ControlPanelViewTests.swift */; };
+		D15A00000000000000000106 /* TrackerTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000024 /* TrackerTheme.swift */; };
+		D15A00000000000000000107 /* ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000002C /* ControlPanelView.swift */; };
 		CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000103 /* BlankTrackerDocument.swift */; };
 		CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000103 /* BlankTrackerDocument.swift */; };
 		A00000000000000000000030 /* PlaybackTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036 /* PlaybackTypes.swift */; };
@@ -113,6 +118,7 @@
 /* Begin PBXFileReference section */
 		A00000000000000000000021 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000103 /* BlankTrackerDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlankTrackerDocument.swift; sourceTree = "<group>"; };
+		D15A00000000000000000103 /* ControlPanelDisplayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelDisplayState.swift; sourceTree = "<group>"; };
 		A00000000000000000000036 /* PlaybackTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTypes.swift; sourceTree = "<group>"; };
 		A00000000000000000000037 /* PlaybackTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000038 /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
@@ -137,6 +143,7 @@
 		C00000000000000000000021 /* SoftwareMixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareMixer.swift; sourceTree = "<group>"; };
 		A00000000000000000000022 /* VoodooTrackerXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoodooTrackerXTests.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlankTrackerDocumentTests.swift; sourceTree = "<group>"; };
+		D15A00000000000000000105 /* ControlPanelViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelViewTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000001 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
 		T00000000000000000000002 /* CSoftwareMixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSoftwareMixerTests.swift; sourceTree = "<group>"; };
 		T00000000000000000000003 /* OfflineRenderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineRenderTests.swift; sourceTree = "<group>"; };
@@ -254,6 +261,7 @@
 				F00000000000000000000027 /* RuntimeCMixerBackend.swift */,
 				C00000000000000000000021 /* SoftwareMixer.swift */,
 				A00000000000000000000024 /* TrackerTheme.swift */,
+				D15A00000000000000000103 /* ControlPanelDisplayState.swift */,
 				A0000000000000000000002C /* ControlPanelView.swift */,
 				A0000000000000000000002D /* LogoPanelView.swift */,
 				A0000000000000000000002E /* TrackerWindowController.swift */,
@@ -272,6 +280,7 @@
 			children = (
 				T00000000000000000000001 /* TestSupport.swift */,
 				CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */,
+				D15A00000000000000000105 /* ControlPanelViewTests.swift */,
 				T00000000000000000000002 /* CSoftwareMixerTests.swift */,
 				T00000000000000000000003 /* OfflineRenderTests.swift */,
 				T00000000000000000000004 /* PlaybackEffectTests.swift */,
@@ -422,6 +431,7 @@
 			files = (
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
 				CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */,
+				D15A00000000000000000101 /* ControlPanelDisplayState.swift in Sources */,
 				A00000000000000000000043 /* AudioEngine.swift in Sources */,
 				F00000000000000000000031 /* AudioBackendSelection.swift in Sources */,
 				A00000000000000000000044 /* AudioTypes.swift in Sources */,
@@ -508,8 +518,12 @@
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
 				CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */,
 				CAFE00000000000000000106 /* ModuleMetadataLoader.swift in Sources */,
+				D15A00000000000000000102 /* ControlPanelDisplayState.swift in Sources */,
+				D15A00000000000000000106 /* TrackerTheme.swift in Sources */,
+				D15A00000000000000000107 /* ControlPanelView.swift in Sources */,
 				T00000000000000000000101 /* TestSupport.swift in Sources */,
 				CAFE00000000000000000104 /* BlankTrackerDocumentTests.swift in Sources */,
+				D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */,
 				T00000000000000000000102 /* CSoftwareMixerTests.swift in Sources */,
 				T00000000000000000000103 /* OfflineRenderTests.swift in Sources */,
 				T00000000000000000000104 /* PlaybackEffectTests.swift in Sources */,

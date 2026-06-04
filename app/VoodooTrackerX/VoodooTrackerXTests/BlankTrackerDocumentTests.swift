@@ -50,6 +50,116 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(metadata.areInstrumentPlaceholdersEnabled)
     }
 
+    func testBlankDocumentControlPanelDisplayStateUsesStartupDefaults() {
+        let content = ControlPanelDisplayState.blankDocumentContent(
+            for: BlankTrackerDocument.makeDefault(),
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(content.songTitle, "Untitled")
+        XCTAssertEqual(content.songLength, "01")
+        XCTAssertEqual(content.songPosition, "00")
+        XCTAssertEqual(content.restartPosition, "00")
+        XCTAssertEqual(content.patternRowCount, "64")
+        XCTAssertEqual(content.channelCount, "8")
+        XCTAssertEqual(content.tempo, "125")
+        XCTAssertEqual(content.speed, "06")
+        XCTAssertEqual(content.selectedOctave, 4)
+        XCTAssertEqual(content.songPositionValue, 0)
+        XCTAssertEqual(content.maximumSongPosition, 0)
+        XCTAssertFalse(content.isSongPositionEnabled)
+        XCTAssertTrue(content.isPatternControlsEnabled)
+        XCTAssertFalse(content.areInstrumentPlaceholdersEnabled)
+    }
+
+    func testFileNewEquivalentControlPanelDisplayStateReturnsToBlankDefaults() {
+        var loadedLikeContent = ControlPanelContent()
+        loadedLikeContent.songTitle = "Loaded Module"
+        loadedLikeContent.songLength = "12"
+        loadedLikeContent.songPosition = "05"
+        loadedLikeContent.restartPosition = "02"
+        loadedLikeContent.patternRowCount = "48"
+        loadedLikeContent.channelCount = "16"
+        loadedLikeContent.tempo = "180"
+        loadedLikeContent.speed = "03"
+        loadedLikeContent.selectedOctave = 7
+        loadedLikeContent.isLoopEnabled = true
+        loadedLikeContent.isEditModeEnabled = true
+
+        let content = ControlPanelDisplayState.blankDocumentContent(
+            for: BlankTrackerDocument.makeDefault(),
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertNotEqual(content, loadedLikeContent)
+        XCTAssertEqual(content.songTitle, "Untitled")
+        XCTAssertEqual(content.songLength, "01")
+        XCTAssertEqual(content.songPosition, "00")
+        XCTAssertEqual(content.restartPosition, "00")
+        XCTAssertEqual(content.patternRowCount, "64")
+        XCTAssertEqual(content.channelCount, "8")
+        XCTAssertEqual(content.tempo, "125")
+        XCTAssertEqual(content.speed, "06")
+        XCTAssertEqual(content.selectedOctave, 4)
+        XCTAssertFalse(content.isLoopEnabled)
+        XCTAssertFalse(content.isEditModeEnabled)
+    }
+
+    func testLoadedModuleControlPanelDisplayStateUsesModuleMetadataAndEditorOctave() {
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 6,
+            patterns: 2,
+            instruments: 3,
+            xmFlags: 0x0001,
+            defaultTempo: 3,
+            defaultBPM: 180,
+            songLength: 12,
+            restartPosition: 2,
+            orderTable: [1, 0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 32, channels: 6, rows: []),
+                XMPatternData(index: 1, rowCount: 48, channels: 6, rows: [])
+            ]
+        )
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selectedSongPositionIndex: 5,
+            currentPatternIndex: 1,
+            selectedOctave: 7,
+            isLoopEnabled: true,
+            isEditModeEnabled: true,
+            isPlaybackActive: true
+        )
+
+        XCTAssertEqual(content.songTitle, "Loaded Module")
+        XCTAssertEqual(content.songLength, "12")
+        XCTAssertEqual(content.songPosition, "05")
+        XCTAssertEqual(content.restartPosition, "02")
+        XCTAssertEqual(content.patternRowCount, "48")
+        XCTAssertEqual(content.channelCount, "6")
+        XCTAssertEqual(content.tempo, "180")
+        XCTAssertEqual(content.speed, "03")
+        XCTAssertEqual(content.selectedOctave, 7)
+        XCTAssertEqual(content.songPositionValue, 5)
+        XCTAssertEqual(content.maximumSongPosition, 11)
+        XCTAssertTrue(content.isLoopEnabled)
+        XCTAssertTrue(content.isEditModeEnabled)
+        XCTAssertTrue(content.isPlaybackActive)
+        XCTAssertTrue(content.isSongPositionEnabled)
+        XCTAssertTrue(content.isPatternControlsEnabled)
+        XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
+    }
+
     func testFileNewEquivalentCreatesFreshBlankDocumentState() {
         let previous = BlankTrackerDocument.makeDefault()
         var previousPattern = previous.pattern
@@ -74,5 +184,6 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.patterns, 1)
         XCTAssertEqual(document.metadata.defaultBPM, 125)
         XCTAssertEqual(document.metadata.defaultTempo, 6)
+        XCTAssertEqual(document.metadata.restartPosition, 0)
     }
 }

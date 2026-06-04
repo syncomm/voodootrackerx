@@ -54,6 +54,7 @@ struct BlankTrackerDocument: Equatable {
             defaultTempo: speed,
             defaultBPM: tempo,
             songLength: songLength,
+            restartPosition: restartPosition,
             orderTable: [currentPatternIndex],
             xmPatterns: [pattern]
         )

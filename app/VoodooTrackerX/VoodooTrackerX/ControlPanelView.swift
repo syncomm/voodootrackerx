@@ -11,26 +11,6 @@ final class TrackerCenteredTextFieldCell: NSTextFieldCell {
     }
 }
 
-struct ControlPanelContent: Equatable {
-    var songTitle = BlankTrackerDocument.defaultTitle
-    var songLength = "01"
-    var songPosition = "00"
-    var restartPosition = "00"
-    var patternRowCount = "64"
-    var channelCount = "8"
-    var tempo = "125"
-    var speed = "06"
-    var selectedOctave = 4
-    var songPositionValue = 0
-    var maximumSongPosition = 0
-    var isLoopEnabled = false
-    var isEditModeEnabled = false
-    var isPlaybackActive = false
-    var isSongPositionEnabled = false
-    var isPatternControlsEnabled = false
-    var areInstrumentPlaceholdersEnabled = false
-}
-
 final class ControlPanelView: NSView {
     private typealias Layout = TrackerThemeMetrics.ControlPanelLayout
     private typealias Sizing = TrackerThemeMetrics.ControlPanelSizing
@@ -128,14 +108,22 @@ final class ControlPanelView: NSView {
         patternRowCountField.stringValue = "64"
         channelCountField.stringValue = "8"
         playButton.toolTip = "Play"
-        stopButton.toolTip = "Stop"
-        loopButton.toolTip = "Loop playback"
-        restartPositionField.toolTip = "Restart position"
-        tempoField.toolTip = "Tempo"
-        speedField.toolTip = "Speed"
-        songTitleField.toolTip = "Song title metadata"
-        instrumentSelector.toolTip = "Instrument selector placeholder until instrument editor exists"
-        sampleSelector.toolTip = "Sample selector placeholder until sample editor exists"
+        stopButton.toolTip = "Stop playback"
+        loopButton.toolTip = "Loop song playback"
+        editModeButton.toolTip = "Toggle edit mode"
+        songTitleField.toolTip = "Module title"
+        songLengthField.toolTip = "Song length in orders"
+        songPositionField.toolTip = "Current song position"
+        songPositionStepper.toolTip = "Change song position"
+        restartPositionField.toolTip = "Restart order"
+        patternSelector.toolTip = "Current pattern"
+        patternRowCountField.toolTip = "Rows in current pattern"
+        instrumentSelector.toolTip = "Current instrument"
+        sampleSelector.toolTip = "Current sample"
+        tempoField.toolTip = "Initial BPM"
+        speedField.toolTip = "Initial ticks per row"
+        octaveSelector.toolTip = "Selected editor octave"
+        channelCountField.toolTip = "Tracker channels"
     }
 
     private func makeTopRow() -> NSStackView {

@@ -326,7 +326,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentViewportLayout = nil
         isEditModeEnabled = false
         isLoopPlaybackEnabled = false
-        editModeCheckbox?.state = .off
 
         patternInfoLabel?.isHidden = true
         patternHeaderScrollView?.isHidden = false
@@ -994,63 +993,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func syncControlPanelView() {
-        var content = ControlPanelContent()
-        content.selectedOctave = selectedOctave
-        content.isLoopEnabled = isLoopPlaybackEnabled
-        content.isEditModeEnabled = isEditModeEnabled
-        content.isPlaybackActive = playbackEngine.state.isPlaying
-
         if let blankDocument {
-            let metadata = blankDocument.controlPanelMetadata
-            var content = ControlPanelContent()
-            content.songTitle = metadata.songTitle
-            content.songLength = metadata.songLength
-            content.songPosition = metadata.songPosition
-            content.restartPosition = metadata.restartPosition
-            content.patternRowCount = metadata.patternRowCount
-            content.channelCount = metadata.channelCount
-            content.tempo = metadata.tempo
-            content.speed = metadata.speed
-            content.selectedOctave = selectedOctave
-            content.songPositionValue = metadata.songPositionValue
-            content.maximumSongPosition = metadata.maximumSongPosition
-            content.isLoopEnabled = isLoopPlaybackEnabled
-            content.isEditModeEnabled = isEditModeEnabled
-            content.isPlaybackActive = playbackEngine.state.isPlaying
-            content.isSongPositionEnabled = metadata.isSongPositionEnabled
-            content.isPatternControlsEnabled = metadata.isPatternControlsEnabled
-            content.areInstrumentPlaceholdersEnabled = metadata.areInstrumentPlaceholdersEnabled
             reloadInstrumentPlaceholders(for: nil)
-            controlPanelView?.apply(content)
+            controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
+                for: blankDocument,
+                selectedOctave: selectedOctave,
+                isLoopEnabled: isLoopPlaybackEnabled,
+                isEditModeEnabled: isEditModeEnabled,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            ))
             return
         }
 
         if let metadata = loadedMetadata {
-            content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title
-            content.songLength = String(format: "%02d", metadata.songLength)
-            content.songPosition = String(format: "%02d", selectedSongPositionIndex)
-            content.songPositionValue = selectedSongPositionIndex
-            content.maximumSongPosition = max(0, metadata.songLength - 1)
-            content.isSongPositionEnabled = metadata.songLength > 0
-            if metadata.type == "XM",
-               metadata.xmPatterns.indices.contains(currentPatternIndex) {
-                let pattern = metadata.xmPatterns[currentPatternIndex]
-                content.patternRowCount = "\(pattern.rowCount)"
-                content.channelCount = "\(pattern.channels)"
-                content.isPatternControlsEnabled = true
-                content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
-            } else {
-                content.patternRowCount = "--"
-                content.channelCount = String(format: "%02d", metadata.channels)
-                content.isPatternControlsEnabled = false
-                content.areInstrumentPlaceholdersEnabled = false
-            }
             reloadInstrumentPlaceholders(for: metadata)
+            controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
+                metadata: metadata,
+                selectedSongPositionIndex: selectedSongPositionIndex,
+                currentPatternIndex: currentPatternIndex,
+                selectedOctave: selectedOctave,
+                isLoopEnabled: isLoopPlaybackEnabled,
+                isEditModeEnabled: isEditModeEnabled,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            ))
         } else {
             reloadInstrumentPlaceholders(for: nil)
+            controlPanelView?.apply(ControlPanelContent())
         }
-
-        controlPanelView?.apply(content)
     }
 
     // These selectors remain placeholder-driven until instrument/sample editors own real state.

@@ -55,6 +55,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Main window control-panel readouts and tooltips now reflect blank startup,
+  File New reset, and loaded-module metadata without changing playback,
+  parser architecture, or tracker viewport behavior.
 - Backend-freeze and diagnostic wording cleanup recently landed without
   playback behavior changes.
 - Current effect support and parity-watch items live in

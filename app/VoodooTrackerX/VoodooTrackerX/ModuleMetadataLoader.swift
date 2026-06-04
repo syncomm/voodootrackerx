@@ -37,6 +37,7 @@ struct ParsedModuleMetadata: Equatable {
     let defaultTempo: Int
     let defaultBPM: Int
     let songLength: Int
+    let restartPosition: Int
     let orderTable: [Int]
     var xmPatterns: [XMPatternData]
 
@@ -60,6 +61,7 @@ struct ParsedModuleMetadata: Equatable {
             lines.append("Frequency Table: \(usesLinearFrequencyTable ? "Linear" : "Amiga")")
         }
         lines.append("Song Length: \(songLength)")
+        lines.append("Restart Position: \(restartPosition)")
         return lines.joined(separator: "\n")
     }
 }
@@ -114,6 +116,7 @@ public struct ModuleMetadataLoader {
             defaultTempo: Int(info.default_tempo),
             defaultBPM: Int(info.default_bpm),
             songLength: Int(info.song_length),
+            restartPosition: Int(info.restart_position),
             orderTable: orderTable,
             xmPatterns: xmPatterns
         )

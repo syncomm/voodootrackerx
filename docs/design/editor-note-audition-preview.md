@@ -1,6 +1,6 @@
 # Editor Note Audition Preview Plan
 
-This note defines the editor-side request shape for future note audition preview. It does not add audio playback, mixer calls, runtime transport changes, pattern playback, or instrument preview.
+This note defines the editor-side request shape for future note audition preview. The current spike adds a preview coordinator and test sink seam, but it does not add audible playback, mixer calls, runtime transport changes, pattern playback, or instrument preview.
 
 ## Request Meaning
 
@@ -19,6 +19,14 @@ Loaded modules may become auditionable before they become editable. Future loade
 Loaded-module preview availability resolves the editor note-audition request against the app-level `PlaybackSong` instrument/sample model. A selected instrument/sample is unavailable when the loaded playback song is missing, the selected instrument or sample slot cannot resolve, or the resolved sample has no playable PCM payload. A resolved sample with payload reports an inert descriptor containing the instrument index, sample index, frame count, loop metadata presence, and source context.
 
 This resolver does not play audio, schedule voices, call CoreAudio, call the C mixer, or change playback transport behavior. Loaded modules may become previewable before they become editable. Blank documents remain preview-unavailable until they have real instrument/sample payload through later import or editor support.
+
+## First Preview Spike
+
+The first spike adds `EditorNoteAuditionPreviewer`, which consumes an `EditorNoteAuditionRequest` plus an `EditorNoteAuditionAvailability` result. It attempts preview only for note-on requests whose descriptor comes from a loaded module and reports real sample payload with a positive frame count. The previewer uses an injected sink so tests can verify request routing and metadata without CoreAudio or audio hardware.
+
+Actual audible preview is deferred. The existing runtime `PlaybackAudioOutput.trigger(_:)` path is coupled to song playback voices, runtime diagnostics, and transport stop/reset behavior, so this PR does not use it for editor audition. The default app sink is intentionally no-op until a dedicated preview backend can play short one-shot samples without changing runtime song playback behavior.
+
+Preview is not attempted for blank documents without real sample payload, key-off requests, clear/delete input, unavailable selected instrument/sample state, or loaded-module samples without previewable PCM payload. Loaded modules remain read-only for pattern mutation, even when their sample descriptors are potentially previewable. Blank documents remain preview-unavailable until sample import/loading/editor support provides real payload.
 
 ## Deferred Work
 

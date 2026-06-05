@@ -41,7 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Add a note audition preview playback spike behind the inert request model.
+1. Plan a synthetic redistributable XM fixture pack for editor/audio preview tests.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +55,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Note audition preview routing now has a small no-audio coordinator and
+  injected test sink seam behind the inert request and loaded-module
+  availability model. It attempts only note-on requests with loaded-module
+  previewable descriptors, keeps blank documents unavailable without real
+  sample payload, keeps opened modules read-only, and leaves runtime playback,
+  C mixer DSP, backend selection, parser architecture, and tracker viewport
+  behavior unchanged.
 - Note audition preview availability now resolves loaded-module selected
   instrument/sample state against safe `PlaybackSong` sample data, returning
   inert descriptors for previewable payloads while keeping blank documents

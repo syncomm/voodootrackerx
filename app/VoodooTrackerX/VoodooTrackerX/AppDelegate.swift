@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let playbackEngine = PlaybackEngine()
+    private let noteAuditionPreviewer = EditorNoteAuditionPreviewer()
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
     private var isLoopPlaybackEnabled = false
@@ -606,10 +607,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
         guard interactionMode == .edit,
-              cursor.field == .note,
+              cursor.field == .note else {
+            return false
+        }
+
+        let sourceContext = currentEditorNoteAuditionSourceContext()
+        let previewOutcome = attemptEditorNoteAuditionPreview(for: input, sourceContext: sourceContext)
+        guard EditorPatternMutationPolicy.canMutatePattern(sourceContext: sourceContext),
               var document = blankDocument,
               loadedMetadata == nil else {
-            return false
+            return previewOutcome.didAttemptPreview
         }
 
         let didMutate: Bool
@@ -638,6 +645,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
         return true
+    }
+
+    private func currentEditorNoteAuditionSourceContext() -> EditorNoteAuditionSourceContext {
+        loadedMetadata != nil
+            ? .loadedModule(patternIndex: currentPatternIndex)
+            : blankDocument?.noteAuditionSourceContext ?? .blankDocument
+    }
+
+    private func attemptEditorNoteAuditionPreview(
+        for input: PatternEditInput,
+        sourceContext: EditorNoteAuditionSourceContext
+    ) -> EditorNoteAuditionPreviewOutcome {
+        guard case let .noteKey(character) = input else {
+            return noteAuditionPreviewer.preview(
+                request: nil,
+                availability: .unavailable(.selectedInstrumentSampleNotPlayable)
+            )
+        }
+        let selection = blankDocument?.selection ?? .default
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: character,
+            selectedOctave: selectedOctave,
+            selection: selection,
+            sourceContext: sourceContext,
+            channelIndex: cursor.channel,
+            rowIndex: cursor.row
+        )
+        let availability: EditorNoteAuditionAvailability
+        if loadedMetadata != nil {
+            availability = request.map {
+                EditorNoteAuditionAvailabilityResolver.availability(
+                    for: $0,
+                    loadedPlaybackSong: playbackEngine.song
+                )
+            } ?? .unavailable(.selectedInstrumentSampleNotPlayable)
+        } else if let document = blankDocument {
+            availability = document.noteAuditionAvailability
+        } else {
+            availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
+        }
+        return noteAuditionPreviewer.preview(request: request, availability: availability)
     }
 
     private func handlePatternWheel(deltaY: CGFloat) {

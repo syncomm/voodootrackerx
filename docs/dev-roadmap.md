@@ -56,6 +56,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Editor note preview now routes sanitized sample-loop metadata from loaded
+  `PlaybackSong` samples into the preview-only render plan and C mixer voice,
+  so held Edit-mode preview notes can sustain through existing forward or
+  ping-pong sample loops until keyUp cancels the active preview. Non-looping
+  samples remain one-shots, and runtime song playback, transport state,
+  backend selection, C mixer DSP, parser architecture, tracker viewport
+  behavior, save/export behavior, and loaded-module read-only editing remain
+  unchanged. Full FT2/XM envelope/key-off/fadeout parity and non-Edit-mode
+  audition remain deferred.
 - Editor note preview now stops/cancels the active preview-only voice on the
   matching Edit-mode tracker note keyUp. The release path is token-gated so
   stale keyUp events from a replaced preview do not cancel the newer preview,

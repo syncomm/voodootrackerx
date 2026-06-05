@@ -190,6 +190,15 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Edit-mode loaded-module note preview now carries sanitized sample-loop
+  metadata through the preview descriptor/render plan and lets held preview
+  notes sustain through existing forward or ping-pong C mixer loop support
+  until matching keyUp cancels the preview. Non-looping samples remain
+  one-shots. Runtime song playback, Play/Stop transport, backend selection, C
+  mixer DSP, parser architecture, tracker viewport behavior, save/export
+  behavior, and loaded-module read-only mutation policy remain unchanged. Full
+  FT2/XM envelope/key-off/fadeout parity and non-Edit-mode audition remain
+  deferred.
 - Edit-mode loaded-module note preview now tracks the active preview key and
   stops only the editor preview voice on the matching keyUp. KeyUp does not
   write pattern `===`, backtick remains the explicit pattern key-off binding,

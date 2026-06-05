@@ -52,6 +52,7 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
             EditorNoteAuditionPreviewRenderParameters(
                 gain: $0.gain,
                 playbackStep: $0.playbackStep,
+                loop: $0.loop,
                 instrumentIndex: $0.instrumentIndex,
                 sampleIndex: $0.sampleIndex
             )
@@ -62,6 +63,7 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
 struct EditorNoteAuditionPreviewRenderParameters: Equatable {
     let gain: Float
     let playbackStep: Double
+    let loop: MixerSampleLoop
     let instrumentIndex: Int
     let sampleIndex: Int
 }
@@ -70,6 +72,7 @@ private struct EditorNoteAuditionPreviewRenderPlan {
     let sample: MixerSampleBuffer
     let gain: Float
     let playbackStep: Double
+    let loop: MixerSampleLoop
     let instrumentIndex: Int
     let sampleIndex: Int
 
@@ -84,6 +87,7 @@ private struct EditorNoteAuditionPreviewRenderPlan {
 
         sample = MixerSampleBuffer(monoPCM: Array(descriptor.previewPCM.prefix(frameCount)))
         gain = EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: descriptor.previewVolume)
+        loop = descriptor.previewLoop.sanitized(sampleFrameCount: frameCount)
         instrumentIndex = descriptor.instrumentIndex
         sampleIndex = descriptor.sampleIndex
         playbackStep = EditorNoteAuditionPreviewPitchPolicy.playbackStep(
@@ -129,11 +133,12 @@ final class EditorNoteAuditionPreviewMixer {
             gain: plan.gain,
             pan: 0,
             playbackStep: plan.playbackStep,
-            loop: .none
+            loop: plan.loop
         )
         lastRenderParameters = EditorNoteAuditionPreviewRenderParameters(
             gain: plan.gain,
             playbackStep: plan.playbackStep,
+            loop: plan.loop,
             instrumentIndex: plan.instrumentIndex,
             sampleIndex: plan.sampleIndex
         )

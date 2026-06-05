@@ -1,0 +1,51 @@
+{
+  "artifact_policy": {
+    "binary_xm_commits_require_explicit_review": true,
+    "generated_wav_json_markdown_logs_stay_under_tmp_by_default": true,
+    "private_corpus_dependencies_allowed": false,
+    "private_modules_allowed": false
+  },
+  "fixture_pack_layout": {
+    "generated_xm": "generated/",
+    "reference_renders": "reference-renders/",
+    "source": "source/"
+  },
+  "fixtures": [
+    {
+      "name": "basic-instrument-sample.xm",
+      "pattern_plan": {
+        "channels": 1,
+        "events": [
+          {
+            "channel": 0,
+            "instrument": 1,
+            "note": "C-4",
+            "row": 0
+          },
+          {
+            "channel": 0,
+            "note": "key-off",
+            "row": 8
+          }
+        ],
+        "rows": 16
+      },
+      "purpose": "One instrument, one sample, simple note events, and real synthetic sample payload for parser/editor positive-path tests.",
+      "reference_render_directory": "reference-renders/",
+      "sample_formula": {
+        "format": "future_signed_8_bit_pcm",
+        "formula": "round(48 * sin(2 * pi * frame / 16))",
+        "length_frames": 64,
+        "loop": null,
+        "normalization": "bounded integer amplitude; no copied sample material"
+      },
+      "source_manifest": "source/basic-instrument-sample.manifest.json",
+      "status": "planned",
+      "xm_output": "generated/basic-instrument-sample.xm"
+    }
+  ],
+  "generator": "scripts/generate-synthetic-xm-fixtures.py",
+  "schema_version": 1,
+  "writes_binary_xm_by_default": false,
+  "writes_reference_renders_by_default": false
+}

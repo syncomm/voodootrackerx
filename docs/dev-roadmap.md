@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Add a synthetic XM fixture generator skeleton based on
-   `docs/design/synthetic-xm-reference-fixture-pack.md`.
+1. Generate `basic-instrument-sample.xm` from the synthetic fixture skeleton and
+   add focused parser/editor positive-path tests.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +56,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Synthetic XM fixture generator skeleton now adds the public fixture-pack
+  README, deterministic source manifest, generator script contract, and focused
+  script tests without adding binary XM files, WAV reference renders, backend
+  behavior, parser architecture changes, tracker viewport changes, editor
+  behavior, or note audition audio.
 - Synthetic redistributable XM fixture pack planning now defines public-safe
   fixture structure, licensing rules, focused fixture families, and local
   reference-render policy without adding fixture assets or changing backend,

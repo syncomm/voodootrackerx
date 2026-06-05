@@ -5,12 +5,16 @@ Practical testing notes for parser/core work and snapshot-based regression check
 ## Fixture Rules
 
 Fixtures live in `tests/fixtures/`.
+Future generated XM reference fixtures live under `tests/reference-xm/` once
+explicitly reviewed.
 
 Rules:
 - Use synthetic, tiny fixtures generated for tests.
 - Do not add copyrighted module music.
 - Keep fixtures minimal and deterministic (header-only when possible).
 - Update `tests/fixtures/README.md` if provenance/generation guidance changes.
+- For `tests/reference-xm/`, follow that directory's README and keep binary XM
+  fixture commits explicit and reviewed.
 
 ## Run Core Tests
 

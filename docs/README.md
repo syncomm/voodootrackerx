@@ -38,6 +38,8 @@ relevant to the task.
 - `docs/testing.md` - fixture and test guidance.
 - `docs/design/synthetic-xm-reference-fixture-pack.md` - plan for future
   public-safe XM reference fixtures.
+- `tests/reference-xm/README.md` - public synthetic XM fixture-pack contract
+  and generator workflow.
 - `docs/templates/local-audio-comparison-findings.md` - blank local findings
   template.
 

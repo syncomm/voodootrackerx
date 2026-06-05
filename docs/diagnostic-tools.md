@@ -8,8 +8,9 @@ script or tool behavior.
 
 Inventoried files:
 
-- 15 files under `scripts/`.
+- 16 files under `scripts/`.
 - 3 Python test helper modules under `tools/`.
+- 1 Python fixture-generator test helper under `tools/`.
 - 2 SwiftPM command entrypoints under `tools/`.
 - 1 active Swift command implementation under tool-owned SwiftPM support
   sources.
@@ -51,6 +52,7 @@ Classification terms:
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `scripts/check-files.sh` | Active workflow; active CI/local helper | Performs the repo's basic required-file hygiene check. | `README.md`, `AGENTS.md`, `docs/agent-current-state.md`, `docs/contributing.md`, `docs/roadmap.md`, design docs. | No private data. | No generated output. | Keep. | Leave as a small stable repo hygiene script. |
 | `scripts/run-golden.sh` | Active workflow; golden/test helper | Regenerates parser golden JSON snapshots from redistribution-safe fixtures. | `README.md`, `docs/testing.md`; calls `swift run mc_dump`. | No private data; uses committed fixtures only. | No; intentionally writes `tests/golden/`. | Keep. | Leave separate from diagnostics; only run for intentional parser snapshot changes. |
+| `scripts/generate-synthetic-xm-fixtures.py` | Active test helper; fixture generator skeleton | Prints or writes the deterministic source manifest for future public-safe XM fixtures under `tests/reference-xm/`. | `tests/reference-xm/README.md`, `docs/design/synthetic-xm-reference-fixture-pack.md`, `tools/synthetic_xm_fixture_generator_tests.py`. | No private data; explicitly forbids private modules and private corpus dependencies. | No by default; writes only the requested source manifest when invoked with `--write-manifest`. | Keep. | Extend in small reviewed fixture PRs; do not emit binary XM or reference renders by default. |
 | `scripts/audio-compare.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Compares reference and candidate WAVs and emits audio metrics, windows, JSON, and Markdown. | `docs/audio-comparison.md`, `docs/testing.md`, ADR 004, archived reports, `tools/audio_compare_tests.py`, Swift render tests. | Handles WAVs that may be derived from private modules; reports must use public-safe labels. | Yes for JSON/Markdown reports and source WAVs unless using temp test dirs. | Keep for now. | Make `audio_compare` a first-class unified CLI subcommand; keep compatibility wrapper until docs/tests migrate. |
 | `scripts/local-reference-compare-smoke.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Thin smoke wrapper around `audio-compare.py` with default report paths. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`; invokes `scripts/audio-compare.py`. | Handles local candidate/reference WAVs; metadata is printed only and must stay public-safe. | Yes; defaults to `/tmp/vtx-local-reference-comparison`. | Keep for now. | Fold into the future `audio_compare` subcommand as a preset/default mode. |
 | `scripts/correlate-audio-comparison.py` | Active workflow; diagnostic / local-only; hyper-specific; candidate CLI subcommand | Correlates `audio-compare.py` worst windows with bounded render diagnostics. | `docs/audio-comparison.md`, archived reports, `tools/audio_compare_tests.py`. | Handles diagnostics from local/private modules; labels and metadata must be anonymized. | Yes. | Keep for now. | Fold into `reference_triage` or `audio_compare correlate`; preserve report schema tests before moving. |
@@ -70,6 +72,7 @@ Classification terms:
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for residual effect scan classification and recommendation logic. | Required when residual/corpus tooling is referenced or touched. | Uses synthetic module structures. | No persistent output. | Keep. | Move beside future `residual_scan` CLI package tests. |
 | `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
+| `tools/synthetic_xm_fixture_generator_tests.py` | Active test helper | Tests the deterministic synthetic XM fixture manifest skeleton and output-path confinement. | Required when `scripts/generate-synthetic-xm-fixtures.py` or `tests/reference-xm/` generator contracts change. | Uses synthetic manifest data and temporary directories only. | Test temp dirs only. | Keep. | Extend alongside future public fixture-generation behavior. |
 | `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift` | Active test reference | Swift render/export tests include a helper that invokes `scripts/audio-compare.py` for Float32 comparison checks. | SwiftPM test target `VTXRenderBoundedXMTests`. | Uses generated test files and temp directories. | Test temp dirs only. | Keep. | Update helper path only if `audio-compare.py` gains a compatibility wrapper or unified CLI replacement. |
 
 Unknown / needs follow-up: none found in this pass, but all archive candidates
@@ -120,10 +123,12 @@ Golden/test helpers:
 
 - `scripts/check-files.sh`
 - `scripts/run-golden.sh`
+- `scripts/generate-synthetic-xm-fixtures.py`
 - `tools/mc_dump/main.c`
 - `tools/audio_compare_tests.py`
 - `tools/xm_residual_effect_scan_tests.py`
 - `tools/private_xm_corpus_label_map_tests.py`
+- `tools/synthetic_xm_fixture_generator_tests.py`
 - `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift`
 
 Bounded render/export:

@@ -41,7 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Add the two-row tracker keyboard map.
+1. Plan note audition preview at the editor/audio boundary.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +55,9 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Blank-document note entry now supports the two-row tracker keyboard map:
+  lower row at selected octave, upper row at selected octave + 1, with high-C
+  keys and audio audition deferred.
 - Blank documents now carry selected 1-based instrument/sample slot state and
   show those slots truthfully in the control panel, without adding preview
   playback, backend dependencies, or loaded-module editing.
@@ -90,6 +93,7 @@ implemented.
 Implemented:
 
 - blank tracker startup and File New foundation
+- two-row tracker keyboard map
 - static highlight row
 - shared slot model for gutter/body alignment
 - wrap behavior
@@ -98,7 +102,6 @@ Implemented:
 
 Remaining:
 
-- two-row tracker keyboard map
 - note preview/audition follow-through after selection and keyboard foundations
 - instrument/effect entry
 - copy/paste workflows

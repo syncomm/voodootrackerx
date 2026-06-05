@@ -320,13 +320,31 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("C"))
         XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("s"))
         XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("J"))
-        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("q"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("q"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("2"))
+        XCTAssertTrue(TrackerNoteKeyMap.isTrackerNoteKey("U"))
         XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "z", octave: 4), 49)
         XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "s", octave: 4), 50)
         XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "x", octave: 4), 51)
         XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "j", octave: 4), 59)
         XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "m", octave: 7), 96)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "q", octave: 4), 61)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "2", octave: 4), 62)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "u", octave: 4), 72)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "q", octave: 7), 85)
+        XCTAssertEqual(TrackerNoteKeyMap.noteValue(forTrackerKey: "u", octave: 7), 96)
         XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: "z", octave: 8))
+    }
+
+    func testTrackerNoteKeyMappingDoesNotIncludeHighCKeys() {
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("i"))
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey(","))
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("."))
+        XCTAssertFalse(TrackerNoteKeyMap.isTrackerNoteKey("/"))
+        XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: "i", octave: 4))
+        XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: ",", octave: 4))
+        XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: ".", octave: 4))
+        XCTAssertNil(TrackerNoteKeyMap.noteValue(forTrackerKey: "/", octave: 4))
     }
 
     func testTrackerKeyOffBindingUsesBacktickAndDoesNotOverlapNoteKeys() {

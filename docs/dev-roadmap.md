@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Start the audible note preview architecture spike without changing runtime
-   song playback behavior.
+1. Define non-Edit-mode note audition policy without changing runtime song
+   playback behavior.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +56,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Editor note preview now stops/cancels the active preview-only voice on the
+  matching Edit-mode tracker note keyUp. The release path is token-gated so
+  stale keyUp events from a replaced preview do not cancel the newer preview,
+  keyUp does not write pattern `===`, backtick remains the explicit pattern
+  key-off entry, repeated keyDown suppression is preserved, and runtime song
+  playback, transport state, backend selection, C mixer DSP, parser
+  architecture, tracker viewport behavior, save/export behavior, and
+  loaded-module read-only editing remain unchanged. Full FT2/XM release
+  envelope parity and non-Edit-mode audition remain deferred.
 - Editor note preview now maps lower-row keys to the selected octave and
   upper-row keys to selected octave + 1 for preview pitch in the same
   preview-only mixer path used by the audible sink. Loaded-module preview uses
@@ -166,11 +175,11 @@ Remaining:
 - pattern length/edit operations
 - broader keyboard workflow parity
 
-Note audition now has a minimal loaded-module audible preview spike behind the
-editor/audio boundary. Key release should only send preview key-off; pattern
-key-off remains explicit `===` entry. Loaded modules may be auditionable before
-they are editable, while XI import, sample loading, instrument editing, and
-sample editing remain later milestones.
+Note audition now has a minimal loaded-module audible preview path behind the
+editor/audio boundary. Edit-mode key release stops only the active preview
+voice; pattern key-off remains explicit `===` entry. Loaded modules may be
+auditionable before they are editable, while XI import, sample loading,
+instrument editing, and sample editing remain later milestones.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 

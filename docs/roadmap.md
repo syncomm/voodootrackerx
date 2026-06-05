@@ -185,11 +185,20 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Start the audible note preview architecture spike without changing runtime
-  song playback behavior.
+- Define non-Edit-mode note audition policy without changing runtime song
+  playback behavior.
 
 Recently completed product foundation:
 
+- Edit-mode loaded-module note preview now tracks the active preview key and
+  stops only the editor preview voice on the matching keyUp. KeyUp does not
+  write pattern `===`, backtick remains the explicit pattern key-off binding,
+  repeated keyDown events still do not retrigger preview, stale keyUp events do
+  not cancel newer previews, and runtime song playback, Play/Stop transport,
+  backend selection, C mixer DSP, parser architecture, tracker viewport
+  behavior, save/export behavior, and loaded-module read-only mutation policy
+  remain unchanged. Full FT2/XM release/envelope parity and non-Edit-mode
+  audition remain deferred.
 - Editor note preview now maps typed note/octave to preview pitch in the same
   preview-only mixer path used by the audible sink, resolves loaded-module
   instruments through the selected instrument and current sample-map policy,

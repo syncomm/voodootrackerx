@@ -179,6 +179,17 @@ struct EditorNoteAuditionRequest: Equatable {
     }
 }
 
+enum EditorPatternMutationPolicy {
+    static func canMutatePattern(sourceContext: EditorNoteAuditionSourceContext) -> Bool {
+        switch sourceContext {
+        case .blankDocument:
+            return true
+        case .loadedModule:
+            return false
+        }
+    }
+}
+
 enum EditorNoteAuditionUnavailableReason: Equatable {
     case blankDocumentMissingInstrumentSamplePayload
     case loadedModuleMissingPlaybackSong
@@ -216,6 +227,81 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
 enum EditorNoteAuditionAvailability: Equatable {
     case potentiallyAvailable(EditorNoteAuditionSampleDescriptor)
     case unavailable(EditorNoteAuditionUnavailableReason)
+}
+
+struct EditorNoteAuditionPreviewEvent: Equatable {
+    let request: EditorNoteAuditionRequest
+    let sampleDescriptor: EditorNoteAuditionSampleDescriptor
+    let noteValue: UInt8
+    let selectedOctave: Int
+}
+
+enum EditorNoteAuditionPreviewSkipReason: Equatable {
+    case missingRequest
+    case nonNoteRequest
+    case unavailable(EditorNoteAuditionUnavailableReason)
+    case loadedModulePayloadRequired
+}
+
+enum EditorNoteAuditionPreviewOutcome: Equatable {
+    case attempted(EditorNoteAuditionPreviewEvent)
+    case skipped(EditorNoteAuditionPreviewSkipReason)
+
+    var didAttemptPreview: Bool {
+        if case .attempted = self {
+            return true
+        }
+        return false
+    }
+}
+
+protocol EditorNoteAuditionPreviewSink: AnyObject {
+    func preview(_ event: EditorNoteAuditionPreviewEvent)
+}
+
+final class NoopEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
+    func preview(_ event: EditorNoteAuditionPreviewEvent) {}
+}
+
+final class EditorNoteAuditionPreviewer {
+    private let sink: EditorNoteAuditionPreviewSink
+
+    init(sink: EditorNoteAuditionPreviewSink = NoopEditorNoteAuditionPreviewSink()) {
+        self.sink = sink
+    }
+
+    @discardableResult
+    func preview(
+        request: EditorNoteAuditionRequest?,
+        availability: EditorNoteAuditionAvailability
+    ) -> EditorNoteAuditionPreviewOutcome {
+        guard let request else {
+            return .skipped(.missingRequest)
+        }
+        guard case let .noteOn(noteValue, selectedOctave) = request.kind else {
+            return .skipped(.nonNoteRequest)
+        }
+        guard case let .potentiallyAvailable(descriptor) = availability else {
+            if case let .unavailable(reason) = availability {
+                return .skipped(.unavailable(reason))
+            }
+            return .skipped(.loadedModulePayloadRequired)
+        }
+        guard case .loadedModule = descriptor.sourceContext,
+              descriptor.hasSamplePayload,
+              descriptor.sampleFrameCount > 0 else {
+            return .skipped(.loadedModulePayloadRequired)
+        }
+
+        let event = EditorNoteAuditionPreviewEvent(
+            request: request,
+            sampleDescriptor: descriptor,
+            noteValue: noteValue,
+            selectedOctave: selectedOctave
+        )
+        sink.preview(event)
+        return .attempted(event)
+    }
 }
 
 enum EditorNoteAuditionAvailabilityResolver {

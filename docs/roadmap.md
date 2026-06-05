@@ -185,10 +185,17 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Note audition preview playback spike behind the inert request model.
+- Synthetic redistributable XM fixture pack plan for editor/audio preview tests.
 
 Recently completed product foundation:
 
+- Editor note audition preview routing now has a small no-audio coordinator and
+  injected test sink seam behind the inert request and loaded-module
+  availability model. It attempts only note-on requests with loaded-module
+  previewable descriptors, keeps blank documents unavailable without real
+  sample payload, keeps opened modules read-only, and leaves runtime playback,
+  C mixer DSP, backend selection, parser architecture, and tracker viewport
+  behavior unchanged.
 - Editor note audition preview availability now resolves loaded-module
   instrument/sample requests against safe `PlaybackSong` sample data and reports
   inert descriptors for previewable payloads without adding audio playback,

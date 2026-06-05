@@ -72,6 +72,11 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNil(request)
     }
 
+    func testEditorPatternMutationPolicyKeepsLoadedModulesReadOnly() {
+        XCTAssertTrue(EditorPatternMutationPolicy.canMutatePattern(sourceContext: .blankDocument))
+        XCTAssertFalse(EditorPatternMutationPolicy.canMutatePattern(sourceContext: .loadedModule(patternIndex: 0)))
+    }
+
     func testBlankDocumentNoteAuditionAvailabilityIsUnavailableWithoutInstrumentSamplePayload() {
         let document = BlankTrackerDocument.makeDefault()
         let request = EditorNoteAuditionRequest.noteOn(
@@ -267,6 +272,125 @@ final class BlankTrackerDocumentTests: XCTestCase {
         if case .potentiallyAvailable = EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song) {
             XCTFail("minimal.xm should not be required to provide a previewable loaded sample payload")
         }
+    }
+
+    func testNoteAuditionPreviewerSkipsBlankDocumentsWithoutRealSamplePayload() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let document = BlankTrackerDocument.makeDefault()
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "z",
+            selectedOctave: 4,
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        let outcome = previewer.preview(request: request, availability: document.noteAuditionAvailability)
+
+        XCTAssertEqual(outcome, .skipped(.unavailable(.blankDocumentMissingInstrumentSamplePayload)))
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionPreviewerSkipsKeyOffRequests() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let request = EditorNoteAuditionRequest.previewKeyOff(
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 1,
+            rowIndex: 2
+        )
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            sampleFrameCount: 4,
+            hasSamplePayload: true,
+            hasLoopMetadata: false,
+            sourceContext: .loadedModule(patternIndex: 0)
+        )
+
+        let outcome = previewer.preview(request: request, availability: .potentiallyAvailable(descriptor))
+
+        XCTAssertEqual(outcome, .skipped(.nonNoteRequest))
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionPreviewerSkipsClearDeleteWithoutRequest() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+
+        let outcome = previewer.preview(
+            request: nil,
+            availability: .unavailable(.selectedInstrumentSampleNotPlayable)
+        )
+
+        XCTAssertEqual(outcome, .skipped(.missingRequest))
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionPreviewerSkipsLoadedModuleUnavailableState() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        let outcome = previewer.preview(
+            request: request,
+            availability: .unavailable(.selectedSampleMissingPayload)
+        )
+
+        XCTAssertEqual(outcome, .skipped(.unavailable(.selectedSampleMissingPayload)))
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionPreviewerAttemptsSyntheticLoadedModuleNoteDescriptorAndDeliversMetadata() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let selection = TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3)
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 61, selectedOctave: 4),
+            selection: selection,
+            sourceContext: .loadedModule(patternIndex: 2),
+            channelIndex: 5,
+            rowIndex: 16
+        )
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: 7,
+            sampleIndex: 2,
+            sampleFrameCount: 128,
+            hasSamplePayload: true,
+            hasLoopMetadata: true,
+            sourceContext: .loadedModule(patternIndex: 2)
+        )
+
+        let outcome = previewer.preview(request: request, availability: .potentiallyAvailable(descriptor))
+
+        XCTAssertEqual(
+            outcome,
+            .attempted(EditorNoteAuditionPreviewEvent(
+                request: request,
+                sampleDescriptor: descriptor,
+                noteValue: 61,
+                selectedOctave: 4
+            ))
+        )
+        XCTAssertEqual(sink.events.count, 1)
+        XCTAssertEqual(sink.events.first?.request.selectedInstrumentIndex, 7)
+        XCTAssertEqual(sink.events.first?.request.selectedSampleIndex, 3)
+        XCTAssertEqual(sink.events.first?.request.channelIndex, 5)
+        XCTAssertEqual(sink.events.first?.request.rowIndex, 16)
+        XCTAssertEqual(sink.events.first?.sampleDescriptor.instrumentIndex, 7)
+        XCTAssertEqual(sink.events.first?.sampleDescriptor.sampleIndex, 2)
+        XCTAssertEqual(sink.events.first?.sampleDescriptor.sampleFrameCount, 128)
+        XCTAssertEqual(sink.events.first?.noteValue, 61)
+        XCTAssertEqual(sink.events.first?.selectedOctave, 4)
     }
 
     func testPreviewKeyReleaseRequestDoesNotWritePatternKeyOffData() {
@@ -683,5 +807,13 @@ final class BlankTrackerDocumentTests: XCTestCase {
             throw XCTSkip("Missing fixture \(name)")
         }
         return url
+    }
+}
+
+private final class RecordingEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
+    private(set) var events = [EditorNoteAuditionPreviewEvent]()
+
+    func preview(_ event: EditorNoteAuditionPreviewEvent) {
+        events.append(event)
     }
 }

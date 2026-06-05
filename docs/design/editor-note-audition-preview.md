@@ -1,20 +1,20 @@
 # Editor Note Audition Preview Plan
 
-This note defines the editor-side request shape for note audition preview. The current spike proves an isolated loaded-module sample audition path for Edit-mode note input with real public fixture sample payload, while keeping runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability unchanged.
+This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated loaded-module sample audition from tracker note keys in both Edit mode and non-Edit mode when real public fixture sample payload is available, while keeping runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability unchanged.
 
 ## Request Meaning
 
-When Edit mode receives a tracker note key, the editor may create an `EditorNoteAuditionRequest` alongside the existing pattern note-entry action. The request is preview-only data: note value, selected octave, selected 1-based instrument/sample slots, source context, and optional row/channel context.
+When the tracker note field receives a tracker note key, the editor may create an `EditorNoteAuditionRequest`. The request is preview-only data: note value, selected octave, selected 1-based instrument/sample slots, source context, and optional row/channel context. Edit-mode pattern mutation is a separate policy decision from preview routing.
 
-The current audible sink maps the typed note value to preview playback pitch using the existing runtime pitch calculator and the resolved sample's base rate, relative note, and finetune metadata. Lower-row tracker keys preview at the selected octave, and upper-row tracker keys preview at selected octave + 1, matching note-entry routing. The same preview-only mixer wrapper used by the CoreAudio sink receives that computed playback step, so tests cover the scheduling path that audible preview uses. The preview sink applies sample volume through the same loaded-module adapter gain helper used by runtime playback at neutral channel/global volume, applies the default runtime C mixer output headroom gain, and then bounds the result with a preview-only safety cap above the normal default-runtime preview level. This is a preview boundary policy only: it does not change runtime song playback gain, module/runtime gain configuration, global volume, channel volume, volume-column state, or envelope state. Non-Edit-mode keyboard audition is deferred. Repeated AppKit keyDown events for tracker note keys do not retrigger preview, so a held key produces only the initial audition; if the resolved sample carries supported loop metadata, the preview voice may sustain through that loop until key release cancels it.
+The current audible sink maps the typed note value to preview playback pitch using the existing runtime pitch calculator and the resolved sample's base rate, relative note, and finetune metadata. Lower-row tracker keys preview at the selected octave, and upper-row tracker keys preview at selected octave + 1, matching note-entry routing. The same preview-only mixer wrapper used by the CoreAudio sink receives that computed playback step, so tests cover the scheduling path that audible preview uses. The preview sink applies sample volume through the same loaded-module adapter gain helper used by runtime playback at neutral channel/global volume, applies the default runtime C mixer output headroom gain, and then bounds the result with a preview-only safety cap above the normal default-runtime preview level. This is a preview boundary policy only: it does not change runtime song playback gain, module/runtime gain configuration, global volume, channel volume, volume-column state, or envelope state. Repeated AppKit keyDown events for tracker note keys do not retrigger preview, so a held key produces only the initial audition; if the resolved sample carries supported loop metadata, the preview voice may sustain through that loop until key release cancels it.
 
-Edit-mode note key release is preview-only. A previewable tracker note `keyDown` starts or replaces the active preview note, and the matching tracker note `keyUp` stops/cancels only the active editor preview voice through the isolated preview sink. Key release does not write pattern data and never inserts `===`. Pattern key-off remains the explicit `===` note entry through the backtick/grave-accent key binding.
+Tracker note key release is preview-only in both Edit and non-Edit modes. A previewable tracker note `keyDown` starts or replaces the active preview note, and the matching tracker note `keyUp` stops/cancels only the active editor preview voice through the isolated preview sink. Key release does not write pattern data and never inserts `===`. Pattern key-off remains the explicit `===` note entry through the backtick/grave-accent key binding only where editing is allowed.
 
 ## Source Rules
 
 Blank documents currently contain selected instrument/sample slots such as `I01`/`S01`, but no real instrument or sample payload. They are therefore preview-unavailable until a later milestone adds a real playable payload through import, sample loading, or editors.
 
-Loaded modules may become auditionable before they become editable. Future loaded-module audition may resolve selected instrument/sample data from the loaded playback model, but it must not mutate loaded pattern data.
+Loaded modules may be auditionable before they become editable. Loaded-module audition resolves selected instrument/sample data from the loaded playback model, but it must not mutate loaded pattern data.
 
 ## Loaded-Module Sample Availability
 
@@ -34,6 +34,24 @@ forward and ping-pong loop descriptor routing until a public looped XM fixture
 is added. The generated fixture continues to assert the expected parsed base
 sample rate of 8,363 Hz. Loaded modules remain read-only.
 
+## Input Routing Policy
+
+`EditorNoteAuditionInputPolicy` is the explicit note-field routing policy:
+
+- Edit mode ON plus blank-document source may mutate note-field pattern data.
+- Edit mode OFF never mutates pattern data.
+- Loaded-module sources never mutate pattern data, regardless of Edit mode.
+- Tracker note-key `keyDown` may request preview in both Edit and non-Edit modes.
+- Non-Edit-mode note-key `keyDown` may audition the selected loaded-module instrument/sample when availability resolves to a previewable payload.
+- Blank documents remain preview-unavailable because selected `I01` / `S01` slots do not contain real instrument/sample payload.
+- Repeated loaded-module note-key `keyDown` events are consumed without retriggering preview.
+- Backtick remains explicit pattern key-off entry only when editing is allowed.
+- Delete/Backspace and `.` clear note data only when editing is allowed.
+- Tracker note-key `keyUp` stops/cancels the matching active preview in both Edit and non-Edit modes.
+- Tracker note-key `keyUp` does not write pattern data and never inserts `===`.
+
+Spacebar Play/Stop remains transport routing before edit input. Note audition does not call `PlaybackEngine`, does not toggle transport state, does not start runtime song playback, and does not move playback-follow or row-follow position.
+
 ## First Preview Spike
 
 The first routing spike added `EditorNoteAuditionPreviewer`, which consumes an `EditorNoteAuditionRequest` plus an `EditorNoteAuditionAvailability` result. It attempts preview only for note-on requests whose descriptor comes from a loaded module and reports real sample payload with a positive frame count and copied PCM payload. The previewer uses an injected sink so tests can verify request routing and metadata without CoreAudio or audio hardware.
@@ -46,7 +64,7 @@ The editor previewer tracks the active preview key identity with a generation to
 The current audible preview is intentionally simple:
 
 - loaded-module note-on requests only
-- Edit-mode note input only
+- tracker note-field note input in Edit and non-Edit modes
 - selected instrument/sample must resolve to `.potentiallyAvailable(...)`
 - repeated note-key `keyDown` events do not retrigger preview
 - copied Float32 mono PCM payload must be non-empty
@@ -66,11 +84,10 @@ The current audible preview is intentionally simple:
 
 Looped sample preview sustain is limited to sample-loop metadata already exposed by the loaded playback model and accepted by the preview-only mixer wrapper. Full FT2/XM envelope, key-off, fadeout, and effect parity remains deferred.
 
-Preview is not attempted outside Edit-mode note input, for blank documents without real sample payload, key-off requests, clear/delete input, navigation, unsupported keys, unavailable selected instrument/sample state, or loaded-module samples without previewable PCM payload. Loaded modules remain read-only for pattern mutation, even when their sample descriptors are potentially previewable. Blank documents remain silent and preview-unavailable until sample import/loading/editor support provides real payload. Play/Stop transport, transport state, and normal song playback remain unrelated to editor preview and unchanged by this preview sink.
+Preview is not attempted for blank documents without real sample payload, key-off requests, clear/delete input, navigation, unsupported keys, unavailable selected instrument/sample state, or loaded-module samples without previewable PCM payload. Loaded modules remain read-only for pattern mutation, even when their sample descriptors are potentially previewable. Blank documents remain silent and preview-unavailable until sample import/loading/editor support provides real payload. Play/Stop transport, transport state, and normal song playback remain unrelated to editor preview and unchanged by this preview sink.
 
 ## Deferred Work
 
-- Non-Edit-mode keyboard audition.
 - Full preview gain/loudness parity with normal Play/song playback, including global volume, channel volume, volume-column state, envelopes, and effect-derived gain changes.
 - Full FT2/XM release, key-off envelope, fadeout, envelope, effect, and loop parity beyond simple sample-loop sustain.
 - User-addressable loaded-module sample-slot selection beyond the current sample-map placeholder.
@@ -78,5 +95,3 @@ Preview is not attempted outside Edit-mode note input, for blank documents witho
 - Pattern loop while editing.
 - Instrument entry, sample entry, effect entry, volume-column entry, and save/export behavior.
 - Transport-coupled preview controls.
-
-The next implementation step should define the non-Edit-mode note audition policy while preserving the current rule that pattern key-off remains explicit `===` entry through the backtick binding.

@@ -1153,6 +1153,224 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertNotEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
     }
 
+    func testEditorInputPolicyEditModeOffBlankNoteKeyDoesNotMutatePatternData() {
+        var document = BlankTrackerDocument.makeDefault()
+        let beforeInput = document
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: .noteKey(isRepeat: false),
+            editModeEnabled: false,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "z",
+            selectedOctave: 4,
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            channelIndex: 0,
+            rowIndex: 0
+        )
+        let previewer = EditorNoteAuditionPreviewer(sink: RecordingEditorNoteAuditionPreviewSink())
+        let outcome = previewer.preview(request: request, availability: document.noteAuditionAvailability)
+
+        XCTAssertTrue(route.shouldAttemptPreview)
+        XCTAssertFalse(route.shouldMutatePattern)
+        XCTAssertEqual(outcome, .skipped(.unavailable(.blankDocumentMissingInstrumentSamplePayload)))
+        if route.shouldMutatePattern {
+            _ = document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0)
+        }
+        XCTAssertEqual(document, beforeInput)
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+    }
+
+    func testEditorInputPolicyEditModeOnBlankNoteEntryStillMutatesPatternData() {
+        var document = BlankTrackerDocument.makeDefault()
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: .noteKey(isRepeat: false),
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+
+        XCTAssertTrue(route.shouldAttemptPreview)
+        XCTAssertTrue(route.shouldMutatePattern)
+        XCTAssertFalse(route.shouldConsumeRepeatedNoteKey)
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+    }
+
+    func testEditorInputPolicyEditModeOffLoadedModuleNoteKeyPreviewsWithoutMutation() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let event = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let loadedPatternBefore = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: .noteKey(isRepeat: false),
+            editModeEnabled: false,
+            sourceContext: .loadedModule(patternIndex: 0),
+            isNoteField: true
+        )
+
+        let outcome = previewer.preview(
+            request: event.request,
+            availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z"))
+        )
+
+        XCTAssertTrue(route.shouldAttemptPreview)
+        XCTAssertFalse(route.shouldMutatePattern)
+        XCTAssertFalse(route.shouldConsumeRepeatedNoteKey)
+        XCTAssertTrue(route.shouldConsumeNonMutatingInput(previewOutcome: outcome))
+        XCTAssertEqual(outcome, .attempted(event))
+        XCTAssertEqual(sink.events, [event])
+        XCTAssertEqual(loadedPatternBefore, XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0))
+    }
+
+    func testEditorInputPolicyEditModeOnLoadedModulePreviewsButRemainsReadOnly() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let event = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: .noteKey(isRepeat: false),
+            editModeEnabled: true,
+            sourceContext: .loadedModule(patternIndex: 0),
+            isNoteField: true
+        )
+
+        let outcome = previewer.preview(
+            request: event.request,
+            availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "q"))
+        )
+
+        XCTAssertTrue(route.shouldAttemptPreview)
+        XCTAssertFalse(route.shouldMutatePattern)
+        XCTAssertTrue(route.shouldConsumeNonMutatingInput(previewOutcome: outcome))
+        XCTAssertEqual(outcome, .attempted(event))
+        XCTAssertEqual(sink.events, [event])
+    }
+
+    func testEditorInputPolicyKeyReleaseStopsPreviewInEditAndNonEditModes() throws {
+        for editModeEnabled in [true, false] {
+            let sink = RecordingEditorNoteAuditionPreviewSink()
+            let previewer = EditorNoteAuditionPreviewer(sink: sink)
+            let event = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+            let keyIdentity = try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z"))
+
+            XCTAssertTrue(previewer.preview(
+                request: event.request,
+                availability: .potentiallyAvailable(event.sampleDescriptor),
+                keyIdentity: keyIdentity
+            ).didAttemptPreview)
+
+            let didStopPreview = previewer.stopPreview(for: keyIdentity)
+
+            XCTAssertTrue(didStopPreview)
+            XCTAssertTrue(EditorNoteAuditionInputPolicy.shouldConsumeNoteKeyRelease(
+                didStopPreview: didStopPreview,
+                editModeEnabled: editModeEnabled,
+                isNoteField: true
+            ))
+            XCTAssertEqual(sink.cancelPreviewCount, 1)
+            XCTAssertNil(previewer.activePreviewToken)
+        }
+    }
+
+    func testEditorInputPolicyKeyReleaseDoesNotWritePatternKeyOffDataInEitherMode() {
+        for editModeEnabled in [true, false] {
+            var document = BlankTrackerDocument.makeDefault()
+            XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+            let beforeRelease = document
+
+            _ = EditorNoteAuditionInputPolicy.shouldConsumeNoteKeyRelease(
+                didStopPreview: false,
+                editModeEnabled: editModeEnabled,
+                isNoteField: true
+            )
+
+            XCTAssertEqual(document, beforeRelease)
+            XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+            XCTAssertNotEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
+        }
+    }
+
+    func testEditorInputPolicyBacktickKeyOffOnlyMutatesEditableBlankPattern() {
+        var document = BlankTrackerDocument.makeDefault()
+        let nonEditBlankRoute = EditorNoteAuditionInputPolicy.route(
+            input: .keyOff,
+            editModeEnabled: false,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+        let editLoadedRoute = EditorNoteAuditionInputPolicy.route(
+            input: .keyOff,
+            editModeEnabled: true,
+            sourceContext: .loadedModule(patternIndex: 0),
+            isNoteField: true
+        )
+        let editBlankRoute = EditorNoteAuditionInputPolicy.route(
+            input: .keyOff,
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+
+        XCTAssertFalse(nonEditBlankRoute.shouldAttemptPreview)
+        XCTAssertFalse(nonEditBlankRoute.shouldMutatePattern)
+        XCTAssertFalse(editLoadedRoute.shouldAttemptPreview)
+        XCTAssertFalse(editLoadedRoute.shouldMutatePattern)
+        XCTAssertTrue(editBlankRoute.shouldMutatePattern)
+        XCTAssertTrue(document.enterKeyOff(row: 0, channel: 0))
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "=== .. .. ...")
+    }
+
+    func testEditorInputPolicyDeleteClearOnlyMutatesEditableBlankPattern() {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let beforeNonEditClear = document
+        let nonEditBlankRoute = EditorNoteAuditionInputPolicy.route(
+            input: .clearField,
+            editModeEnabled: false,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+        let editLoadedRoute = EditorNoteAuditionInputPolicy.route(
+            input: .clearField,
+            editModeEnabled: true,
+            sourceContext: .loadedModule(patternIndex: 0),
+            isNoteField: true
+        )
+        let editBlankRoute = EditorNoteAuditionInputPolicy.route(
+            input: .clearField,
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: true
+        )
+
+        XCTAssertFalse(nonEditBlankRoute.shouldMutatePattern)
+        XCTAssertFalse(editLoadedRoute.shouldMutatePattern)
+        XCTAssertEqual(document, beforeNonEditClear)
+        XCTAssertTrue(editBlankRoute.shouldMutatePattern)
+        XCTAssertTrue(document.clearNote(row: 0, channel: 0))
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+    }
+
+    func testEditorInputPolicySuppressesLoadedModuleAutoRepeatInEditAndNonEditModes() {
+        for editModeEnabled in [true, false] {
+            let route = EditorNoteAuditionInputPolicy.route(
+                input: .noteKey(isRepeat: true),
+                editModeEnabled: editModeEnabled,
+                sourceContext: .loadedModule(patternIndex: 0),
+                isNoteField: true
+            )
+
+            XCTAssertFalse(route.shouldAttemptPreview)
+            XCTAssertFalse(route.shouldMutatePattern)
+            XCTAssertTrue(route.shouldConsumeRepeatedNoteKey)
+            XCTAssertTrue(route.shouldConsumeNonMutatingInput(previewOutcome: .skipped(.missingRequest)))
+        }
+    }
+
     func testDefaultBlankDocumentExposesOneEmptyPattern() {
         let metadata = BlankTrackerDocument.makeDefault().metadata
 

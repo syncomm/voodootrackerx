@@ -632,20 +632,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handlePatternEditInput(_ input: PatternEditInput) -> Bool {
-        guard interactionMode == .edit,
-              cursor.field == .note else {
-            return false
-        }
-        if input.isRepeatedNoteKey, loadedMetadata != nil {
+        let sourceContext = currentEditorNoteAuditionSourceContext()
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: noteAuditionInputKind(for: input),
+            editModeEnabled: isEditModeEnabled,
+            sourceContext: sourceContext,
+            isNoteField: cursor.field == .note
+        )
+        let previewOutcome = route.shouldAttemptPreview
+            ? attemptEditorNoteAuditionPreview(for: input, sourceContext: sourceContext)
+            : .skipped(.missingRequest)
+
+        guard !route.shouldConsumeRepeatedNoteKey else {
             return true
         }
 
-        let sourceContext = currentEditorNoteAuditionSourceContext()
-        let previewOutcome = attemptEditorNoteAuditionPreview(for: input, sourceContext: sourceContext)
-        guard EditorPatternMutationPolicy.canMutatePattern(sourceContext: sourceContext),
+        guard route.shouldMutatePattern,
               var document = blankDocument,
               loadedMetadata == nil else {
-            return previewOutcome.didAttemptPreview
+            return route.shouldConsumeNonMutatingInput(previewOutcome: previewOutcome)
         }
 
         let didMutate: Bool
@@ -680,10 +685,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: character) else {
             return false
         }
-        if noteAuditionPreviewer.stopPreview(for: keyIdentity) {
-            return true
+        let didStopPreview = noteAuditionPreviewer.stopPreview(for: keyIdentity)
+        return EditorNoteAuditionInputPolicy.shouldConsumeNoteKeyRelease(
+            didStopPreview: didStopPreview,
+            editModeEnabled: isEditModeEnabled,
+            isNoteField: cursor.field == .note
+        )
+    }
+
+    private func noteAuditionInputKind(for input: PatternEditInput) -> EditorNoteAuditionInputKind {
+        switch input {
+        case let .noteKey(_, isRepeat):
+            return .noteKey(isRepeat: isRepeat)
+        case .keyOff:
+            return .keyOff
+        case .clearField:
+            return .clearField
+        case .hexDigit:
+            return .other
         }
-        return interactionMode == .edit && cursor.field == .note
     }
 
     private func currentEditorNoteAuditionSourceContext() -> EditorNoteAuditionSourceContext {

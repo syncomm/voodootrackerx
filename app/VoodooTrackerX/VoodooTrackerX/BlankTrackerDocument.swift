@@ -195,6 +195,79 @@ enum EditorPatternMutationPolicy {
     }
 }
 
+struct EditorNoteAuditionInputRoute: Equatable {
+    let shouldAttemptPreview: Bool
+    let shouldMutatePattern: Bool
+    let shouldConsumeRepeatedNoteKey: Bool
+
+    func shouldConsumeNonMutatingInput(previewOutcome: EditorNoteAuditionPreviewOutcome) -> Bool {
+        shouldConsumeRepeatedNoteKey || previewOutcome.didAttemptPreview
+    }
+}
+
+enum EditorNoteAuditionInputKind: Equatable {
+    case noteKey(isRepeat: Bool)
+    case keyOff
+    case clearField
+    case other
+}
+
+enum EditorNoteAuditionInputPolicy {
+    static func route(
+        input: EditorNoteAuditionInputKind,
+        editModeEnabled: Bool,
+        sourceContext: EditorNoteAuditionSourceContext,
+        isNoteField: Bool
+    ) -> EditorNoteAuditionInputRoute {
+        guard isNoteField else {
+            return EditorNoteAuditionInputRoute(
+                shouldAttemptPreview: false,
+                shouldMutatePattern: false,
+                shouldConsumeRepeatedNoteKey: false
+            )
+        }
+
+        let canMutateSource = EditorPatternMutationPolicy.canMutatePattern(sourceContext: sourceContext)
+        let isRepeatedLoadedModuleNoteKey = isRepeatedNoteKey(input) && !canMutateSource
+        return EditorNoteAuditionInputRoute(
+            shouldAttemptPreview: isNoteKey(input) && !isRepeatedLoadedModuleNoteKey,
+            shouldMutatePattern: editModeEnabled && canMutateSource && isNoteFieldMutationInput(input),
+            shouldConsumeRepeatedNoteKey: isRepeatedLoadedModuleNoteKey
+        )
+    }
+
+    static func shouldConsumeNoteKeyRelease(
+        didStopPreview: Bool,
+        editModeEnabled: Bool,
+        isNoteField: Bool
+    ) -> Bool {
+        didStopPreview || (editModeEnabled && isNoteField)
+    }
+
+    private static func isNoteKey(_ input: EditorNoteAuditionInputKind) -> Bool {
+        if case .noteKey = input {
+            return true
+        }
+        return false
+    }
+
+    private static func isRepeatedNoteKey(_ input: EditorNoteAuditionInputKind) -> Bool {
+        if case let .noteKey(isRepeat) = input {
+            return isRepeat
+        }
+        return false
+    }
+
+    private static func isNoteFieldMutationInput(_ input: EditorNoteAuditionInputKind) -> Bool {
+        switch input {
+        case .clearField, .keyOff, .noteKey:
+            return true
+        case .other:
+            return false
+        }
+    }
+}
+
 enum EditorNoteAuditionUnavailableReason: Equatable {
     case blankDocumentMissingInstrumentSamplePayload
     case loadedModuleMissingPlaybackSong

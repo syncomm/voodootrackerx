@@ -185,10 +185,14 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Note audition preview availability for loaded module samples.
+- Note audition preview playback spike behind the inert request model.
 
 Recently completed product foundation:
 
+- Editor note audition preview availability now resolves loaded-module
+  instrument/sample requests against safe `PlaybackSong` sample data and reports
+  inert descriptors for previewable payloads without adding audio playback,
+  backend calls, parser changes, or loaded-module editing.
 - Editor note audition preview planning now defines an inert request and
   availability model at the editor/audio boundary without adding audio preview,
   backend calls, parser changes, or loaded-module mutation.

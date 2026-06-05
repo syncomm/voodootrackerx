@@ -14,6 +14,12 @@ Blank documents currently contain selected instrument/sample slots such as `I01`
 
 Loaded modules may become auditionable before they become editable. Future loaded-module audition may resolve selected instrument/sample data from the loaded playback model, but it must not mutate loaded pattern data.
 
+## Loaded-Module Sample Availability
+
+Loaded-module preview availability resolves the editor note-audition request against the app-level `PlaybackSong` instrument/sample model. A selected instrument/sample is unavailable when the loaded playback song is missing, the selected instrument or sample slot cannot resolve, or the resolved sample has no playable PCM payload. A resolved sample with payload reports an inert descriptor containing the instrument index, sample index, frame count, loop metadata presence, and source context.
+
+This resolver does not play audio, schedule voices, call CoreAudio, call the C mixer, or change playback transport behavior. Loaded modules may become previewable before they become editable. Blank documents remain preview-unavailable until they have real instrument/sample payload through later import or editor support.
+
 ## Deferred Work
 
 - Actual note audition audio playback.

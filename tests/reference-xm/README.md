@@ -79,8 +79,8 @@ Contents:
 
 Tests may use this fixture for parser metadata/event positive paths, app-level
 instrument/sample payload loading, selected instrument/sample availability, and
-future inert preview-availability checks. This fixture is not a reference render
-asset, and this PR adds no WAV files.
+inert preview-availability checks. This fixture is not a reference render asset,
+and this PR adds no WAV files.
 
 Binary XM fixture commits must remain explicit, small, deterministic, and
 reviewed as test asset changes.

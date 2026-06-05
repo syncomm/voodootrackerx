@@ -185,12 +185,17 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Add the next preview-oriented generated XM fixture or use the generated
-  basic fixture for positive note-audition availability coverage without adding
-  audio playback.
+- Start the audible note preview architecture spike without changing runtime
+  song playback behavior.
 
 Recently completed product foundation:
 
+- The generated public XM fixture
+  `tests/reference-xm/generated/basic-instrument-sample.xm` now proves positive
+  loaded-module note-audition availability through the public fixture loading
+  path and `PlaybackSongBuilder`, while keeping audible preview, backend
+  behavior, parser architecture, tracker viewport behavior, and loaded-module
+  editing deferred.
 - Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
   synthetic fixture generator, added deterministic generator tests, and added
   parser/editor positive-path coverage for loading real public sample payload

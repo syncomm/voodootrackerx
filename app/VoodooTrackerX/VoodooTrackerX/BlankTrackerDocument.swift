@@ -181,11 +181,40 @@ struct EditorNoteAuditionRequest: Equatable {
 
 enum EditorNoteAuditionUnavailableReason: Equatable {
     case blankDocumentMissingInstrumentSamplePayload
+    case loadedModuleMissingPlaybackSong
+    case selectedInstrumentUnavailable
+    case selectedSampleUnavailable
+    case selectedSampleMissingPayload
     case selectedInstrumentSampleNotPlayable
 }
 
+struct EditorNoteAuditionSampleDescriptor: Equatable {
+    let instrumentIndex: Int
+    let sampleIndex: Int
+    let sampleFrameCount: Int
+    let hasSamplePayload: Bool
+    let hasLoopMetadata: Bool
+    let sourceContext: EditorNoteAuditionSourceContext
+
+    init(
+        instrumentIndex: Int,
+        sampleIndex: Int,
+        sampleFrameCount: Int,
+        hasSamplePayload: Bool,
+        hasLoopMetadata: Bool,
+        sourceContext: EditorNoteAuditionSourceContext
+    ) {
+        self.instrumentIndex = max(1, instrumentIndex)
+        self.sampleIndex = max(0, sampleIndex)
+        self.sampleFrameCount = max(0, sampleFrameCount)
+        self.hasSamplePayload = hasSamplePayload
+        self.hasLoopMetadata = hasLoopMetadata
+        self.sourceContext = sourceContext
+    }
+}
+
 enum EditorNoteAuditionAvailability: Equatable {
-    case available
+    case potentiallyAvailable(EditorNoteAuditionSampleDescriptor)
     case unavailable(EditorNoteAuditionUnavailableReason)
 }
 
@@ -201,7 +230,56 @@ enum EditorNoteAuditionAvailabilityResolver {
         if !selectedInstrumentSampleIsPlayable {
             return .unavailable(.selectedInstrumentSampleNotPlayable)
         }
-        return .available
+        return .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: request.selectedInstrumentIndex,
+            sampleIndex: max(0, request.selectedSampleIndex - 1),
+            sampleFrameCount: 0,
+            hasSamplePayload: hasRealInstrumentSamplePayload,
+            hasLoopMetadata: false,
+            sourceContext: request.sourceContext
+        ))
+    }
+
+    static func availability(
+        for request: EditorNoteAuditionRequest,
+        loadedPlaybackSong song: PlaybackSong?
+    ) -> EditorNoteAuditionAvailability {
+        guard case .loadedModule = request.sourceContext else {
+            return availability(
+                for: request,
+                hasRealInstrumentSamplePayload: false,
+                selectedInstrumentSampleIsPlayable: false
+            )
+        }
+        guard let song else {
+            return .unavailable(.loadedModuleMissingPlaybackSong)
+        }
+        guard let instrument = song.instrument(forInstrument: request.selectedInstrumentIndex) else {
+            return .unavailable(.selectedInstrumentUnavailable)
+        }
+
+        let resolvedSampleIndex = request.selectedSampleIndex - 1
+        guard resolvedSampleIndex >= 0,
+              let sample = instrument.sample(mappedSampleIndex: resolvedSampleIndex) else {
+            return .unavailable(.selectedSampleUnavailable)
+        }
+
+        let frameCount = min(max(0, sample.sampleLength), sample.pcm.count)
+        guard frameCount > 0 else {
+            return .unavailable(.selectedSampleMissingPayload)
+        }
+        guard sample.isPlayable else {
+            return .unavailable(.selectedInstrumentSampleNotPlayable)
+        }
+
+        return .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: instrument.index,
+            sampleIndex: sample.sampleIndex,
+            sampleFrameCount: frameCount,
+            hasSamplePayload: true,
+            hasLoopMetadata: sample.loopRegion.isEnabled,
+            sourceContext: request.sourceContext
+        ))
     }
 }
 

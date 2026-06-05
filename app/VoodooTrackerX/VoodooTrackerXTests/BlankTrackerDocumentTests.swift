@@ -96,7 +96,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(availability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
     }
 
-    func testLoadedModuleNoteAuditionAvailabilityCanBeAvailableWhenPlayableSampleResolves() {
+    func testLoadedModuleNoteAuditionAvailabilityCanBePotentiallyAvailableWhenPlayableSampleResolves() {
         let request = EditorNoteAuditionRequest(
             kind: .noteOn(noteValue: 49, selectedOctave: 4),
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
@@ -111,7 +111,14 @@ final class BlankTrackerDocumentTests: XCTestCase {
                 hasRealInstrumentSamplePayload: true,
                 selectedInstrumentSampleIsPlayable: true
             ),
-            .available
+            .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+                instrumentIndex: 1,
+                sampleIndex: 0,
+                sampleFrameCount: 0,
+                hasSamplePayload: true,
+                hasLoopMetadata: false,
+                sourceContext: .loadedModule(patternIndex: 2)
+            ))
         )
         XCTAssertEqual(
             EditorNoteAuditionAvailabilityResolver.availability(
@@ -121,6 +128,145 @@ final class BlankTrackerDocumentTests: XCTestCase {
             ),
             .unavailable(.selectedInstrumentSampleNotPlayable)
         )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityRequiresLoadedPlaybackSong() {
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: nil),
+            .unavailable(.loadedModuleMissingPlaybackSong)
+        )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenInstrumentDoesNotResolve() {
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [:]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .unavailable(.selectedInstrumentUnavailable)
+        )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenSelectedSampleSlotIsOutOfRange() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25])
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .unavailable(.selectedSampleUnavailable)
+        )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenResolvedSampleHasNoPayload() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [])
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .unavailable(.selectedSampleMissingPayload)
+        )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityReturnsPotentiallyAvailableDescriptorForSyntheticSamplePayload() {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, -0.25, 0.5, -0.5],
+            loopStart: 1,
+            loopLength: 2,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+                instrumentIndex: 1,
+                sampleIndex: 0,
+                sampleFrameCount: 4,
+                hasSamplePayload: true,
+                hasLoopMetadata: true,
+                sourceContext: .loadedModule(patternIndex: 0)
+            ))
+        )
+    }
+
+    func testPublicMinimalXMFixtureDoesNotNeedPreviewableSamplePayload() throws {
+        let fixtureURL = try fixtureURL("minimal.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let orderPatternIndices = metadata.orderTable.isEmpty
+            ? [metadata.xmPatterns.first?.index ?? 0]
+            : metadata.orderTable
+        let patternRowCounts = metadata.xmPatterns.reduce(into: [Int: Int]()) { partialResult, pattern in
+            partialResult[pattern.index] = pattern.rowCount
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: orderPatternIndices,
+            patternRowCounts: patternRowCounts,
+            instrumentsByIndex: [:]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: metadata.xmPatterns.first?.index),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        if case .potentiallyAvailable = EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song) {
+            XCTFail("minimal.xm should not be required to provide a previewable loaded sample payload")
+        }
     }
 
     func testPreviewKeyReleaseRequestDoesNotWritePatternKeyOffData() {
@@ -524,5 +670,18 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.restartPosition, 0)
         XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I01")
         XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01")
+    }
+
+    private func fixtureURL(_ name: String) throws -> URL {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repoRoot.appendingPathComponent("tests/fixtures").appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Missing fixture \(name)")
+        }
+        return url
     }
 }

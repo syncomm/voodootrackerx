@@ -41,7 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Add note audition preview availability for loaded module samples.
+1. Add a note audition preview playback spike behind the inert request model.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +55,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Note audition preview availability now resolves loaded-module selected
+  instrument/sample state against safe `PlaybackSong` sample data, returning
+  inert descriptors for previewable payloads while keeping blank documents
+  unavailable without real payload and leaving audio/backend/parser behavior
+  unchanged.
 - Note audition preview planning now adds an inert editor-side request and
   availability seam. Blank documents without real instrument/sample payload
   remain preview-unavailable, loaded modules may become auditionable before

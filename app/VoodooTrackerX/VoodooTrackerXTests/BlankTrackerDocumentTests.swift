@@ -245,12 +245,44 @@ final class BlankTrackerDocumentTests: XCTestCase {
                 sampleFrameCount: 4,
                 hasSamplePayload: true,
                 hasLoopMetadata: true,
+                previewLoop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 3),
                 sourceContext: .loadedModule(patternIndex: 0),
                 previewPCM: [0.25, -0.25, 0.5, -0.5],
                 previewVolume: 1,
                 previewBaseSampleRate: 100
             ))
         )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityCapturesPingPongLoopMetadata() {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, -0.25, 0.5, -0.5],
+            loopStart: 1,
+            loopLength: 3,
+            loopType: 2
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        guard case let .potentiallyAvailable(descriptor) =
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song) else {
+            return XCTFail("ping-pong synthetic sample should resolve to previewable loop metadata")
+        }
+
+        XCTAssertTrue(descriptor.hasLoopMetadata)
+        XCTAssertEqual(descriptor.previewLoop, MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4))
     }
 
     func testPublicMinimalXMFixtureDoesNotNeedPreviewableSamplePayload() throws {
@@ -503,6 +535,31 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertNil(previewer.activePreviewToken)
         XCTAssertEqual(sink.cancelPreviewCount, 1)
+    }
+
+    func testNoteAuditionPreviewerStopsHeldLoopPreviewForMatchingKeyRelease() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5],
+            previewLoop: loop
+        )
+        let keyIdentity = try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z"))
+
+        XCTAssertTrue(previewer.preview(
+            request: event.request,
+            availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: keyIdentity
+        ).didAttemptPreview)
+
+        XCTAssertTrue(previewer.stopPreview(for: keyIdentity))
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertEqual(sink.cancelPreviewCount, 1)
+        XCTAssertEqual(sink.events.first?.sampleDescriptor.previewLoop, loop)
     }
 
     func testNoteAuditionPreviewerPressingDifferentNoteReplacesActiveReleaseToken() throws {
@@ -816,7 +873,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
             selectedOctave: 4,
             sampleVolume: 1,
             baseSampleRate: 100,
-            previewPCM: Array(repeating: 1, count: 64)
+            previewPCM: Array(repeating: 1, count: 64),
+            previewLoop: MixerSampleLoop(mode: .forward, startFrame: 8, endFrame: 64)
         )
         let replacement = try makePreviewEvent(
             trackerKey: "q",
@@ -835,6 +893,94 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let rendered = mixer.render(frames: 1)
         let expected = -0.5 * EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: 1)
         XCTAssertEqual(rendered.interleavedPCM.first ?? 0, expected, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewRenderParametersCarryForwardLoopMetadata() throws {
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5],
+            previewLoop: loop
+        )
+
+        let parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: event, sampleRate: 100))
+
+        XCTAssertEqual(event.sampleDescriptor.previewLoop, loop)
+        XCTAssertEqual(parameters.loop, loop)
+    }
+
+    func testNoteAuditionPreviewRenderParametersCarryPingPongLoopMetadata() throws {
+        let loop = MixerSampleLoop(mode: .pingPong, startFrame: 1, endFrame: 4)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5],
+            previewLoop: loop
+        )
+
+        let parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: event, sampleRate: 100))
+
+        XCTAssertEqual(parameters.loop, loop)
+    }
+
+    func testHeldForwardLoopPreviewRemainsActiveBeyondOneShotLength() throws {
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5],
+            previewLoop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertTrue(mixer.replacePreview(with: event))
+        let rendered = mixer.render(frames: 12)
+
+        XCTAssertEqual(mixer.activeVoiceCount, 1)
+        XCTAssertGreaterThan(rendered.interleavedPCM.dropFirst(8).map { abs($0) }.max() ?? 0, 0)
+    }
+
+    func testHeldLoopPreviewCancelStopsActiveVoice() throws {
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5],
+            previewLoop: MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        )
+
+        XCTAssertTrue(mixer.replacePreview(with: event))
+        _ = mixer.render(frames: 12)
+        XCTAssertEqual(mixer.activeVoiceCount, 1)
+
+        mixer.cancelPreview()
+
+        XCTAssertEqual(mixer.activeVoiceCount, 0)
+        XCTAssertEqual(mixer.loadedVoiceCount, 0)
+    }
+
+    func testNonLoopingPreviewRemainsOneShot() throws {
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: [0.25, 0.5, -0.25, -0.5]
+        )
+
+        XCTAssertTrue(mixer.replacePreview(with: event))
+        let rendered = mixer.render(frames: 12)
+
+        XCTAssertEqual(mixer.activeVoiceCount, 0)
+        XCTAssertEqual(mixer.lastRenderParameters?.loop, MixerSampleLoop.none)
+        XCTAssertEqual(rendered.interleavedPCM.dropFirst(8).map { abs($0) }.max() ?? 0, 0, accuracy: 0.000_001)
     }
 
     func testNoteAuditionPreviewMixerCarriesSelectedNonFirstInstrumentDescriptorToRenderPlan() throws {
@@ -1434,6 +1580,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         instrumentIndex: Int = 1,
         sampleIndex: Int = 0,
         previewPCM: [Float] = [0, 1, 0.5, -0.5, -1, -0.5, 0.5, 1],
+        previewLoop: MixerSampleLoop = .none,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> EditorNoteAuditionPreviewEvent {
@@ -1458,7 +1605,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sampleIndex: sampleIndex,
             sampleFrameCount: previewPCM.count,
             hasSamplePayload: true,
-            hasLoopMetadata: false,
+            hasLoopMetadata: previewLoop.mode != .none,
+            previewLoop: previewLoop,
             sourceContext: .loadedModule(patternIndex: 0),
             previewPCM: previewPCM,
             previewVolume: sampleVolume,

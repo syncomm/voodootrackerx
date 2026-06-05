@@ -210,6 +210,7 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
     let sampleFrameCount: Int
     let hasSamplePayload: Bool
     let hasLoopMetadata: Bool
+    let previewLoop: MixerSampleLoop
     let sourceContext: EditorNoteAuditionSourceContext
     let previewPCM: [Float]
     let previewVolume: Float
@@ -223,6 +224,7 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         sampleFrameCount: Int,
         hasSamplePayload: Bool,
         hasLoopMetadata: Bool,
+        previewLoop: MixerSampleLoop = .none,
         sourceContext: EditorNoteAuditionSourceContext,
         previewPCM: [Float] = [],
         previewVolume: Float = 1,
@@ -230,11 +232,14 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         previewRelativeNote: Int = 0,
         previewFinetune: Int = 0
     ) {
+        let sanitizedFrameCount = max(0, sampleFrameCount)
+        let sanitizedLoop = previewLoop.sanitized(sampleFrameCount: sanitizedFrameCount)
         self.instrumentIndex = max(1, instrumentIndex)
         self.sampleIndex = max(0, sampleIndex)
-        self.sampleFrameCount = max(0, sampleFrameCount)
+        self.sampleFrameCount = sanitizedFrameCount
         self.hasSamplePayload = hasSamplePayload
-        self.hasLoopMetadata = hasLoopMetadata
+        self.hasLoopMetadata = hasLoopMetadata || sanitizedLoop.mode != .none
+        self.previewLoop = sanitizedLoop
         self.sourceContext = sourceContext
         self.previewPCM = previewPCM.map { $0.isFinite ? $0 : 0 }
         self.previewVolume = previewVolume.isFinite ? min(1, max(0, previewVolume)) : 1
@@ -461,6 +466,7 @@ enum EditorNoteAuditionAvailabilityResolver {
             sampleFrameCount: frameCount,
             hasSamplePayload: true,
             hasLoopMetadata: sample.loopRegion.isEnabled,
+            previewLoop: PlaybackSongSyntheticAdapter.mixerLoop(from: sample),
             sourceContext: request.sourceContext,
             previewPCM: Array(sample.pcm.prefix(frameCount)),
             previewVolume: sample.volume,

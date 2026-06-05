@@ -185,11 +185,21 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Define non-Edit-mode note audition policy without changing runtime song
-  playback behavior.
+- Add sample-slot selection controls for loaded-module audition and future
+  sample editor workflows.
 
 Recently completed product foundation:
 
+- Non-Edit-mode tracker note keys now use an explicit editor input policy:
+  loaded-module note keys may audition selected previewable instrument/sample
+  payload without mutating pattern data, blank documents remain preview
+  unavailable without real sample payload, keyUp cancels only the matching
+  preview and never writes `===`, backtick/Delete/Backspace mutate only where
+  editing is allowed, and Play/Stop transport, runtime song playback, backend
+  selection, C mixer DSP, parser architecture, tracker viewport behavior,
+  save/export behavior, and loaded-module read-only mutation policy remain
+  unchanged. Full FT2/XM envelope/key-off/fadeout parity and sample-slot UI
+  remain deferred.
 - Edit-mode loaded-module note preview now carries sanitized sample-loop
   metadata through the preview descriptor/render plan and lets held preview
   notes sustain through existing forward or ping-pong C mixer loop support

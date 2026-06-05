@@ -170,7 +170,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
     }
 
-    func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenSelectedSampleSlotIsOutOfRange() {
+    func testLoadedModuleNoteAuditionAvailabilityUsesFirstPlayableSampleWhenLoadedSampleSlotIsDeferred() {
         let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25])
         let song = makePlaybackSong(
             orderPatternIndices: [0],
@@ -185,10 +185,13 @@ final class BlankTrackerDocumentTests: XCTestCase {
             rowIndex: 0
         )
 
-        XCTAssertEqual(
-            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
-            .unavailable(.selectedSampleUnavailable)
-        )
+        guard case let .potentiallyAvailable(descriptor) =
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song) else {
+            return XCTFail("loaded preview should use the playable sample resolved by song sample-selection policy")
+        }
+        XCTAssertEqual(descriptor.instrumentIndex, 1)
+        XCTAssertEqual(descriptor.sampleIndex, 0)
+        XCTAssertEqual(descriptor.previewPCM, [0.25, -0.25])
     }
 
     func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenResolvedSampleHasNoPayload() {
@@ -350,6 +353,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(descriptor.previewPCM[12], -0.375, accuracy: 0.000_001)
         XCTAssertEqual(descriptor.previewVolume, 1, accuracy: 0.000_001)
         XCTAssertEqual(descriptor.previewBaseSampleRate, 8_363, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewRelativeNote, 0)
+        XCTAssertEqual(descriptor.previewFinetune, 0)
         XCTAssertTrue(previewSink.events.isEmpty)
     }
 
@@ -518,6 +523,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
             samples: [
                 PlaybackSample(
                     instrumentIndex: 7,
+                    sampleIndex: 0,
+                    pcm: [1, -1],
+                    volume: 1,
+                    relativeNote: 0,
+                    finetune: 0,
+                    baseSampleRate: 8_363
+                ),
+                PlaybackSample(
+                    instrumentIndex: 7,
                     sampleIndex: 2,
                     pcm: [0.125, 0.25, -0.125, -0.25],
                     volume: 0.75,
@@ -525,7 +539,8 @@ final class BlankTrackerDocumentTests: XCTestCase {
                     finetune: 0,
                     baseSampleRate: 12_000
                 )
-            ]
+            ],
+            noteSampleMap: Array(repeating: 2, count: 96)
         )
         let otherInstrument = PlaybackInstrument(
             index: 1,
@@ -560,7 +575,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
         let request = EditorNoteAuditionRequest(
             kind: .noteOn(noteValue: 49, selectedOctave: 4),
-            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 1),
             sourceContext: .loadedModule(patternIndex: 0),
             channelIndex: 0,
             rowIndex: 0
@@ -588,6 +603,182 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(sink.cancelPreviewCount, 2)
         XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionPreviewPitchLowerRowUsesSelectedOctave() throws {
+        let event = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: event, sampleRate: 100))
+
+        XCTAssertEqual(event.noteValue, 49)
+        XCTAssertEqual(event.selectedOctave, 4)
+        XCTAssertEqual(parameters.playbackStep, 1, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewPitchUpperRowUsesSelectedOctavePlusOne() throws {
+        let event = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+        let parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: event, sampleRate: 100))
+
+        XCTAssertEqual(event.noteValue, 61)
+        XCTAssertEqual(event.selectedOctave, 4)
+        XCTAssertEqual(parameters.playbackStep, 2, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewPitchSemitoneKeysProduceDistinctSteps() throws {
+        let c4 = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let cSharp4 = try makePreviewEvent(trackerKey: "s", selectedOctave: 4, baseSampleRate: 100)
+        let c4Parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: c4, sampleRate: 100))
+        let cSharp4Parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: cSharp4, sampleRate: 100))
+
+        XCTAssertEqual(c4.noteValue, 49)
+        XCTAssertEqual(cSharp4.noteValue, 50)
+        XCTAssertGreaterThan(cSharp4Parameters.playbackStep, c4Parameters.playbackStep)
+        XCTAssertEqual(cSharp4Parameters.playbackStep, pow(2.0, 1.0 / 12.0), accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewPitchC4AndC5UseDifferentSteps() throws {
+        let c4 = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let c5 = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+        let c4Parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: c4, sampleRate: 100))
+        let c5Parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: c5, sampleRate: 100))
+
+        XCTAssertNotEqual(c4Parameters.playbackStep, c5Parameters.playbackStep)
+        XCTAssertEqual(c5Parameters.playbackStep / c4Parameters.playbackStep, 2, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewMixerUsesDistinctStepsForTypedKeys() throws {
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+        let z = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let s = try makePreviewEvent(trackerKey: "s", selectedOctave: 4, baseSampleRate: 100)
+        let q = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+        let two = try makePreviewEvent(trackerKey: "2", selectedOctave: 4, baseSampleRate: 100)
+
+        XCTAssertTrue(mixer.replacePreview(with: z))
+        let zStep = try XCTUnwrap(mixer.lastRenderParameters?.playbackStep)
+        XCTAssertTrue(mixer.replacePreview(with: s))
+        let sStep = try XCTUnwrap(mixer.lastRenderParameters?.playbackStep)
+        XCTAssertTrue(mixer.replacePreview(with: q))
+        let qStep = try XCTUnwrap(mixer.lastRenderParameters?.playbackStep)
+        XCTAssertTrue(mixer.replacePreview(with: two))
+        let twoStep = try XCTUnwrap(mixer.lastRenderParameters?.playbackStep)
+
+        XCTAssertEqual(z.noteValue, 49)
+        XCTAssertEqual(s.noteValue, 50)
+        XCTAssertEqual(q.noteValue, 61)
+        XCTAssertEqual(two.noteValue, 62)
+        XCTAssertGreaterThan(sStep, zStep)
+        XCTAssertEqual(qStep / zStep, 2, accuracy: 0.000_001)
+        XCTAssertGreaterThan(twoStep, qStep)
+    }
+
+    func testNoteAuditionPreviewMixerRenderedOutputChangesWithTypedPitch() throws {
+        let z = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: [0, 0.25, 0.75, -0.5, -1, -0.25, 0.5, 1]
+        )
+        let q = try makePreviewEvent(
+            trackerKey: "q",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: [0, 0.25, 0.75, -0.5, -1, -0.25, 0.5, 1]
+        )
+
+        let zBlock = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(for: z, sampleRate: 100, frames: 6))
+        let qBlock = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(for: q, sampleRate: 100, frames: 6))
+
+        XCTAssertNotEqual(zBlock.interleavedPCM, qBlock.interleavedPCM)
+    }
+
+    func testNoteAuditionPreviewMixerReplacementCancelsPreviousVoiceWithoutLayering() throws {
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+        let first = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: Array(repeating: 1, count: 64)
+        )
+        let replacement = try makePreviewEvent(
+            trackerKey: "q",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100,
+            previewPCM: Array(repeating: -0.5, count: 64)
+        )
+
+        XCTAssertTrue(mixer.replacePreview(with: first))
+        _ = mixer.render(frames: 8)
+        XCTAssertTrue(mixer.replacePreview(with: replacement))
+
+        XCTAssertEqual(mixer.loadedVoiceCount, 1)
+        XCTAssertEqual(mixer.rampingOutVoiceCount, 0)
+        let rendered = mixer.render(frames: 1)
+        let expected = -0.5 * EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: 1)
+        XCTAssertEqual(rendered.interleavedPCM.first ?? 0, expected, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewMixerCarriesSelectedNonFirstInstrumentDescriptorToRenderPlan() throws {
+        let event = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 0.5,
+            baseSampleRate: 12_000,
+            instrumentIndex: 7,
+            sampleIndex: 2,
+            previewPCM: [0.125, 0.25, -0.125, -0.25]
+        )
+        let mixer = EditorNoteAuditionPreviewMixer(sampleRate: 100)
+
+        XCTAssertTrue(mixer.replacePreview(with: event))
+
+        let parameters = try XCTUnwrap(mixer.lastRenderParameters)
+        XCTAssertEqual(parameters.instrumentIndex, 7)
+        XCTAssertEqual(parameters.sampleIndex, 2)
+        XCTAssertEqual(parameters.playbackStep, 120, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewGainUsesRuntimeAdapterGainAndHeadroomBeforeSafetyCap() throws {
+        let quietEvent = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 0.1,
+            baseSampleRate: 100
+        )
+        let loudEvent = try makePreviewEvent(
+            trackerKey: "z",
+            selectedOctave: 4,
+            sampleVolume: 1,
+            baseSampleRate: 100
+        )
+
+        let quietParameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: quietEvent, sampleRate: 100))
+        let loudParameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(for: loudEvent, sampleRate: 100))
+        let runtimeHeadroom = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+
+        XCTAssertEqual(RuntimeCMixerOutputPolicy.defaultHeadroomDB, -12)
+        XCTAssertEqual(
+            quietParameters.gain,
+            PlaybackSongSyntheticAdapter.adaptedGain(
+                sampleVolume: 0.1,
+                channelVolume: 64,
+                globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
+            ) * runtimeHeadroom,
+            accuracy: 0.000_001
+        )
+        XCTAssertLessThan(quietParameters.gain, loudParameters.gain)
+        XCTAssertEqual(
+            loudParameters.gain,
+            PlaybackSongSyntheticAdapter.adaptedGain(
+                sampleVolume: 1,
+                channelVolume: 64,
+                globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
+            ) * runtimeHeadroom,
+            accuracy: 0.000_001
+        )
+        XCTAssertLessThan(loudParameters.gain, EditorNoteAuditionPreviewGainPolicy.maximumGain)
     }
 
     func testNoteAuditionAudioSinkOfflinePreviewRenderUsesCopiedPayloadAndConservativeGainWithoutHardware() throws {
@@ -630,8 +821,55 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertGreaterThan(rendered.interleavedPCM.map { abs($0) }.max() ?? 0, 0)
         XCTAssertLessThanOrEqual(
             rendered.interleavedPCM.map { abs($0) }.max() ?? 0,
-            descriptor.previewVolume * EditorNoteAuditionAudioSink.previewGain + 0.000_001
+            EditorNoteAuditionPreviewGainPolicy.maximumGain + 0.000_001
         )
+    }
+
+    func testGeneratedBasicInstrumentSampleFixturePreviewRenderIsNonSilentAndBoundedWithoutHardware() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+        let availability = EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song)
+        guard case let .potentiallyAvailable(descriptor) = availability else {
+            return XCTFail("generated fixture should resolve to previewable sample payload")
+        }
+        let event = EditorNoteAuditionPreviewEvent(
+            request: request,
+            sampleDescriptor: descriptor,
+            noteValue: 49,
+            selectedOctave: 4
+        )
+
+        let block = try XCTUnwrap(EditorNoteAuditionAudioSink.renderPreviewBlock(
+            for: event,
+            sampleRate: 44_100,
+            frames: 256
+        ))
+        let peak = block.interleavedPCM.map { abs($0) }.max() ?? 0
+        let parameters = try XCTUnwrap(EditorNoteAuditionAudioSink.previewRenderParameters(
+            for: event,
+            sampleRate: 44_100
+        ))
+        let expectedRuntimeEquivalentGain = PlaybackSongSyntheticAdapter.adaptedGain(
+            sampleVolume: descriptor.previewVolume,
+            channelVolume: 64,
+            globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
+        ) * RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
+
+        XCTAssertGreaterThan(peak, 0)
+        XCTAssertGreaterThan(peak, 0.04)
+        XCTAssertLessThan(peak, 1)
+        XCTAssertLessThanOrEqual(peak, EditorNoteAuditionPreviewGainPolicy.maximumGain + 0.000_001)
+        XCTAssertEqual(parameters.gain, expectedRuntimeEquivalentGain, accuracy: 0.000_001)
+        XCTAssertGreaterThan(parameters.gain, 0.04)
+        XCTAssertLessThan(parameters.gain, EditorNoteAuditionPreviewGainPolicy.maximumGain)
     }
 
     func testPreviewKeyReleaseRequestDoesNotWritePatternKeyOffData() {
@@ -1069,6 +1307,52 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.restartPosition, 0)
         XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I01")
         XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01")
+    }
+
+    private func makePreviewEvent(
+        trackerKey: Character,
+        selectedOctave: Int,
+        sampleVolume: Float = 1,
+        baseSampleRate: Double,
+        instrumentIndex: Int = 1,
+        sampleIndex: Int = 0,
+        previewPCM: [Float] = [0, 1, 0.5, -0.5, -1, -0.5, 0.5, 1],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> EditorNoteAuditionPreviewEvent {
+        let selection = TrackerEditorSelection(selectedInstrument: instrumentIndex, selectedSample: sampleIndex + 1)
+        let request = try XCTUnwrap(
+            EditorNoteAuditionRequest.noteOn(
+                trackerKey: trackerKey,
+                selectedOctave: selectedOctave,
+                selection: selection,
+                sourceContext: .loadedModule(patternIndex: 0),
+                channelIndex: 0,
+                rowIndex: 0
+            ),
+            file: file,
+            line: line
+        )
+        guard case let .noteOn(noteValue, requestOctave) = request.kind else {
+            throw XCTSkip("Expected note-on request")
+        }
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            sampleFrameCount: previewPCM.count,
+            hasSamplePayload: true,
+            hasLoopMetadata: false,
+            sourceContext: .loadedModule(patternIndex: 0),
+            previewPCM: previewPCM,
+            previewVolume: sampleVolume,
+            previewBaseSampleRate: baseSampleRate
+        )
+        return EditorNoteAuditionPreviewEvent(
+            request: request,
+            sampleDescriptor: descriptor,
+            noteValue: noteValue,
+            selectedOctave: requestOctave
+        )
     }
 
     private func fixtureURL(_ name: String) throws -> URL {

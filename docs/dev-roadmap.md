@@ -56,6 +56,18 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Editor note preview now maps lower-row keys to the selected octave and
+  upper-row keys to selected octave + 1 for preview pitch in the same
+  preview-only mixer path used by the audible sink. Loaded-module preview uses
+  the selected instrument and current sample-map/first-playable sample
+  selection policy, new preview notes clear prior preview voices before
+  replacement, and preview gain uses loaded-module adapter sample gain at
+  neutral channel/global volume plus default runtime C mixer output headroom,
+  with a final preview-only safety cap inside the isolated preview sink.
+  Runtime song playback, transport state, backend selection, C mixer DSP,
+  parser architecture, tracker viewport behavior, save/export behavior, and
+  loaded-module read-only editing remain unchanged. Full gain parity, preview
+  key-release/key-off behavior, and non-Edit-mode audition remain deferred.
 - Audible note preview architecture now has a preview-only audio sink behind
   the existing editor note-audition seam. Positive loaded-module note-on
   requests with copied sample payload can render a short isolated one-shot
@@ -63,11 +75,9 @@ Recently completed narrow target:
   runtime song playback, Play/Stop transport, backend selection, parser
   architecture, tracker viewport behavior, save/export behavior, or loaded
   module read-only editing. The first spike proves the isolated editor preview
-  path only: typed note/octave pitch mapping, preview gain normalization
-  against normal Play/song playback, non-Edit-mode keyboard audition, and
-  preview key-release/key-off behavior remain deferred. Maintainer headphone
-  testing found the preview remains significantly louder than normal song
-  playback.
+  path only: full preview gain parity against normal Play/song playback,
+  non-Edit-mode keyboard audition, and preview key-release/key-off behavior
+  remain deferred.
 - Generated public fixture coverage now proves positive loaded-module
   note-audition availability for selected `I01` / `S01` through
   `tests/reference-xm/generated/basic-instrument-sample.xm` and

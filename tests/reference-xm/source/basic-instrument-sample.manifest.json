@@ -33,15 +33,17 @@
       "purpose": "One instrument, one sample, simple note events, and real synthetic sample payload for parser/editor positive-path tests.",
       "reference_render_directory": "reference-renders/",
       "sample_formula": {
-        "format": "future_signed_8_bit_pcm",
+        "format": "signed_8_bit_delta_pcm",
         "formula": "round(48 * sin(2 * pi * frame / 16))",
         "length_frames": 64,
         "loop": null,
         "normalization": "bounded integer amplitude; no copied sample material"
       },
       "source_manifest": "source/basic-instrument-sample.manifest.json",
-      "status": "planned",
-      "xm_output": "generated/basic-instrument-sample.xm"
+      "status": "generated",
+      "xm_output": "generated/basic-instrument-sample.xm",
+      "xm_sha256": "79d1643434db33e9f268cd25ac3135b2b3049ae9f00a46526eec8212bf8ea957",
+      "xm_size_bytes": 731
     }
   ],
   "generator": "scripts/generate-synthetic-xm-fixtures.py",

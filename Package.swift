@@ -129,11 +129,12 @@ let package = Package(
             name: "ModuleCoreTests",
             dependencies: ["ModuleCore"],
             path: "tests",
-            exclude: ["reference-xm", "vtx_render_bounded_xm"],
+            exclude: ["vtx_render_bounded_xm"],
             sources: ["core"],
             resources: [
                 .copy("fixtures"),
-                .copy("golden")
+                .copy("golden"),
+                .copy("reference-xm")
             ]
         ),
         .testTarget(

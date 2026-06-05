@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Generate `basic-instrument-sample.xm` from the synthetic fixture skeleton and
-   add focused parser/editor positive-path tests.
+1. Use the generated basic XM fixture for positive note-audition availability
+   coverage without adding audio playback.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +56,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
+  synthetic fixture generator with one public-safe instrument/sample payload and
+  focused parser/editor positive-path tests, without adding WAV renders,
+  backend behavior, parser architecture changes, tracker viewport changes,
+  editor behavior, or note audition audio.
 - Synthetic XM fixture generator skeleton now adds the public fixture-pack
   README, deterministic source manifest, generator script contract, and focused
   script tests without adding binary XM files, WAV reference renders, backend

@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import sys
 import tempfile
@@ -29,6 +30,12 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual([fixture["name"] for fixture in manifest["fixtures"]], ["basic-instrument-sample.xm"])
         self.assertEqual(manifest["fixtures"][0]["xm_output"], "generated/basic-instrument-sample.xm")
+        self.assertEqual(manifest["fixtures"][0]["status"], "generated")
+        self.assertEqual(
+            manifest["fixtures"][0]["xm_sha256"],
+            hashlib.sha256(generator.basic_instrument_sample_xm_bytes()).hexdigest(),
+        )
+        self.assertEqual(manifest["fixtures"][0]["xm_size_bytes"], len(generator.basic_instrument_sample_xm_bytes()))
         self.assertEqual(
             manifest["fixtures"][0]["source_manifest"],
             "source/basic-instrument-sample.manifest.json",
@@ -54,6 +61,49 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, manifest_text)
 
+    def test_xm_bytes_are_deterministic_and_public_safe(self):
+        generator = load_module()
+
+        first = generator.basic_instrument_sample_xm_bytes()
+        second = generator.basic_instrument_sample_xm_bytes()
+
+        self.assertEqual(first, second)
+        self.assertLess(len(first), 1024)
+        self.assertIn(b"Extended Module: ", first)
+        self.assertIn(b"VTX BASIC SAMPLE", first)
+        self.assertIn(b"BASIC SAMPLE", first)
+        self.assertIn(b"SINE64", first)
+
+        forbidden_fragments = [
+            b"/" + b"Users",
+            b"Desk" + b"top",
+            b"private-xm-corpus",
+            b"xm-corpus-",
+            b".wav",
+            b".jsonl",
+            b".trace",
+        ]
+        for fragment in forbidden_fragments:
+            self.assertNotIn(fragment, first)
+
+    def test_write_xm_stays_inside_output_dir_and_writes_no_renders(self):
+        generator = load_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "pack"
+            written = generator.write_xm_fixture(output_dir)
+            files = sorted(path.relative_to(output_dir).as_posix() for path in output_dir.rglob("*") if path.is_file())
+
+            self.assertEqual(
+                written.resolve(),
+                (output_dir / "generated" / "basic-instrument-sample.xm").resolve(),
+            )
+            self.assertEqual(files, ["generated/basic-instrument-sample.xm"])
+            self.assertEqual(written.read_bytes(), generator.basic_instrument_sample_xm_bytes())
+            self.assertEqual(list(output_dir.rglob("*.wav")), [])
+            self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
+            self.assertEqual(list(output_dir.rglob("*.trace")), [])
+
     def test_write_manifest_stays_inside_output_dir_and_writes_no_audio_or_xm(self):
         generator = load_module()
 
@@ -70,6 +120,28 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             self.assertFalse((output_dir / "generated" / "basic-instrument-sample.xm").exists())
             self.assertEqual(list(output_dir.rglob("*.wav")), [])
             self.assertEqual(list(output_dir.rglob("*.jsonl")), [])
+
+    def test_write_manifest_and_xm_to_temporary_output_dir(self):
+        generator = load_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp) / "pack"
+            manifest_path = generator.write_source_manifest(output_dir)
+            xm_path = generator.write_xm_fixture(output_dir)
+            files = sorted(path.relative_to(output_dir).as_posix() for path in output_dir.rglob("*") if path.is_file())
+
+            self.assertEqual(
+                files,
+                [
+                    "generated/basic-instrument-sample.xm",
+                    "source/basic-instrument-sample.manifest.json",
+                ],
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["fixtures"][0]["xm_output"], "generated/basic-instrument-sample.xm")
+            self.assertEqual(manifest["fixtures"][0]["xm_sha256"], hashlib.sha256(xm_path.read_bytes()).hexdigest())
+            self.assertEqual(list(output_dir.rglob("*.wav")), [])
+            self.assertEqual(list(output_dir.rglob("*.log")), [])
 
     def test_planned_paths_are_confined_to_requested_output_dir(self):
         generator = load_module()

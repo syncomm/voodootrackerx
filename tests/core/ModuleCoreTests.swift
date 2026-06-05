@@ -54,6 +54,34 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(cString(info.first_instrument_name), "BASS")
     }
 
+    func testParseGeneratedBasicInstrumentSampleXMFixture() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/basic-instrument-sample.xm"))
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(typeName(info.type), "XM")
+        XCTAssertEqual(cString(info.title), "VTX BASIC SAMPLE")
+        XCTAssertEqual(info.version_major, 1)
+        XCTAssertEqual(info.version_minor, 4)
+        XCTAssertEqual(info.channels, 1)
+        XCTAssertEqual(info.patterns, 1)
+        XCTAssertEqual(info.instruments, 1)
+        XCTAssertEqual(info.xm_flags, 1)
+        XCTAssertEqual(info.song_length, 1)
+        XCTAssertEqual(info.restart_position, 0)
+        XCTAssertEqual(info.default_tempo, 6)
+        XCTAssertEqual(info.default_bpm, 125)
+        XCTAssertEqual(info.order_table_length, 1)
+        XCTAssertEqual(Array(orderTable(info).prefix(1)), [0])
+        XCTAssertEqual(info.pattern_row_count_count, 1)
+        XCTAssertEqual(Array(patternRows(info).prefix(1)), [16])
+        XCTAssertEqual(Array(patternPackedSizes(info).prefix(1)), [19])
+        XCTAssertEqual(info.xm_event_count, 2)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.note, 49)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.instrument, 1)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 8, channel: 0)?.note, 97)
+        XCTAssertEqual(cString(info.first_instrument_name), "BASIC SAMPLE")
+    }
+
     func testGoldenSnapshotMOD() throws {
         let info = mc_parse_file(try fixturePath("minimal.mod"))
         XCTAssertEqual(normalize(snapshotJSON(info)), normalize(try goldenString("minimal.mod.json")))
@@ -105,6 +133,17 @@ final class ModuleCoreTests: XCTestCase {
         let url = base.appendingPathComponent("fixtures").appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("Missing fixture \(name)")
+        }
+        return url.path
+    }
+
+    private func referenceXMFixturePath(_ relativePath: String) throws -> String {
+        guard let base = Bundle.module.resourceURL else {
+            throw XCTSkip("Missing Bundle.module resource URL")
+        }
+        let url = base.appendingPathComponent("reference-xm").appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
         return url.path
     }

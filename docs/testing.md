@@ -16,6 +16,14 @@ Rules:
 - For `tests/reference-xm/`, follow that directory's README and keep binary XM
   fixture commits explicit and reviewed.
 
+Regenerate the public synthetic XM reference manifest or approved XM fixture
+from the repo root with:
+
+```bash
+python3 scripts/generate-synthetic-xm-fixtures.py --write-manifest
+python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
+```
+
 ## Run Core Tests
 
 ```bash

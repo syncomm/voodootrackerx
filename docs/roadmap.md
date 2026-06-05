@@ -185,11 +185,17 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Generate `basic-instrument-sample.xm` from the synthetic fixture skeleton and
-  add focused parser/editor positive-path tests.
+- Add the next preview-oriented generated XM fixture or use the generated
+  basic fixture for positive note-audition availability coverage without adding
+  audio playback.
 
 Recently completed product foundation:
 
+- Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
+  synthetic fixture generator, added deterministic generator tests, and added
+  parser/editor positive-path coverage for loading real public sample payload
+  without adding WAV renders, backend behavior, parser architecture changes,
+  tracker viewport changes, editor behavior, or note audition audio.
 - Synthetic XM fixture generator skeleton now adds the public
   `tests/reference-xm/` fixture-pack README, deterministic source manifest,
   generator script contract, and focused script tests without adding binary XM

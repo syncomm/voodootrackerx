@@ -51,7 +51,11 @@ Current skeleton:
 - `tests/reference-xm/source/basic-instrument-sample.manifest.json` is the
   first deterministic source manifest.
 - `scripts/generate-synthetic-xm-fixtures.py` prints or writes that manifest
-  without emitting binary XM files or reference renders.
+  and can explicitly write the first generated binary XM fixture without
+  emitting reference renders.
+- `tests/reference-xm/generated/basic-instrument-sample.xm` is the first
+  committed generated fixture: one instrument, one 64-frame synthetic sample,
+  and a tiny pattern for parser/editor positive-path tests.
 
 ## Fixture Families
 
@@ -188,7 +192,7 @@ viewport math, editor note entry, note audition audio, or file save/export.
 2. Add a minimal generator skeleton and matching deterministic source
    manifest, without binary XM output. Done.
 3. Add `basic-instrument-sample.xm` plus parser/editor tests that prove real
-   sample payload can be loaded from a public fixture.
+   sample payload can be loaded from a public fixture. Done.
 4. Add preview-oriented metadata tests for `note-entry-preview.xm` without
    adding audible preview playback.
 5. Add loop and envelope fixtures for instrument/sample editor coverage.

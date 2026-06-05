@@ -274,6 +274,63 @@ final class BlankTrackerDocumentTests: XCTestCase {
         }
     }
 
+    func testGeneratedBasicInstrumentSampleFixtureLoadsWithPreviewableSamplePayload() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        XCTAssertEqual(metadata.type, "XM")
+        XCTAssertEqual(metadata.title, "VTX BASIC SAMPLE")
+        XCTAssertEqual(metadata.version, "1.4")
+        XCTAssertEqual(metadata.channels, 1)
+        XCTAssertEqual(metadata.patterns, 1)
+        XCTAssertEqual(metadata.instruments, 1)
+        XCTAssertEqual(metadata.defaultTempo, 6)
+        XCTAssertEqual(metadata.defaultBPM, 125)
+        XCTAssertEqual(metadata.orderTable, [0])
+        XCTAssertEqual(metadata.xmPatterns.count, 1)
+        XCTAssertEqual(metadata.xmPatterns[0].rowCount, 16)
+        XCTAssertEqual(metadata.xmPatterns[0].channels, 1)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].instrument, 1)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[8][0].note, XMPatternEventCell.keyOffNoteValue)
+
+        let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        let sample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
+        XCTAssertEqual(sample.instrumentIndex, 1)
+        XCTAssertEqual(sample.sampleIndex, 0)
+        XCTAssertEqual(sample.sampleLength, 64)
+        XCTAssertEqual(sample.pcm.count, 64)
+        XCTAssertTrue(sample.isPlayable)
+        XCTAssertEqual(sample.sourceBitDepthBits, 8)
+        XCTAssertEqual(sample.sourceIsSignedPCM, true)
+        XCTAssertEqual(sample.sourceIsDeltaEncoded, true)
+        XCTAssertEqual(sample.volume, 1, accuracy: 0.000_001)
+        XCTAssertEqual(sample.pcm[0], 0, accuracy: 0.000_001)
+        XCTAssertEqual(sample.pcm[4], 0.375, accuracy: 0.000_001)
+        XCTAssertEqual(sample.pcm[12], -0.375, accuracy: 0.000_001)
+
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: metadata.xmPatterns.first?.index),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+                instrumentIndex: 1,
+                sampleIndex: 0,
+                sampleFrameCount: 64,
+                hasSamplePayload: true,
+                hasLoopMetadata: false,
+                sourceContext: .loadedModule(patternIndex: 0)
+            ))
+        )
+    }
+
     func testNoteAuditionPreviewerSkipsBlankDocumentsWithoutRealSamplePayload() {
         let sink = RecordingEditorNoteAuditionPreviewSink()
         let previewer = EditorNoteAuditionPreviewer(sink: sink)
@@ -805,6 +862,19 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let url = repoRoot.appendingPathComponent("tests/fixtures").appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("Missing fixture \(name)")
+        }
+        return url
+    }
+
+    private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repoRoot.appendingPathComponent("tests/reference-xm").appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
         return url
     }

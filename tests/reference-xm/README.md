@@ -77,6 +77,13 @@ Contents:
 - One one-shot 64-frame signed 8-bit delta-encoded sine sample named `SINE64`.
 - A C-4 note using instrument 1 on row 0 and a key-off event on row 8.
 
+XM sample payloads do not store a WAV-style sample rate. VTX exposes this
+neutral generated XM sample with the expected parsed/generated base sample rate
+of 8,363 Hz, matching the current XM linear-period sample-rate decision. Tests
+that use this generated fixture should assert that real parsed/generated value
+separately from synthetic unit-test helpers that choose small explicit rates
+such as 100 Hz for deterministic offline math.
+
 Tests may use this fixture for parser metadata/event positive paths, app-level
 instrument/sample payload loading, selected instrument/sample availability, and
 inert preview-availability checks. This fixture is not a reference render asset,

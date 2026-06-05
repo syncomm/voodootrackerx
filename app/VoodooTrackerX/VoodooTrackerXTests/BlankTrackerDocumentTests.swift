@@ -242,7 +242,10 @@ final class BlankTrackerDocumentTests: XCTestCase {
                 sampleFrameCount: 4,
                 hasSamplePayload: true,
                 hasLoopMetadata: true,
-                sourceContext: .loadedModule(patternIndex: 0)
+                sourceContext: .loadedModule(patternIndex: 0),
+                previewPCM: [0.25, -0.25, 0.5, -0.5],
+                previewVolume: 1,
+                previewBaseSampleRate: 100
             ))
         )
     }
@@ -309,6 +312,11 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(sample.sourceIsSignedPCM, true)
         XCTAssertEqual(sample.sourceIsDeltaEncoded, true)
         XCTAssertEqual(sample.volume, 1, accuracy: 0.000_001)
+        // XM sample data does not store a WAV-style sample rate; VTX exposes
+        // this neutral generated fixture sample at the expected 8,363 Hz base
+        // rate. Keep this public fixture assertion separate from synthetic
+        // helper tests that choose small explicit rates such as 100 Hz.
+        XCTAssertEqual(sample.baseSampleRate, 8_363, accuracy: 0.000_001)
         XCTAssertEqual(sample.pcm[0], 0, accuracy: 0.000_001)
         XCTAssertEqual(sample.pcm[4], 0.375, accuracy: 0.000_001)
         XCTAssertEqual(sample.pcm[12], -0.375, accuracy: 0.000_001)
@@ -336,6 +344,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(descriptor.hasSamplePayload)
         XCTAssertFalse(descriptor.hasLoopMetadata)
         XCTAssertEqual(descriptor.sourceContext, .loadedModule(patternIndex: 0))
+        XCTAssertEqual(descriptor.previewPCM.count, 64)
+        XCTAssertEqual(descriptor.previewPCM[0], 0, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewPCM[4], 0.375, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewPCM[12], -0.375, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewVolume, 1, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewBaseSampleRate, 8_363, accuracy: 0.000_001)
         XCTAssertTrue(previewSink.events.isEmpty)
     }
 
@@ -432,7 +446,10 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sampleFrameCount: 128,
             hasSamplePayload: true,
             hasLoopMetadata: true,
-            sourceContext: .loadedModule(patternIndex: 2)
+            sourceContext: .loadedModule(patternIndex: 2),
+            previewPCM: Array(repeating: 0.25, count: 128),
+            previewVolume: 0.5,
+            previewBaseSampleRate: 8_363
         )
 
         let outcome = previewer.preview(request: request, availability: .potentiallyAvailable(descriptor))
@@ -456,6 +473,165 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(sink.events.first?.sampleDescriptor.sampleFrameCount, 128)
         XCTAssertEqual(sink.events.first?.noteValue, 61)
         XCTAssertEqual(sink.events.first?.selectedOctave, 4)
+    }
+
+    func testNoteAuditionPreviewerSkipsRepeatedNoteKeyWithoutRetriggeringSink() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let initialRequest = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+        let repeatRequest = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0,
+            isRepeatedKeyDown: true
+        )
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            sampleFrameCount: 4,
+            hasSamplePayload: true,
+            hasLoopMetadata: false,
+            sourceContext: .loadedModule(patternIndex: 0),
+            previewPCM: [0.25, 0.5, -0.25, -0.5]
+        )
+
+        let initialOutcome = previewer.preview(request: initialRequest, availability: .potentiallyAvailable(descriptor))
+        let repeatOutcome = previewer.preview(request: repeatRequest, availability: .potentiallyAvailable(descriptor))
+
+        XCTAssertTrue(initialOutcome.didAttemptPreview)
+        XCTAssertEqual(repeatOutcome, .skipped(.repeatedKeyDown))
+        XCTAssertEqual(sink.events.count, 1)
+        XCTAssertFalse(sink.events.first?.request.isRepeatedKeyDown ?? true)
+    }
+
+    func testNoteAuditionAvailabilityResolverUsesSelectedNonFirstInstrumentAndSample() throws {
+        let selectedInstrument = PlaybackInstrument(
+            index: 7,
+            samples: [
+                PlaybackSample(
+                    instrumentIndex: 7,
+                    sampleIndex: 2,
+                    pcm: [0.125, 0.25, -0.125, -0.25],
+                    volume: 0.75,
+                    relativeNote: 0,
+                    finetune: 0,
+                    baseSampleRate: 12_000
+                )
+            ]
+        )
+        let otherInstrument = PlaybackInstrument(
+            index: 1,
+            samples: [
+                PlaybackSample(
+                    instrumentIndex: 1,
+                    sampleIndex: 0,
+                    pcm: [1, -1],
+                    volume: 1,
+                    relativeNote: 0,
+                    finetune: 0,
+                    baseSampleRate: 8_363
+                )
+            ]
+        )
+        let song = PlaybackSong(
+            title: "Synthetic public-safe preview routing",
+            orders: [PlaybackOrderEntry(orderIndex: 0, patternIndex: 0)],
+            patternsByIndex: [
+                0: PlaybackPattern(index: 0, rows: [
+                    PlaybackRow(index: 0, cells: [
+                        PlaybackCell(note: 49, instrument: 7, volumeColumn: 0, effectType: 0, effectParam: 0)
+                    ])
+                ])
+            ],
+            instrumentsByIndex: [
+                1: otherInstrument,
+                7: selectedInstrument
+            ],
+            restartOrderIndex: 0,
+            endBehavior: .stopAtEnd
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        let availability = EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song)
+
+        guard case let .potentiallyAvailable(descriptor) = availability else {
+            return XCTFail("synthetic selected I07/S03 should resolve to a previewable descriptor")
+        }
+        XCTAssertEqual(descriptor.instrumentIndex, 7)
+        XCTAssertEqual(descriptor.sampleIndex, 2)
+        XCTAssertEqual(descriptor.sampleFrameCount, 4)
+        XCTAssertEqual(descriptor.previewPCM, [0.125, 0.25, -0.125, -0.25])
+        XCTAssertEqual(descriptor.previewVolume, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewBaseSampleRate, 12_000, accuracy: 0.000_001)
+    }
+
+    func testNoteAuditionPreviewerCancelPreviewForwardsToSinkForDocumentReplacement() {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+
+        previewer.cancelPreview()
+        previewer.cancelPreview()
+
+        XCTAssertEqual(sink.cancelPreviewCount, 2)
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testNoteAuditionAudioSinkOfflinePreviewRenderUsesCopiedPayloadAndConservativeGainWithoutHardware() throws {
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            sampleFrameCount: 4,
+            hasSamplePayload: true,
+            hasLoopMetadata: false,
+            sourceContext: .loadedModule(patternIndex: 0),
+            previewPCM: [1, 0.5, -0.5, -1],
+            previewVolume: 0.5,
+            // Synthetic helper value for deterministic unit math; generated
+            // public XM fixture expectations assert the VTX 8,363 Hz base rate.
+            previewBaseSampleRate: 100
+        )
+        let event = EditorNoteAuditionPreviewEvent(
+            request: request,
+            sampleDescriptor: descriptor,
+            noteValue: 49,
+            selectedOctave: 4
+        )
+
+        let block = EditorNoteAuditionAudioSink.renderPreviewBlock(
+            for: event,
+            sampleRate: 100,
+            frames: 4
+        )
+
+        let rendered = try XCTUnwrap(block)
+        XCTAssertEqual(rendered.frameCount, 4)
+        XCTAssertEqual(rendered.interleavedPCM.count, 8)
+        XCTAssertGreaterThan(rendered.interleavedPCM.map { abs($0) }.max() ?? 0, 0)
+        XCTAssertLessThanOrEqual(
+            rendered.interleavedPCM.map { abs($0) }.max() ?? 0,
+            descriptor.previewVolume * EditorNoteAuditionAudioSink.previewGain + 0.000_001
+        )
     }
 
     func testPreviewKeyReleaseRequestDoesNotWritePatternKeyOffData() {
@@ -628,6 +804,40 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(content.isSongPositionEnabled)
         XCTAssertTrue(content.isPatternControlsEnabled)
         XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
+    }
+
+    func testLoadedModuleControlPanelDisplayStateUsesCurrentEditorInstrumentSelection() {
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 4,
+            patterns: 1,
+            instruments: 8,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 64, channels: 4, rows: [])
+            ]
+        )
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 1),
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: true,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I07")
+        XCTAssertEqual(content.selectedSampleDisplay, "Sample Map")
     }
 
     func testFileNewEquivalentCreatesFreshBlankDocumentState() {
@@ -890,8 +1100,13 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
 private final class RecordingEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
     private(set) var events = [EditorNoteAuditionPreviewEvent]()
+    private(set) var cancelPreviewCount = 0
 
     func preview(_ event: EditorNoteAuditionPreviewEvent) {
         events.append(event)
+    }
+
+    func cancelPreview() {
+        cancelPreviewCount += 1
     }
 }

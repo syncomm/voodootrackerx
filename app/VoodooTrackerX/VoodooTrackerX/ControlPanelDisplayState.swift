@@ -56,6 +56,7 @@ enum ControlPanelDisplayState {
 
     static func loadedModuleContent(
         metadata: ParsedModuleMetadata,
+        selection: TrackerEditorSelection = .default,
         selectedSongPositionIndex: Int,
         currentPatternIndex: Int,
         selectedOctave: Int,
@@ -85,7 +86,7 @@ enum ControlPanelDisplayState {
             content.channelCount = "\(pattern.channels)"
             content.isPatternControlsEnabled = true
             content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
-            content.selectedInstrumentDisplay = metadata.instruments > 0 ? "I01" : "No Inst"
+            content.selectedInstrumentDisplay = metadata.instruments > 0 ? selection.instrumentDisplayTitle : "No Inst"
             content.selectedSampleDisplay = metadata.instruments > 0 ? "Sample Map" : "No Sample"
         } else {
             content.patternRowCount = "--"

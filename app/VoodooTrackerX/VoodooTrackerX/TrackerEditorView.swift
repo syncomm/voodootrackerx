@@ -387,7 +387,14 @@ enum PatternEditInput {
     case clearField
     case hexDigit(UInt8)
     case keyOff
-    case noteKey(Character)
+    case noteKey(Character, isRepeat: Bool)
+
+    var isRepeatedNoteKey: Bool {
+        if case let .noteKey(_, isRepeat) = self {
+            return isRepeat
+        }
+        return false
+    }
 }
 
 enum PatternEditEngine {
@@ -656,7 +663,7 @@ final class PatternTextView: NSTextView {
         default:
             if let characters = event.charactersIgnoringModifiers, let character = characters.first {
                 if PatternEditEngine.isTrackerNoteKey(character),
-                   editInputHandler?(.noteKey(character)) == true {
+                   editInputHandler?(.noteKey(character, isRepeat: event.isARepeat)) == true {
                     return
                 } else if PatternEditEngine.isKeyOffKey(character),
                           editInputHandler?(.keyOff) == true {

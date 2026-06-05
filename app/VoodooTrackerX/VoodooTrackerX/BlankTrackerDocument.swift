@@ -127,13 +127,15 @@ struct EditorNoteAuditionRequest: Equatable {
     let sourceContext: EditorNoteAuditionSourceContext
     let channelIndex: Int?
     let rowIndex: Int?
+    let isRepeatedKeyDown: Bool
 
     init(
         kind: EditorNoteAuditionRequestKind,
         selection: TrackerEditorSelection,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
-        rowIndex: Int? = nil
+        rowIndex: Int? = nil,
+        isRepeatedKeyDown: Bool = false
     ) {
         self.kind = kind
         selectedInstrumentIndex = selection.selectedInstrument
@@ -141,6 +143,7 @@ struct EditorNoteAuditionRequest: Equatable {
         self.sourceContext = sourceContext
         self.channelIndex = channelIndex.map { max(0, $0) }
         self.rowIndex = rowIndex.map { max(0, $0) }
+        self.isRepeatedKeyDown = isRepeatedKeyDown
     }
 
     static func noteOn(
@@ -149,7 +152,8 @@ struct EditorNoteAuditionRequest: Equatable {
         selection: TrackerEditorSelection,
         sourceContext: EditorNoteAuditionSourceContext,
         channelIndex: Int? = nil,
-        rowIndex: Int? = nil
+        rowIndex: Int? = nil,
+        isRepeatedKeyDown: Bool = false
     ) -> EditorNoteAuditionRequest? {
         guard let noteValue = TrackerNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: selectedOctave) else {
             return nil
@@ -159,7 +163,8 @@ struct EditorNoteAuditionRequest: Equatable {
             selection: selection,
             sourceContext: sourceContext,
             channelIndex: channelIndex,
-            rowIndex: rowIndex
+            rowIndex: rowIndex,
+            isRepeatedKeyDown: isRepeatedKeyDown
         )
     }
 
@@ -206,6 +211,9 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
     let hasSamplePayload: Bool
     let hasLoopMetadata: Bool
     let sourceContext: EditorNoteAuditionSourceContext
+    let previewPCM: [Float]
+    let previewVolume: Float
+    let previewBaseSampleRate: Double
 
     init(
         instrumentIndex: Int,
@@ -213,7 +221,10 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         sampleFrameCount: Int,
         hasSamplePayload: Bool,
         hasLoopMetadata: Bool,
-        sourceContext: EditorNoteAuditionSourceContext
+        sourceContext: EditorNoteAuditionSourceContext,
+        previewPCM: [Float] = [],
+        previewVolume: Float = 1,
+        previewBaseSampleRate: Double = 8_363
     ) {
         self.instrumentIndex = max(1, instrumentIndex)
         self.sampleIndex = max(0, sampleIndex)
@@ -221,6 +232,11 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         self.hasSamplePayload = hasSamplePayload
         self.hasLoopMetadata = hasLoopMetadata
         self.sourceContext = sourceContext
+        self.previewPCM = previewPCM.map { $0.isFinite ? $0 : 0 }
+        self.previewVolume = previewVolume.isFinite ? min(1, max(0, previewVolume)) : 1
+        self.previewBaseSampleRate = previewBaseSampleRate.isFinite && previewBaseSampleRate > 0
+            ? previewBaseSampleRate
+            : 8_363
     }
 }
 
@@ -239,6 +255,7 @@ struct EditorNoteAuditionPreviewEvent: Equatable {
 enum EditorNoteAuditionPreviewSkipReason: Equatable {
     case missingRequest
     case nonNoteRequest
+    case repeatedKeyDown
     case unavailable(EditorNoteAuditionUnavailableReason)
     case loadedModulePayloadRequired
 }
@@ -257,10 +274,12 @@ enum EditorNoteAuditionPreviewOutcome: Equatable {
 
 protocol EditorNoteAuditionPreviewSink: AnyObject {
     func preview(_ event: EditorNoteAuditionPreviewEvent)
+    func cancelPreview()
 }
 
 final class NoopEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
     func preview(_ event: EditorNoteAuditionPreviewEvent) {}
+    func cancelPreview() {}
 }
 
 final class EditorNoteAuditionPreviewer {
@@ -278,6 +297,9 @@ final class EditorNoteAuditionPreviewer {
         guard let request else {
             return .skipped(.missingRequest)
         }
+        guard !request.isRepeatedKeyDown else {
+            return .skipped(.repeatedKeyDown)
+        }
         guard case let .noteOn(noteValue, selectedOctave) = request.kind else {
             return .skipped(.nonNoteRequest)
         }
@@ -289,7 +311,8 @@ final class EditorNoteAuditionPreviewer {
         }
         guard case .loadedModule = descriptor.sourceContext,
               descriptor.hasSamplePayload,
-              descriptor.sampleFrameCount > 0 else {
+              descriptor.sampleFrameCount > 0,
+              !descriptor.previewPCM.isEmpty else {
             return .skipped(.loadedModulePayloadRequired)
         }
 
@@ -301,6 +324,10 @@ final class EditorNoteAuditionPreviewer {
         )
         sink.preview(event)
         return .attempted(event)
+    }
+
+    func cancelPreview() {
+        sink.cancelPreview()
     }
 }
 
@@ -364,7 +391,10 @@ enum EditorNoteAuditionAvailabilityResolver {
             sampleFrameCount: frameCount,
             hasSamplePayload: true,
             hasLoopMetadata: sample.loopRegion.isEnabled,
-            sourceContext: request.sourceContext
+            sourceContext: request.sourceContext,
+            previewPCM: Array(sample.pcm.prefix(frameCount)),
+            previewVolume: sample.volume,
+            previewBaseSampleRate: sample.baseSampleRate
         ))
     }
 }

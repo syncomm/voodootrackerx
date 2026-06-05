@@ -190,12 +190,23 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Audible editor note preview now has a narrow preview-only audio sink behind
+  the existing note-audition preview boundary. Loaded-module note-on requests
+  with positive sample payload from the generated public fixture can route to a
+  short one-shot C mixer/CoreAudio preview, while runtime song playback,
+  transport state, backend selection, parser architecture, tracker viewport
+  behavior, save/export behavior, and loaded-module read-only mutation policy
+  remain unchanged. The first spike proves the isolated editor preview path
+  only: typed note/octave pitch mapping, preview gain normalization against
+  normal Play/song playback, non-Edit-mode keyboard audition, and preview
+  key-release/key-off behavior remain deferred. Maintainer headphone testing
+  found the preview remains significantly louder than normal song playback.
 - The generated public XM fixture
   `tests/reference-xm/generated/basic-instrument-sample.xm` now proves positive
   loaded-module note-audition availability through the public fixture loading
-  path and `PlaybackSongBuilder`, while keeping audible preview, backend
-  behavior, parser architecture, tracker viewport behavior, and loaded-module
-  editing deferred.
+  path and `PlaybackSongBuilder`, while keeping backend behavior, parser
+  architecture, tracker viewport behavior, and loaded-module editing
+  unchanged.
 - Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
   synthetic fixture generator, added deterministic generator tests, and added
   parser/editor positive-path coverage for loading real public sample payload

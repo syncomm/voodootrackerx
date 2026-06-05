@@ -56,12 +56,23 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Audible note preview architecture now has a preview-only audio sink behind
+  the existing editor note-audition seam. Positive loaded-module note-on
+  requests with copied sample payload can render a short isolated one-shot
+  preview through a separate C mixer/CoreAudio boundary without changing
+  runtime song playback, Play/Stop transport, backend selection, parser
+  architecture, tracker viewport behavior, save/export behavior, or loaded
+  module read-only editing. The first spike proves the isolated editor preview
+  path only: typed note/octave pitch mapping, preview gain normalization
+  against normal Play/song playback, non-Edit-mode keyboard audition, and
+  preview key-release/key-off behavior remain deferred. Maintainer headphone
+  testing found the preview remains significantly louder than normal song
+  playback.
 - Generated public fixture coverage now proves positive loaded-module
   note-audition availability for selected `I01` / `S01` through
   `tests/reference-xm/generated/basic-instrument-sample.xm` and
-  `PlaybackSongBuilder`, while keeping audible preview, backend behavior,
-  parser architecture, tracker viewport behavior, and loaded-module editing
-  deferred.
+  `PlaybackSongBuilder`, while keeping backend behavior, parser architecture,
+  tracker viewport behavior, and loaded-module editing unchanged.
 - Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
   synthetic fixture generator with one public-safe instrument/sample payload and
   focused parser/editor positive-path tests, without adding WAV renders,
@@ -145,12 +156,11 @@ Remaining:
 - pattern length/edit operations
 - broader keyboard workflow parity
 
-Note audition remains a later editor/audio-boundary milestone. The editor-side
-request and availability seam now exists, but it does not play audio. Key
-release should only send preview key-off; pattern key-off remains explicit
-`===` entry. Loaded modules may become auditionable before they are editable,
-while XI import, sample loading, instrument editing, and sample editing remain
-later milestones.
+Note audition now has a minimal loaded-module audible preview spike behind the
+editor/audio boundary. Key release should only send preview key-off; pattern
+key-off remains explicit `===` entry. Loaded modules may be auditionable before
+they are editable, while XI import, sample loading, instrument editing, and
+sample editing remain later milestones.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 

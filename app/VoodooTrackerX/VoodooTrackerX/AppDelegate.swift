@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedPatternSelectionIndex = 0
     private var selectedSongPositionIndex = 0
     private var currentPatternIndex = 0
+    private var loadedModuleSelection = TrackerEditorSelection.default
     private var cursor = PatternCursor(row: 0, channel: 0, field: .note)
     private var visibleGridRangesByRow = [Int: NSRange]()
     private var currentViewportState: PatternViewportState?
@@ -22,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let playbackEngine = PlaybackEngine()
-    private let noteAuditionPreviewer = EditorNoteAuditionPreviewer()
+    private let noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: EditorNoteAuditionAudioSink())
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
     private var isLoopPlaybackEnabled = false
@@ -134,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.controlPanelView.editModeButton.action = #selector(editModeToggled(_:))
         controller.controlPanelView.patternSelector.target = self
         controller.controlPanelView.patternSelector.action = #selector(patternSelectionChanged(_:))
+        controller.controlPanelView.instrumentSelector.target = self
+        controller.controlPanelView.instrumentSelector.action = #selector(instrumentSelectionChanged(_:))
         controller.controlPanelView.songPositionStepper.target = self
         controller.controlPanelView.songPositionStepper.action = #selector(currentSongPositionStepperChanged(_:))
         controller.controlPanelView.octaveSelector.target = self
@@ -188,12 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func loadModule(from url: URL) {
         do {
             let metadata = try metadataLoader.load(fromPath: url.path)
+            noteAuditionPreviewer.cancelPreview()
             blankDocument = nil
             loadedMetadata = metadata
             playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path))
             selectedPatternSelectionIndex = 0
             selectedSongPositionIndex = 0
             currentPatternIndex = 0
+            loadedModuleSelection = .default
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
             isLoopPlaybackEnabled = false
@@ -246,10 +251,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resetToBlankTrackerDocument() {
+        noteAuditionPreviewer.cancelPreview()
         let document = BlankTrackerDocument.makeDefault()
         blankDocument = document
         loadedMetadata = nil
         playbackEngine.load(song: nil)
+        loadedModuleSelection = .default
         debugStopTimer?.invalidate()
         debugStopTimer = nil
         displayedPatternEntries = [
@@ -293,6 +300,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         currentPatternIndex = displayedPatternEntries[selectedPatternSelectionIndex].patternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
+    }
+
+    @objc
+    private func instrumentSelectionChanged(_ sender: NSPopUpButton) {
+        guard let metadata = loadedMetadata,
+              metadata.type == "XM",
+              metadata.instruments > 0 else {
+            return
+        }
+
+        let selectedInstrument = min(max(1, sender.indexOfSelectedItem + 1), metadata.instruments)
+        loadedModuleSelection = TrackerEditorSelection(
+            selectedInstrument: selectedInstrument,
+            selectedSample: loadedModuleSelection.selectedSample
+        )
         syncControlPanelView()
     }
 
@@ -610,6 +633,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               cursor.field == .note else {
             return false
         }
+        if input.isRepeatedNoteKey, loadedMetadata != nil {
+            return true
+        }
 
         let sourceContext = currentEditorNoteAuditionSourceContext()
         let previewOutcome = attemptEditorNoteAuditionPreview(for: input, sourceContext: sourceContext)
@@ -621,7 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let didMutate: Bool
         switch input {
-        case let .noteKey(character):
+        case let .noteKey(character, _):
             didMutate = document.enterNote(
                 trackerKey: character,
                 octave: selectedOctave,
@@ -657,20 +683,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for input: PatternEditInput,
         sourceContext: EditorNoteAuditionSourceContext
     ) -> EditorNoteAuditionPreviewOutcome {
-        guard case let .noteKey(character) = input else {
+        guard case let .noteKey(character, isRepeat) = input else {
             return noteAuditionPreviewer.preview(
                 request: nil,
                 availability: .unavailable(.selectedInstrumentSampleNotPlayable)
             )
         }
-        let selection = blankDocument?.selection ?? .default
+        let selection = currentEditorSelection()
         let request = EditorNoteAuditionRequest.noteOn(
             trackerKey: character,
             selectedOctave: selectedOctave,
             selection: selection,
             sourceContext: sourceContext,
             channelIndex: cursor.channel,
-            rowIndex: cursor.row
+            rowIndex: cursor.row,
+            isRepeatedKeyDown: isRepeat
         )
         let availability: EditorNoteAuditionAvailability
         if loadedMetadata != nil {
@@ -997,7 +1024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncControlPanelView() {
         if let blankDocument {
-            reloadInstrumentPlaceholders(for: nil)
+            reloadInstrumentPlaceholders(for: nil, selection: .default)
             controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
                 selectedOctave: selectedOctave,
@@ -1009,9 +1036,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let metadata = loadedMetadata {
-            reloadInstrumentPlaceholders(for: metadata)
+            reloadInstrumentPlaceholders(for: metadata, selection: loadedModuleSelection)
             controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
                 metadata: metadata,
+                selection: loadedModuleSelection,
                 selectedSongPositionIndex: selectedSongPositionIndex,
                 currentPatternIndex: currentPatternIndex,
                 selectedOctave: selectedOctave,
@@ -1020,13 +1048,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 isPlaybackActive: playbackEngine.state.isPlaying
             ))
         } else {
-            reloadInstrumentPlaceholders(for: nil)
+            reloadInstrumentPlaceholders(for: nil, selection: .default)
             controlPanelView?.apply(ControlPanelContent())
         }
     }
 
     // These selectors remain placeholder-driven until instrument/sample editors own real state.
-    private func reloadInstrumentPlaceholders(for metadata: ParsedModuleMetadata?) {
+    private func reloadInstrumentPlaceholders(for metadata: ParsedModuleMetadata?, selection: TrackerEditorSelection) {
         guard let controlPanelView else {
             return
         }
@@ -1044,8 +1072,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             String(format: "I%02X", index + 1)
         }
         controlPanelView.instrumentSelector.addItems(withTitles: instrumentTitles)
-        controlPanelView.instrumentSelector.selectItem(at: 0)
+        let selectedInstrumentIndex = min(max(0, selection.selectedInstrument - 1), visibleInstrumentCount - 1)
+        controlPanelView.instrumentSelector.selectItem(at: selectedInstrumentIndex)
         controlPanelView.sampleSelector.addItem(withTitle: "Sample Map")
+    }
+
+    private func currentEditorSelection() -> TrackerEditorSelection {
+        if loadedMetadata != nil {
+            return loadedModuleSelection
+        }
+        return blankDocument?.selection ?? .default
     }
 
 }

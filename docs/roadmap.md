@@ -185,10 +185,15 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Synthetic redistributable XM fixture pack plan for editor/audio preview tests.
+- Synthetic XM fixture generator skeleton based on
+  `docs/design/synthetic-xm-reference-fixture-pack.md`.
 
 Recently completed product foundation:
 
+- Synthetic redistributable XM fixture pack planning now defines public-safe
+  fixture structure, licensing rules, focused fixture families, and local
+  reference-render policy without adding fixture assets or changing backend,
+  parser, tracker viewport, or editor behavior.
 - Editor note audition preview routing now has a small no-audio coordinator and
   injected test sink seam behind the inert request and loaded-module
   availability model. It attempts only note-on requests with loaded-module

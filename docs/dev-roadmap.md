@@ -41,7 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Plan a synthetic redistributable XM fixture pack for editor/audio preview tests.
+1. Add a synthetic XM fixture generator skeleton based on
+   `docs/design/synthetic-xm-reference-fixture-pack.md`.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +56,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Synthetic redistributable XM fixture pack planning now defines public-safe
+  fixture structure, licensing rules, focused fixture families, and local
+  reference-render policy without adding fixture assets or changing backend,
+  parser, tracker viewport, or editor behavior.
 - Note audition preview routing now has a small no-audio coordinator and
   injected test sink seam behind the inert request and loaded-module
   availability model. It attempts only note-on requests with loaded-module

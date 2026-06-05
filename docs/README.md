@@ -36,6 +36,8 @@ relevant to the task.
 ## Testing
 
 - `docs/testing.md` - fixture and test guidance.
+- `docs/design/synthetic-xm-reference-fixture-pack.md` - plan for future
+  public-safe XM reference fixtures.
 - `docs/templates/local-audio-comparison-findings.md` - blank local findings
   template.
 

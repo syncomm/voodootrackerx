@@ -42,7 +42,16 @@ Directory intent:
   after a future PR explicitly approves their size, license, and value.
 
 Do not create empty directories unless the repo later adopts tracked
-placeholders. A planning document is enough for this PR.
+placeholders. Track reviewable files, such as source manifests and README
+contracts, when they establish the structure.
+
+Current skeleton:
+
+- `tests/reference-xm/README.md` now documents the fixture-pack contract.
+- `tests/reference-xm/source/basic-instrument-sample.manifest.json` is the
+  first deterministic source manifest.
+- `scripts/generate-synthetic-xm-fixtures.py` prints or writes that manifest
+  without emitting binary XM files or reference renders.
 
 ## Fixture Families
 
@@ -175,9 +184,9 @@ viewport math, editor note entry, note audition audio, or file save/export.
 ## Phased Plan
 
 1. Add `tests/reference-xm/README.md` with license/provenance rules and the
-   first generator-script contract.
-2. Add a minimal generator skeleton that can write one deterministic XM and a
-   matching source manifest.
+   first generator-script contract. Done.
+2. Add a minimal generator skeleton and matching deterministic source
+   manifest, without binary XM output. Done.
 3. Add `basic-instrument-sample.xm` plus parser/editor tests that prove real
    sample payload can be loaded from a public fixture.
 4. Add preview-oriented metadata tests for `note-entry-preview.xm` without

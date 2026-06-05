@@ -600,6 +600,7 @@ struct PatternCursor: Equatable {
 final class PatternTextView: NSTextView {
     var navigationHandler: ((PatternNavigationCommand) -> Void)?
     var editInputHandler: ((PatternEditInput) -> Bool)?
+    var noteKeyReleaseHandler: ((Character) -> Bool)?
     var transportShortcutHandler: (() -> Bool)?
     var wheelNavigationHandler: ((CGFloat) -> Void)?
     private var preciseVerticalWheelAccumulator: CGFloat = 0
@@ -679,6 +680,16 @@ final class PatternTextView: NSTextView {
             }
             super.keyDown(with: event)
         }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if let characters = event.charactersIgnoringModifiers,
+           let character = characters.first,
+           PatternEditEngine.isTrackerNoteKey(character),
+           noteKeyReleaseHandler?(character) == true {
+            return
+        }
+        super.keyUp(with: event)
     }
 
     override func scrollWheel(with event: NSEvent) {

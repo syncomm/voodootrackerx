@@ -258,6 +258,25 @@ struct EditorNoteAuditionPreviewEvent: Equatable {
     let selectedOctave: Int
 }
 
+struct EditorNoteAuditionKeyIdentity: Equatable {
+    let trackerKey: Character
+
+    init?(trackerKey character: Character) {
+        guard let normalized = String(character).lowercased().first,
+              TrackerNoteKeyMap.isTrackerNoteKey(normalized) else {
+            return nil
+        }
+        trackerKey = normalized
+    }
+}
+
+struct EditorNoteAuditionPreviewToken: Equatable {
+    let generation: UInt64
+    let keyIdentity: EditorNoteAuditionKeyIdentity
+    let noteValue: UInt8
+    let selectedOctave: Int
+}
+
 enum EditorNoteAuditionPreviewSkipReason: Equatable {
     case missingRequest
     case nonNoteRequest
@@ -290,6 +309,8 @@ final class NoopEditorNoteAuditionPreviewSink: EditorNoteAuditionPreviewSink {
 
 final class EditorNoteAuditionPreviewer {
     private let sink: EditorNoteAuditionPreviewSink
+    private(set) var activePreviewToken: EditorNoteAuditionPreviewToken?
+    private var previewGeneration: UInt64 = 0
 
     init(sink: EditorNoteAuditionPreviewSink = NoopEditorNoteAuditionPreviewSink()) {
         self.sink = sink
@@ -298,7 +319,8 @@ final class EditorNoteAuditionPreviewer {
     @discardableResult
     func preview(
         request: EditorNoteAuditionRequest?,
-        availability: EditorNoteAuditionAvailability
+        availability: EditorNoteAuditionAvailability,
+        keyIdentity: EditorNoteAuditionKeyIdentity? = nil
     ) -> EditorNoteAuditionPreviewOutcome {
         guard let request else {
             return .skipped(.missingRequest)
@@ -329,11 +351,48 @@ final class EditorNoteAuditionPreviewer {
             selectedOctave: selectedOctave
         )
         sink.preview(event)
+        activePreviewToken = keyIdentity.map {
+            nextPreviewToken(keyIdentity: $0, noteValue: noteValue, selectedOctave: selectedOctave)
+        }
         return .attempted(event)
     }
 
-    func cancelPreview() {
+    @discardableResult
+    func stopPreview(for keyIdentity: EditorNoteAuditionKeyIdentity) -> Bool {
+        guard let token = activePreviewToken,
+              token.keyIdentity == keyIdentity else {
+            return false
+        }
+        return stopPreview(for: token)
+    }
+
+    @discardableResult
+    func stopPreview(for token: EditorNoteAuditionPreviewToken) -> Bool {
+        guard activePreviewToken == token else {
+            return false
+        }
+        activePreviewToken = nil
         sink.cancelPreview()
+        return true
+    }
+
+    func cancelPreview() {
+        activePreviewToken = nil
+        sink.cancelPreview()
+    }
+
+    private func nextPreviewToken(
+        keyIdentity: EditorNoteAuditionKeyIdentity,
+        noteValue: UInt8,
+        selectedOctave: Int
+    ) -> EditorNoteAuditionPreviewToken {
+        previewGeneration &+= 1
+        return EditorNoteAuditionPreviewToken(
+            generation: previewGeneration,
+            keyIdentity: keyIdentity,
+            noteValue: noteValue,
+            selectedOctave: selectedOctave
+        )
     }
 }
 

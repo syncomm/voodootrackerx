@@ -480,6 +480,88 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(sink.events.first?.selectedOctave, 4)
     }
 
+    func testNoteAuditionPreviewerStopsActivePreviewForMatchingKeyRelease() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let event = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let keyIdentity = try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "Z"))
+
+        let outcome = previewer.preview(
+            request: event.request,
+            availability: .potentiallyAvailable(event.sampleDescriptor),
+            keyIdentity: keyIdentity
+        )
+
+        XCTAssertEqual(outcome, .attempted(event))
+        XCTAssertEqual(sink.events, [event])
+        let token = try XCTUnwrap(previewer.activePreviewToken)
+        XCTAssertEqual(token.keyIdentity, try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z")))
+        XCTAssertEqual(token.noteValue, 49)
+        XCTAssertEqual(token.selectedOctave, 4)
+
+        XCTAssertTrue(previewer.stopPreview(for: keyIdentity))
+
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertEqual(sink.cancelPreviewCount, 1)
+    }
+
+    func testNoteAuditionPreviewerPressingDifferentNoteReplacesActiveReleaseToken() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let first = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let second = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+
+        XCTAssertTrue(previewer.preview(
+            request: first.request,
+            availability: .potentiallyAvailable(first.sampleDescriptor),
+            keyIdentity: try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z"))
+        ).didAttemptPreview)
+        let firstToken = try XCTUnwrap(previewer.activePreviewToken)
+
+        XCTAssertTrue(previewer.preview(
+            request: second.request,
+            availability: .potentiallyAvailable(second.sampleDescriptor),
+            keyIdentity: try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "q"))
+        ).didAttemptPreview)
+        let secondToken = try XCTUnwrap(previewer.activePreviewToken)
+
+        XCTAssertEqual(sink.events, [first, second])
+        XCTAssertNotEqual(firstToken, secondToken)
+        XCTAssertEqual(secondToken.noteValue, 61)
+        XCTAssertEqual(secondToken.keyIdentity, try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "q")))
+    }
+
+    func testStaleKeyReleaseFromOlderPreviewDoesNotCancelNewerPreview() throws {
+        let sink = RecordingEditorNoteAuditionPreviewSink()
+        let previewer = EditorNoteAuditionPreviewer(sink: sink)
+        let first = try makePreviewEvent(trackerKey: "z", selectedOctave: 4, baseSampleRate: 100)
+        let second = try makePreviewEvent(trackerKey: "q", selectedOctave: 4, baseSampleRate: 100)
+        let firstIdentity = try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "z"))
+        let secondIdentity = try XCTUnwrap(EditorNoteAuditionKeyIdentity(trackerKey: "q"))
+
+        XCTAssertTrue(previewer.preview(
+            request: first.request,
+            availability: .potentiallyAvailable(first.sampleDescriptor),
+            keyIdentity: firstIdentity
+        ).didAttemptPreview)
+        let firstToken = try XCTUnwrap(previewer.activePreviewToken)
+        XCTAssertTrue(previewer.preview(
+            request: second.request,
+            availability: .potentiallyAvailable(second.sampleDescriptor),
+            keyIdentity: secondIdentity
+        ).didAttemptPreview)
+        let secondToken = try XCTUnwrap(previewer.activePreviewToken)
+
+        XCTAssertFalse(previewer.stopPreview(for: firstToken))
+        XCTAssertFalse(previewer.stopPreview(for: firstIdentity))
+
+        XCTAssertEqual(previewer.activePreviewToken, secondToken)
+        XCTAssertEqual(sink.cancelPreviewCount, 0)
+        XCTAssertTrue(previewer.stopPreview(for: secondIdentity))
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertEqual(sink.cancelPreviewCount, 1)
+    }
+
     func testNoteAuditionPreviewerSkipsRepeatedNoteKeyWithoutRetriggeringSink() {
         let sink = RecordingEditorNoteAuditionPreviewSink()
         let previewer = EditorNoteAuditionPreviewer(sink: sink)
@@ -507,14 +589,25 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sourceContext: .loadedModule(patternIndex: 0),
             previewPCM: [0.25, 0.5, -0.25, -0.5]
         )
+        let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: "z")
 
-        let initialOutcome = previewer.preview(request: initialRequest, availability: .potentiallyAvailable(descriptor))
-        let repeatOutcome = previewer.preview(request: repeatRequest, availability: .potentiallyAvailable(descriptor))
+        let initialOutcome = previewer.preview(
+            request: initialRequest,
+            availability: .potentiallyAvailable(descriptor),
+            keyIdentity: keyIdentity
+        )
+        let activeToken = previewer.activePreviewToken
+        let repeatOutcome = previewer.preview(
+            request: repeatRequest,
+            availability: .potentiallyAvailable(descriptor),
+            keyIdentity: keyIdentity
+        )
 
         XCTAssertTrue(initialOutcome.didAttemptPreview)
         XCTAssertEqual(repeatOutcome, .skipped(.repeatedKeyDown))
         XCTAssertEqual(sink.events.count, 1)
         XCTAssertFalse(sink.events.first?.request.isRepeatedKeyDown ?? true)
+        XCTAssertEqual(previewer.activePreviewToken, activeToken)
     }
 
     func testNoteAuditionAvailabilityResolverUsesSelectedNonFirstInstrumentAndSample() throws {
@@ -598,11 +691,35 @@ final class BlankTrackerDocumentTests: XCTestCase {
         let sink = RecordingEditorNoteAuditionPreviewSink()
         let previewer = EditorNoteAuditionPreviewer(sink: sink)
 
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: .default,
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+        let descriptor = EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            sampleFrameCount: 4,
+            hasSamplePayload: true,
+            hasLoopMetadata: false,
+            sourceContext: .loadedModule(patternIndex: 0),
+            previewPCM: [0.25, 0.5, -0.25, -0.5]
+        )
+        XCTAssertTrue(previewer.preview(
+            request: request,
+            availability: .potentiallyAvailable(descriptor),
+            keyIdentity: EditorNoteAuditionKeyIdentity(trackerKey: "z")
+        ).didAttemptPreview)
+        XCTAssertNotNil(previewer.activePreviewToken)
+
         previewer.cancelPreview()
         previewer.cancelPreview()
 
         XCTAssertEqual(sink.cancelPreviewCount, 2)
-        XCTAssertTrue(sink.events.isEmpty)
+        XCTAssertNil(previewer.activePreviewToken)
+        XCTAssertEqual(sink.events.count, 1)
     }
 
     func testNoteAuditionPreviewPitchLowerRowUsesSelectedOctave() throws {

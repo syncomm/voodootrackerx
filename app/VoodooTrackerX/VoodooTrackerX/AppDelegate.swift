@@ -118,6 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.trackerEditorView.metadataTextView.editInputHandler = { [weak self] input in
             self?.handlePatternEditInput(input) ?? false
         }
+        controller.trackerEditorView.metadataTextView.noteKeyReleaseHandler = { [weak self] character in
+            self?.handlePatternNoteKeyRelease(character) ?? false
+        }
         controller.trackerEditorView.metadataTextView.transportShortcutHandler = { [weak self] in
             self?.handleSpacebarTransportShortcut() ?? false
         }
@@ -673,6 +676,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    private func handlePatternNoteKeyRelease(_ character: Character) -> Bool {
+        guard let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: character) else {
+            return false
+        }
+        if noteAuditionPreviewer.stopPreview(for: keyIdentity) {
+            return true
+        }
+        return interactionMode == .edit && cursor.field == .note
+    }
+
     private func currentEditorNoteAuditionSourceContext() -> EditorNoteAuditionSourceContext {
         loadedMetadata != nil
             ? .loadedModule(patternIndex: currentPatternIndex)
@@ -699,6 +712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rowIndex: cursor.row,
             isRepeatedKeyDown: isRepeat
         )
+        let keyIdentity = EditorNoteAuditionKeyIdentity(trackerKey: character)
         let availability: EditorNoteAuditionAvailability
         if loadedMetadata != nil {
             availability = request.map {
@@ -712,7 +726,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             availability = .unavailable(.blankDocumentMissingInstrumentSamplePayload)
         }
-        return noteAuditionPreviewer.preview(request: request, availability: availability)
+        return noteAuditionPreviewer.preview(
+            request: request,
+            availability: availability,
+            keyIdentity: keyIdentity
+        )
     }
 
     private func handlePatternWheel(deltaY: CGFloat) {

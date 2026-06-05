@@ -41,7 +41,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Plan note audition preview at the editor/audio boundary.
+1. Add note audition preview availability for loaded module samples.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -55,6 +55,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Note audition preview planning now adds an inert editor-side request and
+  availability seam. Blank documents without real instrument/sample payload
+  remain preview-unavailable, loaded modules may become auditionable before
+  editing, and no audio/backend/parser behavior changed.
 - Blank-document note entry now supports the two-row tracker keyboard map:
   lower row at selected octave, upper row at selected octave + 1, with high-C
   keys and audio audition deferred.
@@ -108,12 +112,12 @@ Remaining:
 - pattern length/edit operations
 - broader keyboard workflow parity
 
-Note audition remains a later editor/audio-boundary milestone. The intended
-sequence is selected 1-based instrument/sample state, optional upper keyboard
-row, then note audition from the selected source. Key release should only send
-preview key-off; pattern key-off remains explicit `===` entry. Loaded modules
-may become auditionable before they are editable, while XI import, sample
-loading, instrument editing, and sample editing remain later milestones.
+Note audition remains a later editor/audio-boundary milestone. The editor-side
+request and availability seam now exists, but it does not play audio. Key
+release should only send preview key-off; pattern key-off remains explicit
+`===` entry. Loaded modules may become auditionable before they are editable,
+while XI import, sample loading, instrument editing, and sample editing remain
+later milestones.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 

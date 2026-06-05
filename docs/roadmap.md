@@ -185,10 +185,13 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Note audition preview planning at the editor/audio boundary.
+- Note audition preview availability for loaded module samples.
 
 Recently completed product foundation:
 
+- Editor note audition preview planning now defines an inert request and
+  availability model at the editor/audio boundary without adding audio preview,
+  backend calls, parser changes, or loaded-module mutation.
 - Blank-document note entry now includes the two-row tracker keyboard map:
   the lower row enters the selected octave, the upper row enters selected
   octave + 1, and high-C keys remain deferred.
@@ -246,7 +249,8 @@ audio backends. Planned sequencing is:
 
 - keep selected 1-based instrument/sample slots as editor state first
 - add the optional upper keyboard row before preview behavior
-- add note audition later using the selected instrument/sample source
+- add note audition later using the selected instrument/sample source; the
+  editor-side request and availability seam now exists, but performs no audio
 - treat key release as preview key-off only
 - keep pattern key-off as explicit `===` entry through the tracker key binding
 - allow loaded modules to become auditionable before they become editable

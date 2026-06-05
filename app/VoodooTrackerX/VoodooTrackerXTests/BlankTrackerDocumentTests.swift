@@ -36,6 +36,111 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(clampedHigh.sampleDisplayTitle, "SFF")
     }
 
+    func testEditorNoteAuditionRequestCapturesNoteSelectionAndSourceContext() {
+        let selection = TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3)
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "q",
+            selectedOctave: 4,
+            selection: selection,
+            sourceContext: .blankDocument,
+            channelIndex: 2,
+            rowIndex: 12
+        )
+
+        XCTAssertEqual(
+            request,
+            EditorNoteAuditionRequest(
+                kind: .noteOn(noteValue: 61, selectedOctave: 4),
+                selection: selection,
+                sourceContext: .blankDocument,
+                channelIndex: 2,
+                rowIndex: 12
+            )
+        )
+        XCTAssertEqual(request?.selectedInstrumentIndex, 7)
+        XCTAssertEqual(request?.selectedSampleIndex, 3)
+    }
+
+    func testEditorNoteAuditionRequestRejectsNonNoteKeys() {
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "i",
+            selectedOctave: 4,
+            selection: .default,
+            sourceContext: .blankDocument
+        )
+
+        XCTAssertNil(request)
+    }
+
+    func testBlankDocumentNoteAuditionAvailabilityIsUnavailableWithoutInstrumentSamplePayload() {
+        let document = BlankTrackerDocument.makeDefault()
+        let request = EditorNoteAuditionRequest.noteOn(
+            trackerKey: "z",
+            selectedOctave: 4,
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(document.noteAuditionSourceContext, .blankDocument)
+        XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+        let availability = request.map {
+            EditorNoteAuditionAvailabilityResolver.availability(
+                for: $0,
+                hasRealInstrumentSamplePayload: false,
+                selectedInstrumentSampleIsPlayable: false
+            )
+        }
+
+        XCTAssertEqual(availability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityCanBeAvailableWhenPlayableSampleResolves() {
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourceContext: .loadedModule(patternIndex: 2),
+            channelIndex: 0,
+            rowIndex: 16
+        )
+
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(
+                for: request,
+                hasRealInstrumentSamplePayload: true,
+                selectedInstrumentSampleIsPlayable: true
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(
+                for: request,
+                hasRealInstrumentSamplePayload: true,
+                selectedInstrumentSampleIsPlayable: false
+            ),
+            .unavailable(.selectedInstrumentSampleNotPlayable)
+        )
+    }
+
+    func testPreviewKeyReleaseRequestDoesNotWritePatternKeyOffData() {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let beforeRelease = document
+
+        let request = EditorNoteAuditionRequest.previewKeyOff(
+            selection: document.selection,
+            sourceContext: document.noteAuditionSourceContext,
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
+        XCTAssertEqual(request.kind, .previewKeyOff)
+        XCTAssertEqual(document, beforeRelease)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertNotEqual(document.pattern.rows[0][0].note, TrackerNoteKeyMap.keyOffNoteValue)
+    }
+
     func testDefaultBlankDocumentExposesOneEmptyPattern() {
         let metadata = BlankTrackerDocument.makeDefault().metadata
 

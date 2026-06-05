@@ -190,6 +190,17 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Editor note preview now maps typed note/octave to preview pitch in the same
+  preview-only mixer path used by the audible sink, resolves loaded-module
+  instruments through the selected instrument and current sample-map policy,
+  clears prior preview voices before scheduling replacements, and applies
+  loaded-module adapter sample gain at neutral channel/global volume plus the
+  default runtime C mixer output headroom, with a final preview-only safety cap.
+  This keeps preview isolated from runtime song playback, Play/Stop transport,
+  backend selection, C mixer DSP, parser architecture, tracker viewport
+  behavior, save/export behavior, and loaded-module read-only mutation policy.
+  Full gain parity, preview key-release/key-off behavior, and non-Edit-mode
+  keyboard audition remain deferred.
 - Audible editor note preview now has a narrow preview-only audio sink behind
   the existing note-audition preview boundary. Loaded-module note-on requests
   with positive sample payload from the generated public fixture can route to a
@@ -197,10 +208,9 @@ Recently completed product foundation:
   transport state, backend selection, parser architecture, tracker viewport
   behavior, save/export behavior, and loaded-module read-only mutation policy
   remain unchanged. The first spike proves the isolated editor preview path
-  only: typed note/octave pitch mapping, preview gain normalization against
-  normal Play/song playback, non-Edit-mode keyboard audition, and preview
-  key-release/key-off behavior remain deferred. Maintainer headphone testing
-  found the preview remains significantly louder than normal song playback.
+  only: full preview gain parity against normal Play/song playback,
+  non-Edit-mode keyboard audition, and preview key-release/key-off behavior
+  remain deferred.
 - The generated public XM fixture
   `tests/reference-xm/generated/basic-instrument-sample.xm` now proves positive
   loaded-module note-audition availability through the public fixture loading

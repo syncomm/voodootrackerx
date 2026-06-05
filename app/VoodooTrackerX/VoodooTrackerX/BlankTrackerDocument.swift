@@ -214,6 +214,8 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
     let previewPCM: [Float]
     let previewVolume: Float
     let previewBaseSampleRate: Double
+    let previewRelativeNote: Int
+    let previewFinetune: Int
 
     init(
         instrumentIndex: Int,
@@ -224,7 +226,9 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         sourceContext: EditorNoteAuditionSourceContext,
         previewPCM: [Float] = [],
         previewVolume: Float = 1,
-        previewBaseSampleRate: Double = 8_363
+        previewBaseSampleRate: Double = 8_363,
+        previewRelativeNote: Int = 0,
+        previewFinetune: Int = 0
     ) {
         self.instrumentIndex = max(1, instrumentIndex)
         self.sampleIndex = max(0, sampleIndex)
@@ -237,6 +241,8 @@ struct EditorNoteAuditionSampleDescriptor: Equatable {
         self.previewBaseSampleRate = previewBaseSampleRate.isFinite && previewBaseSampleRate > 0
             ? previewBaseSampleRate
             : 8_363
+        self.previewRelativeNote = min(96, max(-96, previewRelativeNote))
+        self.previewFinetune = PlaybackSongSyntheticAdapter.clampedFinetune(previewFinetune)
     }
 }
 
@@ -371,9 +377,14 @@ enum EditorNoteAuditionAvailabilityResolver {
             return .unavailable(.selectedInstrumentUnavailable)
         }
 
-        let resolvedSampleIndex = request.selectedSampleIndex - 1
-        guard resolvedSampleIndex >= 0,
-              let sample = instrument.sample(mappedSampleIndex: resolvedSampleIndex) else {
+        guard case let .noteOn(noteValue, _) = request.kind else {
+            return .unavailable(.selectedSampleUnavailable)
+        }
+        let sampleSelection = PlaybackSongSyntheticAdapter.selectSample(forNote: noteValue, from: instrument)
+        guard let sample = sampleSelection.sample else {
+            if sampleSelection.skippedReason == .samplePCMEmpty {
+                return .unavailable(.selectedSampleMissingPayload)
+            }
             return .unavailable(.selectedSampleUnavailable)
         }
 
@@ -394,7 +405,9 @@ enum EditorNoteAuditionAvailabilityResolver {
             sourceContext: request.sourceContext,
             previewPCM: Array(sample.pcm.prefix(frameCount)),
             previewVolume: sample.volume,
-            previewBaseSampleRate: sample.baseSampleRate
+            previewBaseSampleRate: sample.baseSampleRate,
+            previewRelativeNote: sample.relativeNote,
+            previewFinetune: sample.finetune
         ))
     }
 }

@@ -15,7 +15,8 @@ private let editorNoteAuditionAudioSinkRenderCallback: AURenderCallback = { user
 /// offline render/export paths, or the runtime song playback mixer instance.
 final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
     static let defaultSampleRate = MixerRenderConfig.defaultSampleRate
-    static let previewGain: Float = 0.25
+    static let previewSafetyGainCap: Float = 0.5
+    static let previewOutputHeadroomGain = RuntimeCMixerOutputPolicy.defaultPolicy.outputGain
 
     private let outputHost: EditorNoteAuditionCoreAudioOutputHost
 
@@ -36,25 +37,41 @@ final class EditorNoteAuditionAudioSink: EditorNoteAuditionPreviewSink {
         sampleRate: Double = defaultSampleRate,
         frames: Int
     ) -> MixerRenderBlock? {
-        guard let plan = EditorNoteAuditionPreviewRenderPlan(event: event, sampleRate: sampleRate) else {
+        let previewMixer = EditorNoteAuditionPreviewMixer(sampleRate: sampleRate)
+        guard previewMixer.replacePreview(with: event) else {
             return nil
         }
-        let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: sampleRate, channelCount: 2))
-        mixer.addVoice(
-            sample: plan.sample,
-            gain: plan.gain,
-            pan: 0,
-            playbackStep: plan.playbackStep,
-            loop: .none
-        )
-        return mixer.render(frames: frames)
+        return previewMixer.render(frames: frames)
     }
+
+    static func previewRenderParameters(
+        for event: EditorNoteAuditionPreviewEvent,
+        sampleRate: Double = defaultSampleRate
+    ) -> EditorNoteAuditionPreviewRenderParameters? {
+        EditorNoteAuditionPreviewRenderPlan(event: event, sampleRate: sampleRate).map {
+            EditorNoteAuditionPreviewRenderParameters(
+                gain: $0.gain,
+                playbackStep: $0.playbackStep,
+                instrumentIndex: $0.instrumentIndex,
+                sampleIndex: $0.sampleIndex
+            )
+        }
+    }
+}
+
+struct EditorNoteAuditionPreviewRenderParameters: Equatable {
+    let gain: Float
+    let playbackStep: Double
+    let instrumentIndex: Int
+    let sampleIndex: Int
 }
 
 private struct EditorNoteAuditionPreviewRenderPlan {
     let sample: MixerSampleBuffer
     let gain: Float
     let playbackStep: Double
+    let instrumentIndex: Int
+    let sampleIndex: Int
 
     init?(event: EditorNoteAuditionPreviewEvent, sampleRate: Double) {
         let descriptor = event.sampleDescriptor
@@ -66,8 +83,126 @@ private struct EditorNoteAuditionPreviewRenderPlan {
         }
 
         sample = MixerSampleBuffer(monoPCM: Array(descriptor.previewPCM.prefix(frameCount)))
-        gain = descriptor.previewVolume * EditorNoteAuditionAudioSink.previewGain
-        playbackStep = max(0.000_001, descriptor.previewBaseSampleRate / sampleRate)
+        gain = EditorNoteAuditionPreviewGainPolicy.gain(sampleVolume: descriptor.previewVolume)
+        instrumentIndex = descriptor.instrumentIndex
+        sampleIndex = descriptor.sampleIndex
+        playbackStep = EditorNoteAuditionPreviewPitchPolicy.playbackStep(
+            noteValue: event.noteValue,
+            descriptor: descriptor,
+            outputSampleRate: sampleRate
+        ) ?? max(0.000_001, descriptor.previewBaseSampleRate / sampleRate)
+    }
+}
+
+final class EditorNoteAuditionPreviewMixer {
+    private let sampleRate: Double
+    private let mixer: CSoftwareMixer
+    private(set) var lastRenderParameters: EditorNoteAuditionPreviewRenderParameters?
+
+    init(sampleRate: Double = EditorNoteAuditionAudioSink.defaultSampleRate) {
+        self.sampleRate = sampleRate.isFinite && sampleRate > 0
+            ? sampleRate
+            : EditorNoteAuditionAudioSink.defaultSampleRate
+        mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: self.sampleRate, channelCount: 2))
+    }
+
+    var activeVoiceCount: Int {
+        mixer.activeVoiceCount
+    }
+
+    var loadedVoiceCount: Int {
+        mixer.loadedVoiceCount
+    }
+
+    var rampingOutVoiceCount: Int {
+        mixer.rampingOutVoiceCount
+    }
+
+    @discardableResult
+    func replacePreview(with event: EditorNoteAuditionPreviewEvent) -> Bool {
+        guard let plan = EditorNoteAuditionPreviewRenderPlan(event: event, sampleRate: sampleRate) else {
+            return false
+        }
+        mixer.clearVoices()
+        mixer.addVoice(
+            sample: plan.sample,
+            gain: plan.gain,
+            pan: 0,
+            playbackStep: plan.playbackStep,
+            loop: .none
+        )
+        lastRenderParameters = EditorNoteAuditionPreviewRenderParameters(
+            gain: plan.gain,
+            playbackStep: plan.playbackStep,
+            instrumentIndex: plan.instrumentIndex,
+            sampleIndex: plan.sampleIndex
+        )
+        return true
+    }
+
+    func cancelPreview() {
+        mixer.clearVoices()
+        lastRenderParameters = nil
+    }
+
+    func render(frames: Int) -> MixerRenderBlock {
+        mixer.render(frames: frames)
+    }
+
+    @discardableResult
+    func render(into interleavedPCM: UnsafeMutableBufferPointer<Float>, frames: Int) -> Int {
+        mixer.render(into: interleavedPCM, frames: frames)
+    }
+}
+
+enum EditorNoteAuditionPreviewGainPolicy {
+    static let maximumGain = EditorNoteAuditionAudioSink.previewSafetyGainCap
+    static let runtimeOutputHeadroomGain = EditorNoteAuditionAudioSink.previewOutputHeadroomGain
+
+    static func gain(sampleVolume: Float) -> Float {
+        let runtimeVoiceGain = PlaybackSongSyntheticAdapter.adaptedGain(
+            sampleVolume: sampleVolume,
+            channelVolume: 64,
+            globalVolume: PlaybackSongSyntheticAdapter.GlobalVolumeState.defaultValue
+        )
+        let normalized = runtimeVoiceGain * runtimeOutputHeadroomGain
+        guard normalized.isFinite else {
+            return 0
+        }
+        return min(maximumGain, max(0, normalized))
+    }
+}
+
+enum EditorNoteAuditionPreviewPitchPolicy {
+    static func playbackStep(
+        noteValue: UInt8,
+        descriptor: EditorNoteAuditionSampleDescriptor,
+        outputSampleRate: Double
+    ) -> Double? {
+        guard (1...TrackerNoteKeyMap.maximumNoteValue).contains(Int(noteValue)),
+              outputSampleRate.isFinite,
+              outputSampleRate > 0 else {
+            return nil
+        }
+        let sample = PlaybackSample(
+            instrumentIndex: descriptor.instrumentIndex,
+            sampleIndex: descriptor.sampleIndex,
+            pcm: descriptor.previewPCM.isEmpty ? [0] : descriptor.previewPCM,
+            volume: descriptor.previewVolume,
+            relativeNote: descriptor.previewRelativeNote,
+            finetune: descriptor.previewFinetune,
+            baseSampleRate: descriptor.previewBaseSampleRate,
+            sampleLength: max(1, descriptor.sampleFrameCount)
+        )
+        let calculation = PlaybackPitchCalculator.calculation(
+            note: noteValue,
+            sample: sample,
+            pitchOffsetSemitones: 0,
+            outputSampleRate: outputSampleRate
+        )
+        return calculation.playbackRate.isFinite && calculation.playbackRate > 0
+            ? calculation.playbackRate
+            : nil
     }
 }
 
@@ -76,7 +211,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
     private let channelCount = 2
     private let lock = NSLock()
     private let lifecycleQueue = DispatchQueue(label: "com.voodootrackerx.editor-note-audition-preview")
-    private let mixer: CSoftwareMixer
+    private let previewMixer: EditorNoteAuditionPreviewMixer
     private var outputUnit: AudioUnit?
     private var isRunning = false
     private var previewGeneration: UInt64 = 0
@@ -87,7 +222,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
         self.sampleRate = sampleRate.isFinite && sampleRate > 0
             ? sampleRate
             : EditorNoteAuditionAudioSink.defaultSampleRate
-        mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: self.sampleRate, channelCount: channelCount))
+        previewMixer = EditorNoteAuditionPreviewMixer(sampleRate: self.sampleRate)
         scratch = Array(repeating: 0, count: 4096 * channelCount)
     }
 
@@ -100,29 +235,22 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
     }
 
     func preview(_ event: EditorNoteAuditionPreviewEvent) {
-        guard let plan = EditorNoteAuditionPreviewRenderPlan(event: event, sampleRate: sampleRate) else {
-            return
-        }
-
         let generation = nextPreviewGeneration()
+        stopCurrentOutputBeforeReplacement()
         lock.lock()
-        mixer.reset()
-        mixer.addVoice(
-            sample: plan.sample,
-            gain: plan.gain,
-            pan: 0,
-            playbackStep: plan.playbackStep,
-            loop: .none
-        )
+        let didSchedule = previewMixer.replacePreview(with: event)
         lock.unlock()
 
+        guard didSchedule else {
+            return
+        }
         startAndScheduleIdleStop(for: generation)
     }
 
     func cancelPreview() {
         _ = nextPreviewGeneration()
         lock.lock()
-        mixer.reset()
+        previewMixer.cancelPreview()
         lock.unlock()
 
         lifecycleQueue.async { [weak self] in
@@ -149,7 +277,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
         lock.lock()
         scratch.withUnsafeMutableBufferPointer { buffer in
             buffer.initialize(repeating: 0)
-            _ = mixer.render(into: buffer, frames: renderFrames)
+            _ = previewMixer.render(into: buffer, frames: renderFrames)
         }
         copyScratchToAudioBuffers(
             requestedFrameCount: frames,
@@ -196,7 +324,7 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
         }
 
         lock.lock()
-        let isIdle = mixer.activeVoiceCount == 0
+        let isIdle = previewMixer.activeVoiceCount == 0
         lock.unlock()
 
         guard isIdle else {
@@ -205,6 +333,14 @@ private final class EditorNoteAuditionCoreAudioOutputHost: @unchecked Sendable {
         idleStopTimer?.cancel()
         idleStopTimer = nil
         stopRunningOutputUnit()
+    }
+
+    private func stopCurrentOutputBeforeReplacement() {
+        lifecycleQueue.sync {
+            idleStopTimer?.cancel()
+            idleStopTimer = nil
+            stopRunningOutputUnit()
+        }
     }
 
     @discardableResult

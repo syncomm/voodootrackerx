@@ -217,6 +217,69 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.pattern.rows[0][1], .empty)
     }
 
+    func testLowerRowNaturalAndSharpTrackerNotesUseSelectedOctave() {
+        let expectedNotes: [(Character, UInt8, String)] = [
+            ("z", 49, "C-4"),
+            ("s", 50, "C#4"),
+            ("x", 51, "D-4"),
+            ("d", 52, "D#4"),
+            ("c", 53, "E-4"),
+            ("v", 54, "F-4"),
+            ("g", 55, "F#4"),
+            ("b", 56, "G-4"),
+            ("h", 57, "G#4"),
+            ("n", 58, "A-4"),
+            ("j", 59, "A#4"),
+            ("m", 60, "B-4")
+        ]
+
+        for (key, noteValue, noteText) in expectedNotes {
+            var document = BlankTrackerDocument.makeDefault()
+
+            XCTAssertTrue(document.enterNote(trackerKey: key, octave: 4, row: 0, channel: 0), String(key))
+            XCTAssertEqual(document.pattern.rows[0][0].note, noteValue, String(key))
+            XCTAssertEqual(ModuleMetadataLoader.formatXMNote(noteValue), noteText, String(key))
+        }
+    }
+
+    func testUpperRowNaturalTrackerNotesUseSelectedOctavePlusOne() {
+        let expectedNotes: [(Character, UInt8, String)] = [
+            ("q", 61, "C-5"),
+            ("w", 63, "D-5"),
+            ("e", 65, "E-5"),
+            ("r", 66, "F-5"),
+            ("t", 68, "G-5"),
+            ("y", 70, "A-5"),
+            ("u", 72, "B-5")
+        ]
+
+        for (key, noteValue, noteText) in expectedNotes {
+            var document = BlankTrackerDocument.makeDefault()
+
+            XCTAssertTrue(document.enterNote(trackerKey: key, octave: 4, row: 0, channel: 0), String(key))
+            XCTAssertEqual(document.pattern.rows[0][0].note, noteValue, String(key))
+            XCTAssertEqual(ModuleMetadataLoader.formatXMNote(noteValue), noteText, String(key))
+        }
+    }
+
+    func testUpperRowSharpTrackerNotesUseSelectedOctavePlusOne() {
+        let expectedNotes: [(Character, UInt8, String)] = [
+            ("2", 62, "C#5"),
+            ("3", 64, "D#5"),
+            ("5", 67, "F#5"),
+            ("6", 69, "G#5"),
+            ("7", 71, "A#5")
+        ]
+
+        for (key, noteValue, noteText) in expectedNotes {
+            var document = BlankTrackerDocument.makeDefault()
+
+            XCTAssertTrue(document.enterNote(trackerKey: key, octave: 4, row: 0, channel: 0), String(key))
+            XCTAssertEqual(document.pattern.rows[0][0].note, noteValue, String(key))
+            XCTAssertEqual(ModuleMetadataLoader.formatXMNote(noteValue), noteText, String(key))
+        }
+    }
+
     func testEditedBlankPatternCellFormatsExpectedNaturalNoteText() {
         var document = BlankTrackerDocument.makeDefault()
 
@@ -232,6 +295,30 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(document.pattern.rows[3][2].note, 96)
         XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[3][2].note), "B-7")
+    }
+
+    func testSelectedOctaveChangesAffectLowerAndUpperRows() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 3, row: 0, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "q", octave: 3, row: 1, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 5, row: 2, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "q", octave: 5, row: 3, channel: 0))
+
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[0][0].note), "C-3")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[1][0].note), "C-4")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[2][0].note), "C-5")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[3][0].note), "C-6")
+    }
+
+    func testUpperRowClampsToSupportedNoteRangeNearTopOctave() {
+        var document = BlankTrackerDocument.makeDefault()
+
+        XCTAssertTrue(document.enterNote(trackerKey: "q", octave: 7, row: 0, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "u", octave: 7, row: 1, channel: 0))
+
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[0][0].note), "C-7")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[1][0].note), "B-7")
     }
 
     func testAccidentalNoteEntryUsesSelectedOctave() {
@@ -296,10 +383,24 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.pattern.rows.count, BlankTrackerDocument.defaultRowCount)
     }
 
+    func testFinalRowUpperNoteEntryUsesSameEditAdvanceClamp() {
+        var document = BlankTrackerDocument.makeDefault()
+        let selectedRow = 63
+
+        XCTAssertTrue(document.enterNote(trackerKey: "q", octave: 4, row: selectedRow, channel: 0))
+        let advancedRow = TrackerEditStep.advancedRow(after: selectedRow, rowCount: document.pattern.rowCount)
+
+        XCTAssertEqual(ModuleMetadataLoader.formatXMNote(document.pattern.rows[63][0].note), "C-5")
+        XCTAssertEqual(advancedRow, 63)
+    }
+
     func testBlankDocumentNoteEntryRejectsNonNoteKeysAndOutOfRangeCoordinates() {
         var document = BlankTrackerDocument.makeDefault()
 
-        XCTAssertFalse(document.enterNote(trackerKey: "q", octave: 4, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: "i", octave: 4, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: ",", octave: 4, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: ".", octave: 4, row: 0, channel: 0))
+        XCTAssertFalse(document.enterNote(trackerKey: "/", octave: 4, row: 0, channel: 0))
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 8, row: 0, channel: 0))
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 64, channel: 0))
         XCTAssertFalse(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 8))

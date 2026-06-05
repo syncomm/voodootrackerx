@@ -185,10 +185,13 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Two-row tracker keyboard map for upper-row note entry.
+- Note audition preview planning at the editor/audio boundary.
 
 Recently completed product foundation:
 
+- Blank-document note entry now includes the two-row tracker keyboard map:
+  the lower row enters the selected octave, the upper row enters selected
+  octave + 1, and high-C keys remain deferred.
 - Blank-document editor state now tracks selected 1-based instrument/sample
   slots and displays them in the control panel as selected slots, while keeping
   blank documents in memory and opened modules read-only.

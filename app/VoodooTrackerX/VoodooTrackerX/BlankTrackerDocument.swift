@@ -1,27 +1,46 @@
 import Foundation
 
 enum TrackerNoteKeyMap {
+    private struct NoteKeyEntry {
+        let semitone: UInt8
+        let octaveOffset: Int
+    }
+
     static let keyOffNoteValue = XMPatternEventCell.keyOffNoteValue
     // Backtick is the Mac-friendly FT2/MilkyTracker-style key-below-Escape default.
     static let keyOffKey: Character = "`"
+    static let maximumNoteValue = 96
+    static let maximumOctave = 7
 
-    private static let noteSemitonesByKey: [Character: UInt8] = [
-        "z": 0,
-        "s": 1,
-        "x": 2,
-        "d": 3,
-        "c": 4,
-        "v": 5,
-        "g": 6,
-        "b": 7,
-        "h": 8,
-        "n": 9,
-        "j": 10,
-        "m": 11
+    private static let noteEntriesByKey: [Character: NoteKeyEntry] = [
+        "z": NoteKeyEntry(semitone: 0, octaveOffset: 0),
+        "s": NoteKeyEntry(semitone: 1, octaveOffset: 0),
+        "x": NoteKeyEntry(semitone: 2, octaveOffset: 0),
+        "d": NoteKeyEntry(semitone: 3, octaveOffset: 0),
+        "c": NoteKeyEntry(semitone: 4, octaveOffset: 0),
+        "v": NoteKeyEntry(semitone: 5, octaveOffset: 0),
+        "g": NoteKeyEntry(semitone: 6, octaveOffset: 0),
+        "b": NoteKeyEntry(semitone: 7, octaveOffset: 0),
+        "h": NoteKeyEntry(semitone: 8, octaveOffset: 0),
+        "n": NoteKeyEntry(semitone: 9, octaveOffset: 0),
+        "j": NoteKeyEntry(semitone: 10, octaveOffset: 0),
+        "m": NoteKeyEntry(semitone: 11, octaveOffset: 0),
+        "q": NoteKeyEntry(semitone: 0, octaveOffset: 1),
+        "2": NoteKeyEntry(semitone: 1, octaveOffset: 1),
+        "w": NoteKeyEntry(semitone: 2, octaveOffset: 1),
+        "3": NoteKeyEntry(semitone: 3, octaveOffset: 1),
+        "e": NoteKeyEntry(semitone: 4, octaveOffset: 1),
+        "r": NoteKeyEntry(semitone: 5, octaveOffset: 1),
+        "5": NoteKeyEntry(semitone: 6, octaveOffset: 1),
+        "t": NoteKeyEntry(semitone: 7, octaveOffset: 1),
+        "6": NoteKeyEntry(semitone: 8, octaveOffset: 1),
+        "y": NoteKeyEntry(semitone: 9, octaveOffset: 1),
+        "7": NoteKeyEntry(semitone: 10, octaveOffset: 1),
+        "u": NoteKeyEntry(semitone: 11, octaveOffset: 1)
     ]
 
     static func isTrackerNoteKey(_ character: Character) -> Bool {
-        noteSemitone(forTrackerKey: character) != nil
+        noteEntry(forTrackerKey: character) != nil
     }
 
     static func isKeyOffKey(_ character: Character) -> Bool {
@@ -29,21 +48,23 @@ enum TrackerNoteKeyMap {
     }
 
     static func noteValue(forTrackerKey character: Character, octave: Int) -> UInt8? {
-        guard let semitone = noteSemitone(forTrackerKey: character) else {
+        guard let entry = noteEntry(forTrackerKey: character) else {
             return nil
         }
-        let noteValue = octave * 12 + Int(semitone) + 1
-        guard (1...96).contains(noteValue) else {
+        let targetOctave = octave + entry.octaveOffset
+        let clampedOctave = entry.octaveOffset > 0 ? min(targetOctave, maximumOctave) : targetOctave
+        let noteValue = clampedOctave * 12 + Int(entry.semitone) + 1
+        guard (1...maximumNoteValue).contains(noteValue) else {
             return nil
         }
         return UInt8(noteValue)
     }
 
-    private static func noteSemitone(forTrackerKey character: Character) -> UInt8? {
+    private static func noteEntry(forTrackerKey character: Character) -> NoteKeyEntry? {
         guard let lowercased = String(character).lowercased().first else {
             return nil
         }
-        return noteSemitonesByKey[lowercased]
+        return noteEntriesByKey[lowercased]
     }
 }
 

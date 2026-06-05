@@ -110,6 +110,101 @@ struct TrackerEditorSelection: Equatable {
     }
 }
 
+enum EditorNoteAuditionSourceContext: Equatable {
+    case blankDocument
+    case loadedModule(patternIndex: Int?)
+}
+
+enum EditorNoteAuditionRequestKind: Equatable {
+    case noteOn(noteValue: UInt8, selectedOctave: Int)
+    case previewKeyOff
+}
+
+struct EditorNoteAuditionRequest: Equatable {
+    let kind: EditorNoteAuditionRequestKind
+    let selectedInstrumentIndex: Int
+    let selectedSampleIndex: Int
+    let sourceContext: EditorNoteAuditionSourceContext
+    let channelIndex: Int?
+    let rowIndex: Int?
+
+    init(
+        kind: EditorNoteAuditionRequestKind,
+        selection: TrackerEditorSelection,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil
+    ) {
+        self.kind = kind
+        selectedInstrumentIndex = selection.selectedInstrument
+        selectedSampleIndex = selection.selectedSample
+        self.sourceContext = sourceContext
+        self.channelIndex = channelIndex.map { max(0, $0) }
+        self.rowIndex = rowIndex.map { max(0, $0) }
+    }
+
+    static func noteOn(
+        trackerKey: Character,
+        selectedOctave: Int,
+        selection: TrackerEditorSelection,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil
+    ) -> EditorNoteAuditionRequest? {
+        guard let noteValue = TrackerNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: selectedOctave) else {
+            return nil
+        }
+        return EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: noteValue, selectedOctave: selectedOctave),
+            selection: selection,
+            sourceContext: sourceContext,
+            channelIndex: channelIndex,
+            rowIndex: rowIndex
+        )
+    }
+
+    static func previewKeyOff(
+        selection: TrackerEditorSelection,
+        sourceContext: EditorNoteAuditionSourceContext,
+        channelIndex: Int? = nil,
+        rowIndex: Int? = nil
+    ) -> EditorNoteAuditionRequest {
+        EditorNoteAuditionRequest(
+            kind: .previewKeyOff,
+            selection: selection,
+            sourceContext: sourceContext,
+            channelIndex: channelIndex,
+            rowIndex: rowIndex
+        )
+    }
+}
+
+enum EditorNoteAuditionUnavailableReason: Equatable {
+    case blankDocumentMissingInstrumentSamplePayload
+    case selectedInstrumentSampleNotPlayable
+}
+
+enum EditorNoteAuditionAvailability: Equatable {
+    case available
+    case unavailable(EditorNoteAuditionUnavailableReason)
+}
+
+enum EditorNoteAuditionAvailabilityResolver {
+    static func availability(
+        for request: EditorNoteAuditionRequest,
+        hasRealInstrumentSamplePayload: Bool,
+        selectedInstrumentSampleIsPlayable: Bool
+    ) -> EditorNoteAuditionAvailability {
+        if request.sourceContext == .blankDocument && !hasRealInstrumentSamplePayload {
+            return .unavailable(.blankDocumentMissingInstrumentSamplePayload)
+        }
+        if !selectedInstrumentSampleIsPlayable {
+            return .unavailable(.selectedInstrumentSampleNotPlayable)
+        }
+        return .available
+    }
+}
+
 struct BlankTrackerDocument: Equatable {
     static let defaultTitle = "Untitled"
     static let defaultSongLength = 1
@@ -190,6 +285,14 @@ struct BlankTrackerDocument: Equatable {
             isPatternControlsEnabled: true,
             areInstrumentPlaceholdersEnabled: false
         )
+    }
+
+    var noteAuditionSourceContext: EditorNoteAuditionSourceContext {
+        .blankDocument
+    }
+
+    var noteAuditionAvailability: EditorNoteAuditionAvailability {
+        .unavailable(.blankDocumentMissingInstrumentSamplePayload)
     }
 
     mutating func enterNote(trackerKey: Character, octave: Int, row: Int, channel: Int) -> Bool {

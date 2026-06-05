@@ -20,6 +20,13 @@ Loaded-module preview availability resolves the editor note-audition request aga
 
 This resolver does not play audio, schedule voices, call CoreAudio, call the C mixer, or change playback transport behavior. Loaded modules may become previewable before they become editable. Blank documents remain preview-unavailable until they have real instrument/sample payload through later import or editor support.
 
+Positive loaded-module preview availability is covered by the generated public
+XM fixture `tests/reference-xm/generated/basic-instrument-sample.xm`, loaded
+through the normal public fixture path and `PlaybackSongBuilder`. The test
+proves selected `I01` / `S01` resolves to a real one-sample PCM payload and an
+inert `EditorNoteAuditionSampleDescriptor`; audible preview remains deferred,
+and loaded modules remain read-only.
+
 ## First Preview Spike
 
 The first spike adds `EditorNoteAuditionPreviewer`, which consumes an `EditorNoteAuditionRequest` plus an `EditorNoteAuditionAvailability` result. It attempts preview only for note-on requests whose descriptor comes from a loaded module and reports real sample payload with a positive frame count. The previewer uses an injected sink so tests can verify request routing and metadata without CoreAudio or audio hardware.

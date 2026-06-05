@@ -274,7 +274,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         }
     }
 
-    func testGeneratedBasicInstrumentSampleFixtureLoadsWithPreviewableSamplePayload() throws {
+    func testGeneratedBasicInstrumentSampleFixtureProvidesPositiveNoteAuditionAvailability() throws {
         let fixtureURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
@@ -295,12 +295,15 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].instrument, 1)
         XCTAssertEqual(metadata.xmPatterns[0].rows[8][0].note, XMPatternEventCell.keyOffNoteValue)
 
+        XCTAssertEqual(song.instrumentsByIndex.count, 1)
         let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        XCTAssertEqual(instrument.samples.count, 1)
         let sample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
         XCTAssertEqual(sample.instrumentIndex, 1)
         XCTAssertEqual(sample.sampleIndex, 0)
         XCTAssertEqual(sample.sampleLength, 64)
         XCTAssertEqual(sample.pcm.count, 64)
+        XCTAssertFalse(sample.pcm.isEmpty)
         XCTAssertTrue(sample.isPlayable)
         XCTAssertEqual(sample.sourceBitDepthBits, 8)
         XCTAssertEqual(sample.sourceIsSignedPCM, true)
@@ -317,18 +320,23 @@ final class BlankTrackerDocumentTests: XCTestCase {
             channelIndex: 0,
             rowIndex: 0
         )
+        let previewSink = RecordingEditorNoteAuditionPreviewSink()
+        let availability = EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song)
 
-        XCTAssertEqual(
-            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
-            .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
-                instrumentIndex: 1,
-                sampleIndex: 0,
-                sampleFrameCount: 64,
-                hasSamplePayload: true,
-                hasLoopMetadata: false,
-                sourceContext: .loadedModule(patternIndex: 0)
-            ))
-        )
+        XCTAssertEqual(request.selectedInstrumentIndex, 1)
+        XCTAssertEqual(request.selectedSampleIndex, 1)
+        XCTAssertEqual(TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1).instrumentDisplayTitle, "I01")
+        XCTAssertEqual(TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1).sampleDisplayTitle, "S01")
+        guard case let .potentiallyAvailable(descriptor) = availability else {
+            return XCTFail("generated fixture should provide positive note-audition availability")
+        }
+        XCTAssertEqual(descriptor.instrumentIndex, 1)
+        XCTAssertEqual(descriptor.sampleIndex, 0)
+        XCTAssertEqual(descriptor.sampleFrameCount, 64)
+        XCTAssertTrue(descriptor.hasSamplePayload)
+        XCTAssertFalse(descriptor.hasLoopMetadata)
+        XCTAssertEqual(descriptor.sourceContext, .loadedModule(patternIndex: 0))
+        XCTAssertTrue(previewSink.events.isEmpty)
     }
 
     func testNoteAuditionPreviewerSkipsBlankDocumentsWithoutRealSamplePayload() {

@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Use the generated basic XM fixture for positive note-audition availability
-   coverage without adding audio playback.
+1. Start the audible note preview architecture spike without changing runtime
+   song playback behavior.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +56,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Generated public fixture coverage now proves positive loaded-module
+  note-audition availability for selected `I01` / `S01` through
+  `tests/reference-xm/generated/basic-instrument-sample.xm` and
+  `PlaybackSongBuilder`, while keeping audible preview, backend behavior,
+  parser architecture, tracker viewport behavior, and loaded-module editing
+  deferred.
 - Generated `tests/reference-xm/generated/basic-instrument-sample.xm` from the
   synthetic fixture generator with one public-safe instrument/sample payload and
   focused parser/editor positive-path tests, without adding WAV renders,

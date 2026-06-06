@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Add sample-slot selection controls for loaded-module audition and future
-   sample editor workflows.
+1. Define pattern-loop while-editing policy without coupling editor preview to
+   Play/Stop transport.
 2. Audit module-open performance boundaries so expensive diagnostics stay
    explicit and local-only.
 
@@ -56,6 +56,17 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Loaded-module audition now has explicit selected-sample slot controls in the
+  existing control panel. Preview resolves the selected 1-based `Sxx` slot on
+  the selected instrument, routes non-first sample slots into the preview
+  descriptor when payload exists, and returns preview-unavailable for missing
+  or empty selected slots instead of falling back to `S01`. Instrument changes
+  preserve the selected sample slot when possible and otherwise reset to the
+  first available sample slot, or `S01` when no sample slots are exposed.
+  Loaded modules remain read-only, blank documents remain preview-unavailable,
+  and runtime song playback, Play/Stop transport, backend selection, C mixer
+  DSP, parser architecture, tracker viewport behavior, save/export behavior,
+  and AVAudio runtime backend policy remain unchanged.
 - Non-Edit-mode tracker note keys now use an explicit editor input policy:
   loaded-module note keys may audition selected previewable instrument/sample
   payload without mutating pattern data, blank documents remain preview
@@ -64,8 +75,8 @@ Recently completed narrow target:
   editing is allowed, and runtime song playback, transport state, backend
   selection, C mixer DSP, parser architecture, tracker viewport behavior,
   save/export behavior, and loaded-module read-only editing remain unchanged.
-  Full FT2/XM envelope/key-off/fadeout parity and sample-slot UI remain
-  deferred.
+  Full FT2/XM envelope/key-off/fadeout parity, sample editing, sample loading,
+  and XI import remain deferred.
 - Editor note preview now routes sanitized sample-loop metadata from loaded
   `PlaybackSong` samples into the preview-only render plan and C mixer voice,
   so held Edit-mode preview notes can sustain through existing forward or
@@ -86,9 +97,9 @@ Recently completed narrow target:
   envelope parity and non-Edit-mode audition remain deferred.
 - Editor note preview now maps lower-row keys to the selected octave and
   upper-row keys to selected octave + 1 for preview pitch in the same
-  preview-only mixer path used by the audible sink. Loaded-module preview uses
-  the selected instrument and current sample-map/first-playable sample
-  selection policy, new preview notes clear prior preview voices before
+  preview-only mixer path used by the audible sink. Loaded-module preview used
+  the selected instrument and the then-current sample-map/first-playable
+  sample selection policy, new preview notes clear prior preview voices before
   replacement, and preview gain uses loaded-module adapter sample gain at
   neutral channel/global volume plus default runtime C mixer output headroom,
   with a final preview-only safety cap inside the isolated preview sink.

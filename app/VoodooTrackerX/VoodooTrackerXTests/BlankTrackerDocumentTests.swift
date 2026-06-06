@@ -36,6 +36,18 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(clampedHigh.sampleDisplayTitle, "SFF")
     }
 
+    func testTrackerEditorSelectionPreservesOrResetsSampleWhenInstrumentChanges() {
+        let selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 3)
+
+        let preserved = selection.withSelectedInstrument(2, availableSampleSlots: [1, 3])
+        let resetToFirstAvailable = selection.withSelectedInstrument(2, availableSampleSlots: [1, 2])
+        let resetToDefault = selection.withSelectedInstrument(2, availableSampleSlots: [])
+
+        XCTAssertEqual(preserved, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 3))
+        XCTAssertEqual(resetToFirstAvailable, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(resetToDefault, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+    }
+
     func testEditorNoteAuditionRequestCapturesNoteSelectionAndSourceContext() {
         let selection = TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3)
         let request = EditorNoteAuditionRequest.noteOn(
@@ -170,7 +182,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
     }
 
-    func testLoadedModuleNoteAuditionAvailabilityUsesFirstPlayableSampleWhenLoadedSampleSlotIsDeferred() {
+    func testLoadedModuleNoteAuditionAvailabilityDoesNotFallbackWhenSelectedSampleSlotIsUnavailable() {
         let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25, -0.25])
         let song = makePlaybackSong(
             orderPatternIndices: [0],
@@ -185,13 +197,44 @@ final class BlankTrackerDocumentTests: XCTestCase {
             rowIndex: 0
         )
 
+        XCTAssertEqual(
+            EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song),
+            .unavailable(.selectedSampleUnavailable)
+        )
+    }
+
+    func testLoadedModuleNoteAuditionAvailabilityRoutesSelectedNonFirstSampleSlot() {
+        let firstSample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1, -1])
+        let secondSample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            pcm: [0.125, 0.25, -0.125, -0.25],
+            volume: 0.75,
+            baseSampleRate: 12_000
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [firstSample, secondSample])]
+        )
+        let request = EditorNoteAuditionRequest(
+            kind: .noteOn(noteValue: 49, selectedOctave: 4),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2),
+            sourceContext: .loadedModule(patternIndex: 0),
+            channelIndex: 0,
+            rowIndex: 0
+        )
+
         guard case let .potentiallyAvailable(descriptor) =
             EditorNoteAuditionAvailabilityResolver.availability(for: request, loadedPlaybackSong: song) else {
-            return XCTFail("loaded preview should use the playable sample resolved by song sample-selection policy")
+            return XCTFail("selected S02 should resolve to the second loaded sample slot")
         }
         XCTAssertEqual(descriptor.instrumentIndex, 1)
-        XCTAssertEqual(descriptor.sampleIndex, 0)
-        XCTAssertEqual(descriptor.previewPCM, [0.25, -0.25])
+        XCTAssertEqual(descriptor.sampleIndex, 1)
+        XCTAssertEqual(descriptor.sampleFrameCount, 4)
+        XCTAssertEqual(descriptor.previewPCM, [0.125, 0.25, -0.125, -0.25])
+        XCTAssertEqual(descriptor.previewVolume, 0.75, accuracy: 0.000_001)
+        XCTAssertEqual(descriptor.previewBaseSampleRate, 12_000, accuracy: 0.000_001)
     }
 
     func testLoadedModuleNoteAuditionAvailabilityReturnsUnavailableWhenResolvedSampleHasNoPayload() {
@@ -725,7 +768,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
         let request = EditorNoteAuditionRequest(
             kind: .noteOn(noteValue: 49, selectedOctave: 4),
-            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 1),
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
             sourceContext: .loadedModule(patternIndex: 0),
             channelIndex: 0,
             rowIndex: 0
@@ -1474,6 +1517,16 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(content.isEditModeEnabled)
     }
 
+    func testFileNewEquivalentResetsSelectedSampleToDefaultSlot() {
+        let loadedLikeSelection = TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3)
+        let reset = BlankTrackerDocument.makeDefault()
+
+        XCTAssertEqual(loadedLikeSelection.sampleDisplayTitle, "S03")
+        XCTAssertEqual(reset.selection.selectedSample, TrackerEditorSelection.defaultSample)
+        XCTAssertEqual(reset.controlPanelMetadata.selectedSampleDisplay, "S01")
+        XCTAssertEqual(reset.noteAuditionAvailability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+    }
+
     func testLoadedModuleControlPanelDisplayStateUsesModuleMetadataAndEditorOctave() {
         let metadata = ParsedModuleMetadata(
             type: "XM",
@@ -1511,7 +1564,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(content.patternRowCount, "48")
         XCTAssertEqual(content.channelCount, "6")
         XCTAssertEqual(content.selectedInstrumentDisplay, "I01")
-        XCTAssertEqual(content.selectedSampleDisplay, "Sample Map")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01")
         XCTAssertEqual(content.tempo, "180")
         XCTAssertEqual(content.speed, "03")
         XCTAssertEqual(content.selectedOctave, 7)
@@ -1546,7 +1599,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         let content = ControlPanelDisplayState.loadedModuleContent(
             metadata: metadata,
-            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 1),
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
             selectedSongPositionIndex: 0,
             currentPatternIndex: 0,
             selectedOctave: 4,
@@ -1556,7 +1609,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(content.selectedInstrumentDisplay, "I07")
-        XCTAssertEqual(content.selectedSampleDisplay, "Sample Map")
+        XCTAssertEqual(content.selectedSampleDisplay, "S03")
     }
 
     func testFileNewEquivalentCreatesFreshBlankDocumentState() {

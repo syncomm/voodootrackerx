@@ -97,6 +97,29 @@ struct TrackerEditorSelection: Equatable {
         self.selectedSample = Self.clampedTrackerIndex(selectedSample)
     }
 
+    func withSelectedInstrument(_ selectedInstrument: Int, availableSampleSlots: [Int] = []) -> TrackerEditorSelection {
+        TrackerEditorSelection(
+            selectedInstrument: selectedInstrument,
+            selectedSample: selectedSample
+        ).clampedToAvailableSampleSlots(availableSampleSlots)
+    }
+
+    func withSelectedSample(_ selectedSample: Int) -> TrackerEditorSelection {
+        TrackerEditorSelection(
+            selectedInstrument: selectedInstrument,
+            selectedSample: selectedSample
+        )
+    }
+
+    func clampedToAvailableSampleSlots(_ availableSampleSlots: [Int]) -> TrackerEditorSelection {
+        let sampleSlots = Self.normalizedSampleSlots(availableSampleSlots)
+        guard !sampleSlots.isEmpty else {
+            return TrackerEditorSelection(selectedInstrument: selectedInstrument, selectedSample: Self.defaultSample)
+        }
+        let sample = sampleSlots.contains(selectedSample) ? selectedSample : sampleSlots[0]
+        return TrackerEditorSelection(selectedInstrument: selectedInstrument, selectedSample: sample)
+    }
+
     var instrumentDisplayTitle: String {
         String(format: "I%02X", selectedInstrument)
     }
@@ -107,6 +130,10 @@ struct TrackerEditorSelection: Equatable {
 
     private static func clampedTrackerIndex(_ value: Int) -> Int {
         min(255, max(1, value))
+    }
+
+    private static func normalizedSampleSlots(_ sampleSlots: [Int]) -> [Int] {
+        Array(Set(sampleSlots.map(clampedTrackerIndex))).sorted()
     }
 }
 
@@ -514,14 +541,10 @@ enum EditorNoteAuditionAvailabilityResolver {
             return .unavailable(.selectedInstrumentUnavailable)
         }
 
-        guard case let .noteOn(noteValue, _) = request.kind else {
+        guard case .noteOn = request.kind else {
             return .unavailable(.selectedSampleUnavailable)
         }
-        let sampleSelection = PlaybackSongSyntheticAdapter.selectSample(forNote: noteValue, from: instrument)
-        guard let sample = sampleSelection.sample else {
-            if sampleSelection.skippedReason == .samplePCMEmpty {
-                return .unavailable(.selectedSampleMissingPayload)
-            }
+        guard let sample = instrument.sample(selectedSampleSlot: request.selectedSampleIndex) else {
             return .unavailable(.selectedSampleUnavailable)
         }
 

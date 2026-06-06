@@ -71,4 +71,20 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertFalse(view.instrumentSelector.isEnabled)
         XCTAssertFalse(view.sampleSelector.isEnabled)
     }
+
+    func testApplySelectsExistingSampleSlotControlItem() {
+        let view = ControlPanelView(frame: .zero)
+        view.sampleSelector.removeAllItems()
+        view.sampleSelector.addItems(withTitles: ["S01", "S02", "S03"])
+        var content = ControlPanelContent()
+        content.selectedInstrumentDisplay = "I01"
+        content.selectedSampleDisplay = "S03"
+        content.areInstrumentPlaceholdersEnabled = true
+
+        view.apply(content)
+
+        XCTAssertEqual(view.sampleSelector.numberOfItems, 3)
+        XCTAssertEqual(view.sampleSelector.titleOfSelectedItem, "S03")
+        XCTAssertTrue(view.sampleSelector.isEnabled)
+    }
 }

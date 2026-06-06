@@ -365,6 +365,18 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertNil(song.sample(forInstrument: 2))
     }
 
+    func testPlaybackInstrumentMapsOneBasedSampleSlotsToStoredSampleIndices() {
+        let first = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        let third = PlaybackSample(instrumentIndex: 1, sampleIndex: 2, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
+        let instrument = PlaybackInstrument(index: 1, samples: [third, first])
+
+        XCTAssertEqual(instrument.availableSampleSlots, [1, 3])
+        XCTAssertEqual(instrument.sample(selectedSampleSlot: 1), first)
+        XCTAssertEqual(instrument.sample(selectedSampleSlot: 3), third)
+        XCTAssertNil(instrument.sample(selectedSampleSlot: 2))
+        XCTAssertNil(instrument.sample(selectedSampleSlot: 0))
+    }
+
     func testPlaybackTimingUsesXMDefaultTickDuration() {
         let timing = PlaybackTiming.xmDefault
 

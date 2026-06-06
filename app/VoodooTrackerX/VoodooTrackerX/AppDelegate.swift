@@ -140,6 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.controlPanelView.patternSelector.action = #selector(patternSelectionChanged(_:))
         controller.controlPanelView.instrumentSelector.target = self
         controller.controlPanelView.instrumentSelector.action = #selector(instrumentSelectionChanged(_:))
+        controller.controlPanelView.sampleSelector.target = self
+        controller.controlPanelView.sampleSelector.action = #selector(sampleSelectionChanged(_:))
         controller.controlPanelView.songPositionStepper.target = self
         controller.controlPanelView.songPositionStepper.action = #selector(currentSongPositionStepperChanged(_:))
         controller.controlPanelView.octaveSelector.target = self
@@ -197,11 +199,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             noteAuditionPreviewer.cancelPreview()
             blankDocument = nil
             loadedMetadata = metadata
-            playbackEngine.load(song: try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path))
+            let playbackSong = try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
+            playbackEngine.load(song: playbackSong)
             selectedPatternSelectionIndex = 0
             selectedSongPositionIndex = 0
             currentPatternIndex = 0
-            loadedModuleSelection = .default
+            loadedModuleSelection = clampedLoadedModuleSelection(.default, song: playbackSong)
             cursor = PatternCursor(row: 0, channel: 0, field: .note)
             isEditModeEnabled = false
             isLoopPlaybackEnabled = false
@@ -314,11 +317,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let selectedInstrument = min(max(1, sender.indexOfSelectedItem + 1), metadata.instruments)
-        loadedModuleSelection = TrackerEditorSelection(
+        let selectedInstrument = selectedPopupSlot(sender) ?? min(max(1, sender.indexOfSelectedItem + 1), metadata.instruments)
+        let proposedSelection = TrackerEditorSelection(
             selectedInstrument: selectedInstrument,
             selectedSample: loadedModuleSelection.selectedSample
         )
+        loadedModuleSelection = clampedLoadedModuleSelection(
+            proposedSelection
+        )
+        syncControlPanelView()
+    }
+
+    @objc
+    private func sampleSelectionChanged(_ sender: NSPopUpButton) {
+        guard let metadata = loadedMetadata,
+              metadata.type == "XM",
+              metadata.instruments > 0 else {
+            return
+        }
+
+        let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
+        loadedModuleSelection = loadedModuleSelection.withSelectedSample(selectedSample)
         syncControlPanelView()
     }
 
@@ -1062,7 +1081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncControlPanelView() {
         if let blankDocument {
-            reloadInstrumentPlaceholders(for: nil, selection: .default)
+            reloadInstrumentControls(for: nil, selection: .default)
             controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
                 selectedOctave: selectedOctave,
@@ -1074,7 +1093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let metadata = loadedMetadata {
-            reloadInstrumentPlaceholders(for: metadata, selection: loadedModuleSelection)
+            reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
             controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
                 metadata: metadata,
                 selection: loadedModuleSelection,
@@ -1086,13 +1105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 isPlaybackActive: playbackEngine.state.isPlaying
             ))
         } else {
-            reloadInstrumentPlaceholders(for: nil, selection: .default)
+            reloadInstrumentControls(for: nil, selection: .default)
             controlPanelView?.apply(ControlPanelContent())
         }
     }
 
-    // These selectors remain placeholder-driven until instrument/sample editors own real state.
-    private func reloadInstrumentPlaceholders(for metadata: ParsedModuleMetadata?, selection: TrackerEditorSelection) {
+    private func reloadInstrumentControls(for metadata: ParsedModuleMetadata?, selection: TrackerEditorSelection) {
         guard let controlPanelView else {
             return
         }
@@ -1106,13 +1124,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let visibleInstrumentCount = min(metadata.instruments, 32)
-        let instrumentTitles = (0..<visibleInstrumentCount).map { index in
-            String(format: "I%02X", index + 1)
+        for index in 0..<visibleInstrumentCount {
+            let slot = index + 1
+            controlPanelView.instrumentSelector.addItem(withTitle: String(format: "I%02X", slot))
+            controlPanelView.instrumentSelector.lastItem?.representedObject = slot
         }
-        controlPanelView.instrumentSelector.addItems(withTitles: instrumentTitles)
         let selectedInstrumentIndex = min(max(0, selection.selectedInstrument - 1), visibleInstrumentCount - 1)
         controlPanelView.instrumentSelector.selectItem(at: selectedInstrumentIndex)
-        controlPanelView.sampleSelector.addItem(withTitle: "Sample Map")
+        reloadSampleSelector(selection: selection)
     }
 
     private func currentEditorSelection() -> TrackerEditorSelection {
@@ -1120,6 +1139,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return loadedModuleSelection
         }
         return blankDocument?.selection ?? .default
+    }
+
+    private func reloadSampleSelector(selection: TrackerEditorSelection) {
+        guard let controlPanelView else {
+            return
+        }
+
+        controlPanelView.sampleSelector.removeAllItems()
+        let sampleSlots = playbackEngine.song?
+            .instrument(forInstrument: selection.selectedInstrument)?
+            .availableSampleSlots ?? []
+        let displayedSampleSlots = sampleSlots.isEmpty ? [selection.selectedSample] : sampleSlots
+
+        for slot in displayedSampleSlots {
+            controlPanelView.sampleSelector.addItem(withTitle: TrackerEditorSelection(selectedSample: slot).sampleDisplayTitle)
+            controlPanelView.sampleSelector.lastItem?.representedObject = slot
+        }
+        controlPanelView.sampleSelector.selectItem(withTitle: selection.sampleDisplayTitle)
+    }
+
+    private func clampedLoadedModuleSelection(
+        _ selection: TrackerEditorSelection,
+        song: PlaybackSong? = nil
+    ) -> TrackerEditorSelection {
+        let playbackSong = song ?? playbackEngine.song
+        let sampleSlots = playbackSong?
+            .instrument(forInstrument: selection.selectedInstrument)?
+            .availableSampleSlots ?? []
+        return selection.clampedToAvailableSampleSlots(sampleSlots)
+    }
+
+    private func selectedPopupSlot(_ sender: NSPopUpButton) -> Int? {
+        sender.selectedItem?.representedObject as? Int
     }
 
 }

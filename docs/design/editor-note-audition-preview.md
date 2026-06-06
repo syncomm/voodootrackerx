@@ -1,6 +1,6 @@
 # Editor Note Audition Preview Plan
 
-This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated loaded-module sample audition from tracker note keys in both Edit mode and non-Edit mode when real public fixture sample payload is available, while keeping runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability unchanged.
+This note defines the editor-side request shape and input policy for note audition preview. The current implementation supports isolated loaded-module sample audition from tracker note keys in both Edit mode and non-Edit mode when real public fixture sample payload is available, with explicit selected instrument and selected sample-slot routing. Runtime song playback, transport state, backend selection, parser architecture, tracker viewport behavior, and loaded-module pattern mutability remain unchanged.
 
 ## Request Meaning
 
@@ -18,9 +18,11 @@ Loaded modules may be auditionable before they become editable. Loaded-module au
 
 ## Loaded-Module Sample Availability
 
-Loaded-module preview availability resolves the editor note-audition request against the app-level `PlaybackSong` instrument/sample model. A selected instrument/sample is unavailable when the loaded playback song is missing, the selected instrument cannot resolve, the selected instrument's runtime sample-selection policy cannot resolve a playable sample, or the resolved sample has no playable PCM payload. A resolved sample with payload reports a descriptor containing the instrument index, sample index, frame count, sanitized forward or ping-pong sample-loop metadata when present, source context, and a copied preview PCM payload.
+Loaded-module preview availability resolves the editor note-audition request against the app-level `PlaybackSong` instrument/sample model. A selected instrument/sample is unavailable when the loaded playback song is missing, the selected instrument cannot resolve, the selected sample slot cannot resolve on that instrument, or the selected sample has no playable PCM payload. A resolved sample with payload reports a descriptor containing the instrument index, sample index, frame count, sanitized forward or ping-pong sample-loop metadata when present, source context, and a copied preview PCM payload.
 
-Loaded XM preview now uses the editor's loaded-module instrument selection state instead of hard-coding `I01`/`S01`. The existing instrument popup can update the selected instrument for preview. The sample popup is still a sample-map placeholder, so loaded-module preview follows the selected instrument's note sample map, or the same first-playable fallback used by the current playback adapter, until a later sample/instrument selection milestone makes sample slots user-addressable.
+Loaded XM preview now uses the editor's loaded-module instrument and sample-slot selection state instead of hard-coding `I01`/`S01` or following the runtime song adapter's note sample-map / first-playable fallback. The existing instrument popup updates the selected instrument, and the existing sample popup now exposes explicit tracker-style sample slots such as `S01`. If an instrument change leaves the previous sample slot unavailable, the editor preserves the slot when possible and otherwise resets to the first available sample slot for that instrument, or `S01` when no sample slots are exposed.
+
+Preview availability resolves the selected 1-based sample slot directly to the selected instrument's stored 0-based sample index. An unavailable selected sample slot, missing slot, empty PCM payload, or otherwise non-playable selected sample returns preview-unavailable. The resolver does not silently fall back to `S01` or to the first playable sample for editor audition.
 
 This resolver does not play audio, schedule voices, call CoreAudio, or change playback transport behavior. Loaded modules may be previewable before they become editable. Blank documents remain preview-unavailable until they have real instrument/sample payload through later import or editor support.
 
@@ -90,8 +92,7 @@ Preview is not attempted for blank documents without real sample payload, key-of
 
 - Full preview gain/loudness parity with normal Play/song playback, including global volume, channel volume, volume-column state, envelopes, and effect-derived gain changes.
 - Full FT2/XM release, key-off envelope, fadeout, envelope, effect, and loop parity beyond simple sample-loop sustain.
-- User-addressable loaded-module sample-slot selection beyond the current sample-map placeholder.
-- XI import, sample loading, instrument editor, and sample editor.
+- XI import, sample loading, instrument editor, sample editor, and save/export behavior.
 - Pattern loop while editing.
 - Instrument entry, sample entry, effect entry, volume-column entry, and save/export behavior.
 - Transport-coupled preview controls.

@@ -182,6 +182,10 @@ struct PlaybackInstrument: Equatable {
         samples.first { $0.isPlayable }
     }
 
+    var availableSampleSlots: [Int] {
+        Array(Set(samples.map { min(255, max(1, $0.sampleIndex + 1)) })).sorted()
+    }
+
     var hasNoteSampleMap: Bool {
         noteSampleMap != nil
     }
@@ -196,6 +200,13 @@ struct PlaybackInstrument: Equatable {
 
     func sample(mappedSampleIndex: Int) -> PlaybackSample? {
         samples.first { $0.sampleIndex == mappedSampleIndex }
+    }
+
+    func sample(selectedSampleSlot: Int) -> PlaybackSample? {
+        guard selectedSampleSlot > 0 else {
+            return nil
+        }
+        return sample(mappedSampleIndex: selectedSampleSlot - 1)
     }
 }
 

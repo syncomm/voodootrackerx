@@ -87,7 +87,7 @@ enum ControlPanelDisplayState {
             content.isPatternControlsEnabled = true
             content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
             content.selectedInstrumentDisplay = metadata.instruments > 0 ? selection.instrumentDisplayTitle : "No Inst"
-            content.selectedSampleDisplay = metadata.instruments > 0 ? "Sample Map" : "No Sample"
+            content.selectedSampleDisplay = metadata.instruments > 0 ? selection.sampleDisplayTitle : "No Sample"
         } else {
             content.patternRowCount = "--"
             content.channelCount = twoDigit(metadata.channels)

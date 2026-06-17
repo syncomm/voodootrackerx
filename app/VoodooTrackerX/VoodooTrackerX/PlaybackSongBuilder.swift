@@ -120,6 +120,7 @@ enum PlaybackSongBuilder {
                   offset + instrumentHeaderSize <= data.count else {
                 break
             }
+            let instrumentName = readXMText(data, offset: offset + 4, length: 22)
             guard sampleCount > 0 else {
                 offset += instrumentHeaderSize
                 continue
@@ -162,6 +163,7 @@ enum PlaybackSongBuilder {
                 return PlaybackSample(
                     instrumentIndex: instrumentIndex,
                     sampleIndex: sampleIndex,
+                    name: header.name,
                     pcm: pcm,
                     volume: min(1, Float(header.volume) / 64.0),
                     relativeNote: header.relativeNote,
@@ -178,6 +180,7 @@ enum PlaybackSongBuilder {
             }
             instruments[instrumentIndex] = PlaybackInstrument(
                 index: instrumentIndex,
+                name: instrumentName,
                 samples: samples,
                 volumeEnvelope: volumeEnvelope,
                 noteSampleMap: noteSampleMap
@@ -255,6 +258,7 @@ enum PlaybackSongBuilder {
         let finetune: Int
         let type: UInt8
         let relativeNote: Int
+        let name: String?
 
         var is16Bit: Bool {
             (type & 0x10) != 0
@@ -294,8 +298,21 @@ enum PlaybackSongBuilder {
             volume: data[offset + 12],
             finetune: Int(Int8(bitPattern: data[offset + 13])),
             type: data[offset + 14],
-            relativeNote: Int(Int8(bitPattern: data[offset + 16]))
+            relativeNote: Int(Int8(bitPattern: data[offset + 16])),
+            name: readXMText(data, offset: offset + 18, length: 22)
         )
+    }
+
+    private static func readXMText(_ data: Data, offset: Int, length: Int) -> String? {
+        guard length > 0,
+              offset >= 0,
+              offset + length <= data.count else {
+            return nil
+        }
+        let bytes = Array(data[offset..<offset + length].prefix { $0 != 0 })
+        let decoded = String(bytes: bytes, encoding: .isoLatin1) ?? String(bytes: bytes, encoding: .utf8) ?? ""
+        let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func decodeSamplePCM(_ data: Data, offset: Int, header: XMSampleHeader) -> [Float] {

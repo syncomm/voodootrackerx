@@ -56,6 +56,14 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Main-window control panel presentation now has the first Build Beyond demo
+  polish pass: dark hardware-panel grouping, top gold accent, separated
+  TITLE/TIME readouts, PTN decimal display, loaded-module instrument/sample
+  names where available, and transport/toggle active-state styling without
+  changing playback, backend, parser, tracker viewport, editor, save/export, or
+  loaded-module read-only behavior. TIME remains a placeholder until a safe
+  real-duration metadata source exists; this PR does not infer duration from
+  module title text.
 - Loaded-module audition now has explicit selected-sample slot controls in the
   existing control panel. Preview resolves the selected 1-based `Sxx` slot on
   the selected instrument, routes non-first sample slots into the preview

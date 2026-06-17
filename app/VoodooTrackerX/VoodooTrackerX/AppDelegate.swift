@@ -578,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> String {
-        String(format: "P%02X", patternIndex)
+        ControlPanelDisplayState.patternDisplayTitle(patternIndex: patternIndex)
     }
 
     private func clampedSongPosition(_ proposedPosition: Int, songLength: Int) -> Int {
@@ -1094,6 +1094,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let metadata = loadedMetadata {
             reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
+            let selectedInstrument = playbackEngine.song?.instrument(forInstrument: loadedModuleSelection.selectedInstrument)
+            let selectedSample = selectedInstrument?.sample(selectedSampleSlot: loadedModuleSelection.selectedSample)
             controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
                 metadata: metadata,
                 selection: loadedModuleSelection,
@@ -1102,7 +1104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 selectedOctave: selectedOctave,
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,
-                isPlaybackActive: playbackEngine.state.isPlaying
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                selectedInstrumentName: selectedInstrument?.name,
+                selectedSampleName: selectedSample?.name
             ))
         } else {
             reloadInstrumentControls(for: nil, selection: .default)
@@ -1126,8 +1130,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let visibleInstrumentCount = min(metadata.instruments, 32)
         for index in 0..<visibleInstrumentCount {
             let slot = index + 1
-            controlPanelView.instrumentSelector.addItem(withTitle: String(format: "I%02X", slot))
+            let display = ControlPanelSlotDisplay.instrument(
+                slot: slot,
+                name: playbackEngine.song?.instrument(forInstrument: slot)?.name
+            )
+            controlPanelView.instrumentSelector.addItem(withTitle: display.displayTitle)
             controlPanelView.instrumentSelector.lastItem?.representedObject = slot
+            controlPanelView.instrumentSelector.lastItem?.toolTip = display.tooltip
         }
         let selectedInstrumentIndex = min(max(0, selection.selectedInstrument - 1), visibleInstrumentCount - 1)
         controlPanelView.instrumentSelector.selectItem(at: selectedInstrumentIndex)
@@ -1153,10 +1162,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let displayedSampleSlots = sampleSlots.isEmpty ? [selection.selectedSample] : sampleSlots
 
         for slot in displayedSampleSlots {
-            controlPanelView.sampleSelector.addItem(withTitle: TrackerEditorSelection(selectedSample: slot).sampleDisplayTitle)
+            let display = ControlPanelSlotDisplay.sample(
+                slot: slot,
+                name: playbackEngine.song?
+                    .instrument(forInstrument: selection.selectedInstrument)?
+                    .sample(selectedSampleSlot: slot)?
+                    .name
+            )
+            controlPanelView.sampleSelector.addItem(withTitle: display.displayTitle)
             controlPanelView.sampleSelector.lastItem?.representedObject = slot
+            controlPanelView.sampleSelector.lastItem?.toolTip = display.tooltip
         }
-        controlPanelView.sampleSelector.selectItem(withTitle: selection.sampleDisplayTitle)
+        let selectedDisplay = ControlPanelSlotDisplay.sample(
+            slot: selection.selectedSample,
+            name: playbackEngine.song?
+                .instrument(forInstrument: selection.selectedInstrument)?
+                .sample(selectedSampleSlot: selection.selectedSample)?
+                .name
+        )
+        controlPanelView.sampleSelector.selectItem(withTitle: selectedDisplay.displayTitle)
     }
 
     private func clampedLoadedModuleSelection(

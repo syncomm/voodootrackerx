@@ -378,10 +378,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(song.instrumentsByIndex.count, 1)
         let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        XCTAssertEqual(instrument.name, "BASIC SAMPLE")
         XCTAssertEqual(instrument.samples.count, 1)
         let sample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
         XCTAssertEqual(sample.instrumentIndex, 1)
         XCTAssertEqual(sample.sampleIndex, 0)
+        XCTAssertEqual(sample.name, "SINE64")
         XCTAssertEqual(sample.sampleLength, 64)
         XCTAssertEqual(sample.pcm.count, 64)
         XCTAssertFalse(sample.pcm.isEmpty)
@@ -1460,6 +1462,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(content.songTitle, "Untitled")
+        XCTAssertEqual(content.songTime, "--:--")
         XCTAssertEqual(content.songLength, "01")
         XCTAssertEqual(content.songPosition, "00")
         XCTAssertEqual(content.restartPosition, "00")
@@ -1503,6 +1506,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertNotEqual(content, loadedLikeContent)
         XCTAssertEqual(content.songTitle, "Untitled")
+        XCTAssertEqual(content.songTime, "--:--")
         XCTAssertEqual(content.songLength, "01")
         XCTAssertEqual(content.songPosition, "00")
         XCTAssertEqual(content.restartPosition, "00")
@@ -1558,6 +1562,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         )
 
         XCTAssertEqual(content.songTitle, "Loaded Module")
+        XCTAssertEqual(content.songTime, "--:--")
         XCTAssertEqual(content.songLength, "12")
         XCTAssertEqual(content.songPosition, "05")
         XCTAssertEqual(content.restartPosition, "02")
@@ -1576,6 +1581,45 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(content.isSongPositionEnabled)
         XCTAssertTrue(content.isPatternControlsEnabled)
         XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
+    }
+
+    func testLoadedModuleControlPanelDisplayStateDoesNotInferDurationFromTitleText() {
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module 03:25",
+            version: "1.04",
+            channels: 6,
+            patterns: 1,
+            instruments: 1,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 64, channels: 6, rows: [])
+            ]
+        )
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(content.songTitle, "Loaded Module 03:25")
+        XCTAssertEqual(content.songTime, "--:--")
+    }
+
+    func testControlPanelPatternDisplayUsesZeroPaddedDecimal() {
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 0), "000")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 12), "012")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: 111), "111")
     }
 
     func testLoadedModuleControlPanelDisplayStateUsesCurrentEditorInstrumentSelection() {
@@ -1610,6 +1654,82 @@ final class BlankTrackerDocumentTests: XCTestCase {
 
         XCTAssertEqual(content.selectedInstrumentDisplay, "I07")
         XCTAssertEqual(content.selectedSampleDisplay, "S03")
+    }
+
+    func testLoadedModuleControlPanelDisplayStateUsesSelectedInstrumentAndSampleNames() {
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 4,
+            patterns: 1,
+            instruments: 8,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 64, channels: 4, rows: [])
+            ]
+        )
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false,
+            selectedInstrumentName: "Lead",
+            selectedSampleName: "Kick"
+        )
+
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I07 Lead")
+        XCTAssertEqual(content.selectedInstrumentTooltip, "I07 Lead")
+        XCTAssertEqual(content.selectedSampleDisplay, "S03 Kick")
+        XCTAssertEqual(content.selectedSampleTooltip, "S03 Kick")
+    }
+
+    func testLoadedModuleControlPanelDisplayStateUsesInstrumentAndSampleNamesWhenProvided() {
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 4,
+            patterns: 1,
+            instruments: 8,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 64, channels: 4, rows: [])
+            ]
+        )
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false,
+            selectedInstrumentName: "Very Long Instrument",
+            selectedSampleName: "Kick"
+        )
+
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01 Very Long...")
+        XCTAssertEqual(content.selectedInstrumentTooltip, "I01 Very Long Instrument")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01 Kick")
+        XCTAssertEqual(content.selectedSampleTooltip, "S01 Kick")
     }
 
     func testFileNewEquivalentCreatesFreshBlankDocumentState() {

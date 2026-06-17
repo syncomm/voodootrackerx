@@ -39,10 +39,10 @@ workflow.
 | LEN | Readout NSTextField | Keep (song length in orders is a readout). |
 | POS | Readout + NSStepper | Keep. Stepper is correct here. |
 | RST | Readout NSTextField | Keep (restart order is a readout). |
-| PATTERN | NSPopUpButton | Keep. Popup is correct for pattern selection. |
+| PATTERN | NSPopUpButton | Keep. **Display as zero-padded decimal (001, 012, 111)** — not hex (0C) or prefixed (P0C). The label already says PATTERN so the prefix is redundant; decimal is readable by everyone without tracker background. |
 | ROWS | Readout NSTextField | **Add stepper arrows.** Range 16–256 (powers of 2 plus 192). |
-| INST | NSPopUpButton | Keep. |
-| SMP | NSPopUpButton | Keep. |
+| INST | NSPopUpButton | Keep. **Display format: dim gold code prefix (I01) + warm white name (Drums)**. Truncate name at ~12 chars with ellipsis; full name in tooltip. Opened dropdown items: "I01 — Drums", "I02 — 808 Snare". When no name is set, code fills the full field width (fallback to current behavior). |
+| SMP | NSPopUpButton | Keep. Same name-display treatment as INST: "S01 · 808 Kick". |
 | TEMPO | **Readout NSTextField** | **Make editable with stepper arrows.** Range 32–255. |
 | SPEED | **Readout NSTextField** | **Make editable with stepper arrows.** Range 1–31. |
 | OCT | NSPopUpButton | Keep (0–8 range). |
@@ -223,18 +223,13 @@ first coding pass if layout complexity is an issue — the separators alone carr
 
 ## 7. Bottom Row Fill Strategy
 
-The current bottom row has a `makeFlexibleSpacer()` that eats remaining width. Two better options:
+The bottom row ends with a plain `makeFlexibleSpacer()` (invisible, just eats remaining width).
+The INST and SMP popup fields are wide enough to show names (min ~130px each), which naturally
+fills the row better than before.
 
-**Option A (preferred):** Give INST and SMP popup buttons more minimum width so they fill more
-naturally. The instrument names in a typical XM module are descriptive (e.g. "Bass Drum 1") —
-wider fields are actually useful.
-
-**Option B:** Add a narrow right-side info cluster: the channel activity indicator strip (one
-dot per channel showing output activity) or a simple empty placeholder that future activity
-meters can fill in. This visually completes the row.
-
-Recommend Option A for the immediate coding pass, with a placeholder slot reserved for Option B
-(Phase 5 visualization work).
+**No activity meters in the control panel.** Visualization (waveform scopes, per-channel
+activity) belongs behind the logo panel as part of the planned fade+visualization feature.
+The control panel stays focused on controls only.
 
 ---
 

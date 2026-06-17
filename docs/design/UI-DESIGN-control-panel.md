@@ -39,7 +39,7 @@ workflow.
 | LEN | Readout NSTextField | Keep (song length in orders is a readout). |
 | POS | Readout + NSStepper | Keep. Stepper is correct here. |
 | RST | Readout NSTextField | Keep (restart order is a readout). |
-| PATTERN | NSPopUpButton | Keep. **Display as zero-padded decimal (001, 012, 111)** — not hex (0C) or prefixed (P0C). The label already says PATTERN so the prefix is redundant; decimal is readable by everyone without tracker background. |
+| PTN (was PATTERN) | NSPopUpButton | Label shortened to PTN — saves ~25px, giving INST/SMP more room for names. **Display as zero-padded decimal (001, 012, 111)** — not hex (0C) or prefixed (P0C). The label already says PATTERN so the prefix is redundant; decimal is readable by everyone without tracker background. |
 | ROWS | Readout NSTextField | **Add stepper arrows.** Range 16–256 (powers of 2 plus 192). |
 | INST | NSPopUpButton | Keep. **Display format: dim gold code prefix (I01) + warm white name (Drums)**. Truncate name at ~12 chars with ellipsis; full name in tooltip. Opened dropdown items: "I01 — Drums", "I02 — 808 Snare". When no name is set, code fills the full field width (fallback to current behavior). |
 | SMP | NSPopUpButton | Keep. Same name-display treatment as INST: "S01 · 808 Kick". |

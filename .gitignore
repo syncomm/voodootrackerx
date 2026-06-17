@@ -69,3 +69,4 @@ vtx-local-reference-comparison*/
 vtx-playback-*.jsonl
 vtx-c-runtime-*.jsonl
 vtx-runtime-*.jsonl
+.gstack/

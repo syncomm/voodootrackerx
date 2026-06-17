@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VoodooTracker X — Control Panel Redesign Mockup v1</title>
+  <style>
+    /* ───────────────────────────────────────────────
+       DESIGN TOKENS (mirrors TrackerTheme.swift)
+       ─────────────────────────────────────────────── */
+    :root {
+      --bg-window:         #1E1E1E;
+      --bg-panel:          #252526;
+      --bg-readout:        #181819;
+      --bg-interactive:    #1C1C1D;
+      --bg-logo:           #1A1A1B;
+
+      --gold:              #C9A74A;
+      --gold-88:           rgba(201, 167, 74, 0.88);
+      --gold-60:           rgba(201, 167, 74, 0.60);
+      --gold-55:           rgba(201, 167, 74, 0.55);
+      --gold-38:           rgba(201, 167, 74, 0.38);
+      --gold-22:           rgba(201, 167, 74, 0.22);
+      --gold-12:           rgba(201, 167, 74, 0.12);
+
+      --text-value:        #E8D8A0;
+      --text-code:         rgba(201, 167, 74, 0.55);   /* dim gold for instrument codes */
+
+      --play-bg:           #152A1A;
+      --play-text:         #4DB868;
+      --play-border:       rgba(77, 184, 104, 0.55);
+      --stop-dim-bg:       #1A1A1B;
+      --stop-dim-text:     rgba(204, 90, 80, 0.30);
+      --loop-on-bg:        #2B2514;
+      --loop-on-text:      #C9A74A;
+      --loop-on-border:    rgba(201, 167, 74, 0.80);
+      --toggle-off-bg:     #1F1F20;
+      --toggle-off-text:   rgba(232, 216, 160, 0.55);
+      --toggle-off-border: rgba(201, 167, 74, 0.25);
+
+      --font: 'SF Mono', ui-monospace, 'Cascadia Code', 'Fira Mono', 'Consolas', 'Courier New', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #141414;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 24px 56px;
+      font-family: var(--font);
+      min-height: 100vh;
+    }
+
+    /* ── APP WINDOW ── */
+    .app-window {
+      width: 960px;
+      max-width: 100%;
+      background: var(--bg-window);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(0,0,0,0.8),
+        0 20px 60px rgba(0,0,0,0.7),
+        0 4px 16px rgba(0,0,0,0.5);
+    }
+
+    .window-chrome {
+      background: #2A2A2B;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 7px;
+      border-bottom: 1px solid rgba(0,0,0,0.4);
+    }
+    .traffic-light { width: 12px; height: 12px; border-radius: 50%; }
+    .tl-close { background: #FF5F57; }
+    .tl-min   { background: #FEBC2E; }
+    .tl-max   { background: #28C840; }
+    .window-title {
+      flex: 1; text-align: center;
+      font-size: 11px; color: rgba(255,255,255,0.35);
+      letter-spacing: 0.02em;
+    }
+
+    /* ── LOGO AREA ── */
+    .logo-area {
+      background: var(--bg-logo);
+      height: 88px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid rgba(0,0,0,0.5);
+    }
+    .logo-placeholder-text {
+      color: rgba(201, 167, 74, 0.16);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* ── CONTROL PANEL ── */
+    .control-panel {
+      background: var(--bg-panel);
+      border-bottom: 1px solid rgba(0,0,0,0.6);
+    }
+    .panel-accent-line {
+      height: 1px;
+      background: var(--gold-60);
+      box-shadow: 0 0 6px rgba(201, 167, 74, 0.28);
+    }
+    .panel-content {
+      padding: 8px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* ── PANEL ROWS ── */
+    .panel-row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      height: 28px;
+      overflow: visible;          /* never clip child controls */
+    }
+
+    /* ── GROUP SEPARATOR ── */
+    .group-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--gold-38);
+      flex-shrink: 0;
+      margin: 0 10px;
+    }
+    .group-sep.timing-sep {
+      background: var(--gold-55);
+      height: 20px;
+      margin: 0 13px;
+    }
+
+    /* ── CONTROL GROUPS ── */
+    .ctrl-group {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;             /* never compress groups into each other */
+    }
+    .ctrl-group.song {
+      flex: 1;                    /* song group takes all remaining space in row 1 */
+      min-width: 0;
+    }
+
+    /* Mirror the row-1 flex trick: instrument group expands to fill whatever space
+       row 2 has between PATTERN and TIMING, so CHN ends at the same x as RST. */
+    .ctrl-group.instrument {
+      flex: 1;
+      min-width: 0;
+    }
+    .ctrl-group.instrument .ctrl-inline {
+      flex: 1;
+      min-width: 0;
+    }
+    .ctrl-group.instrument .popup-field {
+      flex: 1;
+      width: auto;        /* override fixed popup-inst / popup-smp width */
+      min-width: 80px;
+    }
+
+    /* ── LABEL + CONTROL PAIR ── */
+    .ctrl-inline {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .ctrl-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    /* ── READOUT FIELDS (recessed, inert) ── */
+    .readout {
+      height: 26px;
+      background: var(--bg-readout);
+      border: 1px solid var(--gold-22);
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-value);
+      padding: 0 6px;
+      white-space: nowrap;
+      user-select: none;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+      flex-shrink: 0;
+    }
+    .readout-narrow  { min-width: 38px; }
+    .readout-time    { min-width: 50px; }
+
+    /* TITLE is the one readout that expands */
+    .readout-title {
+      flex: 1;
+      min-width: 140px;
+      justify-content: flex-start;
+      padding-left: 8px;
+    }
+
+    /* Interactive fields have a more visible border */
+    .readout.interactive {
+      background: var(--bg-interactive);
+      border-color: var(--gold-55);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.35);
+    }
+    .readout.editable {
+      cursor: text;
+      border-color: var(--gold-60);
+    }
+    .readout.editable:hover {
+      border-color: var(--gold-88);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.3), 0 0 6px rgba(201,167,74,0.07);
+    }
+
+    /* ── STEPPER FIELD (readout + arrows) ── */
+    .stepper-field {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .stepper-arrows {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      flex-shrink: 0;
+    }
+    .arr {
+      width: 15px;
+      height: 11px;
+      background: var(--bg-interactive);
+      border: 1px solid var(--gold-38);
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 7px;
+      color: var(--gold-60);
+      cursor: pointer;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .arr:hover {
+      background: #2A2415;
+      color: var(--gold);
+      border-color: var(--gold-60);
+    }
+
+    /* ── POPUP FIELDS ── */
+    .popup-field {
+      height: 26px;
+      background: var(--bg-interactive);
+      border: 1px solid var(--gold-55);
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      padding: 0 6px 0 7px;
+      cursor: pointer;
+      user-select: none;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.35);
+      flex-shrink: 0;
+      gap: 5px;
+      min-width: 0;
+    }
+    .popup-field:hover {
+      border-color: var(--gold-88);
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.3), 0 0 5px rgba(201,167,74,0.07);
+    }
+
+    /* Code prefix (I01, S01, P0C) — dim gold */
+    .popup-code {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text-code);
+      white-space: nowrap;
+      flex-shrink: 0;
+      letter-spacing: 0.03em;
+    }
+
+    /* Primary value (instrument name, etc.) */
+    .popup-value {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-value);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .popup-arrow {
+      font-size: 8px;
+      color: var(--gold-60);
+      flex-shrink: 0;
+      margin-left: 2px;
+    }
+
+    /* Widths for specific popups */
+    .popup-pattern { width: 78px; }    /* "012" — slightly wider with PTN label savings */
+    .popup-inst    { width: 130px; }   /* "I01 · Drums" — name display */
+    .popup-smp     { width: 134px; }   /* "S01 · 808 Kick" */
+    .popup-oct     { width: 44px; }    /* "4" — compact */
+
+    /* ── TRANSPORT BUTTONS ── */
+    .btn {
+      height: 26px;
+      padding: 0 9px;
+      border: 1px solid;
+      border-radius: 2px;
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+      user-select: none;
+      min-width: 55px;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-play {
+      background: var(--play-bg);
+      color: var(--play-text);
+      border-color: var(--play-border);
+      box-shadow: 0 0 8px rgba(77, 184, 104, 0.10), inset 0 1px 1px rgba(0,0,0,0.2);
+    }
+    .btn-stop {
+      background: var(--stop-dim-bg);
+      color: var(--stop-dim-text);
+      border-color: rgba(204, 90, 80, 0.18);
+    }
+    .btn-stop:hover {
+      color: rgba(204, 90, 80, 0.70);
+      border-color: rgba(204, 90, 80, 0.50);
+    }
+    .btn-loop {
+      background: var(--loop-on-bg);
+      color: var(--loop-on-text);
+      border-color: var(--loop-on-border);
+      box-shadow: 0 0 6px rgba(201, 167, 74, 0.07);
+    }
+    .btn-edit {
+      background: var(--toggle-off-bg);
+      color: var(--toggle-off-text);
+      border-color: var(--toggle-off-border);
+    }
+
+    /* ── TRACKER GRID ── */
+    .tracker-grid { background: #1C1C1C; }
+    .grid-channel-headers {
+      display: flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 4px;
+      border-bottom: 1px solid rgba(201, 167, 74, 0.13);
+    }
+    .grid-gutter-head { width: 28px; flex-shrink: 0; }
+    .ch-header {
+      flex: 1;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: rgba(201, 167, 74, 0.65);
+      letter-spacing: 0.05em;
+    }
+    .grid-rows-area { padding: 3px 4px; }
+    .grid-row { display: flex; align-items: center; height: 14px; }
+    .grid-row-num {
+      width: 28px;
+      font-size: 9px;
+      color: rgba(201, 167, 74, 0.38);
+      text-align: right;
+      padding-right: 6px;
+      flex-shrink: 0;
+    }
+    .grid-cell {
+      flex: 1;
+      font-size: 9px;
+      color: rgba(232, 216, 160, 0.32);
+      letter-spacing: 0.04em;
+      padding: 0 2px;
+      overflow: hidden;
+    }
+    .grid-row.highlight { background: rgba(70, 84, 125, 0.60); }
+    .grid-row.highlight .grid-cell { color: rgba(232, 216, 160, 0.88); }
+    .grid-row.beat { background: rgba(201, 167, 74, 0.05); }
+
+    /* ═══ VARIANT SECTION ═══ */
+    .variant-section {
+      width: 960px;
+      max-width: 100%;
+      margin-top: 28px;
+    }
+    .variant-header {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--gold-60);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(201, 167, 74, 0.14);
+    }
+    .variant-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .variant-card {
+      background: #1E1E1E;
+      border: 1px solid rgba(201, 167, 74, 0.14);
+      border-radius: 6px;
+      padding: 14px 18px;
+      flex: 1;
+      min-width: 280px;
+    }
+    .variant-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .variant-desc {
+      font-size: 10px;
+      color: rgba(232, 216, 160, 0.5);
+      line-height: 1.6;
+      margin-top: 8px;
+    }
+    .variant-tag-rec {
+      font-size: 9px;
+      color: #4DB868;
+      background: rgba(77, 184, 104, 0.10);
+      border: 1px solid rgba(77, 184, 104, 0.25);
+      border-radius: 2px;
+      padding: 1px 6px;
+      margin-left: 6px;
+      letter-spacing: 0.06em;
+    }
+    .variant-tag-alt {
+      font-size: 9px;
+      color: rgba(201, 167, 74, 0.6);
+      background: rgba(201, 167, 74, 0.07);
+      border: 1px solid rgba(201, 167, 74, 0.20);
+      border-radius: 2px;
+      padding: 1px 6px;
+      margin-left: 6px;
+      letter-spacing: 0.06em;
+    }
+    /* Mini control panel strip for variant comparison */
+    .mini-panel {
+      background: var(--bg-panel);
+      border: 1px solid rgba(201, 167, 74, 0.18);
+      border-radius: 3px;
+      padding: 7px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ═══ ANNOTATIONS ═══ */
+    .annotations {
+      margin-top: 24px;
+      width: 960px;
+      max-width: 100%;
+    }
+    .annotation-header {
+      font-size: 10px;
+      font-weight: 700;
+      color: rgba(201, 167, 74, 0.5);
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(201, 167, 74, 0.13);
+      padding-bottom: 6px;
+    }
+    .annotation-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .ann-item {
+      background: #1E1E1E;
+      border: 1px solid rgba(201, 167, 74, 0.11);
+      border-radius: 4px;
+      padding: 10px 12px;
+    }
+    .ann-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .ann-desc {
+      font-size: 9.5px;
+      color: rgba(232, 216, 160, 0.50);
+      line-height: 1.55;
+    }
+    .ann-swatch { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .swatch { display: flex; align-items: center; gap: 4px; font-size: 8.5px; color: rgba(232, 216, 160, 0.4); }
+    .swatch-block { width: 14px; height: 14px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.08); }
+
+    .footer-note {
+      margin-top: 24px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.15);
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════
+     MAIN APP WINDOW MOCKUP
+     (State: song loaded, playback running)
+     ═══════════════════════════════════════ -->
+<div class="app-window">
+
+  <div class="window-chrome">
+    <div class="traffic-light tl-close"></div>
+    <div class="traffic-light tl-min"></div>
+    <div class="traffic-light tl-max"></div>
+    <span class="window-title">VoodooTrackerX</span>
+  </div>
+
+  <div class="logo-area">
+    <span class="logo-placeholder-text">[ VoodooTracker X logo — future: fade to 85% + waveform visualization behind ]</span>
+  </div>
+
+  <div class="control-panel">
+    <div class="panel-accent-line"></div>
+    <div class="panel-content">
+
+      <!-- ─── ROW 1: TRANSPORT · SONG · POSITION ─── -->
+      <div class="panel-row">
+
+        <div class="ctrl-group">
+          <button class="btn btn-play">▶ PLAY</button>
+          <button class="btn btn-stop">■ STOP</button>
+          <button class="btn btn-loop">↺ LOOP</button>
+          <button class="btn btn-edit">⊙ EDIT</button>
+        </div>
+
+        <div class="group-sep"></div>
+
+        <!-- SONG — flex: 1 so TITLE field expands to fill row -->
+        <div class="ctrl-group song">
+          <div class="ctrl-inline" style="flex:1; min-width:0;">
+            <span class="ctrl-label">TITLE</span>
+            <div class="readout readout-title">black light</div>
+          </div>
+          <div class="ctrl-inline" style="margin-left:8px;">
+            <span class="ctrl-label">TIME</span>
+            <div class="readout readout-time">03:25</div>
+          </div>
+        </div>
+
+        <div class="group-sep"></div>
+
+        <!-- POSITION -->
+        <div class="ctrl-group">
+          <div class="ctrl-inline">
+            <span class="ctrl-label">LEN</span>
+            <div class="readout readout-narrow">111</div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">POS</span>
+            <div class="stepper-field">
+              <div class="readout readout-narrow interactive">00</div>
+              <div class="stepper-arrows">
+                <div class="arr">▲</div>
+                <div class="arr">▼</div>
+              </div>
+            </div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">RST</span>
+            <div class="readout readout-narrow">00</div>
+          </div>
+        </div>
+
+      </div><!-- /row 1 -->
+
+      <!-- ─── ROW 2: PATTERN · INSTRUMENT · TIMING · EDIT ─── -->
+      <div class="panel-row">
+
+        <!-- PATTERN — using decimal (see variant section below for hex option) -->
+        <div class="ctrl-group">
+          <div class="ctrl-inline">
+            <span class="ctrl-label">PTN</span>
+            <div class="popup-field popup-pattern">
+              <span class="popup-value">012</span>
+              <span class="popup-arrow">▾</span>
+            </div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">ROWS</span>
+            <div class="stepper-field">
+              <div class="readout readout-narrow interactive">128</div>
+              <div class="stepper-arrows">
+                <div class="arr">▲</div>
+                <div class="arr">▼</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="group-sep"></div>
+
+        <!-- INSTRUMENT — shows names with dim code prefix -->
+        <div class="ctrl-group">
+          <div class="ctrl-inline">
+            <span class="ctrl-label">INST</span>
+            <div class="popup-field popup-inst" title="I01 — Drums">
+              <span class="popup-code">I01</span>
+              <span class="popup-value">Drums</span>
+              <span class="popup-arrow">▾</span>
+            </div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">SMP</span>
+            <div class="popup-field popup-smp" title="S01 — 808 Kick">
+              <span class="popup-code">S01</span>
+              <span class="popup-value">808 Kick</span>
+              <span class="popup-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="group-sep timing-sep"></div>
+
+        <!-- TIMING — editable with steppers (most-used live controls) -->
+        <div class="ctrl-group">
+          <div class="ctrl-inline">
+            <span class="ctrl-label">TEMPO</span>
+            <div class="stepper-field">
+              <div class="readout readout-narrow interactive editable" style="min-width:44px;">183</div>
+              <div class="stepper-arrows">
+                <div class="arr">▲</div>
+                <div class="arr">▼</div>
+              </div>
+            </div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">SPEED</span>
+            <div class="stepper-field">
+              <div class="readout readout-narrow interactive editable">02</div>
+              <div class="stepper-arrows">
+                <div class="arr">▲</div>
+                <div class="arr">▼</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="group-sep"></div>
+
+        <!-- EDIT -->
+        <div class="ctrl-group">
+          <div class="ctrl-inline">
+            <span class="ctrl-label">OCT</span>
+            <div class="popup-field popup-oct">
+              <span class="popup-value">4</span>
+              <span class="popup-arrow">▾</span>
+            </div>
+          </div>
+          <div class="ctrl-inline">
+            <span class="ctrl-label">CHN</span>
+            <div class="readout readout-narrow">32</div>
+          </div>
+        </div>
+
+        <!-- No trailing spacer needed: instrument group is flex:1 and fills the slack -->
+
+      </div><!-- /row 2 -->
+
+    </div><!-- /panel-content -->
+  </div><!-- /control-panel -->
+
+  <!-- Tracker grid (context) -->
+  <div class="tracker-grid">
+    <div class="grid-channel-headers">
+      <div class="grid-gutter-head"></div>
+      <div class="ch-header">CH01</div>
+      <div class="ch-header">CH02</div>
+      <div class="ch-header">CH03</div>
+      <div class="ch-header">CH04</div>
+      <div class="ch-header">CH05</div>
+      <div class="ch-header">CH06</div>
+      <div class="ch-header">CH07</div>
+      <div class="ch-header">CH08</div>
+    </div>
+    <div class="grid-rows-area">
+      <div class="grid-row highlight">
+        <div class="grid-row-num">00</div>
+        <div class="grid-cell">F04 C-5 01 5B</div>
+        <div class="grid-cell">... C-4 01 50</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... E-4 B5 ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... D-4 B5 ..</div>
+        <div class="grid-cell">... B-4 B5 ..</div>
+        <div class="grid-cell">... E-4 B5 ..</div>
+      </div>
+      <div class="grid-row beat">
+        <div class="grid-row-num">01</div>
+        <div class="grid-cell">... ... .. 20</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+      </div>
+      <div class="grid-row">
+        <div class="grid-row-num">02</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. 20</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+      </div>
+      <div class="grid-row">
+        <div class="grid-row-num">03</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+      </div>
+      <div class="grid-row beat">
+        <div class="grid-row-num">04</div>
+        <div class="grid-cell">... ... .. 50</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+        <div class="grid-cell">... ... .. ..</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /app-window -->
+
+
+<!-- ═══════════════════════════════════════
+     OPEN QUESTION: PATTERN NUMBERING
+     ═══════════════════════════════════════ -->
+<div class="variant-section">
+  <div class="variant-header">Open Decision — Pattern Numbering Format</div>
+  <div class="variant-row">
+
+    <div class="variant-card">
+      <div class="variant-title">
+        Option A — Decimal
+        <span class="variant-tag-rec">Recommended</span>
+      </div>
+      <div class="mini-panel">
+        <span class="ctrl-label" style="font-size:10px;">PTN</span>
+        <div class="popup-field popup-pattern">
+          <span class="popup-value">012</span>
+          <span class="popup-arrow">▾</span>
+        </div>
+        <span style="font-size:9px; color:rgba(232,216,160,0.3); margin-left:8px;">→ "Pattern 12 of 111"</span>
+      </div>
+      <div class="variant-desc">
+        Zero-padded decimal (000–255). "012" is immediately readable by anyone.
+        No hex knowledge required. The PATTERN label makes the context obvious.
+        Works well when demoing to a mixed audience — non-tracker folks don't need to convert in their head.
+        Most DAWs (Ableton, Logic, Reaper) use decimal for pattern/scene numbering.
+      </div>
+    </div>
+
+    <div class="variant-card">
+      <div class="variant-title">
+        Option B — Hex, no prefix
+        <span class="variant-tag-alt">Traditional</span>
+      </div>
+      <div class="mini-panel">
+        <span class="ctrl-label" style="font-size:10px;">PTN</span>
+        <div class="popup-field popup-pattern">
+          <span class="popup-value">0C</span>
+          <span class="popup-arrow">▾</span>
+        </div>
+        <span style="font-size:9px; color:rgba(232,216,160,0.3); margin-left:8px;">→ "Pattern 0C of 6F"</span>
+      </div>
+      <div class="variant-desc">
+        Hex without the P prefix (since the label already says PATTERN).
+        More compact — "6F" vs "111". Authentic to XM/IT/FT2 tradition where everything is hex.
+        If your audience is tracker folk or demoscene, this reads naturally.
+        If you're demoing to general developers, requires a brief "that's hex" aside.
+      </div>
+    </div>
+
+  </div>
+</div><!-- /variant-section -->
+
+
+<!-- ═══════════════════════════════════════
+     DESIGN ANNOTATIONS
+     ═══════════════════════════════════════ -->
+<div class="annotations">
+  <div class="annotation-header">Design Token Reference — VoodooTracker X Control Panel v1</div>
+  <div class="annotation-grid">
+
+    <div class="ann-item">
+      <div class="ann-label">Color Palette</div>
+      <div class="ann-swatch">
+        <div class="swatch">
+          <div class="swatch-block" style="background:#252526;"></div>
+          <span>#252526 panel</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-block" style="background:#181819;"></div>
+          <span>#181819 readout</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-block" style="background:#C9A74A;"></div>
+          <span>#C9A74A gold</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-block" style="background:#E8D8A0;"></div>
+          <span>#E8D8A0 values</span>
+        </div>
+        <div class="swatch">
+          <div class="swatch-block" style="background:#4DB868;"></div>
+          <span>#4DB868 play</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ann-item">
+      <div class="ann-label">Visual Hierarchy</div>
+      <div class="ann-desc">
+        Readout fields (LEN, RST, TITLE, TIME, CHN) — background #181819, border at 22% gold opacity.
+        Visually recessed and inert.<br><br>
+        Interactive fields (TEMPO, SPEED, ROWS, POS, all popups) — background #1C1C1D, border at 55% gold.
+        Tactile, inviting interaction.<br><br>
+        1px gold accent line at the very top of the panel anchors the strip visually.
+      </div>
+    </div>
+
+    <div class="ann-item">
+      <div class="ann-label">INST / SMP Name Display</div>
+      <div class="ann-desc">
+        Closed popup shows: dim gold code (I01 / S01) + bright name (Drums / 808 Kick).<br><br>
+        Name is truncated at ~12 chars with ellipsis. Full name appears in the tooltip on hover.<br><br>
+        Opened dropdown items show: "I01 — Drums", "I02 — 808 Snare", etc.<br><br>
+        When no name is set, the code (I01) fills the full value width — unchanged from current behavior.
+      </div>
+    </div>
+
+    <div class="ann-item">
+      <div class="ann-label">Transport Button States</div>
+      <div class="ann-desc">
+        PLAY active: bg #152A1A, text #4DB868 (green glow).<br><br>
+        STOP: muted red tint only when playback is running; dim otherwise.<br><br>
+        LOOP on: bg #2B2514, text+border gold #C9A74A.<br><br>
+        EDIT on: same gold treatment. Off state is visibly muted.
+      </div>
+    </div>
+
+    <div class="ann-item">
+      <div class="ann-label">Widget Decisions</div>
+      <div class="ann-desc">
+        TEMPO (32–255) + SPEED (1–31): editable NSTextField + NSStepper. Critical for live editing.<br><br>
+        ROWS: NSStepper. Common values: 16, 32, 64, 128, 192, 256.<br><br>
+        PATTERN, INST, SMP, OCT: NSPopUpButton (correct widget, keep).<br><br>
+        TIME: new separate readout — split from the TITLE string concatenation.
+      </div>
+    </div>
+
+    <div class="ann-item">
+      <div class="ann-label">Group Separators</div>
+      <div class="ann-desc">
+        1px vertical, gold at 38% opacity, 10px margin each side.<br><br>
+        Before TIMING group: 55% opacity, 13px margin — extra breathing room signals these are the
+        primary live-editing controls.<br><br>
+        Bottom row ends with a plain flex spacer (no content). No activity meters in the control panel —
+        visualization belongs behind the logo.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="footer-note">
+  VoodooTracker X — Control Panel Redesign Mockup v1 &nbsp;|&nbsp; docs/design/UI-DESIGN-control-panel.md
+</div>
+
+</body>
+</html>

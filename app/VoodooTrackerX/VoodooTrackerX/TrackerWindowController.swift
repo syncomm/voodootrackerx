@@ -23,10 +23,10 @@ final class TrackerWindowController: NSWindowController, NSWindowDelegate {
         contentView.layer?.backgroundColor = TrackerChromePalette.windowBackground.cgColor
 
         let contentWidth = defaultWindowSize.width - (WindowLayout.rootPadding * 2)
-        let logoPanelY = defaultWindowSize.height - WindowLayout.rootPadding - WindowLayout.logoPanelHeight
-        let controlPanelY = logoPanelY - WindowLayout.sectionSpacing - WindowLayout.controlPanelHeight
+        let logoPanelY = defaultWindowSize.height - WindowLayout.topContentPadding - WindowLayout.logoPanelHeight
+        let controlPanelY = logoPanelY - WindowLayout.logoControlSpacing - WindowLayout.controlPanelHeight
         let trackerPanelY = WindowLayout.rootPadding
-        let trackerPanelHeight = max(220, controlPanelY - WindowLayout.sectionSpacing - trackerPanelY)
+        let trackerPanelHeight = max(220, controlPanelY - WindowLayout.controlTrackerSpacing - trackerPanelY)
 
         let logoPanel = LogoPanelView(
             frame: NSRect(

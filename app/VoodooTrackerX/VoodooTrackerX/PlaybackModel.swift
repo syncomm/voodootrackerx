@@ -11,6 +11,7 @@ struct PlaybackCell: Equatable {
 struct PlaybackSample: Equatable {
     let instrumentIndex: Int
     let sampleIndex: Int
+    let name: String?
     let pcm: [Float]
     let volume: Float
     let relativeNote: Int
@@ -27,6 +28,7 @@ struct PlaybackSample: Equatable {
     init(
         instrumentIndex: Int,
         sampleIndex: Int,
+        name: String? = nil,
         pcm: [Float],
         volume: Float,
         relativeNote: Int,
@@ -42,6 +44,7 @@ struct PlaybackSample: Equatable {
     ) {
         self.instrumentIndex = instrumentIndex
         self.sampleIndex = sampleIndex
+        self.name = name
         self.pcm = pcm
         self.volume = volume
         self.relativeNote = relativeNote
@@ -162,17 +165,20 @@ struct PlaybackVolumeEnvelope: Equatable {
 
 struct PlaybackInstrument: Equatable {
     let index: Int
+    let name: String?
     let samples: [PlaybackSample]
     let volumeEnvelope: PlaybackVolumeEnvelope
     let noteSampleMap: [Int]?
 
     init(
         index: Int,
+        name: String? = nil,
         samples: [PlaybackSample],
         volumeEnvelope: PlaybackVolumeEnvelope = .disabled,
         noteSampleMap: [Int]? = nil
     ) {
         self.index = index
+        self.name = name
         self.samples = samples
         self.volumeEnvelope = volumeEnvelope
         self.noteSampleMap = noteSampleMap?.count == 96 ? noteSampleMap : nil

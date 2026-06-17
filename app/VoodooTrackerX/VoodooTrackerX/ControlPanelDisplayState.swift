@@ -2,13 +2,16 @@ import Foundation
 
 struct ControlPanelContent: Equatable {
     var songTitle = BlankTrackerDocument.defaultTitle
+    var songTime = "--:--"
     var songLength = "01"
     var songPosition = "00"
     var restartPosition = "00"
     var patternRowCount = "64"
     var channelCount = "8"
     var selectedInstrumentDisplay = TrackerEditorSelection.default.instrumentDisplayTitle
+    var selectedInstrumentTooltip = TrackerEditorSelection.default.instrumentDisplayTitle
     var selectedSampleDisplay = TrackerEditorSelection.default.sampleDisplayTitle
+    var selectedSampleTooltip = TrackerEditorSelection.default.sampleDisplayTitle
     var tempo = "125"
     var speed = "06"
     var selectedOctave = 4
@@ -22,7 +25,59 @@ struct ControlPanelContent: Equatable {
     var areInstrumentPlaceholdersEnabled = false
 }
 
+struct ControlPanelSlotDisplay: Equatable {
+    static let maximumDisplayNameLength = 12
+
+    let code: String
+    let name: String?
+
+    static func instrument(slot: Int, name: String? = nil) -> ControlPanelSlotDisplay {
+        ControlPanelSlotDisplay(code: String(format: "I%02X", clampedSlot(slot)), name: name)
+    }
+
+    static func sample(slot: Int, name: String? = nil) -> ControlPanelSlotDisplay {
+        ControlPanelSlotDisplay(code: String(format: "S%02X", clampedSlot(slot)), name: name)
+    }
+
+    var displayTitle: String {
+        guard let name = normalizedName else {
+            return code
+        }
+        return "\(code) \(Self.truncated(name, maximumLength: Self.maximumDisplayNameLength))"
+    }
+
+    var tooltip: String {
+        guard let name = normalizedName else {
+            return code
+        }
+        return "\(code) \(name)"
+    }
+
+    private var normalizedName: String? {
+        guard let name else {
+            return nil
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func truncated(_ value: String, maximumLength: Int) -> String {
+        guard value.count > maximumLength, maximumLength > 3 else {
+            return value
+        }
+        return String(value.prefix(maximumLength - 3)) + "..."
+    }
+
+    private static func clampedSlot(_ slot: Int) -> Int {
+        min(255, max(1, slot))
+    }
+}
+
 enum ControlPanelDisplayState {
+    static func patternDisplayTitle(patternIndex: Int) -> String {
+        String(format: "%03d", max(0, patternIndex))
+    }
+
     static func blankDocumentContent(
         for document: BlankTrackerDocument,
         selectedOctave: Int,
@@ -39,7 +94,9 @@ enum ControlPanelDisplayState {
         content.patternRowCount = metadata.patternRowCount
         content.channelCount = metadata.channelCount
         content.selectedInstrumentDisplay = metadata.selectedInstrumentDisplay
+        content.selectedInstrumentTooltip = metadata.selectedInstrumentDisplay
         content.selectedSampleDisplay = metadata.selectedSampleDisplay
+        content.selectedSampleTooltip = metadata.selectedSampleDisplay
         content.tempo = metadata.tempo
         content.speed = metadata.speed
         content.selectedOctave = selectedOctave
@@ -62,10 +119,13 @@ enum ControlPanelDisplayState {
         selectedOctave: Int,
         isLoopEnabled: Bool,
         isEditModeEnabled: Bool,
-        isPlaybackActive: Bool
+        isPlaybackActive: Bool,
+        selectedInstrumentName: String? = nil,
+        selectedSampleName: String? = nil
     ) -> ControlPanelContent {
         var content = ControlPanelContent()
-        content.songTitle = metadata.title.isEmpty ? "(empty title)" : metadata.title
+        content.songTitle = titleDisplay(from: metadata.title)
+        content.songTime = "--:--"
         content.songLength = twoDigit(metadata.songLength)
         content.songPosition = twoDigit(selectedSongPositionIndex)
         content.restartPosition = twoDigit(metadata.restartPosition)
@@ -86,15 +146,34 @@ enum ControlPanelDisplayState {
             content.channelCount = "\(pattern.channels)"
             content.isPatternControlsEnabled = true
             content.areInstrumentPlaceholdersEnabled = metadata.instruments > 0
-            content.selectedInstrumentDisplay = metadata.instruments > 0 ? selection.instrumentDisplayTitle : "No Inst"
-            content.selectedSampleDisplay = metadata.instruments > 0 ? selection.sampleDisplayTitle : "No Sample"
+            if metadata.instruments > 0 {
+                let instrument = ControlPanelSlotDisplay.instrument(
+                    slot: selection.selectedInstrument,
+                    name: selectedInstrumentName
+                )
+                let sample = ControlPanelSlotDisplay.sample(
+                    slot: selection.selectedSample,
+                    name: selectedSampleName
+                )
+                content.selectedInstrumentDisplay = instrument.displayTitle
+                content.selectedInstrumentTooltip = instrument.tooltip
+                content.selectedSampleDisplay = sample.displayTitle
+                content.selectedSampleTooltip = sample.tooltip
+            } else {
+                content.selectedInstrumentDisplay = "No Inst"
+                content.selectedInstrumentTooltip = "No instrument slots"
+                content.selectedSampleDisplay = "No Sample"
+                content.selectedSampleTooltip = "No sample slots"
+            }
         } else {
             content.patternRowCount = "--"
             content.channelCount = twoDigit(metadata.channels)
             content.isPatternControlsEnabled = false
             content.areInstrumentPlaceholdersEnabled = false
             content.selectedInstrumentDisplay = "No Inst"
+            content.selectedInstrumentTooltip = "No instrument slots"
             content.selectedSampleDisplay = "No Sample"
+            content.selectedSampleTooltip = "No sample slots"
         }
 
         return content
@@ -102,5 +181,13 @@ enum ControlPanelDisplayState {
 
     private static func twoDigit(_ value: Int) -> String {
         String(format: "%02d", value)
+    }
+
+    private static func titleDisplay(from rawTitle: String) -> String {
+        let trimmedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return "(empty title)"
+        }
+        return trimmedTitle
     }
 }

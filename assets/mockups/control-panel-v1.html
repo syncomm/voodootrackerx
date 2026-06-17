@@ -154,6 +154,22 @@
       min-width: 0;
     }
 
+    /* Mirror the row-1 flex trick: instrument group expands to fill whatever space
+       row 2 has between PATTERN and TIMING, so CHN ends at the same x as RST. */
+    .ctrl-group.instrument {
+      flex: 1;
+      min-width: 0;
+    }
+    .ctrl-group.instrument .ctrl-inline {
+      flex: 1;
+      min-width: 0;
+    }
+    .ctrl-group.instrument .popup-field {
+      flex: 1;
+      width: auto;        /* override fixed popup-inst / popup-smp width */
+      min-width: 80px;
+    }
+
     /* ── LABEL + CONTROL PAIR ── */
     .ctrl-inline {
       display: flex;
@@ -683,8 +699,7 @@
           </div>
         </div>
 
-        <!-- Right-side flex spacer — no content, just fills remaining width cleanly -->
-        <div style="flex:1;"></div>
+        <!-- No trailing spacer needed: instrument group is flex:1 and fills the slack -->
 
       </div><!-- /row 2 -->
 

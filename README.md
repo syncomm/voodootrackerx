@@ -10,55 +10,84 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 Tagged releases are published on the
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
-Release tags such as `v0.1.0` provide a downloadable macOS DMG named
-`VoodooTrackerX-v0.1.0.dmg`.
+Tagged releases such as `v0.1.0-alpha.1` include a downloadable macOS DMG named
+`VoodooTrackerX-v0.1.0-alpha.1.dmg`.
 
-Early demo releases may be unsigned and not notarized. If macOS Gatekeeper
-blocks the app, use right-click `Open` in Finder or approve the launch in
-System Settings only if you trust the downloaded release.
+The first public builds are early alpha/demo builds, not 1.0 releases. The
+release workflow builds a macOS 26+ universal app for Apple silicon and Intel
+Macs (`arm64` + `x86_64`) and packages it into a plain DMG.
+
+Early DMGs may be unsigned and not notarized. If macOS Gatekeeper blocks the
+app, use right-click `Open` in Finder or approve the launch in System Settings
+only if you trust the downloaded release.
+
+## For Build Beyond Attendees
+
+VoodooTracker X is a real tracker project in early alpha form. Download the
+latest release DMG from GitHub Releases or build from source, then try it with
+public XM/MOD tracker modules. Expect a demo-quality app that can open, display,
+and play supported modules while editing and export workflows continue to land.
+
+## Try It With Tracker Modules
+
+Good public places to look for tracker modules:
+
+- [Modland](https://www.exotica.org.uk/wiki/Modland) - large searchable module
+  archive with FastTracker/ProTracker-era formats.
+- [The Mod Archive](https://modarchive.org/) - long-running community archive
+  with searchable XM, MOD, and other tracker formats.
+- [The Hornet Archive](https://www.hornet.org/music/) - historical demoscene
+  music archive with song, sample, program, disk, and contest areas.
+- [Pouet](https://www.pouet.net/) - demoscene production/community archive;
+  useful for discovering productions and scene context, not just raw module
+  downloads.
+
+Only download and use modules you have rights to use. For current VoodooTracker
+X testing, prefer `.xm` and `.mod` files before trying broader tracker formats.
 
 ## Current Status
 
-- Working macOS AppKit prototype with module open/load, tracker-style pattern display, static highlight row behavior, and keyboard navigation.
-- MOD/XM parser work is covered by focused unit tests, golden snapshots, and small redistribution-safe fixtures.
-- First-pass XM playback exists for development and smoke testing, but it is not yet MikMod/OpenMPT accurate.
-- Default runtime playback uses the CoreAudio DefaultOutput Audio Unit C mixer backend.
-- The C-backed mixer path is used for deterministic bounded renders, runtime playback, diagnostics, and local comparison work. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` remain accepted CoreAudio aliases. `VTX_AUDIO_BACKEND=av_audio` is a retired legacy value; it falls back to the CoreAudio C mixer and is reported in diagnostics.
-- The app is under active development and should not be treated as production-ready.
+VoodooTracker X is under active development and should not be treated as
+production-ready.
+
+What works today:
+
+- Blank document startup and `File > Open...` for supported tracker modules.
+- Read-only open/load flow for XM/MOD-style modules.
+- Runtime playback through the CoreAudio-hosted C mixer backend.
+- Tracker grid display with static highlight row behavior and keyboard
+  navigation.
+- Note entry and audition foundations for the tracker editor.
+- Selected instrument/sample preview foundations for loaded modules.
+- Public generated fixture support for parser/editor test coverage.
+- Focused parser tests, golden snapshots, and redistribution-safe fixtures.
+
+What is still future work:
+
+- Save/export from the app.
+- Full loaded-module editing.
+- Instrument and sample editors.
+- Pattern loop editing and broader tracker editing workflows.
+- Full FastTracker II, OpenMPT, or MikMod parity.
+
+## Known Limitations
+
+- Early release DMGs may be unsigned and not notarized, so Gatekeeper may warn.
+- Save/export is not available yet.
+- Loaded modules remain read-only for editing.
+- Editing and audition features are still evolving.
+- Not all tracker formats, effects, or edge cases are guaranteed.
+- Generated/local artifacts such as DMGs, screenshots, logs, traces, WAVs, and
+  uncommitted comparison inputs are not included in the repository.
 
 ## Build/Test Quick Start
 
-Open the Xcode project:
+For source build and verification details, see
+[docs/testing.md](docs/testing.md). To start from the repo root:
 
 ```bash
 open app/VoodooTrackerX/VoodooTrackerX.xcodeproj
-```
-
-Build and test from the repo root:
-
-```bash
 ./scripts/check-files.sh
-
-xcodebuild \
-  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
-  -scheme VoodooTrackerX \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath build \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-
-xcodebuild \
-  -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
-  -scheme VoodooTrackerX \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath build \
-  CODE_SIGNING_ALLOWED=NO \
-  test
-
-swift test --filter ModuleCoreTests
-./scripts/run-golden.sh
 ```
 
 ## Running the App
@@ -69,47 +98,31 @@ After building, launch the debug app:
 open build/Build/Products/Debug/VoodooTrackerX.app
 ```
 
-For XM files, use `File > Open...` and inspect the read-only tracker grid. Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and `Left`/`Right`.
+For XM files, use `File > Open...` and inspect the read-only tracker grid.
+Basic navigation uses `Up`/`Down`, `Page Up`/`Page Down`, `Home`/`End`, and
+`Left`/`Right`.
 
-By default, runtime playback uses the CoreAudio-hosted C mixer. `VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio` explicitly select the same CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` is retired and falls back to the CoreAudio default with a diagnostic fallback reason. Unknown values also fall back to the CoreAudio default and are reported in diagnostics.
-
-For local smoke runs that should open a private module, start playback, and then
-stop automatically after a short pattern-transition window, set the launch
-environment before opening the Debug app:
-
-```bash
-launchctl setenv VTX_OPEN_PATH /path/to/local-reference-module.xm
-launchctl setenv VTX_DEBUG_AUTOPLAY 1
-launchctl setenv VTX_DEBUG_STOP_AFTER_SECONDS 10
-open build/Build/Products/Debug/VoodooTrackerX.app
-```
-
-Increase `VTX_DEBUG_STOP_AFTER_SECONDS` when the local smoke target needs more
-than 10 seconds to cross the pattern boundary you are checking. Clear the
-LaunchServices overrides with `launchctl unsetenv` after the smoke run.
+By default, runtime playback uses the CoreAudio-hosted C mixer.
+`VTX_AUDIO_BACKEND=c_mixer` and `VTX_AUDIO_BACKEND=c_mixer_coreaudio`
+explicitly select the same CoreAudio host. `VTX_AUDIO_BACKEND=av_audio` is
+retired and falls back to the CoreAudio default with a diagnostic fallback
+reason. Unknown values also fall back to the CoreAudio default and are reported
+in diagnostics.
 
 ## Developer Audio Comparison
 
-Detailed audio comparison guidance lives in [docs/audio-comparison.md](docs/audio-comparison.md). Local/private modules may be used for manual listening, smoke testing, bounded candidate WAV renders, and local reference comparisons, but they are not repo fixtures and must not be committed, uploaded, copied into tests, or required by CI.
+Detailed audio comparison guidance lives in
+[docs/audio-comparison.md](docs/audio-comparison.md). Developer-only comparison
+inputs and generated outputs are not repo fixtures and must not be committed,
+uploaded, copied into tests, or required by CI.
 
 XM effect support status is tracked in [docs/xm-effect-support.md](docs/xm-effect-support.md).
 
-Keep generated WAVs, JSON reports, Markdown reports, traces, screenshots, logs, and filled findings reports under `/tmp` or another ignored local path.
+Keep generated WAVs, JSON reports, Markdown reports, traces, screenshots, logs,
+and filled findings reports under `/tmp` or another ignored local path.
 
-Short bounded candidate render example:
-
-```bash
-swift run vtx_render_bounded_xm \
-  --input /path/to/local-reference-module.xm \
-  --output /tmp/vtx-candidate.wav \
-  --diagnostics-json /tmp/vtx-candidate-diagnostics.json \
-  --order 10 \
-  --order-count 1 \
-  --rows 16 \
-  --sample-rate 44100
-```
-
-The helper is developer-only. It does not change runtime backend selection and does not provide full XM song rendering.
+Developer-only render tools do not change runtime backend selection and do not
+provide full XM song rendering.
 
 ## Documentation Map
 

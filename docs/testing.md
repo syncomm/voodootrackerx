@@ -111,3 +111,15 @@ Then:
 - Inspect changes under `tests/golden/`
 - Update tests/docs as needed
 - Explain the behavior change in the PR description
+
+## Release DMG Workflow
+
+The release workflow runs when a tag matching `v*.*.*` is pushed. It builds the
+`VoodooTrackerX` Xcode scheme in Release configuration on a macOS runner,
+packages `VoodooTrackerX.app` into `dist/VoodooTrackerX-<tag>.dmg`, and
+attaches that DMG to the GitHub Release for the tag.
+
+Manual `workflow_dispatch` runs are package-only dry runs: they build the app,
+create the DMG, and upload it as a workflow artifact, but they do not publish a
+GitHub Release. First demo DMGs are unsigned and not notarized unless a future
+signing setup is added.

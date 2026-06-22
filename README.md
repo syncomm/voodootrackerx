@@ -6,6 +6,17 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 ---
 
+## Download
+
+Tagged releases are published on the
+[GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
+Release tags such as `v0.1.0` provide a downloadable macOS DMG named
+`VoodooTrackerX-v0.1.0.dmg`.
+
+Early demo releases may be unsigned and not notarized. If macOS Gatekeeper
+blocks the app, use right-click `Open` in Finder or approve the launch in
+System Settings only if you trust the downloaded release.
+
 ## Current Status
 
 - Working macOS AppKit prototype with module open/load, tracker-style pattern display, static highlight row behavior, and keyboard navigation.

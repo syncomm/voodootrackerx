@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version label for the package-only dry run"
+        required: true
+        default: "v0.0.0-local"
+
+permissions:
+  contents: write
+
+jobs:
+  macos-dmg:
+    name: Build macOS DMG
+    runs-on: macos-26
+
+    env:
+      APP_NAME: VoodooTrackerX
+      APP_PATH: build-release/Build/Products/Release/VoodooTrackerX.app
+      DIST_DIR: dist
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Show toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+
+      - name: Build Release app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj \
+            -scheme VoodooTrackerX \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build-release \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Verify app architecture
+        run: |
+          set -euo pipefail
+          lipo -info "$APP_PATH/Contents/MacOS/$APP_NAME"
+
+      - name: Package DMG
+        run: |
+          set -euo pipefail
+          scripts/package-macos-dmg.sh "$APP_PATH" "$RELEASE_TAG" "$DIST_DIR"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: VoodooTrackerX-${{ env.RELEASE_TAG }}-dmg
+          path: ${{ env.DIST_DIR }}/VoodooTrackerX-${{ env.RELEASE_TAG }}.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: VoodooTracker X ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: ${{ env.DIST_DIR }}/VoodooTrackerX-${{ github.ref_name }}.dmg

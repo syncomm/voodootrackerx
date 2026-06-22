@@ -15,6 +15,7 @@ Icon?
 DerivedData/
 .derivedData/
 build/
+build-release/
 *.xcuserstate
 *.xcscmblueprint
 *.xccheckout
@@ -24,6 +25,9 @@ xcuserdata/
 
 # Archives and exports
 *.xcarchive
+*.dmg
+*.pkg
+dist/
 
 # Swift Package Manager
 .build/

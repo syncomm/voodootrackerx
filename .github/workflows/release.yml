@@ -26,12 +26,16 @@ jobs:
       DMG_PATH: dist/VoodooTrackerX-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}.dmg
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       SIGNING_IDENTITY: Developer ID Application
-      CERTIFICATE_PATH: ${{ runner.temp }}/developer-id-application.p12
-      KEYCHAIN_PATH: ${{ runner.temp }}/vtx-signing.keychain-db
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Configure signing temp paths
+        run: |
+          set -euo pipefail
+          echo "CERTIFICATE_PATH=$RUNNER_TEMP/developer-id-application.p12" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$RUNNER_TEMP/vtx-signing.keychain-db" >> "$GITHUB_ENV"
 
       - name: Show toolchain
         run: |

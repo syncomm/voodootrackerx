@@ -115,11 +115,48 @@ Then:
 ## Release DMG Workflow
 
 The release workflow runs when a tag matching `v*.*.*` is pushed. It builds the
-`VoodooTrackerX` Xcode scheme in Release configuration on a macOS runner,
-packages `VoodooTrackerX.app` into `dist/VoodooTrackerX-<tag>.dmg`, and
-attaches that DMG to the GitHub Release for the tag.
+`VoodooTrackerX` Xcode scheme in Release configuration on a macOS runner as a
+universal `arm64` + `x86_64` app, signs it with a Developer ID Application
+certificate, packages `VoodooTrackerX.app` into
+`dist/VoodooTrackerX-<tag>.dmg`, signs the DMG, notarizes and staples the DMG,
+then attaches that DMG to the GitHub Release for the tag.
 
 Manual `workflow_dispatch` runs are package-only dry runs: they build the app,
 create the DMG, and upload it as a workflow artifact, but they do not publish a
-GitHub Release. First demo DMGs are unsigned and not notarized unless a future
-signing setup is added.
+GitHub Release.
+
+Tag releases require these GitHub Secrets:
+
+- `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64`
+- `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`
+- `APPLE_TEAM_ID`
+- `APPLE_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+- `APPLE_KEYCHAIN_PASSWORD`
+
+Encode the Developer ID Application `.p12` as a single-line base64 secret with:
+
+```bash
+base64 -i path/to/cert.p12 | tr -d '\n' | pbcopy
+```
+
+The release build must set `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO`. Without
+that setting, Xcode can inject `com.apple.security.get-task-allow`, which is
+not valid for a notarized Developer ID release. The workflow checks the final
+app entitlements and fails if that entitlement is present.
+
+The DMG itself is signed with the Developer ID Application identity before
+notarization. This is separate from signing the app bundle inside the DMG.
+
+Useful local validation commands for signed releases:
+
+```bash
+codesign --verify --deep --strict --verbose=2 VoodooTrackerX.app
+codesign -d --entitlements :- VoodooTrackerX.app
+codesign -dv --verbose=4 VoodooTrackerX.app
+codesign --verify --verbose=2 VoodooTrackerX-<tag>.dmg
+codesign -dv --verbose=4 VoodooTrackerX-<tag>.dmg
+xcrun notarytool submit VoodooTrackerX-<tag>.dmg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+xcrun stapler staple VoodooTrackerX-<tag>.dmg
+spctl -a -vvv -t open --context context:primary-signature VoodooTrackerX-<tag>.dmg
+```

@@ -15,11 +15,8 @@ Tagged releases such as `v0.1.0-alpha.1` include a downloadable macOS DMG named
 
 The first public builds are early alpha/demo builds, not 1.0 releases. The
 release workflow builds a macOS 26+ universal app for Apple silicon and Intel
-Macs (`arm64` + `x86_64`) and packages it into a plain DMG.
-
-Early DMGs may be unsigned and not notarized. If macOS Gatekeeper blocks the
-app, use right-click `Open` in Finder or approve the launch in System Settings
-only if you trust the downloaded release.
+Macs (`arm64` + `x86_64`) and publishes a Developer ID signed, notarized, and
+stapled DMG for tagged releases.
 
 ## For Build Beyond Attendees
 
@@ -72,7 +69,8 @@ What is still future work:
 
 ## Known Limitations
 
-- Early release DMGs may be unsigned and not notarized, so Gatekeeper may warn.
+- Early release builds are signed and notarized for distribution, but remain
+  alpha-quality software.
 - Save/export is not available yet.
 - Loaded modules remain read-only for editing.
 - Editing and audition features are still evolving.

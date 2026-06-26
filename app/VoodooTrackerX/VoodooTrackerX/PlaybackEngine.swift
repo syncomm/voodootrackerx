@@ -9,7 +9,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let audioEngine: PlaybackAudioOutput
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
-    private let playbackTimingRecorder: PlaybackTimingTraceRecorder
+    private let playbackTimingRecorder: PlaybackTimingTraceRecorder?
     private let runtimeCMixerFollowPublicationDisabled: Bool
     private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
     private let debugStopAfterSeconds: TimeInterval?
@@ -49,7 +49,7 @@ final class PlaybackEngine: PlaybackTransport {
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
         self.startsRealtimeTimer = startsRealtimeTimer
-        self.playbackTimingRecorder = playbackTimingRecorder ?? PlaybackTimingTraceConfiguration.makeRecorder(environment: environment)
+        self.playbackTimingRecorder = playbackTimingRecorder
         debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
             environment: environment,
@@ -110,7 +110,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = playbackTimingRecorder?.beginLifecycle("play")
         play(from: context, debugStart: nil, action: .play, timingSession: timingSession)
         finishOwnedPlayTimingSession(timingSession, context: context)
     }
@@ -120,7 +120,7 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
-        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let timingSession = playbackTimingRecorder?.beginLifecycle("play")
         play(from: context, debugStart: debugStart, action: .play, timingSession: timingSession)
         finishOwnedPlayTimingSession(timingSession, context: context)
     }

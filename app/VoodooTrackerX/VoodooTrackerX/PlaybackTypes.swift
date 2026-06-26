@@ -42,11 +42,13 @@ struct PlaybackDebugLaunchConfiguration: Equatable {
     static let autoplayEnvironmentKey = "VTX_DEBUG_AUTOPLAY"
     static let stopAfterSecondsEnvironmentKey = "VTX_DEBUG_STOP_AFTER_SECONDS"
     static let replayAfterStopEnvironmentKey = "VTX_DEBUG_REPLAY_AFTER_STOP"
+    static let prePlayDelaySecondsEnvironmentKey = "VTX_DEBUG_PRE_PLAY_DELAY_SECONDS"
 
     var startRequest: PlaybackDebugStartRequest?
     var autoplay: Bool
     var stopAfterSeconds: TimeInterval?
     var replayAfterStop: Bool
+    var prePlayDelaySeconds: TimeInterval?
 
     static func parse(environment: [String: String] = ProcessInfo.processInfo.environment) -> PlaybackDebugLaunchConfiguration {
         let requestedOrder = nonNegativeInt(environment[startOrderEnvironmentKey])
@@ -69,7 +71,8 @@ struct PlaybackDebugLaunchConfiguration: Equatable {
             startRequest: request,
             autoplay: boolValue(environment[autoplayEnvironmentKey]),
             stopAfterSeconds: positiveTimeInterval(environment[stopAfterSecondsEnvironmentKey]),
-            replayAfterStop: boolValue(environment[replayAfterStopEnvironmentKey])
+            replayAfterStop: boolValue(environment[replayAfterStopEnvironmentKey]),
+            prePlayDelaySeconds: nonNegativeTimeInterval(environment[prePlayDelaySecondsEnvironmentKey])
         )
     }
 
@@ -93,6 +96,15 @@ struct PlaybackDebugLaunchConfiguration: Equatable {
         guard let rawValue,
               let value = TimeInterval(rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               value > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private static func nonNegativeTimeInterval(_ rawValue: String?) -> TimeInterval? {
+        guard let rawValue,
+              let value = TimeInterval(rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value >= 0 else {
             return nil
         }
         return value

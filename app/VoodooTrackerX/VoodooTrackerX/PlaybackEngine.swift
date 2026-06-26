@@ -1,6 +1,133 @@
 import Foundation
 import os
 
+struct RuntimeAdapterPlanPrewarmRequest: @unchecked Sendable {
+    let generation: UInt64
+    let song: PlaybackSong
+    let sampleRate: Double
+}
+
+struct RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
+    let generation: UInt64
+    let plan: RuntimeCMixerAdapterEventPlan?
+    let makeMS: Double?
+    let completedAfterCancellation: Bool
+}
+
+protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
+    var generation: UInt64 { get }
+
+    func cancel()
+    func waitForResult() -> RuntimeAdapterPlanPrewarmResult?
+}
+
+@MainActor
+protocol RuntimeAdapterPlanPrewarmScheduling: AnyObject {
+    func schedule(
+        request: RuntimeAdapterPlanPrewarmRequest,
+        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+    ) -> RuntimeAdapterPlanPrewarmJob
+}
+
+private enum RuntimeAdapterPlanCacheSource: String {
+    case none
+    case prewarm
+    case syncFallback = "sync_fallback"
+}
+
+private enum RuntimeAdapterPlanPlayMode: String {
+    case prewarmed
+    case waited
+    case syncFallback = "sync_fallback"
+    case cachedReuse = "cached_reuse"
+    case unavailable
+}
+
+private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
+    let generation: UInt64
+
+    private let condition = NSCondition()
+    private var cancelled = false
+    private var result: RuntimeAdapterPlanPrewarmResult?
+
+    init(generation: UInt64) {
+        self.generation = generation
+    }
+
+    func cancel() {
+        condition.lock()
+        cancelled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func waitForResult() -> RuntimeAdapterPlanPrewarmResult? {
+        condition.lock()
+        while result == nil, !cancelled {
+            condition.wait()
+        }
+        let completedResult = result
+        condition.unlock()
+        return completedResult
+    }
+
+    var isCancelled: Bool {
+        condition.lock()
+        let value = cancelled
+        condition.unlock()
+        return value
+    }
+
+    func finish(_ result: RuntimeAdapterPlanPrewarmResult) {
+        condition.lock()
+        self.result = result
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
+    private let queue = DispatchQueue(
+        label: "com.syncomm.VoodooTrackerX.runtime-adapter-plan-prewarm",
+        qos: .utility
+    )
+
+    func schedule(
+        request: RuntimeAdapterPlanPrewarmRequest,
+        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+    ) -> RuntimeAdapterPlanPrewarmJob {
+        let job = DispatchQueueRuntimeAdapterPlanPrewarmJob(generation: request.generation)
+        queue.async {
+            guard !job.isCancelled else {
+                let result = RuntimeAdapterPlanPrewarmResult(
+                    generation: request.generation,
+                    plan: nil,
+                    makeMS: nil,
+                    completedAfterCancellation: true
+                )
+                job.finish(result)
+                completion(result)
+                return
+            }
+            let start = DispatchTime.now().uptimeNanoseconds
+            let plan = RuntimeCMixerAdapterEventPlan.make(
+                song: request.song,
+                sampleRate: request.sampleRate
+            )
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+            let result = RuntimeAdapterPlanPrewarmResult(
+                generation: request.generation,
+                plan: plan,
+                makeMS: elapsedMS,
+                completedAfterCancellation: job.isCancelled
+            )
+            job.finish(result)
+            completion(result)
+        }
+        return job
+    }
+}
+
 @MainActor
 final class PlaybackEngine: PlaybackTransport {
     private static let runtimeCMixerSongEndTransportStopGraceSeconds: TimeInterval = 0.5
@@ -10,6 +137,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
     private let playbackTimingRecorder: PlaybackTimingTraceRecorder?
+    private let runtimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling
     private let runtimeCMixerFollowPublicationDisabled: Bool
     private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
     private let debugStopAfterSeconds: TimeInterval?
@@ -27,6 +155,11 @@ final class PlaybackEngine: PlaybackTransport {
     private var runtimeCMixerSongEndStopPending = false
     private var pendingPositionCommand: PlaybackPositionCommand?
     private var runtimeAdapterEventPlan = RuntimeCMixerAdapterEventPlan.unavailable()
+    private var runtimeAdapterPlanGeneration: UInt64 = 0
+    private var runtimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob?
+    private var runtimeAdapterPlanPrewarmTimingSession: PlaybackTimingTraceSession?
+    private var runtimeAdapterPlanCacheSource = RuntimeAdapterPlanCacheSource.none
+    private var runtimeAdapterPlanUseCount = 0
     private var channelStates = [Int: PlaybackChannelState]()
     private var globalState = PlaybackGlobalState()
     private var rowDelayDurationsRemaining = 0
@@ -45,11 +178,13 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
         startsRealtimeTimer: Bool = true,
         playbackTimingRecorder: PlaybackTimingTraceRecorder? = nil,
+        runtimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
         self.startsRealtimeTimer = startsRealtimeTimer
         self.playbackTimingRecorder = playbackTimingRecorder
+        self.runtimeAdapterPlanPrewarmScheduler = runtimeAdapterPlanPrewarmScheduler
         debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
             environment: environment,
@@ -70,6 +205,8 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
+        runtimeAdapterPlanGeneration &+= 1
+        cancelRuntimeAdapterPlanPrewarm(reason: "load_invalidation")
         let wasPlaying = state.isPlaying
         let stopStart = timingSession?.beginPhase()
         stop(notify: false, resetAudio: true)
@@ -98,6 +235,7 @@ final class PlaybackEngine: PlaybackTransport {
             fields: PlaybackTimingTraceFields.playbackSong(song)
         )
         invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
+        scheduleRuntimeAdapterPlanPrewarmIfNeeded(for: song, timingSession: timingSession)
         cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
@@ -419,6 +557,8 @@ final class PlaybackEngine: PlaybackTransport {
     private func invalidateRuntimeAdapterEventPlan(timingSession: PlaybackTimingTraceSession?) {
         let unavailablePlan = RuntimeCMixerAdapterEventPlan.unavailable(sampleRate: audioEngine.audioBufferSampleRate)
         runtimeAdapterEventPlan = unavailablePlan
+        runtimeAdapterPlanCacheSource = .none
+        runtimeAdapterPlanUseCount = 0
         if let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
             adapterConsumer.configureRuntimeAdapterEventPlan(unavailablePlan, generationMS: nil, timingSession: timingSession)
         }
@@ -429,9 +569,126 @@ final class PlaybackEngine: PlaybackTransport {
         )
     }
 
+    private func scheduleRuntimeAdapterPlanPrewarmIfNeeded(for song: PlaybackSong?, timingSession: PlaybackTimingTraceSession?) {
+        guard let song,
+              audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else {
+            return
+        }
+        let generation = runtimeAdapterPlanGeneration
+        let request = RuntimeAdapterPlanPrewarmRequest(
+            generation: generation,
+            song: song,
+            sampleRate: audioEngine.audioBufferSampleRate
+        )
+        let fields = runtimeAdapterPlanGenerationFields(generation) +
+            PlaybackTimingTraceFields.playbackSong(song) +
+            [PlaybackTimingTraceField("sample_rate", Int(audioEngine.audioBufferSampleRate.rounded()))]
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_prewarm_scheduled",
+            startedAt: nil,
+            fields: fields
+        )
+        let prewarmTimingSession = playbackTimingRecorder?.beginLifecycle("prewarm")
+        prewarmTimingSession?.recordPhase(
+            "runtime_adapter_event_plan_prewarm_scheduled",
+            startedAt: nil,
+            fields: fields
+        )
+        runtimeAdapterPlanPrewarmTimingSession = prewarmTimingSession
+        runtimeAdapterPlanPrewarmJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] result in
+            Task { @MainActor [weak self] in
+                self?.completeRuntimeAdapterPlanPrewarm(result)
+            }
+        }
+    }
+
+    private func completeRuntimeAdapterPlanPrewarm(_ result: RuntimeAdapterPlanPrewarmResult) {
+        guard result.generation == runtimeAdapterPlanGeneration,
+              runtimeAdapterPlanPrewarmJob?.generation == result.generation else {
+            return
+        }
+        recordRuntimeAdapterPlanPrewarmMake(result)
+        finishRuntimeAdapterPlanPrewarm(
+            result: result,
+            outcome: installRuntimeAdapterPlanPrewarmResult(result) ? "installed" : "unavailable"
+        )
+    }
+
+    private func installRuntimeAdapterPlanPrewarmResult(_ result: RuntimeAdapterPlanPrewarmResult) -> Bool {
+        guard !result.completedAfterCancellation,
+              let plan = result.plan,
+              plan.generated else {
+            runtimeAdapterPlanPrewarmJob = nil
+            return false
+        }
+        let configureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
+        runtimeAdapterEventPlan = plan
+        runtimeAdapterPlanCacheSource = .prewarm
+        runtimeAdapterPlanUseCount = 0
+        (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.configureRuntimeAdapterEventPlan(
+            plan,
+            generationMS: result.makeMS,
+            timingSession: runtimeAdapterPlanPrewarmTimingSession
+        )
+        runtimeAdapterPlanPrewarmTimingSession?.recordPhase(
+            "runtime_adapter_event_plan_prewarm_configure",
+            startedAt: configureStart,
+            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                runtimeAdapterPlanGenerationFields(result.generation)
+        )
+        runtimeAdapterPlanPrewarmJob = nil
+        return true
+    }
+
+    private func cancelRuntimeAdapterPlanPrewarm(reason: String) {
+        guard let job = runtimeAdapterPlanPrewarmJob else {
+            runtimeAdapterPlanPrewarmTimingSession?.finish(fields: [
+                PlaybackTimingTraceField("prewarm_outcome", "cancelled"),
+                PlaybackTimingTraceField("prewarm_cancel_reason", reason),
+            ])
+            runtimeAdapterPlanPrewarmTimingSession = nil
+            return
+        }
+        job.cancel()
+        runtimeAdapterPlanPrewarmJob = nil
+        runtimeAdapterPlanPrewarmTimingSession?.finish(fields: [
+            PlaybackTimingTraceField("prewarm_outcome", "cancelled"),
+            PlaybackTimingTraceField("prewarm_cancel_reason", reason),
+            PlaybackTimingTraceField("song_generation", job.generation),
+        ])
+        runtimeAdapterPlanPrewarmTimingSession = nil
+    }
+
+    private func finishRuntimeAdapterPlanPrewarm(result: RuntimeAdapterPlanPrewarmResult, outcome: String) {
+        guard let timingSession = runtimeAdapterPlanPrewarmTimingSession else {
+            return
+        }
+        timingSession.finish(fields: [
+            PlaybackTimingTraceField("prewarm_outcome", outcome),
+            PlaybackTimingTraceField("prewarm_cancelled_before_completion", result.completedAfterCancellation),
+            PlaybackTimingTraceField("song_generation", result.generation),
+        ])
+        runtimeAdapterPlanPrewarmTimingSession = nil
+    }
+
+    private func recordRuntimeAdapterPlanPrewarmMake(_ result: RuntimeAdapterPlanPrewarmResult) {
+        guard let makeMS = result.makeMS,
+              let plan = result.plan else {
+            return
+        }
+        runtimeAdapterPlanPrewarmTimingSession?.recordMeasuredPhase(
+            "runtime_adapter_event_plan_prewarm_make",
+            elapsedMS: makeMS,
+            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                runtimeAdapterPlanGenerationFields(result.generation)
+        )
+    }
+
     private func prepareRuntimeAdapterEventPlanIfNeeded(for song: PlaybackSong, timingSession: PlaybackTimingTraceSession?) -> Bool {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
+            runtimeAdapterPlanCacheSource = .none
+            runtimeAdapterPlanUseCount = 0
             timingSession?.recordPhase(
                 "runtime_adapter_event_plan_unavailable",
                 startedAt: nil,
@@ -443,6 +700,42 @@ final class PlaybackEngine: PlaybackTransport {
             if !adapterConsumer.hasRuntimeAdapterEventPlan {
                 adapterConsumer.configureRuntimeAdapterEventPlan(runtimeAdapterEventPlan, generationMS: nil, timingSession: timingSession)
             }
+            let mode: RuntimeAdapterPlanPlayMode = runtimeAdapterPlanUseCount == 0 && runtimeAdapterPlanCacheSource == .prewarm
+                ? .prewarmed
+                : .cachedReuse
+            recordRuntimeAdapterPlanReadyForPlay(mode: mode, timingSession: timingSession)
+            runtimeAdapterPlanUseCount += 1
+            return true
+        }
+        if let result = waitForRuntimeAdapterPlanPrewarmIfNeeded(timingSession: timingSession),
+           result.generation == runtimeAdapterPlanGeneration,
+           !result.completedAfterCancellation,
+           let plan = result.plan,
+           plan.generated {
+            runtimeAdapterPlanPrewarmJob = nil
+            recordRuntimeAdapterPlanPrewarmMake(result)
+            runtimeAdapterEventPlan = plan
+            runtimeAdapterPlanCacheSource = .prewarm
+            runtimeAdapterPlanUseCount = 0
+            let configureStart = timingSession?.beginPhase()
+            let prewarmConfigureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
+            adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: result.makeMS, timingSession: timingSession)
+            timingSession?.recordPhase(
+                "runtime_adapter_event_plan_configure",
+                startedAt: configureStart,
+                fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                    runtimeAdapterPlanGenerationFields(result.generation) +
+                    runtimeAdapterPlanPlayFields(mode: .waited)
+            )
+            runtimeAdapterPlanPrewarmTimingSession?.recordPhase(
+                "runtime_adapter_event_plan_prewarm_configure",
+                startedAt: prewarmConfigureStart,
+                fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                    runtimeAdapterPlanGenerationFields(result.generation)
+            )
+            finishRuntimeAdapterPlanPrewarm(result: result, outcome: "waited_by_play")
+            recordRuntimeAdapterPlanReadyForPlay(mode: .waited, timingSession: timingSession)
+            runtimeAdapterPlanUseCount += 1
             return true
         }
         let start = DispatchTime.now().uptimeNanoseconds
@@ -455,11 +748,16 @@ final class PlaybackEngine: PlaybackTransport {
         timingSession?.recordPhase(
             "runtime_adapter_event_plan_make",
             startedAt: planStart,
-            fields: PlaybackTimingTraceFields.adapterPlan(plan)
+            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration) +
+                runtimeAdapterPlanPlayFields(mode: .syncFallback)
         )
         runtimeAdapterEventPlan = plan
+        runtimeAdapterPlanCacheSource = plan.generated ? .syncFallback : .none
+        runtimeAdapterPlanUseCount = 0
         guard plan.generated else {
             adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
+            recordRuntimeAdapterPlanReadyForPlay(mode: .unavailable, timingSession: timingSession)
             return false
         }
         let configureStart = timingSession?.beginPhase()
@@ -467,9 +765,75 @@ final class PlaybackEngine: PlaybackTransport {
         timingSession?.recordPhase(
             "runtime_adapter_event_plan_configure",
             startedAt: configureStart,
-            fields: PlaybackTimingTraceFields.adapterPlan(plan)
+            fields: PlaybackTimingTraceFields.adapterPlan(plan) +
+                runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration) +
+                runtimeAdapterPlanPlayFields(mode: .syncFallback)
         )
+        recordRuntimeAdapterPlanReadyForPlay(mode: .syncFallback, timingSession: timingSession)
+        runtimeAdapterPlanUseCount += 1
         return true
+    }
+
+    private func waitForRuntimeAdapterPlanPrewarmIfNeeded(
+        timingSession: PlaybackTimingTraceSession?
+    ) -> RuntimeAdapterPlanPrewarmResult? {
+        guard let job = runtimeAdapterPlanPrewarmJob,
+              job.generation == runtimeAdapterPlanGeneration else {
+            return nil
+        }
+        let waitStart = timingSession?.beginPhase()
+        let result = job.waitForResult()
+        var fields = runtimeAdapterPlanGenerationFields(job.generation) +
+            runtimeAdapterPlanPlayFields(mode: .waited) +
+            [PlaybackTimingTraceField("prewarm_result_available", result?.plan != nil)]
+        if let result,
+           let plan = result.plan {
+            fields.append(contentsOf: PlaybackTimingTraceFields.adapterPlan(plan))
+            fields.append(PlaybackTimingTraceField("prewarm_completed_after_cancellation", result.completedAfterCancellation))
+        }
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_prewarm_wait",
+            startedAt: waitStart,
+            fields: fields
+        )
+        if result?.plan == nil {
+            runtimeAdapterPlanPrewarmJob = nil
+            if let result {
+                finishRuntimeAdapterPlanPrewarm(result: result, outcome: "cancelled")
+            } else {
+                runtimeAdapterPlanPrewarmTimingSession?.finish(fields: [
+                    PlaybackTimingTraceField("prewarm_outcome", "unavailable"),
+                    PlaybackTimingTraceField("song_generation", job.generation),
+                ])
+                runtimeAdapterPlanPrewarmTimingSession = nil
+            }
+        }
+        return result
+    }
+
+    private func recordRuntimeAdapterPlanReadyForPlay(
+        mode: RuntimeAdapterPlanPlayMode,
+        timingSession: PlaybackTimingTraceSession?
+    ) {
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_ready_for_play",
+            startedAt: nil,
+            fields: PlaybackTimingTraceFields.adapterPlan(runtimeAdapterEventPlan) +
+                runtimeAdapterPlanGenerationFields(runtimeAdapterPlanGeneration) +
+                runtimeAdapterPlanPlayFields(mode: mode)
+        )
+    }
+
+    private func runtimeAdapterPlanGenerationFields(_ generation: UInt64) -> [PlaybackTimingTraceField] {
+        [PlaybackTimingTraceField("song_generation", generation)]
+    }
+
+    private func runtimeAdapterPlanPlayFields(mode: RuntimeAdapterPlanPlayMode) -> [PlaybackTimingTraceField] {
+        [
+            PlaybackTimingTraceField("play_adapter_plan_mode", mode.rawValue),
+            PlaybackTimingTraceField("plan_cache_source", runtimeAdapterPlanCacheSource.rawValue),
+            PlaybackTimingTraceField("plan_use_count_before", runtimeAdapterPlanUseCount),
+        ]
     }
 
     private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int, timingSession: PlaybackTimingTraceSession? = nil) {

@@ -75,20 +75,23 @@ VTX_PLAYBACK_TIMING_TRACE=1 \
 
 Open a public synthetic fixture or another public-safe module, then press Play.
 The trace writes stderr lines prefixed with `vtx_playback_timing` and reports
-milliseconds for load phases, playback-song setup, lazy adapter-plan
-preparation on first Play, Play start position resolution, transient
+milliseconds for load phases, playback-song setup, async adapter-plan prewarm,
+first-Play fallback/reuse state, Play start position resolution, transient
 runtime-state reset, adapter event schedule setup, and CoreAudio prepare/start
 when reached from Swift-side lifecycle code.
 
-With lazy runtime adapter-plan preparation, load traces should show
-`runtime_adapter_event_plan_invalidated` rather than
-`runtime_adapter_event_plan_make`. The first Play after loading a module should
-show `runtime_adapter_event_plan_make` and
-`runtime_adapter_event_plan_configure`; Stop followed by Play should reuse the
-cached plan and omit those creation phases unless the song was invalidated by a
-new load or File New. This is the expected tradeoff for this PR: file-open
-responsiveness improves by moving adapter planning out of load, while first Play
-can carry the deferred planning cost until a later async prewarm PR.
+Load traces should show `runtime_adapter_event_plan_invalidated` and
+`runtime_adapter_event_plan_prewarm_scheduled`, but not load-time
+`runtime_adapter_event_plan_make`. Async prewarm emits a separate `prewarm`
+lifecycle with `runtime_adapter_event_plan_prewarm_make` and
+`runtime_adapter_event_plan_prewarm_configure` when the plan is installed before
+Play. The first Play after loading emits
+`runtime_adapter_event_plan_ready_for_play` with `play_adapter_plan_mode`:
+`prewarmed` when prewarm finished, `waited` when Play waited for the in-flight
+prewarm job, `sync_fallback` when Play had to build synchronously, or
+`unavailable` if planning failed. Stop followed by Play should report
+`cached_reuse` and omit creation phases unless the song was invalidated by a
+new load or File New.
 
 Timing output is observability only. It should not include local paths or
 private module titles, and enabling it must not change playback, parser, mixer,
@@ -147,6 +150,12 @@ scripts/run-local-corpus-runtime-metrics.py \
   --output-dir /tmp/vtx-runtime-metrics-smoke
 ```
 
+Use `--pre-play-delay-seconds N` to give async prewarm a fixed window before
+debug autoplay. The default is `0`, which exercises the immediate-first-play
+path where Play may wait for or synchronously complete planning. A short value
+such as `5` seconds exercises the delayed-first-play path where first Play
+should usually report `prewarmed` if prewarm finished in time.
+
 To inspect the selected anonymized labels before launching the app:
 
 ```bash
@@ -169,12 +178,14 @@ Use `--single-play` only when a one-cycle diagnostics smoke is enough.
 Output filenames are based on the anonymized label only, for example
 `xm-corpus-001.stderr.txt`, `xm-corpus-001.runtime-c-mixer-trace.jsonl`, and
 `xm-corpus-001.metrics.json`, plus top-level `summary.json` and `summary.md`.
-Summaries include load timing, metadata/build timing, load-time adapter-plan
-timing, first Play timing, first Play adapter-plan timing, second Play timing,
-and whether second Play reused the cached plan. The helper redacts the private
-source path and basename from captured stdout/stderr and writes summaries
-without module paths, filenames, or titles. It refuses to write inside the
-repository unless `--allow-repo-output` is supplied for synthetic tests.
+Summaries include load timing, metadata/build timing, prewarm adapter-plan
+timing, first Play timing, first Play adapter-plan mode
+(`prewarmed`, `waited`, `sync_fallback`, or `unavailable`), second Play timing,
+second Play adapter-plan mode, and whether second Play reused the cached plan.
+The helper redacts the private source path and basename from captured
+stdout/stderr and writes summaries without module paths, filenames, or titles.
+It refuses to write inside the repository unless `--allow-repo-output` is
+supplied for synthetic tests.
 
 Private corpus runs are manual local diagnostics only. Do not add them to CI or
 automated tests.

@@ -659,6 +659,62 @@ final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBac
     }
 }
 
+final class TestRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
+    let generation: UInt64
+    var cancelCount = 0
+    var waitCount = 0
+    var waitResult: RuntimeAdapterPlanPrewarmResult?
+
+    init(generation: UInt64) {
+        self.generation = generation
+    }
+
+    func cancel() {
+        cancelCount += 1
+    }
+
+    func waitForResult() -> RuntimeAdapterPlanPrewarmResult? {
+        waitCount += 1
+        return waitResult
+    }
+}
+
+@MainActor
+final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling {
+    private(set) var requests = [RuntimeAdapterPlanPrewarmRequest]()
+    private(set) var jobs = [TestRuntimeAdapterPlanPrewarmJob]()
+    private var completions = [(@Sendable (RuntimeAdapterPlanPrewarmResult) -> Void)]()
+    private var defaultResults = [RuntimeAdapterPlanPrewarmResult]()
+    var makeMS: Double = 2.0
+
+    func schedule(
+        request: RuntimeAdapterPlanPrewarmRequest,
+        completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
+    ) -> RuntimeAdapterPlanPrewarmJob {
+        let job = TestRuntimeAdapterPlanPrewarmJob(generation: request.generation)
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: request.song, sampleRate: request.sampleRate)
+        let result = RuntimeAdapterPlanPrewarmResult(
+            generation: request.generation,
+            plan: plan,
+            makeMS: makeMS,
+            completedAfterCancellation: false
+        )
+        requests.append(request)
+        jobs.append(job)
+        completions.append(completion)
+        defaultResults.append(result)
+        return job
+    }
+
+    func defaultResult(at index: Int = 0) -> RuntimeAdapterPlanPrewarmResult {
+        defaultResults[index]
+    }
+
+    func complete(at index: Int = 0, result: RuntimeAdapterPlanPrewarmResult? = nil) {
+        completions[index](result ?? defaultResults[index])
+    }
+}
+
 @MainActor
 final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput {
     let audioBufferSampleRate = 100.0

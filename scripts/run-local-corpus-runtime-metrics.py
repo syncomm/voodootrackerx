@@ -65,6 +65,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Run only the initial autoplay/stop cycle instead of the default Stop/Play cache-reuse cycle.",
     )
+    parser.add_argument(
+        "--pre-play-delay-seconds",
+        type=float,
+        default=0.0,
+        help="Debug-only delay before the initial autoplay request, giving async prewarm a fixed window (default: 0).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print planned anonymized labels only")
     parser.add_argument(
         "--allow-repo-output",
@@ -156,6 +162,7 @@ def run_entry(
     seconds: float,
     timeout_seconds: float,
     replay_after_stop: bool,
+    pre_play_delay_seconds: float,
 ) -> dict[str, Any]:
     label = entry["label"]
     source_path = entry["path"]
@@ -167,19 +174,19 @@ def run_entry(
     runtime_trace_path = label_dir / f"{label}.runtime-c-mixer-trace.jsonl"
     metrics_path = label_dir / f"{label}.metrics.json"
 
+    diagnostic_env = {
+        "VTX_OPEN_PATH": str(source_path),
+        "VTX_AUDIO_BACKEND": "c_mixer",
+        "VTX_DEBUG_AUTOPLAY": "1",
+        "VTX_DEBUG_STOP_AFTER_SECONDS": format_seconds(seconds),
+        "VTX_DEBUG_REPLAY_AFTER_STOP": "1" if replay_after_stop else "0",
+        "VTX_DEBUG_PRE_PLAY_DELAY_SECONDS": format_nonnegative_seconds(pre_play_delay_seconds),
+        "VTX_PLAYBACK_TIMING_TRACE": "1",
+        "VTX_RUNTIME_MIXER_METRICS_TRACE": "1",
+        "VTX_C_MIXER_RUNTIME_TRACE_PATH": str(runtime_trace_path),
+    }
     env = os.environ.copy()
-    env.update(
-        {
-            "VTX_OPEN_PATH": str(source_path),
-            "VTX_AUDIO_BACKEND": "c_mixer",
-            "VTX_DEBUG_AUTOPLAY": "1",
-            "VTX_DEBUG_STOP_AFTER_SECONDS": format_seconds(seconds),
-            "VTX_DEBUG_REPLAY_AFTER_STOP": "1" if replay_after_stop else "0",
-            "VTX_PLAYBACK_TIMING_TRACE": "1",
-            "VTX_RUNTIME_MIXER_METRICS_TRACE": "1",
-            "VTX_C_MIXER_RUNTIME_TRACE_PATH": str(runtime_trace_path),
-        }
-    )
+    env.update(diagnostic_env)
 
     started = time.monotonic()
     process = subprocess.Popen(
@@ -202,9 +209,17 @@ def run_entry(
         except subprocess.TimeoutExpired:
             process.kill()
             stdout, stderr = process.communicate()
+    return_code = process.returncode
     elapsed = time.monotonic() - started
 
-    redactions = [source_path, source_path.expanduser(), source_path.resolve(strict=False)]
+    redactions = [
+        source_path,
+        source_path.expanduser(),
+        source_path.resolve(strict=False),
+        app_path,
+        app_path.expanduser(),
+        app_path.resolve(strict=False),
+    ]
     stdout_path.write_text(redact(stdout, redactions), encoding="utf-8")
     stderr_path.write_text(redact(stderr, redactions), encoding="utf-8")
 
@@ -212,16 +227,17 @@ def run_entry(
     metrics_records = parse_prefixed_records(stderr, "vtx_runtime_mixer_metrics")
     timings = summarize_timings(timing_records)
     metrics = summarize_runtime_metrics(metrics_records)
-    outcome = process_outcome(process.returncode, timed_out, terminated_after_window)
+    outcome = process_outcome(return_code, timed_out, terminated_after_window)
     summary = {
         "schema": 1,
         "label": label,
         "process_outcome": outcome,
-        "return_code": process.returncode,
+        "return_code": return_code,
         "elapsed_wall_seconds": round(elapsed, 3),
         "seconds": seconds,
         "timeout_seconds": timeout_seconds,
         "replay_after_stop": replay_after_stop,
+        "pre_play_delay_seconds": pre_play_delay_seconds,
         "playback_timing_line_count": len(timing_records),
         "runtime_mixer_metrics_line_count": len(metrics_records),
         "runtime_trace_written": runtime_trace_path.exists(),
@@ -269,12 +285,17 @@ def parse_prefixed_records(text: str, prefix: str) -> list[dict[str, str]]:
 
 def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
     load_records = records_for_lifecycle_occurrence(records, "load", 0)
+    prewarm_records = records_for_lifecycle_occurrence(records, "prewarm", 0)
     first_play_records = records_for_lifecycle_occurrence(records, "play", 0)
     second_play_records = records_for_lifecycle_occurrence(records, "play", 1)
+    prewarm_make = elapsed_ms_in_records(prewarm_records, "runtime_adapter_event_plan_prewarm_make")
+    prewarm_configure = elapsed_ms_in_records(prewarm_records, "runtime_adapter_event_plan_prewarm_configure")
     first_play_make = elapsed_ms_in_records(first_play_records, "runtime_adapter_event_plan_make")
     first_play_configure = elapsed_ms_in_records(first_play_records, "runtime_adapter_event_plan_configure")
     second_play_make = elapsed_ms_in_records(second_play_records, "runtime_adapter_event_plan_make")
     second_play_configure = elapsed_ms_in_records(second_play_records, "runtime_adapter_event_plan_configure")
+    first_play_mode = adapter_plan_mode(first_play_records)
+    second_play_mode = adapter_plan_mode(second_play_records)
     timings: dict[str, Any] = {
         "load_total": elapsed_ms_in_records(load_records, "total"),
         "module_metadata_loader_load": elapsed_ms_in_records(load_records, "module_metadata_loader_load"),
@@ -282,10 +303,15 @@ def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
         "playback_engine_load": elapsed_ms_in_records(load_records, "playback_engine_load"),
         "runtime_adapter_event_plan_make": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_make"),
         "runtime_adapter_event_plan_configure": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_configure"),
+        "prewarm_total": elapsed_ms_in_records(prewarm_records, "total"),
+        "prewarm_runtime_adapter_event_plan_make": prewarm_make,
+        "prewarm_runtime_adapter_event_plan_configure": prewarm_configure,
         "first_play_total": elapsed_ms_in_records(first_play_records, "total"),
+        "first_play_runtime_adapter_plan_mode": first_play_mode,
         "first_play_runtime_adapter_event_plan_make": first_play_make,
         "first_play_runtime_adapter_event_plan_configure": first_play_configure,
         "second_play_total": elapsed_ms_in_records(second_play_records, "total"),
+        "second_play_runtime_adapter_plan_mode": second_play_mode,
         "second_play_runtime_adapter_event_plan_make": second_play_make,
         "second_play_runtime_adapter_event_plan_configure": second_play_configure,
         "playback_engine_start_position_resolution": elapsed_ms_in_records(
@@ -303,13 +329,20 @@ def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
     make_ms = timings["runtime_adapter_event_plan_make"] or 0.0
     configure_ms = timings["runtime_adapter_event_plan_configure"] or 0.0
     timings["runtime_adapter_plan_total"] = round(make_ms + configure_ms, 3) if make_ms or configure_ms else None
+    prewarm_plan_ms = (prewarm_make or 0.0) + (prewarm_configure or 0.0)
+    timings["prewarm_runtime_adapter_plan_total"] = round(prewarm_plan_ms, 3) if prewarm_plan_ms else None
+    timings["prewarm_completed_before_first_play"] = first_play_mode == "prewarmed"
     first_play_plan_ms = (first_play_make or 0.0) + (first_play_configure or 0.0)
     second_play_plan_ms = (second_play_make or 0.0) + (second_play_configure or 0.0)
     timings["first_play_runtime_adapter_plan_total"] = round(first_play_plan_ms, 3) if first_play_plan_ms else None
     timings["second_play_runtime_adapter_plan_total"] = round(second_play_plan_ms, 3) if second_play_plan_ms else None
     timings["play_total"] = timings["first_play_total"]
     timings["second_play_reused_runtime_adapter_plan"] = (
-        bool(second_play_records) and timings["second_play_runtime_adapter_plan_total"] is None
+        bool(second_play_records)
+        and (
+            second_play_mode == "cached_reuse"
+            or timings["second_play_runtime_adapter_plan_total"] is None
+        )
     )
 
     load_total = record_for_phase(load_records, "total") or {}
@@ -321,6 +354,15 @@ def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
         "instrument_count": int_value(load_total.get("instrument_count")),
     }
     return {"metadata": metadata, "timings_ms": timings}
+
+
+def adapter_plan_mode(records: list[dict[str, str]]) -> str | None:
+    ready = record_for_phase(records, "runtime_adapter_event_plan_ready_for_play")
+    if ready and ready.get("play_adapter_plan_mode"):
+        return ready["play_adapter_plan_mode"]
+    if elapsed_ms_in_records(records, "runtime_adapter_event_plan_make") is not None:
+        return "sync_fallback"
+    return None
 
 
 def summarize_runtime_metrics(records: list[dict[str, str]]) -> dict[str, Any]:
@@ -416,6 +458,10 @@ def format_seconds(value: float) -> str:
     return f"{max(0.1, value):.3f}".rstrip("0").rstrip(".")
 
 
+def format_nonnegative_seconds(value: float) -> str:
+    return f"{max(0.0, value):.3f}".rstrip("0").rstrip(".") or "0"
+
+
 def write_run_summary(output_dir: Path, summaries: list[dict[str, Any]]) -> Path:
     path = output_dir / "summary.json"
     payload = {
@@ -442,22 +488,24 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
         "",
         "Public-safe anonymized local diagnostics summary. Private filenames, paths, and titles are omitted.",
         "",
-        "| Label | Load total ms | Metadata ms | Song build ms | Load adapter plan ms | First Play ms | First Play adapter plan ms | Second Play ms | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: |",
+        "| Label | Load total ms | Metadata ms | Song build ms | Prewarm adapter plan ms | First Play ms | First Play mode | First Play adapter plan ms | Second Play ms | Second Play mode | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |",
     ]
     for summary in summaries:
         timings = summary["timings_ms"]
         metrics = summary["runtime_metrics"]
         lines.append(
-            "| {label} | {load} | {metadata} | {build} | {load_adapter} | {first_play} | {first_play_adapter} | {second_play} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
+            "| {label} | {load} | {metadata} | {build} | {prewarm_adapter} | {first_play} | {first_mode} | {first_play_adapter} | {second_play} | {second_mode} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
                 label=summary["label"],
                 load=cell(timings.get("load_total")),
                 metadata=cell(timings.get("module_metadata_loader_load")),
                 build=cell(timings.get("playback_song_builder_build")),
-                load_adapter=cell(timings.get("runtime_adapter_plan_total")),
+                prewarm_adapter=cell(timings.get("prewarm_runtime_adapter_plan_total")),
                 first_play=cell(timings.get("first_play_total")),
+                first_mode=cell(timings.get("first_play_runtime_adapter_plan_mode")),
                 first_play_adapter=cell(timings.get("first_play_runtime_adapter_plan_total")),
                 second_play=cell(timings.get("second_play_total")),
+                second_mode=cell(timings.get("second_play_runtime_adapter_plan_mode")),
                 reused=str(timings.get("second_play_reused_runtime_adapter_plan")).lower()
                 if timings.get("second_play_total") is not None
                 else "n/a",
@@ -494,9 +542,15 @@ def main(argv: list[str]) -> int:
 
         validate_output_dir(args.output_dir, args.allow_repo_output)
         validate_app(args.app_path)
+        if args.pre_play_delay_seconds < 0:
+            raise MetricsRunError("--pre-play-delay-seconds must be non-negative")
         args.output_dir.mkdir(parents=True, exist_ok=True)
         play_count = 1 if args.single_play else 2
-        timeout_seconds = args.timeout_seconds or (max(0.1, args.seconds) * play_count + DEFAULT_TIMEOUT_PAD_SECONDS)
+        timeout_seconds = args.timeout_seconds or (
+            max(0.1, args.seconds) * play_count
+            + max(0.0, args.pre_play_delay_seconds)
+            + DEFAULT_TIMEOUT_PAD_SECONDS
+        )
 
         summaries = []
         for entry in selected:
@@ -507,6 +561,7 @@ def main(argv: list[str]) -> int:
                 args.seconds,
                 timeout_seconds,
                 replay_after_stop=not args.single_play,
+                pre_play_delay_seconds=max(0.0, args.pre_play_delay_seconds),
             )
             summaries.append(summary)
             print(

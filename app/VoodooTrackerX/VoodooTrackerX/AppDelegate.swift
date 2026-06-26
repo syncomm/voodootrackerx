@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isLiveResizingTrackerViewport = false
     private var liveResizeHorizontalOrigin: CGFloat?
     private var debugStopTimer: Timer?
+    private var debugAutoplayTimer: Timer?
 
     private var mainWindow: NSWindow? { windowController?.window }
     private var controlPanelView: ControlPanelView? { windowController?.controlPanelView }
@@ -70,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         playbackEngine = PlaybackEngine(
             audioEngine: audioOutput,
             runtimeCMixerTraceWriter: runtimeCMixerTraceWriter,
+            playbackTimingRecorder: playbackTimingRecorder,
             environment: environment
         )
         super.init()
@@ -320,6 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadedMetadata = nil
         playbackEngine.load(song: nil)
         loadedModuleSelection = .default
+        debugAutoplayTimer?.invalidate()
+        debugAutoplayTimer = nil
         debugStopTimer?.invalidate()
         debugStopTimer = nil
         displayedPatternEntries = [
@@ -486,16 +490,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyDebugLaunchConfigurationIfNeeded() {
         let configuration = PlaybackDebugLaunchConfiguration.parse()
-        let timingSession = configuration.autoplay ? playbackTimingRecorder.beginLifecycle("play") : nil
+        debugAutoplayTimer?.invalidate()
+        debugAutoplayTimer = nil
+        guard configuration.autoplay else {
+            if let request = configuration.startRequest {
+                playbackEngine.seek(to: request, autoplay: false)
+            }
+            syncControlPanelView()
+            return
+        }
+        guard let delay = configuration.prePlayDelaySeconds,
+              delay > 0 else {
+            performDebugAutoplay(configuration)
+            return
+        }
+        debugAutoplayTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else {
+                    return
+                }
+                self.debugAutoplayTimer = nil
+                self.performDebugAutoplay(configuration)
+            }
+        }
+        syncControlPanelView()
+    }
+
+    private func performDebugAutoplay(_ configuration: PlaybackDebugLaunchConfiguration) {
+        let timingSession = playbackTimingRecorder.beginLifecycle("play")
         if let request = configuration.startRequest {
-            playbackEngine.seek(to: request, autoplay: configuration.autoplay, timingSession: timingSession)
-        } else if configuration.autoplay {
+            playbackEngine.seek(to: request, autoplay: true, timingSession: timingSession)
+        } else {
             let context = measuredPlaybackStartContext(timingSession: timingSession)
             playbackEngine.play(from: context, timingSession: timingSession)
         }
-        if configuration.autoplay {
-            scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
-        }
+        scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: currentPlaybackStartContext())
     }

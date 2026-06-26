@@ -2553,6 +2553,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 audioEngine: audioEngine,
                 runtimeCMixerTraceWriter: traceWriter,
                 startsRealtimeTimer: false,
+                runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler(),
                 environment: environment
             ),
             audioEngine,

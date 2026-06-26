@@ -104,11 +104,17 @@ final class PlaybackEngineTests: XCTestCase {
     @MainActor
     func testPlaybackEngineLoadDefersRuntimeAdapterPlanUntilFirstPlay() throws {
         let audioOutput = TestRuntimeAdapterAudioOutput()
-        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
         let song = makeRuntimeAdapterPlaybackSong(patternIndex: 2)
 
         engine.load(song: song)
 
+        XCTAssertEqual(prewarmScheduler.requests.count, 1)
         XCTAssertFalse(audioOutput.hasRuntimeAdapterEventPlan)
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 0)
         XCTAssertEqual(audioOutput.unavailablePlanConfigureCount, 1)
@@ -124,7 +130,11 @@ final class PlaybackEngineTests: XCTestCase {
     @MainActor
     func testPlaybackEngineSecondPlayAfterStopReusesRuntimeAdapterPlan() throws {
         let audioOutput = TestRuntimeAdapterAudioOutput()
-        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
         engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
         let stopAllCountAfterLoad = audioOutput.stopAllCount
 
@@ -141,7 +151,11 @@ final class PlaybackEngineTests: XCTestCase {
     @MainActor
     func testPlaybackEngineLoadingDifferentSongInvalidatesAndRebuildsRuntimeAdapterPlanOnNextPlay() throws {
         let audioOutput = TestRuntimeAdapterAudioOutput()
-        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
         let firstSong = makeRuntimeAdapterPlaybackSong(patternIndex: 2)
         let secondSong = makeRuntimeAdapterPlaybackSong(patternIndex: 7)
 
@@ -164,7 +178,11 @@ final class PlaybackEngineTests: XCTestCase {
     @MainActor
     func testPlaybackEngineLoadNilClearsRuntimeAdapterPlan() throws {
         let audioOutput = TestRuntimeAdapterAudioOutput()
-        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
         engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
         engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
 
@@ -177,12 +195,212 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEngineSuccessfulPrewarmInstallsCachedPlanForCurrentGeneration() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertTrue(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(audioOutput.consumedContexts.count, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineFirstPlayUsesPrewarmedPlanWhenReady() async throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, sink: sink)
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            playbackTimingRecorder: recorder,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertTrue(timingPhases(in: sink.lines, lifecycle: "prewarm").contains("runtime_adapter_event_plan_prewarm_scheduled"))
+        XCTAssertTrue(timingPhases(in: sink.lines, lifecycle: "prewarm").contains("runtime_adapter_event_plan_prewarm_make"))
+        XCTAssertTrue(timingPhases(in: sink.lines, lifecycle: "prewarm").contains("runtime_adapter_event_plan_prewarm_configure"))
+
+        let playSession = try XCTUnwrap(recorder.beginLifecycle("play"))
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: playSession
+        )
+        playSession.finish(fields: [PlaybackTimingTraceField("test_finished", true)])
+
+        XCTAssertEqual(timingField(in: sink.lines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "prewarmed")
+        XCTAssertFalse(timingPhases(in: sink.lines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineFirstPlayWaitsForPrewarmInProgressWithoutDuplicatePlanBuild() throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, sink: sink)
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            playbackTimingRecorder: recorder,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        prewarmScheduler.jobs[0].waitResult = prewarmScheduler.defaultResult()
+        let playSession = try XCTUnwrap(recorder.beginLifecycle("play"))
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: playSession
+        )
+        playSession.finish(fields: [PlaybackTimingTraceField("test_finished", true)])
+
+        XCTAssertEqual(prewarmScheduler.jobs[0].waitCount, 1)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(timingField(in: sink.lines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "waited")
+        XCTAssertFalse(timingPhases(in: sink.lines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+
+        prewarmScheduler.complete()
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineFirstPlayBuildsSynchronouslyWhenPrewarmUnavailable() throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, sink: sink)
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            playbackTimingRecorder: recorder,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        let playSession = try XCTUnwrap(recorder.beginLifecycle("play"))
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: playSession
+        )
+        playSession.finish(fields: [PlaybackTimingTraceField("test_finished", true)])
+
+        XCTAssertEqual(prewarmScheduler.jobs[0].waitCount, 1)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(timingField(in: sink.lines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "sync_fallback")
+        XCTAssertTrue(timingPhases(in: sink.lines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+    }
+
+    @MainActor
+    func testPlaybackEngineLoadNilCancelsPrewarmAndClearsPlan() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        engine.load(song: nil)
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertEqual(prewarmScheduler.jobs[0].cancelCount, 1)
+        XCTAssertFalse(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 0)
+        XCTAssertEqual(audioOutput.configuredPlans.last?.generated, false)
+    }
+
+    @MainActor
+    func testPlaybackEngineStalePrewarmResultCannotInstallIntoNewSongGeneration() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        let staleResult = prewarmScheduler.defaultResult(at: 0)
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 7))
+        prewarmScheduler.complete(at: 0, result: staleResult)
+        await Task.yield()
+
+        XCTAssertFalse(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 0)
+
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+
+        XCTAssertTrue(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        engine.play(from: PlaybackStartContext(moduleTitle: "second", songPosition: 0, patternIndex: 7, row: 0))
+        let lastContext = try XCTUnwrap(audioOutput.consumedContexts.last ?? nil)
+        XCTAssertEqual(lastContext.patternIndex, 7)
+    }
+
+    @MainActor
+    func testPlaybackEngineStopDoesNotInvalidateCachedPrewarmedPlanAndSecondPlayReusesIt() async throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, sink: sink)
+        let audioOutput = TestRuntimeAdapterAudioOutput()
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            playbackTimingRecorder: recorder,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.stop()
+
+        let lineCountBeforeSecondPlay = sink.lines.count
+        let secondPlaySession = try XCTUnwrap(recorder.beginLifecycle("play"))
+        engine.play(from: nil, timingSession: secondPlaySession)
+        secondPlaySession.finish(fields: [PlaybackTimingTraceField("test_finished", true)])
+        let secondPlayLines = Array(sink.lines.dropFirst(lineCountBeforeSecondPlay))
+
+        XCTAssertTrue(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(audioOutput.consumedContexts.count, 2)
+        XCTAssertEqual(timingField(in: secondPlayLines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "cached_reuse")
+        XCTAssertFalse(timingPhases(in: secondPlayLines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+    }
+
+    @MainActor
     func testPlaybackTimingTraceRecordsDeferredAdapterPlanCreationDuringPlay() throws {
         let sink = TestPlaybackTimingTraceSink()
         let clock = TestPlaybackTimingTraceClock()
         let recorder = PlaybackTimingTraceRecorder(isEnabled: true, clock: clock, sink: sink)
         let audioOutput = TestRuntimeAdapterAudioOutput()
-        let engine = PlaybackEngine(audioEngine: audioOutput, startsRealtimeTimer: false)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
 
         let loadSession = try XCTUnwrap(recorder.beginLifecycle("load"))
         engine.load(song: makeRuntimeAdapterPlaybackSong(patternIndex: 2), timingSession: loadSession)
@@ -1332,6 +1550,18 @@ private func timingPhases(in lines: [String]) -> [String] {
 
 private func timingPhases(in lines: [String], lifecycle: String) -> [String] {
     timingPhases(in: lines.filter { $0.contains("lifecycle=\(lifecycle)") })
+}
+
+private func timingField(in lines: [String], lifecycle: String, phase: String, key: String) -> String? {
+    lines.reversed().compactMap { line -> String? in
+        guard line.contains("lifecycle=\(lifecycle)"),
+              line.contains("phase=\(phase)") else {
+            return nil
+        }
+        return line.split(separator: " ").first { $0.hasPrefix("\(key)=") }?
+            .dropFirst(key.count + 1)
+            .description
+    }.first
 }
 
 private func makeRuntimeAdapterPlaybackSong(patternIndex: Int) -> PlaybackSong {

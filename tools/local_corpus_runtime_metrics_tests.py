@@ -65,6 +65,8 @@ class LocalCorpusRuntimeMetricsTests(unittest.TestCase):
                         str(fake_app),
                         "--seconds",
                         "1",
+                        "--pre-play-delay-seconds",
+                        "5",
                         "--allow-repo-output",
                     ]
                 )
@@ -86,11 +88,13 @@ class LocalCorpusRuntimeMetricsTests(unittest.TestCase):
             self.assertNotIn(str(private_module), combined)
             self.assertNotIn(private_module.name, combined)
             self.assertNotIn(private_module.stem, combined)
+            self.assertIn("pre_play_delay=5", (label_dir / "xm-corpus-001.stdout.txt").read_text(encoding="utf-8"))
 
             summary = json.loads((label_dir / "xm-corpus-001.metrics.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["label"], "xm-corpus-001")
             self.assertTrue(summary["replay_after_stop"])
-            self.assertEqual(summary["playback_timing_line_count"], 8)
+            self.assertEqual(summary["pre_play_delay_seconds"], 5.0)
+            self.assertEqual(summary["playback_timing_line_count"], 13)
             self.assertEqual(summary["runtime_mixer_metrics_line_count"], 2)
             self.assertTrue(summary["runtime_trace_written"])
             self.assertEqual(summary["stdout_log"], "xm-corpus-001.stdout.txt")
@@ -99,8 +103,12 @@ class LocalCorpusRuntimeMetricsTests(unittest.TestCase):
             self.assertEqual(summary["timings_ms"]["load_total"], 15.0)
             self.assertEqual(summary["timings_ms"]["playback_song_builder_build"], 8.5)
             self.assertIsNone(summary["timings_ms"]["runtime_adapter_plan_total"])
-            self.assertEqual(summary["timings_ms"]["first_play_runtime_adapter_plan_total"], 3.5)
+            self.assertEqual(summary["timings_ms"]["prewarm_runtime_adapter_plan_total"], 3.5)
+            self.assertTrue(summary["timings_ms"]["prewarm_completed_before_first_play"])
+            self.assertEqual(summary["timings_ms"]["first_play_runtime_adapter_plan_mode"], "prewarmed")
+            self.assertIsNone(summary["timings_ms"]["first_play_runtime_adapter_plan_total"])
             self.assertEqual(summary["timings_ms"]["first_play_total"], 4.0)
+            self.assertEqual(summary["timings_ms"]["second_play_runtime_adapter_plan_mode"], "cached_reuse")
             self.assertEqual(summary["timings_ms"]["second_play_total"], 1.5)
             self.assertTrue(summary["timings_ms"]["second_play_reused_runtime_adapter_plan"])
             self.assertEqual(summary["runtime_metrics"]["output_peak"], 0.3)
@@ -166,17 +174,23 @@ import sys
 
 source = os.environ.get("VTX_OPEN_PATH", "")
 print(f"opened {source}")
+print(f"pre_play_delay={os.environ.get('VTX_DEBUG_PRE_PLAY_DELAY_SECONDS', '')}")
 print(f"private diagnostic path {source}", file=sys.stderr)
 print("vtx_playback_timing schema=1 lifecycle=load phase=module_metadata_loader_load index=1 elapsed_ms=1.000 module_type=XM channel_count=8 order_count=4 pattern_count=12 instrument_count=3", file=sys.stderr)
 print("vtx_playback_timing schema=1 lifecycle=load phase=playback_song_builder_build index=2 elapsed_ms=8.500", file=sys.stderr)
 print("vtx_playback_timing schema=1 lifecycle=load phase=runtime_adapter_event_plan_invalidated index=3 elapsed_ms=0.010", file=sys.stderr)
-print("vtx_playback_timing schema=1 lifecycle=load phase=total index=4 elapsed_ms=15.000 module_type=XM channel_count=8 order_count=4 pattern_count=12 instrument_count=3", file=sys.stderr)
-print("vtx_playback_timing schema=1 lifecycle=play phase=runtime_adapter_event_plan_make index=1 elapsed_ms=2.500", file=sys.stderr)
-print("vtx_playback_timing schema=1 lifecycle=play phase=runtime_adapter_event_plan_configure index=2 elapsed_ms=1.000", file=sys.stderr)
-print("vtx_playback_timing schema=1 lifecycle=play phase=total index=3 elapsed_ms=4.000", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=load phase=runtime_adapter_event_plan_prewarm_scheduled index=4 elapsed_ms=0.010", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=load phase=total index=5 elapsed_ms=15.000 module_type=XM channel_count=8 order_count=4 pattern_count=12 instrument_count=3", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=prewarm phase=runtime_adapter_event_plan_prewarm_scheduled index=1 elapsed_ms=0.010", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=prewarm phase=runtime_adapter_event_plan_prewarm_make index=2 elapsed_ms=2.500 plan_generated=true planned_event_count=1 category_count=1 planned_song_end_frame=100", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=prewarm phase=runtime_adapter_event_plan_prewarm_configure index=3 elapsed_ms=1.000 plan_generated=true planned_event_count=1 category_count=1 planned_song_end_frame=100", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=prewarm phase=total index=4 elapsed_ms=3.750 prewarm_outcome=installed", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=play phase=runtime_adapter_event_plan_ready_for_play index=1 elapsed_ms=0.010 play_adapter_plan_mode=prewarmed plan_generated=true planned_event_count=1 category_count=1 planned_song_end_frame=100", file=sys.stderr)
+print("vtx_playback_timing schema=1 lifecycle=play phase=total index=2 elapsed_ms=4.000", file=sys.stderr)
 if os.environ.get("VTX_DEBUG_REPLAY_AFTER_STOP") == "1":
     print("vtx_runtime_mixer_metrics schema=1 phase=stop_summary rendered_frame_count=48000 output_peak=0.250000 output_rms=0.050000 overrange_sample_count=0 clipping_sample_count=0 clipping_detected=false output_discontinuity_count=0 adjacent_jump_count_gt_0_25=0 adjacent_jump_count_gt_0_35=0 adjacent_jump_count_gt_0_50=0 max_output_adjacent_sample_jump=0.125000 runtime_output_gain=0.251189 runtime_headroom_policy=default_runtime_headroom_db runtime_default_headroom_db=-12.000000 runtime_gain_policy_source=default runtime_auto_headroom_enabled=false", file=sys.stderr)
-    print("vtx_playback_timing schema=1 lifecycle=play phase=total index=1 elapsed_ms=1.500", file=sys.stderr)
+    print("vtx_playback_timing schema=1 lifecycle=play phase=runtime_adapter_event_plan_ready_for_play index=1 elapsed_ms=0.010 play_adapter_plan_mode=cached_reuse plan_generated=true planned_event_count=1 category_count=1 planned_song_end_frame=100", file=sys.stderr)
+    print("vtx_playback_timing schema=1 lifecycle=play phase=total index=2 elapsed_ms=1.500", file=sys.stderr)
     print("vtx_runtime_mixer_metrics schema=1 phase=stop_summary rendered_frame_count=96000 output_peak=0.300000 output_rms=0.060000 overrange_sample_count=0 clipping_sample_count=0 clipping_detected=false output_discontinuity_count=0 adjacent_jump_count_gt_0_25=0 adjacent_jump_count_gt_0_35=0 adjacent_jump_count_gt_0_50=0 max_output_adjacent_sample_jump=0.125000 runtime_output_gain=0.251189 runtime_headroom_policy=default_runtime_headroom_db runtime_default_headroom_db=-12.000000 runtime_gain_policy_source=default runtime_auto_headroom_enabled=false", file=sys.stderr)
 else:
     print("vtx_runtime_mixer_metrics schema=1 phase=stop_summary rendered_frame_count=48000 output_peak=0.250000 output_rms=0.050000 overrange_sample_count=0 clipping_sample_count=0 clipping_detected=false output_discontinuity_count=0 adjacent_jump_count_gt_0_25=0 adjacent_jump_count_gt_0_35=0 adjacent_jump_count_gt_0_50=0 max_output_adjacent_sample_jump=0.125000 runtime_output_gain=0.251189 runtime_headroom_policy=default_runtime_headroom_db runtime_default_headroom_db=-12.000000 runtime_gain_policy_source=default runtime_auto_headroom_enabled=false", file=sys.stderr)

@@ -108,9 +108,9 @@ Recommended next PR sequence:
 
 1. Start the first small pattern-entry/editor workflow slice.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
-   work: async adapter-plan prewarm after load is the next optimization after
-   this PR's first-Play lazy fallback, then expose TIME only from a bounded
-   analysis cache.
+   work: async adapter-plan prewarm now keeps the cached runtime plan off the
+   synchronous load path while improving first-Play readiness, and TIME should
+   still wait for a bounded analysis cache.
 
 Parked parity-watch items:
 
@@ -122,15 +122,24 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Runtime C mixer adapter-plan construction now prewarms asynchronously after
+  module load. `PlaybackEngine.load(song:)` still invalidates stale plans
+  without blocking file open, then schedules background
+  `RuntimeCMixerAdapterEventPlan` preparation for the current song generation.
+  First Play uses a completed prewarm, waits for the in-flight prewarm, or falls
+  back to the same synchronous make/configure path if prewarm is canceled or
+  unavailable. Loading another module or File New cancels/invalidates stale
+  work; Stop/Play reuses the cached plan. Playback, C mixer DSP, parser
+  architecture, tracker viewport, editor, note audition, control panel, and
+  runtime gain/headroom behavior remain unchanged.
 - Runtime C mixer adapter-plan construction now stays out of synchronous file
   open to improve file-open responsiveness. `PlaybackEngine.load(song:)`
   invalidates stale plans, first Play prepares and configures the existing
   `RuntimeCMixerAdapterEventPlan` path synchronously when needed and can carry
-  the deferred planning cost, and Stop/Play reuses the cached plan without
-  changing playback, C mixer DSP, parser architecture, tracker viewport,
-  editor, note audition, control panel, or runtime gain/headroom behavior.
-  Async adapter-plan prewarm after load is intentionally deferred as the next
-  optimization step.
+  the deferred planning cost when async prewarm has not completed, and
+  Stop/Play reuses the cached plan without changing playback, C mixer DSP,
+  parser architecture, tracker viewport, editor, note audition, control panel,
+  or runtime gain/headroom behavior.
 - Disabled-by-default playback load/play timing diagnostics now report
   lifecycle phase durations and public-safe counts without moving load work,
   changing Play behavior, computing TIME, or changing runtime headroom.

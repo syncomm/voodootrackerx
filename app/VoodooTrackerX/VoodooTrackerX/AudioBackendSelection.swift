@@ -496,7 +496,8 @@ enum PlaybackAudioOutputFactory {
 
     static func make(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter()
+        runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
+        runtimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting = NoopRuntimeMixerMetricsTraceWriter.shared
     ) -> PlaybackAudioOutput {
         let selection = RuntimeAudioBackendSelection.resolve(environment: environment)
         let outputPolicy = selection.backend.usesRuntimeCMixer
@@ -626,7 +627,8 @@ enum PlaybackAudioOutputFactory {
                 songEndTailPolicy: songEndTailPolicy ?? .defaultPolicy,
                 runtimeSampleRateSelection: sampleRateSelection,
                 routeLabel: routeLabel,
-                traceWriter: runtimeCMixerTraceWriter
+                traceWriter: runtimeCMixerTraceWriter,
+                runtimeMixerMetricsTraceWriter: runtimeMixerMetricsTraceWriter
             )
         }
     }

@@ -48,7 +48,7 @@ Recommended next work should return to GUI/editor and product milestones:
    Tests alone are not sufficient for this audio change; docs and tests must
    not reference private modules or local paths.
 2. Module analysis follow-up should use
-   `docs/design/module-analysis-lifecycle.md`: add disabled timing diagnostics,
+   `docs/design/module-analysis-lifecycle.md`: use disabled timing diagnostics,
    defer heavy load-time planning, and expose TIME only from bounded cached
    analysis with clear invalidation.
 
@@ -62,6 +62,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Disabled-by-default playback load/play timing diagnostics now measure module
+  load, playback-song build, runtime adapter-plan setup, Play start/reset/enter
+  phases, and Swift-side CoreAudio prepare/start without changing playback,
+  parser, C mixer DSP, tracker viewport, editor, note audition, control panel,
+  TIME display, or runtime headroom policy.
 - Main-window control panel presentation now has the first Build Beyond demo
   polish pass: dark hardware-panel grouping, top gold accent, separated
   TITLE/TIME readouts, PTN decimal display, loaded-module instrument/sample

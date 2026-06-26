@@ -108,8 +108,8 @@ Recommended next PR sequence:
 
 1. Start the first small pattern-entry/editor workflow slice.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
-   work: first add disabled timing diagnostics, then defer heavy load-time
-   planning, then expose TIME only from a bounded analysis cache.
+   work: use the disabled load/play timing diagnostics, then defer heavy
+   load-time planning, then expose TIME only from a bounded analysis cache.
 
 Parked parity-watch items:
 
@@ -121,6 +121,9 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Disabled-by-default playback load/play timing diagnostics now report
+  lifecycle phase durations and public-safe counts without moving load work,
+  changing Play behavior, computing TIME, or changing runtime headroom.
 - XM diagnostic and residual-scan recommendation wording alignment with the
   current support table and backend-freeze posture; no playback behavior
   changed.

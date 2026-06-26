@@ -75,9 +75,20 @@ VTX_PLAYBACK_TIMING_TRACE=1 \
 
 Open a public synthetic fixture or another public-safe module, then press Play.
 The trace writes stderr lines prefixed with `vtx_playback_timing` and reports
-milliseconds for load phases, playback-song/adapter-plan setup, Play start
-position resolution, transient runtime-state reset, adapter event schedule
-setup, and CoreAudio prepare/start when reached from Swift-side lifecycle code.
+milliseconds for load phases, playback-song setup, lazy adapter-plan
+preparation on first Play, Play start position resolution, transient
+runtime-state reset, adapter event schedule setup, and CoreAudio prepare/start
+when reached from Swift-side lifecycle code.
+
+With lazy runtime adapter-plan preparation, load traces should show
+`runtime_adapter_event_plan_invalidated` rather than
+`runtime_adapter_event_plan_make`. The first Play after loading a module should
+show `runtime_adapter_event_plan_make` and
+`runtime_adapter_event_plan_configure`; Stop followed by Play should reuse the
+cached plan and omit those creation phases unless the song was invalidated by a
+new load or File New. This is the expected tradeoff for this PR: file-open
+responsiveness improves by moving adapter planning out of load, while first Play
+can carry the deferred planning cost until a later async prewarm PR.
 
 Timing output is observability only. It should not include local paths or
 private module titles, and enabling it must not change playback, parser, mixer,
@@ -147,17 +158,23 @@ scripts/run-local-corpus-runtime-metrics.py \
 
 The helper launches the Debug app directly with `VTX_OPEN_PATH`,
 `VTX_DEBUG_AUTOPLAY=1`, `VTX_DEBUG_STOP_AFTER_SECONDS`,
-`VTX_PLAYBACK_TIMING_TRACE=1`, `VTX_RUNTIME_MIXER_METRICS_TRACE=1`, and a
-label-based local runtime C mixer trace path. It does not require Accessibility
-permissions or GUI automation.
+`VTX_DEBUG_REPLAY_AFTER_STOP=1`, `VTX_PLAYBACK_TIMING_TRACE=1`,
+`VTX_RUNTIME_MIXER_METRICS_TRACE=1`, and a label-based local runtime C mixer
+trace path. It does not require Accessibility permissions or GUI automation.
+
+By default the helper runs Play, debug Stop, then Play/Stop again so summaries
+can compare first Play adapter-plan preparation with cached second Play reuse.
+Use `--single-play` only when a one-cycle diagnostics smoke is enough.
 
 Output filenames are based on the anonymized label only, for example
 `xm-corpus-001.stderr.txt`, `xm-corpus-001.runtime-c-mixer-trace.jsonl`, and
 `xm-corpus-001.metrics.json`, plus top-level `summary.json` and `summary.md`.
-The helper redacts the private source path and basename from captured
-stdout/stderr and writes summaries without module paths, filenames, or titles.
-It refuses to write inside the repository unless `--allow-repo-output` is
-supplied for synthetic tests.
+Summaries include load timing, metadata/build timing, load-time adapter-plan
+timing, first Play timing, first Play adapter-plan timing, second Play timing,
+and whether second Play reused the cached plan. The helper redacts the private
+source path and basename from captured stdout/stderr and writes summaries
+without module paths, filenames, or titles. It refuses to write inside the
+repository unless `--allow-repo-output` is supplied for synthetic tests.
 
 Private corpus runs are manual local diagnostics only. Do not add them to CI or
 automated tests.

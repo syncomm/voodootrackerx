@@ -97,7 +97,7 @@ final class PlaybackEngine: PlaybackTransport {
             startedAt: stateResetStart,
             fields: PlaybackTimingTraceFields.playbackSong(song)
         )
-        configureRuntimeAdapterEventPlan(for: song, timingSession: timingSession)
+        invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
         cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
@@ -156,6 +156,10 @@ final class PlaybackEngine: PlaybackTransport {
                 startedAt: stopStart,
                 fields: [PlaybackTimingTraceField("has_song", false)]
             )
+            return
+        }
+        guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
+            logger.error("Unable to prepare runtime adapter event plan; playback start aborted")
             return
         }
         let startPositionStart = timingSession?.beginPhase()
@@ -240,6 +244,12 @@ final class PlaybackEngine: PlaybackTransport {
             : nil
 
         if shouldPlay {
+            guard prepareRuntimeAdapterEventPlanIfNeeded(for: song, timingSession: timingSession) else {
+                activeDebugStartTraceContext = nil
+                apply(action: .stop, nextState: .stopped)
+                logger.error("Unable to prepare runtime adapter event plan for debug seek; playback start aborted")
+                return resolvedStart.position
+            }
             let enterStart = timingSession?.beginPhase()
             enter(position: resolvedStart.position, previousPosition: nil, timingSession: timingSession)
             applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
@@ -406,7 +416,20 @@ final class PlaybackEngine: PlaybackTransport {
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.hasRuntimeAdapterEventPlan == true
     }
 
-    private func configureRuntimeAdapterEventPlan(for song: PlaybackSong?, timingSession: PlaybackTimingTraceSession?) {
+    private func invalidateRuntimeAdapterEventPlan(timingSession: PlaybackTimingTraceSession?) {
+        let unavailablePlan = RuntimeCMixerAdapterEventPlan.unavailable(sampleRate: audioEngine.audioBufferSampleRate)
+        runtimeAdapterEventPlan = unavailablePlan
+        if let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
+            adapterConsumer.configureRuntimeAdapterEventPlan(unavailablePlan, generationMS: nil, timingSession: timingSession)
+        }
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_invalidated",
+            startedAt: nil,
+            fields: PlaybackTimingTraceFields.adapterPlan(unavailablePlan)
+        )
+    }
+
+    private func prepareRuntimeAdapterEventPlanIfNeeded(for song: PlaybackSong, timingSession: PlaybackTimingTraceSession?) -> Bool {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
             timingSession?.recordPhase(
@@ -414,7 +437,13 @@ final class PlaybackEngine: PlaybackTransport {
                 startedAt: nil,
                 fields: [PlaybackTimingTraceField("sample_rate", Int(audioEngine.audioBufferSampleRate.rounded()))]
             )
-            return
+            return true
+        }
+        if runtimeAdapterEventPlan.generated {
+            if !adapterConsumer.hasRuntimeAdapterEventPlan {
+                adapterConsumer.configureRuntimeAdapterEventPlan(runtimeAdapterEventPlan, generationMS: nil, timingSession: timingSession)
+            }
+            return true
         }
         let start = DispatchTime.now().uptimeNanoseconds
         let planStart = timingSession?.beginPhase()
@@ -429,6 +458,10 @@ final class PlaybackEngine: PlaybackTransport {
             fields: PlaybackTimingTraceFields.adapterPlan(plan)
         )
         runtimeAdapterEventPlan = plan
+        guard plan.generated else {
+            adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
+            return false
+        }
         let configureStart = timingSession?.beginPhase()
         adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
         timingSession?.recordPhase(
@@ -436,6 +469,7 @@ final class PlaybackEngine: PlaybackTransport {
             startedAt: configureStart,
             fields: PlaybackTimingTraceFields.adapterPlan(plan)
         )
+        return true
     }
 
     private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int, timingSession: PlaybackTimingTraceSession? = nil) {

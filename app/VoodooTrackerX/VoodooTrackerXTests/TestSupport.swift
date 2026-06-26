@@ -590,6 +590,76 @@ final class TestPlaybackAudioOutput: PlaybackAudioOutput {
 }
 
 @MainActor
+final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, RuntimeCMixerAdapterEventConsuming {
+    let audioBufferSampleRate: Double
+    let runtimeAudioBackend: RuntimeAudioBackend = .cMixer
+    private(set) var triggeredRequests = [AudioVoiceRequest]()
+    private(set) var updatedControls = [(channel: Int, controls: AudioChannelControls)]()
+    private(set) var stoppedChannels = [Int]()
+    private(set) var stopAllCount = 0
+    private(set) var resetCount = 0
+    private(set) var configuredPlans = [RuntimeCMixerAdapterEventPlan]()
+    private(set) var generationMSValues = [Double?]()
+    private(set) var resetConsumptionCount = 0
+    private(set) var consumedContexts = [AudioRuntimeTraceContext?]()
+    private var adapterEventPlan: RuntimeCMixerAdapterEventPlan
+
+    init(audioBufferSampleRate: Double = 100.0) {
+        self.audioBufferSampleRate = audioBufferSampleRate
+        adapterEventPlan = .unavailable(sampleRate: audioBufferSampleRate)
+    }
+
+    var hasRuntimeAdapterEventPlan: Bool {
+        adapterEventPlan.generated
+    }
+
+    var generatedPlanConfigureCount: Int {
+        configuredPlans.filter { $0.generated }.count
+    }
+
+    var unavailablePlanConfigureCount: Int {
+        configuredPlans.filter { !$0.generated }.count
+    }
+
+    func trigger(_ request: AudioVoiceRequest) {
+        triggeredRequests.append(request)
+    }
+
+    func update(channel: Int, controls: AudioChannelControls) {
+        updatedControls.append((channel: channel, controls: controls))
+    }
+
+    func stop(channel: Int) {
+        stoppedChannels.append(channel)
+    }
+
+    func stopAll() {
+        stopAllCount += 1
+        resetRuntimeAdapterEventConsumption()
+    }
+
+    func reset() {
+        resetCount += 1
+        stopAll()
+    }
+
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession _: PlaybackTimingTraceSession?) {
+        adapterEventPlan = plan
+        configuredPlans.append(plan)
+        generationMSValues.append(generationMS)
+        resetRuntimeAdapterEventConsumption()
+    }
+
+    func resetRuntimeAdapterEventConsumption() {
+        resetConsumptionCount += 1
+    }
+
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession _: PlaybackTimingTraceSession?) {
+        consumedContexts.append(context)
+    }
+}
+
+@MainActor
 final class TestRuntimeFollowAudioOutput: PlaybackAudioOutput, PlaybackAudioBackendProviding, PlaybackFollowPositionProviding, RuntimeAudioDiagnosticOutput {
     let audioBufferSampleRate = 100.0
     let runtimeAudioBackend: RuntimeAudioBackend = .cMixer

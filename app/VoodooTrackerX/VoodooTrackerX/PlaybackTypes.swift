@@ -41,10 +41,12 @@ struct PlaybackDebugLaunchConfiguration: Equatable {
     static let startTickEnvironmentKey = "VTX_DEBUG_START_TICK"
     static let autoplayEnvironmentKey = "VTX_DEBUG_AUTOPLAY"
     static let stopAfterSecondsEnvironmentKey = "VTX_DEBUG_STOP_AFTER_SECONDS"
+    static let replayAfterStopEnvironmentKey = "VTX_DEBUG_REPLAY_AFTER_STOP"
 
     var startRequest: PlaybackDebugStartRequest?
     var autoplay: Bool
     var stopAfterSeconds: TimeInterval?
+    var replayAfterStop: Bool
 
     static func parse(environment: [String: String] = ProcessInfo.processInfo.environment) -> PlaybackDebugLaunchConfiguration {
         let requestedOrder = nonNegativeInt(environment[startOrderEnvironmentKey])
@@ -66,7 +68,8 @@ struct PlaybackDebugLaunchConfiguration: Equatable {
         return PlaybackDebugLaunchConfiguration(
             startRequest: request,
             autoplay: boolValue(environment[autoplayEnvironmentKey]),
-            stopAfterSeconds: positiveTimeInterval(environment[stopAfterSecondsEnvironmentKey])
+            stopAfterSeconds: positiveTimeInterval(environment[stopAfterSecondsEnvironmentKey]),
+            replayAfterStop: boolValue(environment[replayAfterStopEnvironmentKey])
         )
     }
 

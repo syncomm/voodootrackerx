@@ -48,9 +48,15 @@ Recommended next work should return to GUI/editor and product milestones:
    Tests alone are not sufficient for this audio change; docs and tests must
    not reference private modules or local paths.
 2. Module analysis follow-up should use
-   `docs/design/module-analysis-lifecycle.md`: use disabled timing diagnostics,
-   defer heavy load-time planning, and expose TIME only from bounded cached
-   analysis with clear invalidation.
+   `docs/design/module-analysis-lifecycle.md`: keep first-Play adapter-plan
+   preparation as the synchronous fallback, optionally add async prewarm later,
+   and expose TIME only from bounded cached analysis with clear invalidation.
+   Future PR note: `app: async adapter plan prewarm after load` should prewarm
+   the same cached adapter plan after load without blocking UI, preserve lazy
+   first-Play fallback, avoid beachballs and unsafe concurrency, define a clear
+   UI/play gating strategy only if needed, preserve
+   `RuntimeCMixerAdapterEventPlan` playback, and require manual listening plus
+   local corpus timing comparison.
 
 Parked parity-watch items:
 
@@ -62,9 +68,19 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Runtime C mixer adapter-plan construction is now lazy: file load invalidates
+  stale plans without calling `RuntimeCMixerAdapterEventPlan.make`, improving
+  file-open responsiveness for modules dominated by adapter planning. First
+  Play prepares/configures the existing cached plan path when needed and can
+  carry the deferred planning cost; Stop/Play reuses the cached plan without
+  changing playback semantics, C mixer DSP, parser architecture, tracker
+  viewport, editor, note audition, control panel, or runtime gain/headroom
+  behavior. Async prewarm after load is intentionally deferred as the next
+  optimization step.
 - Disabled-by-default playback load/play timing diagnostics now measure module
-  load, playback-song build, runtime adapter-plan setup, Play start/reset/enter
-  phases, and Swift-side CoreAudio prepare/start without changing playback,
+  load, playback-song build, load-time adapter-plan invalidation, first-Play
+  runtime adapter-plan setup, Play start/reset/enter phases, and Swift-side
+  CoreAudio prepare/start without changing playback,
   parser, C mixer DSP, tracker viewport, editor, note audition, control panel,
   TIME display, or runtime headroom policy.
 - Main-window control panel presentation now has the first Build Beyond demo

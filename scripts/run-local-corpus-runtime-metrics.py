@@ -53,12 +53,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         dest="seconds",
         type=float,
         default=DEFAULT_SECONDS,
-        help=f"Playback duration before debug stop (default: {DEFAULT_SECONDS:g})",
+        help=f"Playback duration before each debug stop (default: {DEFAULT_SECONDS:g})",
     )
     parser.add_argument(
         "--timeout-seconds",
         type=float,
         help="Process timeout. Defaults to --seconds plus a short shutdown pad.",
+    )
+    parser.add_argument(
+        "--single-play",
+        action="store_true",
+        help="Run only the initial autoplay/stop cycle instead of the default Stop/Play cache-reuse cycle.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print planned anonymized labels only")
     parser.add_argument(
@@ -150,6 +155,7 @@ def run_entry(
     output_dir: Path,
     seconds: float,
     timeout_seconds: float,
+    replay_after_stop: bool,
 ) -> dict[str, Any]:
     label = entry["label"]
     source_path = entry["path"]
@@ -168,6 +174,7 @@ def run_entry(
             "VTX_AUDIO_BACKEND": "c_mixer",
             "VTX_DEBUG_AUTOPLAY": "1",
             "VTX_DEBUG_STOP_AFTER_SECONDS": format_seconds(seconds),
+            "VTX_DEBUG_REPLAY_AFTER_STOP": "1" if replay_after_stop else "0",
             "VTX_PLAYBACK_TIMING_TRACE": "1",
             "VTX_RUNTIME_MIXER_METRICS_TRACE": "1",
             "VTX_C_MIXER_RUNTIME_TRACE_PATH": str(runtime_trace_path),
@@ -214,6 +221,7 @@ def run_entry(
         "elapsed_wall_seconds": round(elapsed, 3),
         "seconds": seconds,
         "timeout_seconds": timeout_seconds,
+        "replay_after_stop": replay_after_stop,
         "playback_timing_line_count": len(timing_records),
         "runtime_mixer_metrics_line_count": len(metrics_records),
         "runtime_trace_written": runtime_trace_path.exists(),
@@ -260,27 +268,51 @@ def parse_prefixed_records(text: str, prefix: str) -> list[dict[str, str]]:
 
 
 def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
-    timings: dict[str, float | None] = {
-        "load_total": elapsed_ms(records, "load", "total"),
-        "module_metadata_loader_load": elapsed_ms(records, "load", "module_metadata_loader_load"),
-        "playback_song_builder_build": elapsed_ms(records, "load", "playback_song_builder_build"),
-        "playback_engine_load": elapsed_ms(records, "load", "playback_engine_load"),
-        "runtime_adapter_event_plan_make": elapsed_ms(records, "load", "runtime_adapter_event_plan_make"),
-        "runtime_adapter_event_plan_configure": elapsed_ms(records, "load", "runtime_adapter_event_plan_configure"),
-        "play_total": elapsed_ms(records, "play", "total"),
-        "playback_engine_start_position_resolution": elapsed_ms(records, "play", "playback_engine_start_position_resolution"),
-        "playback_engine_transient_runtime_state_reset": elapsed_ms(records, "play", "playback_engine_transient_runtime_state_reset"),
-        "runtime_adapter_event_consumption_schedule_setup": elapsed_ms(
-            records, "play", "runtime_adapter_event_consumption_schedule_setup"
+    load_records = records_for_lifecycle_occurrence(records, "load", 0)
+    first_play_records = records_for_lifecycle_occurrence(records, "play", 0)
+    second_play_records = records_for_lifecycle_occurrence(records, "play", 1)
+    first_play_make = elapsed_ms_in_records(first_play_records, "runtime_adapter_event_plan_make")
+    first_play_configure = elapsed_ms_in_records(first_play_records, "runtime_adapter_event_plan_configure")
+    second_play_make = elapsed_ms_in_records(second_play_records, "runtime_adapter_event_plan_make")
+    second_play_configure = elapsed_ms_in_records(second_play_records, "runtime_adapter_event_plan_configure")
+    timings: dict[str, Any] = {
+        "load_total": elapsed_ms_in_records(load_records, "total"),
+        "module_metadata_loader_load": elapsed_ms_in_records(load_records, "module_metadata_loader_load"),
+        "playback_song_builder_build": elapsed_ms_in_records(load_records, "playback_song_builder_build"),
+        "playback_engine_load": elapsed_ms_in_records(load_records, "playback_engine_load"),
+        "runtime_adapter_event_plan_make": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_make"),
+        "runtime_adapter_event_plan_configure": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_configure"),
+        "first_play_total": elapsed_ms_in_records(first_play_records, "total"),
+        "first_play_runtime_adapter_event_plan_make": first_play_make,
+        "first_play_runtime_adapter_event_plan_configure": first_play_configure,
+        "second_play_total": elapsed_ms_in_records(second_play_records, "total"),
+        "second_play_runtime_adapter_event_plan_make": second_play_make,
+        "second_play_runtime_adapter_event_plan_configure": second_play_configure,
+        "playback_engine_start_position_resolution": elapsed_ms_in_records(
+            first_play_records, "playback_engine_start_position_resolution"
         ),
-        "coreaudio_output_prepare": elapsed_ms(records, "play", "coreaudio_output_prepare"),
-        "coreaudio_output_start": elapsed_ms(records, "play", "coreaudio_output_start"),
+        "playback_engine_transient_runtime_state_reset": elapsed_ms_in_records(
+            first_play_records, "playback_engine_transient_runtime_state_reset"
+        ),
+        "runtime_adapter_event_consumption_schedule_setup": elapsed_ms_in_records(
+            first_play_records, "runtime_adapter_event_consumption_schedule_setup"
+        ),
+        "coreaudio_output_prepare": elapsed_ms_in_records(first_play_records, "coreaudio_output_prepare"),
+        "coreaudio_output_start": elapsed_ms_in_records(first_play_records, "coreaudio_output_start"),
     }
     make_ms = timings["runtime_adapter_event_plan_make"] or 0.0
     configure_ms = timings["runtime_adapter_event_plan_configure"] or 0.0
     timings["runtime_adapter_plan_total"] = round(make_ms + configure_ms, 3) if make_ms or configure_ms else None
+    first_play_plan_ms = (first_play_make or 0.0) + (first_play_configure or 0.0)
+    second_play_plan_ms = (second_play_make or 0.0) + (second_play_configure or 0.0)
+    timings["first_play_runtime_adapter_plan_total"] = round(first_play_plan_ms, 3) if first_play_plan_ms else None
+    timings["second_play_runtime_adapter_plan_total"] = round(second_play_plan_ms, 3) if second_play_plan_ms else None
+    timings["play_total"] = timings["first_play_total"]
+    timings["second_play_reused_runtime_adapter_plan"] = (
+        bool(second_play_records) and timings["second_play_runtime_adapter_plan_total"] is None
+    )
 
-    load_total = record_for(records, "load", "total") or {}
+    load_total = record_for_phase(load_records, "total") or {}
     metadata = {
         "module_type": load_total.get("module_type"),
         "channel_count": int_value(load_total.get("channel_count")),
@@ -316,16 +348,31 @@ def summarize_runtime_metrics(records: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-def record_for(records: list[dict[str, str]], lifecycle: str, phase: str) -> dict[str, str] | None:
+def records_for_lifecycle_occurrence(records: list[dict[str, str]], lifecycle: str, occurrence_index: int) -> list[dict[str, str]]:
+    occurrences: list[list[dict[str, str]]] = []
+    current: list[dict[str, str]] = []
+    for record in records:
+        if record.get("lifecycle") != lifecycle:
+            continue
+        current.append(record)
+        if record.get("phase") == "total":
+            occurrences.append(current)
+            current = []
+    if current:
+        occurrences.append(current)
+    return occurrences[occurrence_index] if occurrence_index < len(occurrences) else []
+
+
+def elapsed_ms_in_records(records: list[dict[str, str]], phase: str) -> float | None:
+    record = record_for_phase(records, phase)
+    return float_value(record.get("elapsed_ms")) if record else None
+
+
+def record_for_phase(records: list[dict[str, str]], phase: str) -> dict[str, str] | None:
     for record in reversed(records):
-        if record.get("lifecycle") == lifecycle and record.get("phase") == phase:
+        if record.get("phase") == phase:
             return record
     return None
-
-
-def elapsed_ms(records: list[dict[str, str]], lifecycle: str, phase: str) -> float | None:
-    record = record_for(records, lifecycle, phase)
-    return float_value(record.get("elapsed_ms")) if record else None
 
 
 def process_outcome(return_code: int | None, timed_out: bool, terminated_after_window: bool) -> str:
@@ -395,19 +442,25 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
         "",
         "Public-safe anonymized local diagnostics summary. Private filenames, paths, and titles are omitted.",
         "",
-        "| Label | Load total ms | Song build ms | Adapter plan ms | Play startup ms | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+        "| Label | Load total ms | Metadata ms | Song build ms | Load adapter plan ms | First Play ms | First Play adapter plan ms | Second Play ms | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: |",
     ]
     for summary in summaries:
         timings = summary["timings_ms"]
         metrics = summary["runtime_metrics"]
         lines.append(
-            "| {label} | {load} | {build} | {adapter} | {play} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
+            "| {label} | {load} | {metadata} | {build} | {load_adapter} | {first_play} | {first_play_adapter} | {second_play} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
                 label=summary["label"],
                 load=cell(timings.get("load_total")),
+                metadata=cell(timings.get("module_metadata_loader_load")),
                 build=cell(timings.get("playback_song_builder_build")),
-                adapter=cell(timings.get("runtime_adapter_plan_total")),
-                play=cell(timings.get("play_total")),
+                load_adapter=cell(timings.get("runtime_adapter_plan_total")),
+                first_play=cell(timings.get("first_play_total")),
+                first_play_adapter=cell(timings.get("first_play_runtime_adapter_plan_total")),
+                second_play=cell(timings.get("second_play_total")),
+                reused=str(timings.get("second_play_reused_runtime_adapter_plan")).lower()
+                if timings.get("second_play_total") is not None
+                else "n/a",
                 peak=cell(metrics.get("output_peak")),
                 rms=cell(metrics.get("output_rms")),
                 clips=cell(metrics.get("clipping_sample_count")),
@@ -442,11 +495,19 @@ def main(argv: list[str]) -> int:
         validate_output_dir(args.output_dir, args.allow_repo_output)
         validate_app(args.app_path)
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        timeout_seconds = args.timeout_seconds or (max(0.1, args.seconds) + DEFAULT_TIMEOUT_PAD_SECONDS)
+        play_count = 1 if args.single_play else 2
+        timeout_seconds = args.timeout_seconds or (max(0.1, args.seconds) * play_count + DEFAULT_TIMEOUT_PAD_SECONDS)
 
         summaries = []
         for entry in selected:
-            summary = run_entry(entry, args.app_path, args.output_dir, args.seconds, timeout_seconds)
+            summary = run_entry(
+                entry,
+                args.app_path,
+                args.output_dir,
+                args.seconds,
+                timeout_seconds,
+                replay_after_stop=not args.single_play,
+            )
             summaries.append(summary)
             print(
                 f"{summary['label']}: {summary['process_outcome']} "

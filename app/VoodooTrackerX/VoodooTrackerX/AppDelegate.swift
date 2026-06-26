@@ -297,10 +297,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             syncControlPanelView()
             timingSession?.recordPhase("control_panel_sync", startedAt: controlPanelStart)
 
-            let debugLaunchStart = timingSession?.beginPhase()
-            applyDebugLaunchConfigurationIfNeeded()
-            timingSession?.recordPhase("debug_launch_configuration", startedAt: debugLaunchStart)
             finishLoadTimingSession(timingSession, succeeded: true, metadata: timingMetadata, playbackSong: timingPlaybackSong)
+            applyDebugLaunchConfigurationIfNeeded()
         } catch {
             finishLoadTimingSession(timingSession, succeeded: false, metadata: timingMetadata, playbackSong: timingPlaybackSong)
             let alert = NSAlert()
@@ -496,13 +494,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             playbackEngine.play(from: context, timingSession: timingSession)
         }
         if configuration.autoplay {
-            scheduleDebugStop(after: configuration.stopAfterSeconds)
+            scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
         }
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: currentPlaybackStartContext())
     }
 
-    private func scheduleDebugStop(after seconds: TimeInterval?) {
+    private func scheduleDebugStop(after seconds: TimeInterval?, replayAfterStop: Bool = false) {
         debugStopTimer?.invalidate()
         debugStopTimer = nil
         guard let seconds else {
@@ -510,10 +508,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         debugStopTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                self?.playbackEngine.stopFromDebugTimer()
-                self?.syncControlPanelView()
+                guard let self else {
+                    return
+                }
+                self.playbackEngine.stopFromDebugTimer()
+                self.syncControlPanelView()
+                if replayAfterStop {
+                    self.playDebugReplayAfterStop(stopAfterSeconds: seconds)
+                }
             }
         }
+    }
+
+    private func playDebugReplayAfterStop(stopAfterSeconds seconds: TimeInterval?) {
+        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let context = measuredPlaybackStartContext(timingSession: timingSession)
+        playbackEngine.play(from: context, timingSession: timingSession)
+        syncControlPanelView()
+        finishPlayTimingSession(timingSession, context: context)
+        scheduleDebugStop(after: seconds, replayAfterStop: false)
     }
 
     private func debugJumpOrder(delta: Int) {

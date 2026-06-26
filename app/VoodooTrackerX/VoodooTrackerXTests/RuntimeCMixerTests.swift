@@ -2561,7 +2561,7 @@ final class RuntimeCMixerTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackEngineLoadReportsRuntimeAdapterPlanGenerationTimeForBothHosts() throws {
+    func testPlaybackEngineFirstPlayReportsRuntimeAdapterPlanGenerationTimeForBothHosts() throws {
         for backend in [RuntimeAudioBackend.cMixer, .cMixerCoreAudio] {
             let harness = makeRuntimeCMixerPlaybackHarness(backend: backend)
             let sample = makePlaybackSample(pcm: Array(repeating: 0.25, count: 128), baseSampleRate: 100)
@@ -2573,11 +2573,23 @@ final class RuntimeCMixerTests: XCTestCase {
                 instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
             ))
 
-            let configured = try XCTUnwrap(harness.traceWriter.events.first { $0.runtimeAction == "adapter_plan_configured" })
+            let invalidated = try XCTUnwrap(harness.traceWriter.events.first { $0.runtimeAction == "adapter_plan_configured" })
+            XCTAssertEqual(invalidated.runtimeAudioBackend, backend.diagnosticName)
+            XCTAssertEqual(invalidated.adapterPlanGenerated, false)
+            XCTAssertEqual(invalidated.plannedEventCount, 0)
+            XCTAssertNil(invalidated.adapterPlanGenerationMS)
+            XCTAssertFalse(harness.audioEngine.hasRuntimeAdapterEventPlan)
+
+            harness.engine.play(from: nil)
+
+            let configuredEvents = harness.traceWriter.events.filter { $0.runtimeAction == "adapter_plan_configured" }
+            XCTAssertEqual(configuredEvents.count, 2)
+            let configured = try XCTUnwrap(configuredEvents.last)
             XCTAssertEqual(configured.runtimeAudioBackend, backend.diagnosticName)
             XCTAssertEqual(configured.adapterPlanGenerated, true)
             XCTAssertEqual(configured.plannedEventCount, 1)
             XCTAssertGreaterThanOrEqual(configured.adapterPlanGenerationMS ?? -1, 0)
+            XCTAssertTrue(harness.audioEngine.hasRuntimeAdapterEventPlan)
             XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "backend_prepared" })
             XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "backend_start" })
         }

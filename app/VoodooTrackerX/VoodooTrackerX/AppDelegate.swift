@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentViewportLayout: PatternViewportTextLayout?
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
+    private let playbackTimingRecorder = PlaybackTimingTraceConfiguration.makeRecorder()
     private let playbackEngine = PlaybackEngine()
     private let noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: EditorNoteAuditionAudioSink())
     private var isSyncingScroll = false
@@ -194,13 +195,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func loadModule(from url: URL) {
+        let timingSession = playbackTimingRecorder.beginLifecycle("load")
+        var timingMetadata: ParsedModuleMetadata?
+        var timingPlaybackSong: PlaybackSong?
         do {
+            let metadataStart = timingSession?.beginPhase()
             let metadata = try metadataLoader.load(fromPath: url.path)
+            timingMetadata = metadata
+            timingSession?.recordPhase(
+                "module_metadata_loader_load",
+                startedAt: metadataStart,
+                fields: PlaybackTimingTraceFields.moduleMetadata(metadata)
+            )
+
+            let stateUpdateStart = timingSession?.beginPhase()
             noteAuditionPreviewer.cancelPreview()
             blankDocument = nil
             loadedMetadata = metadata
+            timingSession?.recordPhase("app_module_state_update", startedAt: stateUpdateStart)
+
+            let playbackSongBuildStart = timingSession?.beginPhase()
             let playbackSong = try? PlaybackSongBuilder.build(from: metadata, modulePath: url.path)
-            playbackEngine.load(song: playbackSong)
+            timingPlaybackSong = playbackSong
+            timingSession?.recordPhase(
+                "playback_song_builder_build",
+                startedAt: playbackSongBuildStart,
+                fields: PlaybackTimingTraceFields.playbackSong(playbackSong, buildSucceeded: playbackSong != nil)
+            )
+
+            let engineLoadStart = timingSession?.beginPhase()
+            playbackEngine.load(song: playbackSong, timingSession: timingSession)
+            timingSession?.recordPhase(
+                "playback_engine_load",
+                startedAt: engineLoadStart,
+                fields: PlaybackTimingTraceFields.playbackSong(playbackSong)
+            )
+
+            let selectionResetStart = timingSession?.beginPhase()
             selectedPatternSelectionIndex = 0
             selectedSongPositionIndex = 0
             currentPatternIndex = 0
@@ -209,7 +240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isEditModeEnabled = false
             isLoopPlaybackEnabled = false
             editModeCheckbox?.state = .off
+            timingSession?.recordPhase("app_selection_reset", startedAt: selectionResetStart)
 
+            let trackerRefreshStart = timingSession?.beginPhase()
             if metadata.type == "XM", !metadata.xmPatterns.isEmpty {
                 patternInfoLabel?.isHidden = true
                 patternHeaderScrollView?.isHidden = false
@@ -241,9 +274,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 \(metadata.displayText)
                 """
             }
+            timingSession?.recordPhase("tracker_ui_refresh", startedAt: trackerRefreshStart)
+
+            let controlPanelStart = timingSession?.beginPhase()
             syncControlPanelView()
+            timingSession?.recordPhase("control_panel_sync", startedAt: controlPanelStart)
+
+            let debugLaunchStart = timingSession?.beginPhase()
             applyDebugLaunchConfigurationIfNeeded()
+            timingSession?.recordPhase("debug_launch_configuration", startedAt: debugLaunchStart)
+            finishLoadTimingSession(timingSession, succeeded: true, metadata: timingMetadata, playbackSong: timingPlaybackSong)
         } catch {
+            finishLoadTimingSession(timingSession, succeeded: false, metadata: timingMetadata, playbackSong: timingPlaybackSong)
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Unable to Open Module"
@@ -363,8 +405,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     private func playPressed(_ sender: Any?) {
-        playbackEngine.play(from: currentPlaybackStartContext())
+        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        let context = measuredPlaybackStartContext(timingSession: timingSession)
+        let enginePlayStart = timingSession?.beginPhase()
+        playbackEngine.play(from: context, timingSession: timingSession)
+        timingSession?.recordPhase(
+            "app_delegate_play_to_playback_engine_play",
+            startedAt: enginePlayStart,
+            fields: [PlaybackTimingTraceField("is_playing_after", playbackEngine.state.isPlaying)]
+        )
+        let controlPanelStart = timingSession?.beginPhase()
         syncControlPanelView()
+        timingSession?.recordPhase("control_panel_sync_after_play", startedAt: controlPanelStart)
+        finishPlayTimingSession(timingSession, context: context)
     }
 
     @objc
@@ -377,8 +430,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard loadedMetadata != nil else {
             return false
         }
-        playbackEngine.togglePlayStop(from: currentPlaybackStartContext())
+        let timingSession = playbackEngine.state.isPlaying ? nil : playbackTimingRecorder.beginLifecycle("play")
+        let context = measuredPlaybackStartContext(timingSession: timingSession)
+        playbackEngine.togglePlayStop(from: context, timingSession: timingSession)
         syncControlPanelView()
+        finishPlayTimingSession(timingSession, context: context)
         return true
     }
 
@@ -415,15 +471,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applyDebugLaunchConfigurationIfNeeded() {
         let configuration = PlaybackDebugLaunchConfiguration.parse()
+        let timingSession = configuration.autoplay ? playbackTimingRecorder.beginLifecycle("play") : nil
         if let request = configuration.startRequest {
-            playbackEngine.seek(to: request, autoplay: configuration.autoplay)
+            playbackEngine.seek(to: request, autoplay: configuration.autoplay, timingSession: timingSession)
         } else if configuration.autoplay {
-            playbackEngine.play(from: currentPlaybackStartContext())
+            let context = measuredPlaybackStartContext(timingSession: timingSession)
+            playbackEngine.play(from: context, timingSession: timingSession)
         }
         if configuration.autoplay {
             scheduleDebugStop(after: configuration.stopAfterSeconds)
         }
         syncControlPanelView()
+        finishPlayTimingSession(timingSession, context: currentPlaybackStartContext())
     }
 
     private func scheduleDebugStop(after seconds: TimeInterval?) {
@@ -483,6 +542,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             patternIndex: currentPatternIndex,
             row: cursor.row
         )
+    }
+
+    private func measuredPlaybackStartContext(timingSession: PlaybackTimingTraceSession?) -> PlaybackStartContext? {
+        let start = timingSession?.beginPhase()
+        let context = currentPlaybackStartContext()
+        timingSession?.recordPhase(
+            "app_play_start_context_resolution",
+            startedAt: start,
+            fields: PlaybackTimingTraceFields.playbackStartContext(context)
+        )
+        return context
+    }
+
+    private func finishLoadTimingSession(
+        _ timingSession: PlaybackTimingTraceSession?,
+        succeeded: Bool,
+        metadata: ParsedModuleMetadata?,
+        playbackSong: PlaybackSong?
+    ) {
+        guard let timingSession else {
+            return
+        }
+        var fields = [PlaybackTimingTraceField("load_succeeded", succeeded)]
+        if let metadata {
+            fields.append(contentsOf: PlaybackTimingTraceFields.moduleMetadata(metadata))
+        }
+        fields.append(contentsOf: PlaybackTimingTraceFields.playbackSong(playbackSong))
+        timingSession.finish(fields: fields)
+    }
+
+    private func finishPlayTimingSession(_ timingSession: PlaybackTimingTraceSession?, context: PlaybackStartContext?) {
+        guard let timingSession else {
+            return
+        }
+        var fields = PlaybackTimingTraceFields.playbackStartContext(context)
+        fields.append(contentsOf: PlaybackTimingTraceFields.playbackSong(playbackEngine.song))
+        fields.append(PlaybackTimingTraceField("is_playing_after", playbackEngine.state.isPlaying))
+        timingSession.finish(fields: fields)
     }
 
     private func applyPlaybackPosition(_ position: PlaybackPosition) {

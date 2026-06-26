@@ -4,6 +4,104 @@ import XCTest
 
 final class PlaybackEngineTests: XCTestCase {
     @MainActor
+    func testPlaybackTimingTraceDisabledByDefaultEmitsNoLines() {
+        let sink = TestPlaybackTimingTraceSink()
+        let clock = TestPlaybackTimingTraceClock()
+        let recorder = PlaybackTimingTraceConfiguration.makeRecorder(
+            environment: [:],
+            clock: clock,
+            sink: sink
+        )
+
+        XCTAssertFalse(recorder.isEnabled)
+        XCTAssertNil(recorder.beginLifecycle("load"))
+        XCTAssertTrue(sink.lines.isEmpty)
+    }
+
+    @MainActor
+    func testPlaybackTimingTraceRecordsOrderedPhasesWithInjectedClockAndSink() throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let clock = TestPlaybackTimingTraceClock()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, clock: clock, sink: sink)
+        let session = try XCTUnwrap(recorder.beginLifecycle("load"))
+
+        let metadataStart = session.beginPhase()
+        clock.advance(milliseconds: 1.25)
+        session.recordPhase(
+            "module_metadata_loader_load",
+            startedAt: metadataStart,
+            fields: [PlaybackTimingTraceField("pattern_count", 2)]
+        )
+
+        let buildStart = session.beginPhase()
+        clock.advance(milliseconds: 2.5)
+        session.recordPhase(
+            "playback_song_builder_build",
+            startedAt: buildStart,
+            fields: [PlaybackTimingTraceField("sample_count", 1)]
+        )
+
+        clock.advance(milliseconds: 0.25)
+        session.finish(fields: [PlaybackTimingTraceField("load_succeeded", true)])
+
+        XCTAssertEqual(timingPhases(in: sink.lines), [
+            "module_metadata_loader_load",
+            "playback_song_builder_build",
+            "total",
+        ])
+        XCTAssertTrue(sink.lines[0].contains("elapsed_ms=1.250"))
+        XCTAssertTrue(sink.lines[1].contains("elapsed_ms=2.500"))
+        XCTAssertTrue(sink.lines[2].contains("elapsed_ms=4.000"))
+    }
+
+    func testPlaybackTimingTraceFormattingRedactsLocalPaths() {
+        let pathLikeValue = ["", "Use" + "rs", "example", "Desk" + "top", "private.xm"].joined(separator: "/")
+        let line = PlaybackTimingTraceFormatter.line(for: PlaybackTimingTraceRecord(
+            lifecycle: "load",
+            phase: "format",
+            index: 1,
+            elapsedMS: 1,
+            fields: [
+                PlaybackTimingTraceField("module_path", pathLikeValue),
+                PlaybackTimingTraceField("order_count", 1),
+            ]
+        ))
+
+        XCTAssertFalse(line.contains("/" + "Use" + "rs"))
+        XCTAssertFalse(line.contains("Desk" + "top"))
+        XCTAssertTrue(line.contains("module_path=redacted"))
+        XCTAssertTrue(line.contains("order_count=1"))
+    }
+
+    @MainActor
+    func testPlaybackEngineRecordsPlayTimingPhasesWhenEnabled() throws {
+        let sink = TestPlaybackTimingTraceSink()
+        let clock = TestPlaybackTimingTraceClock()
+        let recorder = PlaybackTimingTraceRecorder(isEnabled: true, clock: clock, sink: sink)
+        let engine = PlaybackEngine(
+            audioEngine: TestPlaybackAudioOutput(),
+            startsRealtimeTimer: false,
+            playbackTimingRecorder: recorder
+        )
+        engine.load(song: makePlaybackSong(orderPatternIndices: [2], patternRowCounts: [2: 1]))
+        let session = try XCTUnwrap(recorder.beginLifecycle("play"))
+
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "private title omitted", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: session
+        )
+        session.finish(fields: [PlaybackTimingTraceField("test_finished", true)])
+
+        let phases = timingPhases(in: sink.lines)
+        XCTAssertTrue(phases.contains("playback_engine_start_position_resolution"))
+        XCTAssertTrue(phases.contains("playback_engine_transient_runtime_state_reset"))
+        XCTAssertTrue(phases.contains("playback_engine_enter_selected_playback_position"))
+        XCTAssertTrue(phases.contains("playback_engine_restart_timer"))
+        XCTAssertTrue(phases.contains("total"))
+        XCTAssertFalse(sink.lines.joined(separator: "\n").contains("private title omitted"))
+    }
+
+    @MainActor
     func testPlaybackEngineRecordsTraceForTriggeredNote() {
         let audioOutput = TestPlaybackAudioOutput()
         let traceWriter = TestPlaybackTraceWriter()
@@ -1091,5 +1189,32 @@ final class PlaybackEngineTests: XCTestCase {
             PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0),
             PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 1)
         ])
+    }
+}
+
+private final class TestPlaybackTimingTraceClock: PlaybackTimingTraceClock {
+    private var currentNanoseconds: UInt64 = 0
+
+    func nowNanoseconds() -> UInt64 {
+        currentNanoseconds
+    }
+
+    func advance(milliseconds: Double) {
+        currentNanoseconds += UInt64((milliseconds * 1_000_000).rounded())
+    }
+}
+
+@MainActor
+private final class TestPlaybackTimingTraceSink: PlaybackTimingTraceSinking {
+    private(set) var lines = [String]()
+
+    func writePlaybackTimingTraceLine(_ line: String) {
+        lines.append(line)
+    }
+}
+
+private func timingPhases(in lines: [String]) -> [String] {
+    lines.compactMap { line in
+        line.split(separator: " ").first { $0.hasPrefix("phase=") }?.dropFirst("phase=".count).description
     }
 }

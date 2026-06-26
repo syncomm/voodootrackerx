@@ -83,6 +83,42 @@ applied adapter diagnostics, clears active C mixer voices, flushes trace
 writers, resets adapter event consumption state, and publishes stopped state.
 It does not rebuild the cached `PlaybackSong` or adapter plan.
 
+## Opt-In Load / Play Timing Diagnostics
+
+Lifecycle timing diagnostics are available behind
+`VTX_PLAYBACK_TIMING_TRACE=1`. They are disabled by default and write
+human-readable lines to stderr only when enabled; no trace files are written
+unless another explicitly configured diagnostic does so.
+
+Example:
+
+```bash
+VTX_PLAYBACK_TIMING_TRACE=1 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+The timing trace reports millisecond durations for load phases such as
+`module_metadata_loader_load`, `playback_song_builder_build`,
+`playback_engine_load`, `runtime_adapter_event_plan_make`,
+`runtime_adapter_event_plan_configure`, `tracker_ui_refresh`, and
+`control_panel_sync`.
+
+For Play, it reports phases such as `app_play_start_context_resolution`,
+`app_delegate_play_to_playback_engine_play`,
+`playback_engine_start_position_resolution`,
+`playback_engine_transient_runtime_state_reset`,
+`playback_engine_enter_selected_playback_position`,
+`runtime_adapter_event_consumption_schedule_setup`,
+`runtime_adapter_event_schedule_configure`, `coreaudio_output_prepare`,
+`coreaudio_output_start`, and transport/timer setup phases.
+
+Trace fields intentionally use counts, positions, booleans, and sanitized
+values. Local paths and private titles are not emitted. These diagnostics are
+measurement-only: they do not move work from load to Play, compute TIME,
+change runtime gain/headroom, rebuild adapter plans on Play, or change parser,
+playback, C mixer DSP, tracker viewport, editor, note audition, or control
+panel behavior.
+
 ## Headroom And Gain Lifecycle
 
 There is no app load-time or Play-time module-specific headroom scan today.

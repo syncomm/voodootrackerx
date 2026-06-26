@@ -24,9 +24,9 @@ protocol RuntimeAudioDiagnosticOutput: AnyObject {
 protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
     var hasRuntimeAdapterEventPlan: Bool { get }
 
-    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?)
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession: PlaybackTimingTraceSession?)
     func resetRuntimeAdapterEventConsumption()
-    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?)
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?)
 }
 
 private struct RuntimeCMixerEventCounters: Equatable {
@@ -453,7 +453,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         )
     }
 
-    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?) {
+    func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession _: PlaybackTimingTraceSession?) {
         adapterEventPlan = plan
         sampleTimePositionResolver = plan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
         resetRuntimeAdapterEventConsumption()
@@ -490,7 +490,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         renderCore.clearAdapterEventSchedule()
     }
 
-    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?) {
+    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?) {
+        let consumptionStart = timingSession?.beginPhase()
         drainAppliedRuntimeAdapterEvents()
         guard adapterEventPlan.generated else {
             eventCounters.fallbackToSimpleRuntimeEventCount &+= 1
@@ -504,13 +505,30 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 runtimeEventFallbackReason: "adapter_plan_unavailable",
                 reason: "runtime_c_mixer_adapter_plan_unavailable"
             )
+            timingSession?.recordPhase(
+                "runtime_adapter_event_consumption_schedule_setup",
+                startedAt: consumptionStart,
+                fields: [
+                    PlaybackTimingTraceField("plan_generated", false),
+                    PlaybackTimingTraceField("schedule_configured", adapterEventScheduleConfigured),
+                ]
+            )
             return
         }
 
-        configureAdapterEventScheduleIfNeeded(context: context)
+        configureAdapterEventScheduleIfNeeded(context: context, timingSession: timingSession)
+        timingSession?.recordPhase(
+            "runtime_adapter_event_consumption_schedule_setup",
+            startedAt: consumptionStart,
+            fields: [
+                PlaybackTimingTraceField("plan_generated", true),
+                PlaybackTimingTraceField("schedule_configured", adapterEventScheduleConfigured),
+                PlaybackTimingTraceField("planned_event_count", adapterEventPlan.plannedEventCount),
+            ]
+        )
     }
 
-    private func configureAdapterEventScheduleIfNeeded(context: AudioRuntimeTraceContext?) {
+    private func configureAdapterEventScheduleIfNeeded(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?) {
         guard !adapterEventScheduleConfigured else {
             return
         }
@@ -518,15 +536,46 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard let offset = resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot) else {
             return
         }
+        let scheduleStart = timingSession?.beginPhase()
         let result = renderCore.configureAdapterEventSchedule(
             adapterEventPlan.events,
             runtimeFrameOffset: offset,
             plannedSongEndFrame: adapterEventPlan.plannedSongEndFrame
         )
+        timingSession?.recordPhase(
+            "runtime_adapter_event_schedule_configure",
+            startedAt: scheduleStart,
+            fields: [
+                PlaybackTimingTraceField("queued_event_count", result.queuedEventCount),
+                PlaybackTimingTraceField("skipped_negative_runtime_frame_count", result.skippedNegativeRuntimeFrameCount),
+                PlaybackTimingTraceField("skipped_overflow_count", result.skippedOverflowCount),
+            ]
+        )
         adapterEventScheduleConfigured = true
         if startsOutputHostOnDemand {
+            let wasPrepared = isPrepared
+            let prepareStart = timingSession?.beginPhase()
             prepareIfNeeded()
-            _ = startEngineIfNeeded()
+            timingSession?.recordPhase(
+                "coreaudio_output_prepare",
+                startedAt: prepareStart,
+                fields: [
+                    PlaybackTimingTraceField("was_prepared_before", wasPrepared),
+                    PlaybackTimingTraceField("is_prepared_after", isPrepared),
+                ]
+            )
+            let wasRunning = coreAudioOutputHost.isRunning
+            let startEngineStart = timingSession?.beginPhase()
+            let started = startEngineIfNeeded()
+            timingSession?.recordPhase(
+                "coreaudio_output_start",
+                startedAt: startEngineStart,
+                fields: [
+                    PlaybackTimingTraceField("was_running_before", wasRunning),
+                    PlaybackTimingTraceField("is_running_after", coreAudioOutputHost.isRunning),
+                    PlaybackTimingTraceField("start_succeeded", started),
+                ]
+            )
         }
         recordRuntimeEvent(
             action: "adapter_event_schedule_configured",

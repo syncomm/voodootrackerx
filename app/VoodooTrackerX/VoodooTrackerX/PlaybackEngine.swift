@@ -9,6 +9,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let audioEngine: PlaybackAudioOutput
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
+    private let playbackTimingRecorder: PlaybackTimingTraceRecorder?
     private let runtimeCMixerFollowPublicationDisabled: Bool
     private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
     private let debugStopAfterSeconds: TimeInterval?
@@ -43,10 +44,12 @@ final class PlaybackEngine: PlaybackTransport {
         traceWriter: PlaybackTraceWriting = PlaybackTraceConfiguration.makeWriter(),
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
         startsRealtimeTimer: Bool = true,
+        playbackTimingRecorder: PlaybackTimingTraceRecorder? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
         self.startsRealtimeTimer = startsRealtimeTimer
+        self.playbackTimingRecorder = playbackTimingRecorder
         debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
             environment: environment,
@@ -66,9 +69,16 @@ final class PlaybackEngine: PlaybackTransport {
                 : .defaultPolicy
     }
 
-    func load(song: PlaybackSong?) {
+    func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
         let wasPlaying = state.isPlaying
+        let stopStart = timingSession?.beginPhase()
         stop(notify: false, resetAudio: true)
+        timingSession?.recordPhase(
+            "playback_engine_stop_for_load",
+            startedAt: stopStart,
+            fields: [PlaybackTimingTraceField("was_playing_before_load", wasPlaying)]
+        )
+        let stateResetStart = timingSession?.beginPhase()
         self.song = song
         timing = song?.initialTiming ?? .xmDefault
         currentPosition = song?.startPosition
@@ -82,7 +92,12 @@ final class PlaybackEngine: PlaybackTransport {
         traceTickIndex = 0
         runtimeNoteTriggerEventCount = 0
         activeDebugStartTraceContext = nil
-        configureRuntimeAdapterEventPlan(for: song)
+        timingSession?.recordPhase(
+            "playback_engine_load_state_reset",
+            startedAt: stateResetStart,
+            fields: PlaybackTimingTraceFields.playbackSong(song)
+        )
+        configureRuntimeAdapterEventPlan(for: song, timingSession: timingSession)
         cancelRuntimeCMixerSongEndStop()
         logger.debug("Playback song loaded. hadActivePlayback=\(wasPlaying, privacy: .public) hasSong=\((song != nil), privacy: .public)")
     }
@@ -95,34 +110,77 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func play(from context: PlaybackStartContext?) {
-        play(from: context, debugStart: nil, action: .play)
+        let timingSession = playbackTimingRecorder?.beginLifecycle("play")
+        play(from: context, debugStart: nil, action: .play, timingSession: timingSession)
+        finishOwnedPlayTimingSession(timingSession, context: context)
+    }
+
+    func play(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
+        play(from: context, debugStart: nil, action: .play, timingSession: timingSession)
     }
 
     func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
-        play(from: context, debugStart: debugStart, action: .play)
+        let timingSession = playbackTimingRecorder?.beginLifecycle("play")
+        play(from: context, debugStart: debugStart, action: .play, timingSession: timingSession)
+        finishOwnedPlayTimingSession(timingSession, context: context)
+    }
+
+    func play(
+        from context: PlaybackStartContext?,
+        debugStart: PlaybackDebugStartRequest?,
+        timingSession: PlaybackTimingTraceSession?
+    ) {
+        play(from: context, debugStart: debugStart, action: .play, timingSession: timingSession)
     }
 
     private func play(
         from context: PlaybackStartContext?,
         debugStart: PlaybackDebugStartRequest?,
-        action: PlaybackTransportAction
+        action: PlaybackTransportAction,
+        timingSession: PlaybackTimingTraceSession?
     ) {
         guard !state.isPlaying else {
+            timingSession?.recordPhase(
+                "playback_engine_play_ignored_already_playing",
+                startedAt: nil,
+                fields: [PlaybackTimingTraceField("is_playing_before", true)]
+            )
             logger.debug("Ignoring play request because playback is already active")
             return
         }
         guard let song else {
+            let stopStart = timingSession?.beginPhase()
             stop()
+            timingSession?.recordPhase(
+                "playback_engine_play_no_song_stop",
+                startedAt: stopStart,
+                fields: [PlaybackTimingTraceField("has_song", false)]
+            )
             return
         }
+        let startPositionStart = timingSession?.beginPhase()
         let resolvedDebugStart = debugStart.flatMap { resolveDebugStart($0, in: song) }
         let positionBeforePlay = currentPosition
         currentPosition = resolvedDebugStart?.position ?? playbackStartPosition(from: context, in: song) ?? song.startPosition
+        timingSession?.recordPhase(
+            "playback_engine_start_position_resolution",
+            startedAt: startPositionStart,
+            fields: PlaybackTimingTraceFields.playbackPosition(currentPosition)
+        )
+
+        let resetStart = timingSession?.beginPhase()
         resetRuntimeState(resetTiming: resolvedDebugStart != nil)
+        timingSession?.recordPhase(
+            "playback_engine_transient_runtime_state_reset",
+            startedAt: resetStart,
+            fields: [PlaybackTimingTraceField("reset_timing", resolvedDebugStart != nil)]
+        )
+
         activeDebugStartTraceContext = resolvedDebugStart.map {
             PlaybackDebugStartTraceContext(request: $0.request, position: $0.position, actualTickInRow: $0.actualTickInRow)
         }
         if let currentPosition {
+            let enterStart = timingSession?.beginPhase()
             recordRuntimeTransportAction(
                 action,
                 positionBefore: positionBeforePlay,
@@ -130,16 +188,37 @@ final class PlaybackEngine: PlaybackTransport {
                 tickInRowBefore: 0,
                 reason: "transport_play"
             )
-            enter(position: currentPosition, previousPosition: nil)
+            enter(position: currentPosition, previousPosition: nil, timingSession: timingSession)
             applyDebugStartTickIfNeeded(resolvedDebugStart?.actualTickInRow, at: currentPosition)
+            timingSession?.recordPhase(
+                "playback_engine_enter_selected_playback_position",
+                startedAt: enterStart,
+                fields: PlaybackTimingTraceFields.playbackPosition(currentPosition)
+            )
         }
+        let restartTimerStart = timingSession?.beginPhase()
         restartTimer()
+        timingSession?.recordPhase(
+            "playback_engine_restart_timer",
+            startedAt: restartTimerStart,
+            fields: [PlaybackTimingTraceField("starts_realtime_timer", startsRealtimeTimer)]
+        )
+
+        let transportStateStart = timingSession?.beginPhase()
         apply(action: action, nextState: PlaybackState(mode: .playing, context: context))
+        timingSession?.recordPhase("playback_engine_apply_transport_state", startedAt: transportStateStart)
+
+        let songEndStopStart = timingSession?.beginPhase()
         scheduleRuntimeCMixerSongEndStopIfNeeded()
+        timingSession?.recordPhase("playback_engine_schedule_runtime_song_end_stop", startedAt: songEndStopStart)
     }
 
     @discardableResult
-    func seek(to request: PlaybackDebugStartRequest, autoplay: Bool? = nil) -> PlaybackPosition? {
+    func seek(
+        to request: PlaybackDebugStartRequest,
+        autoplay: Bool? = nil,
+        timingSession: PlaybackTimingTraceSession? = nil
+    ) -> PlaybackPosition? {
         guard let song,
               let resolvedStart = resolveDebugStart(request, in: song) else {
             return nil
@@ -161,9 +240,21 @@ final class PlaybackEngine: PlaybackTransport {
             : nil
 
         if shouldPlay {
-            enter(position: resolvedStart.position, previousPosition: nil)
+            let enterStart = timingSession?.beginPhase()
+            enter(position: resolvedStart.position, previousPosition: nil, timingSession: timingSession)
             applyDebugStartTickIfNeeded(resolvedStart.actualTickInRow, at: resolvedStart.position)
+            timingSession?.recordPhase(
+                "playback_engine_enter_selected_playback_position",
+                startedAt: enterStart,
+                fields: PlaybackTimingTraceFields.playbackPosition(resolvedStart.position)
+            )
+            let restartTimerStart = timingSession?.beginPhase()
             restartTimer()
+            timingSession?.recordPhase(
+                "playback_engine_restart_timer",
+                startedAt: restartTimerStart,
+                fields: [PlaybackTimingTraceField("starts_realtime_timer", startsRealtimeTimer)]
+            )
             apply(action: .play, nextState: PlaybackState(mode: .playing, context: state.context))
             scheduleRuntimeCMixerSongEndStopIfNeeded()
         } else {
@@ -267,11 +358,25 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     func togglePlayStop(from context: PlaybackStartContext?) {
+        togglePlayStop(from: context, timingSession: nil)
+    }
+
+    func togglePlayStop(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
         if state.isPlaying {
             stop(action: .spacebarStop)
         } else {
-            play(from: context ?? state.context, debugStart: nil, action: .spacebarPlay)
+            play(from: context ?? state.context, debugStart: nil, action: .spacebarPlay, timingSession: timingSession)
         }
+    }
+
+    private func finishOwnedPlayTimingSession(_ timingSession: PlaybackTimingTraceSession?, context: PlaybackStartContext?) {
+        guard let timingSession else {
+            return
+        }
+        var fields = PlaybackTimingTraceFields.playbackStartContext(context)
+        fields.append(contentsOf: PlaybackTimingTraceFields.playbackSong(song))
+        fields.append(PlaybackTimingTraceField("is_playing_after", state.isPlaying))
+        timingSession.finish(fields: fields)
     }
 
     private func apply(action: PlaybackTransportAction, nextState: PlaybackState) {
@@ -301,22 +406,39 @@ final class PlaybackEngine: PlaybackTransport {
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.hasRuntimeAdapterEventPlan == true
     }
 
-    private func configureRuntimeAdapterEventPlan(for song: PlaybackSong?) {
+    private func configureRuntimeAdapterEventPlan(for song: PlaybackSong?, timingSession: PlaybackTimingTraceSession?) {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
+            timingSession?.recordPhase(
+                "runtime_adapter_event_plan_unavailable",
+                startedAt: nil,
+                fields: [PlaybackTimingTraceField("sample_rate", Int(audioEngine.audioBufferSampleRate.rounded()))]
+            )
             return
         }
         let start = DispatchTime.now().uptimeNanoseconds
+        let planStart = timingSession?.beginPhase()
         let plan = RuntimeCMixerAdapterEventPlan.make(
             song: song,
             sampleRate: audioEngine.audioBufferSampleRate
         )
         let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_make",
+            startedAt: planStart,
+            fields: PlaybackTimingTraceFields.adapterPlan(plan)
+        )
         runtimeAdapterEventPlan = plan
-        adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS)
+        let configureStart = timingSession?.beginPhase()
+        adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
+        timingSession?.recordPhase(
+            "runtime_adapter_event_plan_configure",
+            startedAt: configureStart,
+            fields: PlaybackTimingTraceFields.adapterPlan(plan)
+        )
     }
 
-    private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int) {
+    private func consumeRuntimeAdapterEvents(at position: PlaybackPosition, tickInRow: Int, timingSession: PlaybackTimingTraceSession? = nil) {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             return
         }
@@ -324,7 +446,7 @@ final class PlaybackEngine: PlaybackTransport {
             at: position,
             tickInRow: tickInRow,
             channelIndex: nil
-        ))
+        ), timingSession: timingSession)
     }
 
     private func restartTimer() {
@@ -479,14 +601,14 @@ final class PlaybackEngine: PlaybackTransport {
         (audioEngine as? PlaybackAudioBackendProviding)?.runtimeAudioBackend.usesRuntimeCMixer == true
     }
 
-    private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?) {
+    private func enter(position: PlaybackPosition, previousPosition: PlaybackPosition?, timingSession: PlaybackTimingTraceSession? = nil) {
         publishPlaybackFollowPosition(timerPosition: position, tickInRow: tickState.tickInRow, allowBackendOverride: true)
         traceRowTiming(at: position, reason: "row_timing_before_effects")
         recordRuntimeRowTransition(from: previousPosition, to: position, phase: "before_events")
         let usesAdapterPlan = usesRuntimeAdapterEventPlan
         prepareRowPlaybackState(at: position, emitRuntimeControlUpdates: !usesAdapterPlan)
         if usesAdapterPlan {
-            consumeRuntimeAdapterEvents(at: position, tickInRow: 0)
+            consumeRuntimeAdapterEvents(at: position, tickInRow: 0, timingSession: timingSession)
         } else {
             triggerAudio(at: position)
             applyImmediateTimingEffects()

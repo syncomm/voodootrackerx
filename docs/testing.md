@@ -62,6 +62,28 @@ Use a local, known-good XM file. Do not commit copyrighted module files.
 - Let playback reach the end if practical and confirm it stops predictably.
 - Confirm tracker viewport alignment remains stable.
 
+## Playback Load / Play Timing Diagnostics
+
+Lifecycle timing diagnostics are disabled by default. To measure module load
+and Play setup phases during a local smoke run, launch the Debug app from a
+terminal with:
+
+```bash
+VTX_PLAYBACK_TIMING_TRACE=1 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Open a public synthetic fixture or another public-safe module, then press Play.
+The trace writes stderr lines prefixed with `vtx_playback_timing` and reports
+milliseconds for load phases, playback-song/adapter-plan setup, Play start
+position resolution, transient runtime-state reset, adapter event schedule
+setup, and CoreAudio prepare/start when reached from Swift-side lifecycle code.
+
+Timing output is observability only. It should not include local paths or
+private module titles, and enabling it must not change playback, parser, mixer,
+headroom, TIME display, tracker viewport, editor, note audition, or control
+panel behavior.
+
 ## Audio Reference Comparison
 
 Use `docs/audio-comparison.md` when comparing VoodooTracker X playback against a

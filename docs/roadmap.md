@@ -108,8 +108,9 @@ Recommended next PR sequence:
 
 1. Start the first small pattern-entry/editor workflow slice.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
-   work: use the disabled load/play timing diagnostics, then defer heavy
-   load-time planning, then expose TIME only from a bounded analysis cache.
+   work: async adapter-plan prewarm after load is the next optimization after
+   this PR's first-Play lazy fallback, then expose TIME only from a bounded
+   analysis cache.
 
 Parked parity-watch items:
 
@@ -121,6 +122,15 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Runtime C mixer adapter-plan construction now stays out of synchronous file
+  open to improve file-open responsiveness. `PlaybackEngine.load(song:)`
+  invalidates stale plans, first Play prepares and configures the existing
+  `RuntimeCMixerAdapterEventPlan` path synchronously when needed and can carry
+  the deferred planning cost, and Stop/Play reuses the cached plan without
+  changing playback, C mixer DSP, parser architecture, tracker viewport,
+  editor, note audition, control panel, or runtime gain/headroom behavior.
+  Async adapter-plan prewarm after load is intentionally deferred as the next
+  optimization step.
 - Disabled-by-default playback load/play timing diagnostics now report
   lifecycle phase durations and public-safe counts without moving load work,
   changing Play behavior, computing TIME, or changing runtime headroom.

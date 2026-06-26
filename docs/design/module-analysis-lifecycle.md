@@ -13,7 +13,7 @@ File Open / debug VTX_OPEN_PATH
 -> ModuleMetadataLoader.load(fromPath:)
 -> PlaybackSongBuilder.build(from:modulePath:)
 -> PlaybackEngine.load(song:)
--> RuntimeCMixerAdapterEventPlan.make(song:sampleRate:)
+-> clear any stale runtime adapter plan
 -> control panel + tracker view refresh
 ```
 
@@ -23,7 +23,7 @@ File Open / debug VTX_OPEN_PATH
 | Metadata parse | `ModuleMetadataLoader.load(fromPath:)` calls `mc_parse_file`, extracts type/title/version/channels/pattern/instrument counts, XM defaults, song length, restart position, and order table. | Synchronous. Result is stored as `AppDelegate.loadedMetadata`. |
 | Full XM pattern decode | For XM, `ModuleMetadataLoader` reparses pattern data from file with `Data(contentsOf:)`; if that fails, it falls back to the bounded `ModuleCore` XM event summary. | Synchronous disk read and decode. This preserves the current hybrid parser boundary. |
 | Playback song creation | `PlaybackSongBuilder.build` maps decoded XM patterns into `PlaybackSong`, filters orders to decoded patterns, reads instrument/sample headers, decodes sample PCM, maps note-sample maps and volume envelopes, and copies initial speed/BPM. | Synchronous disk read and sample decode. Result is stored as `PlaybackEngine.song`. |
-| Runtime adapter planning | `PlaybackEngine.load(song:)` stops current playback, resets transport/channel/effect state, then calls `configureRuntimeAdapterEventPlan(for:)`. For the runtime C mixer backend, this builds a full `RuntimeCMixerAdapterEventPlan` from `PlaybackSongSyntheticAdapter.adapt`. | Synchronous on load. Cached in both `PlaybackEngine.runtimeAdapterEventPlan` and the runtime C mixer audio engine. |
+| Runtime adapter plan invalidation | `PlaybackEngine.load(song:)` stops current playback, resets transport/channel/effect state, stores the loaded song, then configures an unavailable runtime adapter plan to clear any stale cached plan. | Synchronous on load, but no full `RuntimeCMixerAdapterEventPlan.make` pass runs during file open. |
 | Control panel state | `syncControlPanelView()` derives `ControlPanelDisplayState.loadedModuleContent` from loaded metadata and selected instrument/sample state. | Derived on demand. TIME is currently always `--:--` for loaded modules. |
 | Tracker display state | Loaded XM patterns are rendered into the tracker viewport and control panel selectors. | Uses the loaded metadata pattern model; no playback analysis cache is read by the tracker viewport. |
 
@@ -31,14 +31,16 @@ Current load-time cached state:
 
 - `loadedMetadata`: parsed metadata and decoded pattern grid used by UI.
 - `PlaybackEngine.song`: playback-facing song, instruments, samples, and initial timing.
-- `PlaybackEngine.runtimeAdapterEventPlan`: full-song runtime event plan.
-- `RuntimeCMixerAudioEngine.adapterEventPlan`: copy of the plan plus a sample-time position resolver.
+- `PlaybackEngine.runtimeAdapterEventPlan`: unavailable until first Play, then the cached full-song runtime event plan.
+- `RuntimeCMixerAudioEngine.adapterEventPlan`: unavailable until first Play, then a copy of the generated plan plus a sample-time position resolver.
 - Control panel content is not separately cached; it is derived each sync.
 
-Important consequence: current file load does more than metadata display. It
-also decodes sample PCM and performs full runtime C mixer adapter planning.
-Moving any of this work requires a lifecycle design, because Play currently
-depends on the plan being ready.
+Important consequence: current file load still does more than metadata display.
+It also decodes sample PCM into `PlaybackSong`, but runtime C mixer adapter
+planning is now deferred until first Play. Play still depends on the plan being
+ready before audio starts. This improves perceived file-open responsiveness for
+modules where adapter planning dominated load time, but the first Play after
+load can now carry that deferred planning cost.
 
 ## Current Play Lifecycle
 
@@ -46,6 +48,7 @@ depends on the plan being ready.
 Play button / Spacebar
 -> AppDelegate.currentPlaybackStartContext()
 -> PlaybackEngine.play(from:)
+-> RuntimeCMixerAdapterEventPlan.make(song:sampleRate:) if missing
 -> reset runtime state
 -> enter selected PlaybackPosition
 -> consume runtime adapter plan events
@@ -57,11 +60,19 @@ song position, pattern, and row to `PlaybackEngine.play(from:)`. The engine
 ignores Play while already playing. If a song is loaded, it resolves the start
 position from the context, falling back to the current position or song start.
 
+Before playback state is entered, `PlaybackEngine.play(from:)` ensures the
+runtime adapter plan exists. If the current song does not have a cached plan, it
+synchronously builds one through the existing `RuntimeCMixerAdapterEventPlan`
+make/configure path and caches it in both `PlaybackEngine` and the runtime C
+mixer backend. Later Play calls reuse that cached plan unless a new load or
+File New invalidates it. Stop followed by Play does not rebuild the plan, so the
+second Play after Stop should avoid the deferred adapter-planning cost.
+
 Playback then resets transient runtime state: tick state, pending position
 commands, channel/effect/global state, row delay counters, delayed/retrigger
 requests, runtime note-trigger counters, active debug context, and runtime
-adapter consumption state. The cached adapter plan itself is not rebuilt on
-Play.
+adapter consumption state. Stop resets only active consumption/audio state and
+does not rebuild or invalidate the cached adapter plan.
 
 On the first entered row, `PlaybackEngine.enter(position:)` publishes playback
 follow position, prepares row/effect state, and chooses the adapter-safe path
@@ -99,11 +110,13 @@ VTX_PLAYBACK_TIMING_TRACE=1 \
 
 The timing trace reports millisecond durations for load phases such as
 `module_metadata_loader_load`, `playback_song_builder_build`,
-`playback_engine_load`, `runtime_adapter_event_plan_make`,
-`runtime_adapter_event_plan_configure`, `tracker_ui_refresh`, and
-`control_panel_sync`.
+`playback_engine_load`, `runtime_adapter_event_plan_invalidated`,
+`tracker_ui_refresh`, and `control_panel_sync`.
 
-For Play, it reports phases such as `app_play_start_context_resolution`,
+For first Play after load, it reports adapter-plan preparation phases such as
+`runtime_adapter_event_plan_make` and `runtime_adapter_event_plan_configure`.
+Subsequent Play after Stop should omit those phases while reusing the cached
+plan. Other Play phases include `app_play_start_context_resolution`,
 `app_delegate_play_to_playback_engine_play`,
 `playback_engine_start_position_resolution`,
 `playback_engine_transient_runtime_state_reset`,
@@ -114,10 +127,10 @@ For Play, it reports phases such as `app_play_start_context_resolution`,
 
 Trace fields intentionally use counts, positions, booleans, and sanitized
 values. Local paths and private titles are not emitted. These diagnostics are
-measurement-only: they do not move work from load to Play, compute TIME,
-change runtime gain/headroom, rebuild adapter plans on Play, or change parser,
-playback, C mixer DSP, tracker viewport, editor, note audition, or control
-panel behavior.
+measurement-only: enabling them does not decide whether planning is lazy,
+compute TIME, change runtime gain/headroom, rebuild already-cached adapter
+plans on every Play, or change parser, playback, C mixer DSP, tracker
+viewport, editor, note audition, or control panel behavior.
 
 ## Headroom And Gain Lifecycle
 
@@ -144,7 +157,8 @@ audition, or control panel behavior.
 Current invalidation is coarse:
 
 - Loading another module or File New calls `PlaybackEngine.load(song:)`, which
-  clears playback state and replaces the cached song and adapter plan.
+  clears playback state, replaces the cached song, and invalidates the cached
+  adapter plan without rebuilding it.
 - Stopping playback clears active audio and adapter consumption state, but
   keeps the loaded song and adapter plan.
 - Runtime gain/headroom policy changes are effectively process/engine
@@ -230,24 +244,33 @@ render/capture discontinuity evidence.
    Add disabled-by-default timing diagnostics around metadata load,
    `PlaybackSongBuilder`, adapter planning, and optional duration analysis.
 
-2. `app: defer heavy module analysis off file load`
-   Split immediate metadata/UI readiness from expensive sample decode and
-   adapter planning, preserving Play behavior by gating Play until the runtime
-   plan is ready or preparing it on first Play with clear UI state.
+2. Done: `app: defer runtime adapter planning off file load`
+   Runtime C mixer adapter-plan construction is no longer part of synchronous
+   file open, improving file-open responsiveness for modules dominated by
+   adapter planning. The first Play after load prepares the existing cached
+   `RuntimeCMixerAdapterEventPlan` path synchronously and can carry that
+   deferred cost; Stop/Play reuses the cached plan.
 
-3. `ui: loaded module TIME display from bounded analysis cache`
+3. `app: async adapter plan prewarm after load`
+   Optionally prebuild the same cached adapter plan after load on an async-safe
+   boundary. This is intentionally deferred from the lazy-planning PR and must
+   preserve the first-Play synchronous fallback, avoid beachballs and unsafe
+   concurrency, and avoid status UI churn unless a separate UI design requires
+   it.
+
+4. `ui: loaded module TIME display from bounded analysis cache`
    Add a small duration-analysis cache and display TIME only when bounded
    analysis succeeds. Keep `--:--` for unavailable/guarded cases.
 
-4. `tests: synthetic multi-pattern loop fixture`
+5. `tests: synthetic multi-pattern loop fixture`
    Add public synthetic fixture coverage for traversal/duration and future
    loop planning without private modules or generated audio artifacts.
 
-5. `playback: adapter-safe pattern loop design spike`
+6. `playback: adapter-safe pattern loop design spike`
    Prototype a scheduler/transport boundary that reuses adapter planning and
    preserves active render state. Include manual listening verification.
 
-6. `app: headroom analysis cache design`
+7. `app: headroom analysis cache design`
    Decide whether app headroom should remain fixed runtime policy, use an
    offline analysis cache, or expose diagnostics only. Do not run full-song
    auto-headroom during file load.

@@ -173,7 +173,7 @@ VTX's `--gain 0.25` export, the equivalent no-gain VTX scalars are about
 `1.0...1.2 dB` louder than the ft2-clone track references, while the no-gain
 renders are about `13 dB` louder. The remaining evidence therefore does not
 prove a VTX voice-lifetime, note-off, replacement-ramp, PCM decode, or
-sample-metadata bug; the next precise parity work should isolate ft2-clone/VTX
+sample-metadata bug; the next precise parity work should isolate FT2-clone and VTX
 individual-track versus full-mix contribution scaling, volume ramping, and
 final mix policy for the dominant channel group.
 

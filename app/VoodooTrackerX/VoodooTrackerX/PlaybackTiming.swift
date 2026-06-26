@@ -313,3 +313,278 @@ struct SyntheticPatternScheduler: Equatable {
         trackerScheduler.scheduleWithResults(pattern.scheduledEvents, on: mixer)
     }
 }
+
+protocol AdapterPlanProfileSinking: AnyObject {
+    func writeAdapterPlanProfileLine(_ line: String)
+}
+
+final class StandardErrorAdapterPlanProfileSink: AdapterPlanProfileSinking, @unchecked Sendable {
+    static let shared = StandardErrorAdapterPlanProfileSink()
+
+    private let lock = NSLock()
+
+    private init() {}
+
+    func writeAdapterPlanProfileLine(_ line: String) {
+        guard let data = "\(line)\n".data(using: .utf8) else {
+            return
+        }
+        lock.lock()
+        FileHandle.standardError.write(data)
+        lock.unlock()
+    }
+}
+
+struct AdapterPlanProfileField: Equatable {
+    let key: String
+    let value: String
+
+    init(_ key: String, _ value: String) {
+        self.key = Self.sanitizedKey(key)
+        self.value = Self.sanitizedValue(value, key: key)
+    }
+
+    init(_ key: String, _ value: Int) {
+        self.init(key, String(value))
+    }
+
+    init(_ key: String, _ value: UInt64) {
+        self.init(key, String(value))
+    }
+
+    init(_ key: String, _ value: Bool) {
+        self.init(key, value ? "true" : "false")
+    }
+
+    init(_ key: String, milliseconds value: Double) {
+        self.init(key, AdapterPlanProfileFormatter.format(milliseconds: value))
+    }
+
+    private static func sanitizedKey(_ key: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        let scalars = key.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "_"
+        }
+        let result = scalars.joined()
+        return result.isEmpty ? "field" : result
+    }
+
+    private static func sanitizedValue(_ value: String, key: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "empty"
+        }
+        let lowercasedKey = key.lowercased()
+        let lowercasedValue = trimmed.lowercased()
+        if lowercasedKey.contains("path") ||
+            lowercasedKey.contains("title") ||
+            lowercasedKey.contains("filename") ||
+            lowercasedKey.contains("basename") ||
+            trimmed.contains("/") ||
+            trimmed.contains("\\") ||
+            lowercasedValue.contains("desktop") ||
+            lowercasedValue.contains("gregory") {
+            return "redacted"
+        }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.,:+-=@")
+        let scalars = trimmed.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "_"
+        }
+        return scalars.joined()
+    }
+}
+
+struct AdapterPlanProfileRecord: Equatable {
+    let lifecycle: String
+    let phase: String
+    let index: Int
+    let elapsedMS: Double
+    let fields: [AdapterPlanProfileField]
+}
+
+enum AdapterPlanProfileFormatter {
+    static func line(for record: AdapterPlanProfileRecord) -> String {
+        var parts = [
+            "vtx_adapter_plan_profile",
+            "schema=1",
+            "lifecycle=\(AdapterPlanProfileField("lifecycle", record.lifecycle).value)",
+            "phase=\(AdapterPlanProfileField("phase", record.phase).value)",
+            "index=\(record.index)",
+            "elapsed_ms=\(format(milliseconds: record.elapsedMS))",
+        ]
+        parts.append(contentsOf: record.fields.map { "\($0.key)=\($0.value)" })
+        return parts.joined(separator: " ")
+    }
+
+    static func format(milliseconds: Double) -> String {
+        let safeMilliseconds = milliseconds.isFinite ? max(0, milliseconds) : 0
+        return String(format: "%.3f", safeMilliseconds)
+    }
+}
+
+protocol AdapterPlanProfileClock {
+    func nowNanoseconds() -> UInt64
+}
+
+struct MonotonicAdapterPlanProfileClock: AdapterPlanProfileClock {
+    func nowNanoseconds() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds
+    }
+}
+
+final class AdapterPlanProfileSession: @unchecked Sendable {
+    private let lifecycle: String
+    private let clock: AdapterPlanProfileClock
+    private let sink: AdapterPlanProfileSinking
+    private let lock = NSLock()
+    private var recordCount = 0
+
+    init(
+        lifecycle: String,
+        clock: AdapterPlanProfileClock,
+        sink: AdapterPlanProfileSinking
+    ) {
+        self.lifecycle = lifecycle
+        self.clock = clock
+        self.sink = sink
+    }
+
+    func beginPhase() -> UInt64 {
+        clock.nowNanoseconds()
+    }
+
+    func recordPhase(
+        _ phase: String,
+        startedAt startNanoseconds: UInt64?,
+        fields: [AdapterPlanProfileField] = []
+    ) {
+        let startedAt = startNanoseconds ?? clock.nowNanoseconds()
+        recordMeasuredPhase(
+            phase,
+            elapsedMS: milliseconds(from: startedAt, to: clock.nowNanoseconds()),
+            fields: fields
+        )
+    }
+
+    func recordMeasuredPhase(
+        _ phase: String,
+        elapsedMS: Double,
+        fields: [AdapterPlanProfileField] = []
+    ) {
+        lock.lock()
+        recordCount += 1
+        let record = AdapterPlanProfileRecord(
+            lifecycle: lifecycle,
+            phase: phase,
+            index: recordCount,
+            elapsedMS: elapsedMS,
+            fields: fields
+        )
+        lock.unlock()
+        sink.writeAdapterPlanProfileLine(AdapterPlanProfileFormatter.line(for: record))
+    }
+
+    private func milliseconds(from startNanoseconds: UInt64, to endNanoseconds: UInt64) -> Double {
+        guard endNanoseconds >= startNanoseconds else {
+            return 0
+        }
+        return Double(endNanoseconds - startNanoseconds) / 1_000_000.0
+    }
+}
+
+final class AdapterPlanProfileRecorder: @unchecked Sendable {
+    let isEnabled: Bool
+
+    private let clock: AdapterPlanProfileClock
+    private let sink: AdapterPlanProfileSinking
+
+    init(
+        isEnabled: Bool,
+        clock: AdapterPlanProfileClock = MonotonicAdapterPlanProfileClock(),
+        sink: AdapterPlanProfileSinking = StandardErrorAdapterPlanProfileSink.shared
+    ) {
+        self.isEnabled = isEnabled
+        self.clock = clock
+        self.sink = sink
+    }
+
+    func beginLifecycle(_ lifecycle: String) -> AdapterPlanProfileSession? {
+        guard isEnabled else {
+            return nil
+        }
+        return AdapterPlanProfileSession(lifecycle: lifecycle, clock: clock, sink: sink)
+    }
+}
+
+enum AdapterPlanProfileConfiguration {
+    static let enabledEnvironmentKey = "VTX_ADAPTER_PLAN_PROFILE"
+
+    static func makeRecorder(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        clock: AdapterPlanProfileClock = MonotonicAdapterPlanProfileClock(),
+        sink: AdapterPlanProfileSinking = StandardErrorAdapterPlanProfileSink.shared
+    ) -> AdapterPlanProfileRecorder? {
+        guard flagEnabled(enabledEnvironmentKey, environment: environment) else {
+            return nil
+        }
+        return AdapterPlanProfileRecorder(isEnabled: true, clock: clock, sink: sink)
+    }
+
+    private static func flagEnabled(_ key: String, environment: [String: String]) -> Bool {
+        guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !rawValue.isEmpty else {
+            return false
+        }
+        return rawValue == "1" || rawValue == "true" || rawValue == "yes" || rawValue == "on"
+    }
+}
+
+enum AdapterPlanProfileFields {
+    static func playbackSong(_ song: PlaybackSong) -> [AdapterPlanProfileField] {
+        [
+            AdapterPlanProfileField("order_count", song.orders.count),
+            AdapterPlanProfileField("pattern_count", song.patternsByIndex.count),
+            AdapterPlanProfileField("source_row_count", sourceRowCount(in: song)),
+            AdapterPlanProfileField("instrument_count", song.instrumentsByIndex.count),
+            AdapterPlanProfileField("sample_count", sampleCount(in: song)),
+        ]
+    }
+
+    static func syntheticPlan(_ plan: PlaybackSongSyntheticPlan) -> [AdapterPlanProfileField] {
+        [
+            AdapterPlanProfileField("row_count", plan.diagnostics.rowTiming.count),
+            AdapterPlanProfileField("synthetic_row_count", plan.diagnostics.syntheticRowCount),
+            AdapterPlanProfileField("synthetic_event_count", plan.pattern.events.count),
+            AdapterPlanProfileField("event_mapping_count", plan.diagnostics.eventMappings.count),
+            AdapterPlanProfileField("timing_change_count", plan.diagnostics.timingChanges.count),
+            AdapterPlanProfileField("traversal_diagnostic_count", plan.diagnostics.traversalDiagnostics.count),
+            AdapterPlanProfileField("traversal_guard_hit", plan.diagnostics.traversalGuardHit),
+            AdapterPlanProfileField("traversal_stop_reason", plan.diagnostics.traversalStopReason.rawValue),
+        ]
+    }
+
+    static func adapterPlan(_ plan: RuntimeCMixerAdapterEventPlan) -> [AdapterPlanProfileField] {
+        [
+            AdapterPlanProfileField("plan_generated", plan.generated),
+            AdapterPlanProfileField("planned_event_count", plan.plannedEventCount),
+            AdapterPlanProfileField("category_count", plan.categories.count),
+            AdapterPlanProfileField("planned_song_end_frame", plan.plannedSongEndFrame ?? -1),
+        ]
+    }
+
+    static func generation(_ generation: UInt64) -> [AdapterPlanProfileField] {
+        [AdapterPlanProfileField("song_generation", generation)]
+    }
+
+    private static func sourceRowCount(in song: PlaybackSong) -> Int {
+        song.patternsByIndex.values.reduce(0) { partialResult, pattern in
+            partialResult + pattern.rows.count
+        }
+    }
+
+    private static func sampleCount(in song: PlaybackSong) -> Int {
+        song.instrumentsByIndex.values.reduce(0) { partialResult, instrument in
+            partialResult + instrument.samples.count
+        }
+    }
+}

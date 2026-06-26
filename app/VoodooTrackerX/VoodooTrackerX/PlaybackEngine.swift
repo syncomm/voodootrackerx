@@ -5,6 +5,7 @@ struct RuntimeAdapterPlanPrewarmRequest: @unchecked Sendable {
     let generation: UInt64
     let song: PlaybackSong
     let sampleRate: Double
+    let adapterPlanProfileRecorder: AdapterPlanProfileRecorder?
 }
 
 struct RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
@@ -12,6 +13,7 @@ struct RuntimeAdapterPlanPrewarmResult: @unchecked Sendable {
     let plan: RuntimeCMixerAdapterEventPlan?
     let makeMS: Double?
     let completedAfterCancellation: Bool
+    let adapterPlanProfileSession: AdapterPlanProfileSession?
 }
 
 protocol RuntimeAdapterPlanPrewarmJob: AnyObject {
@@ -103,23 +105,27 @@ private final class DispatchQueueRuntimeAdapterPlanPrewarmScheduler: RuntimeAdap
                     generation: request.generation,
                     plan: nil,
                     makeMS: nil,
-                    completedAfterCancellation: true
+                    completedAfterCancellation: true,
+                    adapterPlanProfileSession: nil
                 )
                 job.finish(result)
                 completion(result)
                 return
             }
+            let profileSession = request.adapterPlanProfileRecorder?.beginLifecycle("prewarm")
             let start = DispatchTime.now().uptimeNanoseconds
             let plan = RuntimeCMixerAdapterEventPlan.make(
                 song: request.song,
-                sampleRate: request.sampleRate
+                sampleRate: request.sampleRate,
+                profileSession: profileSession
             )
             let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
             let result = RuntimeAdapterPlanPrewarmResult(
                 generation: request.generation,
                 plan: plan,
                 makeMS: elapsedMS,
-                completedAfterCancellation: job.isCancelled
+                completedAfterCancellation: job.isCancelled,
+                adapterPlanProfileSession: profileSession
             )
             job.finish(result)
             completion(result)
@@ -137,6 +143,7 @@ final class PlaybackEngine: PlaybackTransport {
     private let traceWriter: PlaybackTraceWriting
     private let runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting
     private let playbackTimingRecorder: PlaybackTimingTraceRecorder?
+    private let adapterPlanProfileRecorder: AdapterPlanProfileRecorder?
     private let runtimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling
     private let runtimeCMixerFollowPublicationDisabled: Bool
     private let runtimeCMixerSongEndTailPolicy: RuntimeCMixerSongEndTailPolicy
@@ -178,12 +185,14 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeCMixerTraceWriter: RuntimeCMixerTraceWriting = RuntimeCMixerTraceConfiguration.makeWriter(),
         startsRealtimeTimer: Bool = true,
         playbackTimingRecorder: PlaybackTimingTraceRecorder? = nil,
+        adapterPlanProfileRecorder: AdapterPlanProfileRecorder? = nil,
         runtimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmScheduling = DispatchQueueRuntimeAdapterPlanPrewarmScheduler(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.runtimeCMixerTraceWriter = runtimeCMixerTraceWriter
         self.startsRealtimeTimer = startsRealtimeTimer
         self.playbackTimingRecorder = playbackTimingRecorder
+        self.adapterPlanProfileRecorder = adapterPlanProfileRecorder
         self.runtimeAdapterPlanPrewarmScheduler = runtimeAdapterPlanPrewarmScheduler
         debugStopAfterSeconds = PlaybackDebugLaunchConfiguration.parse(environment: environment).stopAfterSeconds
         let resolvedAudioEngine = audioEngine ?? PlaybackAudioOutputFactory.make(
@@ -578,7 +587,8 @@ final class PlaybackEngine: PlaybackTransport {
         let request = RuntimeAdapterPlanPrewarmRequest(
             generation: generation,
             song: song,
-            sampleRate: audioEngine.audioBufferSampleRate
+            sampleRate: audioEngine.audioBufferSampleRate,
+            adapterPlanProfileRecorder: adapterPlanProfileRecorder
         )
         let fields = runtimeAdapterPlanGenerationFields(generation) +
             PlaybackTimingTraceFields.playbackSong(song) +
@@ -625,10 +635,18 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeAdapterEventPlan = plan
         runtimeAdapterPlanCacheSource = .prewarm
         runtimeAdapterPlanUseCount = 0
+        let profileConfigureStart = result.adapterPlanProfileSession?.beginPhase()
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.configureRuntimeAdapterEventPlan(
             plan,
             generationMS: result.makeMS,
             timingSession: runtimeAdapterPlanPrewarmTimingSession
+        )
+        recordAdapterPlanProfileBackendConfiguration(
+            plan: plan,
+            generation: result.generation,
+            mode: nil,
+            startedAt: profileConfigureStart,
+            profileSession: result.adapterPlanProfileSession
         )
         runtimeAdapterPlanPrewarmTimingSession?.recordPhase(
             "runtime_adapter_event_plan_prewarm_configure",
@@ -684,6 +702,24 @@ final class PlaybackEngine: PlaybackTransport {
         )
     }
 
+    private func recordAdapterPlanProfileBackendConfiguration(
+        plan: RuntimeCMixerAdapterEventPlan,
+        generation: UInt64,
+        mode: RuntimeAdapterPlanPlayMode?,
+        startedAt startNanoseconds: UInt64?,
+        profileSession: AdapterPlanProfileSession?
+    ) {
+        var fields = AdapterPlanProfileFields.adapterPlan(plan) + AdapterPlanProfileFields.generation(generation)
+        if let mode {
+            fields.append(AdapterPlanProfileField("play_adapter_plan_mode", mode.rawValue))
+        }
+        profileSession?.recordPhase(
+            "backend_plan_configuration",
+            startedAt: startNanoseconds,
+            fields: fields
+        )
+    }
+
     private func prepareRuntimeAdapterEventPlanIfNeeded(for song: PlaybackSong, timingSession: PlaybackTimingTraceSession?) -> Bool {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
@@ -719,7 +755,15 @@ final class PlaybackEngine: PlaybackTransport {
             runtimeAdapterPlanUseCount = 0
             let configureStart = timingSession?.beginPhase()
             let prewarmConfigureStart = runtimeAdapterPlanPrewarmTimingSession?.beginPhase()
+            let profileConfigureStart = result.adapterPlanProfileSession?.beginPhase()
             adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: result.makeMS, timingSession: timingSession)
+            recordAdapterPlanProfileBackendConfiguration(
+                plan: plan,
+                generation: result.generation,
+                mode: .waited,
+                startedAt: profileConfigureStart,
+                profileSession: result.adapterPlanProfileSession
+            )
             timingSession?.recordPhase(
                 "runtime_adapter_event_plan_configure",
                 startedAt: configureStart,
@@ -740,9 +784,11 @@ final class PlaybackEngine: PlaybackTransport {
         }
         let start = DispatchTime.now().uptimeNanoseconds
         let planStart = timingSession?.beginPhase()
+        let profileSession = adapterPlanProfileRecorder?.beginLifecycle("play")
         let plan = RuntimeCMixerAdapterEventPlan.make(
             song: song,
-            sampleRate: audioEngine.audioBufferSampleRate
+            sampleRate: audioEngine.audioBufferSampleRate,
+            profileSession: profileSession
         )
         let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         timingSession?.recordPhase(
@@ -756,12 +802,28 @@ final class PlaybackEngine: PlaybackTransport {
         runtimeAdapterPlanCacheSource = plan.generated ? .syncFallback : .none
         runtimeAdapterPlanUseCount = 0
         guard plan.generated else {
+            let profileConfigureStart = profileSession?.beginPhase()
             adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
+            recordAdapterPlanProfileBackendConfiguration(
+                plan: plan,
+                generation: runtimeAdapterPlanGeneration,
+                mode: .unavailable,
+                startedAt: profileConfigureStart,
+                profileSession: profileSession
+            )
             recordRuntimeAdapterPlanReadyForPlay(mode: .unavailable, timingSession: timingSession)
             return false
         }
         let configureStart = timingSession?.beginPhase()
+        let profileConfigureStart = profileSession?.beginPhase()
         adapterConsumer.configureRuntimeAdapterEventPlan(plan, generationMS: elapsedMS, timingSession: timingSession)
+        recordAdapterPlanProfileBackendConfiguration(
+            plan: plan,
+            generation: runtimeAdapterPlanGeneration,
+            mode: .syncFallback,
+            startedAt: profileConfigureStart,
+            profileSession: profileSession
+        )
         timingSession?.recordPhase(
             "runtime_adapter_event_plan_configure",
             startedAt: configureStart,

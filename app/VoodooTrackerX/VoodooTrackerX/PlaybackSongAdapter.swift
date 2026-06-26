@@ -381,21 +381,24 @@ enum PlaybackSongSyntheticAdapter {
     static func adapt(
         _ song: PlaybackSong,
         orderIndex: Int,
-        sampleRate: Double
+        sampleRate: Double,
+        profileSession: AdapterPlanProfileSession? = nil
     ) -> PlaybackSongSyntheticPlan {
-        adapt(song, startOrderIndex: orderIndex, orderCount: 1, sampleRate: sampleRate)
+        adapt(song, startOrderIndex: orderIndex, orderCount: 1, sampleRate: sampleRate, profileSession: profileSession)
     }
 
     static func adapt(
         _ song: PlaybackSong,
         orderRange: Range<Int>,
-        sampleRate: Double
+        sampleRate: Double,
+        profileSession: AdapterPlanProfileSession? = nil
     ) -> PlaybackSongSyntheticPlan {
         adapt(
             song,
             startOrderIndex: orderRange.lowerBound,
             orderCount: max(0, orderRange.count),
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            profileSession: profileSession
         )
     }
 
@@ -403,17 +406,46 @@ enum PlaybackSongSyntheticAdapter {
         _ song: PlaybackSong,
         startOrderIndex: Int,
         orderCount: Int,
-        sampleRate: Double
+        sampleRate: Double,
+        profileSession: AdapterPlanProfileSession? = nil
     ) -> PlaybackSongSyntheticPlan {
+        let totalStart = profileSession?.beginPhase()
+        let traversalStart = profileSession?.beginPhase()
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
             song,
             startOrderIndex: startOrderIndex,
             orderCount: orderCount
         )
+        profileSession?.recordPhase(
+            "order_traversal",
+            startedAt: traversalStart,
+            fields: AdapterPlanProfileFields.playbackSong(song) + [
+                AdapterPlanProfileField("requested_start_order_index", startOrderIndex),
+                AdapterPlanProfileField("requested_order_count", max(0, orderCount)),
+                AdapterPlanProfileField("row_count", traversalPlan.pathLength),
+                AdapterPlanProfileField("adapted_order_count", traversalPlan.adaptedOrders.count),
+                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
+                AdapterPlanProfileField("traversal_guard_hit", traversalPlan.guardHit),
+                AdapterPlanProfileField("traversal_stop_reason", traversalPlan.stopReason.rawValue),
+            ]
+        )
+        let timingStart = profileSession?.beginPhase()
         let timingPlan = PlaybackSongFxxTimingPlanner.plan(
             song,
             traversalPlan: traversalPlan,
             sampleRate: sampleRate
+        )
+        profileSession?.recordPhase(
+            "timing_frame_calculation",
+            startedAt: timingStart,
+            fields: [
+                AdapterPlanProfileField("row_count", timingPlan.rowTimings.count),
+                AdapterPlanProfileField("timing_change_count", timingPlan.timingChanges.count),
+                AdapterPlanProfileField("initial_speed", timingPlan.initialSpeed),
+                AdapterPlanProfileField("initial_bpm", timingPlan.initialBPM),
+                AdapterPlanProfileField("final_speed", timingPlan.finalSpeed),
+                AdapterPlanProfileField("final_bpm", timingPlan.finalBPM),
+            ]
         )
         let timingConfig = SyntheticTrackerTimingConfig(
             speed: timingPlan.initialSpeed,
@@ -430,13 +462,25 @@ enum PlaybackSongSyntheticAdapter {
         context.events.reserveCapacity(min(estimatedRows * 4, 65_536))
         context.eventMappings.reserveCapacity(min(estimatedRows * 4, 65_536))
         context.mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
+        let traversalStatusStart = profileSession?.beginPhase()
         context.traversalEffectStatuses = traversalEffectStatuses(from: traversalPlan.traversalDiagnostics)
+        profileSession?.recordPhase(
+            "traversal_effect_status_indexing",
+            startedAt: traversalStatusStart,
+            fields: [
+                AdapterPlanProfileField("traversal_diagnostic_count", traversalPlan.traversalDiagnostics.count),
+                AdapterPlanProfileField("traversal_effect_status_count", context.traversalEffectStatuses.count),
+            ]
+        )
 
+        let rowIterationStart = profileSession?.beginPhase()
+        var eventGenerationNanoseconds: UInt64 = 0
         for traversalRow in traversalPlan.rows {
             rowMappings.append(PlaybackSongSyntheticRowMapping(
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow
             ))
+            let eventGenerationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
             let rowDiagnostic = appendEvents(
                 from: traversalRow.row,
                 source: traversalRow.source,
@@ -447,10 +491,36 @@ enum PlaybackSongSyntheticAdapter {
                 scheduledStartFrame: timingPlan.frameFor(row: traversalRow.syntheticRow, tick: 0),
                 context: &context
             )
+            if let eventGenerationStart {
+                let eventGenerationEnd = DispatchTime.now().uptimeNanoseconds
+                if eventGenerationEnd >= eventGenerationStart {
+                    eventGenerationNanoseconds += eventGenerationEnd - eventGenerationStart
+                }
+            }
             context.rowDiagnostics.append(rowDiagnostic)
         }
+        profileSession?.recordMeasuredPhase(
+            "event_generation",
+            elapsedMS: Double(eventGenerationNanoseconds) / 1_000_000.0,
+            fields: [
+                AdapterPlanProfileField("row_count", traversalPlan.pathLength),
+                AdapterPlanProfileField("synthetic_event_count", context.events.count),
+                AdapterPlanProfileField("event_mapping_count", context.eventMappings.count),
+                AdapterPlanProfileField("ignored_cell_count", context.ignoredCells.count),
+                AdapterPlanProfileField("voice_state_update_count", context.voiceStateUpdates.count),
+            ]
+        )
+        profileSession?.recordPhase(
+            "pattern_row_iteration",
+            startedAt: rowIterationStart,
+            fields: [
+                AdapterPlanProfileField("row_count", traversalPlan.pathLength),
+                AdapterPlanProfileField("row_diagnostic_count", context.rowDiagnostics.count),
+                AdapterPlanProfileField("synthetic_event_count", context.events.count),
+            ]
+        )
 
-        return PlaybackSongSyntheticPlan(
+        let plan = PlaybackSongSyntheticPlan(
             timingConfig: timingConfig,
             pattern: SyntheticPattern(rowCount: traversalPlan.pathLength, events: context.events),
             diagnostics: PlaybackSongSyntheticDiagnostics(
@@ -494,6 +564,12 @@ enum PlaybackSongSyntheticAdapter {
                 eventCoverage: context.eventCoverage.summary
             )
         )
+        profileSession?.recordPhase(
+            "playback_song_synthetic_adapter_adapt_total",
+            startedAt: totalStart,
+            fields: AdapterPlanProfileFields.playbackSong(song) + AdapterPlanProfileFields.syntheticPlan(plan)
+        )
+        return plan
     }
 
     static func traversalEffectStatuses(

@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let environment = ProcessInfo.processInfo.environment
         let runtimeCMixerTraceWriter = RuntimeCMixerTraceConfiguration.makeWriter(environment: environment)
         let runtimeMixerMetricsTraceWriter = RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: environment)
+        let adapterPlanProfileRecorder = AdapterPlanProfileConfiguration.makeRecorder(environment: environment)
         let audioOutput = PlaybackAudioOutputFactory.make(
             environment: environment,
             runtimeCMixerTraceWriter: runtimeCMixerTraceWriter,
@@ -72,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             audioEngine: audioOutput,
             runtimeCMixerTraceWriter: runtimeCMixerTraceWriter,
             playbackTimingRecorder: playbackTimingRecorder,
+            adapterPlanProfileRecorder: adapterPlanProfileRecorder,
             environment: environment
         )
         super.init()

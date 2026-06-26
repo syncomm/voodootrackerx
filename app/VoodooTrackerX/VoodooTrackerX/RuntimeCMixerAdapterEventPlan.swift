@@ -98,16 +98,29 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         )
     }
 
-    static func make(song: PlaybackSong?, sampleRate: Double) -> RuntimeCMixerAdapterEventPlan {
+    static func make(
+        song: PlaybackSong?,
+        sampleRate: Double,
+        profileSession: AdapterPlanProfileSession? = nil
+    ) -> RuntimeCMixerAdapterEventPlan {
+        let makeStart = profileSession?.beginPhase()
         guard let song else {
-            return unavailable(sampleRate: sampleRate)
+            let unavailablePlan = unavailable(sampleRate: sampleRate)
+            profileSession?.recordPhase(
+                "runtime_c_mixer_adapter_event_plan_make_total",
+                startedAt: makeStart,
+                fields: AdapterPlanProfileFields.adapterPlan(unavailablePlan)
+            )
+            return unavailablePlan
         }
         let adaptedPlan = PlaybackSongSyntheticAdapter.adapt(
             song,
             startOrderIndex: 0,
             orderCount: song.orders.count,
-            sampleRate: sampleRate
+            sampleRate: sampleRate,
+            profileSession: profileSession
         )
+        let diagnosticIndexingStart = profileSession?.beginPhase()
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
         let eventMappingsByIndex = Dictionary(
             uniqueKeysWithValues: adaptedPlan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
@@ -184,7 +197,21 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         var events = [RuntimeCMixerAdapterEvent]()
         var nextID = 0
         var seenNoteTriggerChannels = Set<Int>()
+        profileSession?.recordPhase(
+            "adapter_diagnostic_indexing",
+            startedAt: diagnosticIndexingStart,
+            fields: [
+                AdapterPlanProfileField("event_mapping_count", eventMappingsByIndex.count),
+                AdapterPlanProfileField("key_off_diagnostic_group_count", keyOffDiagnosticsByEventIndex.count),
+                AdapterPlanProfileField("applied_vibrato_volume_slide_event_count", appliedVibratoVolumeSlideEventIndices.count),
+                AdapterPlanProfileField("applied_axy_volume_slide_event_count", appliedAxyVolumeSlideEventIndices.count),
+                AdapterPlanProfileField("applied_arpeggio_event_count", appliedArpeggioEventIndices.count),
+                AdapterPlanProfileField("extra_fine_portamento_event_count", appliedExtraFinePortamentoByEventIndex.count),
+                AdapterPlanProfileField("portamento_slide_trigger_count", appliedPortamentoSlidesByTriggerKey.count),
+            ]
+        )
 
+        let eventGenerationStart = profileSession?.beginPhase()
         for (eventIndex, syntheticEvent) in adaptedPlan.pattern.events.enumerated() {
             guard let mapping = eventMappingsByIndex[eventIndex] else {
                 continue
@@ -615,7 +642,22 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             ))
             nextID += 1
         }
+        profileSession?.recordPhase(
+            "adapter_event_generation",
+            startedAt: eventGenerationStart,
+            fields: [
+                AdapterPlanProfileField("synthetic_event_count", adaptedPlan.pattern.events.count),
+                AdapterPlanProfileField("generated_adapter_event_count", events.count),
+                AdapterPlanProfileField("voice_state_update_count", adaptedPlan.diagnostics.voiceStateUpdates.count),
+                AdapterPlanProfileField("tone_portamento_effect_count", adaptedPlan.diagnostics.tonePortamentoEffects.count),
+                AdapterPlanProfileField("portamento_slide_effect_count", adaptedPlan.diagnostics.portamentoSlideEffects.count),
+                AdapterPlanProfileField("arpeggio_effect_count", adaptedPlan.diagnostics.arpeggioEffects.count),
+                AdapterPlanProfileField("vibrato_effect_count", adaptedPlan.diagnostics.vibratoEffects.count),
+                AdapterPlanProfileField("note_cut_effect_count", adaptedPlan.diagnostics.noteCutEffects.count),
+            ]
+        )
 
+        let sortingStart = profileSession?.beginPhase()
         let sortedEvents = events.sorted { lhs, rhs in
             if lhs.scheduledFrame != rhs.scheduledFrame {
                 return lhs.scheduledFrame < rhs.scheduledFrame
@@ -638,7 +680,7 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
         let plannedSongEndFrame = adaptedPlan.diagnostics.rowTiming
             .map { max($0.rowStartFrame, $0.rowStartFrame + max(0, $0.rowDurationFrames)) }
             .max()
-        return RuntimeCMixerAdapterEventPlan(
+        let plan = RuntimeCMixerAdapterEventPlan(
             generated: true,
             sampleRate: sampleRate,
             plannedSongEndFrame: plannedSongEndFrame,
@@ -647,6 +689,21 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
             categories: categories,
             plan: adaptedPlan
         )
+        profileSession?.recordPhase(
+            "event_sorting_grouping",
+            startedAt: sortingStart,
+            fields: AdapterPlanProfileFields.adapterPlan(plan) + [
+                AdapterPlanProfileField("unsorted_event_count", events.count),
+            ]
+        )
+        profileSession?.recordPhase(
+            "runtime_c_mixer_adapter_event_plan_make_total",
+            startedAt: makeStart,
+            fields: AdapterPlanProfileFields.playbackSong(song) +
+                AdapterPlanProfileFields.syntheticPlan(adaptedPlan) +
+                AdapterPlanProfileFields.adapterPlan(plan)
+        )
+        return plan
     }
 
     func events(matching context: AudioRuntimeTraceContext?) -> [RuntimeCMixerAdapterEvent] {

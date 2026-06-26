@@ -146,6 +146,17 @@ compute TIME, change runtime gain/headroom, rebuild already-cached adapter
 plans on every Play, or change parser, playback, C mixer DSP, tracker
 viewport, editor, note audition, or control panel behavior.
 
+Adapter-plan construction profiling is also available behind
+`VTX_ADAPTER_PLAN_PROFILE=1`. It measures the existing
+`RuntimeCMixerAdapterEventPlan.make` path and `PlaybackSongSyntheticAdapter`
+subphases such as traversal, row/timing calculation, event generation, runtime
+adapter-event construction, sorting/grouping, and backend plan configuration
+when reached. This is diagnostic-only observability for choosing a later
+optimization target; it does not move planning work, change generated adapter
+events, alter playback semantics, compute TIME, or change runtime gain,
+headroom, parser, C mixer DSP, tracker viewport, editor, note audition, or
+control panel behavior.
+
 ## Headroom And Gain Lifecycle
 
 There is no app load-time or Play-time module-specific headroom scan today.

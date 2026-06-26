@@ -182,6 +182,7 @@ def run_entry(
         "VTX_DEBUG_REPLAY_AFTER_STOP": "1" if replay_after_stop else "0",
         "VTX_DEBUG_PRE_PLAY_DELAY_SECONDS": format_nonnegative_seconds(pre_play_delay_seconds),
         "VTX_PLAYBACK_TIMING_TRACE": "1",
+        "VTX_ADAPTER_PLAN_PROFILE": "1",
         "VTX_RUNTIME_MIXER_METRICS_TRACE": "1",
         "VTX_C_MIXER_RUNTIME_TRACE_PATH": str(runtime_trace_path),
     }
@@ -224,8 +225,10 @@ def run_entry(
     stderr_path.write_text(redact(stderr, redactions), encoding="utf-8")
 
     timing_records = parse_prefixed_records(stderr, "vtx_playback_timing")
+    adapter_plan_profile_records = parse_prefixed_records(stderr, "vtx_adapter_plan_profile")
     metrics_records = parse_prefixed_records(stderr, "vtx_runtime_mixer_metrics")
     timings = summarize_timings(timing_records)
+    adapter_plan_profile = summarize_adapter_plan_profile(adapter_plan_profile_records)
     metrics = summarize_runtime_metrics(metrics_records)
     outcome = process_outcome(return_code, timed_out, terminated_after_window)
     summary = {
@@ -239,6 +242,7 @@ def run_entry(
         "replay_after_stop": replay_after_stop,
         "pre_play_delay_seconds": pre_play_delay_seconds,
         "playback_timing_line_count": len(timing_records),
+        "adapter_plan_profile_line_count": len(adapter_plan_profile_records),
         "runtime_mixer_metrics_line_count": len(metrics_records),
         "runtime_trace_written": runtime_trace_path.exists(),
         "runtime_trace_bytes": runtime_trace_path.stat().st_size if runtime_trace_path.exists() else 0,
@@ -247,6 +251,7 @@ def run_entry(
         "runtime_trace": runtime_trace_path.name,
         "metadata": timings["metadata"],
         "timings_ms": timings["timings_ms"],
+        "adapter_plan_profile": adapter_plan_profile,
         "runtime_metrics": metrics,
     }
     metrics_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -296,6 +301,7 @@ def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
     second_play_configure = elapsed_ms_in_records(second_play_records, "runtime_adapter_event_plan_configure")
     first_play_mode = adapter_plan_mode(first_play_records)
     second_play_mode = adapter_plan_mode(second_play_records)
+    prewarm_total_record = record_for_phase(prewarm_records, "total") or {}
     timings: dict[str, Any] = {
         "load_total": elapsed_ms_in_records(load_records, "total"),
         "module_metadata_loader_load": elapsed_ms_in_records(load_records, "module_metadata_loader_load"),
@@ -304,6 +310,7 @@ def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
         "runtime_adapter_event_plan_make": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_make"),
         "runtime_adapter_event_plan_configure": elapsed_ms_in_records(load_records, "runtime_adapter_event_plan_configure"),
         "prewarm_total": elapsed_ms_in_records(prewarm_records, "total"),
+        "prewarm_outcome": prewarm_total_record.get("prewarm_outcome"),
         "prewarm_runtime_adapter_event_plan_make": prewarm_make,
         "prewarm_runtime_adapter_event_plan_configure": prewarm_configure,
         "first_play_total": elapsed_ms_in_records(first_play_records, "total"),
@@ -363,6 +370,68 @@ def adapter_plan_mode(records: list[dict[str, str]]) -> str | None:
     if elapsed_ms_in_records(records, "runtime_adapter_event_plan_make") is not None:
         return "sync_fallback"
     return None
+
+
+def summarize_adapter_plan_profile(records: list[dict[str, str]]) -> dict[str, Any]:
+    lifecycles: dict[str, Any] = {}
+    for lifecycle in sorted({record.get("lifecycle") for record in records if record.get("lifecycle")}):
+        lifecycle_records = [record for record in records if record.get("lifecycle") == lifecycle]
+        lifecycles[lifecycle] = summarize_adapter_plan_profile_lifecycle(lifecycle_records)
+    primary_lifecycle = "prewarm" if "prewarm" in lifecycles else "play" if "play" in lifecycles else None
+    primary = lifecycles.get(primary_lifecycle, {}) if primary_lifecycle else {}
+    return {
+        "available": bool(records),
+        "line_count": len(records),
+        "primary_lifecycle": primary_lifecycle,
+        "adapter_plan_total_ms": primary.get("runtime_c_mixer_adapter_event_plan_make_total"),
+        "adapt_total_ms": primary.get("playback_song_synthetic_adapter_adapt_total"),
+        "backend_configure_ms": primary.get("backend_plan_configuration"),
+        "top_phases": primary.get("top_phases", []),
+        "planned_event_count": primary.get("planned_event_count"),
+        "order_count": primary.get("order_count"),
+        "pattern_count": primary.get("pattern_count"),
+        "row_count": primary.get("row_count"),
+        "category_count": primary.get("category_count"),
+        "planned_song_end_frame": primary.get("planned_song_end_frame"),
+        "lifecycles": lifecycles,
+    }
+
+
+def summarize_adapter_plan_profile_lifecycle(records: list[dict[str, str]]) -> dict[str, Any]:
+    phase_timings: dict[str, float] = {}
+    for record in records:
+        phase = record.get("phase")
+        elapsed = float_value(record.get("elapsed_ms"))
+        if phase and elapsed is not None:
+            phase_timings[phase] = elapsed
+    total_record = record_for_phase(records, "runtime_c_mixer_adapter_event_plan_make_total") or {}
+    adapt_record = record_for_phase(records, "playback_song_synthetic_adapter_adapt_total") or {}
+    sorting_record = record_for_phase(records, "event_sorting_grouping") or {}
+    count_source = total_record or sorting_record or adapt_record
+    return {
+        **phase_timings,
+        "top_phases": top_adapter_plan_profile_phases(phase_timings),
+        "planned_event_count": int_value(count_source.get("planned_event_count")),
+        "order_count": int_value(count_source.get("order_count")),
+        "pattern_count": int_value(count_source.get("pattern_count")),
+        "row_count": int_value(count_source.get("row_count")),
+        "category_count": int_value(count_source.get("category_count")),
+        "planned_song_end_frame": int_value(count_source.get("planned_song_end_frame")),
+    }
+
+
+def top_adapter_plan_profile_phases(phase_timings: dict[str, float]) -> list[dict[str, Any]]:
+    excluded = {
+        "runtime_c_mixer_adapter_event_plan_make_total",
+        "playback_song_synthetic_adapter_adapt_total",
+    }
+    candidates = [
+        {"phase": phase, "elapsed_ms": elapsed}
+        for phase, elapsed in phase_timings.items()
+        if phase not in excluded
+    ]
+    candidates.sort(key=lambda item: item["elapsed_ms"], reverse=True)
+    return candidates[:3]
 
 
 def summarize_runtime_metrics(records: list[dict[str, str]]) -> dict[str, Any]:
@@ -471,6 +540,9 @@ def write_run_summary(output_dir: Path, summaries: list[dict[str, Any]]) -> Path
         "module_count": len(summaries),
         "process_outcomes": {summary["label"]: summary["process_outcome"] for summary in summaries},
         "playback_timing_line_counts": {summary["label"]: summary["playback_timing_line_count"] for summary in summaries},
+        "adapter_plan_profile_line_counts": {
+            summary["label"]: summary["adapter_plan_profile_line_count"] for summary in summaries
+        },
         "runtime_mixer_metrics_line_counts": {
             summary["label"]: summary["runtime_mixer_metrics_line_count"] for summary in summaries
         },
@@ -488,19 +560,30 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
         "",
         "Public-safe anonymized local diagnostics summary. Private filenames, paths, and titles are omitted.",
         "",
-        "| Label | Load total ms | Metadata ms | Song build ms | Prewarm adapter plan ms | First Play ms | First Play mode | First Play adapter plan ms | Second Play ms | Second Play mode | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |",
+        "| Label | Load total ms | Metadata ms | Song build ms | Adapter profile total ms | Top adapter profile phases | Adapt ms | Backend configure ms | Planned events | Orders | Patterns | Rows | Categories | Song-end frame | Prewarm status | First Play ms | First Play mode | First Play adapter plan ms | Second Play ms | Second Play mode | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
+        "| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |",
     ]
     for summary in summaries:
         timings = summary["timings_ms"]
         metrics = summary["runtime_metrics"]
+        profile = summary["adapter_plan_profile"]
         lines.append(
-            "| {label} | {load} | {metadata} | {build} | {prewarm_adapter} | {first_play} | {first_mode} | {first_play_adapter} | {second_play} | {second_mode} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
+            "| {label} | {load} | {metadata} | {build} | {profile_total} | {top_profile} | {adapt_total} | {backend_configure} | {planned_events} | {orders} | {patterns} | {rows} | {categories} | {song_end_frame} | {prewarm_status} | {first_play} | {first_mode} | {first_play_adapter} | {second_play} | {second_mode} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
                 label=summary["label"],
                 load=cell(timings.get("load_total")),
                 metadata=cell(timings.get("module_metadata_loader_load")),
                 build=cell(timings.get("playback_song_builder_build")),
-                prewarm_adapter=cell(timings.get("prewarm_runtime_adapter_plan_total")),
+                profile_total=cell(profile.get("adapter_plan_total_ms")),
+                top_profile=profile_phase_cell(profile.get("top_phases", [])),
+                adapt_total=cell(profile.get("adapt_total_ms")),
+                backend_configure=cell(profile.get("backend_configure_ms")),
+                planned_events=cell(profile.get("planned_event_count")),
+                orders=cell(profile.get("order_count")),
+                patterns=cell(profile.get("pattern_count")),
+                rows=cell(profile.get("row_count")),
+                categories=cell(profile.get("category_count")),
+                song_end_frame=cell(profile.get("planned_song_end_frame")),
+                prewarm_status=cell(timings.get("prewarm_outcome")),
                 first_play=cell(timings.get("first_play_total")),
                 first_mode=cell(timings.get("first_play_runtime_adapter_plan_mode")),
                 first_play_adapter=cell(timings.get("first_play_runtime_adapter_plan_total")),
@@ -528,6 +611,12 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
 
 def cell(value: Any) -> str:
     return "n/a" if value is None else str(value)
+
+
+def profile_phase_cell(phases: list[dict[str, Any]]) -> str:
+    if not phases:
+        return "n/a"
+    return ", ".join(f"{phase['phase']}={phase['elapsed_ms']}ms" for phase in phases)
 
 
 def main(argv: list[str]) -> int:
@@ -567,6 +656,7 @@ def main(argv: list[str]) -> int:
             print(
                 f"{summary['label']}: {summary['process_outcome']} "
                 f"timing_lines={summary['playback_timing_line_count']} "
+                f"adapter_profile_lines={summary['adapter_plan_profile_line_count']} "
                 f"metrics_lines={summary['runtime_mixer_metrics_line_count']} "
                 f"runtime_trace_written={str(summary['runtime_trace_written']).lower()}"
             )

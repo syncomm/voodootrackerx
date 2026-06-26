@@ -178,6 +178,11 @@ final class PlaybackEngine: PlaybackTransport {
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
+    var runtimeAdapterPlanDidUpdate: (() -> Void)?
+
+    var runtimeAdapterPlanDurationSeconds: TimeInterval? {
+        runtimeAdapterEventPlan.plannedSongEndSeconds
+    }
 
     init(
         audioEngine: PlaybackAudioOutput? = nil,
@@ -655,6 +660,7 @@ final class PlaybackEngine: PlaybackTransport {
                 runtimeAdapterPlanGenerationFields(result.generation)
         )
         runtimeAdapterPlanPrewarmJob = nil
+        runtimeAdapterPlanDidUpdate?()
         return true
     }
 
@@ -780,6 +786,7 @@ final class PlaybackEngine: PlaybackTransport {
             finishRuntimeAdapterPlanPrewarm(result: result, outcome: "waited_by_play")
             recordRuntimeAdapterPlanReadyForPlay(mode: .waited, timingSession: timingSession)
             runtimeAdapterPlanUseCount += 1
+            runtimeAdapterPlanDidUpdate?()
             return true
         }
         let start = DispatchTime.now().uptimeNanoseconds
@@ -833,6 +840,7 @@ final class PlaybackEngine: PlaybackTransport {
         )
         recordRuntimeAdapterPlanReadyForPlay(mode: .syncFallback, timingSession: timingSession)
         runtimeAdapterPlanUseCount += 1
+        runtimeAdapterPlanDidUpdate?()
         return true
     }
 

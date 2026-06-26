@@ -1,8 +1,10 @@
 import Foundation
 
 struct ControlPanelContent: Equatable {
+    static let unavailableSongTime = "--:--"
+
     var songTitle = BlankTrackerDocument.defaultTitle
-    var songTime = "--:--"
+    var songTime = ControlPanelContent.unavailableSongTime
     var songLength = "01"
     var songPosition = "00"
     var restartPosition = "00"
@@ -78,6 +80,19 @@ enum ControlPanelDisplayState {
         String(format: "%03d", max(0, patternIndex))
     }
 
+    static func songTimeDisplay(durationSeconds: TimeInterval?) -> String {
+        guard let durationSeconds,
+              durationSeconds.isFinite,
+              durationSeconds >= 0,
+              durationSeconds < Double(Int.max) else {
+            return ControlPanelContent.unavailableSongTime
+        }
+        let wholeSeconds = Int(durationSeconds.rounded())
+        let minutes = wholeSeconds / 60
+        let seconds = wholeSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
     static func blankDocumentContent(
         for document: BlankTrackerDocument,
         selectedOctave: Int,
@@ -120,12 +135,13 @@ enum ControlPanelDisplayState {
         isLoopEnabled: Bool,
         isEditModeEnabled: Bool,
         isPlaybackActive: Bool,
+        songTime: String = ControlPanelContent.unavailableSongTime,
         selectedInstrumentName: String? = nil,
         selectedSampleName: String? = nil
     ) -> ControlPanelContent {
         var content = ControlPanelContent()
         content.songTitle = titleDisplay(from: metadata.title)
-        content.songTime = "--:--"
+        content.songTime = songTime
         content.songLength = twoDigit(metadata.songLength)
         content.songPosition = twoDigit(selectedSongPositionIndex)
         content.restartPosition = twoDigit(metadata.restartPosition)

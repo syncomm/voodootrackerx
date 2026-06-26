@@ -78,7 +78,9 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
     let plan: PlaybackSongSyntheticPlan?
 
     var plannedSongEndSeconds: Double? {
-        guard let plannedSongEndFrame,
+        guard generated,
+              let plannedSongEndFrame,
+              plannedSongEndFrame >= 0,
               sampleRate.isFinite,
               sampleRate > 0 else {
             return nil

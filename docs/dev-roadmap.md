@@ -51,8 +51,9 @@ Recommended next work should return to GUI/editor and product milestones:
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
    while first-Play adapter-plan preparation remains the synchronous fallback.
-   Expose TIME only from bounded cached analysis with clear invalidation. A
-   later optimization PR can profile and reduce adapter-plan construction cost
+   Loaded-module TIME now reads only from the installed cached/prewarmed
+   adapter-plan duration with clear load/File New invalidation. A later
+   optimization PR can profile and reduce adapter-plan construction cost
    itself.
 
 Parked parity-watch items:
@@ -65,6 +66,14 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Loaded-module TIME now formats a valid planned song-end frame from the
+  installed `RuntimeCMixerAdapterEventPlan` as `MM:SS`. The display remains
+  `--:--` before prewarm/Play plan readiness and after load/File New
+  invalidation, Stop does not clear it, and no title parsing, load-time duration
+  scan, offline render, playback behavior, C mixer DSP, parser, tracker
+  viewport, editor, note audition, control-panel layout, or release workflow
+  changed. Future editing invalidation should follow the adapter-plan/edit-
+  generation lifecycle.
 - Disabled-by-default adapter-plan construction profiling now measures
   sanitized `RuntimeCMixerAdapterEventPlan.make` and
   `PlaybackSongSyntheticAdapter` phase timings for local diagnostics only. It
@@ -101,9 +110,8 @@ Recently completed narrow target:
   TITLE/TIME readouts, PTN decimal display, loaded-module instrument/sample
   names where available, and transport/toggle active-state styling without
   changing playback, backend, parser, tracker viewport, editor, save/export, or
-  loaded-module read-only behavior. TIME remains a placeholder until a safe
-  real-duration metadata source exists; this PR does not infer duration from
-  module title text.
+  loaded-module read-only behavior. Loaded-module TIME now follows the adapter
+  plan lifecycle above; no duration is inferred from module title text.
 - Loaded-module audition now has explicit selected-sample slot controls in the
   existing control panel. Preview resolves the selected 1-based `Sxx` slot on
   the selected instrument, routes non-first sample slots into the preview

@@ -109,8 +109,8 @@ Recommended next PR sequence:
 1. Start the first small pattern-entry/editor workflow slice.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
-   synchronous load path while improving first-Play readiness, and TIME should
-   still wait for a bounded analysis cache.
+   synchronous load path while improving first-Play readiness, and loaded-module
+   TIME is derived only from the installed adapter-plan duration.
 
 Parked parity-watch items:
 
@@ -122,6 +122,15 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Loaded-module TIME now derives from the existing cached/prewarmed
+  `RuntimeCMixerAdapterEventPlan` planned song-end frame and plan sample rate.
+  Load and File New clear stale TIME to `--:--`; async prewarm or first Play
+  can update TIME after the current generation installs a valid plan; Stop and
+  Play after Stop keep the cached duration. No title parsing, synchronous
+  load-time duration scan, offline render, playback behavior, C mixer DSP,
+  parser, tracker viewport, editor, control-panel layout, or release behavior
+  changed. Future editing invalidation should use the same adapter-plan/edit-
+  generation lifecycle.
 - Disabled-by-default adapter-plan construction profiling now reports sanitized
   `RuntimeCMixerAdapterEventPlan.make` and `PlaybackSongSyntheticAdapter`
   phase timings for local diagnostics. It measures existing prewarm/Play plan
@@ -222,7 +231,8 @@ Recommended next product PR:
   sufficient for this audio change; docs and tests must not reference private
   modules or local paths.
 - Module TIME/headroom work should follow
-  `docs/design/module-analysis-lifecycle.md`: do not add synchronous full-song
+  `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
+  from the cached/prewarmed adapter plan; do not add synchronous full-song
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
 
@@ -233,9 +243,8 @@ Recently completed product foundation:
   TITLE/TIME readouts, PTN decimal display, loaded-module instrument/sample
   names where available, and transport/toggle active-state styling without
   changing playback, backend, parser, tracker viewport, editor, save/export, or
-  loaded-module read-only behavior. TIME remains a placeholder until a safe
-  real-duration metadata source exists; this PR does not infer duration from
-  module title text.
+  loaded-module read-only behavior. Loaded-module TIME now follows the adapter
+  plan lifecycle above; no duration is inferred from module title text.
 - Loaded-module audition now has explicit selected-sample slot controls in the
   existing control panel. Preview resolves the selected 1-based `Sxx` slot on
   the selected instrument, routes non-first sample slots into the preview

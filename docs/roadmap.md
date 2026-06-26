@@ -185,8 +185,12 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Define pattern-loop while-editing policy without coupling editor preview to
-  Play/Stop transport.
+- Pattern-loop playback remains deferred until the next design preserves normal
+  runtime C mixer adapter planning, avoids a separate timer-driven trigger/update
+  path, implements loop policy at a safe transport/scheduler boundary, and
+  passes manual listening on a local multi-position module. Tests alone are not
+  sufficient for this audio change; docs and tests must not reference private
+  modules or local paths.
 
 Recently completed product foundation:
 

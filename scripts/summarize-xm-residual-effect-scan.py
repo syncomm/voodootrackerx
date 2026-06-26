@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -18,7 +19,8 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_LABEL_MAP = Path("/tmp/vtx-private-xm-corpus-label-map.json")
+PRIVATE_LABEL_MAP_ENV = "VTX_PRIVATE_XM_CORPUS_LABEL_MAP"
+DEFAULT_LABEL_MAP = Path(os.environ.get(PRIVATE_LABEL_MAP_ENV, "/tmp/vtx-xm-corpus-label-map.json"))
 DEFAULT_DOCS = Path("docs/xm-effect-support.md")
 LABEL_RE = re.compile(r"^xm-corpus-(\d{3,})$")
 BACKEND_FREEZE_NEXT_PR_RECOMMENDATION = (

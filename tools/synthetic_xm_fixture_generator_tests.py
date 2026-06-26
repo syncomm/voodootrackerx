@@ -52,7 +52,7 @@ class SyntheticXMFixtureGeneratorTests(unittest.TestCase):
             "/" + "Users",
             "Desk" + "top",
             "private-xm-corpus",
-            "vtx-private-xm-corpus-label-map",
+            "vtx-" + "private-xm-corpus-label-map",
             "xm-corpus-",
             "/tmp/vtx-",
             ".wav",

@@ -219,6 +219,23 @@ final class PlaybackTimingTraceSession {
         ))
     }
 
+    func recordMeasuredPhase(
+        _ phase: String,
+        elapsedMS: Double,
+        fields: [PlaybackTimingTraceField] = []
+    ) {
+        guard !isFinished else {
+            return
+        }
+        records.append(PlaybackTimingTraceRecord(
+            lifecycle: lifecycle,
+            phase: phase,
+            index: records.count + 1,
+            elapsedMS: elapsedMS,
+            fields: fields
+        ))
+    }
+
     func measure<T>(
         _ phase: String,
         fields: [PlaybackTimingTraceField] = [],

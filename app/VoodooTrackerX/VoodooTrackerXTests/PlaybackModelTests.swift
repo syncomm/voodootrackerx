@@ -301,7 +301,8 @@ final class PlaybackModelTests: XCTestCase {
             PlaybackDebugLaunchConfiguration.startTickEnvironmentKey: "2",
             PlaybackDebugLaunchConfiguration.autoplayEnvironmentKey: "1",
             PlaybackDebugLaunchConfiguration.stopAfterSecondsEnvironmentKey: "10.5",
-            PlaybackDebugLaunchConfiguration.replayAfterStopEnvironmentKey: "true"
+            PlaybackDebugLaunchConfiguration.replayAfterStopEnvironmentKey: "true",
+            PlaybackDebugLaunchConfiguration.prePlayDelaySecondsEnvironmentKey: "5"
         ])
 
         XCTAssertEqual(configuration.startRequest?.requestedOrderIndex, 30)
@@ -310,6 +311,7 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertTrue(configuration.autoplay)
         XCTAssertEqual(configuration.stopAfterSeconds, 10.5)
         XCTAssertTrue(configuration.replayAfterStop)
+        XCTAssertEqual(configuration.prePlayDelaySeconds, 5)
     }
 
     func testPlaybackSongStartsAtFirstOrderFirstRow() {

@@ -8,8 +8,8 @@ script or tool behavior.
 
 Inventoried files:
 
-- 16 files under `scripts/`.
-- 3 Python test helper modules under `tools/`.
+- 17 files under `scripts/`.
+- 4 Python test helper modules under `tools/`.
 - 1 Python fixture-generator test helper under `tools/`.
 - 2 SwiftPM command entrypoints under `tools/`.
 - 1 active Swift command implementation under tool-owned SwiftPM support
@@ -65,6 +65,7 @@ Classification terms:
 | `scripts/focused-xm-channel-diagnostics.py` | Diagnostic / local-only; hyper-specific; candidate archive; candidate CLI subcommand | Builds a focused row/channel report from `mc_dump` JSON and bounded render diagnostics. | Archived audio history, `tools/audio_compare_tests.py`; mentions `mc_dump` and `vtx_render_bounded_xm`. | Reads local artifacts, not module files; report should not echo input paths. | Yes. | Keep for now. | Fold into `reference_triage focused-channel` or archive after checking active workflow references. |
 | `scripts/summarize-runtime-c-mixer-trace.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Summarizes runtime C mixer JSONL traces, callback health, output-copy, and route diagnostics. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`. | Reads runtime traces from local/private smoke runs; listening notes must stay local. | Yes. | Keep for now. | Fold into `runtime_trace summarize`; preserve deterministic summary tests. |
 | `scripts/correlate-runtime-offline-window.py` | Active workflow; diagnostic / local-only; hyper-specific; candidate CLI subcommand | Correlates runtime/offline mismatch windows across WAVs, runtime traces, and optional offline diagnostics. | `docs/playback-trace.md`, archived reports, `tools/audio_compare_tests.py`. | Handles local runtime captures, offline WAVs, traces, and diagnostics. | Yes. | Keep for now. | Fold into `runtime_trace correlate-window`; keep current script until docs and tests migrate. |
+| `scripts/run-local-corpus-runtime-metrics.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Runs disabled load/play timing and runtime mixer metrics diagnostics for selected anonymized private corpus labels. | `docs/testing.md`, `tools/local_corpus_runtime_metrics_tests.py`. | Reads a maintainer-supplied local label map and redacts captured stdout/stderr; output filenames and summaries use `xm-corpus-###` labels only. | Yes; defaults to a timestamped `/tmp` directory and refuses repository output by default. | Keep. | Fold into `runtime_trace corpus-metrics` or a future corpus diagnostics subcommand; preserve redaction and output-confinement tests. |
 | `scripts/update-private-xm-corpus-label-map.py` | Active local planning helper; diagnostic / local-only; candidate CLI subcommand | Updates a private XM corpus label map and writes a redacted summary. | Archived reports, `tools/private_xm_corpus_label_map_tests.py`. | Yes; source modules and full label map stay local, defaulting to `/tmp`. | Yes for map and summaries. | Keep for now. | Fold into `corpus_map update`; preserve redaction behavior and tests. |
 | `tools/mc_dump/main.c` | Active workflow; SwiftPM C CLI entrypoint | Dumps parsed MOD/XM metadata and optional XM pattern events for tests and diagnostics. | `Package.swift`, `README.md`, `docs/testing.md`, `docs/contributing.md`, ADR 001, `scripts/run-golden.sh`, focused diagnostics. | Can read private modules if manually invoked; private JSON dumps stay local. | Yes for private/local dumps; golden outputs are intentional test artifacts. | Keep. | Leave as a parser CLI unless a broader tool package layout is introduced. |
 | `tools/vtx_render_bounded_xm/main.swift` | Active workflow; SwiftPM CLI entrypoint | Tiny executable entrypoint for the bounded XM render/export tool. | `Package.swift`, `README.md`, `docs/agent-current-state.md`, `docs/audio-comparison.md`, `docs/playback-trace.md`, render tests. | Reads local/private XM modules; WAVs and diagnostics must stay local unless explicitly public-safe. | Yes for local renders and diagnostics. | Keep. | Preserve as the stable CLI entrypoint even if the implementation moves. |
@@ -72,6 +73,7 @@ Classification terms:
 | `tools/audio_compare_tests.py` | Active test helper | Synthetic unit/CLI tests for audio comparison, reference triage, runtime trace, effect coverage, focused diagnostics, and related scripts. | Direct test target run with `python3 -m unittest tools/audio_compare_tests.py`. | Uses synthetic data and temporary directories. | Test temp dirs only. | Keep. | Split by future CLI subcommand once the script surface is consolidated. |
 | `tools/xm_residual_effect_scan_tests.py` | Active test helper | Unit tests for residual effect scan classification and recommendation logic. | Required when residual/corpus tooling is referenced or touched. | Uses synthetic module structures. | No persistent output. | Keep. | Move beside future `residual_scan` CLI package tests. |
 | `tools/private_xm_corpus_label_map_tests.py` | Active test helper | Tests private corpus label-map update and redacted summary behavior with synthetic XM bytes. | Required when corpus label-map tooling docs or code are touched. | Uses synthetic fixtures in temporary directories and asserts paths/names are redacted. | Test temp dirs only. | Keep. | Move beside future `corpus_map` CLI package tests. |
+| `tools/local_corpus_runtime_metrics_tests.py` | Active test helper | Tests local corpus runtime metrics selection, dry-run behavior, output confinement, label-based filenames, and stdout/stderr redaction. | Required when `scripts/run-local-corpus-runtime-metrics.py` changes. | Uses synthetic temporary label maps, fake module paths, and a fake app runner. | Test temp dirs only. | Keep. | Move beside future corpus runtime diagnostics CLI tests. |
 | `tools/synthetic_xm_fixture_generator_tests.py` | Active test helper | Tests the deterministic synthetic XM fixture manifest skeleton and output-path confinement. | Required when `scripts/generate-synthetic-xm-fixtures.py` or `tests/reference-xm/` generator contracts change. | Uses synthetic manifest data and temporary directories only. | Test temp dirs only. | Keep. | Extend alongside future public fixture-generation behavior. |
 | `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift` | Active test reference | Swift render/export tests include a helper that invokes `scripts/audio-compare.py` for Float32 comparison checks. | SwiftPM test target `VTXRenderBoundedXMTests`. | Uses generated test files and temp directories. | Test temp dirs only. | Keep. | Update helper path only if `audio-compare.py` gains a compatibility wrapper or unified CLI replacement. |
 
@@ -113,9 +115,11 @@ Runtime trace summaries:
 
 - `scripts/summarize-runtime-c-mixer-trace.py`
 - `scripts/correlate-runtime-offline-window.py`
+- `scripts/run-local-corpus-runtime-metrics.py`
 
 Corpus label-map tooling:
 
+- `scripts/run-local-corpus-runtime-metrics.py`
 - `scripts/update-private-xm-corpus-label-map.py`
 - `scripts/summarize-xm-residual-effect-scan.py`
 
@@ -128,6 +132,7 @@ Golden/test helpers:
 - `tools/audio_compare_tests.py`
 - `tools/xm_residual_effect_scan_tests.py`
 - `tools/private_xm_corpus_label_map_tests.py`
+- `tools/local_corpus_runtime_metrics_tests.py`
 - `tools/synthetic_xm_fixture_generator_tests.py`
 - `tests/vtx_render_bounded_xm/VTXRenderBoundedXMTests.swift`
 

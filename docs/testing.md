@@ -113,6 +113,55 @@ enabling it must not change playback, C mixer DSP, scheduling, runtime gain,
 runtime headroom, parser behavior, tracker viewport, editor, note audition, or
 control panel behavior. It is not runtime auto-headroom.
 
+## Local Corpus Runtime Metrics Runbook
+
+Maintainers can run the disabled timing and runtime mixer metrics diagnostics
+against a small private XM corpus subset by supplying a local label map. The
+label map must stay outside the repository, and all generated outputs must stay
+under `/tmp` or another ignored local directory.
+
+Use only anonymized `xm-corpus-###` labels in summaries, issue notes, and PR
+descriptions. Do not publish private module filenames, paths, titles, generated
+logs, traces, WAVs, screenshots, or reports.
+
+Build the Debug app first, then run a small subset:
+
+```bash
+export VTX_PRIVATE_XM_CORPUS_LABEL_MAP=/path/to/local/private-map.json
+
+scripts/run-local-corpus-runtime-metrics.py \
+  --label-map "$VTX_PRIVATE_XM_CORPUS_LABEL_MAP" \
+  --labels xm-corpus-001,xm-corpus-002 \
+  --seconds 10 \
+  --output-dir /tmp/vtx-runtime-metrics-smoke
+```
+
+To inspect the selected anonymized labels before launching the app:
+
+```bash
+scripts/run-local-corpus-runtime-metrics.py \
+  --label-map "$VTX_PRIVATE_XM_CORPUS_LABEL_MAP" \
+  --limit 2 \
+  --dry-run
+```
+
+The helper launches the Debug app directly with `VTX_OPEN_PATH`,
+`VTX_DEBUG_AUTOPLAY=1`, `VTX_DEBUG_STOP_AFTER_SECONDS`,
+`VTX_PLAYBACK_TIMING_TRACE=1`, `VTX_RUNTIME_MIXER_METRICS_TRACE=1`, and a
+label-based local runtime C mixer trace path. It does not require Accessibility
+permissions or GUI automation.
+
+Output filenames are based on the anonymized label only, for example
+`xm-corpus-001.stderr.txt`, `xm-corpus-001.runtime-c-mixer-trace.jsonl`, and
+`xm-corpus-001.metrics.json`, plus top-level `summary.json` and `summary.md`.
+The helper redacts the private source path and basename from captured
+stdout/stderr and writes summaries without module paths, filenames, or titles.
+It refuses to write inside the repository unless `--allow-repo-output` is
+supplied for synthetic tests.
+
+Private corpus runs are manual local diagnostics only. Do not add them to CI or
+automated tests.
+
 ## Audio Reference Comparison
 
 Use `docs/audio-comparison.md` when comparing VoodooTracker X playback against a

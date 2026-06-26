@@ -1,0 +1,466 @@
+#!/usr/bin/env python3
+"""Run local-only runtime metrics diagnostics for anonymized XM corpus labels."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+DEFAULT_APP_PATH = REPO_ROOT / "build" / "Build" / "Products" / "Debug" / "VoodooTrackerX.app" / "Contents" / "MacOS" / "VoodooTrackerX"
+LABEL_RE = re.compile(r"^xm-corpus-\d{3,}$")
+PRIVATE_LABEL_MAP_ENV = "VTX_PRIVATE_XM_CORPUS_LABEL_MAP"
+DEFAULT_SECONDS = 10.0
+DEFAULT_TIMEOUT_PAD_SECONDS = 8.0
+
+
+class MetricsRunError(Exception):
+    """A user-facing local metrics run error."""
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run disabled-by-default local runtime diagnostics for anonymized private XM corpus labels."
+    )
+    parser.add_argument(
+        "--label-map",
+        type=Path,
+        default=env_path(PRIVATE_LABEL_MAP_ENV),
+        help=f"Local private corpus label map path. Defaults to ${PRIVATE_LABEL_MAP_ENV} when set.",
+    )
+    parser.add_argument("--labels", help="Comma-separated labels such as xm-corpus-001,xm-corpus-002")
+    parser.add_argument("--limit", type=int, help="Run the first N labels from the map when --labels is omitted")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=default_output_dir(),
+        help="Output directory for local-only artifacts. Defaults to a timestamped /tmp directory.",
+    )
+    parser.add_argument("--app-path", type=Path, default=DEFAULT_APP_PATH, help="Debug app executable path")
+    parser.add_argument(
+        "--seconds",
+        "--stop-after-seconds",
+        dest="seconds",
+        type=float,
+        default=DEFAULT_SECONDS,
+        help=f"Playback duration before debug stop (default: {DEFAULT_SECONDS:g})",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        help="Process timeout. Defaults to --seconds plus a short shutdown pad.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print planned anonymized labels only")
+    parser.add_argument(
+        "--allow-repo-output",
+        action="store_true",
+        help="Allow writing output inside the repository. Intended only for synthetic tests.",
+    )
+    return parser.parse_args(argv)
+
+
+def env_path(name: str) -> Path | None:
+    value = os.environ.get(name, "").strip()
+    return Path(value) if value else None
+
+
+def default_output_dir() -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    return Path("/tmp") / f"vtx-runtime-metrics-{stamp}"
+
+
+def load_label_map(path: Path | None) -> list[dict[str, Any]]:
+    if path is None:
+        raise MetricsRunError(f"missing --label-map or ${PRIVATE_LABEL_MAP_ENV}")
+    if not path.exists():
+        raise MetricsRunError("label map does not exist")
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    entries = loaded if isinstance(loaded, list) else loaded.get("entries") if isinstance(loaded, dict) else None
+    if not isinstance(entries, list):
+        raise MetricsRunError("label map must be a JSON array or an object with an entries array")
+    normalized = [normalize_entry(entry) for entry in entries if isinstance(entry, dict)]
+    return [entry for entry in normalized if entry is not None]
+
+
+def normalize_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
+    label = entry.get("stable_anonymized_label") or entry.get("label")
+    source_path = entry.get("path")
+    if not isinstance(label, str) or not LABEL_RE.fullmatch(label):
+        return None
+    if not isinstance(source_path, str) or not source_path:
+        return None
+    return {"label": label, "path": Path(source_path)}
+
+
+def select_entries(entries: list[dict[str, Any]], labels: str | None, limit: int | None) -> list[dict[str, Any]]:
+    if labels and limit is not None:
+        raise MetricsRunError("use --labels or --limit, not both")
+    if labels:
+        requested = [label.strip() for label in labels.split(",") if label.strip()]
+        invalid = [label for label in requested if not LABEL_RE.fullmatch(label)]
+        if invalid:
+            raise MetricsRunError(f"invalid anonymized label: {invalid[0]}")
+        by_label = {entry["label"]: entry for entry in entries}
+        missing = [label for label in requested if label not in by_label]
+        if missing:
+            raise MetricsRunError(f"label not found in map: {missing[0]}")
+        return [by_label[label] for label in requested]
+    if limit is None:
+        raise MetricsRunError("provide --labels or --limit")
+    if limit <= 0:
+        raise MetricsRunError("--limit must be positive")
+    return entries[:limit]
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(parent.resolve(strict=False))
+        return True
+    except ValueError:
+        return False
+
+
+def validate_output_dir(path: Path, allow_repo_output: bool) -> None:
+    if is_relative_to(path, REPO_ROOT) and not allow_repo_output:
+        raise MetricsRunError("refusing to write diagnostics inside the repository; use /tmp or --allow-repo-output")
+    if path.exists() and not path.is_dir():
+        raise MetricsRunError("output path exists and is not a directory")
+
+
+def validate_app(path: Path) -> None:
+    if not path.exists():
+        raise MetricsRunError("app executable does not exist; build the Debug app or pass --app-path")
+    if not path.is_file():
+        raise MetricsRunError("app path is not a file")
+
+
+def run_entry(
+    entry: dict[str, Any],
+    app_path: Path,
+    output_dir: Path,
+    seconds: float,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    label = entry["label"]
+    source_path = entry["path"]
+    label_dir = output_dir / label
+    label_dir.mkdir(parents=True, exist_ok=True)
+
+    stdout_path = label_dir / f"{label}.stdout.txt"
+    stderr_path = label_dir / f"{label}.stderr.txt"
+    runtime_trace_path = label_dir / f"{label}.runtime-c-mixer-trace.jsonl"
+    metrics_path = label_dir / f"{label}.metrics.json"
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "VTX_OPEN_PATH": str(source_path),
+            "VTX_AUDIO_BACKEND": "c_mixer",
+            "VTX_DEBUG_AUTOPLAY": "1",
+            "VTX_DEBUG_STOP_AFTER_SECONDS": format_seconds(seconds),
+            "VTX_PLAYBACK_TIMING_TRACE": "1",
+            "VTX_RUNTIME_MIXER_METRICS_TRACE": "1",
+            "VTX_C_MIXER_RUNTIME_TRACE_PATH": str(runtime_trace_path),
+        }
+    )
+
+    started = time.monotonic()
+    process = subprocess.Popen(
+        [str(app_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    timed_out = False
+    terminated_after_window = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        terminated_after_window = True
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+    elapsed = time.monotonic() - started
+
+    redactions = [source_path, source_path.expanduser(), source_path.resolve(strict=False)]
+    stdout_path.write_text(redact(stdout, redactions), encoding="utf-8")
+    stderr_path.write_text(redact(stderr, redactions), encoding="utf-8")
+
+    timing_records = parse_prefixed_records(stderr, "vtx_playback_timing")
+    metrics_records = parse_prefixed_records(stderr, "vtx_runtime_mixer_metrics")
+    timings = summarize_timings(timing_records)
+    metrics = summarize_runtime_metrics(metrics_records)
+    outcome = process_outcome(process.returncode, timed_out, terminated_after_window)
+    summary = {
+        "schema": 1,
+        "label": label,
+        "process_outcome": outcome,
+        "return_code": process.returncode,
+        "elapsed_wall_seconds": round(elapsed, 3),
+        "seconds": seconds,
+        "timeout_seconds": timeout_seconds,
+        "playback_timing_line_count": len(timing_records),
+        "runtime_mixer_metrics_line_count": len(metrics_records),
+        "runtime_trace_written": runtime_trace_path.exists(),
+        "runtime_trace_bytes": runtime_trace_path.stat().st_size if runtime_trace_path.exists() else 0,
+        "stdout_log": stdout_path.name,
+        "stderr_log": stderr_path.name,
+        "runtime_trace": runtime_trace_path.name,
+        "metadata": timings["metadata"],
+        "timings_ms": timings["timings_ms"],
+        "runtime_metrics": metrics,
+    }
+    metrics_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return summary
+
+
+def redact(text: str, source_paths: list[Path]) -> str:
+    redacted = text
+    tokens: set[str] = set()
+    for path in source_paths:
+        text_path = str(path)
+        if text_path:
+            tokens.add(text_path)
+        if path.name:
+            tokens.add(path.name)
+        if path.stem:
+            tokens.add(path.stem)
+    for token in sorted(tokens, key=len, reverse=True):
+        redacted = redacted.replace(token, "[redacted]")
+    return redacted
+
+
+def parse_prefixed_records(text: str, prefix: str) -> list[dict[str, str]]:
+    records = []
+    for line in text.splitlines():
+        if not line.startswith(prefix + " "):
+            continue
+        fields: dict[str, str] = {}
+        for part in line.split()[1:]:
+            key, separator, value = part.partition("=")
+            if separator:
+                fields[key] = value
+        records.append(fields)
+    return records
+
+
+def summarize_timings(records: list[dict[str, str]]) -> dict[str, Any]:
+    timings: dict[str, float | None] = {
+        "load_total": elapsed_ms(records, "load", "total"),
+        "module_metadata_loader_load": elapsed_ms(records, "load", "module_metadata_loader_load"),
+        "playback_song_builder_build": elapsed_ms(records, "load", "playback_song_builder_build"),
+        "playback_engine_load": elapsed_ms(records, "load", "playback_engine_load"),
+        "runtime_adapter_event_plan_make": elapsed_ms(records, "load", "runtime_adapter_event_plan_make"),
+        "runtime_adapter_event_plan_configure": elapsed_ms(records, "load", "runtime_adapter_event_plan_configure"),
+        "play_total": elapsed_ms(records, "play", "total"),
+        "playback_engine_start_position_resolution": elapsed_ms(records, "play", "playback_engine_start_position_resolution"),
+        "playback_engine_transient_runtime_state_reset": elapsed_ms(records, "play", "playback_engine_transient_runtime_state_reset"),
+        "runtime_adapter_event_consumption_schedule_setup": elapsed_ms(
+            records, "play", "runtime_adapter_event_consumption_schedule_setup"
+        ),
+        "coreaudio_output_prepare": elapsed_ms(records, "play", "coreaudio_output_prepare"),
+        "coreaudio_output_start": elapsed_ms(records, "play", "coreaudio_output_start"),
+    }
+    make_ms = timings["runtime_adapter_event_plan_make"] or 0.0
+    configure_ms = timings["runtime_adapter_event_plan_configure"] or 0.0
+    timings["runtime_adapter_plan_total"] = round(make_ms + configure_ms, 3) if make_ms or configure_ms else None
+
+    load_total = record_for(records, "load", "total") or {}
+    metadata = {
+        "module_type": load_total.get("module_type"),
+        "channel_count": int_value(load_total.get("channel_count")),
+        "order_count": int_value(load_total.get("order_count")),
+        "pattern_count": int_value(load_total.get("pattern_count")),
+        "instrument_count": int_value(load_total.get("instrument_count")),
+    }
+    return {"metadata": metadata, "timings_ms": timings}
+
+
+def summarize_runtime_metrics(records: list[dict[str, str]]) -> dict[str, Any]:
+    stop_summary = next((record for record in reversed(records) if record.get("phase") == "stop_summary"), None)
+    if stop_summary is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "rendered_frame_count": int_value(stop_summary.get("rendered_frame_count")),
+        "output_peak": float_value(stop_summary.get("output_peak")),
+        "output_rms": float_value(stop_summary.get("output_rms")),
+        "overrange_sample_count": int_value(stop_summary.get("overrange_sample_count")),
+        "clipping_sample_count": int_value(stop_summary.get("clipping_sample_count")),
+        "clipping_detected": bool_value(stop_summary.get("clipping_detected")),
+        "output_discontinuity_count": int_value(stop_summary.get("output_discontinuity_count")),
+        "adjacent_jump_count_gt_0_25": int_value(stop_summary.get("adjacent_jump_count_gt_0_25")),
+        "adjacent_jump_count_gt_0_35": int_value(stop_summary.get("adjacent_jump_count_gt_0_35")),
+        "adjacent_jump_count_gt_0_50": int_value(stop_summary.get("adjacent_jump_count_gt_0_50")),
+        "max_output_adjacent_sample_jump": float_value(stop_summary.get("max_output_adjacent_sample_jump")),
+        "runtime_output_gain": float_value(stop_summary.get("runtime_output_gain")),
+        "runtime_headroom_policy": stop_summary.get("runtime_headroom_policy"),
+        "runtime_default_headroom_db": float_value(stop_summary.get("runtime_default_headroom_db")),
+        "runtime_gain_policy_source": stop_summary.get("runtime_gain_policy_source"),
+        "runtime_auto_headroom_enabled": bool_value(stop_summary.get("runtime_auto_headroom_enabled")),
+    }
+
+
+def record_for(records: list[dict[str, str]], lifecycle: str, phase: str) -> dict[str, str] | None:
+    for record in reversed(records):
+        if record.get("lifecycle") == lifecycle and record.get("phase") == phase:
+            return record
+    return None
+
+
+def elapsed_ms(records: list[dict[str, str]], lifecycle: str, phase: str) -> float | None:
+    record = record_for(records, lifecycle, phase)
+    return float_value(record.get("elapsed_ms")) if record else None
+
+
+def process_outcome(return_code: int | None, timed_out: bool, terminated_after_window: bool) -> str:
+    if timed_out and terminated_after_window:
+        return "terminated_after_window"
+    if return_code == 0:
+        return "exited_zero"
+    return "exited_nonzero"
+
+
+def float_value(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value), 3)
+    except ValueError:
+        return None
+
+
+def int_value(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def bool_value(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    return None
+
+
+def format_seconds(value: float) -> str:
+    return f"{max(0.1, value):.3f}".rstrip("0").rstrip(".")
+
+
+def write_run_summary(output_dir: Path, summaries: list[dict[str, Any]]) -> Path:
+    path = output_dir / "summary.json"
+    payload = {
+        "schema": 1,
+        "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "labels": [summary["label"] for summary in summaries],
+        "module_count": len(summaries),
+        "process_outcomes": {summary["label"]: summary["process_outcome"] for summary in summaries},
+        "playback_timing_line_counts": {summary["label"]: summary["playback_timing_line_count"] for summary in summaries},
+        "runtime_mixer_metrics_line_counts": {
+            summary["label"]: summary["runtime_mixer_metrics_line_count"] for summary in summaries
+        },
+        "runtime_trace_written": {summary["label"]: summary["runtime_trace_written"] for summary in summaries},
+        "results": summaries,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_markdown_summary(output_dir / "summary.md", summaries)
+    return path
+
+
+def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
+    lines = [
+        "# Local Corpus Runtime Metrics Summary",
+        "",
+        "Public-safe anonymized local diagnostics summary. Private filenames, paths, and titles are omitted.",
+        "",
+        "| Label | Load total ms | Song build ms | Adapter plan ms | Play startup ms | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+    ]
+    for summary in summaries:
+        timings = summary["timings_ms"]
+        metrics = summary["runtime_metrics"]
+        lines.append(
+            "| {label} | {load} | {build} | {adapter} | {play} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
+                label=summary["label"],
+                load=cell(timings.get("load_total")),
+                build=cell(timings.get("playback_song_builder_build")),
+                adapter=cell(timings.get("runtime_adapter_plan_total")),
+                play=cell(timings.get("play_total")),
+                peak=cell(metrics.get("output_peak")),
+                rms=cell(metrics.get("output_rms")),
+                clips=cell(metrics.get("clipping_sample_count")),
+                overrange=cell(metrics.get("overrange_sample_count")),
+                clipping=str(metrics.get("clipping_detected")).lower() if metrics.get("available") else "missing",
+                jump=cell(metrics.get("max_output_adjacent_sample_jump")),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "These outputs are local-only diagnostics. Do not commit this report or raw logs unless a future task explicitly approves a public-safe excerpt.",
+        ]
+    )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def cell(value: Any) -> str:
+    return "n/a" if value is None else str(value)
+
+
+def main(argv: list[str]) -> int:
+    try:
+        args = parse_args(argv)
+        entries = load_label_map(args.label_map)
+        selected = select_entries(entries, args.labels, args.limit)
+        if args.dry_run:
+            for entry in selected:
+                print(entry["label"])
+            return 0
+
+        validate_output_dir(args.output_dir, args.allow_repo_output)
+        validate_app(args.app_path)
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        timeout_seconds = args.timeout_seconds or (max(0.1, args.seconds) + DEFAULT_TIMEOUT_PAD_SECONDS)
+
+        summaries = []
+        for entry in selected:
+            summary = run_entry(entry, args.app_path, args.output_dir, args.seconds, timeout_seconds)
+            summaries.append(summary)
+            print(
+                f"{summary['label']}: {summary['process_outcome']} "
+                f"timing_lines={summary['playback_timing_line_count']} "
+                f"metrics_lines={summary['runtime_mixer_metrics_line_count']} "
+                f"runtime_trace_written={str(summary['runtime_trace_written']).lower()}"
+            )
+        run_summary = write_run_summary(args.output_dir, summaries)
+        print(f"summary: {run_summary}")
+        return 0
+    except (MetricsRunError, OSError, json.JSONDecodeError) as error:
+        print(f"run-local-corpus-runtime-metrics: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

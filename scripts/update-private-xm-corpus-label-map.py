@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -12,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_MAP = Path("/tmp/vtx-private-xm-corpus-label-map.json")
-DEFAULT_SUMMARY_JSON = Path("/tmp/vtx-private-xm-corpus-label-map-summary.json")
-DEFAULT_SUMMARY_MD = Path("/tmp/vtx-private-xm-corpus-label-map-summary.md")
+PRIVATE_LABEL_MAP_ENV = "VTX_PRIVATE_XM_CORPUS_LABEL_MAP"
+DEFAULT_MAP = Path(os.environ.get(PRIVATE_LABEL_MAP_ENV, "/tmp/vtx-xm-corpus-label-map.json"))
+DEFAULT_SUMMARY_JSON = Path("/tmp/vtx-xm-corpus-label-map-summary.json")
+DEFAULT_SUMMARY_MD = Path("/tmp/vtx-xm-corpus-label-map-summary.md")
 SIG = b"Extended Module: "
 LABEL_RE = re.compile(r"^xm-corpus-(\d{3,})$")
 

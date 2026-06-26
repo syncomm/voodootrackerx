@@ -1753,21 +1753,21 @@ recommended implementation priority. Use the recommendation as triage evidence
 only; implementation PRs still need synthetic tests and must not depend on
 private modules.
 
-When anonymizing a private XM corpus for local reports, preserve
-`/tmp/vtx-private-xm-corpus-label-map.json` as the stable local-only label map.
-If it exists, reuse its `xm-corpus-###` labels; if new local modules are
-discovered later, append new labels without renumbering existing ones. Keep the
-map under `/tmp`, do not commit or copy it into fixtures, and publish only the
-anonymized labels in docs or PR summaries.
+When anonymizing a private XM corpus for local reports, preserve a stable
+maintainer-local label map outside the repository. If it exists, reuse its
+`xm-corpus-###` labels; if new local modules are discovered later, append new
+labels without renumbering existing ones. Keep the map under `/tmp` or another
+ignored local directory, do not commit or copy it into fixtures, and publish
+only the anonymized labels in docs or PR summaries.
 
 Refresh the local map and write a public-safe aggregate summary with:
 
 ```bash
 python3 scripts/update-private-xm-corpus-label-map.py \
   --source-dir /path/to/private-xm-directory \
-  --map /tmp/vtx-private-xm-corpus-label-map.json \
-  --summary-json /tmp/vtx-private-xm-corpus-label-map-summary.json \
-  --summary-markdown /tmp/vtx-private-xm-corpus-label-map-summary.md
+  --map /tmp/vtx-xm-corpus-label-map.json \
+  --summary-json /tmp/vtx-xm-corpus-label-map-summary.json \
+  --summary-markdown /tmp/vtx-xm-corpus-label-map-summary.md
 ```
 
 The helper scans only `.xm` files in the selected directory, preserves existing

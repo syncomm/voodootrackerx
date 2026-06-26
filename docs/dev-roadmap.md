@@ -47,8 +47,10 @@ Recommended next work should return to GUI/editor and product milestones:
    boundary, and passes manual listening on a local multi-position module.
    Tests alone are not sufficient for this audio change; docs and tests must
    not reference private modules or local paths.
-2. Audit module-open performance boundaries so expensive diagnostics stay
-   explicit and local-only.
+2. Module analysis follow-up should use
+   `docs/design/module-analysis-lifecycle.md`: add disabled timing diagnostics,
+   defer heavy load-time planning, and expose TIME only from bounded cached
+   analysis with clear invalidation.
 
 Parked parity-watch items:
 

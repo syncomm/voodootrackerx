@@ -537,7 +537,7 @@ extension PlaybackSongSyntheticAdapter {
         sourceChannelIndex: Int,
         syntheticRow: Int,
         scheduledFrame: Int,
-        channelStates: [Int: ChannelState],
+        channelStates: [ChannelState],
         globalVolumeState: inout GlobalVolumeState
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         guard cell.effectType == 0x10 else {
@@ -547,9 +547,9 @@ extension PlaybackSongSyntheticAdapter {
         let beforeGlobalVolume = globalVolumeState.volumeValue
         let afterGlobalVolume = clampedGlobalVolumeValue(Int(cell.effectParam))
         globalVolumeState.volumeValue = afterGlobalVolume
-        let diagnostics = channelStates.keys.sorted().compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
-            guard let targetState = channelStates[targetChannelIndex],
-                  targetState.activeEventIndex != nil,
+        let diagnostics = channelStates.indices.compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
+            let targetState = channelStates[targetChannelIndex]
+            guard targetState.activeEventIndex != nil,
                   targetState.activeSampleVolume != nil else {
                 return nil
             }
@@ -597,7 +597,7 @@ extension PlaybackSongSyntheticAdapter {
                 scheduledFrame: scheduledFrame,
                 cell: cell,
                 status: .applied,
-                channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                channelState: channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState(),
                 globalVolumeBefore: beforeGlobalVolume,
                 globalVolumeAfter: afterGlobalVolume,
                 activeVoiceUpdatedOverride: false
@@ -647,7 +647,7 @@ extension PlaybackSongSyntheticAdapter {
         sourceChannelIndex: Int,
         syntheticRow: Int,
         scheduledFrame: Int,
-        channelStates: [Int: ChannelState],
+        channelStates: [ChannelState],
         globalVolumeState: inout GlobalVolumeState
     ) -> [PlaybackSongSyntheticVoiceStateUpdateDiagnostic] {
         guard cell.effectType == 0x11 else {
@@ -667,7 +667,7 @@ extension PlaybackSongSyntheticAdapter {
                     cell: cell,
                     status: .ignoredNoOp,
                     slide: slide,
-                    channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                    channelState: channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState(),
                     globalVolumeBefore: beforeGlobalVolume,
                     globalVolumeAfter: beforeGlobalVolume,
                     clamped: false,
@@ -680,9 +680,9 @@ extension PlaybackSongSyntheticAdapter {
         let afterGlobalVolume = clampedGlobalVolumeValue(unclampedAfter)
         globalVolumeState.volumeValue = afterGlobalVolume
         let clamped = unclampedAfter != afterGlobalVolume
-        let diagnostics = channelStates.keys.sorted().compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
-            guard let targetState = channelStates[targetChannelIndex],
-                  targetState.activeEventIndex != nil,
+        let diagnostics = channelStates.indices.compactMap { targetChannelIndex -> PlaybackSongSyntheticVoiceStateUpdateDiagnostic? in
+            let targetState = channelStates[targetChannelIndex]
+            guard targetState.activeEventIndex != nil,
                   targetState.activeSampleVolume != nil else {
                 return nil
             }
@@ -734,7 +734,7 @@ extension PlaybackSongSyntheticAdapter {
                 cell: cell,
                 status: .applied,
                 slide: slide,
-                channelState: channelStates[sourceChannelIndex] ?? ChannelState(),
+                channelState: channelStates.indices.contains(sourceChannelIndex) ? channelStates[sourceChannelIndex] : ChannelState(),
                 globalVolumeBefore: beforeGlobalVolume,
                 globalVolumeAfter: afterGlobalVolume,
                 clamped: clamped,

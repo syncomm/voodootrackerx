@@ -98,6 +98,36 @@ private module titles, and enabling it must not change playback, parser, mixer,
 headroom, TIME display, tracker viewport, editor, note audition, or control
 panel behavior.
 
+## Adapter Plan Construction Profiling
+
+Adapter-plan construction profiling is disabled by default. To measure
+`RuntimeCMixerAdapterEventPlan.make` internals during a local smoke run, launch
+the Debug app with:
+
+```bash
+VTX_ADAPTER_PLAN_PROFILE=1 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+Use it with `VTX_PLAYBACK_TIMING_TRACE=1` when you also need load/prewarm/Play
+lifecycle context. The profile writes compact stderr lines prefixed with
+`vtx_adapter_plan_profile`; no files are written unless another diagnostic flag
+explicitly requests them.
+
+Profile lines include phases such as order traversal, timing/frame
+calculation, traversal-effect status indexing, pattern/row iteration, adapter
+event generation, event sorting/grouping, `PlaybackSongSyntheticAdapter.adapt`
+total, `RuntimeCMixerAdapterEventPlan.make` total, and backend plan
+configuration when measured. Fields are sanitized counts and timings only:
+planned event count, order count, pattern count, row count, category count, and
+planned song-end frame. Module paths, filenames, titles, and raw event dumps
+are not emitted.
+
+The local corpus runtime metrics helper enables this profile automatically and
+adds parsed adapter-plan profile summaries to its local-only JSON/Markdown
+outputs. Those outputs must remain under `/tmp` or another ignored local
+directory and must use only anonymized labels.
+
 ## Runtime Mixer Metrics Trace
 
 Runtime mixer metrics diagnostics are disabled by default. To emit one

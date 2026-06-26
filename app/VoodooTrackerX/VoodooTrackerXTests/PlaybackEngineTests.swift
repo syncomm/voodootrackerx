@@ -73,6 +73,80 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(line.contains("order_count=1"))
     }
 
+    func testAdapterPlanProfileDisabledByDefaultEmitsNoLines() {
+        let sink = TestAdapterPlanProfileSink()
+        let recorder = AdapterPlanProfileConfiguration.makeRecorder(
+            environment: [:],
+            clock: TestPlaybackTimingTraceClock(),
+            sink: sink
+        )
+
+        XCTAssertNil(recorder)
+        XCTAssertTrue(sink.lines.isEmpty)
+    }
+
+    func testAdapterPlanProfileFormattingRedactsPathsAndTitles() {
+        let pathLikeValue = ["", "Use" + "rs", "example", "Desk" + "top", "private.xm"].joined(separator: "/")
+        let line = AdapterPlanProfileFormatter.line(for: AdapterPlanProfileRecord(
+            lifecycle: "test",
+            phase: "format",
+            index: 1,
+            elapsedMS: 1,
+            fields: [
+                AdapterPlanProfileField("module_path", pathLikeValue),
+                AdapterPlanProfileField("module_title", "private-local-title"),
+                AdapterPlanProfileField("order_count", 1),
+            ]
+        ))
+
+        XCTAssertTrue(line.hasPrefix("vtx_adapter_plan_profile schema=1 lifecycle=test phase=format"))
+        XCTAssertTrue(line.contains("module_path=redacted"))
+        XCTAssertTrue(line.contains("module_title=redacted"))
+        XCTAssertTrue(line.contains("order_count=1"))
+        XCTAssertFalse(line.contains("/" + "Use" + "rs"))
+        XCTAssertFalse(line.contains("Desk" + "top"))
+        XCTAssertFalse(line.contains("private-local-title"))
+    }
+
+    @MainActor
+    func testAdapterPlanProfileRecordsOrderedConstructionPhasesWithSyntheticSong() throws {
+        let sink = TestAdapterPlanProfileSink()
+        let recorder = AdapterPlanProfileRecorder(
+            isEnabled: true,
+            clock: TestPlaybackTimingTraceClock(),
+            sink: sink
+        )
+        let session = try XCTUnwrap(recorder.beginLifecycle("test"))
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(
+            song: makeRuntimeAdapterPlaybackSong(patternIndex: 2),
+            sampleRate: 100,
+            profileSession: session
+        )
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(adapterPlanProfilePhases(in: sink.lines), [
+            "order_traversal",
+            "timing_frame_calculation",
+            "traversal_effect_status_indexing",
+            "event_generation",
+            "pattern_row_iteration",
+            "playback_song_synthetic_adapter_adapt_total",
+            "adapter_diagnostic_indexing",
+            "adapter_event_generation",
+            "event_sorting_grouping",
+            "runtime_c_mixer_adapter_event_plan_make_total",
+        ])
+        let output = sink.lines.joined(separator: "\n")
+        XCTAssertTrue(output.contains("order_count=1"))
+        XCTAssertTrue(output.contains("pattern_count=1"))
+        XCTAssertTrue(output.contains("row_count=2"))
+        XCTAssertTrue(output.contains("planned_event_count=1"))
+        XCTAssertTrue(output.contains("category_count=1"))
+        XCTAssertFalse(output.contains("private"))
+        XCTAssertFalse(output.contains("/"))
+    }
+
     @MainActor
     func testPlaybackEngineRecordsPlayTimingPhasesWhenEnabled() throws {
         let sink = TestPlaybackTimingTraceSink()
@@ -1521,7 +1595,7 @@ final class PlaybackEngineTests: XCTestCase {
     }
 }
 
-private final class TestPlaybackTimingTraceClock: PlaybackTimingTraceClock {
+private final class TestPlaybackTimingTraceClock: PlaybackTimingTraceClock, AdapterPlanProfileClock {
     private var currentNanoseconds: UInt64 = 0
 
     func nowNanoseconds() -> UInt64 {
@@ -1542,7 +1616,21 @@ private final class TestPlaybackTimingTraceSink: PlaybackTimingTraceSinking {
     }
 }
 
+private final class TestAdapterPlanProfileSink: AdapterPlanProfileSinking {
+    private(set) var lines = [String]()
+
+    func writeAdapterPlanProfileLine(_ line: String) {
+        lines.append(line)
+    }
+}
+
 private func timingPhases(in lines: [String]) -> [String] {
+    lines.compactMap { line in
+        line.split(separator: " ").first { $0.hasPrefix("phase=") }?.dropFirst("phase=".count).description
+    }
+}
+
+private func adapterPlanProfilePhases(in lines: [String]) -> [String] {
     lines.compactMap { line in
         line.split(separator: " ").first { $0.hasPrefix("phase=") }?.dropFirst("phase=".count).description
     }

@@ -122,6 +122,13 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Disabled-by-default adapter-plan construction profiling now reports sanitized
+  `RuntimeCMixerAdapterEventPlan.make` and `PlaybackSongSyntheticAdapter`
+  phase timings for local diagnostics. It measures existing prewarm/Play plan
+  construction internals only and does not optimize or change playback,
+  generated adapter events, C mixer DSP, parser architecture, tracker viewport,
+  editor, note audition, control panel, runtime gain/headroom, TIME display, or
+  release behavior.
 - Runtime C mixer adapter-plan construction now prewarms asynchronously after
   module load. `PlaybackEngine.load(song:)` still invalidates stale plans
   without blocking file open, then schedules background

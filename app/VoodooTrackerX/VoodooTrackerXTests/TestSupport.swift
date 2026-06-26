@@ -692,12 +692,18 @@ final class TestRuntimeAdapterPlanPrewarmScheduler: RuntimeAdapterPlanPrewarmSch
         completion: @escaping @Sendable (RuntimeAdapterPlanPrewarmResult) -> Void
     ) -> RuntimeAdapterPlanPrewarmJob {
         let job = TestRuntimeAdapterPlanPrewarmJob(generation: request.generation)
-        let plan = RuntimeCMixerAdapterEventPlan.make(song: request.song, sampleRate: request.sampleRate)
+        let profileSession = request.adapterPlanProfileRecorder?.beginLifecycle("prewarm")
+        let plan = RuntimeCMixerAdapterEventPlan.make(
+            song: request.song,
+            sampleRate: request.sampleRate,
+            profileSession: profileSession
+        )
         let result = RuntimeAdapterPlanPrewarmResult(
             generation: request.generation,
             plan: plan,
             makeMS: makeMS,
-            completedAfterCancellation: false
+            completedAfterCancellation: false,
+            adapterPlanProfileSession: profileSession
         )
         requests.append(request)
         jobs.append(job)

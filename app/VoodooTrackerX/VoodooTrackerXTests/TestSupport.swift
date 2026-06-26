@@ -659,6 +659,30 @@ final class TestRuntimeCMixerTraceWriter: RuntimeCMixerTraceWriting {
     }
 }
 
+@MainActor
+final class TestRuntimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting {
+    private(set) var records = [RuntimeMixerMetricsTraceRecord]()
+    private(set) var flushCount = 0
+
+    let isEnabled: Bool
+
+    init(isEnabled: Bool = true) {
+        self.isEnabled = isEnabled
+    }
+
+    func record(_ record: RuntimeMixerMetricsTraceRecord) {
+        records.append(record)
+    }
+
+    func flush() {
+        flushCount += 1
+    }
+
+    var lines: [String] {
+        records.map { RuntimeMixerMetricsTraceFormatter.line(for: $0) }
+    }
+}
+
 func stereoPCM(from monoPCM: [Float]) -> [Float] {
     monoPCM.flatMap { [$0, $0] }
 }

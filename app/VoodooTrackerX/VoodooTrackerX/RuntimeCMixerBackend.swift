@@ -312,6 +312,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private let coreAudioOutputHost: RuntimeCMixerDefaultOutputUnitHost
     private let renderCore: RuntimeCMixerRenderCore
     private let traceWriter: RuntimeCMixerTraceWriting
+    private let runtimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting
     private let runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection?
     private let routeLabel: String?
     private let startsOutputHostOnDemand: Bool
@@ -352,7 +353,8 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         runtimeSampleRateSelection: RuntimeCMixerSampleRateSelection? = nil,
         routeLabel: String? = nil,
         startsOutputHostOnDemand: Bool = true,
-        traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared
+        traceWriter: RuntimeCMixerTraceWriting = NoopRuntimeCMixerTraceWriter.shared,
+        runtimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting = NoopRuntimeMixerMetricsTraceWriter.shared
     ) {
         let resolvedBackend = backend.usesRuntimeCMixer ? backend : .cMixer
         self.backend = resolvedBackend
@@ -367,6 +369,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             songEndTailPolicy: songEndTailPolicy
         )
         self.traceWriter = traceWriter
+        self.runtimeMixerMetricsTraceWriter = runtimeMixerMetricsTraceWriter
         self.runtimeSampleRateSelection = runtimeSampleRateSelection
         self.routeLabel = RuntimeCMixerDeviceIdentityRedactor.safeRouteLabel(routeLabel)
         format = AVAudioFormat(
@@ -1386,6 +1389,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             stoppedVoiceCount: result.stoppedVoiceCount,
             reason: result.reason
         )
+        recordRuntimeMixerMetricsSummary(reason: result.reason, snapshot: result.snapshotBefore)
         finishRuntimeCaptureIfNeeded(reason: reason)
         resetRuntimeAdapterEventConsumption()
     }
@@ -1662,6 +1666,92 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             reason: captureReason
         )
         renderCore.resetCaptureBuffer()
+    }
+
+    private func recordRuntimeMixerMetricsSummary(reason: String, snapshot: RuntimeCMixerRenderSnapshot) {
+        guard runtimeMixerMetricsTraceWriter.isEnabled,
+              snapshot.renderCallbackCount > 0 ||
+              snapshot.renderedFrameCount > 0 ||
+              snapshot.cumulativeRequestedFrameCount > 0 else {
+            return
+        }
+
+        var fields = [
+            RuntimeMixerMetricsTraceField("runtime_audio_backend", runtimeAudioBackend.diagnosticName),
+            RuntimeMixerMetricsTraceField("runtime_output_host_type", runtimeAudioBackend.runtimeOutputHostType),
+            RuntimeMixerMetricsTraceField("stop_reason", reason),
+            RuntimeMixerMetricsTraceField("sample_rate", snapshot.sampleRate),
+            RuntimeMixerMetricsTraceField("channel_count", snapshot.channelCount),
+            RuntimeMixerMetricsTraceField("render_callback_count", snapshot.renderCallbackCount),
+            RuntimeMixerMetricsTraceField("render_call_count", snapshot.renderCallCount),
+            RuntimeMixerMetricsTraceField("successful_render_count", snapshot.successfulRenderCount),
+            RuntimeMixerMetricsTraceField("failed_render_count", snapshot.failedRenderCount),
+            RuntimeMixerMetricsTraceField("rendered_frame_count", snapshot.renderedFrameCount),
+            RuntimeMixerMetricsTraceField("cumulative_requested_frame_count", snapshot.cumulativeRequestedFrameCount),
+            RuntimeMixerMetricsTraceField("output_peak", snapshot.outputPeak),
+            RuntimeMixerMetricsTraceField("output_rms", snapshot.outputRMS),
+            RuntimeMixerMetricsTraceField("last_output_peak", snapshot.lastOutputPeak),
+            RuntimeMixerMetricsTraceField("last_output_rms", snapshot.lastOutputRMS),
+            RuntimeMixerMetricsTraceField("overrange_sample_count", snapshot.overrangeSampleCount),
+            RuntimeMixerMetricsTraceField("clipping_sample_count", snapshot.clippingSampleCount),
+            RuntimeMixerMetricsTraceField("clipping_detected", snapshot.clippingDetected),
+            RuntimeMixerMetricsTraceField("output_discontinuity_threshold", snapshot.outputDiscontinuityThreshold),
+            RuntimeMixerMetricsTraceField("output_discontinuity_count", snapshot.outputDiscontinuityCount),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_25", discontinuityCount(in: snapshot, threshold: 0.25)),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_35", discontinuityCount(in: snapshot, threshold: 0.35)),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_50", discontinuityCount(in: snapshot, threshold: 0.50)),
+            RuntimeMixerMetricsTraceField("max_output_adjacent_sample_jump", snapshot.maxOutputAdjacentSampleJump),
+            RuntimeMixerMetricsTraceField("runtime_output_gain", snapshot.runtimeOutputGain),
+            RuntimeMixerMetricsTraceField("runtime_headroom_policy", snapshot.runtimeHeadroomPolicy),
+            RuntimeMixerMetricsTraceField("runtime_default_headroom_db", snapshot.runtimeDefaultHeadroomDB),
+            RuntimeMixerMetricsTraceField("runtime_gain_policy_source", snapshot.runtimeGainPolicySource),
+            RuntimeMixerMetricsTraceField("runtime_gain_policy_is_environment_override", snapshot.runtimeGainPolicyIsEnvironmentOverride),
+            RuntimeMixerMetricsTraceField("runtime_auto_headroom_enabled", snapshot.runtimeAutoHeadroomEnabled),
+        ]
+        if let lastRequestedFrameCount = snapshot.lastRequestedFrameCount {
+            fields.append(RuntimeMixerMetricsTraceField("last_requested_frame_count", lastRequestedFrameCount))
+        }
+        if let lastRenderedFrameCount = snapshot.lastRenderedFrameCount {
+            fields.append(RuntimeMixerMetricsTraceField("last_rendered_frame_count", lastRenderedFrameCount))
+        }
+        if let runtimeFixedHeadroomDB = snapshot.runtimeFixedHeadroomDB {
+            fields.append(RuntimeMixerMetricsTraceField("runtime_fixed_headroom_db", runtimeFixedHeadroomDB))
+        }
+        if let runtimeGainConfigurationWarning = snapshot.runtimeGainConfigurationWarning {
+            fields.append(RuntimeMixerMetricsTraceField("runtime_gain_configuration_warning", runtimeGainConfigurationWarning))
+        }
+        if let runtimeClippingRecommendation = snapshot.runtimeClippingRecommendation {
+            fields.append(RuntimeMixerMetricsTraceField("runtime_clipping_recommendation", runtimeClippingRecommendation))
+        }
+        if let lastDiscontinuityJump = snapshot.lastOutputDiscontinuitySampleJump {
+            fields.append(RuntimeMixerMetricsTraceField("last_output_discontinuity_sample_jump", lastDiscontinuityJump))
+        }
+        if let lastDiscontinuityFrame = snapshot.lastOutputDiscontinuityRuntimeFrame {
+            fields.append(RuntimeMixerMetricsTraceField("last_output_discontinuity_runtime_frame", lastDiscontinuityFrame))
+        }
+        if let lastDiscontinuityChannel = snapshot.lastOutputDiscontinuityChannelIndex {
+            fields.append(RuntimeMixerMetricsTraceField("last_output_discontinuity_channel_index", lastDiscontinuityChannel))
+        }
+        if let topPeak = snapshot.topOutputPeaks.first {
+            fields.append(RuntimeMixerMetricsTraceField("top_output_peak", topPeak.peak))
+            fields.append(RuntimeMixerMetricsTraceField("top_output_peak_runtime_frame", topPeak.runtimeFrame))
+            fields.append(RuntimeMixerMetricsTraceField("top_output_peak_channel_index", topPeak.channelIndex))
+        }
+        if let topJump = snapshot.topOutputAdjacentSampleJumps.first {
+            fields.append(RuntimeMixerMetricsTraceField("top_adjacent_sample_jump", topJump.sampleJump))
+            fields.append(RuntimeMixerMetricsTraceField("top_adjacent_sample_jump_runtime_frame", topJump.runtimeFrame))
+            fields.append(RuntimeMixerMetricsTraceField("top_adjacent_sample_jump_channel_index", topJump.channelIndex))
+        }
+
+        runtimeMixerMetricsTraceWriter.record(RuntimeMixerMetricsTraceRecord(
+            phase: "stop_summary",
+            fields: fields
+        ))
+        runtimeMixerMetricsTraceWriter.flush()
+    }
+
+    private func discontinuityCount(in snapshot: RuntimeCMixerRenderSnapshot, threshold: Float) -> UInt64 {
+        snapshot.outputDiscontinuityThresholdCounts.first { abs($0.threshold - threshold) < 0.000_001 }?.count ?? 0
     }
 
     private func simpleRuntimeEventSource() -> RuntimeCMixerAdapterEventSource {

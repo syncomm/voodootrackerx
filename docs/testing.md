@@ -84,6 +84,35 @@ private module titles, and enabling it must not change playback, parser, mixer,
 headroom, TIME display, tracker viewport, editor, note audition, or control
 panel behavior.
 
+## Runtime Mixer Metrics Trace
+
+Runtime mixer metrics diagnostics are disabled by default. To emit one
+sanitized output-level summary when playback stops, launch the Debug app with:
+
+```bash
+VTX_RUNTIME_MIXER_METRICS_TRACE=1 \
+./build/Build/Products/Debug/VoodooTrackerX.app/Contents/MacOS/VoodooTrackerX
+```
+
+The flag also accepts `true`, `yes`, and `on`. The trace writes stderr lines
+prefixed with `vtx_runtime_mixer_metrics` and reports aggregate runtime mixer
+output metrics from the existing render-core snapshot, including sample rate,
+rendered/requested frame counts, output peak/RMS, overrange and clipping sample
+counts, adjacent-sample jump/discontinuity counters, and the active runtime
+gain/headroom policy.
+
+Example sanitized line:
+
+```text
+vtx_runtime_mixer_metrics schema=1 phase=stop_summary runtime_audio_backend=c_mixer stop_reason=transport_stop sample_rate=48000.000000 channel_count=2 rendered_frame_count=96000 output_peak=0.421875 output_rms=0.104331 overrange_sample_count=0 clipping_sample_count=0 clipping_detected=false max_output_adjacent_sample_jump=0.125000 runtime_output_gain=0.251189 runtime_headroom_policy=default_runtime_headroom_db runtime_default_headroom_db=-12.000000 runtime_gain_policy_source=default runtime_auto_headroom_enabled=false
+```
+
+Runtime mixer metrics output is observability only. It does not include module
+titles, module paths, raw sample data, or private local identifiers, and
+enabling it must not change playback, C mixer DSP, scheduling, runtime gain,
+runtime headroom, parser behavior, tracker viewport, editor, note audition, or
+control panel behavior. It is not runtime auto-headroom.
+
 ## Audio Reference Comparison
 
 Use `docs/audio-comparison.md` when comparing VoodooTracker X playback against a

@@ -1481,6 +1481,151 @@ enum RuntimeCMixerTraceJSONLFormatter {
     }
 }
 
+struct RuntimeMixerMetricsTraceField: Equatable {
+    let key: String
+    let value: String
+
+    init(_ key: String, _ value: String) {
+        let sanitizedKey = Self.sanitizedKey(key)
+        self.key = sanitizedKey
+        self.value = Self.sanitizedValue(value, key: sanitizedKey)
+    }
+
+    init(_ key: String, _ value: Int) {
+        self.init(key, String(value))
+    }
+
+    init(_ key: String, _ value: UInt64) {
+        self.init(key, String(value))
+    }
+
+    init(_ key: String, _ value: Bool) {
+        self.init(key, value ? "true" : "false")
+    }
+
+    init(_ key: String, _ value: Float) {
+        self.init(key, Self.format(Double(value)))
+    }
+
+    init(_ key: String, _ value: Double) {
+        self.init(key, Self.format(value))
+    }
+
+    private static func format(_ value: Double) -> String {
+        let safeValue = value.isFinite ? value : 0
+        return String(format: "%.6f", safeValue)
+    }
+
+    private static func sanitizedKey(_ key: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        let scalars = key.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "_"
+        }
+        let result = scalars.joined()
+        return result.isEmpty ? "field" : result
+    }
+
+    private static func sanitizedValue(_ value: String, key: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "empty"
+        }
+        let lowercased = trimmed.lowercased()
+        let lowercasedKey = key.lowercased()
+        if lowercasedKey.contains("path") ||
+            lowercasedKey.contains("url") ||
+            lowercasedKey.contains("title") ||
+            trimmed.contains("/") ||
+            trimmed.contains("\\") ||
+            lowercased.contains("desktop") {
+            return "redacted"
+        }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.,:+-=@")
+        let scalars = trimmed.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "_"
+        }
+        return scalars.joined()
+    }
+}
+
+struct RuntimeMixerMetricsTraceRecord: Equatable {
+    let phase: String
+    let fields: [RuntimeMixerMetricsTraceField]
+}
+
+enum RuntimeMixerMetricsTraceFormatter {
+    static func line(for record: RuntimeMixerMetricsTraceRecord) -> String {
+        var parts = [
+            "vtx_runtime_mixer_metrics",
+            "schema=1",
+            "phase=\(RuntimeMixerMetricsTraceField("phase", record.phase).value)",
+        ]
+        parts.append(contentsOf: record.fields.map { "\($0.key)=\($0.value)" })
+        return parts.joined(separator: " ")
+    }
+}
+
+@MainActor
+protocol RuntimeMixerMetricsTraceWriting: AnyObject {
+    var isEnabled: Bool { get }
+
+    func record(_ record: RuntimeMixerMetricsTraceRecord)
+    func flush()
+}
+
+@MainActor
+final class NoopRuntimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting {
+    static let shared = NoopRuntimeMixerMetricsTraceWriter()
+
+    let isEnabled = false
+
+    private init() {}
+
+    func record(_ record: RuntimeMixerMetricsTraceRecord) {}
+
+    func flush() {}
+}
+
+@MainActor
+final class StandardErrorRuntimeMixerMetricsTraceWriter: RuntimeMixerMetricsTraceWriting {
+    static let shared = StandardErrorRuntimeMixerMetricsTraceWriter()
+
+    let isEnabled = true
+
+    private init() {}
+
+    func record(_ record: RuntimeMixerMetricsTraceRecord) {
+        let line = RuntimeMixerMetricsTraceFormatter.line(for: record)
+        guard let data = "\(line)\n".data(using: .utf8) else {
+            return
+        }
+        FileHandle.standardError.write(data)
+    }
+
+    func flush() {}
+}
+
+enum RuntimeMixerMetricsTraceConfiguration {
+    static let enabledEnvironmentKey = "VTX_RUNTIME_MIXER_METRICS_TRACE"
+
+    @MainActor
+    static func makeWriter(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> RuntimeMixerMetricsTraceWriting {
+        flagEnabled(enabledEnvironmentKey, environment: environment)
+            ? StandardErrorRuntimeMixerMetricsTraceWriter.shared
+            : NoopRuntimeMixerMetricsTraceWriter.shared
+    }
+
+    static func flagEnabled(_ key: String, environment: [String: String]) -> Bool {
+        guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !rawValue.isEmpty else {
+            return false
+        }
+        return rawValue == "1" || rawValue == "true" || rawValue == "yes" || rawValue == "on"
+    }
+}
+
 @MainActor
 final class RuntimeCMixerTraceJSONLWriter: RuntimeCMixerTraceWriting {
     let isEnabled = true

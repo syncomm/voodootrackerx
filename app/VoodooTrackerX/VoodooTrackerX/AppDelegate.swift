@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let playbackTimingRecorder = PlaybackTimingTraceConfiguration.makeRecorder()
-    private let playbackEngine = PlaybackEngine()
+    private let playbackEngine: PlaybackEngine
     private let noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: EditorNoteAuditionAudioSink())
     private var isSyncingScroll = false
     private var isEditModeEnabled = false
@@ -56,6 +56,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         retainedDelegate = delegate
         app.delegate = delegate
         app.run()
+    }
+
+    override init() {
+        let environment = ProcessInfo.processInfo.environment
+        let runtimeCMixerTraceWriter = RuntimeCMixerTraceConfiguration.makeWriter(environment: environment)
+        let runtimeMixerMetricsTraceWriter = RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: environment)
+        let audioOutput = PlaybackAudioOutputFactory.make(
+            environment: environment,
+            runtimeCMixerTraceWriter: runtimeCMixerTraceWriter,
+            runtimeMixerMetricsTraceWriter: runtimeMixerMetricsTraceWriter
+        )
+        playbackEngine = PlaybackEngine(
+            audioEngine: audioOutput,
+            runtimeCMixerTraceWriter: runtimeCMixerTraceWriter,
+            environment: environment
+        )
+        super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

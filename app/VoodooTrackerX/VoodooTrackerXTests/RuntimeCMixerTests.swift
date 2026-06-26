@@ -528,6 +528,107 @@ final class RuntimeCMixerTests: XCTestCase {
         ]))
     }
 
+    @MainActor
+    func testRuntimeMixerMetricsTraceConfigurationDisabledByDefaultAndParsesEnabledValues() {
+        XCTAssertFalse(RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: [:]).isEnabled)
+        XCTAssertFalse(RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: [
+            RuntimeMixerMetricsTraceConfiguration.enabledEnvironmentKey: "0"
+        ]).isEnabled)
+
+        for value in ["1", "true", "yes", "on"] {
+            XCTAssertTrue(RuntimeMixerMetricsTraceConfiguration.makeWriter(environment: [
+                RuntimeMixerMetricsTraceConfiguration.enabledEnvironmentKey: value
+            ]).isEnabled)
+        }
+    }
+
+    func testRuntimeMixerMetricsTraceFormatterRedactsPathLikeValues() {
+        let record = RuntimeMixerMetricsTraceRecord(
+            phase: "stop_summary",
+            fields: [
+                RuntimeMixerMetricsTraceField("local\\path", "C:\\local\\private.xm"),
+                RuntimeMixerMetricsTraceField("module_title", "private-local-title"),
+                RuntimeMixerMetricsTraceField("output_peak", Float(0.5)),
+            ]
+        )
+
+        let line = RuntimeMixerMetricsTraceFormatter.line(for: record)
+
+        XCTAssertTrue(line.hasPrefix("vtx_runtime_mixer_metrics schema=1 phase=stop_summary"))
+        XCTAssertTrue(line.contains("local_path=redacted"))
+        XCTAssertTrue(line.contains("module_title=redacted"))
+        XCTAssertTrue(line.contains("output_peak=0.500000"))
+        XCTAssertFalse(line.contains("C:\\"))
+        XCTAssertFalse(line.contains("private-local-title"))
+    }
+
+    @MainActor
+    func testRuntimeMixerMetricsTraceDisabledWriterEmitsNoStopSummary() {
+        let writer = TestRuntimeMixerMetricsTraceWriter(isEnabled: false)
+        let engine = RuntimeCMixerAudioEngine(
+            sampleRate: 100,
+            startsOutputHostOnDemand: false,
+            runtimeMixerMetricsTraceWriter: writer
+        )
+        let sample = makePlaybackSample(pcm: [1, -1, 1, -1], baseSampleRate: 100)
+
+        engine.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0))
+        _ = engine.renderForTesting(frameCount: 4)
+        engine.stopAll(context: nil, reason: "transport_stop")
+
+        XCTAssertTrue(writer.records.isEmpty)
+        XCTAssertEqual(writer.flushCount, 0)
+    }
+
+    @MainActor
+    func testRuntimeMixerMetricsTraceRecordsSanitizedStopSummaryFromInjectedWriter() throws {
+        let writer = TestRuntimeMixerMetricsTraceWriter()
+        let outputPolicy = RuntimeCMixerOutputPolicy(
+            outputGain: 0.5,
+            headroomPolicy: "test_runtime_headroom",
+            gainPolicySource: "test",
+            fixedHeadroomDB: -6
+        )
+        let engine = RuntimeCMixerAudioEngine(
+            sampleRate: 100,
+            outputPolicy: outputPolicy,
+            startsOutputHostOnDemand: false,
+            runtimeMixerMetricsTraceWriter: writer
+        )
+        let sample = makePlaybackSample(pcm: [1, -1, 1, -1], baseSampleRate: 100)
+
+        engine.trigger(AudioVoiceRequest(sample: sample, note: 49, channel: 0))
+        _ = engine.renderForTesting(frameCount: 4)
+        engine.stopAll(context: nil, reason: "transport_stop")
+
+        let record = try XCTUnwrap(writer.records.last)
+        let fields = Dictionary(uniqueKeysWithValues: record.fields.map { ($0.key, $0.value) })
+        let line = try XCTUnwrap(writer.lines.last)
+
+        XCTAssertEqual(record.phase, "stop_summary")
+        XCTAssertEqual(fields["runtime_audio_backend"], "c_mixer")
+        XCTAssertEqual(fields["runtime_output_host_type"], "coreaudio_default_output_unit")
+        XCTAssertEqual(fields["stop_reason"], "transport_stop")
+        XCTAssertEqual(fields["sample_rate"], "100.000000")
+        XCTAssertEqual(fields["channel_count"], "2")
+        XCTAssertEqual(fields["rendered_frame_count"], "4")
+        XCTAssertEqual(fields["render_callback_count"], "1")
+        XCTAssertNotNil(fields["output_peak"])
+        XCTAssertNotNil(fields["output_rms"])
+        XCTAssertEqual(fields["overrange_sample_count"], "0")
+        XCTAssertEqual(fields["clipping_sample_count"], "0")
+        XCTAssertEqual(fields["clipping_detected"], "false")
+        XCTAssertNotNil(fields["max_output_adjacent_sample_jump"])
+        XCTAssertEqual(fields["runtime_output_gain"], "0.500000")
+        XCTAssertEqual(fields["runtime_headroom_policy"], "test_runtime_headroom")
+        XCTAssertEqual(fields["runtime_fixed_headroom_db"], "-6.000000")
+        XCTAssertEqual(fields["runtime_auto_headroom_enabled"], "false")
+        XCTAssertEqual(writer.flushCount, 1)
+        XCTAssertTrue(line.hasPrefix("vtx_runtime_mixer_metrics schema=1 phase=stop_summary"))
+        XCTAssertFalse(line.contains("/"))
+        XCTAssertFalse(line.contains("module_title"))
+    }
+
     func testRuntimeCMixerCaptureConfigurationIsDisabledByDefault() {
         XCTAssertNil(RuntimeCMixerCaptureConfiguration.resolve(environment: [:]))
     }

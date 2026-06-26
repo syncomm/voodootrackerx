@@ -29,11 +29,20 @@ Runtime-only diagnostics may use:
 
 - `VTX_C_MIXER_RUNTIME_TRACE_PATH` for local JSONL trace output.
 - `VTX_C_MIXER_RUNTIME_CAPTURE_PATH` for local runtime CoreAudio capture.
+- `VTX_RUNTIME_MIXER_METRICS_TRACE` for sanitized runtime mixer stop summaries.
 - `VTX_DEBUG_AUTOPLAY` and `VTX_DEBUG_STOP_AFTER_SECONDS` for bounded manual
   smoke runs.
 
 Generated traces, captures, logs, reports, screenshots, and listening notes
 stay under `/tmp` or another untracked local path.
+
+Xcode 16.4 CI has crashed the Swift frontend when new diagnostics were wired
+through compiler-sensitive default `PlaybackEngine()` stored-property
+initialization from `AppDelegate`. For diagnostic PRs, keep new recorder/sink
+objects disabled by default and prefer explicit AppDelegate/factory injection
+or small value types over adding diagnostic object creation to PlaybackEngine
+default initializer paths. Treat the macOS CI Xcode build as the verification
+gate even when local SwiftPM and newer local Xcode builds pass.
 
 ## Offline Render / Export Workflow
 

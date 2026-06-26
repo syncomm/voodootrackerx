@@ -131,6 +131,16 @@ There is no app load-time or Play-time module-specific headroom scan today.
 | Export headroom | `MixerWAVExportPolicy` supports explicit `--gain`, explicit `--headroom-db`, and `--auto-headroom` for offline WAV export. `--auto-headroom` needs a rendered `MixerRenderBlock` peak first. |
 | Bounded render diagnostics | `vtx_render_bounded_xm` can report pre-export peak/RMS/overrange, post-gain peak/RMS, and PCM16 clipping. This is developer/offline tooling only. |
 
+Runtime mixer metrics telemetry is available behind
+`VTX_RUNTIME_MIXER_METRICS_TRACE=1`. It writes a sanitized stop summary from the
+existing runtime render-core aggregate metrics, including peak/RMS, overrange,
+clipping, adjacent-sample jump/discontinuity counters, rendered frame counts,
+sample rate, and the active runtime gain/headroom policy. This is diagnostic
+telemetry only: it does not perform a module-specific pre-scan, change runtime
+gain/headroom, add runtime auto-headroom, move work from load to Play, or alter
+playback, C mixer DSP, scheduling, parser, tracker viewport, editor, note
+audition, or control panel behavior.
+
 Current invalidation is coarse:
 
 - Loading another module or File New calls `PlaybackEngine.load(song:)`, which

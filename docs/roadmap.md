@@ -107,8 +107,9 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 Recommended next PR sequence:
 
 1. Start the first small pattern-entry/editor workflow slice.
-2. Audit module-open performance boundaries so expensive diagnostics stay
-   explicit and local-only.
+2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
+   work: first add disabled timing diagnostics, then defer heavy load-time
+   planning, then expose TIME only from a bounded analysis cache.
 
 Parked parity-watch items:
 
@@ -191,6 +192,10 @@ Recommended next product PR:
   passes manual listening on a local multi-position module. Tests alone are not
   sufficient for this audio change; docs and tests must not reference private
   modules or local paths.
+- Module TIME/headroom work should follow
+  `docs/design/module-analysis-lifecycle.md`: do not add synchronous full-song
+  analysis to file load, do not infer duration from title strings, and do not
+  move runtime gain/headroom policy without a cache/invalidation plan.
 
 Recently completed product foundation:
 

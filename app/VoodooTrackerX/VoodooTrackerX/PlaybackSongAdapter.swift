@@ -372,7 +372,7 @@ enum PlaybackSongSyntheticAdapter {
         var deferredCellFields = [PlaybackSongSyntheticDeferredCellField]()
         var eventCoverage = EventCoverageBuilder()
         var events = [SyntheticTrackerEvent]()
-        var channelStates = [Int: ChannelState]()
+        var channelStates = [ChannelState]()
         var mixerSampleBuffers = [MixerSampleBufferCacheKey: MixerSampleBuffer]()
         var globalVolumeState = GlobalVolumeState()
         var traversalEffectStatuses = [TraversalEffectKey: PlaybackSongSyntheticEffectCommandDiagnostic.Status]()
@@ -461,6 +461,12 @@ enum PlaybackSongSyntheticAdapter {
         context.rowDiagnostics.reserveCapacity(estimatedRows)
         context.events.reserveCapacity(min(estimatedRows * 4, 65_536))
         context.eventMappings.reserveCapacity(min(estimatedRows * 4, 65_536))
+        context.ignoredCells.reserveCapacity(min(estimatedRows * 4, 65_536))
+        context.deferredCellFields.reserveCapacity(min(estimatedRows * 4, 65_536))
+        context.effectCommandDiagnostics.reserveCapacity(min(estimatedRows, 65_536))
+        context.volumeColumnMappings.reserveCapacity(min(estimatedRows, 65_536))
+        context.voiceStateUpdates.reserveCapacity(min(estimatedRows * 2, 65_536))
+        context.channelStates.reserveCapacity(traversalPlan.rows.reduce(0) { max($0, $1.row.cells.count) })
         context.mixerSampleBuffers.reserveCapacity(song.instrumentsByIndex.values.reduce(0) { $0 + $1.samples.count })
         let traversalStatusStart = profileSession?.beginPhase()
         context.traversalEffectStatuses = traversalEffectStatuses(from: traversalPlan.traversalDiagnostics)
@@ -480,15 +486,25 @@ enum PlaybackSongSyntheticAdapter {
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow
             ))
+            let rowTiming = timingPlan.rowTimings.indices.contains(traversalRow.syntheticRow)
+                ? timingPlan.rowTimings[traversalRow.syntheticRow]
+                : nil
+            let rowTimingConfig = rowTiming.map { timing in
+                SyntheticTrackerTimingConfig(
+                    speed: timing.effectiveSpeed,
+                    bpm: timing.effectiveBPM,
+                    sampleRate: timingPlan.sampleRate
+                )
+            } ?? timingPlan.timingConfig(forSyntheticRow: traversalRow.syntheticRow)
             let eventGenerationStart = profileSession == nil ? nil : DispatchTime.now().uptimeNanoseconds
             let rowDiagnostic = appendEvents(
                 from: traversalRow.row,
                 source: traversalRow.source,
                 syntheticRow: traversalRow.syntheticRow,
                 song: song,
-                timingConfig: timingPlan.timingConfig(forSyntheticRow: traversalRow.syntheticRow),
+                timingConfig: rowTimingConfig,
                 timingPlan: timingPlan,
-                scheduledStartFrame: timingPlan.frameFor(row: traversalRow.syntheticRow, tick: 0),
+                scheduledStartFrame: rowTiming?.rowStartFrame ?? timingPlan.frameFor(row: traversalRow.syntheticRow, tick: 0),
                 context: &context
             )
             if let eventGenerationStart {
@@ -620,7 +636,14 @@ enum PlaybackSongSyntheticAdapter {
     ) -> PlaybackSongSyntheticRowDiagnostic {
         let eventStartCount = context.events.count
         let ignoredStartCount = context.ignoredCells.count
-        for (channelIndex, cell) in row.cells.enumerated() {
+        if context.channelStates.count < row.cells.count {
+            context.channelStates.append(contentsOf: repeatElement(
+                ChannelState(),
+                count: row.cells.count - context.channelStates.count
+            ))
+        }
+        for channelIndex in row.cells.indices {
+            let cell = row.cells[channelIndex]
             context.eventCoverage.visit(cell)
             if let effectCommandDiagnostic = effectCommandDiagnostic(
                 from: cell,
@@ -632,7 +655,7 @@ enum PlaybackSongSyntheticAdapter {
             ) {
                 context.effectCommandDiagnostics.append(effectCommandDiagnostic)
             }
-            var channelState = context.channelStates[channelIndex] ?? ChannelState()
+            var channelState = context.channelStates[channelIndex]
             defer {
                 let axyUpdates = applyEffectColumnVolumeSlide(
                     from: cell,

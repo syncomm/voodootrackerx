@@ -8291,6 +8291,98 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.traversalDiagnostics.first?.policy, "bxx_position_cycle_guard")
     }
 
+    func testRuntimeAdapterPlanDenseRowEventGenerationSemanticsRemainStable() throws {
+        let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
+        let rows = [
+            PlaybackRow(index: 0, cells: [
+                PlaybackCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 52, instrument: 1, volumeColumn: 0x30, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 1, cells: [
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0x10, effectParam: 0x20),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+            PlaybackRow(index: 2, cells: [
+                PlaybackCell(note: 55, instrument: 1, volumeColumn: 0, effectType: 0x0E, effectParam: 0xD1),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+                PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+            ]),
+        ]
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 2, bpm: 250)
+        )
+
+        let runtimePlan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let syntheticPlan = try XCTUnwrap(runtimePlan.plan)
+
+        XCTAssertTrue(runtimePlan.generated)
+        XCTAssertEqual(runtimePlan.plannedEventCount, 5)
+        XCTAssertEqual(runtimePlan.plannedSongEndFrame, 6)
+        XCTAssertEqual(runtimePlan.events.map(\.channelIndex), [0, 1, 0, 1, 0])
+        XCTAssertEqual(runtimePlan.events.map(\.scheduledFrame), [0, 0, 2, 2, 5])
+        XCTAssertEqual(runtimePlan.events.map(\.syntheticTick), [0, 0, 0, 0, 1])
+        XCTAssertEqual(runtimePlan.events.map(\.categories), [
+            ["note_trigger"],
+            ["note_trigger"],
+            ["gain_pan_update", "gxx_global_volume_update", "global_volume_update"],
+            ["gain_pan_update", "gxx_global_volume_update", "global_volume_update"],
+            ["note_trigger", "replacement", "note_delay"],
+        ])
+
+        guard case let .noteTrigger(firstEventIndex, firstEvent, firstMapping) = runtimePlan.events[0].action else {
+            return XCTFail("expected first event to be a note trigger")
+        }
+        XCTAssertEqual(firstEventIndex, 0)
+        XCTAssertEqual(firstEvent.gain, 1, accuracy: 0.000_001)
+        XCTAssertEqual(firstMapping.note, 49)
+        XCTAssertEqual(firstMapping.effectiveGlobalVolumeValue, 64)
+
+        guard case let .noteTrigger(secondEventIndex, secondEvent, secondMapping) = runtimePlan.events[1].action else {
+            return XCTFail("expected second event to be a note trigger")
+        }
+        XCTAssertEqual(secondEventIndex, 1)
+        XCTAssertEqual(secondEvent.gain, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(secondMapping.note, 52)
+        XCTAssertEqual(secondMapping.effectiveVolumeValue, 32)
+
+        guard case let .gainPanUpdate(firstActiveEventIndex, firstGain, firstPan) = runtimePlan.events[2].action else {
+            return XCTFail("expected third event to be a gain update")
+        }
+        XCTAssertEqual(firstActiveEventIndex, 0)
+        XCTAssertEqual(try XCTUnwrap(firstGain), 0.5, accuracy: 0.000_001)
+        XCTAssertNil(firstPan)
+
+        guard case let .gainPanUpdate(secondActiveEventIndex, secondGain, secondPan) = runtimePlan.events[3].action else {
+            return XCTFail("expected fourth event to be a gain update")
+        }
+        XCTAssertEqual(secondActiveEventIndex, 1)
+        XCTAssertEqual(try XCTUnwrap(secondGain), 0.25, accuracy: 0.000_001)
+        XCTAssertNil(secondPan)
+
+        guard case let .noteTrigger(delayedEventIndex, delayedEvent, delayedMapping) = runtimePlan.events[4].action else {
+            return XCTFail("expected final event to be a delayed note trigger")
+        }
+        XCTAssertEqual(delayedEventIndex, 2)
+        XCTAssertEqual(delayedEvent.scheduledStartFrame, 5)
+        XCTAssertEqual(delayedEvent.tick, 1)
+        XCTAssertEqual(delayedEvent.gain, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(delayedMapping.note, 55)
+        XCTAssertEqual(delayedMapping.syntheticTick, 1)
+        XCTAssertEqual(delayedMapping.effectiveGlobalVolumeValue, 32)
+
+        XCTAssertEqual(syntheticPlan.pattern.events.count, 3)
+        XCTAssertEqual(syntheticPlan.diagnostics.rowDiagnostics.map(\.emittedEventCount), [2, 0, 1])
+        XCTAssertEqual(syntheticPlan.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).count, 2)
+        XCTAssertEqual(syntheticPlan.diagnostics.noteDelayEffects.map(\.delayedFrame), [5])
+        XCTAssertEqual(syntheticPlan.diagnostics.eventCoverage.scheduledNoteEvents, 3)
+        XCTAssertEqual(syntheticPlan.diagnostics.eventCoverage.ignoredOrDeferredCells, 6)
+    }
+
     func testRuntimeAdapterPlanningDoesNotExpandLongOrderTablePositionJumpCycle() {
         let orderCount = 512
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)

@@ -157,6 +157,12 @@ events, alter playback semantics, compute TIME, or change runtime gain,
 headroom, parser, C mixer DSP, tracker viewport, editor, note audition, or
 control panel behavior.
 
+Current local profiling still points at `PlaybackSongSyntheticAdapter` row/cell
+traversal and event generation as the primary adapter-plan construction cost.
+Dense channel-state storage removes hash lookups from that hot path while
+preserving generated adapter-event ordering and diagnostics; backend plan
+configuration remains small and mostly flat by comparison.
+
 ## Headroom And Gain Lifecycle
 
 There is no app load-time or Play-time module-specific headroom scan today.

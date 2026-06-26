@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let theme = TrackerTheme.legacyDark
     private let metadataLoader = ModuleMetadataLoader()
     private let playbackTimingRecorder = PlaybackTimingTraceConfiguration.makeRecorder()
-    private lazy var playbackEngine = PlaybackEngine(playbackTimingRecorder: playbackTimingRecorder)
+    private let playbackEngine = PlaybackEngine()
     private let noteAuditionPreviewer = EditorNoteAuditionPreviewer(sink: EditorNoteAuditionAudioSink())
     private var isSyncingScroll = false
     private var isEditModeEnabled = false

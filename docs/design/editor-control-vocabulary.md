@@ -4,8 +4,10 @@ The shared tactile control library used by all three editor windows (Song / Orde
 Sample). Defining it once keeps knobs, sliders, switches, LEDs, and readouts consistent across the
 editors and any future UI work.
 
-**Status:** Design-only. Reference: `assets/mockups/editor-control-knob-lab.html` is the canonical
-visual for the knob and pan slider; the per-window mockups show them in context.
+**Status:** Shared theme, panel label, segment readout, indicator LED, and chunky button primitives
+now exist as additive AppKit foundations. Knobs, pan slider, switches, canvases, and editor windows
+remain design-only. Reference: `assets/mockups/editor-control-knob-lab.html` is the canonical visual
+for the knob and pan slider; the per-window mockups show them in context.
 
 This vocabulary extends the control-panel system in `docs/design/UI-DESIGN-control-panel.md` — same
 palette, same monospace, same recessed-vs-interactive hierarchy.

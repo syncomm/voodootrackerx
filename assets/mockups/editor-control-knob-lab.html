@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>VTX — Toothed Arc Knob Lab</title>
+<style>
+:root{--bg-panel:#252526;--gold:#C9A74A;--gold-60:rgba(201,167,74,.60);--gold-55:rgba(201,167,74,.55);--gold-38:rgba(201,167,74,.38);--gold-22:rgba(201,167,74,.22);--val:#E8D8A0;--led-red:#E0473A;--font:'SF Mono',ui-monospace,'Consolas',monospace}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;font-family:var(--font);color:var(--val);padding:34px;display:flex;flex-direction:column;gap:28px;align-items:center}
+h1{font-size:13px;color:var(--gold-60);letter-spacing:.14em;text-transform:uppercase}
+.note{font-size:11px;color:rgba(232,216,160,.45);max-width:760px;text-align:center;line-height:1.6}
+.panel{background:var(--bg-panel);border:1px solid var(--gold-22);border-radius:6px;padding:24px 30px;display:flex;gap:34px;align-items:center;justify-content:center;flex-wrap:wrap}
+.kw{display:flex;flex-direction:column;align-items:center;gap:8px}
+.klbl{font-size:8px;color:var(--gold-60);letter-spacing:.06em;text-transform:uppercase}
+.kval{font-size:9px;color:var(--val);background:#141414;border:1px solid var(--gold-22);border-radius:2px;padding:1px 6px;text-shadow:0 0 3px rgba(232,216,160,.25)}
+/* ===== KNOB: uniform body, toothed value arc, importance via arc size ===== */
+.k{position:relative;width:54px;height:54px}
+.k .arc,.k .col2,.k .bd,.k .pt{position:absolute}
+.k .arc{inset:-8%;border-radius:50%;
+  background:conic-gradient(from -135deg, var(--gold) 0 var(--arc,180deg), rgba(201,167,74,.15) var(--arc,180deg) 270deg, transparent 270deg 360deg);
+  -webkit-mask:radial-gradient(circle, transparent 63%, #000 65%, #000 80%, transparent 82%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  -webkit-mask-composite:source-in;
+  mask:radial-gradient(circle, transparent 63%, #000 65%, #000 80%, transparent 82%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  mask-composite:intersect}
+/* emphasized = bigger / brighter toothed halo, SAME knob body */
+.k.imp .arc{inset:-18%;filter:drop-shadow(0 0 3px rgba(201,167,74,.45));
+  -webkit-mask:radial-gradient(circle, transparent 55%, #000 57%, #000 84%, transparent 86%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  mask:radial-gradient(circle, transparent 55%, #000 57%, #000 84%, transparent 86%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg)}
+.k .col2{inset:13%;border-radius:50%;background:radial-gradient(circle at 50% 26%, rgba(255,255,255,.18), transparent 42%), linear-gradient(#2b2b2e,#0d0d0e);box-shadow:inset 0 1px 2px rgba(255,255,255,.20),inset 0 -5px 9px rgba(0,0,0,.78),0 2px 6px rgba(0,0,0,.6)}
+.k .bd{inset:25%;border-radius:50%;background:radial-gradient(circle at 45% 34%, #303033, #161619 60%, #0b0b0c);box-shadow:inset 0 1px 2px rgba(255,255,255,.10),inset 0 -2px 4px rgba(0,0,0,.6)}
+.k .pt{left:50%;top:15%;width:6px;height:20%;transform-origin:50% 175%;transform:translateX(-50%) rotate(var(--rot,45deg))}
+.k .pt .groove{position:absolute;inset:0;border-radius:3px;background:linear-gradient(90deg,#050506,#222226,#050506);box-shadow:inset 0 1px 2px rgba(0,0,0,.95),inset 0 -1px 1px rgba(255,255,255,.07)}
+.k .pt .tip{position:absolute;top:-2px;left:50%;width:5px;height:5px;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle at 40% 35%,#ffe9a8,var(--gold) 70%);box-shadow:0 0 5px rgba(201,167,74,.85)}
+/* ===== PAN SLIDER with center detent ===== */
+.sl{width:170px;display:flex;flex-direction:column;gap:7px}
+.sl .head{display:flex;justify-content:space-between;align-items:center}
+.sl .lbl{font-size:9px;font-weight:700;color:var(--gold);letter-spacing:.04em;text-transform:uppercase}
+.track{position:relative;height:10px;border-radius:5px;background:#121213;border:1px solid var(--gold-22);box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
+/* detent valley at center: a notch + glow when engaged */
+.track .detent{position:absolute;left:50%;top:50%;width:10px;height:10px;transform:translate(-50%,-50%);border-radius:50%;background:rgba(201,167,74,.10)}
+.track .ctick{position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:var(--gold-38)}
+.track .fill{position:absolute;top:0;bottom:0;background:rgba(201,167,74,.16)}
+.track .thumb{position:absolute;top:50%;width:13px;height:20px;border-radius:3px;transform:translate(-50%,-50%);background:linear-gradient(#3a3a3d,#141416);border:1px solid #060606;box-shadow:inset 0 1px 1px rgba(255,255,255,.16),inset 0 -2px 3px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.6)}
+.track .thumb::after{content:'';position:absolute;left:50%;top:3px;bottom:3px;width:2px;transform:translateX(-50%);background:var(--gold-60);border-radius:1px}
+/* engaged (centered) state: detent glows + center LED lights */
+.track.centered .ctick{background:var(--gold);box-shadow:0 0 6px rgba(201,167,74,.8)}
+.track.centered .detent{background:rgba(201,167,74,.22);box-shadow:0 0 7px rgba(201,167,74,.45)}
+.cled{width:7px;height:7px;border-radius:50%;background:#2a2410;box-shadow:inset 0 0 2px #000}
+.cled.on{background:radial-gradient(circle at 40% 35%,#ffe9a8,var(--gold) 65%,#8a6f24);box-shadow:0 0 6px rgba(201,167,74,.8)}
+.cap{font-size:8px;color:var(--gold-60);letter-spacing:.08em;text-transform:uppercase}
+</style></head>
+<body>
+<h1>VoodooTracker X — Toothed Arc Knob Lab</h1>
+<div class="note">Canonical control reference for the editor windows. Uniform knob body everywhere; the <b>arc is made of teeth</b> (lit gold up to the value, dim after). Importance is shown by a <b>bigger toothed halo</b> (right-most), not a bigger knob. Below: the PAN slider with a <b>center detent</b> — the center tick + LED light up when parked at center (on a future touch build this is where a haptic tap fires). See <b>docs/design/editor-control-vocabulary.md</b>.</div>
+
+<div class="panel">
+  <span class="kw"><div class="k" style="--arc:70deg;--rot:-65deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">SWEEP</span><span class="kval">07</span></span>
+  <span class="kw"><div class="k" style="--arc:150deg;--rot:15deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">DEPTH</span><span class="kval">22</span></span>
+  <span class="kw"><div class="k" style="--arc:230deg;--rot:95deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">RATE</span><span class="kval">52</span></span>
+  <span class="kw"><div class="k imp" style="--arc:200deg;--rot:65deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">VOLUME · emphasized</span><span class="kval">3F</span></span>
+</div>
+
+<div class="panel" style="gap:60px">
+  <div class="sl">
+    <div class="head"><span class="lbl">PAN</span><span class="cled on"></span></div>
+    <div class="track centered"><div class="ctick"></div><div class="detent"></div><div class="fill" style="left:50%;right:50%"></div><div class="thumb" style="left:50%"></div></div>
+    <div class="cap" style="text-align:center">centered — detent engaged</div>
+  </div>
+  <div class="sl">
+    <div class="head"><span class="lbl">PAN</span><span class="cled"></span></div>
+    <div class="track"><div class="ctick"></div><div class="detent"></div><div class="fill" style="left:50%;right:28%"></div><div class="thumb" style="left:72%"></div></div>
+    <div class="cap" style="text-align:center">panned right — detent released</div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VoodooTracker X — Instrument Editor Mockup v3</title>
+<style>
+:root{
+  --bg-window:#1E1E1E; --bg-panel:#252526; --bg-readout:#181819; --bg-interactive:#1C1C1D;
+  --gold:#C9A74A; --gold-60:rgba(201,167,74,.60); --gold-55:rgba(201,167,74,.55);
+  --gold-38:rgba(201,167,74,.38); --gold-22:rgba(201,167,74,.22); --gold-12:rgba(201,167,74,.12);
+  --val:#E8D8A0; --code:rgba(201,167,74,.55);
+  --sel:rgba(70,84,125,.55); --led-red:#E0473A;
+  --play-bg:#152A1A; --play-text:#4DB868; --play-border:rgba(77,184,104,.55);
+  --font:'SF Mono',ui-monospace,'Consolas','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;font-family:var(--font);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:30px 20px 50px;color:var(--val)}
+.caption{font-size:11px;color:rgba(201,167,74,.5);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
+.win{width:920px;background:var(--bg-window);border-radius:9px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 18px 50px rgba(0,0,0,.7)}
+.chrome{background:#2A2A2B;height:26px;display:flex;align-items:center;padding:0 11px;gap:7px;border-bottom:1px solid rgba(0,0,0,.4)}
+.tl{width:11px;height:11px;border-radius:50%}.tl.c{background:#FF5F57}.tl.m{background:#FEBC2E}.tl.x{background:#28C840}
+.title{flex:1;text-align:center;font-size:11px;color:rgba(255,255,255,.35)}
+.accent{height:1px;background:var(--gold-60);box-shadow:0 0 6px rgba(201,167,74,.28)}
+.content{padding:12px;display:flex;flex-direction:column;gap:10px}
+.panel{background:var(--bg-panel);border:1px solid var(--gold-12);border-radius:4px;padding:10px;display:flex;flex-direction:column}
+.plabel{font-size:8.5px;color:var(--gold-60);letter-spacing:.13em;text-transform:uppercase;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.lbl{font-size:9px;font-weight:700;color:var(--gold);letter-spacing:.04em;text-transform:uppercase}
+.hint{font-size:8.5px;color:rgba(232,216,160,.32);text-transform:none;letter-spacing:0}
+.field-inl{display:flex;align-items:center;gap:5px}
+.btn{height:23px;padding:0 8px;border:1px solid var(--gold-38);border-radius:2px;background:var(--bg-interactive);color:var(--val);font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--gold-60)}
+.btn.play{background:var(--play-bg);color:var(--play-text);border-color:var(--play-border)}
+.seg-disp{background:#141414;border:1px solid var(--gold-22);border-radius:2px;color:var(--val);font-size:11px;font-weight:600;padding:2px 7px;letter-spacing:.07em;box-shadow:inset 0 1px 3px rgba(0,0,0,.6);text-shadow:0 0 4px rgba(232,216,160,.25);min-width:34px;text-align:center}
+.namefield{flex:1;background:var(--bg-interactive);border:1px solid var(--gold-55);border-radius:2px;color:var(--val);font-size:12px;padding:4px 9px}
+.switch{width:32px;height:15px;border-radius:8px;background:#1a1a1b;border:1px solid var(--gold-22);position:relative;cursor:pointer;flex-shrink:0}
+.switch .nub{position:absolute;top:1px;left:1px;width:11px;height:11px;border-radius:50%;background:#555}
+.switch.on{background:#2B2514;border-color:var(--gold-55)}
+.switch.on .nub{left:18px;background:var(--gold);box-shadow:0 0 5px rgba(201,167,74,.6)}
+.segsw{display:inline-flex;border:1px solid var(--gold-38);border-radius:3px;overflow:hidden}
+.segsw div{padding:3px 9px;font-size:10px;color:rgba(232,216,160,.5);border-right:1px solid var(--gold-22);cursor:pointer}
+.segsw div:last-child{border-right:none}
+.segsw div.on{background:#2B2514;color:var(--gold)}
+.stepper{display:flex;align-items:center;gap:2px}
+.arrs{display:flex;flex-direction:column;gap:1px}
+.arr{width:14px;height:9px;background:var(--bg-interactive);border:1px solid var(--gold-38);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:6px;color:var(--gold-60);cursor:pointer}
+.arr:hover{color:var(--gold);border-color:var(--gold-60)}
+.led{width:8px;height:8px;border-radius:50%;background:#3a1412;box-shadow:inset 0 0 2px #000;flex-shrink:0}
+.led.on{background:radial-gradient(circle at 40% 35%,#ff8a7e,var(--led-red) 60%,#9c241a);box-shadow:0 0 6px rgba(224,71,58,.85)}
+.list{flex:1;background:var(--bg-readout);border:1px solid var(--gold-22);border-radius:3px;overflow:auto}
+.lrow{display:flex;gap:7px;padding:4px 9px;font-size:10px;color:rgba(232,216,160,.6);border-bottom:1px solid rgba(201,167,74,.05);cursor:pointer}
+.lrow .c{color:var(--code)}
+.lrow.sel{background:var(--sel);color:#fff}.lrow.sel .c{color:rgba(255,255,255,.6)}
+.lrow.empty{color:rgba(232,216,160,.22)}
+/* ===== KNOB: uniform body, toothed value arc, importance via arc size ===== */
+.kw{display:flex;flex-direction:column;align-items:center;gap:6px}
+.kw .klbl{font-size:8px;color:var(--gold-60);letter-spacing:.06em;text-transform:uppercase}
+.kw .kval{font-size:9px;color:var(--val);background:#141414;border:1px solid var(--gold-22);border-radius:2px;padding:1px 6px;letter-spacing:.05em;min-width:34px;text-align:center;text-shadow:0 0 3px rgba(232,216,160,.25)}
+.k{position:relative;width:46px;height:46px}
+.k .arc,.k .col2,.k .bd,.k .pt{position:absolute}
+.k .arc{inset:-8%;border-radius:50%;
+  background:conic-gradient(from -135deg, var(--gold) 0 var(--arc,180deg), rgba(201,167,74,.15) var(--arc,180deg) 270deg, transparent 270deg 360deg);
+  -webkit-mask:radial-gradient(circle, transparent 63%, #000 65%, #000 80%, transparent 82%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  -webkit-mask-composite:source-in;
+  mask:radial-gradient(circle, transparent 63%, #000 65%, #000 80%, transparent 82%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  mask-composite:intersect}
+.k.imp .arc{inset:-18%;filter:drop-shadow(0 0 3px rgba(201,167,74,.45));
+  -webkit-mask:radial-gradient(circle, transparent 55%, #000 57%, #000 84%, transparent 86%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg);
+  mask:radial-gradient(circle, transparent 55%, #000 57%, #000 84%, transparent 86%), repeating-conic-gradient(from -135deg, #000 0 2.6deg, transparent 2.6deg 9deg)}
+.k .col2{inset:13%;border-radius:50%;background:radial-gradient(circle at 50% 26%, rgba(255,255,255,.18), transparent 42%), linear-gradient(#2b2b2e,#0d0d0e);box-shadow:inset 0 1px 2px rgba(255,255,255,.20),inset 0 -5px 9px rgba(0,0,0,.78),0 2px 6px rgba(0,0,0,.6)}
+.k .bd{inset:25%;border-radius:50%;background:radial-gradient(circle at 45% 34%, #303033, #161619 60%, #0b0b0c);box-shadow:inset 0 1px 2px rgba(255,255,255,.10),inset 0 -2px 4px rgba(0,0,0,.6)}
+.k .pt{left:50%;top:15%;width:6px;height:20%;transform-origin:50% 175%;transform:translateX(-50%) rotate(var(--rot,45deg))}
+.k .pt .groove{position:absolute;inset:0;border-radius:3px;background:linear-gradient(90deg,#050506,#222226,#050506);box-shadow:inset 0 1px 2px rgba(0,0,0,.95),inset 0 -1px 1px rgba(255,255,255,.07)}
+.k .pt .tip{position:absolute;top:-2px;left:50%;width:5px;height:5px;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle at 40% 35%,#ffe9a8,var(--gold) 70%);box-shadow:0 0 5px rgba(201,167,74,.85)}
+/* ===== PAN SLIDER with center detent ===== */
+.panrow{display:flex;flex-direction:column;gap:7px}
+.panrow .head{display:flex;justify-content:space-between;align-items:center}
+.track{position:relative;height:10px;border-radius:5px;background:#121213;border:1px solid var(--gold-22);box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
+.track .ctick{position:absolute;left:50%;top:-4px;bottom:-4px;width:1px;background:var(--gold-38)}
+.track .detent{position:absolute;left:50%;top:50%;width:10px;height:10px;transform:translate(-50%,-50%);border-radius:50%;background:rgba(201,167,74,.10)}
+.track .fill{position:absolute;top:0;bottom:0;background:rgba(201,167,74,.16)}
+.track .thumb{position:absolute;top:50%;width:13px;height:20px;border-radius:3px;transform:translate(-50%,-50%);background:linear-gradient(#3a3a3d,#141416);border:1px solid #060606;box-shadow:inset 0 1px 1px rgba(255,255,255,.16),inset 0 -2px 3px rgba(0,0,0,.6),0 1px 2px rgba(0,0,0,.6)}
+.track .thumb::after{content:'';position:absolute;left:50%;top:3px;bottom:3px;width:2px;transform:translateX(-50%);background:var(--gold-60);border-radius:1px}
+.track.centered .ctick{background:var(--gold);box-shadow:0 0 6px rgba(201,167,74,.8)}
+.track.centered .detent{background:rgba(201,167,74,.22);box-shadow:0 0 7px rgba(201,167,74,.45)}
+.cled{width:7px;height:7px;border-radius:50%;background:#2a2410;box-shadow:inset 0 0 2px #000}
+.cled.on{background:radial-gradient(circle at 40% 35%,#ffe9a8,var(--gold) 65%,#8a6f24);box-shadow:0 0 6px rgba(201,167,74,.8)}
+.footer{margin-top:16px;font-size:10px;color:rgba(255,255,255,.18);letter-spacing:.04em;text-align:center;max-width:920px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="caption">VoodooTracker X · Instrument Editor (fixed ~920×638)</div>
+<div class="win">
+  <div class="chrome"><div class="tl c"></div><div class="tl m"></div><div class="tl x"></div><div class="title">Instrument</div></div>
+  <div class="accent"></div>
+  <div class="content">
+
+    <!-- HEADER -->
+    <div class="panel" style="flex-direction:row;align-items:center;gap:14px;flex-wrap:wrap">
+      <div class="field-inl"><span class="lbl">INST</span><span class="seg-disp" style="min-width:30px">I01</span></div>
+      <div class="field-inl" style="flex:1;min-width:150px"><span class="lbl">NAME</span><input class="namefield" value="Deep Bass"></div>
+      <div class="field-inl"><button class="btn">⤓ IMPORT XI</button><button class="btn">⤒ EXPORT XI</button></div>
+      <div class="field-inl"><span class="lbl">AUDITION</span>
+        <div class="stepper"><div class="seg-disp">C-4</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div>
+        <button class="btn play">▶</button><div class="led on"></div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div style="display:flex;gap:10px;align-items:stretch;height:360px">
+
+      <!-- LEFT RAIL -->
+      <div style="flex:0 0 170px;display:flex;flex-direction:column;gap:10px">
+        <div class="panel" style="flex:1.2">
+          <div class="plabel">Instruments</div>
+          <div class="list">
+            <div class="lrow sel"><span class="c">I01</span>Deep Bass</div>
+            <div class="lrow"><span class="c">I02</span>808 Snare</div>
+            <div class="lrow"><span class="c">I03</span>Lead Saw</div>
+            <div class="lrow"><span class="c">I04</span>Pad Warm</div>
+            <div class="lrow"><span class="c">I05</span>Pluck</div>
+            <div class="lrow empty"><span class="c">I06</span>—</div>
+            <div class="lrow empty"><span class="c">I07</span>—</div>
+            <div class="lrow empty"><span class="c">I08</span>—</div>
+          </div>
+        </div>
+        <div class="panel" style="flex:1">
+          <div class="plabel">Sample slots</div>
+          <div class="list">
+            <div class="lrow sel"><span class="c">S00</span>Bass C2</div>
+            <div class="lrow"><span class="c">S01</span>Bass C3</div>
+            <div class="lrow"><span class="c">S02</span>Bass G3</div>
+            <div class="lrow empty"><span class="c">S03</span>—</div>
+            <div class="lrow empty"><span class="c">S04</span>—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ENVELOPE -->
+      <div class="panel" style="flex:1">
+        <div class="plabel">Envelope
+          <div class="segsw" style="margin-left:4px"><div class="on">VOL</div><div>PAN</div></div>
+          <button class="btn" style="height:20px;margin-left:8px">＋ ADD PT</button><button class="btn" style="height:20px">⌫ DEL PT</button>
+          <span class="field-inl" style="margin-left:auto"><span class="lbl">ENABLE</span><div class="switch on"><div class="nub"></div></div><div class="led on"></div></span>
+        </div>
+        <svg viewBox="0 0 480 190" preserveAspectRatio="none" style="width:100%;flex:1;display:block;background:#141414;border:1px solid var(--gold-22);border-radius:3px">
+          <defs><pattern id="grid" width="48" height="38" patternUnits="userSpaceOnUse"><path d="M48 0 L0 0 0 38" fill="none" stroke="rgba(201,167,74,.07)" stroke-width="1"/></pattern></defs>
+          <rect width="480" height="190" fill="url(#grid)"/>
+          <rect x="115" y="0" width="125" height="190" fill="rgba(70,84,125,.18)"/>
+          <line x1="115" y1="0" x2="115" y2="190" stroke="rgba(201,167,74,.5)"/>
+          <line x1="240" y1="0" x2="240" y2="190" stroke="rgba(201,167,74,.5)"/>
+          <line x1="262" y1="0" x2="262" y2="190" stroke="rgba(201,167,74,.35)" stroke-dasharray="3 3"/>
+          <text x="266" y="13" fill="rgba(201,167,74,.6)" font-size="9" font-family="monospace">SUS</text>
+          <polyline points="12,178 74,34 115,64 178,46 240,86 262,72 345,120 440,170" fill="none" stroke="var(--gold)" stroke-width="2"/>
+          <circle cx="12" cy="178" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="74" cy="34" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="115" cy="64" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="178" cy="46" r="5.5" fill="#46547d" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="240" cy="86" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="262" cy="72" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="345" cy="120" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+          <circle cx="440" cy="170" r="4" fill="#141414" stroke="var(--gold)" stroke-width="1.5"/>
+        </svg>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:nowrap;white-space:nowrap">
+          <span class="field-inl"><span class="lbl">SUSTAIN</span><div class="switch on"><div class="nub"></div></div>
+            <span class="lbl" style="color:var(--gold-60)">PT</span><div class="stepper"><div class="seg-disp" style="min-width:28px">05</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div></span>
+          <span class="field-inl"><span class="lbl">LOOP</span><div class="switch on"><div class="nub"></div></div>
+            <span class="lbl" style="color:var(--gold-60)">ST</span><div class="stepper"><div class="seg-disp" style="min-width:28px">02</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div>
+            <span class="lbl" style="color:var(--gold-60)">EN</span><div class="stepper"><div class="seg-disp" style="min-width:28px">04</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div></span>
+          <span class="field-inl" style="margin-left:auto"><span class="lbl">FADE</span><div class="stepper"><div class="seg-disp">0080</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div></span>
+        </div>
+      </div>
+
+      <!-- RIGHT: vibrato + defaults (uniform knobs, toothed arcs) -->
+      <div style="flex:0 0 198px;display:flex;flex-direction:column;gap:10px">
+        <div class="panel" style="flex:1">
+          <div class="plabel">Vibrato
+            <div class="segsw" style="margin-left:auto"><div class="on">∿</div><div>⊓</div><div>⊿</div><div>◺</div></div>
+            <div class="led on" style="margin-left:6px"></div>
+          </div>
+          <div style="flex:1;display:flex;justify-content:space-around;align-items:center">
+            <span class="kw"><div class="k" style="--arc:70deg;--rot:-65deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">SWEEP</span><span class="kval">12</span></span>
+            <span class="kw"><div class="k" style="--arc:150deg;--rot:15deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">DEPTH</span><span class="kval">08</span></span>
+            <span class="kw"><div class="k" style="--arc:230deg;--rot:95deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">RATE</span><span class="kval">40</span></span>
+          </div>
+        </div>
+        <div class="panel" style="flex:1">
+          <div class="plabel">Defaults
+            <span class="field-inl" style="margin-left:auto"><span class="lbl">REL</span><div class="stepper"><div class="seg-disp">C-4</div><div class="arrs"><div class="arr">▲</div><div class="arr">▼</div></div></div></span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:16px">
+            <div style="display:flex;justify-content:space-around;align-items:flex-start">
+              <span class="kw"><div class="k imp" style="--arc:200deg;--rot:65deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">VOLUME</span><span class="kval">3F</span></span>
+              <span class="kw"><div class="k" style="--arc:135deg;--rot:0deg"><div class="arc"></div><div class="col2"></div><div class="bd"></div><div class="pt"><div class="groove"></div><div class="tip"></div></div></div><span class="klbl">FINETUNE</span><span class="kval">+00</span></span>
+            </div>
+            <div class="panrow">
+              <div class="head"><span class="lbl">PAN</span><span class="cled on" title="centered"></span></div>
+              <div class="track centered"><div class="ctick"></div><div class="detent"></div><div class="fill" style="left:50%;right:50%"></div><div class="thumb" style="left:50%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KEYMAP -->
+    <div class="panel">
+      <div class="plabel">Note keymap
+        <span class="hint">— click key = audition · drag across keys = assign selected sample (S00) to range</span>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span class="lbl" style="color:var(--gold-60)">OCT</span><button class="btn" style="height:20px;padding:0 7px">◀ C-2</button><button class="btn" style="height:20px;padding:0 7px">C-4 ▶</button></span>
+      </div>
+      <div style="display:flex;height:14px;border:1px solid var(--gold-22);border-bottom:none;border-radius:3px 3px 0 0;overflow:hidden;font-size:8px;font-weight:700">
+        <div style="flex:0 0 38%;background:rgba(201,167,74,.6);display:flex;align-items:center;justify-content:center;color:#201a08">S00 · Bass C2</div>
+        <div style="flex:0 0 29%;background:rgba(77,184,104,.5);display:flex;align-items:center;justify-content:center;color:#0c2415">S01 · Bass C3</div>
+        <div style="flex:1;background:rgba(70,84,125,.7);display:flex;align-items:center;justify-content:center;color:#fff">S02 · Bass G3</div>
+      </div>
+      <svg viewBox="0 0 840 96" preserveAspectRatio="none" style="width:100%;height:96px;display:block;border:1px solid var(--gold-38);border-radius:0 0 3px 3px">
+        <g>
+          <rect x="0" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="40" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="80" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="120" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="160" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="200" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="240" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/>
+          <rect x="280" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="320" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="360" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="400" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="440" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="480" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="520" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/>
+          <rect x="560" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="600" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="640" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="680" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="720" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="760" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/><rect x="800" y="0" width="40" height="96" fill="#d9d3c0" stroke="#9a9482"/>
+        </g>
+        <g fill="#1a1a1b">
+          <rect x="28" y="0" width="24" height="58"/><rect x="68" y="0" width="24" height="58"/><rect x="148" y="0" width="24" height="58"/><rect x="188" y="0" width="24" height="58"/><rect x="228" y="0" width="24" height="58"/>
+          <rect x="308" y="0" width="24" height="58"/><rect x="348" y="0" width="24" height="58"/><rect x="428" y="0" width="24" height="58"/><rect x="468" y="0" width="24" height="58"/><rect x="508" y="0" width="24" height="58"/>
+          <rect x="588" y="0" width="24" height="58"/><rect x="628" y="0" width="24" height="58"/><rect x="708" y="0" width="24" height="58"/><rect x="748" y="0" width="24" height="58"/><rect x="788" y="0" width="24" height="58"/>
+        </g>
+        <rect x="0" y="89" width="320" height="7" fill="rgba(201,167,74,.75)"/>
+        <rect x="320" y="89" width="240" height="7" fill="rgba(77,184,104,.65)"/>
+        <rect x="560" y="89" width="280" height="7" fill="rgba(70,84,125,.9)"/>
+      </svg>
+    </div>
+
+  </div>
+</div>
+<div class="footer">
+  Uniform chamfered knobs with a <b>toothed value arc</b> (importance shown by a bigger toothed halo, e.g. VOLUME) and a recessed carved indicator; PAN is a <b>center-detent</b> slider. Header-mounted controls keep the envelope line landscape.<br>
+  Static reference for implementation. See <b>docs/design/instrument-editor-window.md</b> and <b>docs/design/editor-control-vocabulary.md</b>.
+</div>
+</body>
+</html>

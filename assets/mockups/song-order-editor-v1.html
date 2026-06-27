@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VoodooTracker X — Song / Order Editor Mockup v2</title>
+<style>
+:root{
+  --bg-window:#1E1E1E; --bg-panel:#252526; --bg-readout:#181819; --bg-interactive:#1C1C1D;
+  --gold:#C9A74A; --gold-60:rgba(201,167,74,.60); --gold-55:rgba(201,167,74,.55);
+  --gold-38:rgba(201,167,74,.38); --gold-22:rgba(201,167,74,.22); --gold-12:rgba(201,167,74,.12);
+  --val:#E8D8A0; --code:rgba(201,167,74,.55);
+  --sel:rgba(70,84,125,.55); --led-red:#E0473A; --danger:#CC5A50;
+  --font:'SF Mono',ui-monospace,'Consolas','Courier New',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#141414;font-family:var(--font);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:30px 20px 50px;color:var(--val)}
+.caption{font-size:11px;color:rgba(201,167,74,.5);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
+.win{width:660px;background:var(--bg-window);border-radius:9px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 18px 50px rgba(0,0,0,.7)}
+.chrome{background:#2A2A2B;height:26px;display:flex;align-items:center;padding:0 11px;gap:7px;border-bottom:1px solid rgba(0,0,0,.4)}
+.tl{width:11px;height:11px;border-radius:50%}.tl.c{background:#FF5F57}.tl.m{background:#FEBC2E}.tl.x{background:#28C840}
+.title{flex:1;text-align:center;font-size:11px;color:rgba(255,255,255,.35)}
+.accent{height:1px;background:var(--gold-60);box-shadow:0 0 6px rgba(201,167,74,.28)}
+.content{padding:12px;display:flex;flex-direction:column;gap:10px}
+.panel{background:var(--bg-panel);border:1px solid var(--gold-12);border-radius:4px;padding:10px;display:flex;flex-direction:column}
+.plabel{font-size:8.5px;color:var(--gold-60);letter-spacing:.13em;text-transform:uppercase;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.lbl{font-size:9px;font-weight:700;color:var(--gold);letter-spacing:.04em;text-transform:uppercase}
+.hint{font-size:8.5px;color:rgba(232,216,160,.32);text-transform:none;letter-spacing:0}
+.btn{height:25px;padding:0 9px;border:1px solid var(--gold-38);border-radius:2px;background:var(--bg-interactive);color:var(--val);font-family:var(--font);font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--gold-60)}
+.btn.danger{border-color:rgba(204,90,80,.55);color:var(--danger)}
+.btn.sm{height:22px;padding:0 7px;font-size:9px}
+.btn.mini{height:20px;width:22px;padding:0;justify-content:center;font-size:9px}
+.seg-disp{background:#141414;border:1px solid var(--gold-22);border-radius:2px;color:var(--val);font-size:11px;font-weight:600;padding:2px 7px;letter-spacing:.07em;box-shadow:inset 0 1px 3px rgba(0,0,0,.6);text-shadow:0 0 4px rgba(232,216,160,.25)}
+.led{width:8px;height:8px;border-radius:50%;background:#3a1412;box-shadow:inset 0 0 2px #000;flex-shrink:0}
+.led.on{background:radial-gradient(circle at 40% 35%,#ff8a7e,var(--led-red) 60%,#9c241a);box-shadow:0 0 6px rgba(224,71,58,.85)}
+.field-inl{display:flex;align-items:center;gap:5px}
+.sepv{width:1px;height:18px;background:var(--gold-38);margin:0 4px}
+/* order list */
+.olist-wrap{flex:1;display:flex;flex-direction:column;background:var(--bg-readout);border:1px solid var(--gold-22);border-radius:3px;overflow:hidden}
+.ohead,.orow{display:grid;grid-template-columns:52px 70px 1fr;align-items:center;gap:8px;padding:3px 10px}
+.ohead{font-size:8px;color:var(--gold-60);letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--gold-12)}
+.olist{flex:1;overflow:auto}
+.orow{font-size:11px;border-bottom:1px solid rgba(201,167,74,.05)}
+.orow .ord{color:var(--code);font-size:10px}
+.orow .ptn{color:var(--val);font-weight:700;letter-spacing:.06em;text-shadow:0 0 5px rgba(232,216,160,.3)}
+.orow .rows{color:rgba(232,216,160,.45);font-size:10px}
+.orow.sel{background:var(--sel)}.orow.sel .ptn{color:#fff}
+.legend{font-size:8px;color:rgba(232,216,160,.35);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:4px}
+.sw{width:9px;height:9px;border-radius:2px;display:inline-block}
+/* bank */
+.bank{flex:1;display:grid;grid-template-columns:repeat(8,1fr);grid-auto-rows:1fr;gap:5px;align-content:stretch}
+.cell{border:1px solid var(--gold-22);border-radius:2px;background:var(--bg-readout);display:flex;align-items:center;justify-content:center;font-size:10px;color:rgba(232,216,160,.4);position:relative;cursor:pointer;min-height:26px}
+.cell.used{background:#2a2a10;color:var(--val);border-color:var(--gold-38);border-left:2px solid var(--gold-55)}
+.cell.cur{border-color:var(--gold);color:#fff;box-shadow:0 0 7px rgba(201,167,74,.3)}
+.cell .dot{position:absolute;top:3px;right:3px}
+.footer{margin-top:16px;font-size:10px;color:rgba(255,255,255,.18);letter-spacing:.04em;text-align:center;max-width:660px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="caption">VoodooTracker X · Song / Order Editor (fixed ~660×480)</div>
+<div class="win">
+  <div class="chrome"><div class="tl c"></div><div class="tl m"></div><div class="tl x"></div><div class="title">Song / Order</div></div>
+  <div class="accent"></div>
+  <div class="content">
+
+    <!-- MAIN: order list | (bank + pattern ops) -->
+    <div style="display:flex;gap:10px;align-items:stretch">
+
+      <!-- ORDER LIST -->
+      <div class="panel" style="flex:0 0 296px">
+        <div class="plabel">Order list <span class="hint">— the song sequence</span></div>
+        <div class="olist-wrap">
+          <div class="ohead"><div>ORD</div><div>PTN</div><div>ROWS</div></div>
+          <div class="olist">
+            <div class="orow"><div class="ord">007</div><div class="ptn">004</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">008</div><div class="ptn">004</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">009</div><div class="ptn">012</div><div class="rows">064</div></div>
+            <div class="orow sel"><div class="ord">010</div><div class="ptn">012</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">011</div><div class="ptn">007</div><div class="rows">128</div></div>
+            <div class="orow"><div class="ord">012</div><div class="ptn">008</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">013</div><div class="ptn">008</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">014</div><div class="ptn">015</div><div class="rows">032</div></div>
+            <div class="orow"><div class="ord">015</div><div class="ptn">003</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">016</div><div class="ptn">003</div><div class="rows">064</div></div>
+            <div class="orow"><div class="ord">017</div><div class="ptn">009</div><div class="rows">064</div></div>
+          </div>
+        </div>
+        <div class="legend"><span><b style="color:var(--code)">ORD</b> = order position</span><span><b style="color:var(--val)">PTN</b> = pattern number</span></div>
+      </div>
+
+      <!-- RIGHT: bank + pattern ops -->
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        <div class="panel" style="flex:1">
+          <div class="plabel">Pattern bank
+            <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+              <span class="hint" style="text-transform:none">000–063</span>
+              <button class="btn mini">◀</button><button class="btn mini">▶</button>
+              <span class="seg-disp" style="font-size:9px;padding:1px 6px">BANK 1/4</span>
+            </span>
+          </div>
+          <div class="bank">
+            <div class="cell used">00</div><div class="cell used">01</div><div class="cell used">02</div><div class="cell used">03</div><div class="cell used">04</div><div class="cell used">05</div><div class="cell used">06</div><div class="cell used">07</div>
+            <div class="cell used">08</div><div class="cell used">09</div><div class="cell used">10</div><div class="cell used">11</div><div class="cell used cur">12<div class="dot led on"></div></div><div class="cell">13</div><div class="cell">14</div><div class="cell used">15</div>
+            <div class="cell">16</div><div class="cell">17</div><div class="cell">18</div><div class="cell">19</div><div class="cell">20</div><div class="cell">21</div><div class="cell">22</div><div class="cell">23</div>
+            <div class="cell">24</div><div class="cell">25</div><div class="cell">26</div><div class="cell">27</div><div class="cell">28</div><div class="cell">29</div><div class="cell">30</div><div class="cell">31</div>
+            <div class="cell">32</div><div class="cell">33</div><div class="cell">34</div><div class="cell">35</div><div class="cell">36</div><div class="cell">37</div><div class="cell">38</div><div class="cell">39</div>
+            <div class="cell">40</div><div class="cell">41</div><div class="cell">42</div><div class="cell">43</div><div class="cell">44</div><div class="cell">45</div><div class="cell">46</div><div class="cell">47</div>
+            <div class="cell">48</div><div class="cell">49</div><div class="cell">50</div><div class="cell">51</div><div class="cell">52</div><div class="cell">53</div><div class="cell">54</div><div class="cell">55</div>
+            <div class="cell">56</div><div class="cell">57</div><div class="cell">58</div><div class="cell">59</div><div class="cell">60</div><div class="cell">61</div><div class="cell">62</div><div class="cell">63</div>
+          </div>
+          <div class="legend">
+            <span><span class="sw" style="background:#2a2a10;border:1px solid var(--gold-38);border-left:2px solid var(--gold-55)"></span>used in song</span>
+            <span><span class="led on" style="width:8px;height:8px"></span>current pattern</span>
+            <span><span class="sw" style="background:var(--bg-readout);border:1px solid var(--gold-22)"></span>empty</span>
+          </div>
+        </div>
+        <div class="panel" style="flex:0 0 auto">
+          <div class="plabel">Pattern ops</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn sm">＋ NEW</button><button class="btn sm">⧉ DUP</button><button class="btn sm">⌫ CLEAR</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ORDER OPS -->
+    <div class="panel" style="flex:0 0 auto">
+      <div class="plabel">Order ops <span class="hint">— act on selected slot (ORD 010)</span></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn sm">＋ INSERT</button><button class="btn sm">⌫ DELETE</button><button class="btn sm">⧉ DUP</button>
+        <div class="sepv"></div>
+        <button class="btn sm">▲ MOVE UP</button><button class="btn sm">▼ MOVE DOWN</button>
+        <div class="sepv"></div>
+        <div class="field-inl"><span class="lbl">PTN</span><button class="btn sm" style="min-width:26px;justify-content:center">−</button><button class="btn sm" style="min-width:26px;justify-content:center">＋</button></div>
+      </div>
+    </div>
+
+    <!-- DANGER -->
+    <div class="panel" style="flex:0 0 auto;border-color:rgba(204,90,80,.35)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn danger">⌫ CLEAR SONG</button>
+        <span style="font-size:9px;color:rgba(232,216,160,.4)">Clears arrangement / order data. Instruments and samples are preserved.</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+<div class="footer">
+  Transport + Song groups are intentionally omitted — they live in the main control panel, which stays open alongside this window. Paginated pattern bank; order list fills its box.<br>
+  Static reference for implementation. See <b>docs/design/song-order-editor-window.md</b>.
+</div>
+</body>
+</html>

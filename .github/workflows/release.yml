@@ -206,7 +206,8 @@ jobs:
 
       - name: Publish GitHub Release
         if: github.event_name == 'push' && github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v3
+        # softprops/action-gh-release v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b
         with:
           tag_name: ${{ github.ref_name }}
           name: VoodooTracker X ${{ github.ref_name }}

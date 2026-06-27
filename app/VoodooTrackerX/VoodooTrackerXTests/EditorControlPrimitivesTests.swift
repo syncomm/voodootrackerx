@@ -96,6 +96,126 @@ final class EditorControlPrimitivesTests: XCTestCase {
         assertColor(danger.layer?.borderColor, matches: VTXEditorButtonRole.danger.borderColor)
     }
 
+    func testKnobDefaultRangeAndValueClamping() {
+        let knob = VTXEditorControlFactory.makeKnobControl(value: 4, minimumValue: 2, maximumValue: 6)
+
+        XCTAssertEqual(knob.minimumValue, 2)
+        XCTAssertEqual(knob.maximumValue, 6)
+        XCTAssertEqual(knob.value, 4, accuracy: 0.0001)
+        XCTAssertEqual(knob.doubleValue, 4, accuracy: 0.0001)
+        XCTAssertEqual(knob.normalizedValue, 0.5, accuracy: 0.0001)
+
+        knob.value = 12
+        XCTAssertEqual(knob.value, 6, accuracy: 0.0001)
+        XCTAssertEqual(knob.normalizedValue, 1, accuracy: 0.0001)
+
+        knob.value = -5
+        XCTAssertEqual(knob.value, 2, accuracy: 0.0001)
+        XCTAssertEqual(knob.normalizedValue, 0, accuracy: 0.0001)
+
+        knob.normalizedValue = 0.25
+        XCTAssertEqual(knob.value, 3, accuracy: 0.0001)
+    }
+
+    func testKnobEmphasisAndEnabledStateAreRepresented() {
+        let knob = VTXEditorControlFactory.makeKnobControl()
+
+        XCTAssertFalse(knob.isEmphasized)
+        XCTAssertTrue(knob.isEnabled)
+        XCTAssertEqual(knob.intrinsicContentSize, VTXEditorControlMetrics.knobControlSize)
+
+        knob.isEmphasized = true
+        knob.isEnabled = false
+
+        XCTAssertTrue(knob.isEmphasized)
+        XCTAssertFalse(knob.isEnabled)
+        XCTAssertEqual(knob.intrinsicContentSize, VTXEditorControlMetrics.knobControlSize)
+    }
+
+    func testKnobCanSendActionOnValueChange() {
+        let knob = VTXEditorControlFactory.makeKnobControl()
+        let recorder = EditorControlActionRecorder()
+        knob.target = recorder
+        knob.action = #selector(EditorControlActionRecorder.record(_:))
+
+        XCTAssertTrue(knob.setValue(0.5, sendAction: true))
+        XCTAssertEqual(recorder.count, 1)
+        XCTAssertTrue(recorder.lastSender === knob)
+
+        XCTAssertFalse(knob.setValue(0.5, sendAction: true))
+        XCTAssertEqual(recorder.count, 1)
+
+        knob.value = 0.75
+        XCTAssertEqual(recorder.count, 1)
+    }
+
+    func testPanSliderDefaultRangeAndValueClamping() {
+        let slider = VTXEditorControlFactory.makePanSliderControl()
+
+        XCTAssertEqual(slider.minimumValue, -1)
+        XCTAssertEqual(slider.maximumValue, 1)
+        XCTAssertEqual(slider.value, 0, accuracy: 0.0001)
+        XCTAssertEqual(slider.doubleValue, 0, accuracy: 0.0001)
+        XCTAssertEqual(slider.normalizedValue, 0.5, accuracy: 0.0001)
+        XCTAssertTrue(slider.isCentered)
+
+        slider.value = 2
+        XCTAssertEqual(slider.value, 1, accuracy: 0.0001)
+        XCTAssertEqual(slider.normalizedValue, 1, accuracy: 0.0001)
+
+        slider.value = -2
+        XCTAssertEqual(slider.value, -1, accuracy: 0.0001)
+        XCTAssertEqual(slider.normalizedValue, 0, accuracy: 0.0001)
+
+        slider.normalizedValue = 0.75
+        XCTAssertEqual(slider.value, 0.5, accuracy: 0.0001)
+    }
+
+    func testPanSliderCenterDetentSnappingAndIndicatorState() {
+        let slider = VTXEditorControlFactory.makePanSliderControl(value: 0.4, centerDetentThreshold: 0.08)
+
+        XCTAssertEqual(slider.value, 0.4, accuracy: 0.0001)
+        XCTAssertFalse(slider.isCentered)
+        XCTAssertTrue(slider.showsCenteredIndicator)
+
+        slider.value = 0.05
+        XCTAssertEqual(slider.value, 0, accuracy: 0.0001)
+        XCTAssertTrue(slider.isCentered)
+
+        slider.setValue(-0.07)
+        XCTAssertEqual(slider.value, 0, accuracy: 0.0001)
+        XCTAssertTrue(slider.isCentered)
+
+        slider.setValue(0.09)
+        XCTAssertEqual(slider.value, 0.09, accuracy: 0.0001)
+        XCTAssertFalse(slider.isCentered)
+
+        slider.snapsToCenter = false
+        slider.value = 0.03
+        XCTAssertEqual(slider.value, 0.03, accuracy: 0.0001)
+        XCTAssertFalse(slider.isCentered)
+
+        slider.showsCenteredIndicator = false
+        XCTAssertFalse(slider.showsCenteredIndicator)
+    }
+
+    func testPanSliderCanSendActionOnValueChange() {
+        let slider = VTXEditorControlFactory.makePanSliderControl()
+        let recorder = EditorControlActionRecorder()
+        slider.target = recorder
+        slider.action = #selector(EditorControlActionRecorder.record(_:))
+
+        XCTAssertTrue(slider.setValue(0.35, sendAction: true))
+        XCTAssertEqual(recorder.count, 1)
+        XCTAssertTrue(recorder.lastSender === slider)
+
+        XCTAssertFalse(slider.setValue(0.35, sendAction: true))
+        XCTAssertEqual(recorder.count, 1)
+
+        slider.value = -0.4
+        XCTAssertEqual(recorder.count, 1)
+    }
+
     private func assertColor(
         _ actual: NSColor?,
         matches expected: NSColor,
@@ -138,6 +258,16 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(actualColor.greenComponent, CGFloat(expected.green) / 255.0, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualColor.blueComponent, CGFloat(expected.blue) / 255.0, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualColor.alphaComponent, expected.alpha, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+private final class EditorControlActionRecorder: NSObject {
+    var count = 0
+    weak var lastSender: AnyObject?
+
+    @objc func record(_ sender: Any?) {
+        count += 1
+        lastSender = sender as AnyObject?
     }
 }
 

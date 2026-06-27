@@ -56,6 +56,17 @@ final class ApplicationMenuBuilderTests: XCTestCase {
             XCTAssertEqual(transportMenu.item(withTitle: title)?.keyEquivalent, "")
         }
     }
+
+    func testWindowMenuWiresSongOrderEditorWithoutKeyboardShortcut() throws {
+        let target = NSObject()
+        let windowMenu = ApplicationMenuBuilder.build(target: target).windowMenu
+
+        let item = try XCTUnwrap(windowMenu.item(withTitle: "Song / Order Editor"))
+        XCTAssertEqual(item.action, ApplicationMenuBuilder.Actions.showSongOrderEditor)
+        XCTAssertTrue(item.target === target)
+        XCTAssertEqual(item.keyEquivalent, "")
+        XCTAssertTrue(item.isEnabled)
+    }
 }
 
 private extension NSMenu {

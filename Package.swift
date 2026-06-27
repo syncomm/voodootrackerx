@@ -83,6 +83,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/RuntimeCMixerOutputRouteDiagnostics.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/RuntimeCMixerRenderCore.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/RuntimeCMixerBackend.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/SongOrderEditorWindowController.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/TrackerEditorView.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/TrackerTheme.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/TrackerWindowController.swift",

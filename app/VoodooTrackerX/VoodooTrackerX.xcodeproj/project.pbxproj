@@ -21,6 +21,9 @@
 		ECA100000000000000000104 /* EditorControlPrimitivesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA100000000000000000105 /* EditorControlPrimitivesTests.swift */; };
 		ECB100000000000000000101 /* EditorKnobControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB100000000000000000103 /* EditorKnobControls.swift */; };
 		ECB100000000000000000102 /* EditorKnobControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB100000000000000000103 /* EditorKnobControls.swift */; };
+		50E000000000000000000101 /* SongOrderEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E000000000000000000103 /* SongOrderEditorWindowController.swift */; };
+		50E000000000000000000102 /* SongOrderEditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E000000000000000000103 /* SongOrderEditorWindowController.swift */; };
+		50E000000000000000000104 /* SongOrderEditorWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E000000000000000000105 /* SongOrderEditorWindowControllerTests.swift */; };
 		CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000103 /* BlankTrackerDocument.swift */; };
 		CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000103 /* BlankTrackerDocument.swift */; };
 		ED1A00000000000000000101 /* EditorNoteAuditionAudioSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED1A00000000000000000103 /* EditorNoteAuditionAudioSink.swift */; };
@@ -137,6 +140,8 @@
 		ECA100000000000000000103 /* EditorControlPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorControlPrimitives.swift; sourceTree = "<group>"; };
 		ECA100000000000000000105 /* EditorControlPrimitivesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorControlPrimitivesTests.swift; sourceTree = "<group>"; };
 		ECB100000000000000000103 /* EditorKnobControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorKnobControls.swift; sourceTree = "<group>"; };
+		50E000000000000000000103 /* SongOrderEditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongOrderEditorWindowController.swift; sourceTree = "<group>"; };
+		50E000000000000000000105 /* SongOrderEditorWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongOrderEditorWindowControllerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000036 /* PlaybackTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTypes.swift; sourceTree = "<group>"; };
 		A00000000000000000000037 /* PlaybackTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000038 /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
@@ -285,6 +290,7 @@
 				A0000000000000000000002C /* ControlPanelView.swift */,
 				ECA100000000000000000103 /* EditorControlPrimitives.swift */,
 				ECB100000000000000000103 /* EditorKnobControls.swift */,
+				50E000000000000000000103 /* SongOrderEditorWindowController.swift */,
 				A0000000000000000000002D /* LogoPanelView.swift */,
 				A0000000000000000000002E /* TrackerWindowController.swift */,
 				A0000000000000000000002F /* TrackerEditorView.swift */,
@@ -305,6 +311,7 @@
 				CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */,
 				D15A00000000000000000105 /* ControlPanelViewTests.swift */,
 				ECA100000000000000000105 /* EditorControlPrimitivesTests.swift */,
+				50E000000000000000000105 /* SongOrderEditorWindowControllerTests.swift */,
 				T00000000000000000000002 /* CSoftwareMixerTests.swift */,
 				T00000000000000000000003 /* OfflineRenderTests.swift */,
 				T00000000000000000000004 /* PlaybackEffectTests.swift */,
@@ -497,6 +504,7 @@
 				A0000000000000000000001C /* ControlPanelView.swift in Sources */,
 				ECA100000000000000000101 /* EditorControlPrimitives.swift in Sources */,
 				ECB100000000000000000101 /* EditorKnobControls.swift in Sources */,
+				50E000000000000000000101 /* SongOrderEditorWindowController.swift in Sources */,
 				A0000000000000000000001D /* LogoPanelView.swift in Sources */,
 				A0000000000000000000001E /* TrackerWindowController.swift in Sources */,
 				A0000000000000000000001F /* TrackerEditorView.swift in Sources */,
@@ -554,12 +562,14 @@
 				D15A00000000000000000107 /* ControlPanelView.swift in Sources */,
 				ECA100000000000000000102 /* EditorControlPrimitives.swift in Sources */,
 				ECB100000000000000000102 /* EditorKnobControls.swift in Sources */,
+				50E000000000000000000102 /* SongOrderEditorWindowController.swift in Sources */,
 				A00000000000000000000050 /* TrackerEditorView.swift in Sources */,
 				T00000000000000000000101 /* TestSupport.swift in Sources */,
 				A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */,
 				CAFE00000000000000000104 /* BlankTrackerDocumentTests.swift in Sources */,
 				D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */,
 				ECA100000000000000000104 /* EditorControlPrimitivesTests.swift in Sources */,
+				50E000000000000000000104 /* SongOrderEditorWindowControllerTests.swift in Sources */,
 				T00000000000000000000102 /* CSoftwareMixerTests.swift in Sources */,
 				T00000000000000000000103 /* OfflineRenderTests.swift in Sources */,
 				T00000000000000000000104 /* PlaybackEffectTests.swift in Sources */,

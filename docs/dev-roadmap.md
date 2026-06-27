@@ -20,7 +20,8 @@ VoodooTracker X currently has:
 - blank tracker startup, note-entry foundations, selected instrument/sample
   slot state, loaded-module note audition, Clear Current Pattern for
   blank/editable documents, Clear Song Data for blank documents and loaded
-  module editable-copy palette reuse, and pattern-loop playback at Play start
+  module editable-copy palette reuse, pattern-loop playback at Play start, and
+  the static Song / Order editor floating-window shell
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -80,6 +81,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor now has a fixed-size floating utility-window shell
+  opened from the Window menu, with static inert order-list, pattern-bank,
+  pattern-ops, order-ops, and danger panels. Read-only document binding and
+  real order/pattern editing remain deferred; no transport, playback, parser,
+  save/export, tracker viewport, note entry, note audition, sample editor, or
+  instrument editor behavior changed.
 - Shared AppKit editor control primitives now provide reusable theme tokens,
   panel labels, segment readouts, indicator LEDs, tactile editor buttons,
   editor knobs, and center-detent pan sliders for future Song / Order,

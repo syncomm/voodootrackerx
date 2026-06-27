@@ -2274,6 +2274,59 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(plan.categories.contains("portamento_update"))
     }
 
+    @MainActor
+    func testEditablePlaybackSnapshotUsesRuntimeAdapterPlanWithoutDirectTriggers() {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: Array(repeating: 0.25, count: 128),
+            volume: 1,
+            baseSampleRate: 100
+        )
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        pattern.rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0,
+            effectType: 0,
+            effectParam: 0
+        )
+        let document = BlankTrackerDocument(
+            title: "Editable",
+            songLength: 1,
+            currentPosition: 0,
+            restartPosition: 0,
+            currentPatternIndex: 0,
+            tempo: 25,
+            speed: 1,
+            orderTable: [0],
+            selection: .default,
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            patterns: [pattern]
+        )
+        let song = EditablePlaybackSongBuilder.build(from: document)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: song)
+        engine.play(from: PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0))
+
+        let generatedPlan = audioOutput.configuredPlans.last(where: { $0.generated })
+        let consumedContext = audioOutput.consumedContexts.first ?? nil
+        XCTAssertEqual(generatedPlan?.plannedEventCount, 1)
+        XCTAssertEqual(audioOutput.consumedContexts.count, 1)
+        XCTAssertEqual(consumedContext?.orderIndex, 0)
+        XCTAssertEqual(consumedContext?.patternIndex, 0)
+        XCTAssertEqual(consumedContext?.rowIndex, 0)
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+        XCTAssertTrue(audioOutput.updatedControls.isEmpty)
+        XCTAssertTrue(audioOutput.consumedPatternLoopRanges.allSatisfy { $0 == nil })
+    }
+
     func testRuntimeCMixerAdapterEventPlanKeepsRepeatedLargeSampleSemantics() throws {
         var pcm = Array(repeating: Float(0.25), count: 8_192)
         pcm[128] = .infinity

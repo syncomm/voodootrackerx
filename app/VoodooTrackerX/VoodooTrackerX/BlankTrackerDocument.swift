@@ -999,6 +999,75 @@ struct BlankTrackerDocument: Equatable {
     }
 }
 
+enum EditablePlaybackSongBuilder {
+    static func build(
+        from document: BlankTrackerDocument,
+        endBehavior: PlaybackEndBehavior = .stopAtEnd
+    ) -> PlaybackSong {
+        let sourcePatterns = document.patterns.isEmpty ? [document.pattern] : document.patterns
+        let patterns = sourcePatterns.reduce(into: [Int: PlaybackPattern]()) { result, pattern in
+            result[pattern.index] = playbackPattern(from: pattern)
+        }
+        let currentPatternIndex = document.currentPatternIndex
+        let fallbackPatternIndex = patterns[currentPatternIndex] != nil
+            ? currentPatternIndex
+            : patterns.keys.sorted().first ?? BlankTrackerDocument.defaultPatternIndex
+        let orderPatternIndices = document.orderTable
+            .prefix(max(0, document.songLength))
+            .filter { patterns[$0] != nil }
+        let playableOrderPatternIndices = orderPatternIndices.isEmpty ? [fallbackPatternIndex] : Array(orderPatternIndices)
+        let orders = playableOrderPatternIndices.enumerated().map { orderIndex, patternIndex in
+            PlaybackOrderEntry(orderIndex: orderIndex, patternIndex: patternIndex)
+        }
+        let restartOrderIndex = orders.isEmpty
+            ? 0
+            : min(max(0, document.restartPosition), orders.count - 1)
+
+        return PlaybackSong(
+            title: document.title,
+            orders: orders,
+            patternsByIndex: patterns,
+            instrumentsByIndex: document.instrumentPalette,
+            restartOrderIndex: restartOrderIndex,
+            endBehavior: endBehavior,
+            initialTiming: PlaybackTiming(
+                speed: document.speed > 0 ? document.speed : PlaybackTiming.xmDefault.speed,
+                bpm: document.tempo > 0 ? document.tempo : PlaybackTiming.xmDefault.bpm
+            ),
+            usesLinearFrequencyTable: true
+        )
+    }
+
+    private static func playbackPattern(from pattern: XMPatternData) -> PlaybackPattern {
+        let rowCount = max(0, pattern.rowCount)
+        let widestSourceRow = pattern.rows.map(\.count).max() ?? 0
+        let channelCount = max(0, pattern.channels, widestSourceRow)
+        let rows = (0..<rowCount).map { rowIndex in
+            PlaybackRow(
+                index: rowIndex,
+                cells: playbackCells(
+                    sourceCells: pattern.rows.indices.contains(rowIndex) ? pattern.rows[rowIndex] : [],
+                    channelCount: channelCount
+                )
+            )
+        }
+        return PlaybackPattern(index: pattern.index, rows: rows)
+    }
+
+    private static func playbackCells(sourceCells: [XMPatternEventCell], channelCount: Int) -> [PlaybackCell] {
+        (0..<channelCount).map { channelIndex in
+            let cell = sourceCells.indices.contains(channelIndex) ? sourceCells[channelIndex] : .empty
+            return PlaybackCell(
+                note: cell.note,
+                instrument: cell.instrument,
+                volumeColumn: cell.volumeColumn,
+                effectType: cell.effectType,
+                effectParam: cell.effectParam
+            )
+        }
+    }
+}
+
 struct BlankTrackerControlPanelMetadata: Equatable {
     let songTitle: String
     let songLength: String

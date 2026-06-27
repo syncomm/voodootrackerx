@@ -22,6 +22,29 @@ Run the repo hygiene check with:
 ./scripts/check-files.sh
 ```
 
+Run the tracked-file privacy/artifact scan with:
+
+```bash
+./scripts/scan-tracked-private-leaks.sh
+```
+
+The scan checks only `git ls-files` entries. It fails on tracked local/private
+path markers, private corpus label-map markers, private module sentinel names,
+generated diagnostic/release artifact extensions, and unapproved tracked
+tracker modules. It intentionally ignores ignored local build outputs and
+temporary diagnostics.
+
+Run Python tool tests with:
+
+```bash
+python3 -m unittest discover -s tools -p '*_tests.py'
+```
+
+These public-data tests cover diagnostic redaction, private corpus label-map
+summaries, local corpus runtime metrics helpers, residual-effect scan logic,
+audio comparison helpers, and synthetic XM fixture generation. They run in CI
+alongside the tracked-file scan.
+
 ## Fixture Rules
 
 Fixtures live in `tests/fixtures/`.
@@ -35,6 +58,8 @@ Rules:
 - Update `tests/fixtures/README.md` if provenance/generation guidance changes.
 - For `tests/reference-xm/`, follow that directory's README and keep binary XM
   fixture commits explicit and reviewed.
+- The tracked-file leak scan allowlists only the reviewed public tracker module
+  fixtures under `tests/fixtures/` and `tests/reference-xm/generated/`.
 
 Regenerate the public synthetic XM reference manifest or approved XM fixtures
 from the repo root with:

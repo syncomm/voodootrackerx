@@ -1852,6 +1852,77 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern(for: 1)?.rows[1][1] ?? XMPatternEventCell.empty), "... .. .. ...")
     }
 
+    func testAssignPatternToSelectedOrderMutatesOnlySelectedOrderReference() {
+        var hiddenPattern = BlankTrackerDocument.makeEmptyPattern(index: 2, rowCount: 8, channels: 1)
+        hiddenPattern.rows[3][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        var document = BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 3,
+            currentPosition: 1,
+            restartPosition: BlankTrackerDocument.defaultRestartPosition,
+            currentPatternIndex: 0,
+            tempo: 144,
+            speed: 3,
+            orderTable: [0, 0, 2],
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            instrumentPalette: [:],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1),
+                hiddenPattern,
+            ]
+        )
+        let beforePatterns = document.patterns
+
+        XCTAssertTrue(document.assignPatternToSelectedOrder(2))
+
+        XCTAssertEqual(document.orderTable, [0, 2, 2])
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 2)
+        XCTAssertEqual(document.songLength, 3)
+        XCTAssertEqual(document.restartPosition, BlankTrackerDocument.defaultRestartPosition)
+        XCTAssertEqual(document.tempo, 144)
+        XCTAssertEqual(document.speed, 3)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3))
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(document.pattern(for: 2)?.rows[3][0], hiddenPattern.rows[3][0])
+    }
+
+    func testAssignPatternToSelectedOrderRejectsMissingPatternAndInvalidSelectedOrderWithoutAllocation() {
+        var missingPatternDocument = BlankTrackerDocument.makeDefault()
+        let beforeMissingPatternDocument = missingPatternDocument
+
+        XCTAssertFalse(missingPatternDocument.assignPatternToSelectedOrder(12))
+        XCTAssertEqual(missingPatternDocument, beforeMissingPatternDocument)
+        XCTAssertNil(missingPatternDocument.pattern(for: 12))
+
+        var invalidOrderDocument = BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 1,
+            currentPosition: 1,
+            restartPosition: BlankTrackerDocument.defaultRestartPosition,
+            currentPatternIndex: 0,
+            tempo: BlankTrackerDocument.defaultTempo,
+            speed: BlankTrackerDocument.defaultSpeed,
+            orderTable: [0],
+            selection: .default,
+            instrumentPalette: [:],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 2, rowCount: 4, channels: 1),
+            ]
+        )
+        let beforeInvalidOrderDocument = invalidOrderDocument
+
+        XCTAssertFalse(invalidOrderDocument.assignPatternToSelectedOrder(2))
+        XCTAssertEqual(invalidOrderDocument, beforeInvalidOrderDocument)
+    }
+
     func testClearCurrentPatternOnAlreadyEmptyBlankPatternIsSafe() {
         var document = BlankTrackerDocument.makeDefault()
         let before = document

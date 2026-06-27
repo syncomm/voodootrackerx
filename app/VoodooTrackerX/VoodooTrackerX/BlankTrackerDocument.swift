@@ -926,6 +926,34 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
+    mutating func assignPatternToSelectedOrder(_ patternIndex: Int) -> Bool {
+        guard pattern(for: patternIndex) != nil else {
+            return false
+        }
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        guard currentPosition >= 0,
+              currentPosition < effectiveOrderCount else {
+            return false
+        }
+
+        var updatedOrderTable = orderTable
+        updatedOrderTable[currentPosition] = patternIndex
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: updatedOrderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: patterns
+        )
+        return true
+    }
+
     mutating func clearSongData() {
         let currentPattern = pattern
         let blankPattern = Self.makeEmptyPattern(

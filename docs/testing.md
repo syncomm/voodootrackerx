@@ -1,6 +1,26 @@
 # Testing Guide
 
-Practical testing notes for parser/core work and snapshot-based regression checks.
+Practical build, test, and snapshot-regression notes.
+
+## Build And App Test Commands
+
+From the repo root, build the Debug app with:
+
+```bash
+xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+```
+
+Run the app test action with:
+
+```bash
+xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO test
+```
+
+Run the repo hygiene check with:
+
+```bash
+./scripts/check-files.sh
+```
 
 ## Fixture Rules
 

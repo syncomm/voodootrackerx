@@ -23,7 +23,8 @@ stapled DMG for tagged releases.
 VoodooTracker X is a real tracker project in early alpha form. Download the
 latest release DMG from GitHub Releases or build from source, then try it with
 public XM/MOD tracker modules. Expect a demo-quality app that can open, display,
-and play supported modules while editing and export workflows continue to land.
+and play supported modules while blank-document editing foundations continue to
+land and save/export remains future work.
 
 ## Try It With Tracker Modules
 
@@ -35,12 +36,21 @@ Good public places to look for tracker modules:
   with searchable XM, MOD, and other tracker formats.
 - [The Hornet Archive](https://www.hornet.org/music/) - historical demoscene
   music archive with song, sample, program, disk, and contest areas.
+- [Amiga Music Preservation / AMP](https://amp.dascene.net/) - Amiga module
+  archive and composer database with classic scene context.
+- [Scene.org music archive](https://files.scene.org/browse/music/) - broader
+  demoscene music archive with tracker releases and related collections.
+- [Aminet mods](https://aminet.net/tree?path=mods) - Amiga software archive
+  with many module-format directories, including XM and MOD areas.
+- [Mirsoft / World of Game MODs](http://www.mirsoft.info/gamemods.php) -
+  game-music module archive; useful for historical game tracker music.
 - [Pouet](https://www.pouet.net/) - demoscene production/community archive;
   useful for discovering productions and scene context, not just raw module
   downloads.
 
 Only download and use modules you have rights to use. For current VoodooTracker
 X testing, prefer `.xm` and `.mod` files before trying broader tracker formats.
+Some archives include formats VoodooTracker X does not currently support.
 
 ## Current Status
 
@@ -52,6 +62,9 @@ What works today:
 - Blank document startup and `File > Open...` for supported tracker modules.
 - Read-only open/load flow for XM/MOD-style modules.
 - Runtime playback through the CoreAudio-hosted C mixer backend.
+- Loaded-module TIME display after adapter-plan readiness.
+- Pattern-loop playback from the Loop control at Play start for the
+  selected/current pattern.
 - Tracker grid display with static highlight row behavior and keyboard
   navigation.
 - Note entry and audition foundations for the tracker editor.
@@ -64,7 +77,8 @@ What is still future work:
 - Save/export from the app.
 - Full loaded-module editing.
 - Instrument and sample editors.
-- Pattern loop editing and broader tracker editing workflows.
+- Live Loop changes during active playback, pattern-loop editing, arbitrary
+  loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.
 
 ## Known Limitations
@@ -84,7 +98,8 @@ For source build and verification details, see
 [docs/testing.md](docs/testing.md). To start from the repo root:
 
 ```bash
-open app/VoodooTrackerX/VoodooTrackerX.xcodeproj
+xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTrackerX -configuration Debug -destination 'platform=macOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO test
 ./scripts/check-files.sh
 ```
 
@@ -135,7 +150,7 @@ provide full XM song rendering.
 - [docs/design/parsed-xm-to-c-mixer-adapter.md](docs/design/parsed-xm-to-c-mixer-adapter.md) - bounded parsed-XM-to-C-mixer adapter design and non-goals.
 - [docs/decisions/](docs/decisions) - architecture decision records, including the software mixer transition and C mixer boundary.
 - [docs/tracker-behavior-spec.md](docs/tracker-behavior-spec.md) - tracker viewport and editor behavior rules.
-- [docs/testing.md](docs/testing.md) - fixture rules, parser smoke tests, and golden snapshot workflow.
+- [docs/testing.md](docs/testing.md) - local build/test commands, fixture rules, parser smoke tests, and golden snapshot workflow.
 - [AGENTS.md](AGENTS.md) - contribution and automation requirements for humans and agents.
 
 ## Project Structure

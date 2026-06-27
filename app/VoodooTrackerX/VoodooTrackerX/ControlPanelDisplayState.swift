@@ -109,9 +109,9 @@ enum ControlPanelDisplayState {
         content.patternRowCount = metadata.patternRowCount
         content.channelCount = metadata.channelCount
         content.selectedInstrumentDisplay = metadata.selectedInstrumentDisplay
-        content.selectedInstrumentTooltip = metadata.selectedInstrumentDisplay
+        content.selectedInstrumentTooltip = metadata.selectedInstrumentTooltip
         content.selectedSampleDisplay = metadata.selectedSampleDisplay
-        content.selectedSampleTooltip = metadata.selectedSampleDisplay
+        content.selectedSampleTooltip = metadata.selectedSampleTooltip
         content.tempo = metadata.tempo
         content.speed = metadata.speed
         content.selectedOctave = selectedOctave

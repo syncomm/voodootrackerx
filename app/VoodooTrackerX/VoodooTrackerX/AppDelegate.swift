@@ -133,7 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case ApplicationMenuBuilder.Actions.clearSongData:
             return EditorCommandAvailability.canClearSongData(
                 hasBlankDocument: blankDocument != nil,
-                sourceContext: currentEditorNoteAuditionSourceContext()
+                sourceContext: currentEditorNoteAuditionSourceContext(),
+                loadedModuleCanMakeEditableCopy: loadedModuleCanMakeEditableCopy()
             )
         case #selector(NSWindow.performClose(_:)):
             return mainWindow != nil
@@ -250,19 +251,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func clearSongData(_ sender: Any?) {
-        guard var document = blankDocument,
-              loadedMetadata == nil,
+        if var document = blankDocument,
+           loadedMetadata == nil,
+           EditorCommandAvailability.canClearSongData(
+               hasBlankDocument: true,
+               sourceContext: document.noteAuditionSourceContext
+           ) {
+            document.clearSongData()
+            blankDocument = document
+            selectedSongPositionIndex = document.currentPosition
+            currentPatternIndex = document.currentPatternIndex
+            cursor = .clearSongDataResetPosition
+            visibleGridRangesByRow = [:]
+            currentViewportState = nil
+            currentViewportLayout = nil
+            updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
+            renderCurrentPattern(metadata: document.metadata)
+            syncControlPanelView()
+            return
+        }
+
+        guard let metadata = loadedMetadata,
+              let playbackSong = playbackEngine.song,
               EditorCommandAvailability.canClearSongData(
-                  hasBlankDocument: true,
-                  sourceContext: document.noteAuditionSourceContext
+                  hasBlankDocument: false,
+                  sourceContext: .loadedModule(patternIndex: currentPatternIndex),
+                  loadedModuleCanMakeEditableCopy: loadedModuleCanMakeEditableCopy()
+              ),
+              let document = BlankTrackerDocument.makeEditableCopyClearingSongData(
+                  from: metadata,
+                  playbackSong: playbackSong,
+                  selection: loadedModuleSelection,
+                  sourcePatternIndex: currentPatternIndex
               ) else {
             return
         }
 
-        document.clearSongData()
+        noteAuditionPreviewer.cancelPreview()
+        playbackEngine.load(song: nil)
         blankDocument = document
+        loadedMetadata = nil
+        loadedModuleSelection = .default
+        debugAutoplayTimer?.invalidate()
+        debugAutoplayTimer = nil
+        debugStopTimer?.invalidate()
+        debugStopTimer = nil
         selectedSongPositionIndex = document.currentPosition
         currentPatternIndex = document.currentPatternIndex
+        cursor = .clearSongDataResetPosition
+        visibleGridRangesByRow = [:]
+        currentViewportState = nil
+        currentViewportLayout = nil
         updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
@@ -427,6 +466,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func instrumentSelectionChanged(_ sender: NSPopUpButton) {
+        if var document = blankDocument,
+           loadedMetadata == nil,
+           document.hasInstrumentSamplePalette {
+            let selectedInstrument = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
+            document.selectInstrument(selectedInstrument)
+            blankDocument = document
+            syncControlPanelView()
+            return
+        }
+
         guard let metadata = loadedMetadata,
               metadata.type == "XM",
               metadata.instruments > 0 else {
@@ -446,6 +495,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func sampleSelectionChanged(_ sender: NSPopUpButton) {
+        if var document = blankDocument,
+           loadedMetadata == nil,
+           document.hasInstrumentSamplePalette {
+            let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
+            document.selectSample(selectedSample)
+            blankDocument = document
+            syncControlPanelView()
+            return
+        }
+
         guard let metadata = loadedMetadata,
               metadata.type == "XM",
               metadata.instruments > 0 else {
@@ -1294,7 +1353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func syncControlPanelView() {
         if let blankDocument {
-            reloadInstrumentControls(for: nil, selection: .default)
+            reloadInstrumentControls(for: blankDocument)
             controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
                 selectedOctave: selectedOctave,
@@ -1331,32 +1390,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func reloadInstrumentControls(for metadata: ParsedModuleMetadata?, selection: TrackerEditorSelection) {
+        let instrumentSlots: [Int]
+        if let metadata, metadata.type == "XM", metadata.instruments > 0 {
+            instrumentSlots = Array(1...min(metadata.instruments, 32))
+        } else {
+            instrumentSlots = []
+        }
+        reloadInstrumentControls(
+            instrumentSlots: instrumentSlots,
+            selection: selection,
+            instrumentProvider: { [weak self] slot in
+                self?.playbackEngine.song?.instrument(forInstrument: slot)
+            }
+        )
+    }
+
+    private func reloadInstrumentControls(for document: BlankTrackerDocument) {
+        reloadInstrumentControls(
+            instrumentSlots: Array(document.instrumentPalette.keys.sorted().prefix(32)),
+            selection: document.selection,
+            instrumentProvider: { slot in
+                document.instrument(forInstrument: slot)
+            }
+        )
+    }
+
+    private func reloadInstrumentControls(
+        instrumentSlots: [Int],
+        selection: TrackerEditorSelection,
+        instrumentProvider: (Int) -> PlaybackInstrument?
+    ) {
         guard let controlPanelView else {
             return
         }
         controlPanelView.instrumentSelector.removeAllItems()
         controlPanelView.sampleSelector.removeAllItems()
 
-        guard let metadata, metadata.type == "XM", metadata.instruments > 0 else {
+        guard !instrumentSlots.isEmpty else {
             controlPanelView.instrumentSelector.addItem(withTitle: "No Inst")
             controlPanelView.sampleSelector.addItem(withTitle: "No Sample")
             return
         }
 
-        let visibleInstrumentCount = min(metadata.instruments, 32)
-        for index in 0..<visibleInstrumentCount {
-            let slot = index + 1
+        for slot in instrumentSlots {
             let display = ControlPanelSlotDisplay.instrument(
                 slot: slot,
-                name: playbackEngine.song?.instrument(forInstrument: slot)?.name
+                name: instrumentProvider(slot)?.name
             )
             controlPanelView.instrumentSelector.addItem(withTitle: display.displayTitle)
             controlPanelView.instrumentSelector.lastItem?.representedObject = slot
             controlPanelView.instrumentSelector.lastItem?.toolTip = display.tooltip
         }
-        let selectedInstrumentIndex = min(max(0, selection.selectedInstrument - 1), visibleInstrumentCount - 1)
-        controlPanelView.instrumentSelector.selectItem(at: selectedInstrumentIndex)
-        reloadSampleSelector(selection: selection)
+        if let selectedInstrumentIndex = instrumentSlots.firstIndex(of: selection.selectedInstrument) {
+            controlPanelView.instrumentSelector.selectItem(at: selectedInstrumentIndex)
+        } else {
+            controlPanelView.instrumentSelector.selectItem(at: 0)
+        }
+        reloadSampleSelector(selection: selection, instrumentProvider: instrumentProvider)
     }
 
     private func currentEditorSelection() -> TrackerEditorSelection {
@@ -1366,24 +1456,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return blankDocument?.selection ?? .default
     }
 
-    private func reloadSampleSelector(selection: TrackerEditorSelection) {
+    private func reloadSampleSelector(
+        selection: TrackerEditorSelection,
+        instrumentProvider: (Int) -> PlaybackInstrument?
+    ) {
         guard let controlPanelView else {
             return
         }
 
         controlPanelView.sampleSelector.removeAllItems()
-        let sampleSlots = playbackEngine.song?
-            .instrument(forInstrument: selection.selectedInstrument)?
-            .availableSampleSlots ?? []
+        let instrument = instrumentProvider(selection.selectedInstrument)
+        let sampleSlots = instrument?.availableSampleSlots ?? []
         let displayedSampleSlots = sampleSlots.isEmpty ? [selection.selectedSample] : sampleSlots
 
         for slot in displayedSampleSlots {
             let display = ControlPanelSlotDisplay.sample(
                 slot: slot,
-                name: playbackEngine.song?
-                    .instrument(forInstrument: selection.selectedInstrument)?
-                    .sample(selectedSampleSlot: slot)?
-                    .name
+                name: instrument?.sample(selectedSampleSlot: slot)?.name
             )
             controlPanelView.sampleSelector.addItem(withTitle: display.displayTitle)
             controlPanelView.sampleSelector.lastItem?.representedObject = slot
@@ -1391,12 +1480,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let selectedDisplay = ControlPanelSlotDisplay.sample(
             slot: selection.selectedSample,
-            name: playbackEngine.song?
-                .instrument(forInstrument: selection.selectedInstrument)?
-                .sample(selectedSampleSlot: selection.selectedSample)?
-                .name
+            name: instrument?.sample(selectedSampleSlot: selection.selectedSample)?.name
         )
         controlPanelView.sampleSelector.selectItem(withTitle: selectedDisplay.displayTitle)
+    }
+
+    private func loadedModuleCanMakeEditableCopy() -> Bool {
+        guard blankDocument == nil,
+              loadedMetadata != nil,
+              let song = playbackEngine.song else {
+            return false
+        }
+        return song.instrumentsByIndex.values.contains { instrument in
+            instrument.samples.contains { !$0.pcm.isEmpty }
+        }
     }
 
     private func clampedLoadedModuleSelection(

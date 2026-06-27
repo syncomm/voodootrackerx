@@ -580,8 +580,8 @@ final class SongOrderEditorContentView: FlippedEditorView {
         let list = addSurface(in: panel, frame: NSRect(x: 10, y: 32, width: 276, height: 242), background: VTXEditorControlTheme.recessedReadoutBackground, border: VTXEditorControlTheme.mutedGoldBorderSubtle, radius: 3)
         addOrderHeader(to: list)
         addOrderRowsScrollView(to: list)
-        addLabel("ORD = order position", to: panel, frame: NSRect(x: 10, y: 286, width: 124, height: 14), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40), size: 9)
-        addLabel("PTN = pattern number", to: panel, frame: NSRect(x: 146, y: 286, width: 130, height: 14), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40), size: 9)
+        addLegendLabel("ORD", suffix: " = order position", to: panel, frame: NSRect(x: 10, y: 286, width: 124, height: 14), tokenColor: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55))
+        addLegendLabel("PTN", suffix: " = pattern number", to: panel, frame: NSRect(x: 146, y: 286, width: 130, height: 14), tokenColor: VTXEditorControlTheme.warmValueText)
     }
 
     private func addOrderHeader(to parent: NSView) {
@@ -847,6 +847,38 @@ final class SongOrderEditorContentView: FlippedEditorView {
         label.font = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
         label.textColor = color
         label.alignment = alignment
+        label.lineBreakMode = .byTruncatingTail
+        addControl(label, to: parent, frame: frame)
+    }
+
+    private func addLegendLabel(
+        _ token: String,
+        suffix: String,
+        to parent: NSView,
+        frame: NSRect,
+        tokenColor: NSColor
+    ) {
+        let text = token + suffix
+        let descriptionColor = VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40)
+        let font = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
+        let attributedText = NSMutableAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .foregroundColor: descriptionColor,
+            ]
+        )
+        attributedText.addAttribute(
+            .foregroundColor,
+            value: tokenColor,
+            range: NSRange(location: 0, length: token.utf16.count)
+        )
+
+        let label = NSTextField(labelWithString: text)
+        label.font = font
+        label.textColor = descriptionColor
+        label.attributedStringValue = attributedText
+        label.alignment = .left
         label.lineBreakMode = .byTruncatingTail
         addControl(label, to: parent, frame: frame)
     }

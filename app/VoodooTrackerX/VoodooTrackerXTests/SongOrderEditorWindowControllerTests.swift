@@ -90,6 +90,19 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(fieldValues.contains("DANGER"))
     }
 
+    func testOrderListLegendUsesMockupTokenColors() throws {
+        let controller = SongOrderEditorWindowController()
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let orderLegend = try textField("ORD = order position", in: contentView)
+        let patternLegend = try textField("PTN = pattern number", in: contentView)
+        let dimDescriptionColor = VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40)
+
+        assertAttributedForegroundColor(orderLegend, at: 0, matches: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55))
+        assertAttributedForegroundColor(orderLegend, at: 4, matches: dimDescriptionColor)
+        assertAttributedForegroundColor(patternLegend, at: 0, matches: VTXEditorControlTheme.warmValueText)
+        assertAttributedForegroundColor(patternLegend, at: 4, matches: dimDescriptionColor)
+    }
+
     func testShellDoesNotAddDuplicateTransportControls() throws {
         let controller = SongOrderEditorWindowController()
         let contentView = try XCTUnwrap(controller.window?.contentView)
@@ -986,6 +999,14 @@ private func button(titled title: String, in view: NSView) throws -> VTXEditorBu
 }
 
 @MainActor
+private func textField(_ value: String, in view: NSView) throws -> NSTextField {
+    let matchingField = view.allDescendants
+        .compactMap { $0 as? NSTextField }
+        .first { $0.stringValue == value }
+    return try XCTUnwrap(matchingField)
+}
+
+@MainActor
 private func orderListScrollView(in view: NSView) throws -> NSScrollView {
     let scrollView = view.allDescendants.compactMap { $0 as? NSScrollView }.first
     return try XCTUnwrap(scrollView)
@@ -1050,4 +1071,38 @@ private func makeLoadedMetadata(
         orderTable: orderTable,
         xmPatterns: patterns
     )
+}
+
+@MainActor
+private func assertAttributedForegroundColor(
+    _ textField: NSTextField,
+    at index: Int,
+    matches expected: NSColor,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    guard let actual = textField.attributedStringValue.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor else {
+        XCTFail("Missing foreground color", file: file, line: line)
+        return
+    }
+
+    assertColor(actual, matches: expected, file: file, line: line)
+}
+
+private func assertColor(
+    _ actual: NSColor,
+    matches expected: NSColor,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    guard let actualColor = actual.usingColorSpace(.sRGB),
+          let expectedColor = expected.usingColorSpace(.sRGB) else {
+        XCTFail("Missing sRGB color", file: file, line: line)
+        return
+    }
+
+    XCTAssertEqual(actualColor.redComponent, expectedColor.redComponent, accuracy: 0.001, file: file, line: line)
+    XCTAssertEqual(actualColor.greenComponent, expectedColor.greenComponent, accuracy: 0.001, file: file, line: line)
+    XCTAssertEqual(actualColor.blueComponent, expectedColor.blueComponent, accuracy: 0.001, file: file, line: line)
+    XCTAssertEqual(actualColor.alphaComponent, expectedColor.alphaComponent, accuracy: 0.001, file: file, line: line)
 }

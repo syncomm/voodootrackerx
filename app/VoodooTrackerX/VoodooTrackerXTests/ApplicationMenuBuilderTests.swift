@@ -24,7 +24,7 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertNil(fileMenu.item(withTitle: "Export..."))
     }
 
-    func testEditMenuFutureCommandsAreDisabledPlaceholdersAndClearCurrentPatternIsWired() throws {
+    func testEditMenuFutureCommandsAreDisabledPlaceholdersAndEditorUtilitiesAreWired() throws {
         let editMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "Edit"))
 
         for title in ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All"] {
@@ -37,6 +37,11 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(clearCurrentPattern.action, ApplicationMenuBuilder.Actions.clearCurrentPattern)
         XCTAssertEqual(clearCurrentPattern.keyEquivalent, "")
         XCTAssertFalse(clearCurrentPattern.isEnabled)
+
+        let clearSongData = try XCTUnwrap(editMenu.item(withTitle: "Clear Song Data"))
+        XCTAssertEqual(clearSongData.action, ApplicationMenuBuilder.Actions.clearSongData)
+        XCTAssertEqual(clearSongData.keyEquivalent, "")
+        XCTAssertFalse(clearSongData.isEnabled)
     }
 
     func testTransportMenuUsesExistingActionsWithoutKeyboardShortcuts() throws {

@@ -89,11 +89,21 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(EditorPatternMutationPolicy.canMutatePattern(sourceContext: .loadedModule(patternIndex: 0)))
         XCTAssertTrue(EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: .blankDocument))
         XCTAssertFalse(EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: .loadedModule(patternIndex: 0)))
+        XCTAssertTrue(EditorPatternMutationPolicy.canClearSongData(sourceContext: .blankDocument))
+        XCTAssertFalse(EditorPatternMutationPolicy.canClearSongData(sourceContext: .loadedModule(patternIndex: 0)))
         XCTAssertTrue(EditorCommandAvailability.canClearCurrentPattern(
             hasBlankDocument: true,
             sourceContext: .blankDocument
         ))
         XCTAssertFalse(EditorCommandAvailability.canClearCurrentPattern(
+            hasBlankDocument: false,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        XCTAssertTrue(EditorCommandAvailability.canClearSongData(
+            hasBlankDocument: true,
+            sourceContext: .blankDocument
+        ))
+        XCTAssertFalse(EditorCommandAvailability.canClearSongData(
             hasBlankDocument: false,
             sourceContext: .loadedModule(patternIndex: 0)
         ))
@@ -1577,6 +1587,176 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(document.enterKeyOff(row: 1, channel: 0))
         XCTAssertTrue(document.clearCurrentPattern())
 
+        let renderedRows = ModuleMetadataLoader.renderXMPatternRows(document.pattern)
+
+        XCTAssertTrue(renderedRows.gridText.contains("... .. .. ..."))
+        XCTAssertFalse(renderedRows.gridText.contains("C-4"))
+        XCTAssertFalse(renderedRows.gridText.contains("==="))
+    }
+
+    func testClearSongDataRemovesNotesKeyOffsAndCellFieldsAcrossMultiplePatterns() {
+        var first = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 32, channels: 4)
+        var second = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 32, channels: 4)
+        first.rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 0x02,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        first.rows[8][1] = XMPatternEventCell(
+            note: TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 0x03,
+            volumeColumn: 0x30,
+            effectType: 0x0E,
+            effectParam: 0x9C
+        )
+        second.rows[2][2] = XMPatternEventCell(
+            note: 55,
+            instrument: 0x04,
+            volumeColumn: 0x20,
+            effectType: 0x0A,
+            effectParam: 0x10
+        )
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            orderTable: [0, 1],
+            patterns: [first, second]
+        )
+
+        document.clearSongData()
+
+        XCTAssertEqual(document.patterns.count, 1)
+        XCTAssertTrue(document.pattern.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        })
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
+        XCTAssertFalse(ModuleMetadataLoader.renderXMPatternRows(document.pattern).gridText.contains("==="))
+        XCTAssertFalse(ModuleMetadataLoader.renderXMPatternRows(document.pattern).gridText.contains("C-4"))
+    }
+
+    func testClearSongDataResetsOrderStateToSimpleBlankSong() {
+        var first = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 2)
+        var second = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 48, channels: 6)
+        first.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        second.rows[4][3] = XMPatternEventCell(note: 52, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0)
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            orderTable: [0, 1, 0],
+            patterns: [first, second]
+        )
+
+        document.clearSongData()
+
+        XCTAssertEqual(document.songLength, 1)
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.patterns.map(\.index), [0])
+        XCTAssertEqual(document.metadata.songLength, 1)
+        XCTAssertEqual(document.metadata.orderTable, [0])
+        XCTAssertEqual(document.metadata.patterns, 1)
+        XCTAssertEqual(document.metadata.xmPatterns.map(\.index), [0])
+    }
+
+    func testClearSongDataPreservesSelectionTimingAndPatternShape() {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 3, rowCount: 48, channels: 6)
+        pattern.rows[2][3] = XMPatternEventCell(
+            note: 52,
+            instrument: 0x07,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x90
+        )
+        var document = makeBlankDocument(
+            currentPatternIndex: 3,
+            tempo: 144,
+            speed: 3,
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            orderTable: [3],
+            patterns: [pattern]
+        )
+
+        document.clearSongData()
+
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3))
+        XCTAssertEqual(document.tempo, 144)
+        XCTAssertEqual(document.speed, 3)
+        XCTAssertEqual(document.pattern.rowCount, 48)
+        XCTAssertEqual(document.pattern.channels, 6)
+        XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I07")
+        XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S03")
+        XCTAssertEqual(document.controlPanelMetadata.tempo, "144")
+        XCTAssertEqual(document.controlPanelMetadata.speed, "03")
+        XCTAssertEqual(document.controlPanelMetadata.patternRowCount, "48")
+        XCTAssertEqual(document.controlPanelMetadata.channelCount, "6")
+    }
+
+    func testClearSongDataPreservesBlankDocumentInstrumentSamplePaletteStateRepresentedBySelection() {
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 0x10, selectedSample: 0x04)
+        )
+
+        document.clearSongData()
+
+        XCTAssertEqual(document.selection.selectedInstrument, 0x10)
+        XCTAssertEqual(document.selection.selectedSample, 0x04)
+        XCTAssertEqual(document.metadata.instruments, 0)
+        XCTAssertEqual(document.noteAuditionAvailability, .unavailable(.blankDocumentMissingInstrumentSamplePayload))
+    }
+
+    func testClearSongDataOnAlreadyEmptyBlankDocumentIsSafe() {
+        var document = BlankTrackerDocument.makeDefault()
+        let before = document
+
+        document.clearSongData()
+
+        XCTAssertEqual(document, before)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
+    }
+
+    func testLoadedModuleClearSongDataIsUnavailableAndDoesNotMutateMetadata() {
+        let loadedPattern = XMPatternData(
+            index: 0,
+            rowCount: 1,
+            channels: 1,
+            rows: [[XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0x40, effectType: 0x0F, effectParam: 0x7D)]]
+        )
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 1,
+            patterns: 1,
+            instruments: 1,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [loadedPattern]
+        )
+        let before = metadata
+
+        XCTAssertFalse(EditorCommandAvailability.canClearSongData(
+            hasBlankDocument: false,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        XCTAssertEqual(metadata, before)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].instrument, 1)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].volumeColumn, 0x40)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].effectType, 0x0F)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].effectParam, 0x7D)
+    }
+
+    func testClearSongDataDisplayRendersEmptyCellsAfterRefreshInput() {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.enterKeyOff(row: 1, channel: 0))
+
+        document.clearSongData()
         let renderedRows = ModuleMetadataLoader.renderXMPatternRows(document.pattern)
 
         XCTAssertTrue(renderedRows.gridText.contains("... .. .. ..."))

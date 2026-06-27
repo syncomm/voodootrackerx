@@ -130,6 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 hasBlankDocument: blankDocument != nil,
                 sourceContext: currentEditorNoteAuditionSourceContext()
             )
+        case ApplicationMenuBuilder.Actions.clearSongData:
+            return EditorCommandAvailability.canClearSongData(
+                hasBlankDocument: blankDocument != nil,
+                sourceContext: currentEditorNoteAuditionSourceContext()
+            )
         case #selector(NSWindow.performClose(_:)):
             return mainWindow != nil
         default:
@@ -239,6 +244,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         blankDocument = document
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
+    }
+
+    @objc
+    private func clearSongData(_ sender: Any?) {
+        guard var document = blankDocument,
+              loadedMetadata == nil,
+              EditorCommandAvailability.canClearSongData(
+                  hasBlankDocument: true,
+                  sourceContext: document.noteAuditionSourceContext
+              ) else {
+            return
+        }
+
+        document.clearSongData()
+        blankDocument = document
+        selectedSongPositionIndex = document.currentPosition
+        currentPatternIndex = document.currentPatternIndex
+        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
     }

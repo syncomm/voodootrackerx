@@ -158,13 +158,14 @@ Parked parity-watch items:
 
 Recently completed:
 
-- Clear Current Pattern is now the first narrow tracker editor utility command:
-  blank/editable documents can clear only the selected pattern back to empty
-  cells while preserving editor selection, timing, pattern/order shape, cursor
-  location, viewport behavior, playback behavior, note audition, and loaded-
-  module read-only policy. Clear song while preserving instruments/samples,
-  arrangement/order reset, duplicate pattern, insert/delete pattern or order
-  slots, undo/redo, save XM, and export WAV/AAC remain deferred.
+- Clear Song Data is now available from the Edit menu for blank/editable
+  documents only. It resets editable song/order data to one blank order and one
+  blank pattern while preserving selected instrument/sample slot state, timing,
+  pattern dimensions, edit-mode state, runtime playback behavior, note audition,
+  and loaded-module read-only policy. Broader arrangement editing, duplicate
+  pattern, insert/delete pattern or order slots, undo/redo, instrument/sample
+  import, sample/instrument editors, save XM, and export WAV/AAC remain
+  deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
   the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core
@@ -293,9 +294,9 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Editor clear-song data while preserving instruments and samples. This should
-  support the 1.0 composition path by resetting pattern/song data for
-  blank/editable documents without weakening loaded-module read-only safety.
+- Duplicate current pattern as a small editor utility for blank/editable
+  documents, keeping loaded modules read-only and leaving insert/delete
+  pattern/order slots, undo/redo, import, save, and export deferred.
   Pattern-loop follow-up remains deferred for live Loop changes during active
   playback, loop-length TIME display, pattern-loop editing, arbitrary ranges,
   and broader listening. Tests alone are not sufficient for audio changes; docs
@@ -306,9 +307,8 @@ Recommended next product PR:
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
 - Future editor utility commands should be scoped separately from playback:
-  clear song/pattern data while preserving instruments and samples, optionally
-  reset the arrangement/order table while preserving the instrument bank, and
-  define editable-copy and save/export flow before persistence work.
+  duplicate pattern, insert/delete pattern or order slots, broader arrangement
+  editing, and editable-copy/save/export flow before persistence work.
 
 Recently completed product foundation:
 
@@ -470,12 +470,12 @@ Current implemented foundation:
 - selected instrument/sample slot state
 - loaded-module note audition and sample-slot preview
 - clear current pattern for blank/editable documents
+- clear song data for blank/editable documents
 - pattern-loop playback at Play start
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- clear song data while preserving instruments and samples
 - song/order editor foundation
 - instrument, volume-column, and effect-column entry
 - sample editor and instrument editor foundations

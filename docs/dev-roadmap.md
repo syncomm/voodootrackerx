@@ -48,19 +48,17 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
-1. Editor clear-song data while preserving instruments and samples, keeping
-   loaded modules read-only.
-2. Song/order editor foundation and editable-copy/save semantics design, so
+1. Song/order editor foundation and editable-copy/save semantics design, so
    importing or copying instruments/samples from loaded modules into
    blank/editable songs has a safe path.
-3. Pattern editor completion for instrument, volume-column, and effect-column
+2. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
-4. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
+3. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
-5. Save XM and export WAV/AAC after editable document semantics are explicit.
-6. Design a weekly codebase review harness as a docs/tooling plan before
+4. Save XM and export WAV/AAC after editable document semantics are explicit.
+5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-7. Module analysis follow-up should use
+6. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
    while first-Play adapter-plan preparation remains the synchronous fallback.
@@ -68,7 +66,7 @@ preserving the backend freeze:
    adapter-plan duration with clear load/File New invalidation. A later
    optimization PR can profile and reduce adapter-plan construction cost
    itself.
-8. README badges may be added later if they point at stable, useful CI or
+7. README badges may be added later if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -81,15 +79,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- Clear Current Pattern is now available from the Edit menu for blank/editable
-  documents only. It clears the selected blank pattern back to empty cells,
-  removes key-off cells, refreshes the tracker display, and preserves selected
-  instrument/sample/octave, tempo/BPM, speed, channels, rows, pattern count,
-  order state, cursor location, viewport/static-highlight behavior, runtime
-  playback, note audition, and loaded-module read-only policy. Clear song while
-  preserving instruments/samples, reset arrangement/order table, duplicate
-  pattern, insert/delete pattern or order slots, undo/redo, save XM, and export
-  WAV/AAC remain deferred.
+- Clear Song Data is now available from the Edit menu for blank/editable
+  documents only. It clears notes, key-offs, instruments, volume-column data,
+  effect-column data, and any editable cell fields, then resets song/order data
+  to one order entry and one blank pattern while preserving selected
+  instrument/sample/octave state, tempo/BPM, speed, channel count, row count,
+  edit-mode state, runtime playback, note audition, and loaded-module read-only
+  policy. Duplicate pattern, insert/delete pattern or order slots, broader
+  arrangement editing, undo/redo, instrument/sample import, sample/instrument
+  editors, save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan
@@ -97,8 +95,8 @@ Recently completed narrow target:
   mixer state across wraps, and leaves C mixer DSP, parser architecture,
   runtime gain/headroom, tracker viewport, editor behavior, note audition,
   save/export, and release workflow unchanged. Live Loop toggle during active
-  playback, loop-length TIME display, pattern-loop editing, clear-pattern/
-  clear-song utilities, arbitrary ranges, and broader local corpus listening
+  playback, loop-length TIME display, pattern-loop editing, duplicate/insert/
+  delete pattern utilities, arbitrary ranges, and broader local corpus listening
   remain deferred.
 - Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` adds
   a public-safe three-pattern, three-order traversal fixture with loader,
@@ -360,8 +358,10 @@ Planned scope:
 - effect entry
 - selection and copy/paste
 - clear current pattern
-- clear song/pattern data while preserving instruments and samples
-- optional arrangement/order-table reset while preserving the instrument bank
+- clear song data while preserving instruments and samples
+- duplicate pattern
+- optional broader arrangement/order-table editing while preserving the
+  instrument bank
 - song/order editor foundation
 - loop-and-edit workflow for composing patterns while hearing playback
 - pattern insertion/deletion

@@ -8,6 +8,7 @@ enum ApplicationMenuBuilder {
         static let stop = NSSelectorFromString("stopPressed:")
         static let toggleLoop = NSSelectorFromString("loopToggled:")
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
+        static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
     }
 
     struct BuiltMenu {
@@ -20,7 +21,7 @@ enum ApplicationMenuBuilder {
 
         mainMenu.addItem(topLevelItem(title: "VoodooTracker X", submenu: appMenu()))
         mainMenu.addItem(topLevelItem(title: "File", submenu: fileMenu(target: target)))
-        mainMenu.addItem(topLevelItem(title: "Edit", submenu: editMenu()))
+        mainMenu.addItem(topLevelItem(title: "Edit", submenu: editMenu(target: target)))
         mainMenu.addItem(topLevelItem(title: "View", submenu: viewMenu()))
         mainMenu.addItem(topLevelItem(title: "Transport", submenu: transportMenu(target: target)))
         let windowMenu = Self.windowMenu()
@@ -68,9 +69,8 @@ enum ApplicationMenuBuilder {
         return menu
     }
 
-    private static func editMenu() -> NSMenu {
+    private static func editMenu(target: AnyObject?) -> NSMenu {
         let menu = NSMenu(title: "Edit")
-        menu.autoenablesItems = false
 
         menu.addItem(disabledItem(title: "Undo", keyEquivalent: "z"))
         let redo = disabledItem(title: "Redo", keyEquivalent: "Z")
@@ -83,6 +83,15 @@ enum ApplicationMenuBuilder {
         menu.addItem(disabledItem(title: "Delete", keyEquivalent: "\u{8}"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Select All", keyEquivalent: "a"))
+        menu.addItem(NSMenuItem.separator())
+        let clearCurrentPattern = menuItem(
+            title: "Clear Current Pattern",
+            action: Actions.clearCurrentPattern,
+            keyEquivalent: "",
+            target: target
+        )
+        clearCurrentPattern.isEnabled = false
+        menu.addItem(clearCurrentPattern)
 
         return menu
     }

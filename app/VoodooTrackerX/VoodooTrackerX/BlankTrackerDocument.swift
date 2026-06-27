@@ -220,6 +220,19 @@ enum EditorPatternMutationPolicy {
             return false
         }
     }
+
+    static func canClearCurrentPattern(sourceContext: EditorNoteAuditionSourceContext) -> Bool {
+        canMutatePattern(sourceContext: sourceContext)
+    }
+}
+
+enum EditorCommandAvailability {
+    static func canClearCurrentPattern(
+        hasBlankDocument: Bool,
+        sourceContext: EditorNoteAuditionSourceContext
+    ) -> Bool {
+        hasBlankDocument && EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: sourceContext)
+    }
 }
 
 struct EditorNoteAuditionInputRoute: Equatable {
@@ -591,13 +604,25 @@ struct BlankTrackerDocument: Equatable {
     let currentPatternIndex: Int
     let tempo: Int
     let speed: Int
+    let orderTable: [Int]
     let selection: TrackerEditorSelection
-    var pattern: XMPatternData
+    var patterns: [XMPatternData]
+
+    var pattern: XMPatternData {
+        get {
+            pattern(for: currentPatternIndex)
+                ?? Self.makeEmptyPattern(index: currentPatternIndex)
+        }
+        set {
+            replacePattern(newValue)
+        }
+    }
 
     static func makeDefault() -> BlankTrackerDocument {
-        let rows = Array(
-            repeating: Array(repeating: XMPatternEventCell.empty, count: defaultChannelCount),
-            count: defaultRowCount
+        let pattern = makeEmptyPattern(
+            index: defaultPatternIndex,
+            rowCount: defaultRowCount,
+            channels: defaultChannelCount
         )
         return BlankTrackerDocument(
             title: defaultTitle,
@@ -607,42 +632,59 @@ struct BlankTrackerDocument: Equatable {
             currentPatternIndex: defaultPatternIndex,
             tempo: defaultTempo,
             speed: defaultSpeed,
+            orderTable: [defaultPatternIndex],
             selection: .default,
-            pattern: XMPatternData(
-                index: defaultPatternIndex,
-                rowCount: defaultRowCount,
-                channels: defaultChannelCount,
-                rows: rows
-            )
+            patterns: [pattern]
+        )
+    }
+
+    static func makeEmptyPattern(
+        index: Int,
+        rowCount: Int = defaultRowCount,
+        channels: Int = defaultChannelCount
+    ) -> XMPatternData {
+        let safeRowCount = max(0, rowCount)
+        let safeChannelCount = max(0, channels)
+        let rows = Array(
+            repeating: Array(repeating: XMPatternEventCell.empty, count: safeChannelCount),
+            count: safeRowCount
+        )
+        return XMPatternData(
+            index: max(0, index),
+            rowCount: safeRowCount,
+            channels: safeChannelCount,
+            rows: rows
         )
     }
 
     var metadata: ParsedModuleMetadata {
-        ParsedModuleMetadata(
+        let currentPattern = pattern
+        return ParsedModuleMetadata(
             type: "XM",
             title: title,
             version: nil,
-            channels: pattern.channels,
-            patterns: 1,
+            channels: currentPattern.channels,
+            patterns: patterns.count,
             instruments: 0,
             xmFlags: 0x0001,
             defaultTempo: speed,
             defaultBPM: tempo,
             songLength: songLength,
             restartPosition: restartPosition,
-            orderTable: [currentPatternIndex],
-            xmPatterns: [pattern]
+            orderTable: orderTable,
+            xmPatterns: patterns
         )
     }
 
     var controlPanelMetadata: BlankTrackerControlPanelMetadata {
-        BlankTrackerControlPanelMetadata(
+        let currentPattern = pattern
+        return BlankTrackerControlPanelMetadata(
             songTitle: title,
             songLength: String(format: "%02d", songLength),
             songPosition: String(format: "%02d", currentPosition),
             restartPosition: String(format: "%02d", restartPosition),
-            patternRowCount: "\(pattern.rowCount)",
-            channelCount: "\(pattern.channels)",
+            patternRowCount: "\(currentPattern.rowCount)",
+            channelCount: "\(currentPattern.channels)",
             selectedInstrumentDisplay: selection.instrumentDisplayTitle,
             selectedSampleDisplay: selection.sampleDisplayTitle,
             tempo: "\(tempo)",
@@ -663,46 +705,86 @@ struct BlankTrackerDocument: Equatable {
         .unavailable(.blankDocumentMissingInstrumentSamplePayload)
     }
 
-    mutating func enterNote(trackerKey: Character, octave: Int, row: Int, channel: Int) -> Bool {
-        guard pattern.rows.indices.contains(row),
-              pattern.rows[row].indices.contains(channel),
+    func pattern(for patternIndex: Int) -> XMPatternData? {
+        patterns.first { $0.index == patternIndex }
+    }
+
+    mutating func enterNote(
+        trackerKey: Character,
+        octave: Int,
+        row: Int,
+        channel: Int,
+        patternIndex: Int? = nil
+    ) -> Bool {
+        let targetPatternIndex = patternIndex ?? currentPatternIndex
+        guard let storageIndex = patterns.firstIndex(where: { $0.index == targetPatternIndex }),
+              patterns[storageIndex].rows.indices.contains(row),
+              patterns[storageIndex].rows[row].indices.contains(channel),
               let note = TrackerNoteKeyMap.noteValue(forTrackerKey: trackerKey, octave: octave) else {
             return false
         }
 
-        setNoteValue(note, row: row, channel: channel)
+        setNoteValue(note, row: row, channel: channel, storageIndex: storageIndex)
         return true
     }
 
-    mutating func enterKeyOff(row: Int, channel: Int) -> Bool {
-        guard pattern.rows.indices.contains(row),
-              pattern.rows[row].indices.contains(channel) else {
+    mutating func enterKeyOff(row: Int, channel: Int, patternIndex: Int? = nil) -> Bool {
+        let targetPatternIndex = patternIndex ?? currentPatternIndex
+        guard let storageIndex = patterns.firstIndex(where: { $0.index == targetPatternIndex }),
+              patterns[storageIndex].rows.indices.contains(row),
+              patterns[storageIndex].rows[row].indices.contains(channel) else {
             return false
         }
 
-        setNoteValue(TrackerNoteKeyMap.keyOffNoteValue, row: row, channel: channel)
+        setNoteValue(TrackerNoteKeyMap.keyOffNoteValue, row: row, channel: channel, storageIndex: storageIndex)
         return true
     }
 
-    mutating func clearNote(row: Int, channel: Int) -> Bool {
-        guard pattern.rows.indices.contains(row),
-              pattern.rows[row].indices.contains(channel) else {
+    mutating func clearNote(row: Int, channel: Int, patternIndex: Int? = nil) -> Bool {
+        let targetPatternIndex = patternIndex ?? currentPatternIndex
+        guard let storageIndex = patterns.firstIndex(where: { $0.index == targetPatternIndex }),
+              patterns[storageIndex].rows.indices.contains(row),
+              patterns[storageIndex].rows[row].indices.contains(channel) else {
             return false
         }
 
-        setNoteValue(0, row: row, channel: channel)
+        setNoteValue(0, row: row, channel: channel, storageIndex: storageIndex)
         return true
     }
 
-    private mutating func setNoteValue(_ note: UInt8, row: Int, channel: Int) {
-        let cell = pattern.rows[row][channel]
-        pattern.rows[row][channel] = XMPatternEventCell(
+    mutating func clearCurrentPattern(patternIndex: Int? = nil) -> Bool {
+        let targetPatternIndex = patternIndex ?? currentPatternIndex
+        guard let storageIndex = patterns.firstIndex(where: { $0.index == targetPatternIndex }) else {
+            return false
+        }
+
+        let pattern = patterns[storageIndex]
+        patterns[storageIndex] = Self.makeEmptyPattern(
+            index: pattern.index,
+            rowCount: pattern.rowCount,
+            channels: pattern.channels
+        )
+        return true
+    }
+
+    private mutating func setNoteValue(_ note: UInt8, row: Int, channel: Int, storageIndex: Int) {
+        let cell = patterns[storageIndex].rows[row][channel]
+        patterns[storageIndex].rows[row][channel] = XMPatternEventCell(
             note: note,
             instrument: cell.instrument,
             volumeColumn: cell.volumeColumn,
             effectType: cell.effectType,
             effectParam: cell.effectParam
         )
+    }
+
+    private mutating func replacePattern(_ newValue: XMPatternData) {
+        if let storageIndex = patterns.firstIndex(where: { $0.index == newValue.index }) {
+            patterns[storageIndex] = newValue
+        } else {
+            patterns.append(newValue)
+            patterns.sort { $0.index < $1.index }
+        }
     }
 }
 

@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 @main
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static var retainedDelegate: AppDelegate?
     private var windowController: TrackerWindowController?
     private var blankDocument: BlankTrackerDocument?
@@ -125,6 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case ApplicationMenuBuilder.Actions.toggleEditMode:
             menuItem.state = isEditModeEnabled ? .on : .off
             return true
+        case ApplicationMenuBuilder.Actions.clearCurrentPattern:
+            return EditorCommandAvailability.canClearCurrentPattern(
+                hasBlankDocument: blankDocument != nil,
+                sourceContext: currentEditorNoteAuditionSourceContext()
+            )
         case #selector(NSWindow.performClose(_:)):
             return mainWindow != nil
         default:
@@ -216,6 +221,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func newTrackerDocument(_ sender: Any?) {
         resetToBlankTrackerDocument()
+    }
+
+    @objc
+    private func clearCurrentPattern(_ sender: Any?) {
+        guard var document = blankDocument,
+              loadedMetadata == nil,
+              EditorCommandAvailability.canClearCurrentPattern(
+                  hasBlankDocument: true,
+                  sourceContext: document.noteAuditionSourceContext
+              ) else {
+            return
+        }
+
+        guard document.clearCurrentPattern(patternIndex: currentPatternIndex) else {
+            return
+        }
+
+        blankDocument = document
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
     }
 
     private func loadModule(from url: URL) {
@@ -840,12 +865,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 trackerKey: character,
                 octave: selectedOctave,
                 row: cursor.row,
-                channel: cursor.channel
+                channel: cursor.channel,
+                patternIndex: currentPatternIndex
             )
         case .keyOff:
-            didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel)
+            didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel, patternIndex: currentPatternIndex)
         case .clearField:
-            didMutate = document.clearNote(row: cursor.row, channel: cursor.channel)
+            didMutate = document.clearNote(row: cursor.row, channel: cursor.channel, patternIndex: currentPatternIndex)
         case .hexDigit:
             didMutate = false
         }
@@ -854,7 +880,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
 
-        cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: document.pattern.rowCount)
+        let editedPattern = document.pattern(for: currentPatternIndex) ?? document.pattern
+        cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: editedPattern.rowCount)
         blankDocument = document
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()

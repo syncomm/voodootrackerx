@@ -64,6 +64,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Clear Current Pattern is now available from the Edit menu for blank/editable
+  documents only. It clears the selected blank pattern back to empty cells,
+  removes key-off cells, refreshes the tracker display, and preserves selected
+  instrument/sample/octave, tempo/BPM, speed, channels, rows, pattern count,
+  order state, cursor location, viewport/static-highlight behavior, runtime
+  playback, note audition, and loaded-module read-only policy. Clear song while
+  preserving instruments/samples, reset arrangement/order table, duplicate
+  pattern, insert/delete pattern or order slots, undo/redo, save XM, and export
+  WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan

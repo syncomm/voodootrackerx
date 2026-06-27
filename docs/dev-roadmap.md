@@ -21,7 +21,8 @@ VoodooTracker X currently has:
   slot state, loaded-module note audition, Clear Current Pattern for
   blank/editable documents, Clear Song Data for blank documents and loaded
   module editable-copy palette reuse, pattern-loop playback at Play start, and
-  the read-only Song / Order editor order-list and paginated pattern-bank binding
+  the Song / Order editor read-only order-list / paginated pattern-bank binding
+  with stopped selected-order navigation
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -81,6 +82,14 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor order list now supports stopped/idle selected-order
+  navigation for loaded modules and editable documents that expose order rows.
+  Row clicks update the current order/pattern through the existing main-window
+  state path, highlight the selected order, and auto-page the read-only pattern
+  bank to the referenced pattern. Active playback row clicks are ignored; order
+  list mutation, pattern-bank assignment, transport controls, playback paths,
+  runtime audio, parser behavior, save/export, sample editor, and instrument
+  editor behavior remain deferred.
 - The Song / Order editor shell now displays read-only order-list and paginated
   pattern-bank state from the current loaded module or editable document,
   refreshing after File New, module load, Clear Song Data, Clear Current

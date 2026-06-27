@@ -247,8 +247,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             songOrderEditorWindowController = controller
         }
+        controller.onOrderSelected = { [weak self] orderPosition in
+            self?.selectSongOrderEditorOrder(orderPosition)
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
+    }
+
+    private func selectSongOrderEditorOrder(_ orderPosition: Int) {
+        guard !playbackEngine.state.isPlaying else {
+            return
+        }
+
+        if let document = blankDocument {
+            guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
+                document,
+                selectingOrderPosition: orderPosition,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            ) else {
+                return
+            }
+            blankDocument = updatedDocument
+            selectedSongPositionIndex = updatedDocument.currentPosition
+            currentPatternIndex = updatedDocument.currentPatternIndex
+            cursor = PatternCursor(row: 0, channel: 0, field: .note)
+            updatePatternSelector(for: updatedDocument.metadata, keepPattern: updatedDocument.currentPatternIndex)
+            renderCurrentPattern(metadata: updatedDocument.metadata)
+            syncControlPanelView()
+            return
+        }
+
+        guard let metadata = loadedMetadata,
+              SongOrderEditorNavigation.loadedModuleSelection(
+                  selectingOrderPosition: orderPosition,
+                  metadata: metadata,
+                  currentOrderPosition: selectedSongPositionIndex,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) != nil else {
+            return
+        }
+
+        applySongPosition(orderPosition, in: metadata)
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
     }
 
     private func currentSongOrderEditorDisplayState() -> SongOrderEditorDisplayState {

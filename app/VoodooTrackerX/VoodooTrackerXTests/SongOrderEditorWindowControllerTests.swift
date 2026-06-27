@@ -378,6 +378,159 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(state.orderRows.map(\.isSelected), [false, true])
     }
 
+    func testLoadedModuleSelectedOrderNavigationUpdatesCurrentOrderAndPatternWithoutMutation() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 2, 64],
+            patterns: makeContiguousPatterns(through: 64),
+            patternCount: 65
+        )
+        let beforeOrderTable = metadata.orderTable
+        let beforePatterns = metadata.xmPatterns
+
+        let result = try XCTUnwrap(SongOrderEditorNavigation.loadedModuleSelection(
+            selectingOrderPosition: 2,
+            metadata: metadata,
+            currentOrderPosition: 0,
+            isPlaybackActive: false
+        ))
+        let state = SongOrderEditorDisplayState.loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: result.selectedOrderPosition,
+            currentPatternIndex: result.currentPatternIndex
+        )
+        let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 64 })
+        let controlPanelContent = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selectedSongPositionIndex: result.selectedOrderPosition,
+            currentPatternIndex: result.currentPatternIndex,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(result, SongOrderEditorNavigationResult(selectedOrderPosition: 2, currentPatternIndex: 64))
+        XCTAssertEqual(controlPanelContent.songPosition, "02")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: result.currentPatternIndex), "064")
+        XCTAssertEqual(state.orderRows.map(\.isSelected), [false, false, true])
+        XCTAssertEqual(state.bankIndex, 1)
+        XCTAssertEqual(state.bankDisplayLabel, "BANK 2/2")
+        XCTAssertTrue(currentCell.isCurrent)
+        XCTAssertEqual(metadata.orderTable, beforeOrderTable)
+        XCTAssertEqual(metadata.xmPatterns, beforePatterns)
+    }
+
+    func testEditableDocumentSelectedOrderNavigationUpdatesStateWithoutMutatingOrderOrPatterns() throws {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 2, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 32),
+                makePattern(index: 2, rowCount: 48),
+            ]
+        )
+        let beforeOrderTable = document.orderTable
+        let beforePatterns = document.patterns
+
+        let updated = try XCTUnwrap(SongOrderEditorNavigation.editableDocument(
+            document,
+            selectingOrderPosition: 1,
+            isPlaybackActive: false
+        ))
+        let state = SongOrderEditorDisplayState.editableDocument(updated)
+        let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 2 })
+
+        XCTAssertEqual(updated.currentPosition, 1)
+        XCTAssertEqual(updated.currentPatternIndex, 2)
+        XCTAssertEqual(updated.orderTable, beforeOrderTable)
+        XCTAssertEqual(updated.patterns, beforePatterns)
+        XCTAssertEqual(document.orderTable, beforeOrderTable)
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(state.orderRows.map(\.isSelected), [false, true, false])
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testOrderNavigationIgnoresCurrentOrderAndActivePlayback() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 16),
+            ]
+        )
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 16),
+            ]
+        )
+
+        XCTAssertNil(SongOrderEditorNavigation.loadedModuleSelection(
+            selectingOrderPosition: 0,
+            metadata: metadata,
+            currentOrderPosition: 0,
+            isPlaybackActive: false
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.loadedModuleSelection(
+            selectingOrderPosition: 1,
+            metadata: metadata,
+            currentOrderPosition: 0,
+            isPlaybackActive: true
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocument(
+            document,
+            selectingOrderPosition: 0,
+            isPlaybackActive: false
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocument(
+            document,
+            selectingOrderPosition: 1,
+            isPlaybackActive: true
+        ))
+    }
+
+    func testOrderRowClickRequestsNavigationAndCanRefreshSelectionAndPatternBank() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 64],
+            patterns: makeContiguousPatterns(through: 64),
+            patternCount: 65
+        )
+        let controller = SongOrderEditorWindowController(displayState: .loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 0,
+            currentPatternIndex: 0
+        ))
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var selectedOrders = [Int]()
+        controller.onOrderSelected = { orderPosition in
+            selectedOrders.append(orderPosition)
+            controller.apply(displayState: .loadedModule(
+                metadata: metadata,
+                selectedOrderPosition: orderPosition,
+                currentPatternIndex: metadata.orderTable[orderPosition]
+            ))
+        }
+
+        try clickOrderRow("000", in: contentView)
+        XCTAssertEqual(selectedOrders, [])
+
+        try clickOrderRow("001", in: contentView)
+        let currentCell = try XCTUnwrap(contentView.displayState.patternBankCells.first { $0.patternIndex == 64 })
+
+        XCTAssertEqual(selectedOrders, [1])
+        XCTAssertEqual(contentView.displayState.selectedOrderPosition, 1)
+        XCTAssertEqual(contentView.displayState.selectedPatternIndex, 64)
+        XCTAssertEqual(contentView.displayState.orderRows.map(\.isSelected), [false, true])
+        XCTAssertEqual(contentView.displayState.bankIndex, 1)
+        XCTAssertEqual(contentView.displayState.bankDisplayLabel, "BANK 2/2")
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
     func testPatternBankPreviousNextNavigationChangesOnlyVisibleReadOnlyPageAndClamps() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0, 64, 130],
@@ -570,6 +723,12 @@ private func makePattern(index: Int, rowCount: Int, channels: Int = 1) -> XMPatt
     BlankTrackerDocument.makeEmptyPattern(index: index, rowCount: rowCount, channels: channels)
 }
 
+private func makeContiguousPatterns(through lastIndex: Int) -> [XMPatternData] {
+    (0...max(0, lastIndex)).map { patternIndex in
+        makePattern(index: patternIndex, rowCount: patternIndex == lastIndex ? 32 : 16)
+    }
+}
+
 private func makeBlankDocument(
     currentPosition: Int = BlankTrackerDocument.defaultCurrentPosition,
     currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
@@ -603,6 +762,25 @@ private func button(titled title: String, in view: NSView) throws -> VTXEditorBu
 private func orderListScrollView(in view: NSView) throws -> NSScrollView {
     let scrollView = view.allDescendants.compactMap { $0 as? NSScrollView }.first
     return try XCTUnwrap(scrollView)
+}
+
+@MainActor
+private func clickOrderRow(_ orderDisplay: String, in view: NSView) throws {
+    let row = try XCTUnwrap(view.allDescendants
+        .compactMap { $0 as? SongOrderEditorOrderRowView }
+        .first { $0.identifier?.rawValue == SongOrderEditorViewIdentifier.orderRowPrefix + orderDisplay })
+    let event = try XCTUnwrap(NSEvent.mouseEvent(
+        with: .leftMouseDown,
+        location: NSPoint(x: row.bounds.midX, y: row.bounds.midY),
+        modifierFlags: [],
+        timestamp: 0,
+        windowNumber: row.window?.windowNumber ?? 0,
+        context: nil,
+        eventNumber: 0,
+        clickCount: 1,
+        pressure: 1
+    ))
+    row.mouseDown(with: event)
 }
 
 private func makeLoadedMetadata(

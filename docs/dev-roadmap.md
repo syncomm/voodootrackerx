@@ -20,8 +20,9 @@ VoodooTracker X currently has:
 - blank tracker startup, note-entry foundations, selected instrument/sample
   slot state, loaded-module note audition, Clear Current Pattern for
   blank/editable documents, Clear Song Data for blank documents and loaded
-  module editable-copy palette reuse, pattern-loop playback at Play start, and
-  the Song / Order editor order-list / paginated pattern-bank binding with
+  module editable-copy palette reuse, pattern-loop playback at Play start,
+  Transport > Play Current Pattern for explicit current-pattern loop playback,
+  and the Song / Order editor order-list / paginated pattern-bank binding with
   stopped selected-order navigation and editable Pattern Bank double-click
   assignment
 
@@ -83,6 +84,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Transport > Play Current Pattern now starts the displayed/selected pattern
+  from row 0 as an isolated loop through the existing
+  `RuntimeCMixerAdapterEventPlan` runtime path. Normal Play still starts from
+  the selected POS/order, hidden/unreferenced pattern viewing remains
+  view-only, Stop ends the pattern loop, and no order/pattern mutation,
+  second playback path, parser, C mixer DSP, viewport, save/export, sample
+  editor, or instrument editor behavior changed.
 - The Song / Order editor Pattern Bank now keeps single-click navigation as
   view-only and uses double-click to assign an existing pattern to the selected
   order slot in editable documents while stopped. Empty pattern cells and

@@ -788,6 +788,183 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPlayCurrentPatternLoopForReferencedPatternUsesAdapterPlanRangeWithoutMutatingSourceSong() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125], baseSampleRate: 100)
+        let sourceSong = makePlaybackSong(
+            orderPatternIndices: [3, 7],
+            patternRowsByIndex: [
+                3: [makePlaybackRow(index: 0)],
+                7: [
+                    makePlaybackRow(index: 0, note: 53, instrument: 1),
+                    makePlaybackRow(index: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let before = sourceSong
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: sourceSong)
+        engine.playCurrentPatternLoop(
+            from: PlaybackStartContext(moduleTitle: "loaded", songPosition: 1, patternIndex: 7, row: 63),
+            timingSession: nil
+        )
+
+        XCTAssertEqual(sourceSong, before)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 7, rowIndex: 0))
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.orderIndex, 1)
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.patternIndex, 7)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [53])
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+    }
+
+    @MainActor
+    func testPlayCurrentPatternLoopForHiddenPatternRestoresSongAndNormalPlayAfterStop() throws {
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125], baseSampleRate: 100)
+        let sourceSong = makePlaybackSong(
+            orderPatternIndices: [3, 7],
+            patternRowsByIndex: [
+                3: [makePlaybackRow(index: 0, note: 49, instrument: 1)],
+                7: [makePlaybackRow(index: 0, note: 51, instrument: 1)],
+                42: [
+                    makePlaybackRow(index: 0, note: 56, instrument: 1),
+                    makePlaybackRow(index: 1),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let before = sourceSong
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: sourceSong)
+        engine.playCurrentPatternLoop(
+            from: PlaybackStartContext(moduleTitle: "loaded", songPosition: 1, patternIndex: 42, row: 9),
+            timingSession: nil
+        )
+
+        XCTAssertEqual(sourceSong, before)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 42, rowIndex: 0))
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.orderIndex, 1)
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.patternIndex, 42)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [56])
+
+        engine.stop()
+
+        XCTAssertEqual(engine.song, sourceSong)
+        XCTAssertEqual(engine.currentPosition?.orderIndex, 1)
+        XCTAssertEqual(engine.currentPosition?.patternIndex, 42)
+
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "loaded", songPosition: 1, patternIndex: 7, row: 0),
+            loopEnabled: false,
+            timingSession: nil
+        )
+
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 1, patternIndex: 7, rowIndex: 0))
+        XCTAssertNil(audioOutput.consumedPatternLoopRanges.last ?? nil)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51])
+    }
+
+    @MainActor
+    func testPlayCurrentPatternLoopIgnoredDuringActivePlayback() throws {
+        let song = makeRuntimeAdapterPlaybackSong(patternIndex: 2)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: song)
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "loaded", songPosition: 0, patternIndex: 2, row: 0),
+            loopEnabled: false,
+            timingSession: nil
+        )
+        let consumedCountBefore = audioOutput.consumedContexts.count
+        let configuredCountBefore = audioOutput.configuredPlans.count
+
+        engine.playCurrentPatternLoop(
+            from: PlaybackStartContext(moduleTitle: "loaded", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: nil
+        )
+
+        XCTAssertEqual(audioOutput.consumedContexts.count, consumedCountBefore)
+        XCTAssertEqual(audioOutput.configuredPlans.count, configuredCountBefore)
+        XCTAssertEqual(engine.currentPosition, PlaybackPosition(orderIndex: 0, patternIndex: 2, rowIndex: 0))
+    }
+
+    @MainActor
+    func testEditableCurrentPatternLoopRefreshUsesIsolatedDisplayedPattern() async throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125], baseSampleRate: 100)
+        let initialSong = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowsByIndex: [
+                0: [makePlaybackRow(index: 0)],
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let refreshedSong = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowsByIndex: [
+                0: [makePlaybackRow(index: 0)],
+                2: [
+                    makePlaybackRow(index: 0, note: 49, instrument: 1),
+                    makePlaybackRow(index: 1, note: 51, instrument: 1),
+                    makePlaybackRow(index: 2),
+                ],
+            ],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: initialSong)
+        engine.playCurrentPatternLoop(
+            from: PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 2, row: 0),
+            timingSession: nil
+        )
+        engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+
+        XCTAssertEqual(noteTriggerNotes(in: RuntimeCMixerAdapterEventPlan.make(song: prewarmScheduler.requests.last?.song, sampleRate: 100)), [49, 51])
+
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+        advanceRows(3, engine: engine, timing: initialSong.initialTiming)
+
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.patternIndex, 2)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51])
+
+        engine.stop()
+
+        XCTAssertEqual(engine.song, refreshedSong)
+    }
+
+    @MainActor
     func testActiveEditablePatternLoopRefreshInstallsFreshPlanAtLoopBoundary() async throws {
         let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)

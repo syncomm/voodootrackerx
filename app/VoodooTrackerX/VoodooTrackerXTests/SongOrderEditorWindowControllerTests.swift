@@ -557,6 +557,56 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(engine.state.context, context)
     }
 
+    func testPlayCurrentPatternContextTargetsDisplayedPatternFromRowZeroWithoutResettingSelectedOrder() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [3, 7],
+            patterns: [
+                makePattern(index: 3, rowCount: 16),
+                makePattern(index: 7, rowCount: 16),
+                makePattern(index: 42, rowCount: 16),
+            ],
+            patternCount: 43
+        )
+
+        let context = try XCTUnwrap(TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+            metadata: metadata,
+            selectedSongPositionIndex: 1,
+            displayedPatternIndex: 42
+        ))
+
+        XCTAssertEqual(context.songPosition, 1)
+        XCTAssertEqual(context.patternIndex, 42)
+        XCTAssertEqual(context.row, 0)
+    }
+
+    func testPlayCurrentPatternAvailabilityRequiresCurrentPatternAndIdlePlayback() {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0],
+            patterns: [makePattern(index: 0, rowCount: 16)]
+        )
+
+        XCTAssertTrue(TrackerTransportCommandAvailability.canPlayCurrentPattern(
+            metadata: metadata,
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        ))
+        XCTAssertFalse(TrackerTransportCommandAvailability.canPlayCurrentPattern(
+            metadata: metadata,
+            currentPatternIndex: 9,
+            isPlaybackActive: false
+        ))
+        XCTAssertFalse(TrackerTransportCommandAvailability.canPlayCurrentPattern(
+            metadata: metadata,
+            currentPatternIndex: 0,
+            isPlaybackActive: true
+        ))
+        XCTAssertFalse(TrackerTransportCommandAvailability.canPlayCurrentPattern(
+            metadata: nil,
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        ))
+    }
+
     func testEditableDocumentPatternBankNavigationUpdatesCurrentPatternWithoutMutatingOrderOrPatterns() throws {
         let document = makeBlankDocument(
             currentPosition: 0,

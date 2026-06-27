@@ -56,6 +56,18 @@ private struct PendingEditablePatternLoopRefresh {
     let makeMS: Double?
 }
 
+private struct IsolatedPatternLoopPlaybackContext {
+    let patternIndex: Int
+    let anchorOrderIndex: Int
+}
+
+private struct IsolatedPatternLoopPlaybackRestoreState {
+    var sourceSong: PlaybackSong
+    var runtimeAdapterEventPlan: RuntimeCMixerAdapterEventPlan
+    var runtimeAdapterPlanCacheSource: RuntimeAdapterPlanCacheSource
+    var runtimeAdapterPlanUseCount: Int
+}
+
 private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
     let generation: UInt64
 
@@ -181,6 +193,8 @@ final class PlaybackEngine: PlaybackTransport {
     private var editablePatternLoopRefreshGeneration: UInt64 = 0
     private var editablePatternLoopRefreshJob: RuntimeAdapterPlanPrewarmJob?
     private var pendingEditablePatternLoopRefresh: PendingEditablePatternLoopRefresh?
+    private var isolatedPatternLoopPlaybackContext: IsolatedPatternLoopPlaybackContext?
+    private var isolatedPatternLoopPlaybackRestoreState: IsolatedPatternLoopPlaybackRestoreState?
     private var channelStates = [Int: PlaybackChannelState]()
     private var globalState = PlaybackGlobalState()
     private var rowDelayDurationsRemaining = 0
@@ -301,16 +315,32 @@ final class PlaybackEngine: PlaybackTransport {
               audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else {
             return
         }
+        let playbackRefreshSong: PlaybackSong
+        if let isolatedPatternLoopPlaybackContext {
+            guard let isolatedSong = refreshedSong.isolatedPatternLoopSong(
+                patternIndex: isolatedPatternLoopPlaybackContext.patternIndex,
+                anchorOrderIndex: isolatedPatternLoopPlaybackContext.anchorOrderIndex
+            ) else {
+                return
+            }
+            playbackRefreshSong = isolatedSong
+            isolatedPatternLoopPlaybackRestoreState?.sourceSong = refreshedSong
+            isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterEventPlan = .unavailable(sampleRate: audioEngine.audioBufferSampleRate)
+            isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterPlanCacheSource = .none
+            isolatedPatternLoopPlaybackRestoreState?.runtimeAdapterPlanUseCount = 0
+        } else {
+            playbackRefreshSong = refreshedSong
+        }
         editablePatternLoopRefreshGeneration &+= 1
         editablePatternLoopRefreshJob?.cancel()
         editablePatternLoopRefreshJob = nil
         pendingEditablePatternLoopRefresh = nil
 
         let generation = editablePatternLoopRefreshGeneration
-        let snapshot = EditablePatternLoopRefreshSnapshot(song: refreshedSong)
+        let snapshot = EditablePatternLoopRefreshSnapshot(song: playbackRefreshSong)
         let request = RuntimeAdapterPlanPrewarmRequest(
             generation: generation,
-            song: refreshedSong,
+            song: playbackRefreshSong,
             sampleRate: audioEngine.audioBufferSampleRate,
             adapterPlanProfileRecorder: nil
         )
@@ -333,6 +363,67 @@ final class PlaybackEngine: PlaybackTransport {
 
     func play(from context: PlaybackStartContext?, loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
         play(from: context, debugStart: nil, loopEnabled: loopEnabled, action: .play, timingSession: timingSession)
+    }
+
+    func playCurrentPatternLoop(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
+        guard !state.isPlaying else {
+            timingSession?.recordPhase(
+                "playback_engine_play_current_pattern_ignored_already_playing",
+                startedAt: nil,
+                fields: [PlaybackTimingTraceField("is_playing_before", true)]
+            )
+            logger.debug("Ignoring Play Current Pattern request because playback is already active")
+            return
+        }
+        guard audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else {
+            timingSession?.recordPhase(
+                "playback_engine_play_current_pattern_unavailable",
+                startedAt: nil,
+                fields: [PlaybackTimingTraceField("requires_runtime_adapter_event_plan", true)]
+            )
+            logger.error("Unable to start Play Current Pattern without runtime adapter event consumption")
+            return
+        }
+        guard let sourceSong = song,
+              let context,
+              let isolatedSong = sourceSong.isolatedPatternLoopSong(
+                  patternIndex: context.patternIndex,
+                  anchorOrderIndex: context.songPosition
+              ) else {
+            timingSession?.recordPhase(
+                "playback_engine_play_current_pattern_no_pattern",
+                startedAt: nil,
+                fields: [
+                    PlaybackTimingTraceField("has_song", song != nil),
+                    PlaybackTimingTraceField("pattern_index", context?.patternIndex ?? -1),
+                ]
+            )
+            return
+        }
+        let loopContext = PlaybackStartContext(
+            moduleTitle: context.moduleTitle,
+            songPosition: context.songPosition,
+            patternIndex: context.patternIndex,
+            row: 0
+        )
+
+        isolatedPatternLoopPlaybackRestoreState = IsolatedPatternLoopPlaybackRestoreState(
+            sourceSong: sourceSong,
+            runtimeAdapterEventPlan: runtimeAdapterEventPlan,
+            runtimeAdapterPlanCacheSource: runtimeAdapterPlanCacheSource,
+            runtimeAdapterPlanUseCount: runtimeAdapterPlanUseCount
+        )
+        isolatedPatternLoopPlaybackContext = IsolatedPatternLoopPlaybackContext(
+            patternIndex: loopContext.patternIndex,
+            anchorOrderIndex: loopContext.songPosition
+        )
+        cancelRuntimeAdapterPlanPrewarm(reason: "play_current_pattern_loop")
+        song = isolatedSong
+        invalidateRuntimeAdapterEventPlan(timingSession: timingSession)
+        play(from: loopContext, debugStart: nil, loopEnabled: true, action: .playCurrentPattern, timingSession: timingSession)
+        if !state.isPlaying {
+            restoreIsolatedPatternLoopSourceIfNeeded(configureAudioPlan: true)
+        }
     }
 
     func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
@@ -567,6 +658,7 @@ final class PlaybackEngine: PlaybackTransport {
         }
         traceWriter.flush()
         runtimeCMixerTraceWriter.flush()
+        restoreIsolatedPatternLoopSourceIfNeeded(configureAudioPlan: true)
         currentPublishedFollowPosition = currentPosition.map { PlaybackFollowPosition.timer(position: $0, tickInRow: 0) }
         apply(action: action, nextState: .stopped)
         if notify, wasActive {
@@ -627,6 +719,23 @@ final class PlaybackEngine: PlaybackTransport {
     private func apply(action: PlaybackTransportAction, nextState: PlaybackState) {
         state = nextState
         logger.debug("Playback transport action: \(String(describing: action), privacy: .public)")
+    }
+
+    private func restoreIsolatedPatternLoopSourceIfNeeded(configureAudioPlan: Bool) {
+        guard let restoreState = isolatedPatternLoopPlaybackRestoreState else {
+            return
+        }
+        song = restoreState.sourceSong
+        runtimeAdapterEventPlan = restoreState.runtimeAdapterEventPlan
+        runtimeAdapterPlanCacheSource = restoreState.runtimeAdapterPlanCacheSource
+        runtimeAdapterPlanUseCount = restoreState.runtimeAdapterPlanUseCount
+        isolatedPatternLoopPlaybackRestoreState = nil
+        isolatedPatternLoopPlaybackContext = nil
+        if configureAudioPlan,
+           let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming {
+            adapterConsumer.configureRuntimeAdapterEventPlan(runtimeAdapterEventPlan, generationMS: nil, timingSession: nil)
+        }
+        runtimeAdapterPlanDidUpdate?()
     }
 
     private func resetRuntimeState(resetTiming: Bool) {

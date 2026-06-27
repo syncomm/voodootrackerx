@@ -277,6 +277,74 @@ struct SongOrderEditorDisplayState: Equatable {
     }
 }
 
+struct SongOrderEditorNavigationResult: Equatable {
+    let selectedOrderPosition: Int
+    let currentPatternIndex: Int
+}
+
+enum SongOrderEditorNavigation {
+    static func loadedModuleSelection(
+        selectingOrderPosition orderPosition: Int,
+        metadata: ParsedModuleMetadata,
+        currentOrderPosition: Int,
+        isPlaybackActive: Bool
+    ) -> SongOrderEditorNavigationResult? {
+        guard !isPlaybackActive,
+              orderPosition != currentOrderPosition,
+              let patternIndex = referencedPatternIndex(
+                  orderPosition: orderPosition,
+                  orderTable: metadata.orderTable,
+                  songLength: metadata.songLength
+              ),
+              metadata.xmPatterns.indices.contains(patternIndex) else {
+            return nil
+        }
+        return SongOrderEditorNavigationResult(
+            selectedOrderPosition: orderPosition,
+            currentPatternIndex: patternIndex
+        )
+    }
+
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
+        selectingOrderPosition orderPosition: Int,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive,
+              orderPosition != document.currentPosition,
+              let patternIndex = referencedPatternIndex(
+                  orderPosition: orderPosition,
+                  orderTable: document.orderTable,
+                  songLength: document.songLength
+              ),
+              document.pattern(for: patternIndex) != nil else {
+            return nil
+        }
+        return BlankTrackerDocument(
+            title: document.title,
+            songLength: document.songLength,
+            currentPosition: orderPosition,
+            restartPosition: document.restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: document.tempo,
+            speed: document.speed,
+            orderTable: document.orderTable,
+            selection: document.selection,
+            instrumentPalette: document.instrumentPalette,
+            patterns: document.patterns
+        )
+    }
+
+    private static func referencedPatternIndex(orderPosition: Int, orderTable: [Int], songLength: Int) -> Int? {
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        guard orderPosition >= 0,
+              orderPosition < effectiveOrderCount else {
+            return nil
+        }
+        return orderTable[orderPosition]
+    }
+}
+
 @MainActor
 enum SongOrderEditorRefreshPolicy {
     static func shouldRefresh(isWindowVisible: Bool, isPlaybackActive: Bool) -> Bool {
@@ -288,6 +356,11 @@ enum SongOrderEditorRefreshPolicy {
 final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegate {
     static let contentSize = NSSize(width: 660, height: 480)
     var closeHandler: (() -> Void)?
+    var onOrderSelected: ((Int) -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onOrderSelected = onOrderSelected
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -339,7 +412,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
 
     @discardableResult
     func apply(displayState: SongOrderEditorDisplayState) -> Bool {
-        (window?.contentView as? SongOrderEditorContentView)?.apply(displayState: displayState) ?? false
+        guard let contentView = window?.contentView as? SongOrderEditorContentView else {
+            return false
+        }
+        contentView.onOrderSelected = onOrderSelected
+        return contentView.apply(displayState: displayState)
     }
 
     @discardableResult
@@ -357,6 +434,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
 
 @MainActor
 final class SongOrderEditorContentView: FlippedEditorView {
+    var onOrderSelected: ((Int) -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -492,8 +570,17 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func addOrderRow(to parent: NSView, y: CGFloat, row rowState: SongOrderEditorDisplayState.OrderRow, width: CGFloat) {
-        let row = addSurface(in: parent, frame: NSRect(x: 0, y: y, width: width, height: 18), background: rowState.isSelected ? VTXEditorControlTheme.indigoSelection : VTXEditorControlTheme.recessedReadoutBackground)
+        let row = SongOrderEditorOrderRowView(
+            orderPosition: rowState.orderPosition,
+            isSelectedOrder: rowState.isSelected
+        ) { [weak self] orderPosition in
+            self?.onOrderSelected?(orderPosition)
+        }
+        row.frame = NSRect(x: 0, y: y, width: width, height: 18)
+        row.style(background: rowState.isSelected ? VTXEditorControlTheme.indigoSelection : VTXEditorControlTheme.recessedReadoutBackground)
+        parent.addSubview(row)
         row.identifier = NSUserInterfaceItemIdentifier(SongOrderEditorViewIdentifier.orderRowPrefix + rowState.orderDisplay)
+        row.toolTip = "Navigate to order \(rowState.orderDisplay)"
         addLabel(rowState.orderDisplay, to: row, frame: NSRect(x: 10, y: 2, width: 52, height: 13), color: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55), size: 10)
         addLabel(rowState.patternDisplay, to: row, frame: NSRect(x: 70, y: 1, width: 70, height: 14), color: VTXEditorControlTheme.warmValueText, size: 10.5, weight: .bold, alignment: .center)
         addLabel(rowState.rowCountDisplay, to: row, frame: NSRect(x: 148, y: 2, width: 64, height: 13), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.48), size: 10, alignment: .left)
@@ -736,6 +823,31 @@ final class SongOrderEditorContentView: FlippedEditorView {
         view.translatesAutoresizingMaskIntoConstraints = true
         view.frame = frame
         parent.addSubview(view)
+    }
+}
+
+final class SongOrderEditorOrderRowView: FlippedEditorView {
+    private let orderPosition: Int
+    private let isSelectedOrder: Bool
+    private let selectHandler: (Int) -> Void
+
+    init(orderPosition: Int, isSelectedOrder: Bool, selectHandler: @escaping (Int) -> Void) {
+        self.orderPosition = orderPosition
+        self.isSelectedOrder = isSelectedOrder
+        self.selectHandler = selectHandler
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isSelectedOrder else {
+            return
+        }
+        selectHandler(orderPosition)
     }
 }
 

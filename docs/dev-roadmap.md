@@ -21,7 +21,7 @@ VoodooTracker X currently has:
   slot state, loaded-module note audition, Clear Current Pattern for
   blank/editable documents, Clear Song Data for blank documents and loaded
   module editable-copy palette reuse, pattern-loop playback at Play start, and
-  the static Song / Order editor floating-window shell
+  the read-only Song / Order editor order-list and paginated pattern-bank binding
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -81,12 +81,18 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor shell now displays read-only order-list and paginated
+  pattern-bank state from the current loaded module or editable document,
+  refreshing after File New, module load, Clear Song Data, Clear Current
+  Pattern, and existing main-window order/pattern selection changes. Editing,
+  mutation commands, transport controls, playback paths, parser behavior,
+  runtime audio, save/export, sample editor, and instrument editor behavior
+  remain deferred.
 - The Song / Order editor now has a fixed-size floating utility-window shell
-  opened from the Window menu, with static inert order-list, pattern-bank,
-  pattern-ops, order-ops, and danger panels. Read-only document binding and
-  real order/pattern editing remain deferred; no transport, playback, parser,
-  save/export, tracker viewport, note entry, note audition, sample editor, or
-  instrument editor behavior changed.
+  opened from the Window menu, with inert pattern-ops, order-ops, and danger
+  panels. Real order/pattern editing remains deferred; no transport, playback,
+  parser, save/export, tracker viewport, note entry, note audition, sample
+  editor, or instrument editor behavior changed.
 - Shared AppKit editor control primitives now provide reusable theme tokens,
   panel labels, segment readouts, indicator LEDs, tactile editor buttons,
   editor knobs, and center-detent pan sliders for future Song / Order,

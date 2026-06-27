@@ -7,14 +7,293 @@ enum SongOrderEditorViewIdentifier {
     static let patternOpsPanel = "songOrderEditor.patternOpsPanel"
     static let orderOpsPanel = "songOrderEditor.orderOpsPanel"
     static let dangerPanel = "songOrderEditor.dangerPanel"
+    static let orderRowPrefix = "songOrderEditor.orderRow."
+    static let patternCellPrefix = "songOrderEditor.patternCell."
+}
+
+struct SongOrderEditorDisplayState: Equatable {
+    struct OrderRow: Equatable {
+        let orderPosition: Int
+        let patternIndex: Int
+        let rowCount: Int?
+        let isSelected: Bool
+
+        var orderDisplay: String {
+            Self.decimal3(orderPosition)
+        }
+
+        var patternDisplay: String {
+            Self.decimal3(patternIndex)
+        }
+
+        var rowCountDisplay: String {
+            guard let rowCount else {
+                return "--"
+            }
+            return Self.decimal3(rowCount)
+        }
+
+        private static func decimal3(_ value: Int) -> String {
+            String(format: "%03d", max(0, value))
+        }
+    }
+
+    struct PatternBankCell: Equatable {
+        let patternIndex: Int
+        let exists: Bool
+        let isUsed: Bool
+        let isCurrent: Bool
+
+        var display: String {
+            String(format: "%03d", max(0, patternIndex))
+        }
+    }
+
+    static let bankSize = 64
+    static let empty = SongOrderEditorDisplayState(
+        orderRows: [],
+        patternBankCells: makeBankCells(
+            bankIndex: 0,
+            existingPatternIndices: [],
+            usedPatternIndices: [],
+            currentPatternIndex: nil
+        ),
+        bankRangeLabel: "000-063",
+        bankDisplayLabel: "BANK 1/1",
+        bankIndex: 0,
+        totalBankCount: 1,
+        existingPatternIndices: [],
+        usedPatternIndices: [],
+        selectedOrderPosition: nil,
+        selectedPatternIndex: nil,
+        hasDocumentState: false
+    )
+
+    let orderRows: [OrderRow]
+    let patternBankCells: [PatternBankCell]
+    let bankRangeLabel: String
+    let bankDisplayLabel: String
+    let bankIndex: Int
+    let totalBankCount: Int
+    let existingPatternIndices: Set<Int>
+    let usedPatternIndices: Set<Int>
+    let selectedOrderPosition: Int?
+    let selectedPatternIndex: Int?
+    let hasDocumentState: Bool
+
+    static func loadedModule(
+        metadata: ParsedModuleMetadata,
+        selectedOrderPosition: Int,
+        currentPatternIndex: Int,
+        requestedBankIndex: Int? = nil
+    ) -> SongOrderEditorDisplayState {
+        let rowCounts = metadata.xmPatterns.reduce(into: [Int: Int]()) { partialResult, pattern in
+            partialResult[pattern.index] = pattern.rowCount
+        }
+        var existingPatternIndices = Set(metadata.xmPatterns.map(\.index))
+        if metadata.patterns > 0 {
+            existingPatternIndices.formUnion(0..<metadata.patterns)
+        }
+        let orderPatternIndices = effectiveOrderPatternIndices(
+            orderTable: metadata.orderTable,
+            songLength: metadata.songLength
+        )
+        return make(
+            orderPatternIndices: orderPatternIndices,
+            rowCountsByPatternIndex: rowCounts,
+            existingPatternIndices: existingPatternIndices,
+            selectedOrderPosition: selectedOrderPosition,
+            currentPatternIndex: currentPatternIndex,
+            requestedBankIndex: requestedBankIndex,
+            hasDocumentState: true
+        )
+    }
+
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
+        requestedBankIndex: Int? = nil
+    ) -> SongOrderEditorDisplayState {
+        let rowCounts = document.patterns.reduce(into: [Int: Int]()) { partialResult, pattern in
+            partialResult[pattern.index] = pattern.rowCount
+        }
+        let existingPatternIndices = Set(document.patterns.map(\.index))
+        return make(
+            orderPatternIndices: effectiveOrderPatternIndices(
+                orderTable: document.orderTable,
+                songLength: document.songLength
+            ),
+            rowCountsByPatternIndex: rowCounts,
+            existingPatternIndices: existingPatternIndices,
+            selectedOrderPosition: document.currentPosition,
+            currentPatternIndex: document.currentPatternIndex,
+            requestedBankIndex: requestedBankIndex,
+            hasDocumentState: true
+        )
+    }
+
+    func showingBank(_ requestedBankIndex: Int) -> SongOrderEditorDisplayState {
+        let bank = Self.resolvedBankIndex(
+            requestedBankIndex: requestedBankIndex,
+            currentPatternIndex: selectedPatternIndex,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices
+        )
+        let range = Self.bankRange(for: bank)
+        return SongOrderEditorDisplayState(
+            orderRows: orderRows,
+            patternBankCells: Self.makeBankCells(
+                bankIndex: bank,
+                existingPatternIndices: existingPatternIndices,
+                usedPatternIndices: usedPatternIndices,
+                currentPatternIndex: selectedPatternIndex
+            ),
+            bankRangeLabel: Self.bankRangeLabel(for: range),
+            bankDisplayLabel: "BANK \(bank + 1)/\(totalBankCount)",
+            bankIndex: bank,
+            totalBankCount: totalBankCount,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices,
+            selectedOrderPosition: selectedOrderPosition,
+            selectedPatternIndex: selectedPatternIndex,
+            hasDocumentState: hasDocumentState
+        )
+    }
+
+    private static func make(
+        orderPatternIndices: [Int],
+        rowCountsByPatternIndex: [Int: Int],
+        existingPatternIndices: Set<Int>,
+        selectedOrderPosition: Int,
+        currentPatternIndex: Int?,
+        requestedBankIndex: Int? = nil,
+        hasDocumentState: Bool
+    ) -> SongOrderEditorDisplayState {
+        let selected = normalizedSelectedOrderPosition(selectedOrderPosition, orderCount: orderPatternIndices.count)
+        let usedPatternIndices = Set(orderPatternIndices.filter { $0 >= 0 })
+        let orderRows = orderPatternIndices.enumerated().map { orderPosition, patternIndex in
+            OrderRow(
+                orderPosition: orderPosition,
+                patternIndex: patternIndex,
+                rowCount: rowCountsByPatternIndex[patternIndex],
+                isSelected: selected == orderPosition
+            )
+        }
+        let bank = resolvedBankIndex(
+            requestedBankIndex: requestedBankIndex,
+            currentPatternIndex: currentPatternIndex,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices
+        )
+        let bankCells = makeBankCells(
+            bankIndex: bank,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices,
+            currentPatternIndex: currentPatternIndex
+        )
+        let range = bankRange(for: bank)
+        let totalBanks = totalBankCount(
+            currentPatternIndex: currentPatternIndex,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices
+        )
+        return SongOrderEditorDisplayState(
+            orderRows: orderRows,
+            patternBankCells: bankCells,
+            bankRangeLabel: bankRangeLabel(for: range),
+            bankDisplayLabel: "BANK \(bank + 1)/\(totalBanks)",
+            bankIndex: bank,
+            totalBankCount: totalBanks,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices,
+            selectedOrderPosition: selected,
+            selectedPatternIndex: currentPatternIndex,
+            hasDocumentState: hasDocumentState
+        )
+    }
+
+    private static func makeBankCells(
+        bankIndex: Int,
+        existingPatternIndices: Set<Int>,
+        usedPatternIndices: Set<Int>,
+        currentPatternIndex: Int?
+    ) -> [PatternBankCell] {
+        let startIndex = max(0, bankIndex) * bankSize
+        return (startIndex..<(startIndex + bankSize)).map { patternIndex in
+            PatternBankCell(
+                patternIndex: patternIndex,
+                exists: existingPatternIndices.contains(patternIndex),
+                isUsed: usedPatternIndices.contains(patternIndex),
+                isCurrent: currentPatternIndex == patternIndex
+            )
+        }
+    }
+
+    private static func resolvedBankIndex(
+        requestedBankIndex: Int?,
+        currentPatternIndex: Int?,
+        existingPatternIndices: Set<Int>,
+        usedPatternIndices: Set<Int>
+    ) -> Int {
+        let totalBanks = totalBankCount(
+            currentPatternIndex: currentPatternIndex,
+            existingPatternIndices: existingPatternIndices,
+            usedPatternIndices: usedPatternIndices
+        )
+        let autoBankIndex = max(0, currentPatternIndex ?? 0) / bankSize
+        return min(max(0, requestedBankIndex ?? autoBankIndex), totalBanks - 1)
+    }
+
+    private static func totalBankCount(
+        currentPatternIndex: Int?,
+        existingPatternIndices: Set<Int>,
+        usedPatternIndices: Set<Int>
+    ) -> Int {
+        let highestPatternIndex = max(
+            existingPatternIndices.max() ?? 0,
+            usedPatternIndices.max() ?? 0,
+            currentPatternIndex ?? 0
+        )
+        return max(1, (highestPatternIndex / bankSize) + 1)
+    }
+
+    private static func bankRange(for bankIndex: Int) -> ClosedRange<Int> {
+        let startIndex = max(0, bankIndex) * bankSize
+        return startIndex...(startIndex + bankSize - 1)
+    }
+
+    private static func bankRangeLabel(for range: ClosedRange<Int>) -> String {
+        String(format: "%03d-%03d", range.lowerBound, range.upperBound)
+    }
+
+    private static func effectiveOrderPatternIndices(orderTable: [Int], songLength: Int) -> [Int] {
+        Array(orderTable.prefix(max(0, min(songLength, orderTable.count))))
+    }
+
+    private static func normalizedSelectedOrderPosition(_ value: Int, orderCount: Int) -> Int? {
+        guard orderCount > 0 else {
+            return nil
+        }
+        return min(max(0, value), orderCount - 1)
+    }
 }
 
 @MainActor
-final class SongOrderEditorWindowController: NSWindowController {
-    static let contentSize = NSSize(width: 660, height: 480)
+enum SongOrderEditorRefreshPolicy {
+    static func shouldRefresh(isWindowVisible: Bool, isPlaybackActive: Bool) -> Bool {
+        isWindowVisible && !isPlaybackActive
+    }
+}
 
-    init() {
-        let contentView = SongOrderEditorContentView(frame: NSRect(origin: .zero, size: Self.contentSize))
+@MainActor
+final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegate {
+    static let contentSize = NSSize(width: 660, height: 480)
+    var closeHandler: (() -> Void)?
+
+    init(displayState: SongOrderEditorDisplayState = .empty) {
+        let contentView = SongOrderEditorContentView(
+            frame: NSRect(origin: .zero, size: Self.contentSize),
+            displayState: displayState
+        )
         let panel = NSPanel(
             contentRect: contentView.frame,
             styleMask: [.titled, .closable, .utilityWindow],
@@ -35,6 +314,7 @@ final class SongOrderEditorWindowController: NSWindowController {
         panel.center()
 
         super.init(window: panel)
+        panel.delegate = self
     }
 
     @available(*, unavailable)
@@ -49,15 +329,42 @@ final class SongOrderEditorWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
         NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
+
+    var isVisibleForRefresh: Bool {
+        guard let window else {
+            return false
+        }
+        return window.isVisible && !window.isMiniaturized
+    }
+
+    @discardableResult
+    func apply(displayState: SongOrderEditorDisplayState) -> Bool {
+        (window?.contentView as? SongOrderEditorContentView)?.apply(displayState: displayState) ?? false
+    }
+
+    @discardableResult
+    func applyIfVisible(displayState: SongOrderEditorDisplayState) -> Bool {
+        guard isVisibleForRefresh else {
+            return false
+        }
+        return apply(displayState: displayState)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        closeHandler?()
+    }
 }
 
 @MainActor
 final class SongOrderEditorContentView: FlippedEditorView {
-    private let usedPatterns: Set<Int> = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15]
-    private let currentPattern = 12
+    private(set) var displayState: SongOrderEditorDisplayState
+    private(set) var rebuildCount = 0
+    private(set) var selectedOrderScrollCount = 0
     private let usedPatternFill = NSColor(srgbRed: 0x2A / 255.0, green: 0x2A / 255.0, blue: 0x10 / 255.0, alpha: 1.0)
+    private var lastScrolledSelectedOrderPosition: Int?
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, displayState: SongOrderEditorDisplayState = .empty) {
+        self.displayState = displayState
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(SongOrderEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -69,29 +376,56 @@ final class SongOrderEditorContentView: FlippedEditorView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @discardableResult
+    func apply(displayState: SongOrderEditorDisplayState) -> Bool {
+        guard self.displayState != displayState else {
+            return false
+        }
+        self.displayState = displayState
+        rebuildShell()
+        return true
+    }
+
+    @objc
+    private func showPreviousBank(_ sender: Any?) {
+        showBank(displayState.bankIndex - 1)
+    }
+
+    @objc
+    private func showNextBank(_ sender: Any?) {
+        showBank(displayState.bankIndex + 1)
+    }
+
+    private func showBank(_ bankIndex: Int) {
+        apply(displayState: displayState.showingBank(bankIndex))
+    }
+
+    private func rebuildShell() {
+        rebuildCount += 1
+        subviews.forEach { $0.removeFromSuperview() }
+        buildShell()
+    }
+
     private func buildShell() {
         addSurface(frame: NSRect(x: 0, y: 0, width: bounds.width, height: 1), background: VTXEditorControlTheme.accentGold.withAlphaComponent(0.60))
         buildOrderListPanel(panel(SongOrderEditorViewIdentifier.orderListPanel, "Order list", "— the song sequence", NSRect(x: 12, y: 13, width: 296, height: 320)))
         buildPatternBankPanel(panel(SongOrderEditorViewIdentifier.patternBankPanel, "Pattern bank", nil, NSRect(x: 318, y: 13, width: 330, height: 250)))
         buildPatternOpsPanel(panel(SongOrderEditorViewIdentifier.patternOpsPanel, "Pattern ops", nil, NSRect(x: 318, y: 273, width: 330, height: 60)))
-        buildOrderOpsPanel(panel(SongOrderEditorViewIdentifier.orderOpsPanel, "Order ops", "— act on selected slot (ORD 010)", NSRect(x: 12, y: 343, width: 636, height: 66)))
+        buildOrderOpsPanel(panel(SongOrderEditorViewIdentifier.orderOpsPanel, "Order ops", orderOpsHint, NSRect(x: 12, y: 343, width: 636, height: 66)))
         buildDangerPanel(plainPanel(SongOrderEditorViewIdentifier.dangerPanel, NSRect(x: 12, y: 419, width: 636, height: 49), border: VTXEditorControlTheme.dangerRed.withAlphaComponent(0.35)))
+    }
+
+    private var orderOpsHint: String {
+        guard let selectedOrderPosition = displayState.selectedOrderPosition else {
+            return "— no selected slot"
+        }
+        return String(format: "— selected slot (ORD %03d)", selectedOrderPosition)
     }
 
     private func buildOrderListPanel(_ panel: NSView) {
         let list = addSurface(in: panel, frame: NSRect(x: 10, y: 32, width: 276, height: 242), background: VTXEditorControlTheme.recessedReadoutBackground, border: VTXEditorControlTheme.mutedGoldBorderSubtle, radius: 3)
         addOrderHeader(to: list)
-        let rows = [
-            ("007", "004", "064", false), ("008", "004", "064", false),
-            ("009", "012", "064", false), ("010", "012", "064", true),
-            ("011", "007", "128", false), ("012", "008", "064", false),
-            ("013", "008", "064", false), ("014", "015", "032", false),
-            ("015", "003", "064", false), ("016", "003", "064", false),
-            ("017", "009", "064", false),
-        ]
-        for (index, row) in rows.enumerated() {
-            addOrderRow(to: list, y: 20 + CGFloat(index * 18), order: row.0, pattern: row.1, rows: row.2, selected: row.3)
-        }
+        addOrderRowsScrollView(to: list)
         addLabel("ORD = order position", to: panel, frame: NSRect(x: 10, y: 286, width: 124, height: 14), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40), size: 9)
         addLabel("PTN = pattern number", to: panel, frame: NSRect(x: 146, y: 286, width: 130, height: 14), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40), size: 9)
     }
@@ -103,24 +437,95 @@ final class SongOrderEditorContentView: FlippedEditorView {
         addHorizontalRule(to: parent, y: 19, width: 276, alpha: 0.12)
     }
 
-    private func addOrderRow(to parent: NSView, y: CGFloat, order: String, pattern: String, rows: String, selected: Bool) {
-        let row = addSurface(in: parent, frame: NSRect(x: 0, y: y, width: 276, height: 18), background: selected ? VTXEditorControlTheme.indigoSelection : VTXEditorControlTheme.recessedReadoutBackground)
-        addLabel(order, to: row, frame: NSRect(x: 10, y: 2, width: 52, height: 13), color: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55), size: 10)
-        addLabel(pattern, to: row, frame: NSRect(x: 70, y: 1, width: 70, height: 14), color: VTXEditorControlTheme.warmValueText, size: 10.5, weight: .bold, alignment: .center)
-        addLabel(rows, to: row, frame: NSRect(x: 148, y: 2, width: 64, height: 13), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.48), size: 10, alignment: .left)
-        addHorizontalRule(to: parent, y: y + 17, width: 276, alpha: 0.05)
+    private func addOrderRowsScrollView(to parent: NSView) {
+        let rowHeight: CGFloat = 18
+        let scrollFrame = NSRect(x: 0, y: 20, width: 276, height: 222)
+        let contentHeight = max(scrollFrame.height, CGFloat(max(1, displayState.orderRows.count)) * rowHeight)
+        let documentView = FlippedEditorView(frame: NSRect(x: 0, y: 0, width: scrollFrame.width, height: contentHeight))
+        documentView.style(background: VTXEditorControlTheme.recessedReadoutBackground)
+
+        if displayState.orderRows.isEmpty {
+            let message = displayState.hasDocumentState ? "NO ORDERS" : "NO DOCUMENT"
+            addCenteredLabel(
+                message,
+                to: documentView,
+                frame: NSRect(x: 0, y: 18, width: scrollFrame.width, height: 18),
+                color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28),
+                size: 10,
+                weight: .semibold,
+                alignment: .center
+            )
+        } else {
+            for (index, row) in displayState.orderRows.enumerated() {
+                addOrderRow(to: documentView, y: CGFloat(index) * rowHeight, row: row, width: scrollFrame.width)
+            }
+        }
+
+        let scrollView = NSScrollView(frame: scrollFrame)
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = displayState.orderRows.count > Int(scrollFrame.height / rowHeight)
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = documentView
+        parent.addSubview(scrollView)
+        scrollSelectedOrderRowIfNeeded(in: scrollView, rowHeight: rowHeight, contentHeight: contentHeight)
+    }
+
+    private func scrollSelectedOrderRowIfNeeded(in scrollView: NSScrollView, rowHeight: CGFloat, contentHeight: CGFloat) {
+        guard let selectedOrderPosition = displayState.selectedOrderPosition,
+              let selectedIndex = displayState.orderRows.firstIndex(where: \.isSelected) else {
+            lastScrolledSelectedOrderPosition = nil
+            return
+        }
+        guard selectedOrderPosition != lastScrolledSelectedOrderPosition else {
+            return
+        }
+        let visibleHeight = scrollView.contentView.bounds.height
+        let selectedY = CGFloat(selectedIndex) * rowHeight
+        let centeredOriginY = selectedY - ((visibleHeight - rowHeight) / 2)
+        let maxOriginY = max(0, contentHeight - visibleHeight)
+        let originY = min(max(0, centeredOriginY), maxOriginY)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        selectedOrderScrollCount += 1
+        lastScrolledSelectedOrderPosition = selectedOrderPosition
+    }
+
+    private func addOrderRow(to parent: NSView, y: CGFloat, row rowState: SongOrderEditorDisplayState.OrderRow, width: CGFloat) {
+        let row = addSurface(in: parent, frame: NSRect(x: 0, y: y, width: width, height: 18), background: rowState.isSelected ? VTXEditorControlTheme.indigoSelection : VTXEditorControlTheme.recessedReadoutBackground)
+        row.identifier = NSUserInterfaceItemIdentifier(SongOrderEditorViewIdentifier.orderRowPrefix + rowState.orderDisplay)
+        addLabel(rowState.orderDisplay, to: row, frame: NSRect(x: 10, y: 2, width: 52, height: 13), color: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55), size: 10)
+        addLabel(rowState.patternDisplay, to: row, frame: NSRect(x: 70, y: 1, width: 70, height: 14), color: VTXEditorControlTheme.warmValueText, size: 10.5, weight: .bold, alignment: .center)
+        addLabel(rowState.rowCountDisplay, to: row, frame: NSRect(x: 148, y: 2, width: 64, height: 13), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.48), size: 10, alignment: .left)
+        addHorizontalRule(to: parent, y: y + 17, width: width, alpha: 0.05)
     }
 
     private func buildPatternBankPanel(_ panel: NSView) {
-        addCenteredLabel("000-063", to: panel, frame: NSRect(x: 126, y: 5, width: 50, height: 22), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.50), size: 9)
-        addButton("◀", to: panel, frame: NSRect(x: 180, y: 5, width: 22, height: 22))
-        addButton("▶", to: panel, frame: NSRect(x: 207, y: 5, width: 22, height: 22))
-        addSegment("BANK 1/4", to: panel, frame: NSRect(x: 234, y: 5, width: 73, height: 22), fontSize: 9)
+        addCenteredLabel(displayState.bankRangeLabel, to: panel, frame: NSRect(x: 96, y: 5, width: 72, height: 22), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.50), size: 9)
+        addButton(
+            "◀",
+            to: panel,
+            frame: NSRect(x: 174, y: 5, width: 22, height: 22),
+            target: self,
+            action: #selector(showPreviousBank(_:)),
+            toolTip: "Show previous pattern bank"
+        )
+        addButton(
+            "▶",
+            to: panel,
+            frame: NSRect(x: 201, y: 5, width: 22, height: 22),
+            target: self,
+            action: #selector(showNextBank(_:)),
+            toolTip: "Show next pattern bank"
+        )
+        addSegment(displayState.bankDisplayLabel, to: panel, frame: NSRect(x: 228, y: 5, width: 90, height: 22), fontSize: 9)
 
         for row in 0..<8 {
             for column in 0..<8 {
                 let index = (row * 8) + column
-                addPatternCell(index, to: panel, frame: NSRect(x: 10 + CGFloat(column * 38), y: 35 + CGFloat(row * 25), width: 31, height: 23))
+                if displayState.patternBankCells.indices.contains(index) {
+                    addPatternCell(displayState.patternBankCells[index], to: panel, frame: NSRect(x: 10 + CGFloat(column * 38), y: 35 + CGFloat(row * 25), width: 31, height: 23))
+                }
             }
         }
 
@@ -133,20 +538,25 @@ final class SongOrderEditorContentView: FlippedEditorView {
         addLabel("empty", to: panel, frame: NSRect(x: 256, y: 234, width: 48, height: 14), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.40), size: 9)
     }
 
-    private func addPatternCell(_ index: Int, to parent: NSView, frame: NSRect) {
-        let used = usedPatterns.contains(index)
-        let current = index == currentPattern
+    private func addPatternCell(_ cellState: SongOrderEditorDisplayState.PatternBankCell, to parent: NSView, frame: NSRect) {
+        let used = cellState.isUsed
+        let exists = cellState.exists
+        let current = cellState.isCurrent
         let cell = addSurface(
             in: parent,
             frame: frame,
             background: used ? usedPatternFill : VTXEditorControlTheme.recessedReadoutBackground,
-            border: current ? VTXEditorControlTheme.accentGold : (used ? VTXEditorControlTheme.mutedGoldBorderMedium : VTXEditorControlTheme.mutedGoldBorderSubtle),
+            border: current ? VTXEditorControlTheme.accentGold : ((used || exists) ? VTXEditorControlTheme.mutedGoldBorderMedium : VTXEditorControlTheme.mutedGoldBorderSubtle),
             radius: 2
         )
+        cell.identifier = NSUserInterfaceItemIdentifier(SongOrderEditorViewIdentifier.patternCellPrefix + cellState.display)
         if used {
             addSurface(in: cell, frame: NSRect(x: 0, y: 0, width: 2, height: frame.height), background: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55))
+        } else if exists {
+            addSurface(in: cell, frame: NSRect(x: 0, y: frame.height - 2, width: frame.width, height: 2), background: VTXEditorControlTheme.accentGold.withAlphaComponent(0.22))
         }
-        addCenteredLabel(String(format: "%02d", index), to: cell, frame: NSRect(x: 0, y: 0, width: frame.width, height: frame.height), color: used ? VTXEditorControlTheme.warmValueText : VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 9.5, weight: used ? .semibold : .regular, alignment: .center)
+        let textAlpha: CGFloat = (used || current) ? 1.0 : (exists ? 0.64 : 0.30)
+        addCenteredLabel(cellState.display, to: cell, frame: NSRect(x: 0, y: 0, width: frame.width, height: frame.height), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(textAlpha), size: 8.8, weight: (used || exists) ? .semibold : .regular, alignment: .center)
         if current {
             addLED(to: cell, frame: NSRect(x: frame.width - 9, y: 3, width: 7, height: 7))
         }
@@ -217,13 +627,24 @@ final class SongOrderEditorContentView: FlippedEditorView {
         addControl(readout, to: parent, frame: frame)
     }
 
-    private func addButton(_ title: String, to parent: NSView, frame: NSRect, role: VTXEditorButtonRole = .normal) {
+    private func addButton(
+        _ title: String,
+        to parent: NSView,
+        frame: NSRect,
+        role: VTXEditorButtonRole = .normal,
+        target: AnyObject? = nil,
+        action: Selector? = nil,
+        isEnabled: Bool = true,
+        toolTip: String = "Inactive shell control"
+    ) {
         let button = VTXEditorControlFactory.makeButton(title: title, role: role, fixedWidth: frame.width)
-        button.isEnabled = true
-        button.target = nil
-        button.action = nil
-        button.sendAction(on: [])
-        button.toolTip = "Inactive shell control"
+        button.isEnabled = isEnabled
+        button.target = target
+        button.action = action
+        if action == nil {
+            button.sendAction(on: [])
+        }
+        button.toolTip = toolTip
         addControl(button, to: parent, frame: frame)
     }
 

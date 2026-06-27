@@ -238,9 +238,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             controller = existingController
         } else {
             controller = SongOrderEditorWindowController()
+            controller.closeHandler = { [weak self, weak controller] in
+                guard let self, let controller,
+                      self.songOrderEditorWindowController === controller else {
+                    return
+                }
+                self.songOrderEditorWindowController = nil
+            }
             songOrderEditorWindowController = controller
         }
+        controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
+    }
+
+    private func currentSongOrderEditorDisplayState() -> SongOrderEditorDisplayState {
+        if let blankDocument {
+            return SongOrderEditorDisplayState.editableDocument(blankDocument)
+        }
+        if let loadedMetadata {
+            return SongOrderEditorDisplayState.loadedModule(
+                metadata: loadedMetadata,
+                selectedOrderPosition: selectedSongPositionIndex,
+                currentPatternIndex: currentPatternIndex
+            )
+        }
+        return .empty
+    }
+
+    private func refreshSongOrderEditor() {
+        guard let controller = songOrderEditorWindowController,
+              SongOrderEditorRefreshPolicy.shouldRefresh(
+                  isWindowVisible: controller.isVisibleForRefresh,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+        controller.applyIfVisible(displayState: currentSongOrderEditorDisplayState())
+    }
+
+    private func discardHiddenSongOrderEditorController() {
+        guard let controller = songOrderEditorWindowController,
+              !controller.isVisibleForRefresh else {
+            return
+        }
+        controller.closeHandler = nil
+        controller.close()
+        songOrderEditorWindowController = nil
     }
 
     @objc
@@ -265,6 +308,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func clearSongData(_ sender: Any?) {
+        discardHiddenSongOrderEditorController()
+
         if var document = blankDocument,
            loadedMetadata == nil,
            EditorCommandAvailability.canClearSongData(
@@ -326,6 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         var timingMetadata: ParsedModuleMetadata?
         var timingPlaybackSong: PlaybackSong?
         do {
+            discardHiddenSongOrderEditorController()
             let metadataStart = timingSession?.beginPhase()
             let metadata = try metadataLoader.load(fromPath: url.path)
             timingMetadata = metadata
@@ -424,6 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func resetToBlankTrackerDocument() {
+        discardHiddenSongOrderEditorController()
         noteAuditionPreviewer.cancelPreview()
         let document = BlankTrackerDocument.makeDefault()
         blankDocument = document
@@ -1449,6 +1496,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
+        defer {
+            refreshSongOrderEditor()
+        }
+
         if let blankDocument {
             if shouldReloadInstrumentControls {
                 reloadInstrumentControls(for: blankDocument)

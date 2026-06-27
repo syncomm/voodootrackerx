@@ -426,6 +426,94 @@ func makePlaybackRow(
     )
 }
 
+struct TestPlaybackPatternLoopRange: Equatable {
+    let orderEntry: PlaybackOrderEntry
+    let firstPosition: PlaybackPosition
+    let lastPosition: PlaybackPosition
+    let rowCount: Int
+
+    var orderIndex: Int {
+        orderEntry.orderIndex
+    }
+
+    var patternIndex: Int {
+        orderEntry.patternIndex
+    }
+
+    func contains(_ position: PlaybackPosition) -> Bool {
+        position.orderIndex == orderIndex &&
+            position.patternIndex == patternIndex &&
+            position.rowIndex >= firstPosition.rowIndex &&
+            position.rowIndex <= lastPosition.rowIndex
+    }
+}
+
+struct TestPlaybackPatternLoopTransportBoundary: Equatable {
+    enum AdapterPlanStrategy: Equatable {
+        case existingPlanRange
+    }
+
+    let range: TestPlaybackPatternLoopRange
+    let adapterPlanStrategy: AdapterPlanStrategy
+    let requiresRuntimeAdapterPlan: Bool
+    let usesTimerDrivenTriggers: Bool
+    let clearsActiveVoicesAtBoundary: Bool
+}
+
+enum TestPlaybackPatternLoopTransportBoundaryResolver {
+    static func boundary(
+        containing position: PlaybackPosition,
+        in song: PlaybackSong
+    ) -> TestPlaybackPatternLoopTransportBoundary? {
+        guard let range = range(containing: position, in: song) else {
+            return nil
+        }
+        return TestPlaybackPatternLoopTransportBoundary(
+            range: range,
+            adapterPlanStrategy: .existingPlanRange,
+            requiresRuntimeAdapterPlan: true,
+            usesTimerDrivenTriggers: false,
+            clearsActiveVoicesAtBoundary: false
+        )
+    }
+
+    private static func range(
+        containing position: PlaybackPosition,
+        in song: PlaybackSong
+    ) -> TestPlaybackPatternLoopRange? {
+        guard song.orders.indices.contains(position.orderIndex) else {
+            return nil
+        }
+        let orderEntry = song.orders[position.orderIndex]
+        guard orderEntry.patternIndex == position.patternIndex,
+              let pattern = song.patternsByIndex[position.patternIndex],
+              !pattern.rows.isEmpty,
+              pattern.rows.indices.contains(position.rowIndex) else {
+            return nil
+        }
+        return TestPlaybackPatternLoopRange(
+            orderEntry: orderEntry,
+            firstPosition: PlaybackPosition(
+                orderIndex: orderEntry.orderIndex,
+                patternIndex: orderEntry.patternIndex,
+                rowIndex: 0
+            ),
+            lastPosition: PlaybackPosition(
+                orderIndex: orderEntry.orderIndex,
+                patternIndex: orderEntry.patternIndex,
+                rowIndex: pattern.rows.count - 1
+            ),
+            rowCount: pattern.rows.count
+        )
+    }
+}
+
+extension RuntimeCMixerAdapterEventPlan {
+    func testEvents(in range: TestPlaybackPatternLoopRange) -> [RuntimeCMixerAdapterEvent] {
+        events.filter { range.contains($0.source) }
+    }
+}
+
 func makePlaybackSample(
     instrumentIndex: Int = 1,
     sampleIndex: Int = 0,

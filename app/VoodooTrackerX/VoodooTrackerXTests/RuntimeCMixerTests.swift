@@ -2404,6 +2404,39 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(noteTriggers.map { $0.1.sampleIndex }, [0, 0, 0])
     }
 
+    func testRuntimeCMixerAdapterEventPlanSelectsPatternLoopRangeFromExistingGeneratedFixturePlan() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let boundary = try XCTUnwrap(TestPlaybackPatternLoopTransportBoundaryResolver.boundary(
+            containing: PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 2),
+            in: song
+        ))
+
+        let rangeEvents = plan.testEvents(in: boundary.range)
+        let noteTriggers = rangeEvents.compactMap { event -> (RuntimeCMixerAdapterEvent, PlaybackSongSyntheticEventMapping)? in
+            guard case let .noteTrigger(_, _, mapping) = event.action else {
+                return nil
+            }
+            return (event, mapping)
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(plan.plannedEventCount, 3)
+        XCTAssertEqual(plan.plannedSongEndFrame, 144)
+        XCTAssertEqual(plan.events.map(\.scheduledFrame), [0, 48, 96])
+        XCTAssertEqual(rangeEvents.map(\.scheduledFrame), [48])
+        XCTAssertEqual(noteTriggers.map { $0.0.source }, [
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)
+        ])
+        XCTAssertEqual(noteTriggers.map { $0.1.note }, [53])
+        XCTAssertEqual(boundary.adapterPlanStrategy, .existingPlanRange)
+        XCTAssertTrue(boundary.requiresRuntimeAdapterPlan)
+        XCTAssertFalse(boundary.usesTimerDrivenTriggers)
+        XCTAssertFalse(boundary.clearsActiveVoicesAtBoundary)
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],

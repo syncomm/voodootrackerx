@@ -56,6 +56,19 @@ final class ControlPanelViewTests: XCTestCase {
         XCTAssertTrue(view.sampleSelector.isEnabled)
     }
 
+    func testApplyMapsLoopStateWithoutChangingTransportAvailability() {
+        let view = ControlPanelView(frame: .zero)
+        var content = ControlPanelContent()
+        content.isLoopEnabled = true
+        content.isPlaybackActive = false
+
+        view.apply(content)
+
+        XCTAssertEqual(view.loopButton.state, .on)
+        XCTAssertTrue(view.playButton.isEnabled)
+        XCTAssertFalse(view.stopButton.isEnabled)
+    }
+
     func testControlPanelAddsAccentLineAndGroupSeparators() {
         let view = ControlPanelView(frame: .zero)
 

@@ -111,6 +111,50 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertEqual(song.instrumentsByIndex[1]?.firstPlayableSample?.name, "BOUNDARY64")
     }
 
+    func testPatternLoopTransportBoundaryIdentifiesGeneratedFixtureOrderRanges() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        let firstBoundary = try XCTUnwrap(TestPlaybackPatternLoopTransportBoundaryResolver.boundary(
+            containing: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 2),
+            in: song
+        ))
+        let secondBoundary = try XCTUnwrap(TestPlaybackPatternLoopTransportBoundaryResolver.boundary(
+            containing: PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 2),
+            in: song
+        ))
+        let thirdBoundary = try XCTUnwrap(TestPlaybackPatternLoopTransportBoundaryResolver.boundary(
+            containing: PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 2),
+            in: song
+        ))
+
+        XCTAssertEqual(firstBoundary.range.orderEntry, PlaybackOrderEntry(orderIndex: 0, patternIndex: 0))
+        XCTAssertEqual(firstBoundary.range.firstPosition, PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0))
+        XCTAssertEqual(firstBoundary.range.lastPosition, PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 3))
+        XCTAssertEqual(firstBoundary.range.rowCount, 4)
+        XCTAssertTrue(firstBoundary.range.contains(PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)))
+        XCTAssertTrue(firstBoundary.range.contains(PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 3)))
+        XCTAssertFalse(firstBoundary.range.contains(PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)))
+
+        XCTAssertEqual(secondBoundary.range.firstPosition, PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0))
+        XCTAssertEqual(secondBoundary.range.lastPosition, PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 3))
+        XCTAssertEqual(thirdBoundary.range.firstPosition, PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 0))
+        XCTAssertEqual(thirdBoundary.range.lastPosition, PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 3))
+
+        for boundary in [firstBoundary, secondBoundary, thirdBoundary] {
+            XCTAssertEqual(boundary.adapterPlanStrategy, .existingPlanRange)
+            XCTAssertTrue(boundary.requiresRuntimeAdapterPlan)
+            XCTAssertFalse(boundary.usesTimerDrivenTriggers)
+            XCTAssertFalse(boundary.clearsActiveVoicesAtBoundary)
+        }
+
+        XCTAssertNil(TestPlaybackPatternLoopTransportBoundaryResolver.boundary(
+            containing: PlaybackPosition(orderIndex: 1, patternIndex: 0, rowIndex: 0),
+            in: song
+        ))
+    }
+
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
         let event = PlaybackTraceEvent(
             tickIndex: 12,

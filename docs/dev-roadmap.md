@@ -41,12 +41,12 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Pattern-loop playback remains deferred until the next design preserves
-   normal runtime C mixer adapter planning, avoids a separate timer-driven
+1. Pattern-loop playback remains deferred until implementation preserves normal
+   runtime C mixer adapter planning, avoids a separate timer-driven
    trigger/update path, implements loop policy at a safe transport/scheduler
-   boundary, and passes manual listening on a local multi-position module.
-   Tests alone are not sufficient for this audio change; docs and tests must
-   not reference private modules or local paths.
+   boundary, and passes manual listening on public and local anonymized smoke
+   modules. Tests alone are not sufficient for this audio change; docs and
+   tests must not reference private modules or local paths.
 2. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
@@ -66,6 +66,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Adapter-safe pattern-loop transport now has a design note plus pure
+  model/adapter-plan tests around current-order ranges selected from the
+  existing `RuntimeCMixerAdapterEventPlan` for the public multi-pattern
+  fixture. This is scaffolding only: no Loop button runtime behavior,
+  pattern-loop playback, C mixer scheduler, parser architecture, tracker
+  viewport, editor, note audition, control panel visuals, runtime
+  gain/headroom, save/export, or release behavior changed.
 - Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` adds
   a public-safe three-pattern, three-order traversal fixture with loader,
   `PlaybackSongBuilder`, and `RuntimeCMixerAdapterEventPlan` coverage for
@@ -322,8 +329,12 @@ Planned scope:
 - instrument entry
 - effect entry
 - selection and copy/paste
+- clear current pattern
+- clear song/pattern data while preserving instruments and samples
+- optional arrangement/order-table reset while preserving the instrument bank
 - pattern insertion/deletion
 - pattern length editing
+- save/export flow design before persistence work
 
 ## Phase 4: Instruments And Samples
 

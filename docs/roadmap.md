@@ -122,6 +122,14 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Adapter-safe pattern-loop transport design now has a model/test spike around
+  current-order pattern ranges selected from the existing
+  `RuntimeCMixerAdapterEventPlan`, with unsafe timer-driven trigger paths and
+  active-voice clears explicitly rejected. The Loop button remains display-only
+  for runtime behavior until a later implementation passes runtime metrics and
+  manual listening. No playback behavior, C mixer DSP, parser architecture,
+  tracker viewport, editor, note audition, control panel, runtime
+  gain/headroom, or release behavior changed.
 - Runtime gain/headroom policy is now documented as a design boundary:
   runtime playback keeps fixed default headroom with developer diagnostic
   overrides, offline export keeps explicit gain/headroom and `--auto-headroom`,
@@ -240,20 +248,29 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Pattern-loop playback remains deferred until the next design preserves normal
-  runtime C mixer adapter planning, avoids a separate timer-driven trigger/update
-  path, implements loop policy at a safe transport/scheduler boundary, and
-  passes manual listening on a local multi-position module. Tests alone are not
-  sufficient for this audio change; docs and tests must not reference private
-  modules or local paths.
+- Pattern-loop playback remains deferred until an implementation preserves
+  normal runtime C mixer adapter planning, avoids a separate timer-driven
+  trigger/update path, implements loop policy at a safe transport/scheduler
+  boundary, and passes manual listening on public and local anonymized smoke
+  modules. Tests alone are not sufficient for this audio change; docs and tests
+  must not reference private modules or local paths.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
+- Future editor utility commands should be scoped separately from playback:
+  clear current pattern, clear song/pattern data while preserving instruments
+  and samples, optionally reset the arrangement/order table while preserving
+  the instrument bank, and define save/export flow before persistence work.
 
 Recently completed product foundation:
 
+- Adapter-safe pattern-loop transport now has a design note and pure model
+  tests for current-order ranges over the public multi-pattern fixture. It is
+  scaffolding only: no Loop button runtime behavior, pattern-loop playback,
+  C mixer scheduler, parser, editor, viewport, control-panel visual,
+  gain/headroom, note audition, save/export, or release behavior changed.
 - Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` now
   provides a public-safe three-pattern, three-order traversal fixture for
   loader, `PlaybackSongBuilder`, and `RuntimeCMixerAdapterEventPlan` tests.

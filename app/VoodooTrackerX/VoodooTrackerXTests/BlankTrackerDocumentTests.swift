@@ -1429,6 +1429,12 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sourceContext: .loadedModule(patternIndex: 0),
             isNoteField: true
         )
+        let editBlankInstrumentFieldRoute = EditorNoteAuditionInputPolicy.route(
+            input: .keyOff,
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: false
+        )
         let editBlankRoute = EditorNoteAuditionInputPolicy.route(
             input: .keyOff,
             editModeEnabled: true,
@@ -1440,6 +1446,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(nonEditBlankRoute.shouldMutatePattern)
         XCTAssertFalse(editLoadedRoute.shouldAttemptPreview)
         XCTAssertFalse(editLoadedRoute.shouldMutatePattern)
+        XCTAssertFalse(editBlankInstrumentFieldRoute.shouldMutatePattern)
         XCTAssertTrue(editBlankRoute.shouldMutatePattern)
         XCTAssertTrue(document.enterKeyOff(row: 0, channel: 0))
         XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "=== .. .. ...")
@@ -1459,6 +1466,88 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "=== .. .. ...")
     }
 
+    func testKeyOffEntryClearsStaleInstrumentAndPreservesOtherCellFields() {
+        let sample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+            instrumentPalette: [2: PlaybackInstrument(index: 2, samples: [sample])]
+        )
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        document.patterns[0].rows[0][0] = XMPatternEventCell(
+            note: document.pattern.rows[0][0].note,
+            instrument: document.pattern.rows[0][0].instrument,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+
+        XCTAssertTrue(document.enterKeyOff(row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0], XMPatternEventCell(
+            note: TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 0,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        ))
+    }
+
+    func testClearNoteClearsInstrumentAndPreservesVolumeAndEffects() {
+        let sample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+            instrumentPalette: [2: PlaybackInstrument(index: 2, samples: [sample])]
+        )
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 02 .. ...")
+        document.patterns[0].rows[0][0] = XMPatternEventCell(
+            note: document.pattern.rows[0][0].note,
+            instrument: document.pattern.rows[0][0].instrument,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+
+        XCTAssertTrue(document.clearNote(row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0], XMPatternEventCell(
+            note: 0,
+            instrument: 0,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        ))
+    }
+
+    func testInstrumentFieldClearPreservesNoteVolumeAndEffects() {
+        let sample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+            instrumentPalette: [2: PlaybackInstrument(index: 2, samples: [sample])]
+        )
+
+        XCTAssertTrue(document.enterNote(trackerKey: "x", octave: 4, row: 0, channel: 0))
+        document.patterns[0].rows[0][0] = XMPatternEventCell(
+            note: document.pattern.rows[0][0].note,
+            instrument: document.pattern.rows[0][0].instrument,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+
+        XCTAssertTrue(document.clearField(.instrument, row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0], XMPatternEventCell(
+            note: 51,
+            instrument: 0,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        ))
+    }
+
     func testEditorInputPolicyDeleteClearOnlyMutatesEditableBlankPattern() {
         var document = BlankTrackerDocument.makeDefault()
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
@@ -1475,17 +1564,31 @@ final class BlankTrackerDocumentTests: XCTestCase {
             sourceContext: .loadedModule(patternIndex: 0),
             isNoteField: true
         )
+        let editLoadedInstrumentFieldRoute = EditorNoteAuditionInputPolicy.route(
+            input: .clearField,
+            editModeEnabled: true,
+            sourceContext: .loadedModule(patternIndex: 0),
+            isNoteField: false
+        )
         let editBlankRoute = EditorNoteAuditionInputPolicy.route(
             input: .clearField,
             editModeEnabled: true,
             sourceContext: document.noteAuditionSourceContext,
             isNoteField: true
         )
+        let editBlankInstrumentFieldRoute = EditorNoteAuditionInputPolicy.route(
+            input: .clearField,
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: false
+        )
 
         XCTAssertFalse(nonEditBlankRoute.shouldMutatePattern)
         XCTAssertFalse(editLoadedRoute.shouldMutatePattern)
+        XCTAssertFalse(editLoadedInstrumentFieldRoute.shouldMutatePattern)
         XCTAssertEqual(document, beforeNonEditClear)
         XCTAssertTrue(editBlankRoute.shouldMutatePattern)
+        XCTAssertTrue(editBlankInstrumentFieldRoute.shouldMutatePattern)
         XCTAssertTrue(document.clearNote(row: 0, channel: 0))
         XCTAssertEqual(document.pattern.rows[0][0], .empty)
     }
@@ -2095,6 +2198,34 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
     }
 
+    func testLoadedModuleEditableCopyClearNoteClearsEnteredInstrument() {
+        let metadata = makeLoadedModuleMetadata(channels: 1)
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        var document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: song,
+            selection: .default
+        ))
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 01 .. ...")
+        XCTAssertTrue(document.clearNote(row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
+    }
+
     func testEditablePlaybackSongBuilderBuildsSnapshotWithPatternDataAndPalette() throws {
         let sample = makePlaybackSample(
             instrumentIndex: 2,
@@ -2364,6 +2495,40 @@ final class BlankTrackerDocumentTests: XCTestCase {
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
         ])
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testActiveEditableLoopClearNoteRefreshUsesClearedSnapshot() async throws {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            tempo: 25,
+            speed: 1,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+
+        XCTAssertTrue(document.clearNote(row: 0, channel: 0))
+        engine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: document))
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+
+        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+        XCTAssertEqual(pendingPlan.plannedEventCount, 0)
+        XCTAssertTrue(noteTriggerSources(in: pendingPlan).isEmpty)
     }
 
     @MainActor

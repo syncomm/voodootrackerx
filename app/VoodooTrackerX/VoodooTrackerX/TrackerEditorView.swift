@@ -450,7 +450,7 @@ enum PatternEditEngine {
             }
             return XMPatternEventCell(
                 note: TrackerNoteKeyMap.keyOffNoteValue,
-                instrument: cell.instrument,
+                instrument: 0,
                 volumeColumn: cell.volumeColumn,
                 effectType: cell.effectType,
                 effectParam: cell.effectParam
@@ -463,7 +463,7 @@ enum PatternEditEngine {
     private static func cleared(cell: XMPatternEventCell, field: PatternCursorField) -> XMPatternEventCell {
         switch field {
         case .note:
-            return XMPatternEventCell(note: 0, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+            return XMPatternEventCell(note: 0, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
         case .instrument:
             return XMPatternEventCell(note: cell.note, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
         case .volume:

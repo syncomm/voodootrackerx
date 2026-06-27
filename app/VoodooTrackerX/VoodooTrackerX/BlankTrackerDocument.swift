@@ -277,6 +277,14 @@ enum EditorNoteAuditionInputKind: Equatable {
     case other
 }
 
+enum EditablePatternCellField {
+    case note
+    case instrument
+    case volume
+    case effectType
+    case effectParam
+}
+
 enum EditorNoteAuditionInputPolicy {
     static func route(
         input: EditorNoteAuditionInputKind,
@@ -284,19 +292,11 @@ enum EditorNoteAuditionInputPolicy {
         sourceContext: EditorNoteAuditionSourceContext,
         isNoteField: Bool
     ) -> EditorNoteAuditionInputRoute {
-        guard isNoteField else {
-            return EditorNoteAuditionInputRoute(
-                shouldAttemptPreview: false,
-                shouldMutatePattern: false,
-                shouldConsumeRepeatedNoteKey: false
-            )
-        }
-
         let canMutateSource = EditorPatternMutationPolicy.canMutatePattern(sourceContext: sourceContext)
-        let isRepeatedLoadedModuleNoteKey = isRepeatedNoteKey(input) && !canMutateSource
+        let isRepeatedLoadedModuleNoteKey = isNoteField && isRepeatedNoteKey(input) && !canMutateSource
         return EditorNoteAuditionInputRoute(
-            shouldAttemptPreview: isNoteKey(input) && !isRepeatedLoadedModuleNoteKey,
-            shouldMutatePattern: editModeEnabled && canMutateSource && isNoteFieldMutationInput(input),
+            shouldAttemptPreview: isNoteField && isNoteKey(input) && !isRepeatedLoadedModuleNoteKey,
+            shouldMutatePattern: editModeEnabled && canMutateSource && isMutationInput(input, isNoteField: isNoteField),
             shouldConsumeRepeatedNoteKey: isRepeatedLoadedModuleNoteKey
         )
     }
@@ -323,10 +323,12 @@ enum EditorNoteAuditionInputPolicy {
         return false
     }
 
-    private static func isNoteFieldMutationInput(_ input: EditorNoteAuditionInputKind) -> Bool {
+    private static func isMutationInput(_ input: EditorNoteAuditionInputKind, isNoteField: Bool) -> Bool {
         switch input {
-        case .clearField, .keyOff, .noteKey:
+        case .clearField:
             return true
+        case .keyOff, .noteKey:
+            return isNoteField
         case .other:
             return false
         }
@@ -873,6 +875,10 @@ struct BlankTrackerDocument: Equatable {
     }
 
     mutating func clearNote(row: Int, channel: Int, patternIndex: Int? = nil) -> Bool {
+        clearField(.note, row: row, channel: channel, patternIndex: patternIndex)
+    }
+
+    mutating func clearField(_ field: EditablePatternCellField, row: Int, channel: Int, patternIndex: Int? = nil) -> Bool {
         let targetPatternIndex = patternIndex ?? currentPatternIndex
         guard let storageIndex = patterns.firstIndex(where: { $0.index == targetPatternIndex }),
               patterns[storageIndex].rows.indices.contains(row),
@@ -880,7 +886,8 @@ struct BlankTrackerDocument: Equatable {
             return false
         }
 
-        setNoteValue(0, row: row, channel: channel, storageIndex: storageIndex)
+        let cell = patterns[storageIndex].rows[row][channel]
+        patterns[storageIndex].rows[row][channel] = cell.clearing(field)
         return true
     }
 
@@ -995,6 +1002,23 @@ struct BlankTrackerDocument: Equatable {
         } else {
             patterns.append(newValue)
             patterns.sort { $0.index < $1.index }
+        }
+    }
+}
+
+private extension XMPatternEventCell {
+    func clearing(_ field: EditablePatternCellField) -> XMPatternEventCell {
+        switch field {
+        case .note:
+            return XMPatternEventCell(note: 0, instrument: 0, volumeColumn: volumeColumn, effectType: effectType, effectParam: effectParam)
+        case .instrument:
+            return XMPatternEventCell(note: note, instrument: 0, volumeColumn: volumeColumn, effectType: effectType, effectParam: effectParam)
+        case .volume:
+            return XMPatternEventCell(note: note, instrument: instrument, volumeColumn: 0, effectType: effectType, effectParam: effectParam)
+        case .effectType:
+            return XMPatternEventCell(note: note, instrument: instrument, volumeColumn: volumeColumn, effectType: 0, effectParam: effectParam)
+        case .effectParam:
+            return XMPatternEventCell(note: note, instrument: instrument, volumeColumn: volumeColumn, effectType: effectType, effectParam: 0)
         }
     }
 }

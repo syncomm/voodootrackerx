@@ -991,7 +991,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .keyOff:
             didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel, patternIndex: currentPatternIndex)
         case .clearField:
-            didMutate = document.clearNote(row: cursor.row, channel: cursor.channel, patternIndex: currentPatternIndex)
+            didMutate = document.clearField(
+                editablePatternCellField(for: cursor.field),
+                row: cursor.row,
+                channel: cursor.channel,
+                patternIndex: currentPatternIndex
+            )
         case .hexDigit:
             didMutate = false
         }
@@ -1007,6 +1012,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
         return true
+    }
+
+    private func editablePatternCellField(for field: PatternCursorField) -> EditablePatternCellField {
+        switch field {
+        case .note:
+            return .note
+        case .instrument:
+            return .instrument
+        case .volume:
+            return .volume
+        case .effectType:
+            return .effectType
+        case .effectParam:
+            return .effectParam
+        }
     }
 
     private func scheduleEditablePatternLoopRefreshIfNeeded(from document: BlankTrackerDocument) {

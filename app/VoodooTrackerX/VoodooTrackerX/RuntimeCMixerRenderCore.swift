@@ -1119,6 +1119,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     private var clippingSampleCount: UInt64 = 0
     private var adapterEventSchedule = [RuntimeCMixerQueuedAdapterEvent]()
     private var nextAdapterEventScheduleIndex = 0
+    private var adapterEventLoopRange: RuntimeCMixerAdapterEventLoopRange?
+    private var adapterEventLoopRuntimeFrameOffset: Int?
+    private var nextAdapterEventLoopIteration = 1
     private var plannedSongEndFrame: Int?
     private var plannedSongEndRuntimeFrame: UInt64?
     private var runtimeFrameAtPlannedSongEnd: UInt64?
@@ -1176,7 +1179,8 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     func configureAdapterEventSchedule(
         _ events: [RuntimeCMixerAdapterEvent],
         runtimeFrameOffset: Int,
-        plannedSongEndFrame: Int? = nil
+        plannedSongEndFrame: Int? = nil,
+        loopRange: RuntimeCMixerAdapterEventLoopRange? = nil
     ) -> RuntimeCMixerAdapterEventScheduleConfigurationResult {
         recordLifecycleChangeIfCallbackActive()
         lock.lock()
@@ -1188,25 +1192,24 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         queuedEvents.reserveCapacity(events.count)
         var skippedNegativeRuntimeFrameCount = 0
         var skippedOverflowCount = 0
-        for event in events {
-            let (plannedRuntimeFrame, overflow) = event.scheduledFrame.addingReportingOverflow(runtimeFrameOffset)
-            guard !overflow else {
-                skippedOverflowCount += 1
-                continue
-            }
-            guard plannedRuntimeFrame >= 0 else {
-                skippedNegativeRuntimeFrameCount += 1
-                continue
-            }
-            queuedEvents.append(RuntimeCMixerQueuedAdapterEvent(
-                event: event,
-                plannedRuntimeFrame: plannedRuntimeFrame,
-                runtimeFrame: UInt64(plannedRuntimeFrame)
-            ))
-        }
+        appendQueuedAdapterEvents(
+            events,
+            runtimeFrameOffset: runtimeFrameOffset,
+            loopFrameCount: 0,
+            loopIteration: 0,
+            queuedEvents: &queuedEvents,
+            skippedNegativeRuntimeFrameCount: &skippedNegativeRuntimeFrameCount,
+            skippedOverflowCount: &skippedOverflowCount
+        )
 
         adapterEventSchedule = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
         nextAdapterEventScheduleIndex = 0
+        adapterEventLoopRange = loopRange
+        adapterEventLoopRuntimeFrameOffset = loopRange == nil ? nil : runtimeFrameOffset
+        nextAdapterEventLoopIteration = 1
+        if loopRange != nil {
+            _ = appendNextAdapterEventLoopIterationLocked()
+        }
         self.plannedSongEndFrame = plannedSongEndFrame
         plannedSongEndRuntimeFrame = Self.runtimeFrame(plannedFrame: plannedSongEndFrame, offset: runtimeFrameOffset)
         songEndStopFrame = Self.songEndStopFrame(plannedSongEndFrame: plannedSongEndFrame, tailFrames: runtimeTailFrames)
@@ -1241,6 +1244,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         }
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        adapterEventLoopRange = nil
+        adapterEventLoopRuntimeFrameOffset = nil
+        nextAdapterEventLoopIteration = 1
         plannedSongEndFrame = nil
         plannedSongEndRuntimeFrame = nil
         songEndStopFrame = nil
@@ -1265,13 +1271,81 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
     func configureAdapterEventScheduleForTesting(
         _ events: [RuntimeCMixerAdapterEvent],
         runtimeFrameOffset: Int,
-        plannedSongEndFrame: Int? = nil
+        plannedSongEndFrame: Int? = nil,
+        loopRange: RuntimeCMixerAdapterEventLoopRange? = nil
     ) {
         _ = configureAdapterEventSchedule(
             events,
             runtimeFrameOffset: runtimeFrameOffset,
-            plannedSongEndFrame: plannedSongEndFrame
+            plannedSongEndFrame: plannedSongEndFrame,
+            loopRange: loopRange
         )
+    }
+
+    private func appendQueuedAdapterEvents(
+        _ events: [RuntimeCMixerAdapterEvent],
+        runtimeFrameOffset: Int,
+        loopFrameCount: Int,
+        loopIteration: Int,
+        queuedEvents: inout [RuntimeCMixerQueuedAdapterEvent],
+        skippedNegativeRuntimeFrameCount: inout Int,
+        skippedOverflowCount: inout Int
+    ) {
+        for event in events {
+            guard let plannedRuntimeFrame = Self.plannedRuntimeFrame(
+                for: event,
+                runtimeFrameOffset: runtimeFrameOffset,
+                loopFrameCount: loopFrameCount,
+                loopIteration: loopIteration
+            ) else {
+                skippedOverflowCount += 1
+                continue
+            }
+            guard plannedRuntimeFrame >= 0 else {
+                skippedNegativeRuntimeFrameCount += 1
+                continue
+            }
+            queuedEvents.append(RuntimeCMixerQueuedAdapterEvent(
+                event: event,
+                plannedRuntimeFrame: plannedRuntimeFrame,
+                runtimeFrame: UInt64(plannedRuntimeFrame)
+            ))
+        }
+    }
+
+    @discardableResult
+    private func appendNextAdapterEventLoopIterationLocked() -> Bool {
+        guard let adapterEventLoopRange,
+              let adapterEventLoopRuntimeFrameOffset,
+              adapterEventLoopRange.frameCount > 0,
+              !adapterEventLoopRange.events.isEmpty else {
+            return false
+        }
+        var queuedEvents = [RuntimeCMixerQueuedAdapterEvent]()
+        var skippedNegativeRuntimeFrameCount = 0
+        var skippedOverflowCount = 0
+        appendQueuedAdapterEvents(
+            adapterEventLoopRange.events,
+            runtimeFrameOffset: adapterEventLoopRuntimeFrameOffset,
+            loopFrameCount: adapterEventLoopRange.frameCount,
+            loopIteration: nextAdapterEventLoopIteration,
+            queuedEvents: &queuedEvents,
+            skippedNegativeRuntimeFrameCount: &skippedNegativeRuntimeFrameCount,
+            skippedOverflowCount: &skippedOverflowCount
+        )
+        nextAdapterEventLoopIteration += 1
+        guard !queuedEvents.isEmpty else {
+            return false
+        }
+        let sortedQueuedEvents = queuedEvents.sorted(by: Self.adapterEventScheduleSort)
+        if nextAdapterEventScheduleIndex >= adapterEventSchedule.count {
+            adapterEventSchedule = sortedQueuedEvents
+            nextAdapterEventScheduleIndex = 0
+        } else {
+            adapterEventSchedule.append(contentsOf: sortedQueuedEvents)
+        }
+        eventQueueExhaustedFrame = nil
+        return true
     }
 
     func drainAppliedAdapterEventDiagnostics() -> [RuntimeCMixerAppliedAdapterEventDiagnostic] {
@@ -2590,6 +2664,34 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         return UInt64(runtimeFrame)
     }
 
+    private static func plannedRuntimeFrame(
+        for event: RuntimeCMixerAdapterEvent,
+        runtimeFrameOffset: Int,
+        loopFrameCount: Int,
+        loopIteration: Int
+    ) -> Int? {
+        let iteration = max(0, loopIteration)
+        let frameAdvance: Int
+        if iteration == 0 || loopFrameCount <= 0 {
+            frameAdvance = 0
+        } else {
+            let multiplied = loopFrameCount.multipliedReportingOverflow(by: iteration)
+            guard !multiplied.overflow else {
+                return nil
+            }
+            frameAdvance = multiplied.partialValue
+        }
+        let advancedFrame = event.scheduledFrame.addingReportingOverflow(frameAdvance)
+        guard !advancedFrame.overflow else {
+            return nil
+        }
+        let plannedRuntimeFrame = advancedFrame.partialValue.addingReportingOverflow(runtimeFrameOffset)
+        guard !plannedRuntimeFrame.overflow else {
+            return nil
+        }
+        return plannedRuntimeFrame.partialValue
+    }
+
     private static func songEndStopFrame(plannedSongEndFrame: Int?, tailFrames: Int) -> Int? {
         guard let plannedSongEndFrame else {
             return nil
@@ -2858,6 +2960,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         callbackThread: RuntimeCMixerThreadDiagnostics?
     ) {
         if adapterEventSchedule.isEmpty,
+           adapterEventLoopRange != nil {
+            _ = appendNextAdapterEventLoopIterationLocked()
+        }
+        if adapterEventSchedule.isEmpty,
+           adapterEventLoopRange == nil,
            eventQueueExhaustedFrame == nil {
             eventQueueExhaustedFrame = callbackStartFrame
         }
@@ -2923,6 +3030,11 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
             }
             nextAdapterEventScheduleIndex = burstEndIndex
             if nextAdapterEventScheduleIndex >= adapterEventSchedule.count,
+               adapterEventLoopRange != nil {
+                _ = appendNextAdapterEventLoopIterationLocked()
+            }
+            if nextAdapterEventScheduleIndex >= adapterEventSchedule.count,
+               adapterEventLoopRange == nil,
                eventQueueExhaustedFrame == nil {
                 eventQueueExhaustedFrame = mixer.currentFrame
             }
@@ -3423,6 +3535,9 @@ final class RuntimeCMixerRenderCore: @unchecked Sendable {
         stoppedFrameByChannel.removeAll()
         adapterEventSchedule.removeAll(keepingCapacity: true)
         nextAdapterEventScheduleIndex = 0
+        adapterEventLoopRange = nil
+        adapterEventLoopRuntimeFrameOffset = nil
+        nextAdapterEventLoopIteration = 1
         plannedSongEndFrame = nil
         plannedSongEndRuntimeFrame = nil
         songEndStopFrame = nil

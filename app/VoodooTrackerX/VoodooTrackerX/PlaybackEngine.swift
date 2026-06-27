@@ -175,6 +175,7 @@ final class PlaybackEngine: PlaybackTransport {
     private var traceTickIndex: UInt64 = 0
     private var runtimeNoteTriggerEventCount: UInt64 = 0
     private var activeDebugStartTraceContext: PlaybackDebugStartTraceContext?
+    private var activePatternLoopRange: PlaybackPatternLoopRange?
 
     var positionDidChange: ((PlaybackPosition) -> Void)?
     var playbackDidStop: (() -> Void)?
@@ -263,17 +264,21 @@ final class PlaybackEngine: PlaybackTransport {
 
     func play(from context: PlaybackStartContext?) {
         let timingSession = playbackTimingRecorder?.beginLifecycle("play")
-        play(from: context, debugStart: nil, action: .play, timingSession: timingSession)
+        play(from: context, debugStart: nil, loopEnabled: false, action: .play, timingSession: timingSession)
         finishOwnedPlayTimingSession(timingSession, context: context)
     }
 
     func play(from context: PlaybackStartContext?, timingSession: PlaybackTimingTraceSession?) {
-        play(from: context, debugStart: nil, action: .play, timingSession: timingSession)
+        play(from: context, debugStart: nil, loopEnabled: false, action: .play, timingSession: timingSession)
+    }
+
+    func play(from context: PlaybackStartContext?, loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
+        play(from: context, debugStart: nil, loopEnabled: loopEnabled, action: .play, timingSession: timingSession)
     }
 
     func play(from context: PlaybackStartContext?, debugStart: PlaybackDebugStartRequest?) {
         let timingSession = playbackTimingRecorder?.beginLifecycle("play")
-        play(from: context, debugStart: debugStart, action: .play, timingSession: timingSession)
+        play(from: context, debugStart: debugStart, loopEnabled: false, action: .play, timingSession: timingSession)
         finishOwnedPlayTimingSession(timingSession, context: context)
     }
 
@@ -282,12 +287,13 @@ final class PlaybackEngine: PlaybackTransport {
         debugStart: PlaybackDebugStartRequest?,
         timingSession: PlaybackTimingTraceSession?
     ) {
-        play(from: context, debugStart: debugStart, action: .play, timingSession: timingSession)
+        play(from: context, debugStart: debugStart, loopEnabled: false, action: .play, timingSession: timingSession)
     }
 
     private func play(
         from context: PlaybackStartContext?,
         debugStart: PlaybackDebugStartRequest?,
+        loopEnabled: Bool,
         action: PlaybackTransportAction,
         timingSession: PlaybackTimingTraceSession?
     ) {
@@ -326,10 +332,18 @@ final class PlaybackEngine: PlaybackTransport {
 
         let resetStart = timingSession?.beginPhase()
         resetRuntimeState(resetTiming: resolvedDebugStart != nil)
+        activePatternLoopRange = loopEnabled
+            ? currentPosition.flatMap { song.patternLoopRange(containing: $0) }
+            : nil
         timingSession?.recordPhase(
             "playback_engine_transient_runtime_state_reset",
             startedAt: resetStart,
-            fields: [PlaybackTimingTraceField("reset_timing", resolvedDebugStart != nil)]
+            fields: [
+                PlaybackTimingTraceField("reset_timing", resolvedDebugStart != nil),
+                PlaybackTimingTraceField("pattern_loop_enabled_for_play", activePatternLoopRange != nil),
+                PlaybackTimingTraceField("pattern_loop_order", activePatternLoopRange?.orderIndex ?? -1),
+                PlaybackTimingTraceField("pattern_loop_pattern", activePatternLoopRange?.patternIndex ?? -1),
+            ]
         )
 
         activeDebugStartTraceContext = resolvedDebugStart.map {
@@ -477,6 +491,7 @@ final class PlaybackEngine: PlaybackTransport {
         lastVoiceRequests.removeAll()
         delayedVoiceRequests.removeAll()
         runtimeCMixerSongEndStopPending = false
+        activePatternLoopRange = nil
         if resetAudio {
             timing = song?.initialTiming ?? .xmDefault
         }
@@ -527,7 +542,15 @@ final class PlaybackEngine: PlaybackTransport {
         if state.isPlaying {
             stop(action: .spacebarStop)
         } else {
-            play(from: context ?? state.context, debugStart: nil, action: .spacebarPlay, timingSession: timingSession)
+            play(from: context ?? state.context, debugStart: nil, loopEnabled: false, action: .spacebarPlay, timingSession: timingSession)
+        }
+    }
+
+    func togglePlayStop(from context: PlaybackStartContext?, loopEnabled: Bool, timingSession: PlaybackTimingTraceSession?) {
+        if state.isPlaying {
+            stop(action: .spacebarStop)
+        } else {
+            play(from: context ?? state.context, debugStart: nil, loopEnabled: loopEnabled, action: .spacebarPlay, timingSession: timingSession)
         }
     }
 
@@ -560,6 +583,7 @@ final class PlaybackEngine: PlaybackTransport {
             timing = song?.initialTiming ?? .xmDefault
         }
         activeDebugStartTraceContext = nil
+        activePatternLoopRange = nil
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.resetRuntimeAdapterEventConsumption()
         runtimeCMixerSongEndStopPending = false
     }
@@ -910,11 +934,15 @@ final class PlaybackEngine: PlaybackTransport {
         guard let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
             return
         }
-        adapterConsumer.consumeRuntimeAdapterEvents(context: runtimeTraceContext(
-            at: position,
-            tickInRow: tickInRow,
-            channelIndex: nil
-        ), timingSession: timingSession)
+        adapterConsumer.consumeRuntimeAdapterEvents(
+            context: runtimeTraceContext(
+                at: position,
+                tickInRow: tickInRow,
+                channelIndex: nil
+            ),
+            patternLoopRange: activePatternLoopRange,
+            timingSession: timingSession
+        )
     }
 
     private func restartTimer() {
@@ -1101,6 +1129,16 @@ final class PlaybackEngine: PlaybackTransport {
     }
 
     private func nextStep(after position: PlaybackPosition, in song: PlaybackSong) -> PlaybackStepResult {
+        if let activePatternLoopRange,
+           activePatternLoopRange.contains(position) {
+            pendingPositionCommand = nil
+            let nextRowIndex = position.rowIndex + 1
+            if nextRowIndex <= activePatternLoopRange.lastPosition.rowIndex,
+               let nextPosition = song.position(orderIndex: activePatternLoopRange.orderIndex, rowIndex: nextRowIndex) {
+                return .advanced(nextPosition)
+            }
+            return .advanced(activePatternLoopRange.firstPosition)
+        }
         guard let pendingPositionCommand else {
             return song.position(after: position)
         }

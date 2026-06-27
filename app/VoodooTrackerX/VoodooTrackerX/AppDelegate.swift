@@ -432,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let timingSession = playbackTimingRecorder.beginLifecycle("play")
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         let enginePlayStart = timingSession?.beginPhase()
-        playbackEngine.play(from: context, timingSession: timingSession)
+        playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         timingSession?.recordPhase(
             "app_delegate_play_to_playback_engine_play",
             startedAt: enginePlayStart,
@@ -456,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let timingSession = playbackEngine.state.isPlaying ? nil : playbackTimingRecorder.beginLifecycle("play")
         let context = measuredPlaybackStartContext(timingSession: timingSession)
-        playbackEngine.togglePlayStop(from: context, timingSession: timingSession)
+        playbackEngine.togglePlayStop(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: context)
         return true
@@ -527,7 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             playbackEngine.seek(to: request, autoplay: true, timingSession: timingSession)
         } else {
             let context = measuredPlaybackStartContext(timingSession: timingSession)
-            playbackEngine.play(from: context, timingSession: timingSession)
+            playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         }
         scheduleDebugStop(after: configuration.stopAfterSeconds, replayAfterStop: configuration.replayAfterStop)
         syncControlPanelView()
@@ -557,7 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func playDebugReplayAfterStop(stopAfterSeconds seconds: TimeInterval?) {
         let timingSession = playbackTimingRecorder.beginLifecycle("play")
         let context = measuredPlaybackStartContext(timingSession: timingSession)
-        playbackEngine.play(from: context, timingSession: timingSession)
+        playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         syncControlPanelView()
         finishPlayTimingSession(timingSession, context: context)
         scheduleDebugStop(after: seconds, replayAfterStop: false)

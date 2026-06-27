@@ -68,6 +68,17 @@ struct RuntimeCMixerAdapterEvent: Equatable {
     }
 }
 
+struct RuntimeCMixerAdapterEventLoopRange: Equatable {
+    let playbackRange: PlaybackPatternLoopRange
+    let plannedStartFrame: Int
+    let plannedEndFrame: Int
+    let events: [RuntimeCMixerAdapterEvent]
+
+    var frameCount: Int {
+        max(0, plannedEndFrame - plannedStartFrame)
+    }
+}
+
 struct RuntimeCMixerAdapterEventPlan: Equatable {
     let generated: Bool
     let sampleRate: Double
@@ -721,6 +732,36 @@ struct RuntimeCMixerAdapterEventPlan: Equatable {
                 event.syntheticTick == tick &&
                 (context.patternIndex == nil || context.patternIndex == event.source.patternIndex)
         }
+    }
+
+    func events(in range: PlaybackPatternLoopRange) -> [RuntimeCMixerAdapterEvent] {
+        events.filter { range.contains($0.source) }
+    }
+
+    func adapterEventLoopRange(for range: PlaybackPatternLoopRange) -> RuntimeCMixerAdapterEventLoopRange? {
+        guard generated,
+              let diagnostics = plan?.diagnostics else {
+            return nil
+        }
+        let rowTimings = diagnostics.rowTiming.filter { range.contains($0.source) }
+        guard !rowTimings.isEmpty else {
+            return nil
+        }
+        let plannedStartFrame = rowTimings
+            .map(\.rowStartFrame)
+            .min() ?? 0
+        let plannedEndFrame = rowTimings
+            .map { $0.rowStartFrame + max(0, $0.rowDurationFrames) }
+            .max() ?? plannedStartFrame
+        guard plannedEndFrame > plannedStartFrame else {
+            return nil
+        }
+        return RuntimeCMixerAdapterEventLoopRange(
+            playbackRange: range,
+            plannedStartFrame: plannedStartFrame,
+            plannedEndFrame: plannedEndFrame,
+            events: events(in: range)
+        )
     }
 
     func plannedRowStartFrame(matching context: AudioRuntimeTraceContext?) -> Int? {

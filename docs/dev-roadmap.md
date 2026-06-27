@@ -41,12 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Pattern-loop playback remains deferred until implementation preserves normal
-   runtime C mixer adapter planning, avoids a separate timer-driven
-   trigger/update path, implements loop policy at a safe transport/scheduler
-   boundary, and passes manual listening on public and local anonymized smoke
-   modules. Tests alone are not sufficient for this audio change; docs and
-   tests must not reference private modules or local paths.
+1. Refresh README build instructions and module resource guidance so new
+   contributors have the current setup and fixture/module expectations.
 2. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
@@ -66,13 +62,16 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- Adapter-safe pattern-loop transport now has a design note plus pure
-  model/adapter-plan tests around current-order ranges selected from the
-  existing `RuntimeCMixerAdapterEventPlan` for the public multi-pattern
-  fixture. This is scaffolding only: no Loop button runtime behavior,
-  pattern-loop playback, C mixer scheduler, parser architecture, tracker
-  viewport, editor, note audition, control panel visuals, runtime
-  gain/headroom, save/export, or release behavior changed.
+- Adapter-safe pattern-loop playback now uses the existing Loop control at Play
+  start to repeat the selected/current order/pattern through a bounded range of
+  the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan
+  event consumption, avoids timer-driven note triggers, preserves active C
+  mixer state across wraps, and leaves C mixer DSP, parser architecture,
+  runtime gain/headroom, tracker viewport, editor behavior, note audition,
+  save/export, and release workflow unchanged. Live Loop toggle during active
+  playback, loop-length TIME display, pattern-loop editing, clear-pattern/
+  clear-song utilities, arbitrary ranges, and broader local corpus listening
+  remain deferred.
 - Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` adds
   a public-safe three-pattern, three-order traversal fixture with loader,
   `PlaybackSongBuilder`, and `RuntimeCMixerAdapterEventPlan` coverage for

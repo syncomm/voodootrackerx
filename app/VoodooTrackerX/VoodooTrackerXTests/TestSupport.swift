@@ -690,6 +690,7 @@ final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBac
     private(set) var generationMSValues = [Double?]()
     private(set) var resetConsumptionCount = 0
     private(set) var consumedContexts = [AudioRuntimeTraceContext?]()
+    private(set) var consumedPatternLoopRanges = [PlaybackPatternLoopRange?]()
     private var adapterEventPlan: RuntimeCMixerAdapterEventPlan
 
     init(audioBufferSampleRate: Double = 100.0) {
@@ -742,8 +743,13 @@ final class TestRuntimeAdapterAudioOutput: PlaybackAudioOutput, PlaybackAudioBac
         resetConsumptionCount += 1
     }
 
-    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession _: PlaybackTimingTraceSession?) {
+    func consumeRuntimeAdapterEvents(
+        context: AudioRuntimeTraceContext?,
+        patternLoopRange: PlaybackPatternLoopRange?,
+        timingSession _: PlaybackTimingTraceSession?
+    ) {
         consumedContexts.append(context)
+        consumedPatternLoopRanges.append(patternLoopRange)
     }
 }
 

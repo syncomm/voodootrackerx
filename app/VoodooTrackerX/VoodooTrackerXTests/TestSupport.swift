@@ -105,7 +105,7 @@ enum TestPatternEditEngine {
         case .clearField:
             switch field {
             case .note:
-                return TestXMPatternEventCell(note: 0, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+                return TestXMPatternEventCell(note: 0, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
             case .instrument:
                 return TestXMPatternEventCell(note: cell.note, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
             case .volume:
@@ -138,7 +138,7 @@ enum TestPatternEditEngine {
             guard field == .note else {
                 return nil
             }
-            return TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: cell.instrument, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
+            return TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: 0, volumeColumn: cell.volumeColumn, effectType: cell.effectType, effectParam: cell.effectParam)
         }
     }
 }

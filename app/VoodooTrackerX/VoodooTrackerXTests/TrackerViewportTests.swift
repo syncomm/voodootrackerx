@@ -228,7 +228,7 @@ final class TrackerViewportTests: XCTestCase {
 
         XCTAssertEqual(
             TestPatternEditEngine.apply(input: .clearField, to: source, field: .note, editModeEnabled: true),
-            TestXMPatternEventCell(note: 0, instrument: 0x2A, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
+            TestXMPatternEventCell(note: 0, instrument: 0x00, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
         )
         XCTAssertEqual(
             TestPatternEditEngine.apply(input: .clearField, to: source, field: .instrument, editModeEnabled: true),
@@ -245,7 +245,7 @@ final class TrackerViewportTests: XCTestCase {
 
         XCTAssertEqual(
             TestPatternEditEngine.apply(input: .keyOff, to: source, field: .note, editModeEnabled: true),
-            TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: 0x2A, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
+            TestXMPatternEventCell(note: TrackerNoteKeyMap.keyOffNoteValue, instrument: 0x00, volumeColumn: 0x40, effectType: 0x0E, effectParam: 0x9C)
         )
         XCTAssertNil(TestPatternEditEngine.apply(input: .keyOff, to: source, field: .instrument, editModeEnabled: true))
         XCTAssertNil(TestPatternEditEngine.apply(input: .keyOff, to: source, field: .note, editModeEnabled: false))

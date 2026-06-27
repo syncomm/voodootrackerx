@@ -240,7 +240,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             controller = SongOrderEditorWindowController()
             songOrderEditorWindowController = controller
         }
+        controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
+    }
+
+    private func currentSongOrderEditorDisplayState() -> SongOrderEditorDisplayState {
+        if let blankDocument {
+            return SongOrderEditorDisplayState.editableDocument(blankDocument)
+        }
+        if let loadedMetadata {
+            return SongOrderEditorDisplayState.loadedModule(
+                metadata: loadedMetadata,
+                selectedOrderPosition: selectedSongPositionIndex,
+                currentPatternIndex: currentPatternIndex
+            )
+        }
+        return .empty
+    }
+
+    private func refreshSongOrderEditor() {
+        songOrderEditorWindowController?.apply(displayState: currentSongOrderEditorDisplayState())
     }
 
     @objc
@@ -1449,6 +1468,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
+        defer {
+            refreshSongOrderEditor()
+        }
+
         if let blankDocument {
             if shouldReloadInstrumentControls {
                 reloadInstrumentControls(for: blankDocument)

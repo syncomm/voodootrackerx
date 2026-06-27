@@ -304,13 +304,11 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Duplicate current pattern as a small editor utility for blank/editable
-  documents, keeping loaded modules read-only and leaving insert/delete
-  pattern/order slots, undo/redo, import, save, and export deferred.
-  Pattern-loop follow-up remains deferred for live Loop retargeting during
-  active playback, loop-length TIME display, loop-range editing, arbitrary ranges,
-  and broader listening. Tests alone are not sufficient for audio changes; docs
-  and tests must not reference private modules or local paths.
+- Wire Song / Order editor selected-order navigation only, keeping loaded
+  modules read-only and leaving insert/delete/duplicate/move order slots,
+  pattern creation/duplication/clear, undo/redo, import, save, export, and
+  transport duplication deferred. Tests and docs must not reference private
+  modules or local paths.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -482,6 +480,7 @@ Current implemented foundation:
 - clear current pattern for blank/editable documents
 - clear song data for blank/editable documents
 - pattern-loop playback at Play start
+- read-only Song / Order editor order-list and paginated pattern-bank binding
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:

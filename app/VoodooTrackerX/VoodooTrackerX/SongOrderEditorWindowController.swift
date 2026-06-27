@@ -283,6 +283,20 @@ struct SongOrderEditorNavigationResult: Equatable {
 }
 
 enum SongOrderEditorNavigation {
+    static func loadedModulePatternSelection(
+        selectingPatternIndex patternIndex: Int,
+        metadata: ParsedModuleMetadata,
+        currentPatternIndex: Int,
+        isPlaybackActive: Bool
+    ) -> Int? {
+        guard !isPlaybackActive,
+              patternIndex != currentPatternIndex,
+              metadata.xmPattern(index: patternIndex) != nil else {
+            return nil
+        }
+        return patternIndex
+    }
+
     static func loadedModuleSelection(
         selectingOrderPosition orderPosition: Int,
         metadata: ParsedModuleMetadata,
@@ -296,12 +310,37 @@ enum SongOrderEditorNavigation {
                   orderTable: metadata.orderTable,
                   songLength: metadata.songLength
               ),
-              metadata.xmPatterns.indices.contains(patternIndex) else {
+              metadata.xmPattern(index: patternIndex) != nil else {
             return nil
         }
         return SongOrderEditorNavigationResult(
             selectedOrderPosition: orderPosition,
             currentPatternIndex: patternIndex
+        )
+    }
+
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
+        selectingPatternIndex patternIndex: Int,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive,
+              patternIndex != document.currentPatternIndex,
+              document.pattern(for: patternIndex) != nil else {
+            return nil
+        }
+        return BlankTrackerDocument(
+            title: document.title,
+            songLength: document.songLength,
+            currentPosition: document.currentPosition,
+            restartPosition: document.restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: document.tempo,
+            speed: document.speed,
+            orderTable: document.orderTable,
+            selection: document.selection,
+            instrumentPalette: document.instrumentPalette,
+            patterns: document.patterns
         )
     }
 
@@ -345,6 +384,36 @@ enum SongOrderEditorNavigation {
     }
 }
 
+enum TrackerPlaybackStartContextResolver {
+    static func normalPlayContext(
+        metadata: ParsedModuleMetadata,
+        selectedSongPositionIndex: Int,
+        displayedPatternIndex: Int,
+        row: Int
+    ) -> PlaybackStartContext {
+        let orderCount = min(max(0, metadata.songLength), metadata.orderTable.count)
+        let orderPosition = orderCount > 0
+            ? min(max(0, selectedSongPositionIndex), orderCount - 1)
+            : max(0, selectedSongPositionIndex)
+        let referencedPattern = metadata.orderTable.indices.contains(orderPosition)
+            ? metadata.orderTable[orderPosition]
+            : nil
+        let playbackPatternIndex = referencedPattern.flatMap { patternIndex -> Int? in
+            if metadata.type == "XM" {
+                return metadata.xmPattern(index: patternIndex)?.index
+            }
+            return patternIndex >= 0 && patternIndex < metadata.patterns ? patternIndex : nil
+        } ?? displayedPatternIndex
+
+        return PlaybackStartContext(
+            moduleTitle: metadata.title.isEmpty ? nil : metadata.title,
+            songPosition: orderPosition,
+            patternIndex: playbackPatternIndex,
+            row: row
+        )
+    }
+}
+
 @MainActor
 enum SongOrderEditorRefreshPolicy {
     static func shouldRefresh(isWindowVisible: Bool, isPlaybackActive: Bool) -> Bool {
@@ -359,6 +428,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
     var onOrderSelected: ((Int) -> Void)? {
         didSet {
             (window?.contentView as? SongOrderEditorContentView)?.onOrderSelected = onOrderSelected
+        }
+    }
+    var onPatternSelected: ((Int) -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onPatternSelected = onPatternSelected
         }
     }
 
@@ -416,6 +490,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             return false
         }
         contentView.onOrderSelected = onOrderSelected
+        contentView.onPatternSelected = onPatternSelected
         return contentView.apply(displayState: displayState)
     }
 
@@ -435,6 +510,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
 @MainActor
 final class SongOrderEditorContentView: FlippedEditorView {
     var onOrderSelected: ((Int) -> Void)?
+    var onPatternSelected: ((Int) -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -629,14 +705,21 @@ final class SongOrderEditorContentView: FlippedEditorView {
         let used = cellState.isUsed
         let exists = cellState.exists
         let current = cellState.isCurrent
-        let cell = addSurface(
-            in: parent,
-            frame: frame,
+        let cell = SongOrderEditorPatternCellView(
+            patternIndex: cellState.patternIndex,
+            isClickable: exists
+        ) { [weak self] patternIndex in
+            self?.onPatternSelected?(patternIndex)
+        }
+        cell.frame = frame
+        cell.style(
             background: used ? usedPatternFill : VTXEditorControlTheme.recessedReadoutBackground,
             border: current ? VTXEditorControlTheme.accentGold : ((used || exists) ? VTXEditorControlTheme.mutedGoldBorderMedium : VTXEditorControlTheme.mutedGoldBorderSubtle),
             radius: 2
         )
+        parent.addSubview(cell)
         cell.identifier = NSUserInterfaceItemIdentifier(SongOrderEditorViewIdentifier.patternCellPrefix + cellState.display)
+        cell.toolTip = exists ? "Navigate to pattern \(cellState.display)" : "Empty pattern slot"
         if used {
             addSurface(in: cell, frame: NSRect(x: 0, y: 0, width: 2, height: frame.height), background: VTXEditorControlTheme.accentGold.withAlphaComponent(0.55))
         } else if exists {
@@ -848,6 +931,46 @@ final class SongOrderEditorOrderRowView: FlippedEditorView {
             return
         }
         selectHandler(orderPosition)
+    }
+}
+
+final class SongOrderEditorPatternCellView: FlippedEditorView {
+    private let patternIndex: Int
+    private let isClickable: Bool
+    private let selectHandler: (Int) -> Void
+
+    init(patternIndex: Int, isClickable: Bool, selectHandler: @escaping (Int) -> Void) {
+        self.patternIndex = patternIndex
+        self.isClickable = isClickable
+        self.selectHandler = selectHandler
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard isClickable else {
+            return
+        }
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isClickable, bounds.contains(point) else {
+            return super.hitTest(point)
+        }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isClickable else {
+            return
+        }
+        selectHandler(patternIndex)
     }
 }
 

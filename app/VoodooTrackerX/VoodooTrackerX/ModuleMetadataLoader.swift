@@ -68,6 +68,19 @@ struct ParsedModuleMetadata: Equatable {
     }
 }
 
+extension ParsedModuleMetadata {
+    func xmPattern(index patternIndex: Int) -> XMPatternData? {
+        guard type == "XM" else {
+            return nil
+        }
+        if xmPatterns.indices.contains(patternIndex),
+           xmPatterns[patternIndex].index == patternIndex {
+            return xmPatterns[patternIndex]
+        }
+        return xmPatterns.first { $0.index == patternIndex }
+    }
+}
+
 enum ModuleMetadataLoaderError: LocalizedError {
     case parseFailed(String)
 

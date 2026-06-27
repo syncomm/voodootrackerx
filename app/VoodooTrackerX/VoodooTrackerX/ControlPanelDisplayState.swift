@@ -155,9 +155,7 @@ enum ControlPanelDisplayState {
         content.isPlaybackActive = isPlaybackActive
         content.isSongPositionEnabled = metadata.songLength > 0
 
-        if metadata.type == "XM",
-           metadata.xmPatterns.indices.contains(currentPatternIndex) {
-            let pattern = metadata.xmPatterns[currentPatternIndex]
+        if let pattern = metadata.xmPattern(index: currentPatternIndex) {
             content.patternRowCount = "\(pattern.rowCount)"
             content.channelCount = "\(pattern.channels)"
             content.isPatternControlsEnabled = true

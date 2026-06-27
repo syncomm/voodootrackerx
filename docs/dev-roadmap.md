@@ -82,6 +82,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor Pattern Bank now supports read-only stopped/idle
+  navigation to existing loaded-module or editable-document patterns through
+  the existing main-window state path. Hidden/unreferenced views preserve the
+  selected POS/order used by normal Play. Empty/current/playback-active clicks
+  are ignored; order rows, pattern data, playback, transport, parser,
+  save/export, sample editor, and instrument editor behavior are unchanged.
 - The Song / Order editor order list now supports stopped/idle selected-order
   navigation for loaded modules and editable documents that expose order rows.
   Row clicks update the current order/pattern through the existing main-window

@@ -80,6 +80,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Shared AppKit editor control primitives now provide the first reusable
+  theme tokens, panel labels, segment readouts, indicator LEDs, and tactile
+  editor buttons for future Song / Order, Instrument, and Sample windows,
+  without wiring new windows or changing main-window, playback, parser, C
+  mixer, save/export, tracker viewport, note entry, or note audition behavior.
 - Editable blank documents and loaded-module-derived editable copies now build
   a stopped-Play `PlaybackSong` snapshot from the editable document model and
   send it through the existing `RuntimeCMixerAdapterEventPlan` /

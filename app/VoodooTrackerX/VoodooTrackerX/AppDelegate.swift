@@ -179,6 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self?.applyPlaybackPosition(position)
         }
+        playbackEngine.runtimeAdapterPlanDidUpdate = { [weak self] in
+            self?.syncControlPanelView()
+        }
 
         controller.liveResizeWillStartHandler = { [weak self] in
             self?.trackerWindowWillStartLiveResize()
@@ -1263,6 +1266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 isLoopEnabled: isLoopPlaybackEnabled,
                 isEditModeEnabled: isEditModeEnabled,
                 isPlaybackActive: playbackEngine.state.isPlaying,
+                songTime: ControlPanelDisplayState.songTimeDisplay(
+                    durationSeconds: playbackEngine.runtimeAdapterPlanDurationSeconds
+                ),
                 selectedInstrumentName: selectedInstrument?.name,
                 selectedSampleName: selectedSample?.name
             ))

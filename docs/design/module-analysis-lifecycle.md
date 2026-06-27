@@ -25,7 +25,7 @@ File Open / debug VTX_OPEN_PATH
 | Full XM pattern decode | For XM, `ModuleMetadataLoader` reparses pattern data from file with `Data(contentsOf:)`; if that fails, it falls back to the bounded `ModuleCore` XM event summary. | Synchronous disk read and decode. This preserves the current hybrid parser boundary. |
 | Playback song creation | `PlaybackSongBuilder.build` maps decoded XM patterns into `PlaybackSong`, filters orders to decoded patterns, reads instrument/sample headers, decodes sample PCM, maps note-sample maps and volume envelopes, and copies initial speed/BPM. | Synchronous disk read and sample decode. Result is stored as `PlaybackEngine.song`. |
 | Runtime adapter plan invalidation/prewarm | `PlaybackEngine.load(song:)` stops current playback, resets transport/channel/effect state, stores the loaded song, configures an unavailable runtime adapter plan to clear stale cached state, then schedules async adapter-plan prewarm when a song exists. | Load does not wait for `RuntimeCMixerAdapterEventPlan.make`. Plan construction runs on a background utility queue from immutable playback data; backend configuration and cache mutation return to the main actor with a song-generation check. |
-| Control panel state | `syncControlPanelView()` derives `ControlPanelDisplayState.loadedModuleContent` from loaded metadata and selected instrument/sample state. | Derived on demand. TIME is currently always `--:--` for loaded modules. |
+| Control panel state | `syncControlPanelView()` derives `ControlPanelDisplayState.loadedModuleContent` from loaded metadata, selected instrument/sample state, and the cached runtime adapter-plan duration when one exists. | Derived on demand. Loaded modules initially show TIME as `--:--`; async prewarm or first Play can update TIME after a valid `RuntimeCMixerAdapterEventPlan` is installed. |
 | Tracker display state | Loaded XM patterns are rendered into the tracker viewport and control panel selectors. | Uses the loaded metadata pattern model; no playback analysis cache is read by the tracker viewport. |
 
 Current load-time cached state:
@@ -35,6 +35,8 @@ Current load-time cached state:
 - `PlaybackEngine.runtimeAdapterEventPlan`: unavailable immediately after load, then filled by async prewarm or by the first-Play fallback.
 - `RuntimeCMixerAudioEngine.adapterEventPlan`: unavailable immediately after load, then configured on the main actor from the generated plan plus a sample-time position resolver.
 - Control panel content is not separately cached; it is derived each sync.
+  TIME reads only the current cached runtime adapter plan and falls back to
+  `--:--` when no generated plan duration is available.
 
 Important consequence: current file load still does more than metadata display.
 It also decodes sample PCM into `PlaybackSong`, but runtime C mixer adapter
@@ -142,9 +144,9 @@ Play phases include `app_play_start_context_resolution`,
 Trace fields intentionally use counts, positions, booleans, and sanitized
 values. Local paths and private titles are not emitted. These diagnostics are
 measurement-only: enabling them does not decide whether planning is lazy,
-compute TIME, change runtime gain/headroom, rebuild already-cached adapter
-plans on every Play, or change parser, playback, C mixer DSP, tracker
-viewport, editor, note audition, or control panel behavior.
+change runtime gain/headroom, rebuild already-cached adapter plans on every
+Play, or change parser, playback, C mixer DSP, tracker viewport, editor, note
+audition, or control panel behavior.
 
 Adapter-plan construction profiling is also available behind
 `VTX_ADAPTER_PLAN_PROFILE=1`. It measures the existing
@@ -153,9 +155,8 @@ subphases such as traversal, row/timing calculation, event generation, runtime
 adapter-event construction, sorting/grouping, and backend plan configuration
 when reached. This is diagnostic-only observability for choosing a later
 optimization target; it does not move planning work, change generated adapter
-events, alter playback semantics, compute TIME, or change runtime gain,
-headroom, parser, C mixer DSP, tracker viewport, editor, note audition, or
-control panel behavior.
+events, alter playback semantics, or change runtime gain, headroom, parser, C
+mixer DSP, tracker viewport, editor, note audition, or control panel behavior.
 
 Current local profiling still points at `PlaybackSongSyntheticAdapter` row/cell
 traversal and event generation as the primary adapter-plan construction cost.
@@ -218,15 +219,26 @@ contain arbitrary numbers, dates, tracker tags, or decorative text. Treating a
 title as a duration source would be incorrect and would make display behavior
 depend on author naming conventions rather than module traversal.
 
-Recommended strategy:
+Loaded-module TIME now uses the existing cached/prewarmed
+`RuntimeCMixerAdapterEventPlan` duration source. When a generated adapter plan
+has a valid planned song-end frame and sample rate, the app converts that frame
+count to seconds and displays a rounded `MM:SS` value. This is bounded VTX
+adapter-plan duration, not a claim of FT2/OpenMPT exact song-loop parity.
+Immediately after load, after File New, or after loading another module, TIME
+returns to `--:--` until the current song generation installs a valid plan.
+Stop and later Play reuse the cached plan and keep TIME available. If Play
+finishes plan preparation before async prewarm completes, the same installed
+plan updates TIME.
 
-1. Keep TIME unavailable (`--:--`) immediately after load until a real analysis
-   result exists.
+Strategy:
+
+1. Keep TIME unavailable (`--:--`) immediately after load until a real
+   adapter-plan result exists.
 2. Use bounded traversal/adapter timing as the first app-visible duration
    source, because it shares the playback-facing `PlaybackSong` and existing
-   `Bxx`/`Dxx`/`E6x` traversal guards.
-3. Compute duration lazily after load or from an already-built adapter-analysis
-   cache, not by adding another synchronous full-song pass to file load.
+   traversal guards.
+3. Compute duration from the already-built adapter-analysis cache, not by
+   adding another synchronous full-song pass to file load.
 4. Mark the displayed duration as bounded VTX analysis, not FT2/OpenMPT exact
    song-loop parity, until traversal support is explicitly broadened.
 5. If analysis hits a guard, unsupported loop policy, invalid order, overflow,
@@ -248,6 +260,8 @@ Exactness policy:
 Future duration cache keys should include at least: module identity/version,
 order table, pattern rows and effect fields, initial speed/BPM, traversal
 policy version, sample rate if stored in frames, and any edit generation.
+Future editing should invalidate TIME through the same adapter-plan/edit-
+generation lifecycle that invalidates playback-facing adapter plans.
 
 ## Future Pattern-Loop Strategy
 
@@ -288,9 +302,11 @@ render/capture discontinuity evidence.
    an async-safe boundary, keeps the first-Play synchronous fallback, ignores
    stale generation results, and avoids status UI churn.
 
-4. `ui: loaded module TIME display from bounded analysis cache`
-   Add a small duration-analysis cache and display TIME only when bounded
-   analysis succeeds. Keep `--:--` for unavailable/guarded cases.
+4. Done: `ui: loaded module TIME display from adapter plan`
+   TIME now displays only after the current cached/prewarmed runtime adapter
+   plan exposes a valid planned song-end frame and sample rate. It remains
+   `--:--` before plan readiness or after invalidation, and no title parsing,
+   load-time scan, or offline render is used.
 
 5. `tests: synthetic multi-pattern loop fixture`
    Add public synthetic fixture coverage for traversal/duration and future

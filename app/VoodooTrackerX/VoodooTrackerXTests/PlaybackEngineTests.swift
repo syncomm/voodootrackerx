@@ -148,6 +148,50 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testRuntimeAdapterEventPlanReportsDurationSecondsFromPlannedSongEndFrame() {
+        let plan = RuntimeCMixerAdapterEventPlan(
+            generated: true,
+            sampleRate: 100,
+            plannedSongEndFrame: 18_500,
+            plannedEventCount: 0,
+            events: [],
+            categories: [],
+            plan: nil
+        )
+
+        XCTAssertEqual(plan.plannedSongEndSeconds, 185)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: plan.plannedSongEndSeconds), "03:05")
+    }
+
+    @MainActor
+    func testRuntimeAdapterEventPlanDurationIsUnavailableWhenPlanIsInvalid() {
+        let invalidSampleRatePlan = RuntimeCMixerAdapterEventPlan(
+            generated: true,
+            sampleRate: 0,
+            plannedSongEndFrame: 18_500,
+            plannedEventCount: 0,
+            events: [],
+            categories: [],
+            plan: nil
+        )
+        let invalidFramePlan = RuntimeCMixerAdapterEventPlan(
+            generated: true,
+            sampleRate: 100,
+            plannedSongEndFrame: -1,
+            plannedEventCount: 0,
+            events: [],
+            categories: [],
+            plan: nil
+        )
+        let unavailablePlan = RuntimeCMixerAdapterEventPlan.unavailable(sampleRate: 100)
+
+        XCTAssertNil(invalidSampleRatePlan.plannedSongEndSeconds)
+        XCTAssertNil(invalidFramePlan.plannedSongEndSeconds)
+        XCTAssertNil(unavailablePlan.plannedSongEndSeconds)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: unavailablePlan.plannedSongEndSeconds), "--:--")
+    }
+
+    @MainActor
     func testPlaybackEngineRecordsPlayTimingPhasesWhenEnabled() throws {
         let sink = TestPlaybackTimingTraceSink()
         let clock = TestPlaybackTimingTraceClock()
@@ -325,6 +369,35 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPlaybackEnginePrewarmCompletionPublishesAdapterPlanDuration() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        var observedDurations = [TimeInterval]()
+        engine.runtimeAdapterPlanDidUpdate = { [weak engine] in
+            if let duration = engine?.runtimeAdapterPlanDurationSeconds {
+                observedDurations.append(duration)
+            }
+        }
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 2))
+
+        XCTAssertNil(engine.runtimeAdapterPlanDurationSeconds)
+
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertEqual(engine.runtimeAdapterPlanDurationSeconds ?? 0, 185, accuracy: 0.000_001)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+        XCTAssertEqual(observedDurations.count, 1)
+        XCTAssertEqual(observedDurations[0], 185, accuracy: 0.000_001)
+    }
+
+    @MainActor
     func testPlaybackEngineFirstPlayWaitsForPrewarmInProgressWithoutDuplicatePlanBuild() throws {
         let sink = TestPlaybackTimingTraceSink()
         let recorder = PlaybackTimingTraceRecorder(isEnabled: true, sink: sink)
@@ -353,6 +426,30 @@ final class PlaybackEngineTests: XCTestCase {
 
         prewarmScheduler.complete()
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineFirstPlaySynchronousFallbackPublishesAdapterPlanDuration() throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        var updateCount = 0
+        engine.runtimeAdapterPlanDidUpdate = {
+            updateCount += 1
+        }
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 2))
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+
+        XCTAssertEqual(prewarmScheduler.jobs[0].waitCount, 1)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(engine.runtimeAdapterPlanDurationSeconds ?? 0, 185, accuracy: 0.000_001)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+        XCTAssertEqual(updateCount, 1)
     }
 
     @MainActor
@@ -462,6 +559,74 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(audioOutput.consumedContexts.count, 2)
         XCTAssertEqual(timingField(in: secondPlayLines, lifecycle: "play", phase: "runtime_adapter_event_plan_ready_for_play", key: "play_adapter_plan_mode"), "cached_reuse")
         XCTAssertFalse(timingPhases(in: secondPlayLines, lifecycle: "play").contains("runtime_adapter_event_plan_make"))
+    }
+
+    @MainActor
+    func testPlaybackEngineStopAndPlayAfterStopKeepAdapterPlanDuration() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+        engine.play(from: PlaybackStartContext(moduleTitle: "example", songPosition: 0, patternIndex: 2, row: 0))
+        engine.stop()
+
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+
+        engine.play(from: nil)
+
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testPlaybackEngineLoadClearsStaleAdapterPlanDurationUntilNewPlanIsReady() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 7, rowCount: 2))
+
+        XCTAssertNil(engine.runtimeAdapterPlanDurationSeconds)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "--:--")
+    }
+
+    @MainActor
+    func testPlaybackEngineLoadNilClearsStaleAdapterPlanDurationForFileNew() async throws {
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+
+        engine.load(song: makeDurationPlaybackSong(patternIndex: 2))
+        prewarmScheduler.complete()
+        await Task.yield()
+
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "03:05")
+
+        engine.load(song: nil)
+
+        XCTAssertNil(engine.runtimeAdapterPlanDurationSeconds)
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: engine.runtimeAdapterPlanDurationSeconds), "--:--")
     }
 
     @MainActor
@@ -1664,5 +1829,20 @@ private func makeRuntimeAdapterPlaybackSong(patternIndex: Int) -> PlaybackSong {
         ],
         instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
         initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+    )
+}
+
+private func makeDurationPlaybackSong(patternIndex: Int, rowCount: Int = 74) -> PlaybackSong {
+    let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125], baseSampleRate: 100)
+    let rows = (0..<rowCount).map { rowIndex in
+        rowIndex == 0
+            ? makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+            : makePlaybackRow(index: rowIndex)
+    }
+    return makePlaybackSong(
+        orderPatternIndices: [patternIndex],
+        patternRowsByIndex: [patternIndex: rows],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        initialTiming: PlaybackTiming(speed: 1, bpm: 1)
     )
 }

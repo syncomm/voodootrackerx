@@ -1583,6 +1583,53 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
     }
 
+    func testLoadedModuleControlPanelDisplayStateKeepsTimeUnavailableBeforeAdapterPlanReady() {
+        let metadata = loadedModuleControlPanelMetadata(title: "Loaded Module")
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(content.songTitle, "Loaded Module")
+        XCTAssertEqual(content.songTime, "--:--")
+    }
+
+    func testLoadedModuleControlPanelDisplayStateUsesAdapterPlanSongTime() {
+        let metadata = loadedModuleControlPanelMetadata(title: "Loaded Module 03:25")
+
+        let content = ControlPanelDisplayState.loadedModuleContent(
+            metadata: metadata,
+            selectedSongPositionIndex: 0,
+            currentPatternIndex: 0,
+            selectedOctave: 4,
+            isLoopEnabled: false,
+            isEditModeEnabled: false,
+            isPlaybackActive: false,
+            songTime: ControlPanelDisplayState.songTimeDisplay(durationSeconds: 185)
+        )
+
+        XCTAssertEqual(content.songTitle, "Loaded Module 03:25")
+        XCTAssertEqual(content.songTime, "03:05")
+    }
+
+    func testControlPanelSongTimeDisplayFormatsMinutesAndSeconds() {
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: 0), "00:00")
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: 65), "01:05")
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: 185), "03:05")
+    }
+
+    func testControlPanelSongTimeDisplayReturnsUnavailableForInvalidDuration() {
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: nil), "--:--")
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: -Double.infinity), "--:--")
+        XCTAssertEqual(ControlPanelDisplayState.songTimeDisplay(durationSeconds: -1), "--:--")
+    }
+
     func testLoadedModuleControlPanelDisplayStateDoesNotInferDurationFromTitleText() {
         let metadata = ParsedModuleMetadata(
             type: "XM",
@@ -2035,6 +2082,26 @@ final class BlankTrackerDocumentTests: XCTestCase {
             throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
         return url
+    }
+
+    private func loadedModuleControlPanelMetadata(title: String) -> ParsedModuleMetadata {
+        ParsedModuleMetadata(
+            type: "XM",
+            title: title,
+            version: "1.04",
+            channels: 6,
+            patterns: 1,
+            instruments: 1,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [
+                XMPatternData(index: 0, rowCount: 64, channels: 6, rows: [])
+            ]
+        )
     }
 }
 

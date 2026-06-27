@@ -163,16 +163,16 @@ Recently completed:
   send it through the existing `RuntimeCMixerAdapterEventPlan` /
   `PlaybackEngine` / CoreAudio C mixer runtime path. Copied instrument/sample
   palettes remain value-owned by the editable document, stopped edits are
-  reflected on the next Play, empty editable documents are silent/safe, and
-  live edit while playback is active remains deferred.
+  reflected on the next Play, active editable current-pattern loop edits
+  refresh through a fresh adapter plan at a safe loop boundary, and empty
+  editable documents are silent/safe.
 - Clear Song Data is now available from the Edit menu for blank/editable
   documents and as a loaded-module editable-copy bridge. Blank documents clear
   song/order/pattern data in place while preserving editor state. Loaded
   modules stay read-only; invoking Clear Song Data creates a new editable
   blank song that copies the available instrument/sample palette and playable
   sample payloads, clears song/order/pattern note data, resets to order 0 and
-  pattern 0, and preserves safe timing and dimensions. Current-pattern loop
-  for editable documents, edit while loop is active, broader arrangement
+  pattern 0, and preserves safe timing and dimensions. Broader arrangement
   editing, duplicate pattern, insert/delete order slots, undo/redo, WAV/AIFF
   import, XI import, sample/instrument editors, save XM, and export WAV/AAC
   remain deferred.
@@ -183,7 +183,7 @@ Recently completed:
   clearing active voices at loop wraps, and without changing C mixer DSP,
   parser architecture, runtime gain/headroom, tracker viewport, editor, note
   audition, save/export, or release behavior. Loop changes while already
-  playing, loop-length TIME display, pattern-loop editing, clear-pattern/clear-
+  playing, loop-length TIME display, loop-range editing, clear-pattern/clear-
   song utilities, arbitrary ranges, and broader local corpus listening remain
   deferred.
 - Runtime gain/headroom policy is now documented as a design boundary:
@@ -307,8 +307,8 @@ Recommended next product PR:
 - Duplicate current pattern as a small editor utility for blank/editable
   documents, keeping loaded modules read-only and leaving insert/delete
   pattern/order slots, undo/redo, import, save, and export deferred.
-  Pattern-loop follow-up remains deferred for live Loop changes during active
-  playback, loop-length TIME display, pattern-loop editing, arbitrary ranges,
+  Pattern-loop follow-up remains deferred for live Loop retargeting during
+  active playback, loop-length TIME display, loop-range editing, arbitrary ranges,
   and broader listening. Tests alone are not sufficient for audio changes; docs
   and tests must not reference private modules or local paths.
 - Module TIME/headroom work should follow

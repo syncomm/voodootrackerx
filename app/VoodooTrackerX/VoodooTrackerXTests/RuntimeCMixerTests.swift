@@ -2579,6 +2579,171 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
     }
 
+    @MainActor
+    func testRuntimeCMixerEditableCurrentPatternLoopRepeatsMoreThanOnePass() throws {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, -0.25],
+            volume: 1,
+            baseSampleRate: 100
+        )
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        pattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        let document = BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 1,
+            currentPosition: 0,
+            restartPosition: 0,
+            currentPatternIndex: 0,
+            tempo: 25,
+            speed: 1,
+            orderTable: [0],
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            patterns: [pattern]
+        )
+        let song = EditablePlaybackSongBuilder.build(from: document)
+        let playbackRange = try XCTUnwrap(song.patternLoopRange(containing: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)))
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let loopRange = try XCTUnwrap(plan.adapterEventLoopRange(for: playbackRange))
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+
+        XCTAssertEqual(loopRange.frameCount, 40)
+
+        harness.engine.load(song: song)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 130)
+
+        let addVoices = Array(harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }.prefix(4))
+        XCTAssertEqual(addVoices.map(\.plannedSourceOrderIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedSourcePatternIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedSourceRowIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 40, 80, 120])
+        XCTAssertEqual(harness.engine.state.mode, .playing)
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+        XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+    }
+
+    @MainActor
+    func testRuntimeCMixerEditableLoopRefreshSchedulesNewNoteOnLaterPass() async throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let initialSong = makeRuntimeEditablePatternLoopSong(notesByRow: [0: 49])
+        let refreshedSong = makeRuntimeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100, prewarmScheduler: prewarmScheduler)
+
+        harness.engine.load(song: initialSong)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 45)
+
+        harness.engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+        advanceRows(4, engine: harness.engine, timing: initialSong.initialTiming)
+        _ = harness.audioEngine.renderForTesting(frameCount: 80)
+
+        let addVoices = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+        let refreshedNote = addVoices.first {
+            $0.noteValue == 51 &&
+                $0.plannedSourceOrderIndex == 0 &&
+                $0.plannedSourcePatternIndex == 0 &&
+                $0.plannedSourceRowIndex == 1 &&
+                ($0.plannedRuntimeFrame ?? 0) >= 45
+        }
+
+        XCTAssertNotNil(refreshedNote)
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+        XCTAssertEqual(harness.engine.state.mode, .playing)
+        XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+    }
+
+    @MainActor
+    func testRuntimeCMixerLoadedModuleDerivedEditableCurrentPatternLoopRepeatsMoreThanOnePass() throws {
+        let loadedPattern = XMPatternData(
+            index: 2,
+            rowCount: 4,
+            channels: 1,
+            rows: [
+                [XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)],
+                [XMPatternEventCell.empty],
+                [XMPatternEventCell.empty],
+                [XMPatternEventCell.empty],
+            ]
+        )
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 1,
+            patterns: 1,
+            instruments: 1,
+            xmFlags: 0x0001,
+            defaultTempo: 1,
+            defaultBPM: 25,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [2],
+            xmPatterns: [loadedPattern]
+        )
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, -0.25],
+            volume: 1,
+            baseSampleRate: 100
+        )
+        let loadedSong = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowCounts: [2: 4],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let beforeMetadata = metadata
+        let beforeLoadedSong = loadedSong
+        var document = try XCTUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            sourcePatternIndex: 2
+        ))
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let editableSong = EditablePlaybackSongBuilder.build(from: document)
+        let playbackRange = try XCTUnwrap(editableSong.patternLoopRange(containing: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)))
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: editableSong, sampleRate: 100)
+        let loopRange = try XCTUnwrap(plan.adapterEventLoopRange(for: playbackRange))
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+
+        XCTAssertEqual(metadata, beforeMetadata)
+        XCTAssertEqual(loadedSong, beforeLoadedSong)
+        XCTAssertEqual(loopRange.playbackRange.orderIndex, 0)
+        XCTAssertEqual(loopRange.playbackRange.patternIndex, 0)
+        XCTAssertEqual(loopRange.frameCount, 40)
+
+        harness.engine.load(song: editableSong)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 130)
+
+        let addVoices = Array(harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }.prefix(4))
+        XCTAssertEqual(addVoices.map(\.plannedSourceOrderIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedSourcePatternIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 40, 80, 120])
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+        XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -2793,6 +2958,7 @@ final class RuntimeCMixerTests: XCTestCase {
         backend: RuntimeAudioBackend = .cMixer,
         sampleRate: Double = 100,
         channelCount: Int = 1,
+        prewarmScheduler: RuntimeAdapterPlanPrewarmScheduling = TestRuntimeAdapterPlanPrewarmScheduler(),
         environment: [String: String] = [:]
     ) -> (
         engine: PlaybackEngine,
@@ -2816,7 +2982,7 @@ final class RuntimeCMixerTests: XCTestCase {
                 audioEngine: audioEngine,
                 runtimeCMixerTraceWriter: traceWriter,
                 startsRealtimeTimer: false,
-                runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler(),
+                runtimeAdapterPlanPrewarmScheduler: prewarmScheduler,
                 environment: environment
             ),
             audioEngine,
@@ -5504,6 +5670,36 @@ final class RuntimeCMixerTests: XCTestCase {
             $0.runtimeAction == "c_mixer_clear_all" &&
                 (($0.cMixerRenderedFramesBeforeClear ?? 0) > 0 || ($0.currentFrame ?? 0) > 0)
         }
+    }
+
+    @MainActor
+    private func advanceRows(_ rowCount: Int, engine: PlaybackEngine, timing: PlaybackTiming) {
+        for _ in 0..<(max(0, rowCount) * timing.ticksPerRow) {
+            engine.advanceOneTick()
+        }
+    }
+
+    private func makeRuntimeEditablePatternLoopSong(notesByRow: [Int: UInt8], rowCount: Int = 4) -> PlaybackSong {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25, -0.25],
+            volume: 1,
+            baseSampleRate: 100
+        )
+        let rows = (0..<rowCount).map { rowIndex in
+            makePlaybackRow(
+                index: rowIndex,
+                note: notesByRow[rowIndex] ?? 0,
+                instrument: notesByRow[rowIndex] == nil ? 0 : 1
+            )
+        }
+        return makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowsByIndex: [0: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
     }
 
     private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {

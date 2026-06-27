@@ -735,6 +735,36 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPatternLoopDoesNotArmRuntimeSongEndStopTimer() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 4],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [makePlaybackSample(pcm: [0.25], baseSampleRate: 100)])],
+            note: 49,
+            instrument: 1,
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+        let startContext = PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: song)
+        engine.play(from: startContext, loopEnabled: false, timingSession: nil)
+        XCTAssertTrue(engine.isRuntimeCMixerSongEndStopPendingForTesting)
+        engine.stop()
+
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.orderIndex, 0)
+        XCTAssertFalse(engine.isRuntimeCMixerSongEndStopPendingForTesting)
+        XCTAssertEqual(engine.state.mode, .playing)
+    }
+
+    @MainActor
     func testStopWhilePatternLoopedKeepsCachedRuntimeAdapterPlan() throws {
         let song = try loadMultiPatternLoopBoundarySong()
         let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
@@ -755,6 +785,130 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(audioOutput.hasRuntimeAdapterEventPlan)
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
         XCTAssertEqual(audioOutput.consumedPatternLoopRanges.first??.orderIndex, 0)
+    }
+
+    @MainActor
+    func testActiveEditablePatternLoopRefreshInstallsFreshPlanAtLoopBoundary() async throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let initialSong = makeEditablePatternLoopSong(notesByRow: [0: 49])
+        let refreshedSong = makeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
+        let startContext = PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: initialSong)
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+
+        XCTAssertEqual(prewarmScheduler.requests.count, 2)
+        XCTAssertEqual(noteTriggerNotes(in: RuntimeCMixerAdapterEventPlan.make(song: prewarmScheduler.requests.last?.song, sampleRate: 100)), [49, 51])
+
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+
+        XCTAssertTrue(engine.hasPendingEditablePatternLoopRefreshForTesting)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)), [49, 51])
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+
+        advanceRows(4, engine: engine, timing: initialSong.initialTiming)
+
+        XCTAssertEqual(engine.song, refreshedSong)
+        XCTAssertFalse(engine.hasPendingEditablePatternLoopRefreshForTesting)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 2)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51])
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last??.orderIndex, 0)
+    }
+
+    @MainActor
+    func testActiveEditablePatternLoopRefreshCoalescesToLatestSnapshot() async throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let initialSong = makeEditablePatternLoopSong(notesByRow: [0: 49])
+        let staleSong = makeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
+        let latestSong = makeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51, 2: 53])
+        let startContext = PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: initialSong)
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        engine.requestEditablePatternLoopRefresh(song: staleSong)
+        engine.requestEditablePatternLoopRefresh(song: latestSong)
+
+        XCTAssertEqual(prewarmScheduler.requests.count, 3)
+        XCTAssertEqual(prewarmScheduler.jobs[1].cancelCount, 1)
+
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+        XCTAssertNil(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+
+        prewarmScheduler.complete(at: 2)
+        await Task.yield()
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)), [49, 51, 53])
+
+        advanceRows(4, engine: engine, timing: initialSong.initialTiming)
+
+        XCTAssertEqual(engine.song, latestSong)
+        XCTAssertEqual(noteTriggerNotes(in: try XCTUnwrap(audioOutput.configuredPlans.last)), [49, 51, 53])
+    }
+
+    @MainActor
+    func testStopCancelsPendingEditablePatternLoopRefresh() async throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let initialSong = makeEditablePatternLoopSong(notesByRow: [0: 49])
+        let refreshedSong = makeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
+        let startContext = PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: initialSong)
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+        engine.stop()
+
+        XCTAssertFalse(engine.hasPendingEditablePatternLoopRefreshForTesting)
+        XCTAssertEqual(prewarmScheduler.jobs[1].cancelCount, 1)
+
+        prewarmScheduler.complete(at: 1)
+        await Task.yield()
+        advanceRows(4, engine: engine, timing: initialSong.initialTiming)
+
+        XCTAssertEqual(engine.song, initialSong)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertFalse(engine.hasPendingEditablePatternLoopRefreshForTesting)
+    }
+
+    @MainActor
+    func testEditablePatternLoopRefreshIgnoredWhenLoopInactive() throws {
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let initialSong = makeEditablePatternLoopSong(notesByRow: [0: 49])
+        let refreshedSong = makeEditablePatternLoopSong(notesByRow: [0: 49, 1: 51])
+        let startContext = PlaybackStartContext(moduleTitle: "editable", songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: initialSong)
+        engine.play(from: startContext, loopEnabled: false, timingSession: nil)
+        engine.requestEditablePatternLoopRefresh(song: refreshedSong)
+
+        XCTAssertEqual(prewarmScheduler.requests.count, 1)
+        XCTAssertFalse(engine.hasPendingEditablePatternLoopRefreshForTesting)
+        XCTAssertNil(audioOutput.consumedPatternLoopRanges.last ?? nil)
     }
 
     @MainActor
@@ -1988,6 +2142,32 @@ private func makeRuntimeAdapterPlaybackSong(patternIndex: Int) -> PlaybackSong {
         instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
         initialTiming: PlaybackTiming(speed: 1, bpm: 250)
     )
+}
+
+private func makeEditablePatternLoopSong(notesByRow: [Int: UInt8], rowCount: Int = 4) -> PlaybackSong {
+    let sample = makePlaybackSample(pcm: [0.25, -0.25, 0.125], baseSampleRate: 100)
+    let rows = (0..<rowCount).map { rowIndex in
+        makePlaybackRow(
+            index: rowIndex,
+            note: notesByRow[rowIndex] ?? 0,
+            instrument: notesByRow[rowIndex] == nil ? 0 : 1
+        )
+    }
+    return makePlaybackSong(
+        orderPatternIndices: [0],
+        patternRowsByIndex: [0: rows],
+        instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+        initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+    )
+}
+
+private func noteTriggerNotes(in plan: RuntimeCMixerAdapterEventPlan) -> [UInt8] {
+    plan.events.compactMap { event in
+        guard case let .noteTrigger(_, _, mapping) = event.action else {
+            return nil
+        }
+        return mapping.note
+    }
 }
 
 private func makeDurationPlaybackSong(patternIndex: Int, rowCount: Int = 74) -> PlaybackSong {

@@ -21,8 +21,9 @@ VoodooTracker X currently has:
   slot state, loaded-module note audition, Clear Current Pattern for
   blank/editable documents, Clear Song Data for blank documents and loaded
   module editable-copy palette reuse, pattern-loop playback at Play start, and
-  the Song / Order editor read-only order-list / paginated pattern-bank binding
-  with stopped selected-order navigation
+  the Song / Order editor order-list / paginated pattern-bank binding with
+  stopped selected-order navigation and editable Pattern Bank double-click
+  assignment
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -82,12 +83,17 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- The Song / Order editor Pattern Bank now supports read-only stopped/idle
-  navigation to existing loaded-module or editable-document patterns through
-  the existing main-window state path. Hidden/unreferenced views preserve the
-  selected POS/order used by normal Play. Empty/current/playback-active clicks
-  are ignored; order rows, pattern data, playback, transport, parser,
-  save/export, sample editor, and instrument editor behavior are unchanged.
+- The Song / Order editor Pattern Bank now keeps single-click navigation as
+  view-only and uses double-click to assign an existing pattern to the selected
+  order slot in editable documents while stopped. Empty pattern cells and
+  active-playback double-clicks are ignored, loaded modules remain read-only,
+  and no pattern allocation, order insert/delete, transport, playback,
+  runtime audio, parser, save/export, sample editor, or instrument editor
+  behavior changed.
+- The Song / Order editor Pattern Bank single-click path remains read-only
+  stopped/idle navigation to existing loaded-module or editable-document
+  patterns through the existing main-window state path. Hidden/unreferenced
+  views preserve the selected POS/order used by normal Play.
 - The Song / Order editor order list now supports stopped/idle selected-order
   navigation for loaded modules and editable documents that expose order rows.
   Row clicks update the current order/pattern through the existing main-window

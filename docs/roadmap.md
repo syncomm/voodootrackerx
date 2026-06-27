@@ -304,11 +304,9 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Wire Song / Order editor pattern-bank navigation only, keeping pattern-bank
-  cells read-only for assignment/mutation and leaving insert/delete/duplicate/
-  move order slots, pattern creation/duplication/clear, undo/redo, import,
-  save, export, and transport duplication deferred. Tests and docs must not
-  reference private modules or local paths.
+- Wire Song / Order editor order insert/delete controls while preserving loaded
+  module read-only behavior, existing Pattern Bank single-click navigation,
+  editable double-click assignment, and the no-second-transport boundary.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -480,8 +478,8 @@ Current implemented foundation:
 - clear current pattern for blank/editable documents
 - clear song data for blank/editable documents
 - pattern-loop playback at Play start
-- Song / Order editor read-only order-list / paginated pattern-bank binding
-  with stopped selected-order navigation
+- Song / Order editor order-list / paginated pattern-bank binding with stopped
+  selected-order navigation and editable Pattern Bank double-click assignment
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:

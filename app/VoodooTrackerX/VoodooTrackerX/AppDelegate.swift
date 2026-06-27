@@ -253,6 +253,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onPatternSelected = { [weak self] patternIndex in
             self?.selectSongOrderEditorPattern(patternIndex)
         }
+        controller.onPatternDoubleClickedForAssignment = { [weak self] patternIndex in
+            self?.assignSongOrderEditorPattern(patternIndex)
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -331,6 +334,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
+    }
+
+    private func assignSongOrderEditorPattern(_ patternIndex: Int) {
+        guard !playbackEngine.state.isPlaying else {
+            return
+        }
+
+        guard let document = blankDocument else {
+            selectSongOrderEditorPattern(patternIndex)
+            return
+        }
+
+        guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
+            document,
+            assigningPatternIndexToSelectedOrder: patternIndex,
+            isPlaybackActive: playbackEngine.state.isPlaying
+        ) else {
+            return
+        }
+
+        blankDocument = updatedDocument
+        selectedSongPositionIndex = updatedDocument.currentPosition
+        currentPatternIndex = updatedDocument.currentPatternIndex
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        let metadata = updatedDocument.metadata
+        updatePatternSelector(for: metadata, keepPattern: updatedDocument.currentPatternIndex)
+        guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: metadata) else {
+            return
+        }
         renderCurrentPattern(metadata: metadata)
         syncControlPanelView()
     }

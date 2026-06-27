@@ -346,6 +346,21 @@ enum SongOrderEditorNavigation {
 
     static func editableDocument(
         _ document: BlankTrackerDocument,
+        assigningPatternIndexToSelectedOrder patternIndex: Int,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.assignPatternToSelectedOrder(patternIndex) else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
         isPlaybackActive: Bool
     ) -> BlankTrackerDocument? {
@@ -435,6 +450,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onPatternSelected = onPatternSelected
         }
     }
+    var onPatternDoubleClickedForAssignment: ((Int) -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -491,6 +511,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         }
         contentView.onOrderSelected = onOrderSelected
         contentView.onPatternSelected = onPatternSelected
+        contentView.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
         return contentView.apply(displayState: displayState)
     }
 
@@ -511,6 +532,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
 final class SongOrderEditorContentView: FlippedEditorView {
     var onOrderSelected: ((Int) -> Void)?
     var onPatternSelected: ((Int) -> Void)?
+    var onPatternDoubleClickedForAssignment: ((Int) -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -710,6 +732,8 @@ final class SongOrderEditorContentView: FlippedEditorView {
             isClickable: exists
         ) { [weak self] patternIndex in
             self?.onPatternSelected?(patternIndex)
+        } assignmentHandler: { [weak self] patternIndex in
+            self?.onPatternDoubleClickedForAssignment?(patternIndex)
         }
         cell.frame = frame
         cell.style(
@@ -970,11 +994,18 @@ final class SongOrderEditorPatternCellView: FlippedEditorView {
     private let patternIndex: Int
     private let isClickable: Bool
     private let selectHandler: (Int) -> Void
+    private let assignmentHandler: (Int) -> Void
 
-    init(patternIndex: Int, isClickable: Bool, selectHandler: @escaping (Int) -> Void) {
+    init(
+        patternIndex: Int,
+        isClickable: Bool,
+        selectHandler: @escaping (Int) -> Void,
+        assignmentHandler: @escaping (Int) -> Void
+    ) {
         self.patternIndex = patternIndex
         self.isClickable = isClickable
         self.selectHandler = selectHandler
+        self.assignmentHandler = assignmentHandler
         super.init(frame: .zero)
     }
 
@@ -1000,6 +1031,10 @@ final class SongOrderEditorPatternCellView: FlippedEditorView {
 
     override func mouseDown(with event: NSEvent) {
         guard isClickable else {
+            return
+        }
+        guard event.clickCount < 2 else {
+            assignmentHandler(patternIndex)
             return
         }
         selectHandler(patternIndex)

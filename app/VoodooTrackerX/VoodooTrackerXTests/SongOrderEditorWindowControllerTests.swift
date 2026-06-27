@@ -592,6 +592,75 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(currentCell.isCurrent)
     }
 
+    func testEditableDocumentPatternBankDoubleClickAssignsExistingPatternToSelectedOrder() throws {
+        var assignedPattern = makePattern(index: 66, rowCount: 48)
+        assignedPattern.rows[7][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        let document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 0,
+            orderTable: [0, 0],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                assignedPattern,
+            ]
+        )
+        let beforePatterns = document.patterns
+
+        let updated = try XCTUnwrap(SongOrderEditorNavigation.editableDocument(
+            document,
+            assigningPatternIndexToSelectedOrder: 66,
+            isPlaybackActive: false
+        ))
+        let state = SongOrderEditorDisplayState.editableDocument(updated)
+        let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 66 })
+
+        XCTAssertEqual(updated.orderTable, [0, 66])
+        XCTAssertEqual(updated.currentPosition, 1)
+        XCTAssertEqual(updated.currentPatternIndex, 66)
+        XCTAssertEqual(updated.patterns, beforePatterns)
+        XCTAssertEqual(document.orderTable, [0, 0])
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(state.orderRows.map(\.patternIndex), [0, 66])
+        XCTAssertEqual(state.orderRows.map(\.isSelected), [false, true])
+        XCTAssertEqual(state.bankIndex, 1)
+        XCTAssertEqual(state.bankDisplayLabel, "BANK 2/2")
+        XCTAssertTrue(currentCell.exists)
+        XCTAssertTrue(currentCell.isUsed)
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testPatternBankAssignmentIgnoresEmptyCellsAndActivePlaybackWithoutAllocation() throws {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 16),
+            ]
+        )
+        let before = document
+
+        XCTAssertNil(SongOrderEditorNavigation.editableDocument(
+            document,
+            assigningPatternIndexToSelectedOrder: 12,
+            isPlaybackActive: false
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocument(
+            document,
+            assigningPatternIndexToSelectedOrder: 1,
+            isPlaybackActive: true
+        ))
+        XCTAssertEqual(document, before)
+        XCTAssertNil(document.pattern(for: 12))
+    }
+
     func testPatternBankNavigationIgnoresEmptyCurrentAndPlaybackActiveCellsWithoutAllocation() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0, 1],
@@ -769,6 +838,126 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(currentCell.isUsed)
         XCTAssertTrue(currentCell.isCurrent)
         XCTAssertEqual(metadata, before)
+    }
+
+    func testPatternCellDoubleClickRequestsEditableAssignmentAndRefreshesSelectedOrder() throws {
+        var document = makeBlankDocument(
+            currentPosition: 1,
+            currentPatternIndex: 0,
+            orderTable: [0, 0],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 2, rowCount: 32),
+            ]
+        )
+        let beforePatterns = document.patterns
+        let controller = SongOrderEditorWindowController(displayState: .editableDocument(document))
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var selectedPatterns = [Int]()
+        var assignedPatterns = [Int]()
+        controller.onPatternSelected = { patternIndex in
+            selectedPatterns.append(patternIndex)
+        }
+        controller.onPatternDoubleClickedForAssignment = { patternIndex in
+            assignedPatterns.append(patternIndex)
+            guard let updated = SongOrderEditorNavigation.editableDocument(
+                document,
+                assigningPatternIndexToSelectedOrder: patternIndex,
+                isPlaybackActive: false
+            ) else {
+                return
+            }
+            document = updated
+            controller.apply(displayState: .editableDocument(updated))
+        }
+
+        try clickPatternCell("002", in: contentView)
+        XCTAssertEqual(selectedPatterns, [2])
+        XCTAssertEqual(assignedPatterns, [])
+        XCTAssertEqual(document.orderTable, [0, 0])
+
+        try doubleClickPatternCell("002", in: contentView)
+        let currentCell = try XCTUnwrap(contentView.displayState.patternBankCells.first { $0.patternIndex == 2 })
+
+        XCTAssertEqual(selectedPatterns, [2])
+        XCTAssertEqual(assignedPatterns, [2])
+        XCTAssertEqual(document.orderTable, [0, 2])
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 2)
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(contentView.displayState.orderRows.map(\.patternIndex), [0, 2])
+        XCTAssertEqual(contentView.displayState.orderRows.map(\.isSelected), [false, true])
+        XCTAssertTrue(currentCell.exists)
+        XCTAssertTrue(currentCell.isUsed)
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testPatternCellDoubleClickLoadedModuleCanNavigateButDoesNotMutateOrderTable() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 7],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 7, rowCount: 32),
+                makePattern(index: 42, rowCount: 48),
+            ],
+            patternCount: 43
+        )
+        let before = metadata
+        let controller = SongOrderEditorWindowController(displayState: .loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 1,
+            currentPatternIndex: 7
+        ))
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var assignedPatterns = [Int]()
+        controller.onPatternDoubleClickedForAssignment = { patternIndex in
+            assignedPatterns.append(patternIndex)
+            guard let selectedPatternIndex = SongOrderEditorNavigation.loadedModulePatternSelection(
+                selectingPatternIndex: patternIndex,
+                metadata: metadata,
+                currentPatternIndex: 7,
+                isPlaybackActive: false
+            ) else {
+                return
+            }
+            controller.apply(displayState: .loadedModule(
+                metadata: metadata,
+                selectedOrderPosition: 1,
+                currentPatternIndex: selectedPatternIndex
+            ))
+        }
+
+        try doubleClickPatternCell("042", in: contentView)
+        let currentCell = try XCTUnwrap(contentView.displayState.patternBankCells.first { $0.patternIndex == 42 })
+
+        XCTAssertEqual(assignedPatterns, [42])
+        XCTAssertEqual(metadata, before)
+        XCTAssertEqual(contentView.displayState.selectedOrderPosition, 1)
+        XCTAssertEqual(contentView.displayState.orderRows.map(\.patternIndex), [0, 7])
+        XCTAssertEqual(contentView.displayState.orderRows.map(\.isSelected), [false, true])
+        XCTAssertFalse(currentCell.isUsed)
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testPatternCellDoubleClickEmptyCellIsNoOp() throws {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0],
+            patterns: [makePattern(index: 0, rowCount: 16)]
+        )
+        let controller = SongOrderEditorWindowController(displayState: .editableDocument(document))
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var selectedPatterns = [Int]()
+        var assignedPatterns = [Int]()
+        controller.onPatternSelected = { selectedPatterns.append($0) }
+        controller.onPatternDoubleClickedForAssignment = { assignedPatterns.append($0) }
+
+        try doubleClickPatternCell("012", in: contentView)
+
+        XCTAssertEqual(selectedPatterns, [])
+        XCTAssertEqual(assignedPatterns, [])
+        XCTAssertEqual(contentView.displayState, .editableDocument(document))
     }
 
     func testPatternBankPreviousNextNavigationChangesOnlyVisibleReadOnlyPageAndClamps() throws {
@@ -1033,6 +1222,16 @@ private func clickOrderRow(_ orderDisplay: String, in view: NSView) throws {
 
 @MainActor
 private func clickPatternCell(_ patternDisplay: String, in view: NSView) throws {
+    try mouseDownPatternCell(patternDisplay, in: view, clickCount: 1)
+}
+
+@MainActor
+private func doubleClickPatternCell(_ patternDisplay: String, in view: NSView) throws {
+    try mouseDownPatternCell(patternDisplay, in: view, clickCount: 2)
+}
+
+@MainActor
+private func mouseDownPatternCell(_ patternDisplay: String, in view: NSView, clickCount: Int) throws {
     let cell = try XCTUnwrap(view.allDescendants
         .compactMap { $0 as? SongOrderEditorPatternCellView }
         .first { $0.identifier?.rawValue == SongOrderEditorViewIdentifier.patternCellPrefix + patternDisplay })
@@ -1044,7 +1243,7 @@ private func clickPatternCell(_ patternDisplay: String, in view: NSView) throws 
         windowNumber: cell.window?.windowNumber ?? 0,
         context: nil,
         eventNumber: 0,
-        clickCount: 1,
+        clickCount: clickCount,
         pressure: 1
     ))
     cell.mouseDown(with: event)

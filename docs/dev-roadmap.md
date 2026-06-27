@@ -17,8 +17,14 @@ VoodooTracker X currently has:
 - bounded offline C mixer render/export for local comparison
 - runtime trace/capture diagnostics
 - current XM effect support tracked in `docs/xm-effect-support.md`
+- blank tracker startup, note-entry foundations, selected instrument/sample
+  slot state, loaded-module note audition, Clear Current Pattern for
+  blank/editable documents, and pattern-loop playback at Play start
 
-The app is still under active development and is not production-ready.
+The app is still under active development and is not production-ready. VTX 1.0
+is now scoped as a real XM-style composition-capable tracker: users should be
+able to create complete sample-based songs from scratch, not only play modules
+or type notes into a blank pattern.
 
 ## Backend Snapshot
 
@@ -39,11 +45,22 @@ The XM backend is in a temporary backend foundation freeze. During the freeze,
 avoid behavior-changing effect, C mixer DSP, parser architecture, runtime
 backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
-Recommended next work should return to GUI/editor and product milestones:
+Recommended next work should return to GUI/editor and product milestones while
+preserving the backend freeze:
 
-1. Design a weekly codebase review harness as a docs/tooling plan before
+1. Editor clear-song data while preserving instruments and samples, keeping
+   loaded modules read-only.
+2. Song/order editor foundation and editable-copy/save semantics design, so
+   importing or copying instruments/samples from loaded modules into
+   blank/editable songs has a safe path.
+3. Pattern editor completion for instrument, volume-column, and effect-column
+   entry.
+4. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
+   instrument import target.
+5. Save XM and export WAV/AAC after editable document semantics are explicit.
+6. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-2. Module analysis follow-up should use
+7. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
    while first-Play adapter-plan preparation remains the synchronous fallback.
@@ -51,7 +68,7 @@ Recommended next work should return to GUI/editor and product milestones:
    adapter-plan duration with clear load/File New invalidation. A later
    optimization PR can profile and reduce adapter-plan construction cost
    itself.
-3. README badges may be added later if they point at stable, useful CI or
+8. README badges may be added later if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -293,7 +310,7 @@ Implemented:
 
 Remaining:
 
-- note preview/audition follow-through after selection and keyboard foundations
+- note audition parity follow-through after selection and keyboard foundations
 - instrument/effect entry
 - copy/paste workflows
 - pattern length/edit operations
@@ -303,7 +320,8 @@ Note audition now has a minimal loaded-module audible preview path behind the
 editor/audio boundary. Edit-mode key release stops only the active preview
 voice; pattern key-off remains explicit `===` entry. Loaded modules may be
 auditionable before they are editable, while XI import, sample loading,
-instrument editing, and sample editing remain later milestones.
+instrument editing, and sample editing remain later 1.0 composition
+milestones.
 
 ## Phase 2: Audio Engine And Playback Accuracy
 
@@ -329,32 +347,44 @@ Current non-goals:
 - no tracker viewport changes as part of audio work
 - no private corpus artifacts in git
 
-## Phase 3: Pattern Editing
+## Phase 3: Pattern And Song Editing
 
-Current recommended product phase after the backend foundation freeze.
+Current recommended product phase after the backend foundation freeze. This is
+part of the VTX 1.0 composition path, not a playback-only milestone.
 
 Planned scope:
 
 - note entry and row advance
 - instrument entry
+- volume-column entry
 - effect entry
 - selection and copy/paste
 - clear current pattern
 - clear song/pattern data while preserving instruments and samples
 - optional arrangement/order-table reset while preserving the instrument bank
+- song/order editor foundation
+- loop-and-edit workflow for composing patterns while hearing playback
 - pattern insertion/deletion
 - pattern length editing
-- save/export flow design before persistence work
+- editable-copy/save semantics before loaded-module mutation
+- save XM
+- export WAV/AAC
+
+Loaded modules remain read-only until explicit editable-copy/save semantics are
+designed and implemented.
 
 ## Phase 4: Instruments And Samples
 
-Planned scope:
+Planned VTX 1.0 scope:
 
-- instrument panel
-- sample panel
-- sample trimming
-- loop editing
-- envelope editing
+- instrument editor foundation
+- sample editor foundation
+- WAV/AIFF sample import
+- XI instrument import target
+- importing or copying instruments and samples from existing modules into
+  blank/editable songs
+- sample trimming and loop editing foundation
+- envelope editing foundation
 
 ## Phase 5: Visualization
 
@@ -372,6 +402,18 @@ Planned scope:
 - preferences
 - playback/export settings
 - UI configuration
+
+## Phase 6.5: v1.x And Future Pro Scope
+
+Likely v1.x or later work includes MIDI keyboard or pad input, recording and
+sample-capture improvements, richer resampling tools, and plugin/audio-input to
+sample experiments.
+
+Future Pro or native-format work may explore AUv3/VST-style plugin hosting,
+plugin instruments/effects, plugin-to-sample rendering, automation, a native
+VTX project format or XM3-style extended format, and AI-assisted
+instruments/samples/patterns. These are not VTX 1.0 requirements, and classic
+XM compatibility should not require live plugin playback.
 
 ## Phase 7: Release Hardening
 

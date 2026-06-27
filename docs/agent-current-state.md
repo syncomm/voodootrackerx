@@ -4,6 +4,16 @@ Read this first when starting backend, audio, parser, effect, or tooling work.
 It is the short current-state snapshot; load longer docs only when the task
 needs them.
 
+## Product Scope Pointer
+
+VTX 1.0 is scoped as a self-contained XM-style sample/instrument tracker that
+can create complete sample-based songs from scratch. It is not only a playback,
+display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
+
+Loaded modules remain read-only until editable-copy/save semantics are designed.
+Future plugin or audio-input bridges should start as later sample/import
+experiments, not live plugin playback inside classic XM compatibility.
+
 ## Backend Architecture
 
 - Runtime playback defaults to the CoreAudio DefaultOutput Audio Unit host

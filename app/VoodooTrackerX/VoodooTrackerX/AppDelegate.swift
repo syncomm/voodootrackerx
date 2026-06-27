@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static var retainedDelegate: AppDelegate?
     private var windowController: TrackerWindowController?
+    private var songOrderEditorWindowController: SongOrderEditorWindowController?
     private var blankDocument: BlankTrackerDocument?
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
@@ -113,7 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case ApplicationMenuBuilder.Actions.newTrackerDocument,
-             ApplicationMenuBuilder.Actions.openModuleFile:
+             ApplicationMenuBuilder.Actions.openModuleFile,
+             ApplicationMenuBuilder.Actions.showSongOrderEditor:
             return true
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
@@ -227,6 +229,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc
     private func newTrackerDocument(_ sender: Any?) {
         resetToBlankTrackerDocument()
+    }
+
+    @objc
+    private func showSongOrderEditor(_ sender: Any?) {
+        let controller: SongOrderEditorWindowController
+        if let existingController = songOrderEditorWindowController {
+            controller = existingController
+        } else {
+            controller = SongOrderEditorWindowController()
+            songOrderEditorWindowController = controller
+        }
+        controller.showWindowAndActivate()
     }
 
     @objc

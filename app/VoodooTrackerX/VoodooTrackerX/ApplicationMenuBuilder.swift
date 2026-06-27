@@ -10,6 +10,7 @@ enum ApplicationMenuBuilder {
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
+        static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
     }
 
     struct BuiltMenu {
@@ -25,7 +26,7 @@ enum ApplicationMenuBuilder {
         mainMenu.addItem(topLevelItem(title: "Edit", submenu: editMenu(target: target)))
         mainMenu.addItem(topLevelItem(title: "View", submenu: viewMenu()))
         mainMenu.addItem(topLevelItem(title: "Transport", submenu: transportMenu(target: target)))
-        let windowMenu = Self.windowMenu()
+        let windowMenu = Self.windowMenu(target: target)
         mainMenu.addItem(topLevelItem(title: "Window", submenu: windowMenu))
         mainMenu.addItem(topLevelItem(title: "Help", submenu: helpMenu()))
 
@@ -126,10 +127,17 @@ enum ApplicationMenuBuilder {
         return menu
     }
 
-    private static func windowMenu() -> NSMenu {
+    private static func windowMenu(target: AnyObject?) -> NSMenu {
         let menu = NSMenu(title: "Window")
         menu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         menu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(menuItem(
+            title: "Song / Order Editor",
+            action: Actions.showSongOrderEditor,
+            keyEquivalent: "",
+            target: target
+        ))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         return menu

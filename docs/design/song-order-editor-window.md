@@ -32,6 +32,10 @@ Transport (play/stop/loop) and song meta (title, length, current position, resta
 repeated here** — they live in the main control panel, which stays open alongside this window.
 Duplicating them would add clutter with no benefit.
 
+Transport controls are not duplicated in the Song / Order window. Song/order actions may route to the
+existing main-window transport commands where needed, but this window should not introduce a second
+transport surface or playback path. The main control panel remains the canonical transport UI.
+
 ---
 
 ## 2. Primary user workflows
@@ -93,10 +97,14 @@ pattern in the bank is marked with a small red indicator LED.
 
 ## 5. Required controls for v1.0
 
-Order list with selected position; pattern number per slot (clearly distinct from order index);
-insert/delete/duplicate slot; move up/down; pattern −/+; new/duplicate/clear pattern; clear song data
-preserving instruments+samples; play song / play pattern / loop pattern (via the existing transport);
-paginated pattern bank overview; unmistakable order-vs-pattern distinction.
+Required controls for v1.0 include order editing (order list with selected position; pattern number
+per slot, clearly distinct from order index; insert/delete/duplicate slot; move up/down; pattern −/+),
+pattern-bank operations (new/duplicate/clear pattern; paginated pattern bank overview), and clear-song
+actions (clear song data preserving instruments+samples), with an unmistakable order-vs-pattern
+distinction.
+
+Play song, play pattern, and loop pattern remain available through the existing main-window transport
+architecture — they are not duplicated as a separate transport surface inside this window.
 
 ---
 

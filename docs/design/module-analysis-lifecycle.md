@@ -186,6 +186,10 @@ gain/headroom, add runtime auto-headroom, move work from load to Play, or alter
 playback, C mixer DSP, scheduling, parser, tracker viewport, editor, note
 audition, or control panel behavior.
 
+For the focused runtime/export gain policy, future runtime auto-headroom
+requirements, and playback merge-gate guidance, see
+`docs/design/runtime-gain-headroom-policy.md`.
+
 Adjacent-sample jump counters are raw same-channel sample-delta telemetry.
 They are useful for finding transient-heavy windows, but they can legitimately
 increase for percussion, retriggers, or sharp sample content and do not by

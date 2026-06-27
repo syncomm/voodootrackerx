@@ -122,6 +122,14 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Runtime gain/headroom policy is now documented as a design boundary:
+  runtime playback keeps fixed default headroom with developer diagnostic
+  overrides, offline export keeps explicit gain/headroom and `--auto-headroom`,
+  future runtime auto-headroom requires cache/edit/UI design, and playback
+  merge gates should treat clipping/overrange, discontinuities, and adjacent
+  jumps as separate diagnostic families. No playback behavior, C mixer DSP,
+  parser, tracker viewport, editor, note audition, control panel, or release
+  workflow changed.
 - Runtime mixer adjacent-jump diagnostics now have explicit documented
   semantics and derived stop-summary status fields. Raw adjacent-jump counts
   remain unchanged and are watch telemetry for normal transients unless paired

@@ -82,6 +82,37 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(cString(info.first_instrument_name), "BASIC SAMPLE")
     }
 
+    func testParseGeneratedMultiPatternLoopBoundaryXMFixture() throws {
+        let info = mc_parse_file(try referenceXMFixturePath("generated/multi-pattern-loop-boundary.xm"))
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(typeName(info.type), "XM")
+        XCTAssertEqual(cString(info.title), "VTX LOOP BOUNDARY")
+        XCTAssertEqual(info.version_major, 1)
+        XCTAssertEqual(info.version_minor, 4)
+        XCTAssertEqual(info.channels, 1)
+        XCTAssertEqual(info.patterns, 3)
+        XCTAssertEqual(info.instruments, 1)
+        XCTAssertEqual(info.xm_flags, 1)
+        XCTAssertEqual(info.song_length, 3)
+        XCTAssertEqual(info.restart_position, 0)
+        XCTAssertEqual(info.default_tempo, 6)
+        XCTAssertEqual(info.default_bpm, 125)
+        XCTAssertEqual(info.order_table_length, 3)
+        XCTAssertEqual(Array(orderTable(info).prefix(3)), [0, 1, 2])
+        XCTAssertEqual(info.pattern_row_count_count, 3)
+        XCTAssertEqual(Array(patternRows(info).prefix(3)), [4, 4, 4])
+        XCTAssertEqual(Array(patternPackedSizes(info).prefix(3)), [6, 6, 6])
+        XCTAssertEqual(info.xm_event_count, 3)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.note, 49)
+        XCTAssertEqual(xmEvent(info, pattern: 0, row: 0, channel: 0)?.instrument, 1)
+        XCTAssertEqual(xmEvent(info, pattern: 1, row: 0, channel: 0)?.note, 53)
+        XCTAssertEqual(xmEvent(info, pattern: 1, row: 0, channel: 0)?.instrument, 1)
+        XCTAssertEqual(xmEvent(info, pattern: 2, row: 0, channel: 0)?.note, 56)
+        XCTAssertEqual(xmEvent(info, pattern: 2, row: 0, channel: 0)?.instrument, 1)
+        XCTAssertEqual(cString(info.first_instrument_name), "BOUNDARY SAMPLE")
+    }
+
     func testGoldenSnapshotMOD() throws {
         let info = mc_parse_file(try fixturePath("minimal.mod"))
         XCTAssertEqual(normalize(snapshotJSON(info)), normalize(try goldenString("minimal.mod.json")))

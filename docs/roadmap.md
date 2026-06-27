@@ -254,6 +254,12 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` now
+  provides a public-safe three-pattern, three-order traversal fixture for
+  loader, `PlaybackSongBuilder`, and `RuntimeCMixerAdapterEventPlan` tests.
+  This supports future adapter-safe pattern-loop design without implementing
+  pattern-loop playback or changing runtime audio, parser architecture,
+  tracker viewport, editor, note audition, control panel, or release behavior.
 - Main-window control panel presentation now has the first Build Beyond demo
   polish pass: dark hardware-panel grouping, top gold accent, separated
   TITLE/TIME readouts, PTN decimal display, loaded-module instrument/sample

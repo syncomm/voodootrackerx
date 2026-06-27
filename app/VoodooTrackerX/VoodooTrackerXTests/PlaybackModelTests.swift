@@ -50,6 +50,67 @@ final class PlaybackModelTests: XCTestCase {
         }
     }
 
+    func testModuleMetadataLoaderLoadsGeneratedMultiPatternLoopBoundaryFixture() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+
+        XCTAssertEqual(metadata.type, "XM")
+        XCTAssertEqual(metadata.title, "VTX LOOP BOUNDARY")
+        XCTAssertEqual(metadata.version, "1.4")
+        XCTAssertEqual(metadata.channels, 1)
+        XCTAssertEqual(metadata.patterns, 3)
+        XCTAssertEqual(metadata.instruments, 1)
+        XCTAssertEqual(metadata.defaultTempo, 6)
+        XCTAssertEqual(metadata.defaultBPM, 125)
+        XCTAssertEqual(metadata.orderTable, [0, 1, 2])
+        XCTAssertEqual(metadata.xmPatterns.map(\.index), [0, 1, 2])
+        XCTAssertEqual(metadata.xmPatterns.map(\.rowCount), [4, 4, 4])
+        XCTAssertEqual(metadata.xmPatterns.map(\.channels), [1, 1, 1])
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].instrument, 1)
+        XCTAssertEqual(metadata.xmPatterns[1].rows[0][0].note, 53)
+        XCTAssertEqual(metadata.xmPatterns[1].rows[0][0].instrument, 1)
+        XCTAssertEqual(metadata.xmPatterns[2].rows[0][0].note, 56)
+        XCTAssertEqual(metadata.xmPatterns[2].rows[0][0].instrument, 1)
+        XCTAssertEqual(metadata.xmPatterns[2].rows[1][0], .empty)
+    }
+
+    func testPlaybackSongBuilderPreservesGeneratedMultiPatternLoopBoundaryMapping() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        XCTAssertEqual(song.orders, [
+            PlaybackOrderEntry(orderIndex: 0, patternIndex: 0),
+            PlaybackOrderEntry(orderIndex: 1, patternIndex: 1),
+            PlaybackOrderEntry(orderIndex: 2, patternIndex: 2),
+        ])
+        XCTAssertEqual(song.patternsByIndex.keys.sorted(), [0, 1, 2])
+        XCTAssertEqual(song.pattern(for: 0)?.index, 0)
+        XCTAssertEqual(song.pattern(for: 1)?.index, 1)
+        XCTAssertEqual(song.pattern(for: 2)?.index, 2)
+        XCTAssertEqual(song.row(at: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0))?.cells[0].note, 49)
+        XCTAssertEqual(song.row(at: PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0))?.cells[0].note, 53)
+        XCTAssertEqual(song.row(at: PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 0))?.cells[0].note, 56)
+        XCTAssertEqual(song.row(at: PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 1))?.cells[0], PlaybackCell(
+            note: 0,
+            instrument: 0,
+            volumeColumn: 0,
+            effectType: 0,
+            effectParam: 0
+        ))
+        XCTAssertEqual(
+            song.position(after: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 3)),
+            .advanced(PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0))
+        )
+        XCTAssertEqual(
+            song.position(after: PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 3)),
+            .advanced(PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 0))
+        )
+        XCTAssertEqual(song.instrumentsByIndex[1]?.name, "BOUNDARY SAMPLE")
+        XCTAssertEqual(song.instrumentsByIndex[1]?.firstPlayableSample?.name, "BOUNDARY64")
+    }
+
     func testPlaybackTraceFormatterWritesJSONLWithStableFields() throws {
         let event = PlaybackTraceEvent(
             tickIndex: 12,
@@ -655,5 +716,18 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertFalse(tickState.advance(timing: timing))
         XCTAssertTrue(tickState.advance(timing: timing))
         XCTAssertEqual(tickState, PlaybackTickState(tickInRow: 0))
+    }
+
+    private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repoRoot.appendingPathComponent("tests/reference-xm").appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Missing reference XM fixture \(relativePath)")
+        }
+        return url
     }
 }

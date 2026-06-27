@@ -49,13 +49,16 @@ Current skeleton:
 
 - `tests/reference-xm/README.md` now documents the fixture-pack contract.
 - `tests/reference-xm/source/basic-instrument-sample.manifest.json` is the
-  first deterministic source manifest.
+  deterministic source manifest for the approved generated fixtures.
 - `scripts/generate-synthetic-xm-fixtures.py` prints or writes that manifest
-  and can explicitly write the first generated binary XM fixture without
+  and can explicitly write the approved generated binary XM fixtures without
   emitting reference renders.
 - `tests/reference-xm/generated/basic-instrument-sample.xm` is the first
   committed generated fixture: one instrument, one 64-frame synthetic sample,
   and a tiny pattern for parser/editor positive-path tests.
+- `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` is a committed
+  generated traversal fixture: three short patterns, three order positions,
+  and row-0 note triggers for public-safe order-boundary adapter-plan tests.
 
 ## Fixture Families
 
@@ -63,6 +66,10 @@ Start with focused fixtures that each prove one behavior class:
 
 - `basic-instrument-sample.xm`: one instrument, one sample, simple note events,
   and real sample payload for parser/editor positive-path tests.
+- `multi-pattern-loop-boundary.xm`: three short patterns and three order
+  positions with simple row-0 notes, for adapter-plan traversal tests and
+  future adapter-safe pattern-loop design work. It is not pattern-loop playback
+  and contains no pattern-loop effect commands.
 - `note-entry-preview.xm`: tiny loaded-module payload for selected
   instrument/sample display and future preview availability tests.
 - `looped-sample.xm`: forward loop metadata and a steady loop segment.
@@ -193,12 +200,14 @@ viewport math, editor note entry, note audition audio, or file save/export.
    manifest, without binary XM output. Done.
 3. Add `basic-instrument-sample.xm` plus parser/editor tests that prove real
    sample payload can be loaded from a public fixture. Done.
-4. Add preview-oriented metadata tests for `note-entry-preview.xm` without
+4. Add `multi-pattern-loop-boundary.xm` plus loader, builder, and runtime
+   adapter-plan tests for public-safe multi-pattern order traversal. Done.
+5. Add preview-oriented metadata tests for `note-entry-preview.xm` without
    adding audible preview playback.
-5. Add loop and envelope fixtures for instrument/sample editor coverage.
-6. Add effect-family fixtures after expected behavior is documented and the
+6. Add loop and envelope fixtures for instrument/sample editor coverage.
+7. Add effect-family fixtures after expected behavior is documented and the
    backend freeze posture allows the relevant validation work.
-7. Decide separately whether compact metrics or reference WAVs belong in git.
+8. Decide separately whether compact metrics or reference WAVs belong in git.
 
 ## Acceptance Checklist For Future Fixture PRs
 

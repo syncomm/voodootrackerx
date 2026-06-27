@@ -41,8 +41,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 
 Recommended next work should return to GUI/editor and product milestones:
 
-1. Refresh README build instructions and module resource guidance so new
-   contributors have the current setup and fixture/module expectations.
+1. Design a weekly codebase review harness as a docs/tooling plan before
+   adding automation.
 2. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
@@ -51,6 +51,8 @@ Recommended next work should return to GUI/editor and product milestones:
    adapter-plan duration with clear load/File New invalidation. A later
    optimization PR can profile and reduce adapter-plan construction cost
    itself.
+3. README badges may be added later if they point at stable, useful CI or
+   release signals.
 
 Parked parity-watch items:
 

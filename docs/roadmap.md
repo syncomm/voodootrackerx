@@ -106,12 +106,14 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Refresh README build instructions and module resource guidance so new
-   contributors have the current setup and fixture/module expectations.
+1. Design a weekly codebase review harness as a docs/tooling plan before
+   adding automation.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
    synchronous load path while improving first-Play readiness, and loaded-module
    TIME is derived only from the installed adapter-plan duration.
+3. Consider README badges later only if they point at stable, useful CI or
+   release signals.
 
 Parked parity-watch items:
 
@@ -251,12 +253,11 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Pattern-loop playback remains deferred until an implementation preserves
-  normal runtime C mixer adapter planning, avoids a separate timer-driven
-  trigger/update path, implements loop policy at a safe transport/scheduler
-  boundary, and passes manual listening on public and local anonymized smoke
-  modules. Tests alone are not sufficient for this audio change; docs and tests
-  must not reference private modules or local paths.
+- Pattern-loop follow-up remains deferred for live Loop changes during active
+  playback, loop-length TIME display, pattern-loop editing, clear-pattern/
+  clear-song utilities, arbitrary ranges, and broader listening. Tests alone
+  are not sufficient for audio changes; docs and tests must not reference
+  private modules or local paths.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song

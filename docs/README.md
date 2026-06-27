@@ -35,7 +35,8 @@ relevant to the task.
 
 ## Testing
 
-- `docs/testing.md` - fixture and test guidance.
+- `docs/testing.md` - local build/test commands, fixture rules, and test
+  guidance.
 - `docs/design/synthetic-xm-reference-fixture-pack.md` - plan for future
   public-safe XM reference fixtures.
 - `tests/reference-xm/README.md` - public synthetic XM fixture-pack contract

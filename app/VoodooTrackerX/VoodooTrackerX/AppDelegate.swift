@@ -250,6 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onOrderSelected = { [weak self] orderPosition in
             self?.selectSongOrderEditorOrder(orderPosition)
         }
+        controller.onPatternSelected = { [weak self] patternIndex in
+            self?.selectSongOrderEditorPattern(patternIndex)
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -288,6 +291,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         applySongPosition(orderPosition, in: metadata)
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
+    }
+
+    private func selectSongOrderEditorPattern(_ patternIndex: Int) {
+        guard !playbackEngine.state.isPlaying else {
+            return
+        }
+
+        if let document = blankDocument {
+            guard let updatedDocument = SongOrderEditorNavigation.editableDocument(
+                document,
+                selectingPatternIndex: patternIndex,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            ) else {
+                return
+            }
+            blankDocument = updatedDocument
+            selectedSongPositionIndex = updatedDocument.currentPosition
+            cursor = PatternCursor(row: 0, channel: 0, field: .note)
+            guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: updatedDocument.metadata) else {
+                return
+            }
+            renderCurrentPattern(metadata: updatedDocument.metadata)
+            syncControlPanelView()
+            return
+        }
+
+        guard let metadata = loadedMetadata,
+              let selectedPatternIndex = SongOrderEditorNavigation.loadedModulePatternSelection(
+                  selectingPatternIndex: patternIndex,
+                  metadata: metadata,
+                  currentPatternIndex: currentPatternIndex,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ),
+              selectPatternForDisplay(selectedPatternIndex, in: metadata) else {
+            return
+        }
+
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
         renderCurrentPattern(metadata: metadata)
         syncControlPanelView()
     }
@@ -852,10 +895,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return nil
         }
         let startRow = loadedMetadata == nil && blankDocument != nil ? 0 : cursor.row
-        return PlaybackStartContext(
-            moduleTitle: metadata.title.isEmpty ? nil : metadata.title,
-            songPosition: selectedSongPositionIndex,
-            patternIndex: currentPatternIndex,
+        return TrackerPlaybackStartContextResolver.normalPlayContext(
+            metadata: metadata,
+            selectedSongPositionIndex: selectedSongPositionIndex,
+            displayedPatternIndex: currentPatternIndex,
             row: startRow
         )
     }
@@ -984,10 +1027,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard safeSongLength > 0 else { return nil }
         let clampedPosition = min(max(0, songPosition), safeSongLength - 1)
         let patternIndex = metadata.orderTable[clampedPosition]
-        guard metadata.xmPatterns.indices.contains(patternIndex) else {
+        guard metadata.xmPattern(index: patternIndex) != nil else {
             return nil
         }
         return patternIndex
+    }
+
+    private func selectPatternForDisplay(_ patternIndex: Int, in metadata: ParsedModuleMetadata) -> Bool {
+        guard let pattern = metadata.xmPattern(index: patternIndex) else {
+            return false
+        }
+
+        currentPatternIndex = pattern.index
+        if let selectorIndex = displayedPatternEntries.firstIndex(where: { $0.patternIndex == pattern.index }) {
+            selectedPatternSelectionIndex = selectorIndex
+            patternSelector?.selectItem(at: selectorIndex)
+            return true
+        }
+
+        let entry = ModuleMetadataLoader.PatternSelectionEntry(
+            patternIndex: pattern.index,
+            isUsed: false,
+            rowCount: pattern.rowCount
+        )
+        let insertionIndex = displayedPatternEntries.firstIndex { $0.patternIndex > pattern.index }
+            ?? displayedPatternEntries.endIndex
+        displayedPatternEntries.insert(entry, at: insertionIndex)
+        selectedPatternSelectionIndex = insertionIndex
+
+        if let patternSelector {
+            patternSelector.insertItem(
+                withTitle: formattedPatternSelectorTitle(patternIndex: pattern.index, rowCount: pattern.rowCount),
+                at: insertionIndex
+            )
+            patternSelector.selectItem(at: insertionIndex)
+            patternSelector.isEnabled = true
+        }
+        return true
     }
 
     private func formattedPatternSelectorTitle(patternIndex: Int, rowCount: Int) -> String {
@@ -1004,10 +1080,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         isViewportResizeRerender: Bool = false,
         restoreEditorFocus: Bool = true
     ) {
-        guard metadata.type == "XM", metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+        guard let pattern = metadata.xmPattern(index: currentPatternIndex) else {
             return
         }
-        let pattern = metadata.xmPatterns[currentPatternIndex]
         if pattern.rowCount == 0 {
             metadataTextView?.string = "Pattern \(pattern.index) is empty."
             return
@@ -1057,12 +1132,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func handlePatternNavigation(_ command: PatternNavigationCommand) {
-        guard let metadata = displayedMetadata, metadata.type == "XM",
-              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+        guard let metadata = displayedMetadata,
+              let pattern = metadata.xmPattern(index: currentPatternIndex) else {
             return
         }
 
-        let pattern = metadata.xmPatterns[currentPatternIndex]
         cursor.move(command, rowCount: pattern.rowCount, channelCount: pattern.channels)
         renderCurrentPattern(metadata: metadata)
     }
@@ -1231,8 +1305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func handlePatternWheel(deltaY: CGFloat) {
         guard let metadata = displayedMetadata,
-              metadata.type == "XM",
-              metadata.xmPatterns.indices.contains(currentPatternIndex) else {
+              metadata.xmPattern(index: currentPatternIndex) != nil else {
             return
         }
 
@@ -1453,8 +1526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let viewportSize = clipView.bounds.size
         if viewportSize != lastGridViewportSize,
            let metadata = displayedMetadata,
-           metadata.type == "XM",
-           metadata.xmPatterns.indices.contains(currentPatternIndex) {
+           metadata.xmPattern(index: currentPatternIndex) != nil {
             pendingHorizontalViewportOrigin = liveResizeHorizontalOrigin ?? lastStableGridHorizontalOrigin
             lastGridViewportSize = viewportSize
             renderCurrentPattern(metadata: metadata, isViewportResizeRerender: true)

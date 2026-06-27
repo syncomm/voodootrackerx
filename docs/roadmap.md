@@ -125,6 +125,13 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Clear Current Pattern is now the first narrow tracker editor utility command:
+  blank/editable documents can clear only the selected pattern back to empty
+  cells while preserving editor selection, timing, pattern/order shape, cursor
+  location, viewport behavior, playback behavior, note audition, and loaded-
+  module read-only policy. Clear song while preserving instruments/samples,
+  arrangement/order reset, duplicate pattern, insert/delete pattern or order
+  slots, undo/redo, save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
   the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core
@@ -253,20 +260,20 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Pattern-loop follow-up remains deferred for live Loop changes during active
-  playback, loop-length TIME display, pattern-loop editing, clear-pattern/
-  clear-song utilities, arbitrary ranges, and broader listening. Tests alone
-  are not sufficient for audio changes; docs and tests must not reference
-  private modules or local paths.
+- Editor clear-song data while preserving instruments and samples. Pattern-loop
+  follow-up remains deferred for live Loop changes during active playback,
+  loop-length TIME display, pattern-loop editing, arbitrary ranges, and broader
+  listening. Tests alone are not sufficient for audio changes; docs and tests
+  must not reference private modules or local paths.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
 - Future editor utility commands should be scoped separately from playback:
-  clear current pattern, clear song/pattern data while preserving instruments
-  and samples, optionally reset the arrangement/order table while preserving
-  the instrument bank, and define save/export flow before persistence work.
+  clear song/pattern data while preserving instruments and samples, optionally
+  reset the arrangement/order table while preserving the instrument bank, and
+  define save/export flow before persistence work.
 
 Recently completed product foundation:
 

@@ -24,7 +24,7 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertNil(fileMenu.item(withTitle: "Export..."))
     }
 
-    func testEditMenuFutureCommandsAreDisabledPlaceholders() throws {
+    func testEditMenuFutureCommandsAreDisabledPlaceholdersAndClearCurrentPatternIsWired() throws {
         let editMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "Edit"))
 
         for title in ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All"] {
@@ -32,6 +32,11 @@ final class ApplicationMenuBuilderTests: XCTestCase {
             XCTAssertFalse(item.isEnabled, "\(title) should stay disabled until editor behavior exists")
             XCTAssertNil(item.action, "\(title) should not introduce editor behavior")
         }
+
+        let clearCurrentPattern = try XCTUnwrap(editMenu.item(withTitle: "Clear Current Pattern"))
+        XCTAssertEqual(clearCurrentPattern.action, ApplicationMenuBuilder.Actions.clearCurrentPattern)
+        XCTAssertEqual(clearCurrentPattern.keyEquivalent, "")
+        XCTAssertFalse(clearCurrentPattern.isEnabled)
     }
 
     func testTransportMenuUsesExistingActionsWithoutKeyboardShortcuts() throws {

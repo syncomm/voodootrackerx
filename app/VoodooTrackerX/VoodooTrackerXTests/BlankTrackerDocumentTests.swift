@@ -87,6 +87,16 @@ final class BlankTrackerDocumentTests: XCTestCase {
     func testEditorPatternMutationPolicyKeepsLoadedModulesReadOnly() {
         XCTAssertTrue(EditorPatternMutationPolicy.canMutatePattern(sourceContext: .blankDocument))
         XCTAssertFalse(EditorPatternMutationPolicy.canMutatePattern(sourceContext: .loadedModule(patternIndex: 0)))
+        XCTAssertTrue(EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: .blankDocument))
+        XCTAssertFalse(EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: .loadedModule(patternIndex: 0)))
+        XCTAssertTrue(EditorCommandAvailability.canClearCurrentPattern(
+            hasBlankDocument: true,
+            sourceContext: .blankDocument
+        ))
+        XCTAssertFalse(EditorCommandAvailability.canClearCurrentPattern(
+            hasBlankDocument: false,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
     }
 
     func testBlankDocumentNoteAuditionAvailabilityIsUnavailableWithoutInstrumentSamplePayload() {
@@ -1423,6 +1433,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(metadata.songLength, 1)
         XCTAssertEqual(metadata.orderTable, [0])
         XCTAssertEqual(metadata.xmPatterns.count, 1)
+        XCTAssertEqual(metadata.patterns, 1)
         XCTAssertEqual(metadata.xmPatterns[0].rowCount, 64)
         XCTAssertEqual(metadata.xmPatterns[0].channels, 8)
         XCTAssertEqual(metadata.xmPatterns[0].rows.count, 64)
@@ -1430,6 +1441,147 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertTrue(metadata.xmPatterns[0].rows.allSatisfy { row in
             row.allSatisfy { $0 == .empty }
         })
+    }
+
+    func testClearCurrentPatternRemovesNotesKeyOffsAndCellFields() {
+        var document = BlankTrackerDocument.makeDefault()
+        document.patterns[0].rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 0x02,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        document.patterns[0].rows[1][1] = XMPatternEventCell(
+            note: TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 0x03,
+            volumeColumn: 0x30,
+            effectType: 0x0E,
+            effectParam: 0x9C
+        )
+
+        XCTAssertTrue(document.clearCurrentPattern())
+
+        XCTAssertTrue(document.pattern.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        })
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[1][1]), "... .. .. ...")
+    }
+
+    func testClearCurrentPatternPreservesSelectionTimingShapeAndOrderState() {
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            tempo: 144,
+            speed: 3,
+            selection: TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3),
+            orderTable: [0, 1],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 32, channels: 4),
+                BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 48, channels: 6)
+            ]
+        )
+        document.patterns[1].rows[2][3] = XMPatternEventCell(
+            note: 52,
+            instrument: 0x07,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x90
+        )
+
+        XCTAssertTrue(document.clearCurrentPattern())
+
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 7, selectedSample: 3))
+        XCTAssertEqual(document.tempo, 144)
+        XCTAssertEqual(document.speed, 3)
+        XCTAssertEqual(document.pattern.rowCount, 48)
+        XCTAssertEqual(document.pattern.channels, 6)
+        XCTAssertEqual(document.patterns.count, 2)
+        XCTAssertEqual(document.orderTable, [0, 1])
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertTrue(document.pattern.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        })
+    }
+
+    func testClearCurrentPatternOnlyClearsSelectedPatternWhenMultiplePatternsExist() {
+        var first = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
+        var second = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 4, channels: 2)
+        first.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        second.rows[1][1] = XMPatternEventCell(
+            note: TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 2,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x80
+        )
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            orderTable: [0, 1],
+            patterns: [first, second]
+        )
+
+        XCTAssertTrue(document.clearCurrentPattern())
+
+        XCTAssertEqual(document.pattern(for: 0)?.rows[0][0].note, 49)
+        XCTAssertEqual(document.pattern(for: 1)?.rows[1][1], .empty)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern(for: 1)?.rows[1][1] ?? XMPatternEventCell.empty), "... .. .. ...")
+    }
+
+    func testClearCurrentPatternOnAlreadyEmptyBlankPatternIsSafe() {
+        var document = BlankTrackerDocument.makeDefault()
+        let before = document
+
+        XCTAssertTrue(document.clearCurrentPattern())
+
+        XCTAssertEqual(document, before)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
+    }
+
+    func testLoadedModuleClearCurrentPatternIsUnavailableAndDoesNotMutateMetadata() {
+        let loadedPattern = XMPatternData(
+            index: 0,
+            rowCount: 1,
+            channels: 1,
+            rows: [[XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)]]
+        )
+        let metadata = ParsedModuleMetadata(
+            type: "XM",
+            title: "Loaded Module",
+            version: "1.04",
+            channels: 1,
+            patterns: 1,
+            instruments: 1,
+            xmFlags: 0x0001,
+            defaultTempo: 6,
+            defaultBPM: 125,
+            songLength: 1,
+            restartPosition: 0,
+            orderTable: [0],
+            xmPatterns: [loadedPattern]
+        )
+        let before = metadata
+
+        XCTAssertFalse(EditorCommandAvailability.canClearCurrentPattern(
+            hasBlankDocument: false,
+            sourceContext: .loadedModule(patternIndex: 0)
+        ))
+        XCTAssertEqual(metadata, before)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)
+    }
+
+    func testClearedPatternDisplayRendersEmptyNoteCells() {
+        var document = BlankTrackerDocument.makeDefault()
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.enterKeyOff(row: 1, channel: 0))
+        XCTAssertTrue(document.clearCurrentPattern())
+
+        let renderedRows = ModuleMetadataLoader.renderXMPatternRows(document.pattern)
+
+        XCTAssertTrue(renderedRows.gridText.contains("... .. .. ..."))
+        XCTAssertFalse(renderedRows.gridText.contains("C-4"))
+        XCTAssertFalse(renderedRows.gridText.contains("==="))
     }
 
     func testBlankDocumentControlPanelMetadataIsSane() {
@@ -2008,6 +2160,28 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(document.metadata.restartPosition, 0)
         XCTAssertEqual(document.controlPanelMetadata.selectedInstrumentDisplay, "I01")
         XCTAssertEqual(document.controlPanelMetadata.selectedSampleDisplay, "S01")
+    }
+
+    private func makeBlankDocument(
+        currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
+        tempo: Int = BlankTrackerDocument.defaultTempo,
+        speed: Int = BlankTrackerDocument.defaultSpeed,
+        selection: TrackerEditorSelection = .default,
+        orderTable: [Int] = [BlankTrackerDocument.defaultPatternIndex],
+        patterns: [XMPatternData] = [BlankTrackerDocument.makeEmptyPattern(index: BlankTrackerDocument.defaultPatternIndex)]
+    ) -> BlankTrackerDocument {
+        BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: orderTable.count,
+            currentPosition: min(max(0, currentPatternIndex), max(0, orderTable.count - 1)),
+            restartPosition: BlankTrackerDocument.defaultRestartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            patterns: patterns
+        )
     }
 
     private func makePreviewEvent(

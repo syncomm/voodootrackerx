@@ -16,11 +16,15 @@ Play starts:
 - Toggling Loop while playback is already active is deferred: the control
   state is remembered, but the runtime loop range takes effect on the next
   Play.
+- Editable document mutations while active current-pattern Loop playback is
+  running rebuild a fresh editable `PlaybackSong` snapshot and
+  `RuntimeCMixerAdapterEventPlan` off the realtime callback, then install the
+  newest ready plan at a safe loop boundary.
 - Loaded-module TIME remains the total adapter-plan song duration, not the
   loop length.
 
-The first slice does not implement pattern-loop editing, arbitrary loop ranges,
-save/export, or editor clear-pattern/clear-song commands.
+The first slice does not implement loop-range editing, arbitrary loop ranges,
+live Loop retargeting, save/export, or editor clear-pattern/clear-song commands.
 
 ## Current Boundary
 
@@ -160,7 +164,7 @@ This PR intentionally defers:
 
 - live Loop toggle changes to already-active playback
 - loop length/TIME display policy
-- pattern-loop editing
+- loop-range editing
 - clear current pattern and clear song utilities
 - save/export behavior
 - arbitrary loop range selection and more complex loop ranges

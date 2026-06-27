@@ -45,6 +45,17 @@ private enum RuntimeAdapterPlanPlayMode: String {
     case unavailable
 }
 
+private struct EditablePatternLoopRefreshSnapshot: @unchecked Sendable {
+    let song: PlaybackSong
+}
+
+private struct PendingEditablePatternLoopRefresh {
+    let generation: UInt64
+    let snapshot: EditablePatternLoopRefreshSnapshot
+    let plan: RuntimeCMixerAdapterEventPlan
+    let makeMS: Double?
+}
+
 private final class DispatchQueueRuntimeAdapterPlanPrewarmJob: RuntimeAdapterPlanPrewarmJob, @unchecked Sendable {
     let generation: UInt64
 
@@ -167,6 +178,9 @@ final class PlaybackEngine: PlaybackTransport {
     private var runtimeAdapterPlanPrewarmTimingSession: PlaybackTimingTraceSession?
     private var runtimeAdapterPlanCacheSource = RuntimeAdapterPlanCacheSource.none
     private var runtimeAdapterPlanUseCount = 0
+    private var editablePatternLoopRefreshGeneration: UInt64 = 0
+    private var editablePatternLoopRefreshJob: RuntimeAdapterPlanPrewarmJob?
+    private var pendingEditablePatternLoopRefresh: PendingEditablePatternLoopRefresh?
     private var channelStates = [Int: PlaybackChannelState]()
     private var globalState = PlaybackGlobalState()
     private var rowDelayDurationsRemaining = 0
@@ -184,6 +198,24 @@ final class PlaybackEngine: PlaybackTransport {
     var runtimeAdapterPlanDurationSeconds: TimeInterval? {
         runtimeAdapterEventPlan.plannedSongEndSeconds
     }
+
+    var isPatternLoopPlaybackActive: Bool {
+        state.isPlaying && activePatternLoopRange != nil
+    }
+
+#if DEBUG
+    var isRuntimeCMixerSongEndStopPendingForTesting: Bool {
+        runtimeCMixerSongEndStopPending
+    }
+
+    var hasPendingEditablePatternLoopRefreshForTesting: Bool {
+        editablePatternLoopRefreshJob != nil || pendingEditablePatternLoopRefresh != nil
+    }
+
+    var pendingEditablePatternLoopRefreshPlanForTesting: RuntimeCMixerAdapterEventPlan? {
+        pendingEditablePatternLoopRefresh?.plan
+    }
+#endif
 
     init(
         audioEngine: PlaybackAudioOutput? = nil,
@@ -222,6 +254,7 @@ final class PlaybackEngine: PlaybackTransport {
     func load(song: PlaybackSong?, timingSession: PlaybackTimingTraceSession? = nil) {
         runtimeAdapterPlanGeneration &+= 1
         cancelRuntimeAdapterPlanPrewarm(reason: "load_invalidation")
+        cancelEditablePatternLoopRefresh(reason: "load_invalidation")
         let wasPlaying = state.isPlaying
         let stopStart = timingSession?.beginPhase()
         stop(notify: false, resetAudio: true)
@@ -259,6 +292,32 @@ final class PlaybackEngine: PlaybackTransport {
         self.timing = timing
         if state.isPlaying {
             restartTimer()
+        }
+    }
+
+    func requestEditablePatternLoopRefresh(song refreshedSong: PlaybackSong) {
+        guard state.isPlaying,
+              activePatternLoopRange != nil,
+              audioEngine as? RuntimeCMixerAdapterEventConsuming != nil else {
+            return
+        }
+        editablePatternLoopRefreshGeneration &+= 1
+        editablePatternLoopRefreshJob?.cancel()
+        editablePatternLoopRefreshJob = nil
+        pendingEditablePatternLoopRefresh = nil
+
+        let generation = editablePatternLoopRefreshGeneration
+        let snapshot = EditablePatternLoopRefreshSnapshot(song: refreshedSong)
+        let request = RuntimeAdapterPlanPrewarmRequest(
+            generation: generation,
+            song: refreshedSong,
+            sampleRate: audioEngine.audioBufferSampleRate,
+            adapterPlanProfileRecorder: nil
+        )
+        editablePatternLoopRefreshJob = runtimeAdapterPlanPrewarmScheduler.schedule(request: request) { [weak self] result in
+            Task { @MainActor [weak self] in
+                self?.completeEditablePatternLoopRefresh(result, snapshot: snapshot)
+            }
         }
     }
 
@@ -471,6 +530,7 @@ final class PlaybackEngine: PlaybackTransport {
         timer = nil
         cancelRuntimeCMixerFollowTimer()
         cancelRuntimeCMixerSongEndStop()
+        cancelEditablePatternLoopRefresh(reason: "transport_stop")
         if resetAudio {
             audioEngine.reset()
         } else {
@@ -586,6 +646,7 @@ final class PlaybackEngine: PlaybackTransport {
         activePatternLoopRange = nil
         (audioEngine as? RuntimeCMixerAdapterEventConsuming)?.resetRuntimeAdapterEventConsumption()
         runtimeCMixerSongEndStopPending = false
+        cancelEditablePatternLoopRefresh(reason: "runtime_state_reset")
     }
 
     private var usesRuntimeAdapterEventPlan: Bool {
@@ -705,6 +766,37 @@ final class PlaybackEngine: PlaybackTransport {
             PlaybackTimingTraceField("song_generation", job.generation),
         ])
         runtimeAdapterPlanPrewarmTimingSession = nil
+    }
+
+    private func completeEditablePatternLoopRefresh(
+        _ result: RuntimeAdapterPlanPrewarmResult,
+        snapshot: EditablePatternLoopRefreshSnapshot
+    ) {
+        guard result.generation == editablePatternLoopRefreshGeneration,
+              editablePatternLoopRefreshJob?.generation == result.generation else {
+            return
+        }
+        editablePatternLoopRefreshJob = nil
+        guard state.isPlaying,
+              activePatternLoopRange != nil,
+              !result.completedAfterCancellation,
+              let plan = result.plan,
+              plan.generated else {
+            return
+        }
+        pendingEditablePatternLoopRefresh = PendingEditablePatternLoopRefresh(
+            generation: result.generation,
+            snapshot: snapshot,
+            plan: plan,
+            makeMS: result.makeMS
+        )
+    }
+
+    private func cancelEditablePatternLoopRefresh(reason _: String) {
+        editablePatternLoopRefreshGeneration &+= 1
+        editablePatternLoopRefreshJob?.cancel()
+        editablePatternLoopRefreshJob = nil
+        pendingEditablePatternLoopRefresh = nil
     }
 
     private func finishRuntimeAdapterPlanPrewarm(result: RuntimeAdapterPlanPrewarmResult, outcome: String) {
@@ -995,7 +1087,8 @@ final class PlaybackEngine: PlaybackTransport {
 
     private func scheduleRuntimeCMixerSongEndStopIfNeeded() {
         cancelRuntimeCMixerSongEndStop()
-        guard runtimeUsesCMixer,
+        guard activePatternLoopRange == nil,
+              runtimeUsesCMixer,
               runtimeAdapterEventPlan.generated,
               let plannedSongEndFrame = runtimeAdapterEventPlan.plannedSongEndFrame,
               let currentPosition,
@@ -1137,7 +1230,7 @@ final class PlaybackEngine: PlaybackTransport {
                let nextPosition = song.position(orderIndex: activePatternLoopRange.orderIndex, rowIndex: nextRowIndex) {
                 return .advanced(nextPosition)
             }
-            return .advanced(activePatternLoopRange.firstPosition)
+            return .advanced(applyPendingEditablePatternLoopRefreshAtBoundary(fallbackPosition: activePatternLoopRange.firstPosition))
         }
         guard let pendingPositionCommand else {
             return song.position(after: position)
@@ -1157,6 +1250,42 @@ final class PlaybackEngine: PlaybackTransport {
             }
             return song.position(orderIndex: nextOrderIndex, rowIndex: rowIndex).map(PlaybackStepResult.advanced) ?? .ended(restartPosition: nil)
         }
+    }
+
+    private func applyPendingEditablePatternLoopRefreshAtBoundary(fallbackPosition: PlaybackPosition) -> PlaybackPosition {
+        guard let pendingEditablePatternLoopRefresh,
+              pendingEditablePatternLoopRefresh.generation == editablePatternLoopRefreshGeneration,
+              state.isPlaying,
+              let activePatternLoopRange,
+              let adapterConsumer = audioEngine as? RuntimeCMixerAdapterEventConsuming else {
+            return fallbackPosition
+        }
+        let refreshedSong = pendingEditablePatternLoopRefresh.snapshot.song
+        guard let refreshedAnchor = refreshedSong.position(
+            orderIndex: activePatternLoopRange.orderIndex,
+            rowIndex: activePatternLoopRange.firstPosition.rowIndex
+        ),
+            refreshedAnchor.patternIndex == activePatternLoopRange.patternIndex,
+            let refreshedRange = refreshedSong.patternLoopRange(containing: refreshedAnchor),
+            refreshedRange.orderIndex == activePatternLoopRange.orderIndex,
+            refreshedRange.patternIndex == activePatternLoopRange.patternIndex else {
+            self.pendingEditablePatternLoopRefresh = nil
+            return fallbackPosition
+        }
+
+        song = refreshedSong
+        self.activePatternLoopRange = refreshedRange
+        runtimeAdapterEventPlan = pendingEditablePatternLoopRefresh.plan
+        runtimeAdapterPlanCacheSource = .prewarm
+        runtimeAdapterPlanUseCount = 0
+        adapterConsumer.configureRuntimeAdapterEventPlan(
+            pendingEditablePatternLoopRefresh.plan,
+            generationMS: pendingEditablePatternLoopRefresh.makeMS,
+            timingSession: nil
+        )
+        self.pendingEditablePatternLoopRefresh = nil
+        runtimeAdapterPlanDidUpdate?()
+        return refreshedRange.firstPosition
     }
 
     private func prepareRowPlaybackState(at position: PlaybackPosition, emitRuntimeControlUpdates: Bool = true) {

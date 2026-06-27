@@ -1003,9 +1003,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let editedPattern = document.pattern(for: currentPatternIndex) ?? document.pattern
         cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: editedPattern.rowCount)
         blankDocument = document
+        scheduleEditablePatternLoopRefreshIfNeeded(from: document)
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
         return true
+    }
+
+    private func scheduleEditablePatternLoopRefreshIfNeeded(from document: BlankTrackerDocument) {
+        guard loadedMetadata == nil,
+              playbackEngine.isPatternLoopPlaybackActive else {
+            return
+        }
+        playbackEngine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: document))
     }
 
     private func handlePatternNoteKeyRelease(_ character: Character) -> Bool {

@@ -85,8 +85,9 @@ Recently completed narrow target:
   send it through the existing `RuntimeCMixerAdapterEventPlan` /
   `PlaybackEngine` / CoreAudio C mixer runtime path. Copied instrument/sample
   palettes remain value-owned by the editable document, stopped edits are
-  reflected on the next Play, empty editable documents are silent/safe, and
-  live edit while playback is active remains deferred.
+  reflected on the next Play, active editable current-pattern loop edits
+  refresh through a fresh adapter plan at a safe loop boundary, and empty
+  editable documents are silent/safe.
 - Clear Song Data is now available from the Edit menu for blank/editable
   documents and as a loaded-module editable-copy bridge. Blank documents still
   clear notes, key-offs, instruments, volume-column data, effect-column data,
@@ -94,18 +95,17 @@ Recently completed narrow target:
   Clear Song Data creates a new editable blank song with copied instrument and
   sample palette data, playable sample payloads where available, cleared
   song/order/pattern note data, order 0, pattern 0, and safe preserved timing
-  and dimensions. Current-pattern loop for editable documents, edit while loop
-  is active, duplicate pattern, insert/delete order slots, broader arrangement
-  editing, undo/redo, WAV/AIFF import, XI import, sample/instrument editors,
-  save XM, and export WAV/AAC remain deferred.
+  and dimensions. Duplicate pattern, insert/delete order slots, broader
+  arrangement editing, undo/redo, WAV/AIFF import, XI import,
+  sample/instrument editors, save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan
   event consumption, avoids timer-driven note triggers, preserves active C
   mixer state across wraps, and leaves C mixer DSP, parser architecture,
   runtime gain/headroom, tracker viewport, editor behavior, note audition,
-  save/export, and release workflow unchanged. Live Loop toggle during active
-  playback, loop-length TIME display, pattern-loop editing, duplicate/insert/
+  save/export, and release workflow unchanged. Live Loop retargeting during
+  active playback, loop-length TIME display, loop-range editing, duplicate/insert/
   delete pattern utilities, arbitrary ranges, and broader local corpus listening
   remain deferred.
 - Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` adds

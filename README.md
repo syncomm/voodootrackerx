@@ -67,7 +67,9 @@ What works today:
   selected/current pattern.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
   through the existing CoreAudio C mixer path when the copied palette has
-  playable sample payloads.
+  playable sample payloads. During editable current-pattern Loop playback,
+  later grid edits refresh the adapter plan and become audible on a later safe
+  loop pass.
 - Tracker grid display with static highlight row behavior and keyboard
   navigation.
 - Note entry and audition foundations for the tracker editor.
@@ -80,7 +82,7 @@ What is still future work:
 - Save/export from the app.
 - Full loaded-module editing.
 - Instrument and sample editors.
-- Live Loop changes during active playback, pattern-loop editing, arbitrary
+- Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.
 

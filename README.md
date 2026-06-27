@@ -65,6 +65,9 @@ What works today:
 - Loaded-module TIME display after adapter-plan readiness.
 - Pattern-loop playback from the Loop control at Play start for the
   selected/current pattern.
+- Editable copies created with `Edit > Clear Song Data` can play entered notes
+  through the existing CoreAudio C mixer path when the copied palette has
+  playable sample payloads.
 - Tracker grid display with static highlight row behavior and keyboard
   navigation.
 - Note entry and audition foundations for the tracker editor.

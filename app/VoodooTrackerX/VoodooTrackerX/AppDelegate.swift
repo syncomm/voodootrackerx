@@ -116,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              ApplicationMenuBuilder.Actions.openModuleFile:
             return true
         case ApplicationMenuBuilder.Actions.play:
-            return loadedMetadata != nil && !playbackEngine.state.isPlaying
+            return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.stop:
             return playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.toggleLoop:
@@ -539,6 +539,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc
     private func playPressed(_ sender: Any?) {
         let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        guard prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
+            syncControlPanelView()
+            finishPlayTimingSession(timingSession, context: nil)
+            return
+        }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         let enginePlayStart = timingSession?.beginPhase()
         playbackEngine.play(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
@@ -560,10 +565,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func handleSpacebarTransportShortcut() -> Bool {
-        guard loadedMetadata != nil else {
+        guard displayedMetadata != nil else {
             return false
         }
         let timingSession = playbackEngine.state.isPlaying ? nil : playbackTimingRecorder.beginLifecycle("play")
+        guard prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
+            syncControlPanelView()
+            finishPlayTimingSession(timingSession, context: nil)
+            return true
+        }
         let context = measuredPlaybackStartContext(timingSession: timingSession)
         playbackEngine.togglePlayStop(from: context, loopEnabled: isLoopPlaybackEnabled, timingSession: timingSession)
         syncControlPanelView()
@@ -705,15 +715,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return .navigation
     }
 
+    private func prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: PlaybackTimingTraceSession?) -> Bool {
+        guard !playbackEngine.state.isPlaying,
+              loadedMetadata == nil,
+              let document = blankDocument else {
+            return true
+        }
+
+        let buildStart = timingSession?.beginPhase()
+        let song = EditablePlaybackSongBuilder.build(from: document)
+        timingSession?.recordPhase(
+            "editable_playback_song_builder_build",
+            startedAt: buildStart,
+            fields: PlaybackTimingTraceFields.playbackSong(song, buildSucceeded: true)
+        )
+
+        let loadStart = timingSession?.beginPhase()
+        playbackEngine.load(song: song, timingSession: timingSession)
+        timingSession?.recordPhase(
+            "editable_playback_engine_load_snapshot",
+            startedAt: loadStart,
+            fields: PlaybackTimingTraceFields.playbackSong(song)
+        )
+        return true
+    }
+
     private func currentPlaybackStartContext() -> PlaybackStartContext? {
-        guard let metadata = loadedMetadata else {
+        guard let metadata = displayedMetadata else {
             return nil
         }
+        let startRow = loadedMetadata == nil && blankDocument != nil ? 0 : cursor.row
         return PlaybackStartContext(
             moduleTitle: metadata.title.isEmpty ? nil : metadata.title,
             songPosition: selectedSongPositionIndex,
             patternIndex: currentPatternIndex,
-            row: cursor.row
+            row: startRow
         )
     }
 
@@ -756,7 +792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func applyPlaybackPosition(_ position: PlaybackPosition) {
-        guard let metadata = loadedMetadata,
+        guard let metadata = displayedMetadata,
               metadata.type == "XM",
               metadata.xmPatterns.indices.contains(position.patternIndex) else {
             syncControlPanelView()

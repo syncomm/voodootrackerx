@@ -2371,6 +2371,39 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(plan.plannedSongEndSeconds, 0.3)
     }
 
+    func testRuntimeCMixerAdapterEventPlanTraversesGeneratedMultiPatternLoopBoundaryFixture() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let noteTriggers = plan.events.compactMap { event -> (RuntimeCMixerAdapterEvent, PlaybackSongSyntheticEventMapping)? in
+            guard case let .noteTrigger(_, _, mapping) = event.action else {
+                return nil
+            }
+            return (event, mapping)
+        }
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(plan.plannedEventCount, 3)
+        XCTAssertEqual(plan.events.map(\.scheduledFrame), [0, 48, 96])
+        XCTAssertEqual(plan.events.map(\.categories), [
+            ["note_trigger"],
+            ["note_trigger", "replacement"],
+            ["note_trigger", "replacement"],
+        ])
+        XCTAssertEqual(plan.plannedSongEndFrame, 144)
+        XCTAssertEqual(plan.plannedSongEndSeconds, 1.44)
+        XCTAssertEqual(noteTriggers.map { $0.0.source }, [
+            PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0),
+            PlaybackPosition(orderIndex: 2, patternIndex: 2, rowIndex: 0),
+        ])
+        XCTAssertEqual(noteTriggers.map { $0.1.note }, [49, 53, 56])
+        XCTAssertEqual(noteTriggers.map { $0.1.instrumentIndex }, [1, 1, 1])
+        XCTAssertEqual(noteTriggers.map { $0.1.sampleIndex }, [0, 0, 0])
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -5283,5 +5316,18 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(event?.volumeColumn, "30")
         XCTAssertEqual(event?.targetScope, "channel")
         XCTAssertEqual(event?.noteTriggerEventCount, 1)
+    }
+
+    private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = repoRoot.appendingPathComponent("tests/reference-xm").appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("Missing reference XM fixture \(relativePath)")
+        }
+        return url
     }
 }

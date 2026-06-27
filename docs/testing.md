@@ -16,7 +16,7 @@ Rules:
 - For `tests/reference-xm/`, follow that directory's README and keep binary XM
   fixture commits explicit and reviewed.
 
-Regenerate the public synthetic XM reference manifest or approved XM fixture
+Regenerate the public synthetic XM reference manifest or approved XM fixtures
 from the repo root with:
 
 ```bash

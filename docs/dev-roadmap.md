@@ -66,6 +66,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Generated `tests/reference-xm/generated/multi-pattern-loop-boundary.xm` adds
+  a public-safe three-pattern, three-order traversal fixture with loader,
+  `PlaybackSongBuilder`, and `RuntimeCMixerAdapterEventPlan` coverage for
+  future adapter-safe pattern-loop design. It does not implement pattern-loop
+  playback and does not change runtime audio, C mixer DSP, parser architecture,
+  tracker viewport, editor, note audition, control panel, or release behavior.
 - Runtime gain/headroom policy now has a focused design doc. Runtime playback
   stays on fixed default headroom with developer diagnostic overrides; offline
   export remains the place for explicit gain, explicit headroom, and

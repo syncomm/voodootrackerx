@@ -977,7 +977,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ? attemptEditorNoteAuditionPreview(for: input, sourceContext: sourceContext)
             : .skipped(.missingRequest)
 
-        guard !route.shouldConsumeRepeatedNoteKey else {
+        guard !route.shouldConsumeRepeatedNoteKey,
+              !route.shouldSuppressRepeatedMutation else {
             return true
         }
 
@@ -999,6 +1000,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
         case .keyOff:
             didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel, patternIndex: currentPatternIndex)
+        case .repeatedKeyOff:
+            didMutate = false
         case .clearField:
             didMutate = document.clearField(
                 editablePatternCellField(for: cursor.field),
@@ -1006,6 +1009,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 channel: cursor.channel,
                 patternIndex: currentPatternIndex
             )
+        case .repeatedClearField:
+            didMutate = false
         case .hexDigit:
             didMutate = false
         }
@@ -1064,8 +1069,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return .noteKey(isRepeat: isRepeat)
         case .keyOff:
             return .keyOff
+        case .repeatedKeyOff:
+            return .repeatedKeyOff
         case .clearField:
             return .clearField
+        case .repeatedClearField:
+            return .repeatedClearField
         case .hexDigit:
             return .other
         }

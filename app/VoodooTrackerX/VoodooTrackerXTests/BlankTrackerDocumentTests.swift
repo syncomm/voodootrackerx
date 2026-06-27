@@ -1609,6 +1609,146 @@ final class BlankTrackerDocumentTests: XCTestCase {
         }
     }
 
+    func testEditableNoteKeyRepeatSuppressesSecondMutationAndRowAdvance() {
+        var document = makeBlankDocument(
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)]
+        )
+        var cursor = PatternCursor(row: 0, channel: 0, field: .note)
+
+        let first = applyPatternEditInput(.noteKey("z", isRepeat: false), to: &document, cursor: &cursor)
+        let beforeRepeatDocument = document
+        let beforeRepeatCursor = cursor
+        let repeatInput = applyPatternEditInput(.noteKey("z", isRepeat: true), to: &document, cursor: &cursor)
+
+        XCTAssertTrue(first.consumed)
+        XCTAssertTrue(first.didMutate)
+        XCTAssertTrue(first.route.shouldMutatePattern)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertEqual(beforeRepeatCursor, PatternCursor(row: 1, channel: 0, field: .note))
+        XCTAssertTrue(repeatInput.consumed)
+        XCTAssertFalse(repeatInput.didMutate)
+        XCTAssertFalse(repeatInput.route.shouldAttemptPreview)
+        XCTAssertFalse(repeatInput.route.shouldMutatePattern)
+        XCTAssertTrue(repeatInput.route.shouldConsumeRepeatedNoteKey)
+        XCTAssertTrue(repeatInput.route.shouldSuppressRepeatedMutation)
+        XCTAssertEqual(document, beforeRepeatDocument)
+        XCTAssertEqual(cursor, beforeRepeatCursor)
+        XCTAssertEqual(document.pattern.rows[1][0], .empty)
+    }
+
+    func testEditableKeyOffRepeatSuppressesSecondMutationAndRowAdvance() {
+        var document = makeBlankDocument(
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)]
+        )
+        var cursor = PatternCursor(row: 0, channel: 0, field: .note)
+
+        let first = applyPatternEditInput(.keyOff, to: &document, cursor: &cursor)
+        let beforeRepeatDocument = document
+        let beforeRepeatCursor = cursor
+        let repeatInput = applyPatternEditInput(.repeatedKeyOff, to: &document, cursor: &cursor)
+
+        XCTAssertTrue(first.consumed)
+        XCTAssertTrue(first.didMutate)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "=== .. .. ...")
+        XCTAssertEqual(beforeRepeatCursor, PatternCursor(row: 1, channel: 0, field: .note))
+        XCTAssertTrue(repeatInput.consumed)
+        XCTAssertFalse(repeatInput.didMutate)
+        XCTAssertFalse(repeatInput.route.shouldMutatePattern)
+        XCTAssertFalse(repeatInput.route.shouldConsumeRepeatedNoteKey)
+        XCTAssertTrue(repeatInput.route.shouldSuppressRepeatedMutation)
+        XCTAssertEqual(document, beforeRepeatDocument)
+        XCTAssertEqual(cursor, beforeRepeatCursor)
+        XCTAssertEqual(document.pattern.rows[1][0], .empty)
+    }
+
+    func testEditableDeleteRepeatSuppressesSecondClearMutation() {
+        let sample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
+            instrumentPalette: [2: PlaybackInstrument(index: 2, samples: [sample])]
+        )
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "x", octave: 4, row: 1, channel: 0))
+        var cursor = PatternCursor(row: 0, channel: 0, field: .note)
+
+        let first = applyPatternEditInput(.clearField, to: &document, cursor: &cursor)
+        let beforeRepeatDocument = document
+        let beforeRepeatCursor = cursor
+        let repeatInput = applyPatternEditInput(.repeatedClearField, to: &document, cursor: &cursor)
+
+        XCTAssertTrue(first.consumed)
+        XCTAssertTrue(first.didMutate)
+        XCTAssertEqual(document.pattern.rows[0][0], .empty)
+        XCTAssertEqual(beforeRepeatCursor, PatternCursor(row: 1, channel: 0, field: .note))
+        XCTAssertTrue(repeatInput.consumed)
+        XCTAssertFalse(repeatInput.didMutate)
+        XCTAssertFalse(repeatInput.route.shouldMutatePattern)
+        XCTAssertTrue(repeatInput.route.shouldSuppressRepeatedMutation)
+        XCTAssertEqual(document, beforeRepeatDocument)
+        XCTAssertEqual(cursor, beforeRepeatCursor)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[1][0]), "D-4 02 .. ...")
+    }
+
+    func testEditableInstrumentFieldDeleteRepeatSuppressesSecondClearMutation() {
+        let sample = makePlaybackSample(instrumentIndex: 2, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
+            instrumentPalette: [2: PlaybackInstrument(index: 2, samples: [sample])]
+        )
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.enterNote(trackerKey: "x", octave: 4, row: 1, channel: 0))
+        var cursor = PatternCursor(row: 0, channel: 0, field: .instrument)
+
+        let first = applyPatternEditInput(.clearField, to: &document, cursor: &cursor)
+        let beforeRepeatDocument = document
+        let beforeRepeatCursor = cursor
+        let repeatInput = applyPatternEditInput(.repeatedClearField, to: &document, cursor: &cursor)
+
+        XCTAssertTrue(first.consumed)
+        XCTAssertTrue(first.didMutate)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "C-4 .. .. ...")
+        XCTAssertEqual(beforeRepeatCursor, PatternCursor(row: 1, channel: 0, field: .instrument))
+        XCTAssertTrue(repeatInput.consumed)
+        XCTAssertFalse(repeatInput.didMutate)
+        XCTAssertEqual(document, beforeRepeatDocument)
+        XCTAssertEqual(cursor, beforeRepeatCursor)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[1][0]), "D-4 02 .. ...")
+    }
+
+    func testRepeatedMutationInputsDoNotMakeLoadedModulesEditable() {
+        let loadedPattern = XMPatternData(
+            index: 0,
+            rowCount: 1,
+            channels: 1,
+            rows: [[XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0x40, effectType: 0x0F, effectParam: 0x7D)]]
+        )
+        let metadata = makeLoadedModuleMetadata(patterns: [loadedPattern])
+        let beforeMetadata = metadata
+        let inputs: [EditorNoteAuditionInputKind] = [
+            .noteKey(isRepeat: true),
+            .repeatedKeyOff,
+            .repeatedClearField,
+        ]
+
+        for input in inputs {
+            let route = EditorNoteAuditionInputPolicy.route(
+                input: input,
+                editModeEnabled: true,
+                sourceContext: .loadedModule(patternIndex: 0),
+                isNoteField: true
+            )
+
+            XCTAssertFalse(route.shouldAttemptPreview)
+            XCTAssertFalse(route.shouldMutatePattern)
+            XCTAssertTrue(route.shouldSuppressRepeatedMutation)
+        }
+        XCTAssertEqual(metadata, beforeMetadata)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].note, 49)
+        XCTAssertEqual(metadata.xmPatterns[0].rows[0][0].instrument, 1)
+    }
+
     func testDefaultBlankDocumentExposesOneEmptyPattern() {
         let metadata = BlankTrackerDocument.makeDefault().metadata
 
@@ -2531,6 +2671,53 @@ final class BlankTrackerDocumentTests: XCTestCase {
             PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
         ])
         XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+    }
+
+    @MainActor
+    func testActiveEditableLoopRepeatedNoteKeyDoesNotRequestSecondRefresh() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            tempo: 25,
+            speed: 1,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+        var cursor = PatternCursor(row: 0, channel: 0, field: .note)
+
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        XCTAssertTrue(engine.isPatternLoopPlaybackActive)
+        let requestCountBeforeMutation = prewarmScheduler.requests.count
+
+        let first = applyPatternEditInput(.noteKey("z", isRepeat: false), to: &document, cursor: &cursor) { refreshedDocument in
+            engine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: refreshedDocument))
+        }
+        let requestCountAfterFirstMutation = prewarmScheduler.requests.count
+        let beforeRepeatDocument = document
+        let beforeRepeatCursor = cursor
+        let repeatInput = applyPatternEditInput(.noteKey("z", isRepeat: true), to: &document, cursor: &cursor) { refreshedDocument in
+            engine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: refreshedDocument))
+        }
+
+        XCTAssertTrue(first.didMutate)
+        XCTAssertEqual(requestCountAfterFirstMutation, requestCountBeforeMutation + 1)
+        XCTAssertEqual(prewarmScheduler.requests.last?.song.row(at: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0))?.cells[0].note, 49)
+        XCTAssertTrue(repeatInput.consumed)
+        XCTAssertFalse(repeatInput.didMutate)
+        XCTAssertTrue(repeatInput.route.shouldSuppressRepeatedMutation)
+        XCTAssertEqual(prewarmScheduler.requests.count, requestCountAfterFirstMutation)
+        XCTAssertEqual(document, beforeRepeatDocument)
+        XCTAssertEqual(cursor, beforeRepeatCursor)
+        XCTAssertEqual(document.pattern.rows[1][0], .empty)
     }
 
     @MainActor
@@ -3585,6 +3772,103 @@ final class BlankTrackerDocumentTests: XCTestCase {
             playbackSong: song,
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
         ))
+    }
+
+    private struct AppliedPatternEditInput: Equatable {
+        let consumed: Bool
+        let didMutate: Bool
+        let route: EditorNoteAuditionInputRoute
+    }
+
+    private func applyPatternEditInput(
+        _ input: PatternEditInput,
+        to document: inout BlankTrackerDocument,
+        cursor: inout PatternCursor,
+        refresh: ((BlankTrackerDocument) -> Void)? = nil
+    ) -> AppliedPatternEditInput {
+        let route = EditorNoteAuditionInputPolicy.route(
+            input: noteAuditionInputKind(for: input),
+            editModeEnabled: true,
+            sourceContext: document.noteAuditionSourceContext,
+            isNoteField: cursor.field == .note
+        )
+
+        guard !route.shouldConsumeRepeatedNoteKey,
+              !route.shouldSuppressRepeatedMutation else {
+            return AppliedPatternEditInput(consumed: true, didMutate: false, route: route)
+        }
+
+        guard route.shouldMutatePattern else {
+            return AppliedPatternEditInput(
+                consumed: route.shouldConsumeNonMutatingInput(previewOutcome: .skipped(.missingRequest)),
+                didMutate: false,
+                route: route
+            )
+        }
+
+        let didMutate: Bool
+        switch input {
+        case let .noteKey(character, _):
+            didMutate = document.enterNote(
+                trackerKey: character,
+                octave: 4,
+                row: cursor.row,
+                channel: cursor.channel,
+                patternIndex: document.currentPatternIndex
+            )
+        case .keyOff:
+            didMutate = document.enterKeyOff(row: cursor.row, channel: cursor.channel, patternIndex: document.currentPatternIndex)
+        case .clearField:
+            didMutate = document.clearField(
+                editablePatternCellField(for: cursor.field),
+                row: cursor.row,
+                channel: cursor.channel,
+                patternIndex: document.currentPatternIndex
+            )
+        case .repeatedKeyOff, .repeatedClearField, .hexDigit:
+            didMutate = false
+        }
+
+        guard didMutate else {
+            return AppliedPatternEditInput(consumed: false, didMutate: false, route: route)
+        }
+
+        let editedPattern = document.pattern(for: document.currentPatternIndex) ?? document.pattern
+        cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: editedPattern.rowCount)
+        refresh?(document)
+        return AppliedPatternEditInput(consumed: true, didMutate: true, route: route)
+    }
+
+    private func noteAuditionInputKind(for input: PatternEditInput) -> EditorNoteAuditionInputKind {
+        switch input {
+        case let .noteKey(_, isRepeat):
+            return .noteKey(isRepeat: isRepeat)
+        case .keyOff:
+            return .keyOff
+        case .repeatedKeyOff:
+            return .repeatedKeyOff
+        case .clearField:
+            return .clearField
+        case .repeatedClearField:
+            return .repeatedClearField
+        case .hexDigit:
+            return .other
+        }
+    }
+
+    private func editablePatternCellField(for field: PatternCursorField) -> EditablePatternCellField {
+        switch field {
+        case .note:
+            return .note
+        case .instrument:
+            return .instrument
+        case .volume:
+            return .volume
+        case .effectType:
+            return .effectType
+        case .effectParam:
+            return .effectParam
+        }
     }
 
     private struct NoteTriggerSummary: Equatable {

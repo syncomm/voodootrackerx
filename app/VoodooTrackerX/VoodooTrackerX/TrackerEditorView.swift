@@ -385,10 +385,12 @@ enum PatternNavigationCommand: Equatable {
     case previousChannelNote
 }
 
-enum PatternEditInput {
+enum PatternEditInput: Equatable {
     case clearField
+    case repeatedClearField
     case hexDigit(UInt8)
     case keyOff
+    case repeatedKeyOff
     case noteKey(Character, isRepeat: Bool)
 
     var isRepeatedNoteKey: Bool {
@@ -441,6 +443,8 @@ enum PatternEditEngine {
         switch input {
         case .clearField:
             return cleared(cell: cell, field: field)
+        case .repeatedClearField:
+            return nil
         case let .hexDigit(nibble):
             guard nibble <= 0x0F else {
                 return nil
@@ -457,6 +461,8 @@ enum PatternEditEngine {
                 effectType: cell.effectType,
                 effectParam: cell.effectParam
             )
+        case .repeatedKeyOff:
+            return nil
         case .noteKey:
             return nil
         }
@@ -688,7 +694,8 @@ final class PatternTextView: NSTextView {
             }
             super.keyDown(with: event)
         case 51, 117:
-            if editInputHandler?(.clearField) == true {
+            let input: PatternEditInput = event.isARepeat ? .repeatedClearField : .clearField
+            if editInputHandler?(input) == true {
                 return
             }
             super.keyDown(with: event)
@@ -697,11 +704,14 @@ final class PatternTextView: NSTextView {
                 if PatternEditEngine.isTrackerNoteKey(character),
                    editInputHandler?(.noteKey(character, isRepeat: event.isARepeat)) == true {
                     return
-                } else if PatternEditEngine.isKeyOffKey(character),
-                          editInputHandler?(.keyOff) == true {
-                    return
+                } else if PatternEditEngine.isKeyOffKey(character) {
+                    let input: PatternEditInput = event.isARepeat ? .repeatedKeyOff : .keyOff
+                    if editInputHandler?(input) == true {
+                        return
+                    }
                 } else if character == "." {
-                    if editInputHandler?(.clearField) == true {
+                    let input: PatternEditInput = event.isARepeat ? .repeatedClearField : .clearField
+                    if editInputHandler?(input) == true {
                         return
                     }
                 } else if let nibble = PatternEditEngine.hexNibble(from: character),

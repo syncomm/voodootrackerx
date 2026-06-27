@@ -372,7 +372,7 @@ final class TrackerDividerUnderlayView: NSView {
     }
 }
 
-enum PatternNavigationCommand {
+enum PatternNavigationCommand: Equatable {
     case up
     case down
     case pageUp
@@ -381,6 +381,8 @@ enum PatternNavigationCommand {
     case end
     case left
     case right
+    case nextChannelNote
+    case previousChannelNote
 }
 
 enum PatternEditInput {
@@ -566,6 +568,10 @@ struct PatternCursor: Equatable {
             moveLeft(channelCount: channelCount)
         case .right:
             moveRight(channelCount: channelCount)
+        case .nextChannelNote:
+            moveToAdjacentChannelNote(delta: 1, channelCount: channelCount)
+        case .previousChannelNote:
+            moveToAdjacentChannelNote(delta: -1, channelCount: channelCount)
         }
     }
 
@@ -602,6 +608,16 @@ struct PatternCursor: Equatable {
         }
         guard channelCount > 0, channel < channelCount - 1 else { return }
         channel += 1
+        field = .note
+    }
+
+    private mutating func moveToAdjacentChannelNote(delta: Int, channelCount: Int) {
+        guard channelCount > 0 else {
+            channel = 0
+            field = .note
+            return
+        }
+        channel = (channel + delta + channelCount) % channelCount
         field = .note
     }
 }
@@ -653,6 +669,12 @@ final class PatternTextView: NSTextView {
             navigationHandler?(.left)
         case 124:
             navigationHandler?(.right)
+        case 48:
+            if event.modifierFlags.contains(.shift) {
+                navigationHandler?(.previousChannelNote)
+            } else {
+                navigationHandler?(.nextChannelNote)
+            }
         case 49:
             if TrackerTransportShortcut.isPlainSpacebarToggle(
                 keyCode: event.keyCode,

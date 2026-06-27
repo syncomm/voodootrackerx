@@ -2226,6 +2226,42 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(ModuleMetadataLoader.formatXMCell(document.pattern.rows[0][0]), "... .. .. ...")
     }
 
+    func testLoadedModuleEditableCopyTabNavigationMovesAcrossNoteFieldsAndWraps() {
+        let metadata = makeLoadedModuleMetadata(channels: 3)
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: 64],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let document = tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: song,
+            selection: .default
+        ))
+        var cursor = PatternCursor(row: 5, channel: 0, field: .note)
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        XCTAssertEqual(cursor, PatternCursor(row: 5, channel: 1, field: .note))
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        XCTAssertEqual(cursor, PatternCursor(row: 5, channel: 2, field: .note))
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        XCTAssertEqual(cursor, PatternCursor(row: 5, channel: 0, field: .note))
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.pattern.channels, 3)
+        XCTAssertEqual(document.pattern.rows[5], Array(repeating: XMPatternEventCell.empty, count: 3))
+    }
+
     func testEditablePlaybackSongBuilderBuildsSnapshotWithPatternDataAndPalette() throws {
         let sample = makePlaybackSample(
             instrumentIndex: 2,
@@ -2498,6 +2534,231 @@ final class BlankTrackerDocumentTests: XCTestCase {
     }
 
     @MainActor
+    func testActiveEditableLoopTabNavigationChangesCursorOnlyWithoutRefresh() throws {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var document = makeBlankDocument(
+            tempo: 25,
+            speed: 1,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+        )
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        let beforeNavigation = document
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        XCTAssertTrue(engine.isPatternLoopPlaybackActive)
+        let prewarmRequestCount = prewarmScheduler.requests.count
+        let pendingRefreshBeforeNavigation = engine.hasPendingEditablePatternLoopRefreshForTesting
+        let generatedPlanConfigureCount = audioOutput.generatedPlanConfigureCount
+        var cursor = PatternCursor(row: 1, channel: 0, field: .effectParam)
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+
+        XCTAssertEqual(cursor, PatternCursor(row: 1, channel: 1, field: .note))
+        XCTAssertEqual(document, beforeNavigation)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount)
+        XCTAssertEqual(engine.hasPendingEditablePatternLoopRefreshForTesting, pendingRefreshBeforeNavigation)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, generatedPlanConfigureCount)
+    }
+
+    @MainActor
+    func testActiveEditableLoopSelectionChangeDoesNotMutatePatternOrRefreshPlayback() {
+        var document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 2, rowCount: 4)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        let beforeSelection = document.selection
+        let beforePattern = document.pattern
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        let prewarmRequestCount = prewarmScheduler.requests.count
+        let pendingRefreshBeforeSelection = engine.hasPendingEditablePatternLoopRefreshForTesting
+        let generatedPlanConfigureCount = audioOutput.generatedPlanConfigureCount
+        let selectedOctave = 6
+
+        document.selectInstrument(2)
+        document.selectSample(1)
+
+        XCTAssertEqual(beforeSelection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1))
+        XCTAssertEqual(selectedOctave, 6)
+        XCTAssertEqual(document.pattern, beforePattern)
+        XCTAssertTrue(engine.isPatternLoopPlaybackActive)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount)
+        XCTAssertEqual(engine.hasPendingEditablePatternLoopRefreshForTesting, pendingRefreshBeforeSelection)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, generatedPlanConfigureCount)
+    }
+
+    @MainActor
+    func testActiveEditableLoopSampleChangeDoesNotMutatePatternOrRefreshPlaybackAndUpdatesAudition() {
+        var document = makeTwoSampleLoadedModuleEditableDocument(rowCount: 4)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        let beforePattern = document.pattern
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        let prewarmRequestCount = prewarmScheduler.requests.count
+        let pendingRefreshBeforeSelection = engine.hasPendingEditablePatternLoopRefreshForTesting
+        let generatedPlanConfigureCount = audioOutput.generatedPlanConfigureCount
+
+        document.selectSample(2)
+
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2))
+        XCTAssertEqual(document.pattern, beforePattern)
+        XCTAssertTrue(engine.isPatternLoopPlaybackActive)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount)
+        XCTAssertEqual(engine.hasPendingEditablePatternLoopRefreshForTesting, pendingRefreshBeforeSelection)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, generatedPlanConfigureCount)
+
+        guard case let .potentiallyAvailable(descriptor) = document.noteAuditionAvailability else {
+            return XCTFail("expected second sample to be available for audition")
+        }
+        XCTAssertEqual(descriptor.instrumentIndex, 1)
+        XCTAssertEqual(descriptor.sampleIndex, 1)
+        XCTAssertEqual(descriptor.previewPCM, [0.75, -0.75, 0.75])
+        XCTAssertEqual(descriptor.sourceContext, .blankDocument)
+    }
+
+    @MainActor
+    func testActiveEditableLoopNoteEntryAfterInstrumentChangeRefreshesWithSelectedInstrument() async throws {
+        var document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 1, rowCount: 4)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        let prewarmRequestCount = prewarmScheduler.requests.count
+        document.selectInstrument(2)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount)
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 1, channel: 0))
+        engine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: document))
+
+        XCTAssertEqual(document.pattern.rows[1][0].note, 49)
+        XCTAssertEqual(document.pattern.rows[1][0].instrument, 2)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount + 1)
+        XCTAssertEqual(
+            prewarmScheduler.requests.last?.song.row(at: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1))?.cells[0],
+            PlaybackCell(note: 49, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0)
+        )
+
+        prewarmScheduler.complete(at: prewarmScheduler.requests.count - 1)
+        await Task.yield()
+
+        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertEqual(noteTriggerSummaries(in: pendingPlan), [
+            NoteTriggerSummary(
+                source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
+                channelIndex: 0,
+                note: 49,
+                instrumentIndex: 2,
+                sampleIndex: 0
+            )
+        ])
+    }
+
+    @MainActor
+    func testActiveEditableLoopTabThenInstrumentChangeWritesNextChannelWithNewInstrument() async throws {
+        var document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 2, rowCount: 4)
+        let prewarmScheduler = TestRuntimeAdapterPlanPrewarmScheduler()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: prewarmScheduler
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+        var cursor = PatternCursor(row: 0, channel: 0, field: .note)
+
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: cursor.row, channel: cursor.channel))
+        cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: document.pattern.rowCount)
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        let prewarmRequestCount = prewarmScheduler.requests.count
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        document.selectInstrument(2)
+        XCTAssertEqual(prewarmScheduler.requests.count, prewarmRequestCount)
+        XCTAssertTrue(document.enterNote(trackerKey: "x", octave: 4, row: cursor.row, channel: cursor.channel))
+        engine.requestEditablePatternLoopRefresh(song: EditablePlaybackSongBuilder.build(from: document))
+        prewarmScheduler.complete(at: prewarmScheduler.requests.count - 1)
+        await Task.yield()
+
+        XCTAssertEqual(cursor, PatternCursor(row: 1, channel: 1, field: .note))
+        XCTAssertEqual(document.pattern.rows[0][0].instrument, 1)
+        XCTAssertEqual(document.pattern.rows[1][1].note, 51)
+        XCTAssertEqual(document.pattern.rows[1][1].instrument, 2)
+
+        let pendingPlan = try XCTUnwrap(engine.pendingEditablePatternLoopRefreshPlanForTesting)
+        XCTAssertEqual(noteTriggerSummaries(in: pendingPlan), [
+            NoteTriggerSummary(
+                source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0),
+                channelIndex: 0,
+                note: 49,
+                instrumentIndex: 1,
+                sampleIndex: 0
+            ),
+            NoteTriggerSummary(
+                source: PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 1),
+                channelIndex: 1,
+                note: 51,
+                instrumentIndex: 2,
+                sampleIndex: 0
+            )
+        ])
+    }
+
+    func testEditableAuditionAvailabilityUsesChangedSelectedInstrument() throws {
+        var document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 1, rowCount: 4)
+
+        guard case let .potentiallyAvailable(firstDescriptor) = document.noteAuditionAvailability else {
+            return XCTFail("expected first instrument to be available for audition")
+        }
+
+        document.selectInstrument(2)
+
+        guard case let .potentiallyAvailable(secondDescriptor) = document.noteAuditionAvailability else {
+            return XCTFail("expected second instrument to be available for audition")
+        }
+
+        XCTAssertEqual(firstDescriptor.instrumentIndex, 1)
+        XCTAssertEqual(firstDescriptor.sampleIndex, 0)
+        XCTAssertEqual(secondDescriptor.instrumentIndex, 2)
+        XCTAssertEqual(secondDescriptor.sampleIndex, 0)
+        XCTAssertEqual(secondDescriptor.previewPCM, [0.5, -0.5, 0.5])
+        XCTAssertEqual(secondDescriptor.sourceContext, .blankDocument)
+    }
+
+    @MainActor
     func testActiveEditableLoopClearNoteRefreshUsesClearedSnapshot() async throws {
         let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
         var document = makeBlankDocument(
@@ -2654,6 +2915,27 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertFalse(content.isSongPositionEnabled)
         XCTAssertTrue(content.isPatternControlsEnabled)
         XCTAssertFalse(content.areInstrumentPlaceholdersEnabled)
+    }
+
+    func testBlankDocumentControlPanelDisplayStateKeepsPaletteControlsEnabledDuringPlayback() {
+        let document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 2, rowCount: 4)
+
+        let content = ControlPanelDisplayState.blankDocumentContent(
+            for: document,
+            selectedOctave: 6,
+            isLoopEnabled: true,
+            isEditModeEnabled: true,
+            isPlaybackActive: true
+        )
+
+        XCTAssertTrue(content.isPlaybackActive)
+        XCTAssertTrue(content.isLoopEnabled)
+        XCTAssertTrue(content.isEditModeEnabled)
+        XCTAssertTrue(content.isPatternControlsEnabled)
+        XCTAssertTrue(content.areInstrumentPlaceholdersEnabled)
+        XCTAssertEqual(content.selectedInstrumentDisplay, "I01 Inst A")
+        XCTAssertEqual(content.selectedSampleDisplay, "S01 Sample A")
+        XCTAssertEqual(content.selectedOctave, 6)
     }
 
     func testFileNewEquivalentControlPanelDisplayStateReturnsToBlankDefaults() {
@@ -3159,6 +3441,16 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(advancedRow, 63)
     }
 
+    func testStoppedEditableNoteEntryUsesChangedSelectedInstrument() {
+        var document = makeTwoInstrumentLoadedModuleEditableDocument(channels: 1, rowCount: 4)
+
+        document.selectInstrument(2)
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+
+        XCTAssertEqual(document.pattern.rows[0][0].note, 49)
+        XCTAssertEqual(document.pattern.rows[0][0].instrument, 2)
+    }
+
     func testBlankDocumentNoteEntryRejectsNonNoteKeysAndOutOfRangeCoordinates() {
         var document = BlankTrackerDocument.makeDefault()
 
@@ -3208,6 +3500,114 @@ final class BlankTrackerDocumentTests: XCTestCase {
             instrumentPalette: instrumentPalette,
             patterns: patterns
         )
+    }
+
+    private func makeTwoInstrumentLoadedModuleEditableDocument(channels: Int, rowCount: Int) -> BlankTrackerDocument {
+        let metadata = makeLoadedModuleMetadata(
+            channels: channels,
+            instruments: 2,
+            defaultTempo: 1,
+            defaultBPM: 25,
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: rowCount, channels: channels)
+            ]
+        )
+        let firstSample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            name: "Sample A",
+            pcm: [0.25, -0.25, 0.25],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let secondSample = makePlaybackSample(
+            instrumentIndex: 2,
+            sampleIndex: 0,
+            name: "Sample B",
+            pcm: [0.5, -0.5, 0.5],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: rowCount],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample]),
+                2: PlaybackInstrument(index: 2, name: "Inst B", samples: [secondSample])
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+
+        return tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        ))
+    }
+
+    private func makeTwoSampleLoadedModuleEditableDocument(rowCount: Int) -> BlankTrackerDocument {
+        let metadata = makeLoadedModuleMetadata(
+            channels: 1,
+            instruments: 1,
+            defaultTempo: 1,
+            defaultBPM: 25,
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: rowCount, channels: 1)
+            ]
+        )
+        let firstSample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            name: "Sample A",
+            pcm: [0.25, -0.25, 0.25],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let secondSample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 1,
+            name: "Sample B",
+            pcm: [0.75, -0.75, 0.75],
+            volume: 1,
+            baseSampleRate: 8_363
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [0],
+            patternRowCounts: [0: rowCount],
+            instrumentsByIndex: [
+                1: PlaybackInstrument(index: 1, name: "Inst A", samples: [firstSample, secondSample])
+            ],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 25)
+        )
+
+        return tryUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: song,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        ))
+    }
+
+    private struct NoteTriggerSummary: Equatable {
+        let source: PlaybackPosition
+        let channelIndex: Int
+        let note: UInt8
+        let instrumentIndex: Int
+        let sampleIndex: Int
+    }
+
+    private func noteTriggerSummaries(in plan: RuntimeCMixerAdapterEventPlan) -> [NoteTriggerSummary] {
+        plan.events.compactMap { event in
+            guard case let .noteTrigger(_, _, mapping) = event.action else {
+                return nil
+            }
+            return NoteTriggerSummary(
+                source: event.source,
+                channelIndex: event.channelIndex,
+                note: mapping.note,
+                instrumentIndex: mapping.instrumentIndex,
+                sampleIndex: mapping.sampleIndex
+            )
+        }
     }
 
     private func noteTriggerSources(in plan: RuntimeCMixerAdapterEventPlan) -> [PlaybackPosition] {

@@ -473,6 +473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectInstrument(selectedInstrument)
             blankDocument = document
             syncControlPanelView()
+            restoreTrackerEditorFocus()
             return
         }
 
@@ -491,6 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             proposedSelection
         )
         syncControlPanelView()
+        restoreTrackerEditorFocus()
     }
 
     @objc
@@ -502,6 +504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             document.selectSample(selectedSample)
             blankDocument = document
             syncControlPanelView()
+            restoreTrackerEditorFocus()
             return
         }
 
@@ -514,6 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let selectedSample = selectedPopupSlot(sender) ?? sender.indexOfSelectedItem + 1
         loadedModuleSelection = loadedModuleSelection.withSelectedSample(selectedSample)
         syncControlPanelView()
+        restoreTrackerEditorFocus()
     }
 
     @objc
@@ -595,6 +599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func octaveSelectionChanged(_ sender: NSPopUpButton) {
         selectedOctave = max(0, sender.indexOfSelectedItem)
         syncControlPanelView()
+        restoreTrackerEditorFocus()
     }
 
     @objc
@@ -806,8 +811,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             patternSelector?.selectItem(at: selectorIndex)
         }
         cursor.row = position.rowIndex
-        renderCurrentPattern(metadata: metadata)
-        syncControlPanelView()
+        renderCurrentPattern(metadata: metadata, restoreEditorFocus: false)
+        syncControlPanelView(reloadInstrumentControls: false)
     }
 
     private func updatePatternSelector(for metadata: ParsedModuleMetadata, keepPattern: Int?) {
@@ -892,7 +897,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return min(max(0, proposedPosition), songLength - 1)
     }
 
-    private func renderCurrentPattern(metadata: ParsedModuleMetadata, isViewportResizeRerender: Bool = false) {
+    private func renderCurrentPattern(
+        metadata: ParsedModuleMetadata,
+        isViewportResizeRerender: Bool = false,
+        restoreEditorFocus: Bool = true
+    ) {
         guard metadata.type == "XM", metadata.xmPatterns.indices.contains(currentPatternIndex) else {
             return
         }
@@ -934,7 +943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         updateActiveFieldRange()
         updateMetadataTextViewDocumentSize(renderedRowCount: viewportState.visibleRowCount)
         syncTrackerViewport()
-        if let textView = metadataTextView {
+        if restoreEditorFocus, let textView = metadataTextView {
             mainWindow?.makeFirstResponder(textView)
         }
         if TrackerViewportResizeBehavior.shouldRevealCursorHorizontally(
@@ -1416,9 +1425,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         updateTrackerChromeOverlay(layout: layout, viewportState: viewportState)
     }
 
-    private func syncControlPanelView() {
+    private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
         if let blankDocument {
-            reloadInstrumentControls(for: blankDocument)
+            if shouldReloadInstrumentControls {
+                reloadInstrumentControls(for: blankDocument)
+            }
             controlPanelView?.apply(ControlPanelDisplayState.blankDocumentContent(
                 for: blankDocument,
                 selectedOctave: selectedOctave,
@@ -1430,7 +1441,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         if let metadata = loadedMetadata {
-            reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
+            if shouldReloadInstrumentControls {
+                reloadInstrumentControls(for: metadata, selection: loadedModuleSelection)
+            }
             let selectedInstrument = playbackEngine.song?.instrument(forInstrument: loadedModuleSelection.selectedInstrument)
             let selectedSample = selectedInstrument?.sample(selectedSampleSlot: loadedModuleSelection.selectedSample)
             controlPanelView?.apply(ControlPanelDisplayState.loadedModuleContent(
@@ -1449,9 +1462,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 selectedSampleName: selectedSample?.name
             ))
         } else {
-            reloadInstrumentControls(for: nil, selection: .default)
+            if shouldReloadInstrumentControls {
+                reloadInstrumentControls(for: nil, selection: .default)
+            }
             controlPanelView?.apply(ControlPanelContent())
         }
+    }
+
+    private func restoreTrackerEditorFocus() {
+        guard let metadataTextView else {
+            return
+        }
+        mainWindow?.makeFirstResponder(metadataTextView)
     }
 
     private func reloadInstrumentControls(for metadata: ParsedModuleMetadata?, selection: TrackerEditorSelection) {

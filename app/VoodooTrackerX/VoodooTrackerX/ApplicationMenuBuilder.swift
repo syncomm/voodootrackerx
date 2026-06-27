@@ -9,6 +9,7 @@ enum ApplicationMenuBuilder {
         static let toggleLoop = NSSelectorFromString("loopToggled:")
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
+        static let clearSongData = NSSelectorFromString("clearSongData:")
     }
 
     struct BuiltMenu {
@@ -92,6 +93,14 @@ enum ApplicationMenuBuilder {
         )
         clearCurrentPattern.isEnabled = false
         menu.addItem(clearCurrentPattern)
+        let clearSongData = menuItem(
+            title: "Clear Song Data",
+            action: Actions.clearSongData,
+            keyEquivalent: "",
+            target: target
+        )
+        clearSongData.isEnabled = false
+        menu.addItem(clearSongData)
 
         return menu
     }

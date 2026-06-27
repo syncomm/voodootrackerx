@@ -224,6 +224,10 @@ enum EditorPatternMutationPolicy {
     static func canClearCurrentPattern(sourceContext: EditorNoteAuditionSourceContext) -> Bool {
         canMutatePattern(sourceContext: sourceContext)
     }
+
+    static func canClearSongData(sourceContext: EditorNoteAuditionSourceContext) -> Bool {
+        canMutatePattern(sourceContext: sourceContext)
+    }
 }
 
 enum EditorCommandAvailability {
@@ -232,6 +236,13 @@ enum EditorCommandAvailability {
         sourceContext: EditorNoteAuditionSourceContext
     ) -> Bool {
         hasBlankDocument && EditorPatternMutationPolicy.canClearCurrentPattern(sourceContext: sourceContext)
+    }
+
+    static func canClearSongData(
+        hasBlankDocument: Bool,
+        sourceContext: EditorNoteAuditionSourceContext
+    ) -> Bool {
+        hasBlankDocument && EditorPatternMutationPolicy.canClearSongData(sourceContext: sourceContext)
     }
 }
 
@@ -765,6 +776,27 @@ struct BlankTrackerDocument: Equatable {
             channels: pattern.channels
         )
         return true
+    }
+
+    mutating func clearSongData() {
+        let currentPattern = pattern
+        let blankPattern = Self.makeEmptyPattern(
+            index: Self.defaultPatternIndex,
+            rowCount: currentPattern.rowCount,
+            channels: currentPattern.channels
+        )
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: Self.defaultSongLength,
+            currentPosition: Self.defaultCurrentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: Self.defaultPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: [Self.defaultPatternIndex],
+            selection: selection,
+            patterns: [blankPattern]
+        )
     }
 
     private mutating func setNoteValue(_ note: UInt8, row: Int, channel: Int, storageIndex: Int) {

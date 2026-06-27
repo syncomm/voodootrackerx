@@ -517,6 +517,7 @@ extension RuntimeCMixerAdapterEventPlan {
 func makePlaybackSample(
     instrumentIndex: Int = 1,
     sampleIndex: Int = 0,
+    name: String = "",
     pcm: [Float] = [1, 0.5, -0.5],
     volume: Float = 1,
     relativeNote: Int = 0,
@@ -529,6 +530,7 @@ func makePlaybackSample(
     PlaybackSample(
         instrumentIndex: instrumentIndex,
         sampleIndex: sampleIndex,
+        name: name,
         pcm: pcm,
         volume: volume,
         relativeNote: relativeNote,

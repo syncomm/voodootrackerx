@@ -33,8 +33,8 @@ display, or pattern-entry milestone. The 1.0 target includes:
 - loop-and-edit workflow for building patterns while hearing playback
 - save XM
 - export WAV/AAC
-- continued loaded-module read-only safety until editable-copy/save semantics
-  are designed
+- continued loaded-module read-only safety, using explicit editable-copy
+  bridges before save semantics land
 
 Likely v1.x or later work includes MIDI keyboard or pad input, recording and
 sample-capture improvements, richer resampling tools, and plugin/audio-input to
@@ -159,13 +159,16 @@ Parked parity-watch items:
 Recently completed:
 
 - Clear Song Data is now available from the Edit menu for blank/editable
-  documents only. It resets editable song/order data to one blank order and one
-  blank pattern while preserving selected instrument/sample slot state, timing,
-  pattern dimensions, edit-mode state, runtime playback behavior, note audition,
-  and loaded-module read-only policy. Broader arrangement editing, duplicate
-  pattern, insert/delete pattern or order slots, undo/redo, instrument/sample
-  import, sample/instrument editors, save XM, and export WAV/AAC remain
-  deferred.
+  documents and as a loaded-module editable-copy bridge. Blank documents clear
+  song/order/pattern data in place while preserving editor state. Loaded
+  modules stay read-only; invoking Clear Song Data creates a new editable
+  blank song that copies the available instrument/sample palette and playable
+  sample payloads, clears song/order/pattern note data, resets to order 0 and
+  pattern 0, and preserves safe timing and dimensions. Editable document
+  playback, current-pattern loop for editable documents, edit while loop is
+  active, broader arrangement editing, duplicate pattern, insert/delete order
+  slots, undo/redo, WAV/AIFF import, XI import, sample/instrument editors, save
+  XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
   the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core

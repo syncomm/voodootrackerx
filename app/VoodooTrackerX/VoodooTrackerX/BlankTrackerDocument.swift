@@ -81,6 +81,14 @@ enum TrackerEditStep {
     }
 }
 
+struct EditorClearSongDataResetPosition: Equatable {
+    static let start = EditorClearSongDataResetPosition(row: 0, channel: 0, fieldRawValue: 0)
+
+    let row: Int
+    let channel: Int
+    let fieldRawValue: Int
+}
+
 struct TrackerEditorSelection: Equatable {
     static let defaultInstrument = 1
     static let defaultSample = 1
@@ -240,9 +248,15 @@ enum EditorCommandAvailability {
 
     static func canClearSongData(
         hasBlankDocument: Bool,
-        sourceContext: EditorNoteAuditionSourceContext
+        sourceContext: EditorNoteAuditionSourceContext,
+        loadedModuleCanMakeEditableCopy: Bool = false
     ) -> Bool {
-        hasBlankDocument && EditorPatternMutationPolicy.canClearSongData(sourceContext: sourceContext)
+        switch sourceContext {
+        case .blankDocument:
+            return hasBlankDocument && EditorPatternMutationPolicy.canClearSongData(sourceContext: sourceContext)
+        case .loadedModule:
+            return !hasBlankDocument && loadedModuleCanMakeEditableCopy
+        }
     }
 }
 
@@ -466,8 +480,7 @@ final class EditorNoteAuditionPreviewer {
             }
             return .skipped(.loadedModulePayloadRequired)
         }
-        guard case .loadedModule = descriptor.sourceContext,
-              descriptor.hasSamplePayload,
+        guard descriptor.hasSamplePayload,
               descriptor.sampleFrameCount > 0,
               !descriptor.previewPCM.isEmpty else {
             return .skipped(.loadedModulePayloadRequired)
@@ -616,7 +629,8 @@ struct BlankTrackerDocument: Equatable {
     let tempo: Int
     let speed: Int
     let orderTable: [Int]
-    let selection: TrackerEditorSelection
+    var selection: TrackerEditorSelection
+    let instrumentPalette: [Int: PlaybackInstrument]
     var patterns: [XMPatternData]
 
     var pattern: XMPatternData {
@@ -645,6 +659,42 @@ struct BlankTrackerDocument: Equatable {
             speed: defaultSpeed,
             orderTable: [defaultPatternIndex],
             selection: .default,
+            instrumentPalette: [:],
+            patterns: [pattern]
+        )
+    }
+
+    static func makeEditableCopyClearingSongData(
+        from metadata: ParsedModuleMetadata,
+        playbackSong: PlaybackSong,
+        selection: TrackerEditorSelection,
+        sourcePatternIndex: Int = defaultPatternIndex
+    ) -> BlankTrackerDocument? {
+        guard hasUsableInstrumentSamplePalette(playbackSong.instrumentsByIndex) else {
+            return nil
+        }
+
+        let sourcePattern = metadata.xmPatterns.first { $0.index == sourcePatternIndex }
+            ?? metadata.xmPatterns.first
+        let rowCount = max(1, sourcePattern?.rowCount ?? defaultRowCount)
+        let channelCount = max(1, metadata.channels > 0 ? metadata.channels : sourcePattern?.channels ?? defaultChannelCount)
+        let pattern = makeEmptyPattern(
+            index: defaultPatternIndex,
+            rowCount: rowCount,
+            channels: channelCount
+        )
+        let palette = playbackSong.instrumentsByIndex
+        return BlankTrackerDocument(
+            title: defaultTitle,
+            songLength: defaultSongLength,
+            currentPosition: defaultCurrentPosition,
+            restartPosition: defaultRestartPosition,
+            currentPatternIndex: defaultPatternIndex,
+            tempo: metadata.defaultBPM > 0 ? metadata.defaultBPM : defaultTempo,
+            speed: metadata.defaultTempo > 0 ? metadata.defaultTempo : defaultSpeed,
+            orderTable: [defaultPatternIndex],
+            selection: clampedSelection(selection, instrumentPalette: palette),
+            instrumentPalette: palette,
             patterns: [pattern]
         )
     }
@@ -676,7 +726,7 @@ struct BlankTrackerDocument: Equatable {
             version: nil,
             channels: currentPattern.channels,
             patterns: patterns.count,
-            instruments: 0,
+            instruments: instrumentCount,
             xmFlags: 0x0001,
             defaultTempo: speed,
             defaultBPM: tempo,
@@ -696,15 +746,17 @@ struct BlankTrackerDocument: Equatable {
             restartPosition: String(format: "%02d", restartPosition),
             patternRowCount: "\(currentPattern.rowCount)",
             channelCount: "\(currentPattern.channels)",
-            selectedInstrumentDisplay: selection.instrumentDisplayTitle,
-            selectedSampleDisplay: selection.sampleDisplayTitle,
+            selectedInstrumentDisplay: selectedInstrumentDisplay.displayTitle,
+            selectedInstrumentTooltip: selectedInstrumentDisplay.tooltip,
+            selectedSampleDisplay: selectedSampleDisplay.displayTitle,
+            selectedSampleTooltip: selectedSampleDisplay.tooltip,
             tempo: "\(tempo)",
             speed: String(format: "%02d", speed),
             songPositionValue: currentPosition,
             maximumSongPosition: max(0, songLength - 1),
             isSongPositionEnabled: songLength > 1,
             isPatternControlsEnabled: true,
-            areInstrumentPlaceholdersEnabled: false
+            areInstrumentPlaceholdersEnabled: hasInstrumentSamplePalette
         )
     }
 
@@ -713,11 +765,68 @@ struct BlankTrackerDocument: Equatable {
     }
 
     var noteAuditionAvailability: EditorNoteAuditionAvailability {
-        .unavailable(.blankDocumentMissingInstrumentSamplePayload)
+        guard let instrument = instrument(forInstrument: selection.selectedInstrument) else {
+            return .unavailable(hasInstrumentSamplePalette ? .selectedInstrumentUnavailable : .blankDocumentMissingInstrumentSamplePayload)
+        }
+        guard let sample = instrument.sample(selectedSampleSlot: selection.selectedSample) else {
+            return .unavailable(.selectedSampleUnavailable)
+        }
+        let frameCount = min(max(0, sample.sampleLength), sample.pcm.count)
+        guard frameCount > 0 else {
+            return .unavailable(.selectedSampleMissingPayload)
+        }
+        guard sample.isPlayable else {
+            return .unavailable(.selectedInstrumentSampleNotPlayable)
+        }
+        return .potentiallyAvailable(EditorNoteAuditionSampleDescriptor(
+            instrumentIndex: instrument.index,
+            sampleIndex: sample.sampleIndex,
+            sampleFrameCount: frameCount,
+            hasSamplePayload: true,
+            hasLoopMetadata: sample.loopRegion.isEnabled,
+            previewLoop: PlaybackSongSyntheticAdapter.mixerLoop(from: sample),
+            sourceContext: noteAuditionSourceContext,
+            previewPCM: Array(sample.pcm.prefix(frameCount)),
+            previewVolume: sample.volume,
+            previewBaseSampleRate: sample.baseSampleRate,
+            previewRelativeNote: sample.relativeNote,
+            previewFinetune: sample.finetune
+        ))
+    }
+
+    var hasInstrumentSamplePalette: Bool {
+        Self.hasUsableInstrumentSamplePalette(instrumentPalette)
+    }
+
+    var instrumentCount: Int {
+        max(instrumentPalette.keys.max() ?? 0, hasInstrumentSamplePalette ? 1 : 0)
     }
 
     func pattern(for patternIndex: Int) -> XMPatternData? {
         patterns.first { $0.index == patternIndex }
+    }
+
+    func instrument(forInstrument instrumentIndex: Int) -> PlaybackInstrument? {
+        guard instrumentIndex > 0 else {
+            return nil
+        }
+        return instrumentPalette[instrumentIndex]
+    }
+
+    func availableSampleSlots(forInstrument instrumentIndex: Int) -> [Int] {
+        instrument(forInstrument: instrumentIndex)?.availableSampleSlots ?? []
+    }
+
+    mutating func selectInstrument(_ instrumentIndex: Int) {
+        let proposed = TrackerEditorSelection(
+            selectedInstrument: instrumentIndex,
+            selectedSample: selection.selectedSample
+        )
+        selection = Self.clampedSelection(proposed, instrumentPalette: instrumentPalette)
+    }
+
+    mutating func selectSample(_ sampleIndex: Int) {
+        selection = selection.withSelectedSample(sampleIndex)
     }
 
     mutating func enterNote(
@@ -735,7 +844,13 @@ struct BlankTrackerDocument: Equatable {
             return false
         }
 
-        setNoteValue(note, row: row, channel: channel, storageIndex: storageIndex)
+        setNoteValue(
+            note,
+            instrument: selectedInstrumentForNoteEntry(),
+            row: row,
+            channel: channel,
+            storageIndex: storageIndex
+        )
         return true
     }
 
@@ -747,7 +862,13 @@ struct BlankTrackerDocument: Equatable {
             return false
         }
 
-        setNoteValue(TrackerNoteKeyMap.keyOffNoteValue, row: row, channel: channel, storageIndex: storageIndex)
+        setNoteValue(
+            TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 0,
+            row: row,
+            channel: channel,
+            storageIndex: storageIndex
+        )
         return true
     }
 
@@ -795,15 +916,73 @@ struct BlankTrackerDocument: Equatable {
             speed: speed,
             orderTable: [Self.defaultPatternIndex],
             selection: selection,
+            instrumentPalette: instrumentPalette,
             patterns: [blankPattern]
         )
     }
 
-    private mutating func setNoteValue(_ note: UInt8, row: Int, channel: Int, storageIndex: Int) {
+    private var selectedInstrumentDisplay: ControlPanelSlotDisplay {
+        ControlPanelSlotDisplay.instrument(
+            slot: selection.selectedInstrument,
+            name: instrument(forInstrument: selection.selectedInstrument)?.name
+        )
+    }
+
+    private var selectedSampleDisplay: ControlPanelSlotDisplay {
+        ControlPanelSlotDisplay.sample(
+            slot: selection.selectedSample,
+            name: instrument(forInstrument: selection.selectedInstrument)?
+                .sample(selectedSampleSlot: selection.selectedSample)?
+                .name
+        )
+    }
+
+    private static func hasUsableInstrumentSamplePalette(_ palette: [Int: PlaybackInstrument]) -> Bool {
+        palette.values.contains { instrument in
+            instrument.samples.contains { !$0.pcm.isEmpty }
+        }
+    }
+
+    private static func clampedSelection(
+        _ selection: TrackerEditorSelection,
+        instrumentPalette: [Int: PlaybackInstrument]
+    ) -> TrackerEditorSelection {
+        if let instrument = instrumentPalette[selection.selectedInstrument],
+           !instrument.availableSampleSlots.isEmpty {
+            return selection.clampedToAvailableSampleSlots(instrument.availableSampleSlots)
+        }
+        guard let firstInstrument = instrumentPalette.values
+            .filter({ !$0.availableSampleSlots.isEmpty })
+            .sorted(by: { $0.index < $1.index })
+            .first else {
+            return selection
+        }
+        return TrackerEditorSelection(
+            selectedInstrument: firstInstrument.index,
+            selectedSample: firstInstrument.availableSampleSlots[0]
+        )
+    }
+
+    private func selectedInstrumentForNoteEntry() -> UInt8? {
+        guard selection.selectedInstrument > 0,
+              selection.selectedInstrument <= Int(UInt8.max),
+              instrument(forInstrument: selection.selectedInstrument) != nil else {
+            return nil
+        }
+        return UInt8(selection.selectedInstrument)
+    }
+
+    private mutating func setNoteValue(
+        _ note: UInt8,
+        instrument: UInt8? = nil,
+        row: Int,
+        channel: Int,
+        storageIndex: Int
+    ) {
         let cell = patterns[storageIndex].rows[row][channel]
         patterns[storageIndex].rows[row][channel] = XMPatternEventCell(
             note: note,
-            instrument: cell.instrument,
+            instrument: instrument ?? cell.instrument,
             volumeColumn: cell.volumeColumn,
             effectType: cell.effectType,
             effectParam: cell.effectParam
@@ -828,7 +1007,9 @@ struct BlankTrackerControlPanelMetadata: Equatable {
     let patternRowCount: String
     let channelCount: String
     let selectedInstrumentDisplay: String
+    let selectedInstrumentTooltip: String
     let selectedSampleDisplay: String
+    let selectedSampleTooltip: String
     let tempo: String
     let speed: String
     let songPositionValue: Int

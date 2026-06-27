@@ -533,6 +533,15 @@ struct PatternCursor: Equatable {
     var channel: Int
     var field: PatternCursorField
 
+    static var clearSongDataResetPosition: PatternCursor {
+        let reset = EditorClearSongDataResetPosition.start
+        return PatternCursor(
+            row: reset.row,
+            channel: reset.channel,
+            field: PatternCursorField(rawValue: reset.fieldRawValue) ?? .note
+        )
+    }
+
     mutating func clamp(rowCount: Int, channelCount: Int) {
         row = min(max(0, row), max(0, rowCount - 1))
         channel = min(max(0, channel), max(0, channelCount - 1))

@@ -19,7 +19,8 @@ VoodooTracker X currently has:
 - current XM effect support tracked in `docs/xm-effect-support.md`
 - blank tracker startup, note-entry foundations, selected instrument/sample
   slot state, loaded-module note audition, Clear Current Pattern for
-  blank/editable documents, and pattern-loop playback at Play start
+  blank/editable documents, Clear Song Data for blank documents and loaded
+  module editable-copy palette reuse, and pattern-loop playback at Play start
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -48,9 +49,9 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
-1. Song/order editor foundation and editable-copy/save semantics design, so
-   importing or copying instruments/samples from loaded modules into
-   blank/editable songs has a safe path.
+1. Song/order editor foundation and save semantics design, building on the
+   Clear Song Data editable-copy bridge that can copy instruments/samples from
+   loaded modules into an editable blank song.
 2. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 3. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
@@ -80,14 +81,16 @@ Parked parity-watch items:
 Recently completed narrow target:
 
 - Clear Song Data is now available from the Edit menu for blank/editable
-  documents only. It clears notes, key-offs, instruments, volume-column data,
-  effect-column data, and any editable cell fields, then resets song/order data
-  to one order entry and one blank pattern while preserving selected
-  instrument/sample/octave state, tempo/BPM, speed, channel count, row count,
-  edit-mode state, runtime playback, note audition, and loaded-module read-only
-  policy. Duplicate pattern, insert/delete pattern or order slots, broader
-  arrangement editing, undo/redo, instrument/sample import, sample/instrument
-  editors, save XM, and export WAV/AAC remain deferred.
+  documents and as a loaded-module editable-copy bridge. Blank documents still
+  clear notes, key-offs, instruments, volume-column data, effect-column data,
+  and editable cell fields in place. Loaded modules stay read-only; invoking
+  Clear Song Data creates a new editable blank song with copied instrument and
+  sample palette data, playable sample payloads where available, cleared
+  song/order/pattern note data, order 0, pattern 0, and safe preserved timing
+  and dimensions. Editable document playback, current-pattern loop for editable
+  documents, edit while loop is active, duplicate pattern, insert/delete order
+  slots, broader arrangement editing, undo/redo, WAV/AIFF import, XI import,
+  sample/instrument editors, save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan

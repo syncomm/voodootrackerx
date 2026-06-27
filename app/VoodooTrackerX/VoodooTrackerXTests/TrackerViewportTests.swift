@@ -55,6 +55,64 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertEqual(cursor, TestPatternCursor(row: 10, channel: 3, field: .effectParam))
     }
 
+    func testEditableBlankDocumentTabMovesToNextChannelNoteField() {
+        let document = BlankTrackerDocument.makeDefault()
+        let beforeDocument = document
+        var cursor = PatternCursor(row: 12, channel: 0, field: .note)
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+
+        XCTAssertEqual(cursor, PatternCursor(row: 12, channel: 1, field: .note))
+        XCTAssertEqual(document.currentPosition, beforeDocument.currentPosition)
+        XCTAssertEqual(document.currentPatternIndex, beforeDocument.currentPatternIndex)
+        XCTAssertEqual(document.orderTable, beforeDocument.orderTable)
+        XCTAssertEqual(document, beforeDocument)
+    }
+
+    func testTabFromFinalChannelWrapsToFirstChannelNoteField() {
+        let document = BlankTrackerDocument.makeDefault()
+        let finalChannel = document.pattern.channels - 1
+        var cursor = PatternCursor(row: 37, channel: finalChannel, field: .effectParam)
+
+        cursor.move(.nextChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+
+        XCTAssertEqual(cursor, PatternCursor(row: 37, channel: 0, field: .note))
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.orderTable, [0])
+    }
+
+    func testShiftTabMovesToPreviousChannelNoteFieldAndWraps() {
+        let document = BlankTrackerDocument.makeDefault()
+        var cursor = PatternCursor(row: 8, channel: 0, field: .volume)
+
+        cursor.move(.previousChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        XCTAssertEqual(cursor, PatternCursor(row: 8, channel: document.pattern.channels - 1, field: .note))
+
+        cursor.move(.previousChannelNote, rowCount: document.pattern.rowCount, channelCount: document.pattern.channels)
+        XCTAssertEqual(cursor, PatternCursor(row: 8, channel: document.pattern.channels - 2, field: .note))
+    }
+
+    @MainActor
+    func testTabKeyDownRoutesNavigationWithoutEditInputOrTextInsertion() {
+        let textView = PatternTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
+        textView.string = "    ... .. .. ..."
+        var commands = [PatternNavigationCommand]()
+        var editInputCount = 0
+        textView.navigationHandler = { commands.append($0) }
+        textView.editInputHandler = { _ in
+            editInputCount += 1
+            return true
+        }
+
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 48, characters: "\t"))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 48, characters: "\t", modifierFlags: .shift))
+
+        XCTAssertEqual(commands, [.nextChannelNote, .previousChannelNote])
+        XCTAssertEqual(editInputCount, 0)
+        XCTAssertEqual(textView.string, "    ... .. .. ...")
+    }
+
     func testViewportDefinesStaticAnchorRowNearViewportMiddle() {
         let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
         let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
@@ -393,4 +451,23 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x0A, rowCount: 32), "P0A")
         XCTAssertEqual(formattedPatternSelectorTitle(patternIndex: 0x1F, rowCount: 16), "P1F")
     }
+}
+
+private func makeTrackerKeyDownEvent(
+    keyCode: UInt16,
+    characters: String,
+    modifierFlags: NSEvent.ModifierFlags = []
+) -> NSEvent {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifierFlags,
+        timestamp: 0,
+        windowNumber: 0,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: keyCode
+    )!
 }

@@ -127,11 +127,69 @@ class LocalCorpusRuntimeMetricsTests(unittest.TestCase):
             self.assertEqual(summary["runtime_metrics"]["output_rms"], 0.06)
             self.assertEqual(summary["runtime_metrics"]["clipping_sample_count"], 0)
             self.assertFalse(summary["runtime_metrics"]["clipping_detected"])
+            self.assertEqual(summary["runtime_metrics"]["continuity_status"], "clean")
+            self.assertEqual(summary["runtime_metrics"]["output_level_status"], "clean")
             run_summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
             self.assertEqual(run_summary["labels"], ["xm-corpus-001"])
             self.assertEqual(run_summary["adapter_plan_profile_line_counts"]["xm-corpus-001"], 11)
             self.assertTrue((output_dir / "summary.md").exists())
-            self.assertIn("pattern_row_iteration=1.5ms", (output_dir / "summary.md").read_text(encoding="utf-8"))
+            markdown = (output_dir / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("pattern_row_iteration=1.5ms", markdown)
+            self.assertIn("| clean | clean |", markdown)
+
+    def test_runtime_metrics_classifies_adjacent_jumps_as_watch_without_level_concern(self):
+        module = load_module()
+
+        metrics = module.summarize_runtime_metrics([
+            {
+                "phase": "stop_summary",
+                "output_discontinuity_count": "0",
+                "adjacent_jump_count_gt_0_25": "8",
+                "max_output_adjacent_sample_jump": "0.420000",
+                "overrange_sample_count": "0",
+                "clipping_sample_count": "0",
+                "clipping_detected": "false",
+            }
+        ])
+
+        self.assertEqual(metrics["continuity_status"], "watch")
+        self.assertEqual(metrics["output_level_status"], "clean")
+
+    def test_runtime_metrics_classifies_discontinuities_as_possible_discontinuity(self):
+        module = load_module()
+
+        metrics = module.summarize_runtime_metrics([
+            {
+                "phase": "stop_summary",
+                "output_discontinuity_count": "1",
+                "adjacent_jump_count_gt_0_25": "8",
+                "max_output_adjacent_sample_jump": "0.900000",
+                "overrange_sample_count": "0",
+                "clipping_sample_count": "0",
+                "clipping_detected": "false",
+            }
+        ])
+
+        self.assertEqual(metrics["continuity_status"], "possible_discontinuity")
+        self.assertEqual(metrics["output_level_status"], "clean")
+
+    def test_runtime_metrics_keeps_clipping_level_status_separate(self):
+        module = load_module()
+
+        metrics = module.summarize_runtime_metrics([
+            {
+                "phase": "stop_summary",
+                "output_discontinuity_count": "0",
+                "adjacent_jump_count_gt_0_25": "0",
+                "max_output_adjacent_sample_jump": "0.100000",
+                "overrange_sample_count": "2",
+                "clipping_sample_count": "0",
+                "clipping_detected": "false",
+            }
+        ])
+
+        self.assertEqual(metrics["continuity_status"], "clean")
+        self.assertEqual(metrics["output_level_status"], "level_concern")
 
     def test_refuses_repo_output_without_override(self):
         module = load_module()

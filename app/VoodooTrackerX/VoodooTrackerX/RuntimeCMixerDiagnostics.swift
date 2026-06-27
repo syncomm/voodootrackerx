@@ -1553,6 +1553,36 @@ struct RuntimeMixerMetricsTraceRecord: Equatable {
     let fields: [RuntimeMixerMetricsTraceField]
 }
 
+enum RuntimeMixerMetricsClassification {
+    static let adjacentJumpWatchThreshold: Float = 0.25
+
+    static func continuityStatus(
+        outputDiscontinuityCount: UInt64,
+        adjacentJumpCountGT025: UInt64,
+        maxOutputAdjacentSampleJump: Float
+    ) -> String {
+        if outputDiscontinuityCount > 0 {
+            return "possible_discontinuity"
+        }
+        if adjacentJumpCountGT025 > 0 ||
+            maxOutputAdjacentSampleJump.isFinite &&
+            maxOutputAdjacentSampleJump > adjacentJumpWatchThreshold {
+            return "watch"
+        }
+        return "clean"
+    }
+
+    static func outputLevelStatus(
+        overrangeSampleCount: UInt64,
+        clippingSampleCount: UInt64,
+        clippingDetected: Bool
+    ) -> String {
+        clippingDetected || clippingSampleCount > 0 || overrangeSampleCount > 0
+            ? "level_concern"
+            : "clean"
+    }
+}
+
 enum RuntimeMixerMetricsTraceFormatter {
     static func line(for record: RuntimeMixerMetricsTraceRecord) -> String {
         var parts = [

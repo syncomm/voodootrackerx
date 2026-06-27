@@ -1676,6 +1676,20 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return
         }
 
+        let adjacentJumpCountGT025 = discontinuityCount(in: snapshot, threshold: 0.25)
+        let adjacentJumpCountGT035 = discontinuityCount(in: snapshot, threshold: 0.35)
+        let adjacentJumpCountGT050 = discontinuityCount(in: snapshot, threshold: 0.50)
+        let continuityStatus = RuntimeMixerMetricsClassification.continuityStatus(
+            outputDiscontinuityCount: snapshot.outputDiscontinuityCount,
+            adjacentJumpCountGT025: adjacentJumpCountGT025,
+            maxOutputAdjacentSampleJump: snapshot.maxOutputAdjacentSampleJump
+        )
+        let outputLevelStatus = RuntimeMixerMetricsClassification.outputLevelStatus(
+            overrangeSampleCount: snapshot.overrangeSampleCount,
+            clippingSampleCount: snapshot.clippingSampleCount,
+            clippingDetected: snapshot.clippingDetected
+        )
+
         var fields = [
             RuntimeMixerMetricsTraceField("runtime_audio_backend", runtimeAudioBackend.diagnosticName),
             RuntimeMixerMetricsTraceField("runtime_output_host_type", runtimeAudioBackend.runtimeOutputHostType),
@@ -1697,10 +1711,12 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             RuntimeMixerMetricsTraceField("clipping_detected", snapshot.clippingDetected),
             RuntimeMixerMetricsTraceField("output_discontinuity_threshold", snapshot.outputDiscontinuityThreshold),
             RuntimeMixerMetricsTraceField("output_discontinuity_count", snapshot.outputDiscontinuityCount),
-            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_25", discontinuityCount(in: snapshot, threshold: 0.25)),
-            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_35", discontinuityCount(in: snapshot, threshold: 0.35)),
-            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_50", discontinuityCount(in: snapshot, threshold: 0.50)),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_25", adjacentJumpCountGT025),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_35", adjacentJumpCountGT035),
+            RuntimeMixerMetricsTraceField("adjacent_jump_count_gt_0_50", adjacentJumpCountGT050),
             RuntimeMixerMetricsTraceField("max_output_adjacent_sample_jump", snapshot.maxOutputAdjacentSampleJump),
+            RuntimeMixerMetricsTraceField("continuity_status", continuityStatus),
+            RuntimeMixerMetricsTraceField("output_level_status", outputLevelStatus),
             RuntimeMixerMetricsTraceField("runtime_output_gain", snapshot.runtimeOutputGain),
             RuntimeMixerMetricsTraceField("runtime_headroom_policy", snapshot.runtimeHeadroomPolicy),
             RuntimeMixerMetricsTraceField("runtime_default_headroom_db", snapshot.runtimeDefaultHeadroomDB),

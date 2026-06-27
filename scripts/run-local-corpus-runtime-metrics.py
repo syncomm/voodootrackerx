@@ -438,25 +438,61 @@ def summarize_runtime_metrics(records: list[dict[str, str]]) -> dict[str, Any]:
     stop_summary = next((record for record in reversed(records) if record.get("phase") == "stop_summary"), None)
     if stop_summary is None:
         return {"available": False}
+    output_discontinuity_count = int_value(stop_summary.get("output_discontinuity_count"))
+    adjacent_jump_count_gt_0_25 = int_value(stop_summary.get("adjacent_jump_count_gt_0_25"))
+    max_output_adjacent_sample_jump = float_value(stop_summary.get("max_output_adjacent_sample_jump"))
+    overrange_sample_count = int_value(stop_summary.get("overrange_sample_count"))
+    clipping_sample_count = int_value(stop_summary.get("clipping_sample_count"))
+    clipping_detected = bool_value(stop_summary.get("clipping_detected"))
     return {
         "available": True,
         "rendered_frame_count": int_value(stop_summary.get("rendered_frame_count")),
         "output_peak": float_value(stop_summary.get("output_peak")),
         "output_rms": float_value(stop_summary.get("output_rms")),
-        "overrange_sample_count": int_value(stop_summary.get("overrange_sample_count")),
-        "clipping_sample_count": int_value(stop_summary.get("clipping_sample_count")),
-        "clipping_detected": bool_value(stop_summary.get("clipping_detected")),
-        "output_discontinuity_count": int_value(stop_summary.get("output_discontinuity_count")),
-        "adjacent_jump_count_gt_0_25": int_value(stop_summary.get("adjacent_jump_count_gt_0_25")),
+        "overrange_sample_count": overrange_sample_count,
+        "clipping_sample_count": clipping_sample_count,
+        "clipping_detected": clipping_detected,
+        "output_discontinuity_count": output_discontinuity_count,
+        "adjacent_jump_count_gt_0_25": adjacent_jump_count_gt_0_25,
         "adjacent_jump_count_gt_0_35": int_value(stop_summary.get("adjacent_jump_count_gt_0_35")),
         "adjacent_jump_count_gt_0_50": int_value(stop_summary.get("adjacent_jump_count_gt_0_50")),
-        "max_output_adjacent_sample_jump": float_value(stop_summary.get("max_output_adjacent_sample_jump")),
+        "max_output_adjacent_sample_jump": max_output_adjacent_sample_jump,
+        "continuity_status": stop_summary.get("continuity_status")
+        or classify_continuity_status(
+            output_discontinuity_count,
+            adjacent_jump_count_gt_0_25,
+            max_output_adjacent_sample_jump,
+        ),
+        "output_level_status": stop_summary.get("output_level_status")
+        or classify_output_level_status(overrange_sample_count, clipping_sample_count, clipping_detected),
         "runtime_output_gain": float_value(stop_summary.get("runtime_output_gain")),
         "runtime_headroom_policy": stop_summary.get("runtime_headroom_policy"),
         "runtime_default_headroom_db": float_value(stop_summary.get("runtime_default_headroom_db")),
         "runtime_gain_policy_source": stop_summary.get("runtime_gain_policy_source"),
         "runtime_auto_headroom_enabled": bool_value(stop_summary.get("runtime_auto_headroom_enabled")),
     }
+
+
+def classify_continuity_status(
+    output_discontinuity_count: int | None,
+    adjacent_jump_count_gt_0_25: int | None,
+    max_output_adjacent_sample_jump: float | None,
+) -> str:
+    if (output_discontinuity_count or 0) > 0:
+        return "possible_discontinuity"
+    if (adjacent_jump_count_gt_0_25 or 0) > 0 or (max_output_adjacent_sample_jump or 0.0) > 0.25:
+        return "watch"
+    return "clean"
+
+
+def classify_output_level_status(
+    overrange_sample_count: int | None,
+    clipping_sample_count: int | None,
+    clipping_detected: bool | None,
+) -> str:
+    if clipping_detected or (clipping_sample_count or 0) > 0 or (overrange_sample_count or 0) > 0:
+        return "level_concern"
+    return "clean"
 
 
 def records_for_lifecycle_occurrence(records: list[dict[str, str]], lifecycle: str, occurrence_index: int) -> list[dict[str, str]]:
@@ -560,15 +596,15 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
         "",
         "Public-safe anonymized local diagnostics summary. Private filenames, paths, and titles are omitted.",
         "",
-        "| Label | Load total ms | Metadata ms | Song build ms | Adapter profile total ms | Top adapter profile phases | Adapt ms | Backend configure ms | Planned events | Orders | Patterns | Rows | Categories | Song-end frame | Prewarm status | First Play ms | First Play mode | First Play adapter plan ms | Second Play ms | Second Play mode | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Jump indicator |",
-        "| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | ---: |",
+        "| Label | Load total ms | Metadata ms | Song build ms | Adapter profile total ms | Top adapter profile phases | Adapt ms | Backend configure ms | Planned events | Orders | Patterns | Rows | Categories | Song-end frame | Prewarm status | First Play ms | First Play mode | First Play adapter plan ms | Second Play ms | Second Play mode | Reused plan | Peak | RMS | Clip samples | Overrange samples | Clipping | Discontinuities | Adjacent jumps > 0.25 | Max adjacent jump | Continuity | Level |",
+        "| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | --- |",
     ]
     for summary in summaries:
         timings = summary["timings_ms"]
         metrics = summary["runtime_metrics"]
         profile = summary["adapter_plan_profile"]
         lines.append(
-            "| {label} | {load} | {metadata} | {build} | {profile_total} | {top_profile} | {adapt_total} | {backend_configure} | {planned_events} | {orders} | {patterns} | {rows} | {categories} | {song_end_frame} | {prewarm_status} | {first_play} | {first_mode} | {first_play_adapter} | {second_play} | {second_mode} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {jump} |".format(
+            "| {label} | {load} | {metadata} | {build} | {profile_total} | {top_profile} | {adapt_total} | {backend_configure} | {planned_events} | {orders} | {patterns} | {rows} | {categories} | {song_end_frame} | {prewarm_status} | {first_play} | {first_mode} | {first_play_adapter} | {second_play} | {second_mode} | {reused} | {peak} | {rms} | {clips} | {overrange} | {clipping} | {discontinuities} | {adjacent_jumps} | {jump} | {continuity} | {level} |".format(
                 label=summary["label"],
                 load=cell(timings.get("load_total")),
                 metadata=cell(timings.get("module_metadata_loader_load")),
@@ -597,7 +633,11 @@ def write_markdown_summary(path: Path, summaries: list[dict[str, Any]]) -> None:
                 clips=cell(metrics.get("clipping_sample_count")),
                 overrange=cell(metrics.get("overrange_sample_count")),
                 clipping=str(metrics.get("clipping_detected")).lower() if metrics.get("available") else "missing",
+                discontinuities=cell(metrics.get("output_discontinuity_count")),
+                adjacent_jumps=cell(metrics.get("adjacent_jump_count_gt_0_25")),
                 jump=cell(metrics.get("max_output_adjacent_sample_jump")),
+                continuity=cell(metrics.get("continuity_status")),
+                level=cell(metrics.get("output_level_status")),
             )
         )
     lines.extend(

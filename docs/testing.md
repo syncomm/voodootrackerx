@@ -157,6 +157,36 @@ enabling it must not change playback, C mixer DSP, scheduling, runtime gain,
 runtime headroom, parser behavior, tracker viewport, editor, note audition, or
 control panel behavior. It is not runtime auto-headroom.
 
+Interpret runtime mixer output metrics by signal family:
+
+| Field family | Meaning | Merge-gate guidance |
+| --- | --- | --- |
+| `output_peak`, `output_rms` | Aggregate post-runtime-gain output level telemetry. | Informational unless paired with clipping, overrange, or a targeted gain/headroom investigation. |
+| `overrange_sample_count`, `clipping_sample_count`, `clipping_detected` | Output samples reached or exceeded the normalized full-scale boundary after runtime gain/headroom. | Level concern. Treat new nonzero counts as a warning and likely blocker for audio/gain PRs unless the PR intentionally changes output level policy and documents it. |
+| `adjacent_jump_count_gt_0_25`, `adjacent_jump_count_gt_0_35`, `adjacent_jump_count_gt_0_50`, `max_output_adjacent_sample_jump` | Raw same-channel adjacent output sample delta counters. These can rise for normal musical transients such as sharp percussion, high-frequency sample content, retriggers, or legitimate waveform edges. | Watch telemetry only. Adjacent jumps alone do not prove a click/pop regression and should not block a PR without listening evidence, reference comparison, or discontinuity evidence. |
+| `output_discontinuity_count` | Count of adjacent output sample deltas above the stricter runtime discontinuity threshold reported by `output_discontinuity_threshold`. | Possible continuity concern. New nonzero counts should trigger focused investigation and listening before merge. |
+| `continuity_status` | Derived text from existing jump/discontinuity metrics: `clean`, `watch`, or `possible_discontinuity`. Raw values remain authoritative. | `watch` means lower-threshold adjacent jumps only; `possible_discontinuity` means the stricter discontinuity counter is nonzero. |
+| `output_level_status` | Derived text from clipping/overrange metrics: `clean` or `level_concern`. | Separate from continuity. A level concern can exist even when continuity is clean, and a continuity concern can exist without clipping. |
+
+Adjacent-jump metrics are not a waveform-quality verdict. A high maximum
+adjacent jump with `output_discontinuity_count=0`, `clipping_detected=false`,
+and zero overrange/clipping counts is a watch item that may simply identify
+normal transient content. Treat it as a pointer for targeted listening or
+render/capture comparison, not as an automatic failure.
+
+For click/pop regressions, use a layered gate:
+
+1. Harder warning: nonzero `output_discontinuity_count`, callback underrun/
+   zero-fill/failure counters, output-copy failures, or nonzero clipping/
+   overrange counts.
+2. Watch telemetry: adjacent-jump counts below the discontinuity threshold,
+   high `max_output_adjacent_sample_jump`, or top-jump locations near dense
+   musical event bursts.
+3. Final judgment: human listening and, when needed, runtime capture/offline
+   render comparison. Metrics can point to the window, but they cannot by
+   themselves distinguish every intended musical transient from an audible
+   continuity artifact.
+
 ## Local Corpus Runtime Metrics Runbook
 
 Maintainers can run the disabled timing and runtime mixer metrics diagnostics
@@ -211,14 +241,19 @@ Output filenames are based on the anonymized label only, for example
 Summaries include load timing, metadata/build timing, prewarm adapter-plan
 timing, first Play timing, first Play adapter-plan mode
 (`prewarmed`, `waited`, `sync_fallback`, or `unavailable`), second Play timing,
-second Play adapter-plan mode, and whether second Play reused the cached plan.
-The helper redacts the private source path and basename from captured
-stdout/stderr and writes summaries without module paths, filenames, or titles.
+second Play adapter-plan mode, whether second Play reused the cached plan,
+runtime peak/RMS, clipping/overrange counts, adjacent-jump counts, max adjacent
+jump, `continuity_status`, and `output_level_status`. The helper redacts the
+private source path and basename from captured stdout/stderr and writes
+summaries without module paths, filenames, or titles.
 It refuses to write inside the repository unless `--allow-repo-output` is
 supplied for synthetic tests.
 
 Private corpus runs are manual local diagnostics only. Do not add them to CI or
-automated tests.
+automated tests. Keep raw logs, JSON, Markdown, traces, WAVs, screenshots,
+private label maps, module files, private filenames, private titles, and local
+paths under `/tmp` or another ignored local location. Public summaries should
+use only anonymized labels and aggregate numbers.
 
 ## Audio Reference Comparison
 

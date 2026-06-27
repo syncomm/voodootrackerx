@@ -26,7 +26,11 @@ protocol RuntimeCMixerAdapterEventConsuming: AnyObject {
 
     func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession: PlaybackTimingTraceSession?)
     func resetRuntimeAdapterEventConsumption()
-    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?)
+    func consumeRuntimeAdapterEvents(
+        context: AudioRuntimeTraceContext?,
+        patternLoopRange: PlaybackPatternLoopRange?,
+        timingSession: PlaybackTimingTraceSession?
+    )
 }
 
 private struct RuntimeCMixerEventCounters: Equatable {
@@ -338,6 +342,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     private var consumedAdapterEventCategories = Set<String>()
     private var plannedRuntimeFrameOffset: Int?
     private var sampleTimePositionResolver: PlaybackSongSampleTimePositionResolver?
+    private var adapterEventLoopRange: RuntimeCMixerAdapterEventLoopRange?
     private var adapterEventScheduleConfigured = false
     private var pendingTransition: RuntimeCMixerPendingTransition?
 
@@ -459,6 +464,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
     func configureRuntimeAdapterEventPlan(_ plan: RuntimeCMixerAdapterEventPlan, generationMS: Double?, timingSession _: PlaybackTimingTraceSession?) {
         adapterEventPlan = plan
         sampleTimePositionResolver = plan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
+        adapterEventLoopRange = nil
         resetRuntimeAdapterEventConsumption()
         recordRuntimeEvent(
             action: "adapter_plan_configured",
@@ -480,6 +486,7 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         eventCounters.fallbackToSimpleRuntimeEventCount = 0
         plannedRuntimeFrameOffset = nil
         sampleTimePositionResolver = adapterEventPlan.plan.map(PlaybackSongSampleTimePositionResolver.init(plan:))
+        adapterEventLoopRange = nil
         adapterEventScheduleConfigured = false
         pendingTransition = nil
         playbackFollowPublicationCount = 0
@@ -493,7 +500,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         renderCore.clearAdapterEventSchedule()
     }
 
-    func consumeRuntimeAdapterEvents(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?) {
+    func consumeRuntimeAdapterEvents(
+        context: AudioRuntimeTraceContext?,
+        patternLoopRange: PlaybackPatternLoopRange?,
+        timingSession: PlaybackTimingTraceSession?
+    ) {
         let consumptionStart = timingSession?.beginPhase()
         drainAppliedRuntimeAdapterEvents()
         guard adapterEventPlan.generated else {
@@ -519,7 +530,11 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return
         }
 
-        configureAdapterEventScheduleIfNeeded(context: context, timingSession: timingSession)
+        configureAdapterEventScheduleIfNeeded(
+            context: context,
+            patternLoopRange: patternLoopRange,
+            timingSession: timingSession
+        )
         timingSession?.recordPhase(
             "runtime_adapter_event_consumption_schedule_setup",
             startedAt: consumptionStart,
@@ -527,11 +542,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 PlaybackTimingTraceField("plan_generated", true),
                 PlaybackTimingTraceField("schedule_configured", adapterEventScheduleConfigured),
                 PlaybackTimingTraceField("planned_event_count", adapterEventPlan.plannedEventCount),
+                PlaybackTimingTraceField("pattern_loop_requested", patternLoopRange != nil),
+                PlaybackTimingTraceField("pattern_loop_configured", adapterEventLoopRange != nil),
             ]
         )
     }
 
-    private func configureAdapterEventScheduleIfNeeded(context: AudioRuntimeTraceContext?, timingSession: PlaybackTimingTraceSession?) {
+    private func configureAdapterEventScheduleIfNeeded(
+        context: AudioRuntimeTraceContext?,
+        patternLoopRange: PlaybackPatternLoopRange?,
+        timingSession: PlaybackTimingTraceSession?
+    ) {
         guard !adapterEventScheduleConfigured else {
             return
         }
@@ -539,12 +560,17 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
         guard let offset = resolvedPlannedRuntimeFrameOffset(context: context, snapshot: snapshot) else {
             return
         }
+        let resolvedLoopRange = patternLoopRange.flatMap { adapterEventPlan.adapterEventLoopRange(for: $0) }
+        let scheduleEvents = resolvedLoopRange?.events ?? adapterEventPlan.events
+        let plannedSongEndFrame = resolvedLoopRange == nil ? adapterEventPlan.plannedSongEndFrame : nil
         let scheduleStart = timingSession?.beginPhase()
         let result = renderCore.configureAdapterEventSchedule(
-            adapterEventPlan.events,
+            scheduleEvents,
             runtimeFrameOffset: offset,
-            plannedSongEndFrame: adapterEventPlan.plannedSongEndFrame
+            plannedSongEndFrame: plannedSongEndFrame,
+            loopRange: resolvedLoopRange
         )
+        adapterEventLoopRange = resolvedLoopRange
         timingSession?.recordPhase(
             "runtime_adapter_event_schedule_configure",
             startedAt: scheduleStart,
@@ -552,6 +578,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
                 PlaybackTimingTraceField("queued_event_count", result.queuedEventCount),
                 PlaybackTimingTraceField("skipped_negative_runtime_frame_count", result.skippedNegativeRuntimeFrameCount),
                 PlaybackTimingTraceField("skipped_overflow_count", result.skippedOverflowCount),
+                PlaybackTimingTraceField("pattern_loop_configured", resolvedLoopRange != nil),
+                PlaybackTimingTraceField("pattern_loop_order", resolvedLoopRange?.playbackRange.orderIndex ?? -1),
+                PlaybackTimingTraceField("pattern_loop_pattern", resolvedLoopRange?.playbackRange.patternIndex ?? -1),
+                PlaybackTimingTraceField("pattern_loop_frame_count", resolvedLoopRange?.frameCount ?? 0),
             ]
         )
         adapterEventScheduleConfigured = true
@@ -734,7 +764,10 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
             return nil
         }
         let (value, overflow) = frame.subtractingReportingOverflow(runtimeFrameOffset)
-        return overflow ? nil : value
+        guard !overflow else {
+            return nil
+        }
+        return loopWrappedPlannedFrame(value)
     }
 
     private func plannedFrame(for publishedPosition: PlaybackFollowPosition) -> Int? {
@@ -753,6 +786,16 @@ final class RuntimeCMixerAudioEngine: PlaybackAudioOutput, PlaybackAudioBackendP
 
     private func plannedPosition(for context: AudioRuntimeTraceContext) -> PlaybackSongSampleTimePosition? {
         adapterEventPlan.plannedFrame(matching: context).flatMap { sampleTimePositionResolver?.position(atFrame: $0) }
+    }
+
+    private func loopWrappedPlannedFrame(_ plannedFrame: Int) -> Int {
+        guard let adapterEventLoopRange,
+              adapterEventLoopRange.frameCount > 0,
+              plannedFrame >= adapterEventLoopRange.plannedEndFrame else {
+            return plannedFrame
+        }
+        let offset = (plannedFrame - adapterEventLoopRange.plannedStartFrame) % adapterEventLoopRange.frameCount
+        return adapterEventLoopRange.plannedStartFrame + offset
     }
 
     private func followFreezeDetected(sampleTimePosition: RuntimeCMixerSampleTimePositionTraceFields) -> Bool {

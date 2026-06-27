@@ -106,7 +106,8 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Start the first small pattern-entry/editor workflow slice.
+1. Refresh README build instructions and module resource guidance so new
+   contributors have the current setup and fixture/module expectations.
 2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
    synchronous load path while improving first-Play readiness, and loaded-module
@@ -122,14 +123,16 @@ Parked parity-watch items:
 
 Recently completed:
 
-- Adapter-safe pattern-loop transport design now has a model/test spike around
-  current-order pattern ranges selected from the existing
-  `RuntimeCMixerAdapterEventPlan`, with unsafe timer-driven trigger paths and
-  active-voice clears explicitly rejected. The Loop button remains display-only
-  for runtime behavior until a later implementation passes runtime metrics and
-  manual listening. No playback behavior, C mixer DSP, parser architecture,
-  tracker viewport, editor, note audition, control panel, runtime
-  gain/headroom, or release behavior changed.
+- Adapter-safe pattern-loop playback now wires the existing Loop control into
+  Play start for the selected/current order/pattern, using a bounded range over
+  the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core
+  repeats that adapter-plan range without timer-driven note triggers, without
+  clearing active voices at loop wraps, and without changing C mixer DSP,
+  parser architecture, runtime gain/headroom, tracker viewport, editor, note
+  audition, save/export, or release behavior. Loop changes while already
+  playing, loop-length TIME display, pattern-loop editing, clear-pattern/clear-
+  song utilities, arbitrary ranges, and broader local corpus listening remain
+  deferred.
 - Runtime gain/headroom policy is now documented as a design boundary:
   runtime playback keeps fixed default headroom with developer diagnostic
   overrides, offline export keeps explicit gain/headroom and `--auto-headroom`,

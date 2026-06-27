@@ -2437,6 +2437,95 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertFalse(boundary.clearsActiveVoicesAtBoundary)
     }
 
+    func testRuntimeCMixerAdapterEventPlanBuildsProductionPatternLoopRangeFromExistingGeneratedFixturePlan() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let plan = RuntimeCMixerAdapterEventPlan.make(song: song, sampleRate: 100)
+        let playbackRange = try XCTUnwrap(song.patternLoopRange(containing: PlaybackPosition(
+            orderIndex: 1,
+            patternIndex: 1,
+            rowIndex: 2
+        )))
+
+        let loopRange = try XCTUnwrap(plan.adapterEventLoopRange(for: playbackRange))
+
+        XCTAssertTrue(plan.generated)
+        XCTAssertEqual(loopRange.playbackRange.orderIndex, 1)
+        XCTAssertEqual(loopRange.playbackRange.patternIndex, 1)
+        XCTAssertEqual(loopRange.plannedStartFrame, 48)
+        XCTAssertEqual(loopRange.plannedEndFrame, 96)
+        XCTAssertEqual(loopRange.frameCount, 48)
+        XCTAssertEqual(loopRange.events.map(\.scheduledFrame), [48])
+        XCTAssertEqual(loopRange.events.map(\.source), [
+            PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)
+        ])
+    }
+
+    @MainActor
+    func testRuntimeCMixerLoopOffPublicFixtureSchedulesOrdersZeroOneTwoOnce() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+
+        harness.engine.load(song: song)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: false,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 160)
+
+        let addVoices = harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }
+        XCTAssertEqual(addVoices.map(\.plannedSourceOrderIndex), [0, 1, 2])
+        XCTAssertEqual(addVoices.map(\.plannedSourcePatternIndex), [0, 1, 2])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 48, 96])
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+    }
+
+    @MainActor
+    func testRuntimeCMixerPatternLoopFromOrderZeroRepeatsAdapterPlanRangeWithoutClearAll() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+
+        harness.engine.load(song: song)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 160)
+
+        let addVoices = Array(harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }.prefix(4))
+        XCTAssertEqual(addVoices.map(\.plannedSourceOrderIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedSourcePatternIndex), [0, 0, 0, 0])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 48, 96, 144])
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+        XCTAssertNil(harness.traceWriter.events.first { $0.runtimeAction == "note_trigger" })
+        XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+    }
+
+    @MainActor
+    func testRuntimeCMixerPatternLoopFromOrderOneDoesNotAdvanceToOrderTwo() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let harness = makeRuntimeCMixerPlaybackHarness(sampleRate: 100)
+
+        harness.engine.load(song: song)
+        harness.engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 1, patternIndex: 1, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        _ = harness.audioEngine.renderForTesting(frameCount: 160)
+
+        let addVoices = Array(harness.traceWriter.events.filter { $0.runtimeAction == "c_mixer_add_voice" }.prefix(4))
+        XCTAssertEqual(addVoices.map(\.plannedSourceOrderIndex), [1, 1, 1, 1])
+        XCTAssertEqual(addVoices.map(\.plannedSourcePatternIndex), [1, 1, 1, 1])
+        XCTAssertEqual(addVoices.map(\.plannedRuntimeFrame), [0, 48, 96, 144])
+        XCTAssertFalse(harness.traceWriter.events.contains { $0.plannedSourceOrderIndex == 2 })
+        XCTAssertTrue(addVoices.allSatisfy { $0.runtimeEventSource == "offline_adapter_plan" })
+        XCTAssertTrue(clearAllEventsAfterRenderStarted(in: harness.traceWriter.events).isEmpty)
+    }
+
     func testSampleTimePositionResolverMapsExactRowStartFrames() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2, 3],
@@ -5349,6 +5438,19 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(event?.volumeColumn, "30")
         XCTAssertEqual(event?.targetScope, "channel")
         XCTAssertEqual(event?.noteTriggerEventCount, 1)
+    }
+
+    private func loadMultiPatternLoopBoundarySong() throws -> PlaybackSong {
+        let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        return try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+    }
+
+    private func clearAllEventsAfterRenderStarted(in events: [RuntimeCMixerTraceEvent]) -> [RuntimeCMixerTraceEvent] {
+        events.filter {
+            $0.runtimeAction == "c_mixer_clear_all" &&
+                (($0.cMixerRenderedFramesBeforeClear ?? 0) > 0 || ($0.currentFrame ?? 0) > 0)
+        }
     }
 
     private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {

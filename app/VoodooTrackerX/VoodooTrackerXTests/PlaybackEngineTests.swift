@@ -630,6 +630,134 @@ final class PlaybackEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testPatternLoopOffPublicFixtureNormalTraversalReachesAllOrders() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.load(song: song)
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: false,
+            timingSession: nil
+        )
+        advanceRows(song.orders.count * 4, engine: engine, timing: song.initialTiming)
+
+        XCTAssertTrue(Set(positions.map(\.orderIndex)).isSuperset(of: Set([0, 1, 2])))
+        XCTAssertTrue(audioOutput.consumedPatternLoopRanges.allSatisfy { $0 == nil })
+    }
+
+    @MainActor
+    func testPatternLoopOnFromOrderZeroWrapsWithinCurrentOrder() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let rowCount = try XCTUnwrap(song.patternsByIndex[0]?.rowCount)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.load(song: song)
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        advanceRows(rowCount * 3, engine: engine, timing: song.initialTiming)
+
+        XCTAssertTrue(positions.contains(PlaybackPosition(orderIndex: 0, patternIndex: 0, rowIndex: 0)))
+        XCTAssertTrue(positions.allSatisfy { $0.orderIndex == 0 && $0.patternIndex == 0 })
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.first??.orderIndex, 0)
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+    }
+
+    @MainActor
+    func testPatternLoopOnFromOrderOneWrapsWithinCurrentOrder() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let rowCount = try XCTUnwrap(song.patternsByIndex[1]?.rowCount)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.load(song: song)
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 1, patternIndex: 1, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        advanceRows(rowCount * 3, engine: engine, timing: song.initialTiming)
+
+        XCTAssertTrue(positions.contains(PlaybackPosition(orderIndex: 1, patternIndex: 1, rowIndex: 0)))
+        XCTAssertTrue(positions.allSatisfy { $0.orderIndex == 1 && $0.patternIndex == 1 })
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.first??.orderIndex, 1)
+        XCTAssertTrue(audioOutput.triggeredRequests.isEmpty)
+    }
+
+    @MainActor
+    func testPatternLoopDisabledAfterStopNormalTraversalResumesOnNextPlay() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let rowCount = try XCTUnwrap(song.patternsByIndex[0]?.rowCount)
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+        var positions = [PlaybackPosition]()
+        engine.positionDidChange = { positions.append($0) }
+
+        engine.load(song: song)
+        let startContext = PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0)
+        engine.play(from: startContext, loopEnabled: true, timingSession: nil)
+        advanceRows(rowCount + 1, engine: engine, timing: song.initialTiming)
+        engine.stop()
+        positions.removeAll()
+
+        engine.play(from: startContext, loopEnabled: false, timingSession: nil)
+        advanceRows(rowCount + 1, engine: engine, timing: song.initialTiming)
+
+        XCTAssertTrue(positions.contains { $0.orderIndex == 1 && $0.patternIndex == 1 })
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.last ?? nil, nil)
+    }
+
+    @MainActor
+    func testStopWhilePatternLoopedKeepsCachedRuntimeAdapterPlan() throws {
+        let song = try loadMultiPatternLoopBoundarySong()
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+
+        engine.load(song: song)
+        engine.play(
+            from: PlaybackStartContext(moduleTitle: "fixture", songPosition: 0, patternIndex: 0, row: 0),
+            loopEnabled: true,
+            timingSession: nil
+        )
+        engine.stop()
+
+        XCTAssertTrue(audioOutput.hasRuntimeAdapterEventPlan)
+        XCTAssertEqual(audioOutput.generatedPlanConfigureCount, 1)
+        XCTAssertEqual(audioOutput.consumedPatternLoopRanges.first??.orderIndex, 0)
+    }
+
+    @MainActor
     func testPlaybackTimingTraceRecordsDeferredAdapterPlanCreationDuringPlay() throws {
         let sink = TestPlaybackTimingTraceSink()
         let clock = TestPlaybackTimingTraceClock()
@@ -1815,6 +1943,36 @@ private func timingField(in lines: [String], lifecycle: String, phase: String, k
             .dropFirst(key.count + 1)
             .description
     }.first
+}
+
+private func loadMultiPatternLoopBoundarySong() throws -> PlaybackSong {
+    let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
+    let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+    return try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+}
+
+private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let url = root.appendingPathComponent("tests/reference-xm").appendingPathComponent(relativePath)
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        throw NSError(
+            domain: "VoodooTrackerXTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Missing reference XM fixture at \(url.path)"]
+        )
+    }
+    return url
+}
+
+@MainActor
+private func advanceRows(_ rowCount: Int, engine: PlaybackEngine, timing: PlaybackTiming) {
+    for _ in 0..<(max(0, rowCount) * timing.ticksPerRow) {
+        engine.advanceOneTick()
+    }
 }
 
 private func makeRuntimeAdapterPlaybackSong(patternIndex: Int) -> PlaybackSong {

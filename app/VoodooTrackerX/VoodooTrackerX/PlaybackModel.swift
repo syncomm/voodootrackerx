@@ -241,6 +241,28 @@ struct PlaybackPosition: Equatable {
     let rowIndex: Int
 }
 
+struct PlaybackPatternLoopRange: Equatable {
+    let orderEntry: PlaybackOrderEntry
+    let firstPosition: PlaybackPosition
+    let lastPosition: PlaybackPosition
+    let rowCount: Int
+
+    var orderIndex: Int {
+        orderEntry.orderIndex
+    }
+
+    var patternIndex: Int {
+        orderEntry.patternIndex
+    }
+
+    func contains(_ position: PlaybackPosition) -> Bool {
+        position.orderIndex == orderIndex &&
+            position.patternIndex == patternIndex &&
+            position.rowIndex >= firstPosition.rowIndex &&
+            position.rowIndex <= lastPosition.rowIndex
+    }
+}
+
 enum PlaybackEndBehavior: Equatable {
     case stopAtEnd
     case restartFromBeginning
@@ -328,6 +350,33 @@ struct PlaybackSong: Equatable {
             return nil
         }
         return position(orderIndex: order.orderIndex, rowIndex: rowIndex)
+    }
+
+    func patternLoopRange(containing position: PlaybackPosition) -> PlaybackPatternLoopRange? {
+        guard orders.indices.contains(position.orderIndex) else {
+            return nil
+        }
+        let orderEntry = orders[position.orderIndex]
+        guard orderEntry.patternIndex == position.patternIndex,
+              let pattern = patternsByIndex[position.patternIndex],
+              !pattern.rows.isEmpty,
+              pattern.rows.indices.contains(position.rowIndex) else {
+            return nil
+        }
+        return PlaybackPatternLoopRange(
+            orderEntry: orderEntry,
+            firstPosition: PlaybackPosition(
+                orderIndex: orderEntry.orderIndex,
+                patternIndex: orderEntry.patternIndex,
+                rowIndex: 0
+            ),
+            lastPosition: PlaybackPosition(
+                orderIndex: orderEntry.orderIndex,
+                patternIndex: orderEntry.patternIndex,
+                rowIndex: pattern.rows.count - 1
+            ),
+            rowCount: pattern.rows.count
+        )
     }
 
     func position(after position: PlaybackPosition) -> PlaybackStepResult {

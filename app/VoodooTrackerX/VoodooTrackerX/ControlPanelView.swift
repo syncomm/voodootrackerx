@@ -249,7 +249,7 @@ final class ControlPanelView: NSView {
         channelCountField.stringValue = "8"
         playButton.toolTip = "Play"
         stopButton.toolTip = "Stop playback"
-        loopButton.toolTip = "Loop song playback"
+        loopButton.toolTip = "Loop current pattern on next Play"
         editModeButton.toolTip = "Toggle edit mode"
         songTitleField.toolTip = "Module title"
         songTimeField.toolTip = "Song time"

@@ -35,6 +35,8 @@ enum VTXEditorControlMetrics {
     static let segmentReadoutHeight: CGFloat = 23
     static let editorButtonHeight: CGFloat = 25
     static let defaultLEDSize: CGFloat = 8
+    static let knobControlSize = NSSize(width: 72, height: 72)
+    static let panSliderControlSize = NSSize(width: 170, height: 32)
 }
 
 enum VTXEditorIndicatorLEDState: Equatable {
@@ -310,6 +312,34 @@ enum VTXEditorControlFactory {
             title: title,
             role: role,
             fixedWidth: fixedWidth
+        )
+    }
+
+    static func makeKnobControl(
+        value: Double = 0,
+        minimumValue: Double = 0,
+        maximumValue: Double = 1,
+        isEmphasized: Bool = false
+    ) -> VTXEditorKnobControl {
+        VTXEditorKnobControl(
+            value: value,
+            minimumValue: minimumValue,
+            maximumValue: maximumValue,
+            isEmphasized: isEmphasized
+        )
+    }
+
+    static func makePanSliderControl(
+        value: Double = 0,
+        centerDetentThreshold: Double = 0.05,
+        snapsToCenter: Bool = true,
+        showsCenteredIndicator: Bool = true
+    ) -> VTXEditorPanSliderControl {
+        VTXEditorPanSliderControl(
+            value: value,
+            centerDetentThreshold: centerDetentThreshold,
+            snapsToCenter: snapsToCenter,
+            showsCenteredIndicator: showsCenteredIndicator
         )
     }
 }

@@ -4,10 +4,10 @@ The shared tactile control library used by all three editor windows (Song / Orde
 Sample). Defining it once keeps knobs, sliders, switches, LEDs, and readouts consistent across the
 editors and any future UI work.
 
-**Status:** Shared theme, panel label, segment readout, indicator LED, and chunky button primitives
-now exist as additive AppKit foundations. Knobs, pan slider, switches, canvases, and editor windows
-remain design-only. Reference: `assets/mockups/editor-control-knob-lab.html` is the canonical visual
-for the knob and pan slider; the per-window mockups show them in context.
+**Status:** Shared theme, panel label, segment readout, indicator LED, chunky button, knob, and
+center-detent pan slider primitives now exist as additive AppKit foundations. Switches, canvases, and
+editor windows remain design-only. Reference: `assets/mockups/editor-control-knob-lab.html` is the
+canonical visual for the knob and pan slider; the per-window mockups show them in context.
 
 This vocabulary extends the control-panel system in `docs/design/UI-DESIGN-control-panel.md` — same
 palette, same monospace, same recessed-vs-interactive hierarchy.
@@ -105,11 +105,11 @@ for touch.
 
 Keep these as their own narrow, reusable pieces, landed before the windows that consume them:
 
-- A reusable **knob control** (custom `NSControl`): draws the chamfered body, toothed value arc,
-  recessed indicator, and an "emphasized" variant with the larger halo. Pairs with a segment readout;
-  double-click routes to inline numeric entry. Pure Core Graphics — no per-tooth subviews.
-- A reusable **pan slider** with a center detent (value snap + lit center + indicator LED), structured
-  so a touch build can attach haptics at center.
+- A reusable **knob control** (custom `NSControl`) now draws the chamfered body, toothed value arc,
+  recessed indicator, and an "emphasized" variant with the larger halo. It pairs with a segment
+  readout; double-click numeric entry remains deferred.
+- A reusable **pan slider** with a center detent now provides value snap + lit center + optional
+  indicator state, structured so a touch build can attach haptics at center later.
 - A reusable **indicator-LED view** (red/amber/off) — decorative state output only.
 - **Segment readout**, **toggle/segmented switch**, and **stepper** components shared with the control
   panel.

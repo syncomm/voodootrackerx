@@ -113,6 +113,38 @@ final class TrackerViewportTests: XCTestCase {
         XCTAssertEqual(textView.string, "    ... .. .. ...")
     }
 
+    @MainActor
+    func testMutationKeyDownRoutesRepeatAwareEditInputsWithoutTextInsertion() {
+        let textView = PatternTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
+        textView.string = "    ... .. .. ..."
+        var inputs = [PatternEditInput]()
+        textView.editInputHandler = { input in
+            inputs.append(input)
+            return true
+        }
+
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 6, characters: "z"))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 6, characters: "z", isARepeat: true))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 50, characters: "`"))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 50, characters: "`", isARepeat: true))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 51, characters: "\u{8}"))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 51, characters: "\u{8}", isARepeat: true))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 117, characters: "\u{7F}"))
+        textView.keyDown(with: makeTrackerKeyDownEvent(keyCode: 117, characters: "\u{7F}", isARepeat: true))
+
+        XCTAssertEqual(inputs, [
+            .noteKey("z", isRepeat: false),
+            .noteKey("z", isRepeat: true),
+            .keyOff,
+            .repeatedKeyOff,
+            .clearField,
+            .repeatedClearField,
+            .clearField,
+            .repeatedClearField,
+        ])
+        XCTAssertEqual(textView.string, "    ... .. .. ...")
+    }
+
     func testViewportDefinesStaticAnchorRowNearViewportMiddle() {
         let metrics = TestPatternViewportMetrics(rowHeight: 17, viewportHeight: 280)
         let state = TestPatternViewportState(currentRow: 0, rowCount: 64, metrics: metrics)
@@ -456,7 +488,8 @@ final class TrackerViewportTests: XCTestCase {
 private func makeTrackerKeyDownEvent(
     keyCode: UInt16,
     characters: String,
-    modifierFlags: NSEvent.ModifierFlags = []
+    modifierFlags: NSEvent.ModifierFlags = [],
+    isARepeat: Bool = false
 ) -> NSEvent {
     NSEvent.keyEvent(
         with: .keyDown,
@@ -467,7 +500,7 @@ private func makeTrackerKeyDownEvent(
         context: nil,
         characters: characters,
         charactersIgnoringModifiers: characters,
-        isARepeat: false,
+        isARepeat: isARepeat,
         keyCode: keyCode
     )!
 }

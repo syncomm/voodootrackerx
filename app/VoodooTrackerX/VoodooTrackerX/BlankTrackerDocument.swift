@@ -264,16 +264,19 @@ struct EditorNoteAuditionInputRoute: Equatable {
     let shouldAttemptPreview: Bool
     let shouldMutatePattern: Bool
     let shouldConsumeRepeatedNoteKey: Bool
+    let shouldSuppressRepeatedMutation: Bool
 
     func shouldConsumeNonMutatingInput(previewOutcome: EditorNoteAuditionPreviewOutcome) -> Bool {
-        shouldConsumeRepeatedNoteKey || previewOutcome.didAttemptPreview
+        shouldConsumeRepeatedNoteKey || shouldSuppressRepeatedMutation || previewOutcome.didAttemptPreview
     }
 }
 
 enum EditorNoteAuditionInputKind: Equatable {
     case noteKey(isRepeat: Bool)
     case keyOff
+    case repeatedKeyOff
     case clearField
+    case repeatedClearField
     case other
 }
 
@@ -293,11 +296,17 @@ enum EditorNoteAuditionInputPolicy {
         isNoteField: Bool
     ) -> EditorNoteAuditionInputRoute {
         let canMutateSource = EditorPatternMutationPolicy.canMutatePattern(sourceContext: sourceContext)
-        let isRepeatedLoadedModuleNoteKey = isNoteField && isRepeatedNoteKey(input) && !canMutateSource
+        let shouldConsumeRepeatedNoteKey = isNoteField && isRepeatedNoteKey(input)
+        let shouldSuppressRepeatedMutation = isRepeatedInput(input) &&
+            isMutationInput(input, isNoteField: isNoteField)
         return EditorNoteAuditionInputRoute(
-            shouldAttemptPreview: isNoteField && isNoteKey(input) && !isRepeatedLoadedModuleNoteKey,
-            shouldMutatePattern: editModeEnabled && canMutateSource && isMutationInput(input, isNoteField: isNoteField),
-            shouldConsumeRepeatedNoteKey: isRepeatedLoadedModuleNoteKey
+            shouldAttemptPreview: isNoteField && isNoteKey(input) && !shouldConsumeRepeatedNoteKey,
+            shouldMutatePattern: editModeEnabled &&
+                canMutateSource &&
+                isMutationInput(input, isNoteField: isNoteField) &&
+                !shouldSuppressRepeatedMutation,
+            shouldConsumeRepeatedNoteKey: shouldConsumeRepeatedNoteKey,
+            shouldSuppressRepeatedMutation: shouldSuppressRepeatedMutation
         )
     }
 
@@ -323,11 +332,22 @@ enum EditorNoteAuditionInputPolicy {
         return false
     }
 
+    private static func isRepeatedInput(_ input: EditorNoteAuditionInputKind) -> Bool {
+        switch input {
+        case let .noteKey(isRepeat):
+            return isRepeat
+        case .repeatedKeyOff, .repeatedClearField:
+            return true
+        case .keyOff, .clearField, .other:
+            return false
+        }
+    }
+
     private static func isMutationInput(_ input: EditorNoteAuditionInputKind, isNoteField: Bool) -> Bool {
         switch input {
-        case .clearField:
+        case .clearField, .repeatedClearField:
             return true
-        case .keyOff, .noteKey:
+        case .keyOff, .repeatedKeyOff, .noteKey:
             return isNoteField
         case .other:
             return false

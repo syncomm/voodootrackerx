@@ -11,8 +11,41 @@ For effect status, read `docs/xm-effect-support.md`.
 - Preserve classic MOD/XM compatibility and tracker workflow.
 - Keep the AppKit tracker editor keyboard-first.
 - Make playback deterministic enough for local reference comparison.
-- Add editing, instrument, visualization, and modern workflow features only
-  after the backend foundation is stable.
+- Reach VTX 1.0 as a self-contained XM-style sample/instrument tracker that can
+  create complete sample-based songs from scratch.
+- Keep VTX 1.0 focused on tracker composition, not DAW or plugin-host scope.
+- Add visualization and broader modern workflow features only after the tracker
+  composition foundation is stable.
+
+## VTX 1.0 Composition Scope
+
+VTX 1.0 should be a real composition-capable tracker, not only a playback,
+display, or pattern-entry milestone. The 1.0 target includes:
+
+- song/order editor foundation
+- pattern editor support for notes, instruments, volume columns, and effect
+  columns
+- sample editor and instrument editor foundations
+- WAV/AIFF sample import
+- XI instrument import as an explicit target
+- importing or copying instruments and samples from existing modules into
+  blank/editable songs
+- loop-and-edit workflow for building patterns while hearing playback
+- save XM
+- export WAV/AAC
+- continued loaded-module read-only safety until editable-copy/save semantics
+  are designed
+
+Likely v1.x or later work includes MIDI keyboard or pad input, recording and
+sample-capture improvements, richer resampling tools, and plugin/audio-input to
+sample experiments.
+
+Future Pro or native-format work may explore AUv3/VST-style plugin hosting,
+plugin instruments/effects, plugin-to-sample rendering, automation, a native
+VTX project format or XM3-style extended format, and AI-assisted
+instruments/samples/patterns. Classic XM compatibility should not depend on
+live plugin playback; any plugin bridge should likely start as render-to-sample
+or import-to-sample workflow.
 
 ## Milestone 0: Foundation / CI
 
@@ -260,11 +293,13 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Editor clear-song data while preserving instruments and samples. Pattern-loop
-  follow-up remains deferred for live Loop changes during active playback,
-  loop-length TIME display, pattern-loop editing, arbitrary ranges, and broader
-  listening. Tests alone are not sufficient for audio changes; docs and tests
-  must not reference private modules or local paths.
+- Editor clear-song data while preserving instruments and samples. This should
+  support the 1.0 composition path by resetting pattern/song data for
+  blank/editable documents without weakening loaded-module read-only safety.
+  Pattern-loop follow-up remains deferred for live Loop changes during active
+  playback, loop-length TIME display, pattern-loop editing, arbitrary ranges,
+  and broader listening. Tests alone are not sufficient for audio changes; docs
+  and tests must not reference private modules or local paths.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -273,7 +308,7 @@ Recommended next product PR:
 - Future editor utility commands should be scoped separately from playback:
   clear song/pattern data while preserving instruments and samples, optionally
   reset the arrangement/order table while preserving the instrument bank, and
-  define save/export flow before persistence work.
+  define editable-copy and save/export flow before persistence work.
 
 Recently completed product foundation:
 
@@ -414,10 +449,12 @@ Recently completed product foundation:
   untitled tracker document so startup opens on an editable-grid foundation
   instead of the old no-module placeholder.
 
-## Milestone 3: UI / Tracker Feel
+## Milestone 3: Composition Editor Foundation
 
-Status: read-only tracker display and stable viewport behavior are implemented;
-full editing remains future work after backend foundation freeze.
+Status: tracker display, blank startup, note-entry foundations, loaded-module
+audition, clear-current-pattern, stable viewport behavior, and adapter-safe
+pattern-loop playback are implemented. VTX 1.0 still needs the broader
+composition surface below.
 
 Current implemented foundation:
 
@@ -429,16 +466,29 @@ Current implemented foundation:
 - static highlight row behavior
 - stable viewport navigation
 - pattern selection
+- blank-document note entry
+- selected instrument/sample slot state
+- loaded-module note audition and sample-slot preview
+- clear current pattern for blank/editable documents
+- pattern-loop playback at Play start
 - basic transport smoke workflow
 
-Next editor targets after backend foundation freeze:
+Next composition targets after backend foundation freeze:
 
-- upper-row note entry and future note audition follow-through
-- instrument and effect entry
-- copy/paste rows and selections
-- pattern insert/delete/length editing
-- order/program display and pattern switching
+- clear song data while preserving instruments and samples
+- song/order editor foundation
+- instrument, volume-column, and effect-column entry
+- sample editor and instrument editor foundations
+- WAV/AIFF sample import and XI instrument import target
+- copy/paste rows, selections, instruments, and samples
+- copy/import instruments or samples from loaded modules into blank/editable
+  songs through explicit editable-copy semantics
+- pattern insert/delete/length editing and order-table operations
+- loop-and-edit workflow for composing while hearing playback
+- save XM and export WAV/AAC
 - keyboard workflow parity
+
+Loaded modules remain read-only until editable-copy/save semantics are designed.
 
 ### Future Note Audition Path
 
@@ -447,13 +497,13 @@ audio backends. Planned sequencing is:
 
 - keep selected 1-based instrument/sample slots as editor state first
 - add the optional upper keyboard row before preview behavior
-- add note audition later using the selected instrument/sample source; the
-  editor-side request and availability seam now exists, but performs no audio
+- continue note audition using the selected instrument/sample source; the
+  editor-side request and preview sink exist for loaded-module sample payloads
 - treat key release as preview key-off only
 - keep pattern key-off as explicit `===` entry through the tracker key binding
 - allow loaded modules to become auditionable before they become editable
-- defer XI import, sample loading, instrument editor, and sample editor to later
-  milestones
+- include XI import, sample loading, instrument editor, and sample editor work
+  in the 1.0 composition path
 
 Tracker viewport work must follow `docs/tracker-behavior-spec.md`,
 `docs/ui-debugging.md`, and `docs/visual-verification.md`.
@@ -469,9 +519,9 @@ Planned scope:
 - keyboard workflow polish
 - classic tracker behavior parity fixes
 
-## Milestone 5: Modern Enhancements
+## Milestone 5: v1.x Workflow Enhancements
 
-Wait until core parity is stable.
+Wait until VTX 1.0 composition scope is stable.
 
 Potential scope:
 
@@ -479,7 +529,18 @@ Potential scope:
 - export workflow polish
 - preferences and module metadata panels
 - waveform scopes and activity visualization
-- sample/instrument editing
+- MIDI keyboard or pad input
+- recording and sample-capture improvements
+- richer resampling tools
+- plugin/audio-input to sample experiments
+
+## Future Pro / Native-Format Concepts
+
+Post-1.0 Pro or native-format work may explore live AUv3/VST-style plugin
+hosting, plugin instruments/effects, plugin-to-sample rendering, automation, a
+native VTX project format or XM3-style extended format, and AI-assisted
+instruments/samples/patterns. These are not v1.0 requirements and should not
+change classic XM compatibility assumptions.
 
 ## Ready To Expand Gate
 

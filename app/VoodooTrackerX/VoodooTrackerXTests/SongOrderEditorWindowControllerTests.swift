@@ -124,6 +124,57 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         window.close()
     }
 
+    func testRefreshPolicyAllowsOnlyVisibleIdleEditorRefresh() {
+        XCTAssertTrue(SongOrderEditorRefreshPolicy.shouldRefresh(isWindowVisible: true, isPlaybackActive: false))
+        XCTAssertFalse(SongOrderEditorRefreshPolicy.shouldRefresh(isWindowVisible: false, isPlaybackActive: false))
+        XCTAssertFalse(SongOrderEditorRefreshPolicy.shouldRefresh(isWindowVisible: true, isPlaybackActive: true))
+        XCTAssertFalse(SongOrderEditorRefreshPolicy.shouldRefresh(isWindowVisible: false, isPlaybackActive: true))
+    }
+
+    func testClosedControllerSkipsDocumentAndPlaybackLikeRefreshWork() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: (0..<96).map { min($0, 64) },
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 64, rowCount: 32),
+            ],
+            patternCount: 65
+        )
+        let initialState = SongOrderEditorDisplayState.loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 0,
+            currentPatternIndex: 0
+        )
+        let documentState = SongOrderEditorDisplayState.editableDocument(BlankTrackerDocument.makeDefault())
+        let playbackPositionState = SongOrderEditorDisplayState.loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 64,
+            currentPatternIndex: 64
+        )
+        let controller = SongOrderEditorWindowController(displayState: initialState)
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var closeCount = 0
+        controller.closeHandler = {
+            closeCount += 1
+        }
+
+        controller.showWindowAndActivate()
+        XCTAssertTrue(controller.isVisibleForRefresh)
+
+        controller.window?.close()
+        XCTAssertFalse(controller.isVisibleForRefresh)
+        XCTAssertEqual(closeCount, 1)
+
+        let rebuildCount = contentView.rebuildCount
+        let scrollCount = contentView.selectedOrderScrollCount
+
+        XCTAssertFalse(controller.applyIfVisible(displayState: documentState))
+        XCTAssertFalse(controller.applyIfVisible(displayState: playbackPositionState))
+        XCTAssertEqual(contentView.displayState, initialState)
+        XCTAssertEqual(contentView.rebuildCount, rebuildCount)
+        XCTAssertEqual(contentView.selectedOrderScrollCount, scrollCount)
+    }
+
     func testLoadedModuleDisplayStateUsesRealOrderRowsAndRowCounts() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0, 2, 5, 1],
@@ -426,6 +477,50 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertLessThan(refreshedScrollView.contentView.bounds.origin.y, 1_200)
         XCTAssertEqual(contentView.displayState.bankRangeLabel, "064-127")
         XCTAssertEqual(contentView.displayState.selectedOrderPosition, 64)
+    }
+
+    func testVisibleRefreshNoOpsUnchangedStateAndScrollsOnlyOnSelectedOrderChange() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 64, 130],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 64, rowCount: 32),
+                makePattern(index: 130, rowCount: 64),
+            ],
+            patternCount: 131
+        )
+        let selectedOrderState = SongOrderEditorDisplayState.loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 1,
+            currentPatternIndex: 64
+        )
+        let controller = SongOrderEditorWindowController(displayState: selectedOrderState)
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+
+        controller.showWindowAndActivate()
+        XCTAssertTrue(controller.isVisibleForRefresh)
+
+        let initialRebuildCount = contentView.rebuildCount
+        let initialScrollCount = contentView.selectedOrderScrollCount
+
+        XCTAssertFalse(controller.applyIfVisible(displayState: selectedOrderState))
+        XCTAssertEqual(contentView.rebuildCount, initialRebuildCount)
+        XCTAssertEqual(contentView.selectedOrderScrollCount, initialScrollCount)
+
+        XCTAssertTrue(controller.applyIfVisible(displayState: selectedOrderState.showingBank(2)))
+        XCTAssertEqual(contentView.rebuildCount, initialRebuildCount + 1)
+        XCTAssertEqual(contentView.selectedOrderScrollCount, initialScrollCount)
+
+        let nextOrderState = SongOrderEditorDisplayState.loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 2,
+            currentPatternIndex: 130
+        )
+        XCTAssertTrue(controller.applyIfVisible(displayState: nextOrderState))
+        XCTAssertEqual(contentView.rebuildCount, initialRebuildCount + 2)
+        XCTAssertEqual(contentView.selectedOrderScrollCount, initialScrollCount + 1)
+
+        controller.window?.close()
     }
 
     func testControllerApplyRefreshesFromCurrentDisplayState() throws {

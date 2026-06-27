@@ -278,8 +278,16 @@ struct SongOrderEditorDisplayState: Equatable {
 }
 
 @MainActor
-final class SongOrderEditorWindowController: NSWindowController {
+enum SongOrderEditorRefreshPolicy {
+    static func shouldRefresh(isWindowVisible: Bool, isPlaybackActive: Bool) -> Bool {
+        isWindowVisible && !isPlaybackActive
+    }
+}
+
+@MainActor
+final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegate {
     static let contentSize = NSSize(width: 660, height: 480)
+    var closeHandler: (() -> Void)?
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -306,6 +314,7 @@ final class SongOrderEditorWindowController: NSWindowController {
         panel.center()
 
         super.init(window: panel)
+        panel.delegate = self
     }
 
     @available(*, unavailable)
@@ -321,15 +330,38 @@ final class SongOrderEditorWindowController: NSWindowController {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 
-    func apply(displayState: SongOrderEditorDisplayState) {
-        (window?.contentView as? SongOrderEditorContentView)?.apply(displayState: displayState)
+    var isVisibleForRefresh: Bool {
+        guard let window else {
+            return false
+        }
+        return window.isVisible && !window.isMiniaturized
+    }
+
+    @discardableResult
+    func apply(displayState: SongOrderEditorDisplayState) -> Bool {
+        (window?.contentView as? SongOrderEditorContentView)?.apply(displayState: displayState) ?? false
+    }
+
+    @discardableResult
+    func applyIfVisible(displayState: SongOrderEditorDisplayState) -> Bool {
+        guard isVisibleForRefresh else {
+            return false
+        }
+        return apply(displayState: displayState)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        closeHandler?()
     }
 }
 
 @MainActor
 final class SongOrderEditorContentView: FlippedEditorView {
     private(set) var displayState: SongOrderEditorDisplayState
+    private(set) var rebuildCount = 0
+    private(set) var selectedOrderScrollCount = 0
     private let usedPatternFill = NSColor(srgbRed: 0x2A / 255.0, green: 0x2A / 255.0, blue: 0x10 / 255.0, alpha: 1.0)
+    private var lastScrolledSelectedOrderPosition: Int?
 
     init(frame frameRect: NSRect, displayState: SongOrderEditorDisplayState = .empty) {
         self.displayState = displayState
@@ -344,12 +376,14 @@ final class SongOrderEditorContentView: FlippedEditorView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func apply(displayState: SongOrderEditorDisplayState) {
+    @discardableResult
+    func apply(displayState: SongOrderEditorDisplayState) -> Bool {
         guard self.displayState != displayState else {
-            return
+            return false
         }
         self.displayState = displayState
         rebuildShell()
+        return true
     }
 
     @objc
@@ -367,6 +401,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func rebuildShell() {
+        rebuildCount += 1
         subviews.forEach { $0.removeFromSuperview() }
         buildShell()
     }
@@ -437,7 +472,12 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func scrollSelectedOrderRowIfNeeded(in scrollView: NSScrollView, rowHeight: CGFloat, contentHeight: CGFloat) {
-        guard let selectedIndex = displayState.orderRows.firstIndex(where: \.isSelected) else {
+        guard let selectedOrderPosition = displayState.selectedOrderPosition,
+              let selectedIndex = displayState.orderRows.firstIndex(where: \.isSelected) else {
+            lastScrolledSelectedOrderPosition = nil
+            return
+        }
+        guard selectedOrderPosition != lastScrolledSelectedOrderPosition else {
             return
         }
         let visibleHeight = scrollView.contentView.bounds.height
@@ -447,6 +487,8 @@ final class SongOrderEditorContentView: FlippedEditorView {
         let originY = min(max(0, centeredOriginY), maxOriginY)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        selectedOrderScrollCount += 1
+        lastScrolledSelectedOrderPosition = selectedOrderPosition
     }
 
     private func addOrderRow(to parent: NSView, y: CGFloat, row rowState: SongOrderEditorDisplayState.OrderRow, width: CGFloat) {

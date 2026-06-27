@@ -5,6 +5,7 @@ enum ApplicationMenuBuilder {
         static let newTrackerDocument = NSSelectorFromString("newTrackerDocument:")
         static let openModuleFile = NSSelectorFromString("openModuleFile:")
         static let play = NSSelectorFromString("playPressed:")
+        static let playCurrentPattern = NSSelectorFromString("playCurrentPatternPressed:")
         static let stop = NSSelectorFromString("stopPressed:")
         static let toggleLoop = NSSelectorFromString("loopToggled:")
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
@@ -120,6 +121,7 @@ enum ApplicationMenuBuilder {
     private static func transportMenu(target: AnyObject?) -> NSMenu {
         let menu = NSMenu(title: "Transport")
         menu.addItem(menuItem(title: "Play", action: Actions.play, keyEquivalent: "", target: target))
+        menu.addItem(menuItem(title: "Play Current Pattern", action: Actions.playCurrentPattern, keyEquivalent: "", target: target))
         menu.addItem(menuItem(title: "Stop", action: Actions.stop, keyEquivalent: "", target: target))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(menuItem(title: "Loop", action: Actions.toggleLoop, keyEquivalent: "", target: target))

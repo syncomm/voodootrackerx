@@ -119,6 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
+        case ApplicationMenuBuilder.Actions.playCurrentPattern:
+            return TrackerTransportCommandAvailability.canPlayCurrentPattern(
+                metadata: displayedMetadata,
+                currentPatternIndex: currentPatternIndex,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            )
         case ApplicationMenuBuilder.Actions.stop:
             return playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.toggleLoop:
@@ -742,6 +748,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc
+    private func playCurrentPatternPressed(_ sender: Any?) {
+        let timingSession = playbackTimingRecorder.beginLifecycle("play")
+        guard !playbackEngine.state.isPlaying,
+              TrackerTransportCommandAvailability.canPlayCurrentPattern(
+                  metadata: displayedMetadata,
+                  currentPatternIndex: currentPatternIndex,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ),
+              prepareEditablePlaybackSnapshotForPlayIfNeeded(timingSession: timingSession) else {
+            syncControlPanelView()
+            finishPlayTimingSession(timingSession, context: nil)
+            return
+        }
+        let context = measuredCurrentPatternLoopStartContext(timingSession: timingSession)
+        guard context != nil else {
+            syncControlPanelView()
+            finishPlayTimingSession(timingSession, context: nil)
+            return
+        }
+        let enginePlayStart = timingSession?.beginPhase()
+        playbackEngine.playCurrentPatternLoop(from: context, timingSession: timingSession)
+        timingSession?.recordPhase(
+            "app_delegate_play_current_pattern_to_playback_engine",
+            startedAt: enginePlayStart,
+            fields: [PlaybackTimingTraceField("is_playing_after", playbackEngine.state.isPlaying)]
+        )
+        let controlPanelStart = timingSession?.beginPhase()
+        syncControlPanelView()
+        timingSession?.recordPhase("control_panel_sync_after_play_current_pattern", startedAt: controlPanelStart)
+        finishPlayTimingSession(timingSession, context: context)
+    }
+
+    @objc
     private func stopPressed(_ sender: Any?) {
         playbackEngine.stop()
         syncControlPanelView()
@@ -937,11 +976,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
+    private func currentPatternLoopStartContext() -> PlaybackStartContext? {
+        guard let metadata = displayedMetadata else {
+            return nil
+        }
+        return TrackerPlaybackStartContextResolver.currentPatternLoopContext(
+            metadata: metadata,
+            selectedSongPositionIndex: selectedSongPositionIndex,
+            displayedPatternIndex: currentPatternIndex
+        )
+    }
+
     private func measuredPlaybackStartContext(timingSession: PlaybackTimingTraceSession?) -> PlaybackStartContext? {
         let start = timingSession?.beginPhase()
         let context = currentPlaybackStartContext()
         timingSession?.recordPhase(
             "app_play_start_context_resolution",
+            startedAt: start,
+            fields: PlaybackTimingTraceFields.playbackStartContext(context)
+        )
+        return context
+    }
+
+    private func measuredCurrentPatternLoopStartContext(timingSession: PlaybackTimingTraceSession?) -> PlaybackStartContext? {
+        let start = timingSession?.beginPhase()
+        let context = currentPatternLoopStartContext()
+        timingSession?.recordPhase(
+            "app_play_current_pattern_context_resolution",
             startedAt: start,
             fields: PlaybackTimingTraceFields.playbackStartContext(context)
         )

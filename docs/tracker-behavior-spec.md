@@ -274,6 +274,16 @@ Record Mode
 
 ---
 
+# Transport Pattern Playback
+
+Normal Play starts song playback from the selected POS/order.
+
+Play Current Pattern starts the displayed/selected pattern from row 0 as an
+isolated loop. It must not assign that pattern into the order table, reset the
+selected POS/order, or change pattern data.
+
+---
+
 # Rendering Performance
 
 The pattern editor must remain smooth even with:

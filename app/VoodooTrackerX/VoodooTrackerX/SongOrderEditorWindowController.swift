@@ -400,6 +400,26 @@ enum SongOrderEditorNavigation {
 }
 
 enum TrackerPlaybackStartContextResolver {
+    static func currentPatternLoopContext(
+        metadata: ParsedModuleMetadata,
+        selectedSongPositionIndex: Int,
+        displayedPatternIndex: Int
+    ) -> PlaybackStartContext? {
+        guard metadata.xmPattern(index: displayedPatternIndex) != nil else {
+            return nil
+        }
+        let orderCount = min(max(0, metadata.songLength), metadata.orderTable.count)
+        let orderPosition = orderCount > 0
+            ? min(max(0, selectedSongPositionIndex), orderCount - 1)
+            : max(0, selectedSongPositionIndex)
+        return PlaybackStartContext(
+            moduleTitle: metadata.title.isEmpty ? nil : metadata.title,
+            songPosition: orderPosition,
+            patternIndex: displayedPatternIndex,
+            row: 0
+        )
+    }
+
     static func normalPlayContext(
         metadata: ParsedModuleMetadata,
         selectedSongPositionIndex: Int,
@@ -426,6 +446,20 @@ enum TrackerPlaybackStartContextResolver {
             patternIndex: playbackPatternIndex,
             row: row
         )
+    }
+}
+
+enum TrackerTransportCommandAvailability {
+    static func canPlayCurrentPattern(
+        metadata: ParsedModuleMetadata?,
+        currentPatternIndex: Int,
+        isPlaybackActive: Bool
+    ) -> Bool {
+        guard !isPlaybackActive,
+              let metadata else {
+            return false
+        }
+        return metadata.xmPattern(index: currentPatternIndex) != nil
     }
 }
 

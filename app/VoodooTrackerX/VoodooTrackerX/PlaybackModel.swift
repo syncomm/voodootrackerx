@@ -352,6 +352,42 @@ struct PlaybackSong: Equatable {
         return position(orderIndex: order.orderIndex, rowIndex: rowIndex)
     }
 
+    func isolatedPatternLoopSong(patternIndex: Int, anchorOrderIndex: Int) -> PlaybackSong? {
+        guard let targetPattern = patternsByIndex[patternIndex] else {
+            return nil
+        }
+        let safeAnchorOrderIndex = max(0, anchorOrderIndex)
+        let playableTargetPattern = targetPattern.rows.isEmpty
+            ? PlaybackPattern(index: targetPattern.index, rows: [emptyPlaybackRow(index: 0, matching: targetPattern)])
+            : targetPattern
+        let placeholderPatternIndex = unusedPatternIndex(excluding: patternIndex)
+        let placeholderPattern = PlaybackPattern(
+            index: placeholderPatternIndex,
+            rows: [emptyPlaybackRow(index: 0, matching: playableTargetPattern)]
+        )
+        var isolatedPatterns = patternsByIndex
+        isolatedPatterns[playableTargetPattern.index] = playableTargetPattern
+        if safeAnchorOrderIndex > 0 {
+            isolatedPatterns[placeholderPatternIndex] = placeholderPattern
+        }
+        let isolatedOrders = (0...safeAnchorOrderIndex).map { orderIndex in
+            PlaybackOrderEntry(
+                orderIndex: orderIndex,
+                patternIndex: orderIndex == safeAnchorOrderIndex ? patternIndex : placeholderPatternIndex
+            )
+        }
+        return PlaybackSong(
+            title: title,
+            orders: isolatedOrders,
+            patternsByIndex: isolatedPatterns,
+            instrumentsByIndex: instrumentsByIndex,
+            restartOrderIndex: safeAnchorOrderIndex,
+            endBehavior: .stopAtEnd,
+            initialTiming: initialTiming,
+            usesLinearFrequencyTable: usesLinearFrequencyTable
+        )
+    }
+
     func patternLoopRange(containing position: PlaybackPosition) -> PlaybackPatternLoopRange? {
         guard orders.indices.contains(position.orderIndex) else {
             return nil
@@ -377,6 +413,25 @@ struct PlaybackSong: Equatable {
             ),
             rowCount: pattern.rows.count
         )
+    }
+
+    private func emptyPlaybackRow(index: Int, matching pattern: PlaybackPattern) -> PlaybackRow {
+        let channelCount = max(1, pattern.rows.first?.cells.count ?? 1)
+        return PlaybackRow(
+            index: index,
+            cells: Array(
+                repeating: PlaybackCell(note: 0, instrument: 0, volumeColumn: 0, effectType: 0, effectParam: 0),
+                count: channelCount
+            )
+        )
+    }
+
+    private func unusedPatternIndex(excluding patternIndex: Int) -> Int {
+        var candidate = max(patternIndex, patternsByIndex.keys.max() ?? patternIndex) + 1
+        while patternsByIndex[candidate] != nil {
+            candidate += 1
+        }
+        return candidate
     }
 
     func position(after position: PlaybackPosition) -> PlaybackStepResult {

@@ -48,11 +48,12 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         let transportMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "Transport"))
 
         XCTAssertEqual(transportMenu.item(withTitle: "Play")?.action, ApplicationMenuBuilder.Actions.play)
+        XCTAssertEqual(transportMenu.item(withTitle: "Play Current Pattern")?.action, ApplicationMenuBuilder.Actions.playCurrentPattern)
         XCTAssertEqual(transportMenu.item(withTitle: "Stop")?.action, ApplicationMenuBuilder.Actions.stop)
         XCTAssertEqual(transportMenu.item(withTitle: "Loop")?.action, ApplicationMenuBuilder.Actions.toggleLoop)
         XCTAssertEqual(transportMenu.item(withTitle: "Edit Mode")?.action, ApplicationMenuBuilder.Actions.toggleEditMode)
 
-        for title in ["Play", "Stop", "Loop", "Edit Mode"] {
+        for title in ["Play", "Play Current Pattern", "Stop", "Loop", "Edit Mode"] {
             XCTAssertEqual(transportMenu.item(withTitle: title)?.keyEquivalent, "")
         }
     }

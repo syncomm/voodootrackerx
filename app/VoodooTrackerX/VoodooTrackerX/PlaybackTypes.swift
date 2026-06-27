@@ -124,6 +124,7 @@ struct PlaybackState: Equatable {
 
 enum PlaybackTransportAction: Equatable {
     case play
+    case playCurrentPattern
     case stop
     case pause
     case togglePlayPause
@@ -134,6 +135,8 @@ enum PlaybackTransportAction: Equatable {
         switch self {
         case .play:
             return "play"
+        case .playCurrentPattern:
+            return "playCurrentPattern"
         case .stop:
             return "stop"
         case .pause:

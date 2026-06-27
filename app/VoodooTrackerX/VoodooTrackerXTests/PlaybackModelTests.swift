@@ -111,6 +111,32 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertEqual(song.instrumentsByIndex[1]?.firstPlayableSample?.name, "BOUNDARY64")
     }
 
+    func testIsolatedPatternLoopSongAnchorsDisplayedPatternAtSelectedOrderWithoutMutatingSourceSong() throws {
+        let sourceSong = makePlaybackSong(
+            orderPatternIndices: [3, 7],
+            patternRowCounts: [3: 4, 7: 4, 42: 8],
+            note: 49,
+            instrument: 1
+        )
+        let before = sourceSong
+
+        let isolatedSong = try XCTUnwrap(sourceSong.isolatedPatternLoopSong(patternIndex: 42, anchorOrderIndex: 1))
+        let playbackRange = try XCTUnwrap(isolatedSong.patternLoopRange(containing: PlaybackPosition(
+            orderIndex: 1,
+            patternIndex: 42,
+            rowIndex: 0
+        )))
+
+        XCTAssertEqual(sourceSong, before)
+        XCTAssertEqual(isolatedSong.orders.count, 2)
+        XCTAssertEqual(isolatedSong.orders[1], PlaybackOrderEntry(orderIndex: 1, patternIndex: 42))
+        XCTAssertNotEqual(isolatedSong.orders[0].patternIndex, 42)
+        XCTAssertEqual(playbackRange.orderIndex, 1)
+        XCTAssertEqual(playbackRange.patternIndex, 42)
+        XCTAssertEqual(playbackRange.rowCount, 8)
+        XCTAssertEqual(isolatedSong.row(at: PlaybackPosition(orderIndex: 1, patternIndex: 42, rowIndex: 0))?.cells[0].note, 49)
+    }
+
     func testPatternLoopTransportBoundaryIdentifiesGeneratedFixtureOrderRanges() throws {
         let fixtureURL = try referenceXMFixtureURL("generated/multi-pattern-loop-boundary.xm")
         let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)

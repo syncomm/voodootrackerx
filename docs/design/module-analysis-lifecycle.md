@@ -186,6 +186,17 @@ gain/headroom, add runtime auto-headroom, move work from load to Play, or alter
 playback, C mixer DSP, scheduling, parser, tracker viewport, editor, note
 audition, or control panel behavior.
 
+Adjacent-sample jump counters are raw same-channel sample-delta telemetry.
+They are useful for finding transient-heavy windows, but they can legitimately
+increase for percussion, retriggers, or sharp sample content and do not by
+themselves prove a click/pop. The stricter `output_discontinuity_count` is the
+continuity warning counter: a nonzero value should trigger focused
+investigation and listening. Clipping and overrange counters are a separate
+output-level family and should not be conflated with continuity. The derived
+`continuity_status` (`clean`, `watch`, `possible_discontinuity`) and
+`output_level_status` (`clean`, `level_concern`) fields summarize those
+existing counters without hiding the raw values or changing thresholds.
+
 Current invalidation is coarse:
 
 - Loading another module or File New calls `PlaybackEngine.load(song:)`, which

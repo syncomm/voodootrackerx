@@ -122,6 +122,14 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Runtime mixer adjacent-jump diagnostics now have explicit documented
+  semantics and derived stop-summary status fields. Raw adjacent-jump counts
+  remain unchanged and are watch telemetry for normal transients unless paired
+  with listening/comparison evidence; nonzero stricter discontinuity counts
+  indicate possible continuity concern, while clipping/overrange remains a
+  separate output-level concern. No playback behavior, C mixer DSP, parser,
+  tracker viewport, editor, note audition, control panel, or release workflow
+  changed.
 - Loaded-module TIME now derives from the existing cached/prewarmed
   `RuntimeCMixerAdapterEventPlan` planned song-end frame and plan sample rate.
   Load and File New clear stale TIME to `--:--`; async prewarm or first Play

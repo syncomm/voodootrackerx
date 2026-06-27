@@ -562,6 +562,55 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertFalse(line.contains("private-local-title"))
     }
 
+    func testRuntimeMixerMetricsContinuityClassificationTreatsAdjacentJumpsAsWatch() {
+        XCTAssertEqual(
+            RuntimeMixerMetricsClassification.continuityStatus(
+                outputDiscontinuityCount: 0,
+                adjacentJumpCountGT025: 3,
+                maxOutputAdjacentSampleJump: 0.42
+            ),
+            "watch"
+        )
+    }
+
+    func testRuntimeMixerMetricsContinuityClassificationTreatsDiscontinuitiesAsConcern() {
+        XCTAssertEqual(
+            RuntimeMixerMetricsClassification.continuityStatus(
+                outputDiscontinuityCount: 1,
+                adjacentJumpCountGT025: 3,
+                maxOutputAdjacentSampleJump: 0.9
+            ),
+            "possible_discontinuity"
+        )
+    }
+
+    func testRuntimeMixerMetricsLevelClassificationIsSeparateFromContinuity() {
+        XCTAssertEqual(
+            RuntimeMixerMetricsClassification.continuityStatus(
+                outputDiscontinuityCount: 0,
+                adjacentJumpCountGT025: 0,
+                maxOutputAdjacentSampleJump: 0.1
+            ),
+            "clean"
+        )
+        XCTAssertEqual(
+            RuntimeMixerMetricsClassification.outputLevelStatus(
+                overrangeSampleCount: 2,
+                clippingSampleCount: 0,
+                clippingDetected: false
+            ),
+            "level_concern"
+        )
+        XCTAssertEqual(
+            RuntimeMixerMetricsClassification.outputLevelStatus(
+                overrangeSampleCount: 0,
+                clippingSampleCount: 0,
+                clippingDetected: false
+            ),
+            "clean"
+        )
+    }
+
     @MainActor
     func testRuntimeMixerMetricsTraceDisabledWriterEmitsNoStopSummary() {
         let writer = TestRuntimeMixerMetricsTraceWriter(isEnabled: false)
@@ -618,7 +667,13 @@ final class RuntimeCMixerTests: XCTestCase {
         XCTAssertEqual(fields["overrange_sample_count"], "0")
         XCTAssertEqual(fields["clipping_sample_count"], "0")
         XCTAssertEqual(fields["clipping_detected"], "false")
+        XCTAssertNotNil(fields["output_discontinuity_count"])
+        XCTAssertNotNil(fields["adjacent_jump_count_gt_0_25"])
+        XCTAssertNotNil(fields["adjacent_jump_count_gt_0_35"])
+        XCTAssertNotNil(fields["adjacent_jump_count_gt_0_50"])
         XCTAssertNotNil(fields["max_output_adjacent_sample_jump"])
+        XCTAssertNotNil(fields["continuity_status"])
+        XCTAssertEqual(fields["output_level_status"], "clean")
         XCTAssertEqual(fields["runtime_output_gain"], "0.500000")
         XCTAssertEqual(fields["runtime_headroom_policy"], "test_runtime_headroom")
         XCTAssertEqual(fields["runtime_fixed_headroom_db"], "-6.000000")

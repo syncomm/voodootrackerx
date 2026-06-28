@@ -23,8 +23,8 @@ VoodooTracker X currently has:
   module editable-copy palette reuse, pattern-loop playback at Play start,
   Transport > Play Current Pattern for explicit current-pattern loop playback,
   and the Song / Order editor order-list / paginated pattern-bank binding with
-  stopped selected-order navigation and editable Pattern Bank double-click
-  assignment
+  stopped selected-order navigation, editable Pattern Bank double-click
+  assignment, and stopped editable order-slot insert/delete controls
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -84,6 +84,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor ORDER OPS INSERT and DELETE controls now mutate only
+  stopped editable document order slots. Insert adds a new slot after the
+  selected order using the selected slot's existing pattern reference; Delete
+  removes the selected slot without deleting pattern, instrument, or sample
+  data and keeps at least one valid order slot. Loaded modules and active
+  playback remain read-only/no-op, with no transport, runtime audio, parser,
+  save/export, sample editor, or instrument editor changes.
 - Transport > Play Current Pattern now starts the displayed/selected pattern
   from row 0 as an isolated loop through the existing
   `RuntimeCMixerAdapterEventPlan` runtime path. Normal Play still starts from

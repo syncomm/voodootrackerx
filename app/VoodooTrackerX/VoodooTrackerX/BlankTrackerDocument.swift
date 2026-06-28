@@ -954,6 +954,86 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
+    mutating func insertOrderAfterSelected() -> Bool {
+        let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
+        guard effectiveOrderTable.indices.contains(currentPosition),
+              let patternIndex = safeExistingPatternIndex(preferredPatternIndex: effectiveOrderTable[currentPosition]) else {
+            return false
+        }
+
+        var updatedOrderTable = effectiveOrderTable
+        let insertedPosition = currentPosition + 1
+        updatedOrderTable.insert(patternIndex, at: insertedPosition)
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: updatedOrderTable.count,
+            currentPosition: insertedPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: updatedOrderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: patterns
+        )
+        return true
+    }
+
+    mutating func deleteSelectedOrder() -> Bool {
+        let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
+        guard effectiveOrderTable.indices.contains(currentPosition) else {
+            return false
+        }
+
+        guard effectiveOrderTable.count > 1 else {
+            guard let patternIndex = safeExistingPatternIndex(preferredPatternIndex: effectiveOrderTable.first) else {
+                return false
+            }
+            guard songLength != 1 ||
+                orderTable != [patternIndex] ||
+                currentPosition != 0 ||
+                currentPatternIndex != patternIndex else {
+                return false
+            }
+            self = BlankTrackerDocument(
+                title: title,
+                songLength: 1,
+                currentPosition: 0,
+                restartPosition: restartPosition,
+                currentPatternIndex: patternIndex,
+                tempo: tempo,
+                speed: speed,
+                orderTable: [patternIndex],
+                selection: selection,
+                instrumentPalette: instrumentPalette,
+                patterns: patterns
+            )
+            return true
+        }
+
+        var updatedOrderTable = effectiveOrderTable
+        updatedOrderTable.remove(at: currentPosition)
+        let selectedPosition = min(currentPosition, updatedOrderTable.count - 1)
+        guard let patternIndex = safeExistingPatternIndex(preferredPatternIndex: updatedOrderTable[selectedPosition]) else {
+            return false
+        }
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: updatedOrderTable.count,
+            currentPosition: selectedPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: updatedOrderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: patterns
+        )
+        return true
+    }
+
     mutating func clearSongData() {
         let currentPattern = pattern
         let blankPattern = Self.makeEmptyPattern(
@@ -974,6 +1054,15 @@ struct BlankTrackerDocument: Equatable {
             instrumentPalette: instrumentPalette,
             patterns: [blankPattern]
         )
+    }
+
+    private func safeExistingPatternIndex(preferredPatternIndex: Int?) -> Int? {
+        let existingPatternIndices = Set(patterns.map(\.index))
+        for candidate in [preferredPatternIndex, currentPatternIndex, Self.defaultPatternIndex].compactMap(\.self)
+            where existingPatternIndices.contains(candidate) {
+            return candidate
+        }
+        return existingPatternIndices.sorted().first
     }
 
     private var selectedInstrumentDisplay: ControlPanelSlotDisplay {

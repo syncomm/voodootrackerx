@@ -66,7 +66,8 @@ struct SongOrderEditorDisplayState: Equatable {
         usedPatternIndices: [],
         selectedOrderPosition: nil,
         selectedPatternIndex: nil,
-        hasDocumentState: false
+        hasDocumentState: false,
+        isOrderMutationEnabled: false
     )
 
     let orderRows: [OrderRow]
@@ -80,6 +81,7 @@ struct SongOrderEditorDisplayState: Equatable {
     let selectedOrderPosition: Int?
     let selectedPatternIndex: Int?
     let hasDocumentState: Bool
+    let isOrderMutationEnabled: Bool
 
     static func loadedModule(
         metadata: ParsedModuleMetadata,
@@ -105,13 +107,15 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedOrderPosition: selectedOrderPosition,
             currentPatternIndex: currentPatternIndex,
             requestedBankIndex: requestedBankIndex,
-            hasDocumentState: true
+            hasDocumentState: true,
+            isOrderMutationEnabled: false
         )
     }
 
     static func editableDocument(
         _ document: BlankTrackerDocument,
-        requestedBankIndex: Int? = nil
+        requestedBankIndex: Int? = nil,
+        isOrderMutationEnabled: Bool = true
     ) -> SongOrderEditorDisplayState {
         let rowCounts = document.patterns.reduce(into: [Int: Int]()) { partialResult, pattern in
             partialResult[pattern.index] = pattern.rowCount
@@ -127,7 +131,8 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedOrderPosition: document.currentPosition,
             currentPatternIndex: document.currentPatternIndex,
             requestedBankIndex: requestedBankIndex,
-            hasDocumentState: true
+            hasDocumentState: true,
+            isOrderMutationEnabled: isOrderMutationEnabled
         )
     }
 
@@ -155,7 +160,8 @@ struct SongOrderEditorDisplayState: Equatable {
             usedPatternIndices: usedPatternIndices,
             selectedOrderPosition: selectedOrderPosition,
             selectedPatternIndex: selectedPatternIndex,
-            hasDocumentState: hasDocumentState
+            hasDocumentState: hasDocumentState,
+            isOrderMutationEnabled: isOrderMutationEnabled
         )
     }
 
@@ -166,7 +172,8 @@ struct SongOrderEditorDisplayState: Equatable {
         selectedOrderPosition: Int,
         currentPatternIndex: Int?,
         requestedBankIndex: Int? = nil,
-        hasDocumentState: Bool
+        hasDocumentState: Bool,
+        isOrderMutationEnabled: Bool
     ) -> SongOrderEditorDisplayState {
         let selected = normalizedSelectedOrderPosition(selectedOrderPosition, orderCount: orderPatternIndices.count)
         let usedPatternIndices = Set(orderPatternIndices.filter { $0 >= 0 })
@@ -207,7 +214,8 @@ struct SongOrderEditorDisplayState: Equatable {
             usedPatternIndices: usedPatternIndices,
             selectedOrderPosition: selected,
             selectedPatternIndex: currentPatternIndex,
-            hasDocumentState: hasDocumentState
+            hasDocumentState: hasDocumentState,
+            isOrderMutationEnabled: isOrderMutationEnabled && selected != nil
         )
     }
 
@@ -359,6 +367,34 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
+    static func editableDocumentInsertingOrderAfterSelected(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.insertOrderAfterSelected() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocumentDeletingSelectedOrder(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.deleteSelectedOrder() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
     static func editableDocument(
         _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
@@ -489,6 +525,16 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
         }
     }
+    var onInsertOrderAfterSelected: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onInsertOrderAfterSelected = onInsertOrderAfterSelected
+        }
+    }
+    var onDeleteSelectedOrder: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onDeleteSelectedOrder = onDeleteSelectedOrder
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -546,6 +592,8 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onOrderSelected = onOrderSelected
         contentView.onPatternSelected = onPatternSelected
         contentView.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
+        contentView.onInsertOrderAfterSelected = onInsertOrderAfterSelected
+        contentView.onDeleteSelectedOrder = onDeleteSelectedOrder
         return contentView.apply(displayState: displayState)
     }
 
@@ -567,6 +615,8 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onOrderSelected: ((Int) -> Void)?
     var onPatternSelected: ((Int) -> Void)?
     var onPatternDoubleClickedForAssignment: ((Int) -> Void)?
+    var onInsertOrderAfterSelected: (() -> Void)?
+    var onDeleteSelectedOrder: (() -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -604,6 +654,22 @@ final class SongOrderEditorContentView: FlippedEditorView {
     @objc
     private func showNextBank(_ sender: Any?) {
         showBank(displayState.bankIndex + 1)
+    }
+
+    @objc
+    private func insertOrderAfterSelected(_ sender: Any?) {
+        guard displayState.isOrderMutationEnabled else {
+            return
+        }
+        onInsertOrderAfterSelected?()
+    }
+
+    @objc
+    private func deleteSelectedOrder(_ sender: Any?) {
+        guard displayState.isOrderMutationEnabled else {
+            return
+        }
+        onDeleteSelectedOrder?()
     }
 
     private func showBank(_ bankIndex: Int) {
@@ -798,10 +864,28 @@ final class SongOrderEditorContentView: FlippedEditorView {
 
     private func buildOrderOpsPanel(_ panel: NSView) {
         var x: CGFloat = 10
-        for (title, width) in [("+ INSERT", 84), ("⌫ DELETE", 84), ("⧉ DUP", 66)] {
-            addButton(title, to: panel, frame: NSRect(x: x, y: 31, width: CGFloat(width), height: 25))
-            x += CGFloat(width + 6)
-        }
+        addButton(
+            "+ INSERT",
+            to: panel,
+            frame: NSRect(x: x, y: 31, width: 84, height: 25),
+            target: displayState.isOrderMutationEnabled ? self : nil,
+            action: displayState.isOrderMutationEnabled ? #selector(insertOrderAfterSelected(_:)) : nil,
+            isEnabled: displayState.isOrderMutationEnabled,
+            toolTip: displayState.isOrderMutationEnabled ? "Insert order slot after selected slot" : "Order insert unavailable"
+        )
+        x += 90
+        addButton(
+            "⌫ DELETE",
+            to: panel,
+            frame: NSRect(x: x, y: 31, width: 84, height: 25),
+            target: displayState.isOrderMutationEnabled ? self : nil,
+            action: displayState.isOrderMutationEnabled ? #selector(deleteSelectedOrder(_:)) : nil,
+            isEnabled: displayState.isOrderMutationEnabled,
+            toolTip: displayState.isOrderMutationEnabled ? "Delete selected order slot" : "Order delete unavailable"
+        )
+        x += 90
+        addButton("⧉ DUP", to: panel, frame: NSRect(x: x, y: 31, width: 66, height: 25))
+        x += 72
         x += 10
         addSeparator(to: panel, x: x, y: 34)
         x += 18

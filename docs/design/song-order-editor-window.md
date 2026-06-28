@@ -127,7 +127,8 @@ inside the bank grid (keep it a label/state grid); no cross-module pattern impor
 - Selecting a slot binds all Order Ops and Pattern −/+ to that slot; Insert places a new slot after
   the selection and selects it; Delete selects the previous slot.
 - Pattern −/+ and the bank grid edit the **selected slot's** pattern reference; they never create a
-  pattern (use New Pattern for that).
+  pattern (use New Pattern for that). Pattern −/+ step to the next lower/higher allocated pattern,
+  skipping gaps; they do not allocate missing pattern numbers.
 - Transport actions here drive the same engine as the main window — no second playback path.
 - Clear Song is a deliberate danger action; it must provably preserve the instrument and sample
   tables.

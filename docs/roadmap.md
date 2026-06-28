@@ -317,6 +317,11 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Song / Order editor ORDER OPS PTN -/+ now mutate only the selected stopped
+  editable document order slot's pattern reference. The controls step to the
+  next lower/higher allocated pattern, skip sparse gaps without allocation,
+  preserve selected POS, and update the displayed pattern plus Pattern Bank
+  highlight/page. Loaded modules and active playback remain read-only/no-op.
 - Song / Order editor Pattern Ops DUP and CLEAR now mutate only stopped
   editable document patterns. DUP creates/views a copied unassigned pattern
   without assigning it to the selected order slot, and CLEAR empties the

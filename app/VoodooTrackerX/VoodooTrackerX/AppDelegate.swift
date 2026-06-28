@@ -287,6 +287,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onMoveSelectedOrderDown = { [weak self] in
             self?.moveSongOrderEditorSelectedOrderDown()
         }
+        controller.onStepSelectedOrderPattern = { [weak self] delta in
+            self?.stepSongOrderEditorSelectedOrderPattern(delta: delta)
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -487,6 +490,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentMovingSelectedOrderDown(
                   document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func stepSongOrderEditorSelectedOrderPattern(delta: Int) {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentSteppingSelectedOrderPattern(
+                  document,
+                  delta: delta,
                   isPlaybackActive: playbackEngine.state.isPlaying
               ) else {
             return

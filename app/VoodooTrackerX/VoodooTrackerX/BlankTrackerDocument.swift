@@ -987,6 +987,33 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
+    mutating func stepSelectedOrderPattern(delta: Int) -> Bool {
+        guard delta != 0 else {
+            return false
+        }
+        let effectiveOrderCount = min(max(0, songLength), orderTable.count)
+        guard currentPosition >= 0,
+              currentPosition < effectiveOrderCount else {
+            return false
+        }
+        let selectedPatternIndex = orderTable[currentPosition]
+        let allocatedPatternIndices = Array(Set(patterns.map(\.index))).sorted()
+        guard allocatedPatternIndices.contains(selectedPatternIndex) else {
+            return false
+        }
+
+        let targetPatternIndex: Int?
+        if delta < 0 {
+            targetPatternIndex = allocatedPatternIndices.last { $0 < selectedPatternIndex }
+        } else {
+            targetPatternIndex = allocatedPatternIndices.first { $0 > selectedPatternIndex }
+        }
+        guard let targetPatternIndex else {
+            return false
+        }
+        return assignPatternToSelectedOrder(targetPatternIndex)
+    }
+
     mutating func createBlankPatternAndSelectForEditing() -> Bool {
         guard let newPatternIndex = nextUnusedPatternIndex() else {
             return false

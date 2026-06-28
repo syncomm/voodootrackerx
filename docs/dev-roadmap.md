@@ -24,8 +24,9 @@ VoodooTracker X currently has:
   Transport > Play Current Pattern for explicit current-pattern loop playback,
   and the Song / Order editor order-list / paginated pattern-bank binding with
   stopped selected-order navigation, editable Pattern Bank double-click
-  assignment, stopped editable order-slot insert/delete controls, and stopped
-  editable Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
+  assignment, stopped editable order-slot insert/delete controls, stopped
+  editable ORDER OPS PTN -/+ pattern-reference stepping, and stopped editable
+  Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
   clear-current-pattern mutation
 
 The app is still under active development and is not production-ready. VTX 1.0
@@ -86,6 +87,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor ORDER OPS PTN -/+ controls now mutate only the
+  selected stopped editable document order slot's pattern reference. They step
+  to the next lower/higher allocated pattern, skipping gaps without allocating
+  missing pattern numbers, preserve selected POS, update the displayed pattern
+  and Pattern Bank highlight/page, and keep loaded modules plus active playback
+  read-only/no-op.
 - The Song / Order editor Pattern Ops DUP and CLEAR controls now mutate only
   stopped editable document patterns. DUP creates/views a copied unassigned
   pattern without changing selected POS or order references, and CLEAR empties

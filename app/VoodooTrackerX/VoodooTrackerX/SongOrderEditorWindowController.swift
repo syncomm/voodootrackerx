@@ -113,6 +113,14 @@ struct SongOrderEditorDisplayState: Equatable {
         return selectedOrderPosition < orderRows.count - 1
     }
 
+    var isStepSelectedOrderPatternDownEnabled: Bool {
+        isSelectedOrderPatternStepEnabled(direction: -1)
+    }
+
+    var isStepSelectedOrderPatternUpEnabled: Bool {
+        isSelectedOrderPatternStepEnabled(direction: 1)
+    }
+
     static func loadedModule(
         metadata: ParsedModuleMetadata,
         selectedOrderPosition: Int,
@@ -316,6 +324,19 @@ struct SongOrderEditorDisplayState: Equatable {
         }
         return min(max(0, value), orderCount - 1)
     }
+
+    private func isSelectedOrderPatternStepEnabled(direction: Int) -> Bool {
+        guard isOrderMutationEnabled,
+              direction != 0,
+              let selectedOrderPatternIndex = orderRows.first(where: \.isSelected)?.patternIndex,
+              existingPatternIndices.contains(selectedOrderPatternIndex) else {
+            return false
+        }
+        if direction < 0 {
+            return existingPatternIndices.contains { $0 < selectedOrderPatternIndex }
+        }
+        return existingPatternIndices.contains { $0 > selectedOrderPatternIndex }
+    }
 }
 
 struct SongOrderEditorNavigationResult: Equatable {
@@ -512,6 +533,21 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
+    static func editableDocumentSteppingSelectedOrderPattern(
+        _ document: BlankTrackerDocument,
+        delta: Int,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.stepSelectedOrderPattern(delta: delta) else {
+            return nil
+        }
+        return updatedDocument
+    }
+
     static func editableDocument(
         _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
@@ -682,6 +718,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onMoveSelectedOrderDown = onMoveSelectedOrderDown
         }
     }
+    var onStepSelectedOrderPattern: ((Int) -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onStepSelectedOrderPattern = onStepSelectedOrderPattern
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -747,6 +788,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onDuplicateSelectedOrder = onDuplicateSelectedOrder
         contentView.onMoveSelectedOrderUp = onMoveSelectedOrderUp
         contentView.onMoveSelectedOrderDown = onMoveSelectedOrderDown
+        contentView.onStepSelectedOrderPattern = onStepSelectedOrderPattern
         return contentView.apply(displayState: displayState)
     }
 
@@ -776,6 +818,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onDuplicateSelectedOrder: (() -> Void)?
     var onMoveSelectedOrderUp: (() -> Void)?
     var onMoveSelectedOrderDown: (() -> Void)?
+    var onStepSelectedOrderPattern: ((Int) -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -853,6 +896,22 @@ final class SongOrderEditorContentView: FlippedEditorView {
             return
         }
         onMoveSelectedOrderDown?()
+    }
+
+    @objc
+    private func stepSelectedOrderPatternDown(_ sender: Any?) {
+        guard displayState.isStepSelectedOrderPatternDownEnabled else {
+            return
+        }
+        onStepSelectedOrderPattern?(-1)
+    }
+
+    @objc
+    private func stepSelectedOrderPatternUp(_ sender: Any?) {
+        guard displayState.isStepSelectedOrderPatternUpEnabled else {
+            return
+        }
+        onStepSelectedOrderPattern?(1)
     }
 
     @objc
@@ -1154,8 +1213,26 @@ final class SongOrderEditorContentView: FlippedEditorView {
         addSeparator(to: panel, x: x, y: 34)
         x += 24
         addLabel("PTN", to: panel, frame: NSRect(x: x, y: 37, width: 24, height: 14), color: VTXEditorControlTheme.accentGold, size: 9, weight: .bold)
-        addButton("-", to: panel, frame: NSRect(x: x + 25, y: 31, width: 28, height: 25))
-        addButton("+", to: panel, frame: NSRect(x: x + 57, y: 31, width: 28, height: 25))
+        let stepDownEnabled = displayState.isStepSelectedOrderPatternDownEnabled
+        addButton(
+            "-",
+            to: panel,
+            frame: NSRect(x: x + 25, y: 31, width: 28, height: 25),
+            target: stepDownEnabled ? self : nil,
+            action: stepDownEnabled ? #selector(stepSelectedOrderPatternDown(_:)) : nil,
+            isEnabled: stepDownEnabled,
+            toolTip: stepDownEnabled ? "Assign previous allocated pattern to selected order slot" : "Previous allocated pattern unavailable"
+        )
+        let stepUpEnabled = displayState.isStepSelectedOrderPatternUpEnabled
+        addButton(
+            "+",
+            to: panel,
+            frame: NSRect(x: x + 57, y: 31, width: 28, height: 25),
+            target: stepUpEnabled ? self : nil,
+            action: stepUpEnabled ? #selector(stepSelectedOrderPatternUp(_:)) : nil,
+            isEnabled: stepUpEnabled,
+            toolTip: stepUpEnabled ? "Assign next allocated pattern to selected order slot" : "Next allocated pattern unavailable"
+        )
     }
 
     private func buildDangerPanel(_ panel: NSView) {

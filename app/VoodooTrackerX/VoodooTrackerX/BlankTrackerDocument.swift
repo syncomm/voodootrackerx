@@ -954,6 +954,37 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
+    mutating func createBlankPatternAndSelectForEditing() -> Bool {
+        guard let newPatternIndex = nextUnusedPatternIndex() else {
+            return false
+        }
+
+        let sourcePattern = pattern
+        let newPattern = Self.makeEmptyPattern(
+            index: newPatternIndex,
+            rowCount: sourcePattern.rowCount,
+            channels: sourcePattern.channels
+        )
+        var updatedPatterns = patterns
+        updatedPatterns.append(newPattern)
+        updatedPatterns.sort { $0.index < $1.index }
+
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: newPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: updatedPatterns
+        )
+        return true
+    }
+
     mutating func insertOrderAfterSelected() -> Bool {
         let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
         guard effectiveOrderTable.indices.contains(currentPosition),
@@ -1063,6 +1094,24 @@ struct BlankTrackerDocument: Equatable {
             return candidate
         }
         return existingPatternIndices.sorted().first
+    }
+
+    private func nextUnusedPatternIndex() -> Int? {
+        let existingPatternIndices = Set(patterns.map(\.index).filter { $0 >= 0 })
+        guard let highestPatternIndex = existingPatternIndices.max() else {
+            return Self.defaultPatternIndex
+        }
+        guard highestPatternIndex < Int.max else {
+            return nil
+        }
+        var candidate = highestPatternIndex + 1
+        while existingPatternIndices.contains(candidate) {
+            guard candidate < Int.max else {
+                return nil
+            }
+            candidate += 1
+        }
+        return candidate
     }
 
     private var selectedInstrumentDisplay: ControlPanelSlotDisplay {

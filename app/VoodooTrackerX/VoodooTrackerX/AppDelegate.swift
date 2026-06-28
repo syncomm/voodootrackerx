@@ -262,6 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onPatternDoubleClickedForAssignment = { [weak self] patternIndex in
             self?.assignSongOrderEditorPattern(patternIndex)
         }
+        controller.onNewPatternRequested = { [weak self] in
+            self?.createSongOrderEditorNewPattern()
+        }
         controller.onInsertOrderAfterSelected = { [weak self] in
             self?.insertSongOrderEditorOrderAfterSelected()
         }
@@ -379,6 +382,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         renderCurrentPattern(metadata: metadata)
         syncControlPanelView()
+    }
+
+    private func createSongOrderEditorNewPattern() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentCreatingBlankPatternForEditing(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
     }
 
     private func insertSongOrderEditorOrderAfterSelected() {

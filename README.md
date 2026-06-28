@@ -58,10 +58,10 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
-The `v0.2.0-alpha.3` target is a Song / Order editor composition alpha: a user
-can reasonably build a small song from scratch in an editable blank document,
-arrange order slots, manage patterns, and audition playback through the existing
-runtime path.
+The tagged `v0.2.0-alpha.3` release is a Song / Order editor composition alpha:
+a user can reasonably build a small song from scratch in an editable blank
+document, arrange order slots, manage patterns, and audition playback through
+the existing runtime path.
 
 What works today:
 

@@ -25,7 +25,8 @@ VoodooTracker X currently has:
   and the Song / Order editor order-list / paginated pattern-bank binding with
   stopped selected-order navigation, editable Pattern Bank double-click
   assignment, stopped editable order-slot insert/delete controls, and stopped
-  editable Pattern Ops NEW unassigned pattern creation/navigation
+  editable Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
+  clear-current-pattern mutation
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -85,6 +86,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor Pattern Ops DUP and CLEAR controls now mutate only
+  stopped editable document patterns. DUP creates/views a copied unassigned
+  pattern without changing selected POS or order references, and CLEAR empties
+  the displayed pattern while preserving order references. Loaded modules and
+  active playback remain read-only/no-op.
 - The Song / Order editor ORDER OPS DUP, MOVE UP, and MOVE DOWN controls now
   mutate only stopped editable document order slots. Duplicate inserts the same
   pattern reference after the selected slot, move up/down reorder one slot at a
@@ -160,8 +166,7 @@ Recently completed narrow target:
   Clear Song Data creates a new editable blank song with copied instrument and
   sample palette data, playable sample payloads where available, cleared
   song/order/pattern note data, order 0, pattern 0, and safe preserved timing
-  and dimensions. Duplicate pattern, insert/delete order slots, broader
-  arrangement editing, undo/redo, WAV/AIFF import, XI import,
+  and dimensions. Broader arrangement editing, undo/redo, WAV/AIFF import, XI import,
   sample/instrument editors, save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
@@ -434,7 +439,6 @@ Planned scope:
 - selection and copy/paste
 - clear current pattern
 - clear song data while preserving instruments and samples
-- duplicate pattern
 - optional broader arrangement/order-table editing while preserving the
   instrument bank
 - song/order editor foundation

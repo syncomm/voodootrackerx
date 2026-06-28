@@ -173,9 +173,8 @@ Recently completed:
   blank song that copies the available instrument/sample palette and playable
   sample payloads, clears song/order/pattern note data, resets to order 0 and
   pattern 0, and preserves safe timing and dimensions. Broader arrangement
-  editing, duplicate pattern, insert/delete order slots, undo/redo, WAV/AIFF
-  import, XI import, sample/instrument editors, save XM, and export WAV/AAC
-  remain deferred.
+  editing, undo/redo, WAV/AIFF import, XI import, sample/instrument editors,
+  save XM, and export WAV/AAC remain deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
   the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core
@@ -304,20 +303,25 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Wire Song / Order editor pattern duplicate/clear controls only after the
-  editable order duplicate/move path has stayed stable, preserving loaded
-  module read-only behavior and the no-second-transport boundary.
+- Continue Song / Order editor arrangement controls in narrow stopped-editable
+  slices, preserving loaded module read-only behavior and the no-second-
+  transport boundary.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
 - Future editor utility commands should be scoped separately from playback:
-  duplicate pattern, insert/delete pattern or order slots, broader arrangement
-  editing, and editable-copy/save/export flow before persistence work.
+  insert/delete pattern or order slots, broader arrangement editing, and
+  editable-copy/save/export flow before persistence work.
 
 Recently completed product foundation:
 
+- Song / Order editor Pattern Ops DUP and CLEAR now mutate only stopped
+  editable document patterns. DUP creates/views a copied unassigned pattern
+  without assigning it to the selected order slot, and CLEAR empties the
+  displayed pattern while preserving order references. Loaded modules and
+  active playback remain read-only/no-op.
 - Song / Order editor ORDER OPS DUP, MOVE UP, and MOVE DOWN now mutate only
   stopped editable document order slots. Duplicate inserts a new slot after the
   selection with the same pattern reference, move up/down reorder one slot at a

@@ -317,6 +317,11 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Song / Order editor DANGER / CLEAR SONG now mutates only stopped editable
+  documents, resetting song/order and pattern cell data to one blank order and
+  pattern while preserving instruments, samples, palette selection, timing, row
+  count, and channel count. Loaded modules and active playback remain
+  read-only/no-op; modal confirmation remains deferred.
 - Song / Order editor ORDER OPS PTN -/+ now mutate only the selected stopped
   editable document order slot's pattern reference. The controls step to the
   next lower/higher allocated pattern, skip sparse gaps without allocation,
@@ -502,7 +507,8 @@ Current implemented foundation:
 - clear song data for blank/editable documents
 - pattern-loop playback at Play start
 - Song / Order editor order-list / paginated pattern-bank binding with stopped
-  selected-order navigation and editable Pattern Bank double-click assignment
+  selected-order navigation, editable Pattern Bank double-click assignment, and
+  stopped editable Clear Song reset
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:

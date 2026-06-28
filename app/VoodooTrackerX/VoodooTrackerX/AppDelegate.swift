@@ -290,6 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onStepSelectedOrderPattern = { [weak self] delta in
             self?.stepSongOrderEditorSelectedOrderPattern(delta: delta)
         }
+        controller.onClearSongRequested = { [weak self] in
+            self?.clearSongOrderEditorSongData()
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -512,6 +515,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         applyEditableSongOrderDocument(updatedDocument)
     }
 
+    private func clearSongOrderEditorSongData() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentClearingSongDataForEditing(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyClearedEditableSongData(updatedDocument)
+    }
+
     private func applyEditableSongOrderDocument(_ updatedDocument: BlankTrackerDocument) {
         blankDocument = updatedDocument
         selectedSongPositionIndex = updatedDocument.currentPosition
@@ -602,16 +618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                sourceContext: document.noteAuditionSourceContext
            ) {
             document.clearSongData()
-            blankDocument = document
-            selectedSongPositionIndex = document.currentPosition
-            currentPatternIndex = document.currentPatternIndex
-            cursor = .clearSongDataResetPosition
-            visibleGridRangesByRow = [:]
-            currentViewportState = nil
-            currentViewportLayout = nil
-            updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
-            renderCurrentPattern(metadata: document.metadata)
-            syncControlPanelView()
+            applyClearedEditableSongData(document)
             return
         }
 
@@ -640,6 +647,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         debugAutoplayTimer = nil
         debugStopTimer?.invalidate()
         debugStopTimer = nil
+        selectedSongPositionIndex = document.currentPosition
+        currentPatternIndex = document.currentPatternIndex
+        cursor = .clearSongDataResetPosition
+        visibleGridRangesByRow = [:]
+        currentViewportState = nil
+        currentViewportLayout = nil
+        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
+    }
+
+    private func applyClearedEditableSongData(_ document: BlankTrackerDocument) {
+        blankDocument = document
         selectedSongPositionIndex = document.currentPosition
         currentPatternIndex = document.currentPatternIndex
         cursor = .clearSongDataResetPosition

@@ -68,7 +68,8 @@ struct SongOrderEditorDisplayState: Equatable {
         selectedPatternIndex: nil,
         hasDocumentState: false,
         isOrderMutationEnabled: false,
-        isPatternMutationEnabled: false
+        isPatternMutationEnabled: false,
+        isClearSongEnabled: false
     )
 
     let orderRows: [OrderRow]
@@ -84,6 +85,7 @@ struct SongOrderEditorDisplayState: Equatable {
     let hasDocumentState: Bool
     let isOrderMutationEnabled: Bool
     let isPatternMutationEnabled: Bool
+    let isClearSongEnabled: Bool
 
     var isDuplicateSelectedOrderEnabled: Bool {
         isOrderMutationEnabled && selectedOrderPosition != nil
@@ -170,7 +172,8 @@ struct SongOrderEditorDisplayState: Equatable {
             currentPatternIndex: document.currentPatternIndex,
             requestedBankIndex: requestedBankIndex,
             hasDocumentState: true,
-            isOrderMutationEnabled: isOrderMutationEnabled
+            isOrderMutationEnabled: isOrderMutationEnabled,
+            isClearSongEnabled: isOrderMutationEnabled
         )
     }
 
@@ -200,7 +203,8 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedPatternIndex: selectedPatternIndex,
             hasDocumentState: hasDocumentState,
             isOrderMutationEnabled: isOrderMutationEnabled,
-            isPatternMutationEnabled: isPatternMutationEnabled
+            isPatternMutationEnabled: isPatternMutationEnabled,
+            isClearSongEnabled: isClearSongEnabled
         )
     }
 
@@ -212,7 +216,8 @@ struct SongOrderEditorDisplayState: Equatable {
         currentPatternIndex: Int?,
         requestedBankIndex: Int? = nil,
         hasDocumentState: Bool,
-        isOrderMutationEnabled: Bool
+        isOrderMutationEnabled: Bool,
+        isClearSongEnabled: Bool = false
     ) -> SongOrderEditorDisplayState {
         let selected = normalizedSelectedOrderPosition(selectedOrderPosition, orderCount: orderPatternIndices.count)
         let usedPatternIndices = Set(orderPatternIndices.filter { $0 >= 0 })
@@ -256,7 +261,8 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedPatternIndex: currentPatternIndex,
             hasDocumentState: hasDocumentState,
             isOrderMutationEnabled: isOrderMutationEnabled && selected != nil,
-            isPatternMutationEnabled: isOrderMutationEnabled && currentPatternExists
+            isPatternMutationEnabled: isOrderMutationEnabled && currentPatternExists,
+            isClearSongEnabled: isClearSongEnabled
         )
     }
 
@@ -548,6 +554,18 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
+    static func editableDocumentClearingSongDataForEditing(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        updatedDocument.clearSongData()
+        return updatedDocument
+    }
+
     static func editableDocument(
         _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
@@ -723,6 +741,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onStepSelectedOrderPattern = onStepSelectedOrderPattern
         }
     }
+    var onClearSongRequested: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onClearSongRequested = onClearSongRequested
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -789,6 +812,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onMoveSelectedOrderUp = onMoveSelectedOrderUp
         contentView.onMoveSelectedOrderDown = onMoveSelectedOrderDown
         contentView.onStepSelectedOrderPattern = onStepSelectedOrderPattern
+        contentView.onClearSongRequested = onClearSongRequested
         return contentView.apply(displayState: displayState)
     }
 
@@ -819,6 +843,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onMoveSelectedOrderUp: (() -> Void)?
     var onMoveSelectedOrderDown: (() -> Void)?
     var onStepSelectedOrderPattern: ((Int) -> Void)?
+    var onClearSongRequested: (() -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -936,6 +961,14 @@ final class SongOrderEditorContentView: FlippedEditorView {
             return
         }
         onClearCurrentPattern?()
+    }
+
+    @objc
+    private func clearSong(_ sender: Any?) {
+        guard displayState.isClearSongEnabled else {
+            return
+        }
+        onClearSongRequested?()
     }
 
     private func showBank(_ bankIndex: Int) {
@@ -1236,7 +1269,16 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func buildDangerPanel(_ panel: NSView) {
-        addButton("⌫ CLEAR SONG", to: panel, frame: NSRect(x: 10, y: 12, width: 124, height: 25), role: .danger)
+        addButton(
+            "⌫ CLEAR SONG",
+            to: panel,
+            frame: NSRect(x: 10, y: 12, width: 124, height: 25),
+            role: .danger,
+            target: displayState.isClearSongEnabled ? self : nil,
+            action: displayState.isClearSongEnabled ? #selector(clearSong(_:)) : nil,
+            isEnabled: displayState.isClearSongEnabled,
+            toolTip: displayState.isClearSongEnabled ? "Clear song/order/pattern data" : "Clear song unavailable"
+        )
         addLabel(
             "Clears arrangement / order data. Instruments and samples are preserved.",
             to: panel,

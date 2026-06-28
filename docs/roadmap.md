@@ -303,11 +303,15 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Prepare and verify the `v0.2.0-alpha.3` Song / Order editor composition alpha
-  release notes and smoke checklist without changing app behavior.
-- After release prep, continue the composition path outside runtime playback:
-  pattern-editor instrument/volume/effect entry, sample/instrument editors, and
-  explicit save/export semantics.
+- Land the editable-document save/export model before any file-writing
+  implementation. The design should define document ownership, Save/Save As
+  semantics, Export XM scope, loaded-module editable-copy safety, and public
+  fixture/testing rules without changing app behavior.
+- After the save/export model, continue in narrow composition-path slices:
+  Export XM menu/save-panel shell, minimal public-safe XM writer tests, editable
+  order/pattern/timing export, palette/sample payload export where already
+  represented, explicit loaded-module editable-copy UI, and then
+  Instrument/Sample editor foundations.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -319,7 +323,7 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
-- The `v0.2.0-alpha.3` release target marks the first-pass Song / Order editor
+- The tagged `v0.2.0-alpha.3` release marks the first-pass Song / Order editor
   composition workflow complete: editable blank documents can use note entry,
   Pattern Bank viewing/assignment, Pattern Ops NEW/DUP/CLEAR, Order Ops
   INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+, Clear Song, normal Play/Stop,
@@ -494,12 +498,12 @@ Recently completed product foundation:
 
 ## Milestone 3: Composition Editor Foundation
 
-Status: the `v0.2.0-alpha.3` Song / Order editor composition alpha completes
-the first-pass workflow for small editable blank songs. Tracker display, blank
-startup, note-entry foundations, loaded-module audition, clear-current-pattern,
-stable viewport behavior, adapter-safe pattern-loop playback, and stopped
-editable song/order arrangement controls are implemented. VTX 1.0 still needs
-the broader composition surface below.
+Status: released as `v0.2.0-alpha.3`. The Song / Order editor composition
+alpha completed the first-pass workflow for small editable blank songs. Tracker
+display, blank startup, note-entry foundations, loaded-module audition,
+clear-current-pattern, stable viewport behavior, adapter-safe pattern-loop
+playback, and stopped editable song/order arrangement controls are implemented.
+VTX 1.0 still needs the broader composition surface below.
 
 Current implemented foundation:
 
@@ -528,6 +532,8 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
+- editable-document save/export semantics and first XM export implementation
+  slices
 - instrument, volume-column, and effect-column entry
 - sample editor and instrument editor foundations
 - WAV/AIFF sample import and XI instrument import target

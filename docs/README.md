@@ -26,6 +26,12 @@ relevant to the task.
 - `docs/roadmap.md` - current milestone sequencing.
 - `docs/dev-roadmap.md` - short phase-based roadmap.
 
+## Product And Editor Design
+
+- `docs/design/editable-document-save-export-model.md` - editable document
+  ownership, Save/Save As/Export XM semantics, loaded-module editable-copy
+  policy, and first XM export scope.
+
 ## Release Notes
 
 - `docs/release-notes/` - concise public release notes and manual smoke

@@ -995,19 +995,60 @@ struct BlankTrackerDocument: Equatable {
         var updatedOrderTable = effectiveOrderTable
         let insertedPosition = currentPosition + 1
         updatedOrderTable.insert(patternIndex, at: insertedPosition)
-        self = BlankTrackerDocument(
-            title: title,
-            songLength: updatedOrderTable.count,
-            currentPosition: insertedPosition,
-            restartPosition: restartPosition,
-            currentPatternIndex: patternIndex,
-            tempo: tempo,
-            speed: speed,
-            orderTable: updatedOrderTable,
-            selection: selection,
-            instrumentPalette: instrumentPalette,
-            patterns: patterns
-        )
+        replaceOrderState(orderTable: updatedOrderTable, currentPosition: insertedPosition, currentPatternIndex: patternIndex)
+        return true
+    }
+
+    mutating func duplicateSelectedOrder() -> Bool {
+        let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
+        guard effectiveOrderTable.indices.contains(currentPosition) else {
+            return false
+        }
+        let patternIndex = effectiveOrderTable[currentPosition]
+        guard pattern(for: patternIndex) != nil else {
+            return false
+        }
+
+        var updatedOrderTable = effectiveOrderTable
+        let duplicatedPosition = currentPosition + 1
+        updatedOrderTable.insert(patternIndex, at: duplicatedPosition)
+        replaceOrderState(orderTable: updatedOrderTable, currentPosition: duplicatedPosition, currentPatternIndex: patternIndex)
+        return true
+    }
+
+    mutating func moveSelectedOrderUp() -> Bool {
+        let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
+        guard effectiveOrderTable.indices.contains(currentPosition),
+              currentPosition > 0 else {
+            return false
+        }
+        let patternIndex = effectiveOrderTable[currentPosition]
+        guard pattern(for: patternIndex) != nil else {
+            return false
+        }
+
+        var updatedOrderTable = effectiveOrderTable
+        let movedPosition = currentPosition - 1
+        updatedOrderTable.swapAt(currentPosition, movedPosition)
+        replaceOrderState(orderTable: updatedOrderTable, currentPosition: movedPosition, currentPatternIndex: patternIndex)
+        return true
+    }
+
+    mutating func moveSelectedOrderDown() -> Bool {
+        let effectiveOrderTable = Array(orderTable.prefix(min(max(0, songLength), orderTable.count)))
+        guard effectiveOrderTable.indices.contains(currentPosition),
+              currentPosition < effectiveOrderTable.count - 1 else {
+            return false
+        }
+        let patternIndex = effectiveOrderTable[currentPosition]
+        guard pattern(for: patternIndex) != nil else {
+            return false
+        }
+
+        var updatedOrderTable = effectiveOrderTable
+        let movedPosition = currentPosition + 1
+        updatedOrderTable.swapAt(currentPosition, movedPosition)
+        replaceOrderState(orderTable: updatedOrderTable, currentPosition: movedPosition, currentPatternIndex: patternIndex)
         return true
     }
 
@@ -1027,19 +1068,7 @@ struct BlankTrackerDocument: Equatable {
                 currentPatternIndex != patternIndex else {
                 return false
             }
-            self = BlankTrackerDocument(
-                title: title,
-                songLength: 1,
-                currentPosition: 0,
-                restartPosition: restartPosition,
-                currentPatternIndex: patternIndex,
-                tempo: tempo,
-                speed: speed,
-                orderTable: [patternIndex],
-                selection: selection,
-                instrumentPalette: instrumentPalette,
-                patterns: patterns
-            )
+            replaceOrderState(orderTable: [patternIndex], currentPosition: 0, currentPatternIndex: patternIndex)
             return true
         }
 
@@ -1049,19 +1078,7 @@ struct BlankTrackerDocument: Equatable {
         guard let patternIndex = safeExistingPatternIndex(preferredPatternIndex: updatedOrderTable[selectedPosition]) else {
             return false
         }
-        self = BlankTrackerDocument(
-            title: title,
-            songLength: updatedOrderTable.count,
-            currentPosition: selectedPosition,
-            restartPosition: restartPosition,
-            currentPatternIndex: patternIndex,
-            tempo: tempo,
-            speed: speed,
-            orderTable: updatedOrderTable,
-            selection: selection,
-            instrumentPalette: instrumentPalette,
-            patterns: patterns
-        )
+        replaceOrderState(orderTable: updatedOrderTable, currentPosition: selectedPosition, currentPatternIndex: patternIndex)
         return true
     }
 
@@ -1094,6 +1111,22 @@ struct BlankTrackerDocument: Equatable {
             return candidate
         }
         return existingPatternIndices.sorted().first
+    }
+
+    private mutating func replaceOrderState(orderTable updatedOrderTable: [Int], currentPosition updatedPosition: Int, currentPatternIndex patternIndex: Int) {
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: updatedOrderTable.count,
+            currentPosition: updatedPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: patternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: updatedOrderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: patterns
+        )
     }
 
     private func nextUnusedPatternIndex() -> Int? {

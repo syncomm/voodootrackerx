@@ -83,6 +83,26 @@ struct SongOrderEditorDisplayState: Equatable {
     let hasDocumentState: Bool
     let isOrderMutationEnabled: Bool
 
+    var isDuplicateSelectedOrderEnabled: Bool {
+        isOrderMutationEnabled && selectedOrderPosition != nil
+    }
+
+    var isMoveSelectedOrderUpEnabled: Bool {
+        guard isOrderMutationEnabled,
+              let selectedOrderPosition else {
+            return false
+        }
+        return selectedOrderPosition > 0
+    }
+
+    var isMoveSelectedOrderDownEnabled: Bool {
+        guard isOrderMutationEnabled,
+              let selectedOrderPosition else {
+            return false
+        }
+        return selectedOrderPosition < orderRows.count - 1
+    }
+
     static func loadedModule(
         metadata: ParsedModuleMetadata,
         selectedOrderPosition: Int,
@@ -409,6 +429,48 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
+    static func editableDocumentDuplicatingSelectedOrder(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.duplicateSelectedOrder() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocumentMovingSelectedOrderUp(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.moveSelectedOrderUp() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocumentMovingSelectedOrderDown(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.moveSelectedOrderDown() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
     static func editableDocument(
         _ document: BlankTrackerDocument,
         selectingOrderPosition orderPosition: Int,
@@ -554,6 +616,21 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onDeleteSelectedOrder = onDeleteSelectedOrder
         }
     }
+    var onDuplicateSelectedOrder: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onDuplicateSelectedOrder = onDuplicateSelectedOrder
+        }
+    }
+    var onMoveSelectedOrderUp: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onMoveSelectedOrderUp = onMoveSelectedOrderUp
+        }
+    }
+    var onMoveSelectedOrderDown: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onMoveSelectedOrderDown = onMoveSelectedOrderDown
+        }
+    }
 
     init(displayState: SongOrderEditorDisplayState = .empty) {
         let contentView = SongOrderEditorContentView(
@@ -614,6 +691,9 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onNewPatternRequested = onNewPatternRequested
         contentView.onInsertOrderAfterSelected = onInsertOrderAfterSelected
         contentView.onDeleteSelectedOrder = onDeleteSelectedOrder
+        contentView.onDuplicateSelectedOrder = onDuplicateSelectedOrder
+        contentView.onMoveSelectedOrderUp = onMoveSelectedOrderUp
+        contentView.onMoveSelectedOrderDown = onMoveSelectedOrderDown
         return contentView.apply(displayState: displayState)
     }
 
@@ -638,6 +718,9 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onNewPatternRequested: (() -> Void)?
     var onInsertOrderAfterSelected: (() -> Void)?
     var onDeleteSelectedOrder: (() -> Void)?
+    var onDuplicateSelectedOrder: (() -> Void)?
+    var onMoveSelectedOrderUp: (() -> Void)?
+    var onMoveSelectedOrderDown: (() -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
     private(set) var rebuildCount = 0
     private(set) var selectedOrderScrollCount = 0
@@ -691,6 +774,30 @@ final class SongOrderEditorContentView: FlippedEditorView {
             return
         }
         onDeleteSelectedOrder?()
+    }
+
+    @objc
+    private func duplicateSelectedOrder(_ sender: Any?) {
+        guard displayState.isDuplicateSelectedOrderEnabled else {
+            return
+        }
+        onDuplicateSelectedOrder?()
+    }
+
+    @objc
+    private func moveSelectedOrderUp(_ sender: Any?) {
+        guard displayState.isMoveSelectedOrderUpEnabled else {
+            return
+        }
+        onMoveSelectedOrderUp?()
+    }
+
+    @objc
+    private func moveSelectedOrderDown(_ sender: Any?) {
+        guard displayState.isMoveSelectedOrderDownEnabled else {
+            return
+        }
+        onMoveSelectedOrderDown?()
     }
 
     @objc
@@ -921,15 +1028,41 @@ final class SongOrderEditorContentView: FlippedEditorView {
             toolTip: displayState.isOrderMutationEnabled ? "Delete selected order slot" : "Order delete unavailable"
         )
         x += 90
-        addButton("⧉ DUP", to: panel, frame: NSRect(x: x, y: 31, width: 66, height: 25))
+        addButton(
+            "⧉ DUP",
+            to: panel,
+            frame: NSRect(x: x, y: 31, width: 66, height: 25),
+            target: displayState.isDuplicateSelectedOrderEnabled ? self : nil,
+            action: displayState.isDuplicateSelectedOrderEnabled ? #selector(duplicateSelectedOrder(_:)) : nil,
+            isEnabled: displayState.isDuplicateSelectedOrderEnabled,
+            toolTip: displayState.isDuplicateSelectedOrderEnabled ? "Duplicate selected order slot" : "Order duplicate unavailable"
+        )
         x += 72
         x += 10
         addSeparator(to: panel, x: x, y: 34)
         x += 18
-        for (title, width) in [("▲ MOVE UP", 94), ("▼ MOVE DOWN", 108)] {
-            addButton(title, to: panel, frame: NSRect(x: x, y: 31, width: CGFloat(width), height: 25))
-            x += CGFloat(width + 6)
-        }
+        let moveUpEnabled = displayState.isMoveSelectedOrderUpEnabled
+        addButton(
+            "▲ MOVE UP",
+            to: panel,
+            frame: NSRect(x: x, y: 31, width: 94, height: 25),
+            target: moveUpEnabled ? self : nil,
+            action: moveUpEnabled ? #selector(moveSelectedOrderUp(_:)) : nil,
+            isEnabled: moveUpEnabled,
+            toolTip: moveUpEnabled ? "Move selected order slot up" : "Order move up unavailable"
+        )
+        x += 100
+        let moveDownEnabled = displayState.isMoveSelectedOrderDownEnabled
+        addButton(
+            "▼ MOVE DOWN",
+            to: panel,
+            frame: NSRect(x: x, y: 31, width: 108, height: 25),
+            target: moveDownEnabled ? self : nil,
+            action: moveDownEnabled ? #selector(moveSelectedOrderDown(_:)) : nil,
+            isEnabled: moveDownEnabled,
+            toolTip: moveDownEnabled ? "Move selected order slot down" : "Order move down unavailable"
+        )
+        x += 114
         x += 12
         addSeparator(to: panel, x: x, y: 34)
         x += 24

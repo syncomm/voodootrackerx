@@ -271,6 +271,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onDeleteSelectedOrder = { [weak self] in
             self?.deleteSongOrderEditorSelectedOrder()
         }
+        controller.onDuplicateSelectedOrder = { [weak self] in
+            self?.duplicateSongOrderEditorSelectedOrder()
+        }
+        controller.onMoveSelectedOrderUp = { [weak self] in
+            self?.moveSongOrderEditorSelectedOrderUp()
+        }
+        controller.onMoveSelectedOrderDown = { [weak self] in
+            self?.moveSongOrderEditorSelectedOrderDown()
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -414,6 +423,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let document = blankDocument,
               loadedMetadata == nil,
               let updatedDocument = SongOrderEditorNavigation.editableDocumentDeletingSelectedOrder(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func duplicateSongOrderEditorSelectedOrder() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentDuplicatingSelectedOrder(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func moveSongOrderEditorSelectedOrderUp() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentMovingSelectedOrderUp(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func moveSongOrderEditorSelectedOrderDown() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentMovingSelectedOrderDown(
                   document,
                   isPlaybackActive: playbackEngine.state.isPlaying
               ) else {

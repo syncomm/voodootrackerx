@@ -26,6 +26,11 @@ relevant to the task.
 - `docs/roadmap.md` - current milestone sequencing.
 - `docs/dev-roadmap.md` - short phase-based roadmap.
 
+## Release Notes
+
+- `docs/release-notes/` - concise public release notes and manual smoke
+  checklists for tagged alpha releases.
+
 ## Tracker UI
 
 - `docs/tracker-behavior-spec.md` - tracker viewport/editor behavior rules.

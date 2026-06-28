@@ -303,20 +303,29 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Continue Song / Order editor arrangement controls in narrow stopped-editable
-  slices, preserving loaded module read-only behavior and the no-second-
-  transport boundary.
+- Prepare and verify the `v0.2.0-alpha.3` Song / Order editor composition alpha
+  release notes and smoke checklist without changing app behavior.
+- After release prep, continue the composition path outside runtime playback:
+  pattern-editor instrument/volume/effect entry, sample/instrument editors, and
+  explicit save/export semantics.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
   analysis to file load, do not infer duration from title strings, and do not
   move runtime gain/headroom policy without a cache/invalidation plan.
-- Future editor utility commands should be scoped separately from playback:
-  insert/delete pattern or order slots, broader arrangement editing, and
+- Future Song / Order follow-up work should be scoped separately from playback:
+  confirmation/undo/redo, drag or keyboard polish, pattern length utilities, and
   editable-copy/save/export flow before persistence work.
 
 Recently completed product foundation:
 
+- The `v0.2.0-alpha.3` release target marks the first-pass Song / Order editor
+  composition workflow complete: editable blank documents can use note entry,
+  Pattern Bank viewing/assignment, Pattern Ops NEW/DUP/CLEAR, Order Ops
+  INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+, Clear Song, normal Play/Stop,
+  Loop-at-Play-start, and Play Current Pattern through the existing runtime
+  path. Loaded modules remain read-only, and save/export plus Instrument/Sample
+  editors remain future work.
 - Song / Order editor DANGER / CLEAR SONG now mutates only stopped editable
   documents, resetting song/order and pattern cell data to one blank order and
   pattern while preserving instruments, samples, palette selection, timing, row
@@ -485,10 +494,12 @@ Recently completed product foundation:
 
 ## Milestone 3: Composition Editor Foundation
 
-Status: tracker display, blank startup, note-entry foundations, loaded-module
-audition, clear-current-pattern, stable viewport behavior, and adapter-safe
-pattern-loop playback are implemented. VTX 1.0 still needs the broader
-composition surface below.
+Status: the `v0.2.0-alpha.3` Song / Order editor composition alpha completes
+the first-pass workflow for small editable blank songs. Tracker display, blank
+startup, note-entry foundations, loaded-module audition, clear-current-pattern,
+stable viewport behavior, adapter-safe pattern-loop playback, and stopped
+editable song/order arrangement controls are implemented. VTX 1.0 still needs
+the broader composition surface below.
 
 Current implemented foundation:
 
@@ -506,22 +517,26 @@ Current implemented foundation:
 - clear current pattern for blank/editable documents
 - clear song data for blank/editable documents
 - pattern-loop playback at Play start
+- Transport > Play Current Pattern
 - Song / Order editor order-list / paginated pattern-bank binding with stopped
-  selected-order navigation, editable Pattern Bank double-click assignment, and
-  stopped editable Clear Song reset
+  selected-order navigation, Pattern Bank single-click viewing/navigation, and
+  editable Pattern Bank double-click assignment
+- stopped editable Pattern Ops NEW/DUP/CLEAR
+- stopped editable Order Ops INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+
+- stopped editable Song / Order Clear Song reset
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- song/order editor foundation
 - instrument, volume-column, and effect-column entry
 - sample editor and instrument editor foundations
 - WAV/AIFF sample import and XI instrument import target
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable
   songs through explicit editable-copy semantics
-- pattern insert/delete/length editing and order-table operations
-- loop-and-edit workflow for composing while hearing playback
+- Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
+  pattern length utilities, and deeper arrangement editing
+- broader loop-and-edit workflow for composing while hearing playback
 - save XM and export WAV/AAC
 - keyboard workflow parity
 

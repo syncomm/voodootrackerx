@@ -10,8 +10,8 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 Tagged releases are published on the
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
-Tagged releases such as `v0.1.0-alpha.1` include a downloadable macOS DMG named
-`VoodooTrackerX-v0.1.0-alpha.1.dmg`.
+Tagged releases such as `v0.2.0-alpha.3` include a downloadable macOS DMG named
+`VoodooTrackerX-v0.2.0-alpha.3.dmg`.
 
 The first public builds are early alpha/demo builds, not 1.0 releases. The
 release workflow builds a macOS 26+ universal app for Apple silicon and Intel
@@ -22,9 +22,10 @@ stapled DMG for tagged releases.
 
 VoodooTracker X is a real tracker project in early alpha form. Download the
 latest release DMG from GitHub Releases or build from source, then try it with
-public XM/MOD tracker modules. Expect a demo-quality app that can open, display,
-and play supported modules while blank-document editing foundations continue to
-land and save/export remains future work.
+public XM/MOD tracker modules. Expect an alpha-quality app that can open,
+display, and play supported modules, and can compose a small song from scratch
+in a blank editable document with the pattern grid and Song / Order editor.
+Save/export remains future work.
 
 ## Try It With Tracker Modules
 
@@ -57,14 +58,27 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
+The `v0.2.0-alpha.3` target is a Song / Order editor composition alpha: a user
+can reasonably build a small song from scratch in an editable blank document,
+arrange order slots, manage patterns, and audition playback through the existing
+runtime path.
+
 What works today:
 
-- Blank document startup and `File > Open...` for supported tracker modules.
+- Editable blank document startup, `File > New`, and `File > Open...` for
+  supported tracker modules.
 - Read-only open/load flow for XM/MOD-style modules.
 - Runtime playback through the CoreAudio-hosted C mixer backend.
 - Loaded-module TIME display after adapter-plan readiness.
-- Pattern-loop playback from the Loop control at Play start for the
-  selected/current pattern.
+- Transport Play/Stop, Loop at Play start for the selected/current pattern, and
+  `Transport > Play Current Pattern` for focused pattern audition.
+- Song / Order editor floating utility window with order-list navigation and a
+  paginated Pattern Bank.
+- Pattern Bank single-click viewing/navigation and double-click assignment for
+  editable documents.
+- Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
+- Order Ops `INSERT`, `DELETE`, `DUP`, `MOVE UP`, `MOVE DOWN`, and `PTN -/+`
+  for stopped editable documents.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
   through the existing CoreAudio C mixer path when the copied palette has
   playable sample payloads. During editable current-pattern Loop playback,

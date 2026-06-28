@@ -262,6 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onPatternDoubleClickedForAssignment = { [weak self] patternIndex in
             self?.assignSongOrderEditorPattern(patternIndex)
         }
+        controller.onInsertOrderAfterSelected = { [weak self] in
+            self?.insertSongOrderEditorOrderAfterSelected()
+        }
+        controller.onDeleteSelectedOrder = { [weak self] in
+            self?.deleteSongOrderEditorSelectedOrder()
+        }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
     }
@@ -375,9 +381,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         syncControlPanelView()
     }
 
+    private func insertSongOrderEditorOrderAfterSelected() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentInsertingOrderAfterSelected(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func deleteSongOrderEditorSelectedOrder() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentDeletingSelectedOrder(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func applyEditableSongOrderDocument(_ updatedDocument: BlankTrackerDocument) {
+        blankDocument = updatedDocument
+        selectedSongPositionIndex = updatedDocument.currentPosition
+        currentPatternIndex = updatedDocument.currentPatternIndex
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        let metadata = updatedDocument.metadata
+        updatePatternSelector(for: metadata, keepPattern: updatedDocument.currentPatternIndex)
+        guard selectPatternForDisplay(updatedDocument.currentPatternIndex, in: metadata) else {
+            return
+        }
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
+    }
+
     private func currentSongOrderEditorDisplayState() -> SongOrderEditorDisplayState {
         if let blankDocument {
-            return SongOrderEditorDisplayState.editableDocument(blankDocument)
+            return SongOrderEditorDisplayState.editableDocument(
+                blankDocument,
+                isOrderMutationEnabled: !playbackEngine.state.isPlaying
+            )
         }
         if let loadedMetadata {
             return SongOrderEditorDisplayState.loadedModule(

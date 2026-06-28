@@ -47,21 +47,37 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(contentView.allDescendants.compactMap { $0 as? VTXEditorButton }.count, 10)
     }
 
-    func testShellControlsAreVisuallyBrightButActionless() throws {
+    func testShellControlsWireOnlyBankAndEditableOrderInsertDeleteActions() throws {
         let controller = SongOrderEditorWindowController()
         let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
         let buttons = contentView.allDescendants.compactMap { $0 as? VTXEditorButton }
         let bankNavigationTitles = Set(["◀", "▶"])
+        let orderMutationTitles = Set(["+ INSERT", "⌫ DELETE"])
         let bankNavigationButtons = buttons.filter { bankNavigationTitles.contains($0.title) }
-        let mutationButtons = buttons.filter { !bankNavigationTitles.contains($0.title) }
+        let unavailableOrderMutationButtons = buttons.filter { orderMutationTitles.contains($0.title) }
+        let shellOnlyButtons = buttons.filter { !bankNavigationTitles.contains($0.title) && !orderMutationTitles.contains($0.title) }
 
         XCTAssertGreaterThanOrEqual(buttons.count, 10)
-        XCTAssertTrue(buttons.allSatisfy(\.isEnabled))
         XCTAssertEqual(bankNavigationButtons.count, 2)
         XCTAssertTrue(bankNavigationButtons.allSatisfy { ($0.target as? SongOrderEditorContentView) === contentView })
         XCTAssertTrue(bankNavigationButtons.allSatisfy { $0.action != nil })
-        XCTAssertTrue(mutationButtons.allSatisfy { $0.target == nil })
-        XCTAssertTrue(mutationButtons.allSatisfy { $0.action == nil })
+        XCTAssertEqual(unavailableOrderMutationButtons.count, 2)
+        XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { !$0.isEnabled })
+        XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { $0.target == nil })
+        XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { $0.action == nil })
+        XCTAssertTrue(shellOnlyButtons.allSatisfy(\.isEnabled))
+        XCTAssertTrue(shellOnlyButtons.allSatisfy { $0.target == nil })
+        XCTAssertTrue(shellOnlyButtons.allSatisfy { $0.action == nil })
+
+        let editableState = SongOrderEditorDisplayState.editableDocument(BlankTrackerDocument.makeDefault())
+        controller.apply(displayState: editableState)
+        let editableButtons = contentView.allDescendants.compactMap { $0 as? VTXEditorButton }
+        let editableOrderMutationButtons = editableButtons.filter { orderMutationTitles.contains($0.title) }
+
+        XCTAssertEqual(editableOrderMutationButtons.count, 2)
+        XCTAssertTrue(editableOrderMutationButtons.allSatisfy(\.isEnabled))
+        XCTAssertTrue(editableOrderMutationButtons.allSatisfy { ($0.target as? SongOrderEditorContentView) === contentView })
+        XCTAssertTrue(editableOrderMutationButtons.allSatisfy { $0.action != nil })
     }
 
     func testShellIncludesMockupButtonTitlesAndClarifiedStaticText() throws {
@@ -765,6 +781,73 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
             isPlaybackActive: true
         ))
         XCTAssertEqual(document.patterns, beforePatterns)
+    }
+
+    func testLoadedModuleOrderButtonsDoNotRequestMutation() throws {
+        let metadata = makeLoadedMetadata(
+            orderTable: [0, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 32),
+            ]
+        )
+        let loadedController = SongOrderEditorWindowController(displayState: .loadedModule(
+            metadata: metadata,
+            selectedOrderPosition: 0,
+            currentPatternIndex: 0
+        ))
+        let loadedContentView = try XCTUnwrap(loadedController.window?.contentView as? SongOrderEditorContentView)
+        var loadedMutationRequestCount = 0
+        loadedController.onInsertOrderAfterSelected = { loadedMutationRequestCount += 1 }
+        loadedController.onDeleteSelectedOrder = { loadedMutationRequestCount += 1 }
+
+        XCTAssertFalse(try button(titled: "+ INSERT", in: loadedContentView).isEnabled)
+        XCTAssertFalse(try button(titled: "⌫ DELETE", in: loadedContentView).isEnabled)
+        try button(titled: "+ INSERT", in: loadedContentView).performClick(nil)
+        try button(titled: "⌫ DELETE", in: loadedContentView).performClick(nil)
+        XCTAssertEqual(loadedMutationRequestCount, 0)
+        XCTAssertEqual(metadata.orderTable, [0, 1])
+        XCTAssertEqual(metadata.xmPatterns.map(\.index), [0, 1])
+    }
+
+    @MainActor
+    func testActivePlaybackOrderInsertDeleteHelpersAreNoOpsWithoutSeekingPlayback() {
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0, 1],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                makePattern(index: 1, rowCount: 16),
+            ]
+        )
+        let before = document
+        let audioOutput = TestRuntimeAdapterAudioOutput(audioBufferSampleRate: 100)
+        let engine = PlaybackEngine(
+            audioEngine: audioOutput,
+            startsRealtimeTimer: false,
+            runtimeAdapterPlanPrewarmScheduler: TestRuntimeAdapterPlanPrewarmScheduler()
+        )
+        let startContext = PlaybackStartContext(moduleTitle: document.title, songPosition: 0, patternIndex: 0, row: 0)
+
+        engine.load(song: EditablePlaybackSongBuilder.build(from: document))
+        engine.play(from: startContext, loopEnabled: false, timingSession: nil)
+        let positionBeforeMutation = engine.currentPosition
+        let configuredPlanCountBeforeMutation = audioOutput.configuredPlans.count
+
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertNil(SongOrderEditorNavigation.editableDocumentInsertingOrderAfterSelected(
+            document,
+            isPlaybackActive: engine.state.isPlaying
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocumentDeletingSelectedOrder(
+            document,
+            isPlaybackActive: engine.state.isPlaying
+        ))
+        XCTAssertEqual(document, before)
+        XCTAssertTrue(engine.state.isPlaying)
+        XCTAssertEqual(engine.currentPosition, positionBeforeMutation)
+        XCTAssertEqual(audioOutput.configuredPlans.count, configuredPlanCountBeforeMutation)
     }
 
     func testOrderNavigationIgnoresCurrentOrderAndActivePlayback() throws {

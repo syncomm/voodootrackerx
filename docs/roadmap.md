@@ -304,9 +304,10 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Wire Song / Order editor order insert/delete controls while preserving loaded
-  module read-only behavior, existing Pattern Bank single-click navigation,
-  editable double-click assignment, and the no-second-transport boundary.
+- Wire Song / Order editor order duplicate and move controls while preserving
+  loaded module read-only behavior, existing Pattern Bank single-click
+  navigation, editable double-click assignment, editable insert/delete order
+  behavior, and the no-second-transport boundary.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -318,6 +319,13 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Song / Order editor ORDER OPS INSERT and DELETE now update stopped editable
+  document order slots only. Insert adds a slot after the selected order using
+  the selected slot's existing pattern reference; Delete removes only the order
+  slot, preserves pattern/instrument/sample data, and keeps at least one valid
+  order. Loaded modules and active playback remain read-only/no-op, and no
+  transport, playback scheduling, runtime audio, parser, save/export, sample
+  editor, or instrument editor behavior changed.
 - Adapter-safe pattern-loop transport now has a design note and pure model
   tests for current-order ranges over the public multi-pattern fixture. It is
   scaffolding only: no Loop button runtime behavior, pattern-loop playback,

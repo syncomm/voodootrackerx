@@ -1923,6 +1923,141 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(invalidOrderDocument, beforeInvalidOrderDocument)
     }
 
+    func testInsertOrderAfterSelectedReferencesSelectedPatternAndPreservesPatternData() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 2)
+        pattern.rows[3][1] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        var document = makeBlankDocument(
+            tempo: 144,
+            speed: 3,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            orderTable: [0],
+            patterns: [pattern],
+            instrumentPalette: [1: PlaybackInstrument(index: 1, name: "Lead", samples: [sample])]
+        )
+        let beforePatterns = document.patterns
+        let beforePalette = document.instrumentPalette
+
+        XCTAssertTrue(document.insertOrderAfterSelected())
+
+        let content = ControlPanelDisplayState.blankDocumentContent(
+            for: document,
+            selectedOctave: 6,
+            isLoopEnabled: true,
+            isEditModeEnabled: true,
+            isPlaybackActive: false
+        )
+        XCTAssertEqual(document.orderTable, [0, 0])
+        XCTAssertEqual(document.songLength, 2)
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.tempo, 144)
+        XCTAssertEqual(document.speed, 3)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(document.instrumentPalette, beforePalette)
+        XCTAssertEqual(document.pattern(for: 0)?.rows[3][1], pattern.rows[3][1])
+        XCTAssertEqual(content.songPosition, "01")
+        XCTAssertEqual(content.songLength, "02")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: document.currentPatternIndex), "000")
+    }
+
+    func testInsertOrderAfterSelectedInMiddlePreservesSurroundingOrderReferences() {
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            orderTable: [0, 1, 2],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 32, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 2, rowCount: 48, channels: 1),
+            ]
+        )
+        let beforePatterns = document.patterns
+
+        XCTAssertTrue(document.insertOrderAfterSelected())
+
+        XCTAssertEqual(document.orderTable, [0, 1, 1, 2])
+        XCTAssertEqual(document.songLength, 4)
+        XCTAssertEqual(document.currentPosition, 2)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(document.controlPanelMetadata.songPosition, "02")
+    }
+
+    func testDeleteSelectedOrderRemovesSlotWithoutDeletingReferencedPatternData() {
+        var thirdPattern = BlankTrackerDocument.makeEmptyPattern(index: 2, rowCount: 48, channels: 1)
+        thirdPattern.rows[7][0] = XMPatternEventCell(
+            note: 52,
+            instrument: 1,
+            volumeColumn: 0x30,
+            effectType: 0x0C,
+            effectParam: 0x40
+        )
+        var document = makeBlankDocument(
+            currentPatternIndex: 1,
+            orderTable: [0, 1, 2],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 32, channels: 1),
+                thirdPattern,
+            ]
+        )
+        let beforePatterns = document.patterns
+
+        XCTAssertTrue(document.deleteSelectedOrder())
+
+        XCTAssertEqual(document.orderTable, [0, 2])
+        XCTAssertEqual(document.songLength, 2)
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 2)
+        XCTAssertEqual(document.patterns, beforePatterns)
+        XCTAssertEqual(document.pattern(for: 2)?.rows[7][0], thirdPattern.rows[7][0])
+        XCTAssertEqual(document.controlPanelMetadata.songPosition, "01")
+        XCTAssertEqual(ControlPanelDisplayState.patternDisplayTitle(patternIndex: document.currentPatternIndex), "002")
+        XCTAssertEqual(document.controlPanelMetadata.patternRowCount, "48")
+    }
+
+    func testDeleteSelectedOrderLastAndOnlyOrderStaySafe() {
+        var document = makeBlankDocument(
+            currentPatternIndex: 2,
+            orderTable: [0, 1, 2],
+            patterns: [
+                BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 32, channels: 1),
+                BlankTrackerDocument.makeEmptyPattern(index: 2, rowCount: 48, channels: 1),
+            ]
+        )
+        let beforePatterns = document.patterns
+
+        XCTAssertTrue(document.deleteSelectedOrder())
+
+        XCTAssertEqual(document.orderTable, [0, 1])
+        XCTAssertEqual(document.songLength, 2)
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(document.patterns, beforePatterns)
+
+        XCTAssertTrue(document.deleteSelectedOrder())
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.songLength, 1)
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 0)
+        XCTAssertEqual(document.patterns, beforePatterns)
+
+        let onlyOrderBefore = document
+        XCTAssertFalse(document.deleteSelectedOrder())
+        XCTAssertEqual(document, onlyOrderBefore)
+        XCTAssertEqual(document.songLength, 1)
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertNotNil(document.pattern(for: document.orderTable[0]))
+    }
+
     func testClearCurrentPatternOnAlreadyEmptyBlankPatternIsSafe() {
         var document = BlankTrackerDocument.makeDefault()
         let before = document

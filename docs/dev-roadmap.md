@@ -27,7 +27,8 @@ VoodooTracker X currently has:
   assignment, stopped editable order-slot insert/delete controls, stopped
   editable ORDER OPS PTN -/+ pattern-reference stepping, and stopped editable
   Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
-  clear-current-pattern mutation
+  clear-current-pattern mutation, plus stopped editable DANGER / CLEAR SONG
+  reset
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -87,6 +88,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor DANGER / CLEAR SONG control now routes stopped
+  editable documents through the existing safe clear-song semantics: song/order
+  and pattern cell data reset to one blank pattern/order while preserving
+  instruments, samples, palette selection, timing, row count, and channel count.
+  Loaded modules and active playback remain read-only/no-op, and modal
+  confirmation remains deferred.
 - The Song / Order editor ORDER OPS PTN -/+ controls now mutate only the
   selected stopped editable document order slot's pattern reference. They step
   to the next lower/higher allocated pattern, skipping gaps without allocating

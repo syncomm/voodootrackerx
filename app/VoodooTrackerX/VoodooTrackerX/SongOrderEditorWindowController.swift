@@ -67,7 +67,8 @@ struct SongOrderEditorDisplayState: Equatable {
         selectedOrderPosition: nil,
         selectedPatternIndex: nil,
         hasDocumentState: false,
-        isOrderMutationEnabled: false
+        isOrderMutationEnabled: false,
+        isPatternMutationEnabled: false
     )
 
     let orderRows: [OrderRow]
@@ -82,9 +83,18 @@ struct SongOrderEditorDisplayState: Equatable {
     let selectedPatternIndex: Int?
     let hasDocumentState: Bool
     let isOrderMutationEnabled: Bool
+    let isPatternMutationEnabled: Bool
 
     var isDuplicateSelectedOrderEnabled: Bool {
         isOrderMutationEnabled && selectedOrderPosition != nil
+    }
+
+    var isDuplicateCurrentPatternEnabled: Bool {
+        isPatternMutationEnabled && selectedPatternIndex != nil
+    }
+
+    var isClearCurrentPatternEnabled: Bool {
+        isPatternMutationEnabled && selectedPatternIndex != nil
     }
 
     var isMoveSelectedOrderUpEnabled: Bool {
@@ -181,7 +191,8 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedOrderPosition: selectedOrderPosition,
             selectedPatternIndex: selectedPatternIndex,
             hasDocumentState: hasDocumentState,
-            isOrderMutationEnabled: isOrderMutationEnabled
+            isOrderMutationEnabled: isOrderMutationEnabled,
+            isPatternMutationEnabled: isPatternMutationEnabled
         )
     }
 
@@ -223,6 +234,7 @@ struct SongOrderEditorDisplayState: Equatable {
             existingPatternIndices: existingPatternIndices,
             usedPatternIndices: usedPatternIndices
         )
+        let currentPatternExists = currentPatternIndex.map { existingPatternIndices.contains($0) } ?? false
         return SongOrderEditorDisplayState(
             orderRows: orderRows,
             patternBankCells: bankCells,
@@ -235,7 +247,8 @@ struct SongOrderEditorDisplayState: Equatable {
             selectedOrderPosition: selected,
             selectedPatternIndex: currentPatternIndex,
             hasDocumentState: hasDocumentState,
-            isOrderMutationEnabled: isOrderMutationEnabled && selected != nil
+            isOrderMutationEnabled: isOrderMutationEnabled && selected != nil,
+            isPatternMutationEnabled: isOrderMutationEnabled && currentPatternExists
         )
     }
 
@@ -396,6 +409,34 @@ enum SongOrderEditorNavigation {
         }
         var updatedDocument = document
         guard updatedDocument.createBlankPatternAndSelectForEditing() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocumentDuplicatingCurrentPatternForEditing(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.duplicateCurrentPatternForEditing() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
+    static func editableDocumentClearingCurrentPatternForEditing(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.clearCurrentPattern() else {
             return nil
         }
         return updatedDocument
@@ -606,6 +647,16 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onNewPatternRequested = onNewPatternRequested
         }
     }
+    var onDuplicateCurrentPattern: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onDuplicateCurrentPattern = onDuplicateCurrentPattern
+        }
+    }
+    var onClearCurrentPattern: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onClearCurrentPattern = onClearCurrentPattern
+        }
+    }
     var onInsertOrderAfterSelected: (() -> Void)? {
         didSet {
             (window?.contentView as? SongOrderEditorContentView)?.onInsertOrderAfterSelected = onInsertOrderAfterSelected
@@ -689,6 +740,8 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onPatternSelected = onPatternSelected
         contentView.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
         contentView.onNewPatternRequested = onNewPatternRequested
+        contentView.onDuplicateCurrentPattern = onDuplicateCurrentPattern
+        contentView.onClearCurrentPattern = onClearCurrentPattern
         contentView.onInsertOrderAfterSelected = onInsertOrderAfterSelected
         contentView.onDeleteSelectedOrder = onDeleteSelectedOrder
         contentView.onDuplicateSelectedOrder = onDuplicateSelectedOrder
@@ -716,6 +769,8 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onPatternSelected: ((Int) -> Void)?
     var onPatternDoubleClickedForAssignment: ((Int) -> Void)?
     var onNewPatternRequested: (() -> Void)?
+    var onDuplicateCurrentPattern: (() -> Void)?
+    var onClearCurrentPattern: (() -> Void)?
     var onInsertOrderAfterSelected: (() -> Void)?
     var onDeleteSelectedOrder: (() -> Void)?
     var onDuplicateSelectedOrder: (() -> Void)?
@@ -802,10 +857,26 @@ final class SongOrderEditorContentView: FlippedEditorView {
 
     @objc
     private func createNewPattern(_ sender: Any?) {
-        guard displayState.isOrderMutationEnabled else {
+        guard displayState.isPatternMutationEnabled else {
             return
         }
         onNewPatternRequested?()
+    }
+
+    @objc
+    private func duplicateCurrentPattern(_ sender: Any?) {
+        guard displayState.isDuplicateCurrentPatternEnabled else {
+            return
+        }
+        onDuplicateCurrentPattern?()
+    }
+
+    @objc
+    private func clearCurrentPattern(_ sender: Any?) {
+        guard displayState.isClearCurrentPatternEnabled else {
+            return
+        }
+        onClearCurrentPattern?()
     }
 
     private func showBank(_ bankIndex: Int) {
@@ -997,13 +1068,29 @@ final class SongOrderEditorContentView: FlippedEditorView {
             "+ NEW",
             to: panel,
             frame: NSRect(x: 10, y: 29, width: 68, height: 25),
-            target: displayState.isOrderMutationEnabled ? self : nil,
-            action: displayState.isOrderMutationEnabled ? #selector(createNewPattern(_:)) : nil,
-            isEnabled: displayState.isOrderMutationEnabled,
-            toolTip: displayState.isOrderMutationEnabled ? "Create blank pattern for editing" : "New pattern unavailable"
+            target: displayState.isPatternMutationEnabled ? self : nil,
+            action: displayState.isPatternMutationEnabled ? #selector(createNewPattern(_:)) : nil,
+            isEnabled: displayState.isPatternMutationEnabled,
+            toolTip: displayState.isPatternMutationEnabled ? "Create blank pattern for editing" : "New pattern unavailable"
         )
-        addButton("⧉ DUP", to: panel, frame: NSRect(x: 84, y: 29, width: 68, height: 25))
-        addButton("⌫ CLEAR", to: panel, frame: NSRect(x: 158, y: 29, width: 84, height: 25))
+        addButton(
+            "⧉ DUP",
+            to: panel,
+            frame: NSRect(x: 84, y: 29, width: 68, height: 25),
+            target: displayState.isDuplicateCurrentPatternEnabled ? self : nil,
+            action: displayState.isDuplicateCurrentPatternEnabled ? #selector(duplicateCurrentPattern(_:)) : nil,
+            isEnabled: displayState.isDuplicateCurrentPatternEnabled,
+            toolTip: displayState.isDuplicateCurrentPatternEnabled ? "Duplicate current pattern without assigning it to the song" : "Pattern duplicate unavailable"
+        )
+        addButton(
+            "⌫ CLEAR",
+            to: panel,
+            frame: NSRect(x: 158, y: 29, width: 84, height: 25),
+            target: displayState.isClearCurrentPatternEnabled ? self : nil,
+            action: displayState.isClearCurrentPatternEnabled ? #selector(clearCurrentPattern(_:)) : nil,
+            isEnabled: displayState.isClearCurrentPatternEnabled,
+            toolTip: displayState.isClearCurrentPatternEnabled ? "Clear current pattern data" : "Pattern clear unavailable"
+        )
     }
 
     private func buildOrderOpsPanel(_ panel: NSView) {

@@ -52,38 +52,34 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
         let buttons = contentView.allDescendants.compactMap { $0 as? VTXEditorButton }
         let bankNavigationTitles = Set(["◀", "▶"])
-        let patternMutationTitles = Set(["+ NEW"])
-        let orderMutationTitles = Set(["+ INSERT", "⌫ DELETE", "▲ MOVE UP", "▼ MOVE DOWN"])
+        let patternMutationTitles = Set(["+ NEW", "⧉ DUP", "⌫ CLEAR"])
+        let orderMutationTitles = Set(["+ INSERT", "⌫ DELETE", "⧉ DUP", "▲ MOVE UP", "▼ MOVE DOWN"])
         let bankNavigationButtons = buttons.filter { bankNavigationTitles.contains($0.title) }
-        let unavailablePatternMutationButtons = buttons.filter { patternMutationTitles.contains($0.title) }
-        let unavailableOrderMutationButtons = buttons.filter { orderMutationTitles.contains($0.title) }
-        let unavailableDuplicateButtons = buttons.filter { $0.title == "⧉ DUP" }
-        let shellOnlyButtons = buttons.filter {
-            !bankNavigationTitles.contains($0.title) &&
-                !patternMutationTitles.contains($0.title) &&
-                !orderMutationTitles.contains($0.title) &&
-                $0.title != "⧉ DUP"
-        }
+        let patternOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.patternOpsPanel, in: contentView)
+        let orderOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.orderOpsPanel, in: contentView)
+        let unavailablePatternMutationButtons = patternOpsPanel.allDescendants
+            .compactMap { $0 as? VTXEditorButton }
+            .filter { patternMutationTitles.contains($0.title) }
+        let unavailableOrderMutationButtons = orderOpsPanel.allDescendants
+            .compactMap { $0 as? VTXEditorButton }
+            .filter { orderMutationTitles.contains($0.title) }
+        let inertShellButtons = buttons.filter { ["⌫ CLEAR SONG", "-", "+"].contains($0.title) }
 
         XCTAssertGreaterThanOrEqual(buttons.count, 10)
         XCTAssertEqual(bankNavigationButtons.count, 2)
         XCTAssertTrue(bankNavigationButtons.allSatisfy { ($0.target as? SongOrderEditorContentView) === contentView })
         XCTAssertTrue(bankNavigationButtons.allSatisfy { $0.action != nil })
-        XCTAssertEqual(unavailablePatternMutationButtons.count, 1)
+        XCTAssertEqual(unavailablePatternMutationButtons.count, 3)
         XCTAssertTrue(unavailablePatternMutationButtons.allSatisfy { !$0.isEnabled })
         XCTAssertTrue(unavailablePatternMutationButtons.allSatisfy { $0.target == nil })
         XCTAssertTrue(unavailablePatternMutationButtons.allSatisfy { $0.action == nil })
-        XCTAssertEqual(unavailableOrderMutationButtons.count, 4)
+        XCTAssertEqual(unavailableOrderMutationButtons.count, 5)
         XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { !$0.isEnabled })
         XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { $0.target == nil })
         XCTAssertTrue(unavailableOrderMutationButtons.allSatisfy { $0.action == nil })
-        XCTAssertEqual(unavailableDuplicateButtons.count, 2)
-        XCTAssertEqual(unavailableDuplicateButtons.filter(\.isEnabled).count, 1)
-        XCTAssertTrue(unavailableDuplicateButtons.allSatisfy { $0.target == nil })
-        XCTAssertTrue(unavailableDuplicateButtons.allSatisfy { $0.action == nil })
-        XCTAssertTrue(shellOnlyButtons.allSatisfy(\.isEnabled))
-        XCTAssertTrue(shellOnlyButtons.allSatisfy { $0.target == nil })
-        XCTAssertTrue(shellOnlyButtons.allSatisfy { $0.action == nil })
+        XCTAssertTrue(inertShellButtons.allSatisfy(\.isEnabled))
+        XCTAssertTrue(inertShellButtons.allSatisfy { $0.target == nil })
+        XCTAssertTrue(inertShellButtons.allSatisfy { $0.action == nil })
 
         let editableDocument = makeBlankDocument(
             currentPosition: 1,
@@ -97,23 +93,23 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         )
         let editableState = SongOrderEditorDisplayState.editableDocument(editableDocument)
         controller.apply(displayState: editableState)
-        let editableButtons = contentView.allDescendants.compactMap { $0 as? VTXEditorButton }
-        let editablePatternMutationButtons = editableButtons.filter { patternMutationTitles.contains($0.title) }
-        let editableOrderMutationButtons = editableButtons.filter { orderMutationTitles.contains($0.title) }
-        let editableDuplicateButtons = editableButtons.filter { $0.title == "⧉ DUP" }
+        let editablePatternOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.patternOpsPanel, in: contentView)
+        let editableOrderOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.orderOpsPanel, in: contentView)
+        let editablePatternMutationButtons = editablePatternOpsPanel.allDescendants
+            .compactMap { $0 as? VTXEditorButton }
+            .filter { patternMutationTitles.contains($0.title) }
+        let editableOrderMutationButtons = editableOrderOpsPanel.allDescendants
+            .compactMap { $0 as? VTXEditorButton }
+            .filter { orderMutationTitles.contains($0.title) }
 
-        XCTAssertEqual(editablePatternMutationButtons.count, 1)
+        XCTAssertEqual(editablePatternMutationButtons.count, 3)
         XCTAssertTrue(editablePatternMutationButtons.allSatisfy(\.isEnabled))
         XCTAssertTrue(editablePatternMutationButtons.allSatisfy { ($0.target as? SongOrderEditorContentView) === contentView })
         XCTAssertTrue(editablePatternMutationButtons.allSatisfy { $0.action != nil })
-        XCTAssertEqual(editableOrderMutationButtons.count, 4)
+        XCTAssertEqual(editableOrderMutationButtons.count, 5)
         XCTAssertTrue(editableOrderMutationButtons.allSatisfy(\.isEnabled))
         XCTAssertTrue(editableOrderMutationButtons.allSatisfy { ($0.target as? SongOrderEditorContentView) === contentView })
         XCTAssertTrue(editableOrderMutationButtons.allSatisfy { $0.action != nil })
-        XCTAssertEqual(editableDuplicateButtons.count, 2)
-        XCTAssertEqual(editableDuplicateButtons.filter(\.isEnabled).count, 2)
-        XCTAssertEqual(editableDuplicateButtons.filter { ($0.target as? SongOrderEditorContentView) === contentView }.count, 1)
-        XCTAssertEqual(editableDuplicateButtons.filter { $0.action != nil }.count, 1)
     }
 
     func testShellIncludesMockupButtonTitlesAndClarifiedStaticText() throws {
@@ -793,6 +789,162 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(currentCell.isCurrent)
     }
 
+    func testEditableDuplicateCurrentPatternFromUnassignedPatternKeepsOrderUnchanged() throws {
+        var hiddenPattern = makePattern(index: 2, rowCount: 24, channels: 1)
+        hiddenPattern.rows[6][0] = XMPatternEventCell(
+            note: 52,
+            instrument: 2,
+            volumeColumn: 0x20,
+            effectType: 0x0A,
+            effectParam: 0x10
+        )
+        let document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 2,
+            orderTable: [0],
+            patterns: [
+                makePattern(index: 0, rowCount: 16),
+                hiddenPattern,
+            ]
+        )
+
+        let updated = try XCTUnwrap(SongOrderEditorNavigation.editableDocumentDuplicatingCurrentPatternForEditing(
+            document,
+            isPlaybackActive: false
+        ))
+        let state = SongOrderEditorDisplayState.editableDocument(updated)
+        let duplicatedPattern = try XCTUnwrap(updated.pattern(for: 3))
+        let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 3 })
+
+        XCTAssertEqual(updated.orderTable, [0])
+        XCTAssertEqual(updated.currentPosition, 0)
+        XCTAssertEqual(updated.currentPatternIndex, 3)
+        XCTAssertEqual(updated.pattern(for: 2), hiddenPattern)
+        XCTAssertEqual(duplicatedPattern.rows, hiddenPattern.rows)
+        XCTAssertEqual(state.orderRows.map(\.patternIndex), [0])
+        XCTAssertFalse(currentCell.isUsed)
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testEditableClearCurrentPatternHelperClearsDisplayedPatternOnlyAndPreservesOrderReferences() throws {
+        var firstPattern = makePattern(index: 0, rowCount: 16, channels: 2)
+        var secondPattern = makePattern(index: 1, rowCount: 32, channels: 2)
+        firstPattern.rows[1][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        secondPattern.rows[2][1] = XMPatternEventCell(
+            note: 52,
+            instrument: 2,
+            volumeColumn: 0x20,
+            effectType: 0x0A,
+            effectParam: 0x10
+        )
+        let document = makeBlankDocument(
+            currentPosition: 2,
+            currentPatternIndex: 0,
+            orderTable: [0, 1, 0],
+            patterns: [firstPattern, secondPattern]
+        )
+
+        let updated = try XCTUnwrap(SongOrderEditorNavigation.editableDocumentClearingCurrentPatternForEditing(
+            document,
+            isPlaybackActive: false
+        ))
+        let state = SongOrderEditorDisplayState.editableDocument(updated)
+        let currentCell = try XCTUnwrap(state.patternBankCells.first { $0.patternIndex == 0 })
+
+        XCTAssertEqual(updated.orderTable, [0, 1, 0])
+        XCTAssertEqual(updated.currentPosition, 2)
+        XCTAssertEqual(updated.currentPatternIndex, 0)
+        XCTAssertTrue(updated.pattern(for: 0)?.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        } == true)
+        XCTAssertEqual(updated.pattern(for: 1), secondPattern)
+        XCTAssertEqual(state.orderRows.map(\.patternIndex), [0, 1, 0])
+        XCTAssertEqual(state.orderRows.map(\.isSelected), [false, false, true])
+        XCTAssertTrue(currentCell.isUsed)
+        XCTAssertTrue(currentCell.isCurrent)
+    }
+
+    func testPatternOpsDuplicateAndClearButtonsRequestEditableMutationAndRefreshDisplayState() throws {
+        var sourcePattern = makePattern(index: 0, rowCount: 16, channels: 2)
+        sourcePattern.rows[2][1] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        sourcePattern.rows[3][0] = XMPatternEventCell(
+            note: TrackerNoteKeyMap.keyOffNoteValue,
+            instrument: 0x02,
+            volumeColumn: 0x30,
+            effectType: 0x0E,
+            effectParam: 0x9C
+        )
+        var document = makeBlankDocument(
+            currentPosition: 0,
+            currentPatternIndex: 0,
+            orderTable: [0],
+            patterns: [sourcePattern]
+        )
+        let controller = SongOrderEditorWindowController(displayState: .editableDocument(document))
+        let contentView = try XCTUnwrap(controller.window?.contentView as? SongOrderEditorContentView)
+        var duplicateRequestCount = 0
+        var clearRequestCount = 0
+        controller.onDuplicateCurrentPattern = {
+            duplicateRequestCount += 1
+            guard let updated = SongOrderEditorNavigation.editableDocumentDuplicatingCurrentPatternForEditing(
+                document,
+                isPlaybackActive: false
+            ) else {
+                return
+            }
+            document = updated
+            controller.apply(displayState: .editableDocument(updated))
+        }
+        controller.onClearCurrentPattern = {
+            clearRequestCount += 1
+            guard let updated = SongOrderEditorNavigation.editableDocumentClearingCurrentPatternForEditing(
+                document,
+                isPlaybackActive: false
+            ) else {
+                return
+            }
+            document = updated
+            controller.apply(displayState: .editableDocument(updated))
+        }
+
+        let initialPatternOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.patternOpsPanel, in: contentView)
+        try button(titled: "⧉ DUP", in: initialPatternOpsPanel).performClick(nil)
+        let duplicatedPattern = try XCTUnwrap(document.pattern(for: 1))
+        let duplicatedCell = try XCTUnwrap(contentView.displayState.patternBankCells.first { $0.patternIndex == 1 })
+
+        XCTAssertEqual(duplicateRequestCount, 1)
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(duplicatedPattern.rows, sourcePattern.rows)
+        XCTAssertFalse(duplicatedCell.isUsed)
+        XCTAssertTrue(duplicatedCell.isCurrent)
+
+        let refreshedPatternOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.patternOpsPanel, in: contentView)
+        try button(titled: "⌫ CLEAR", in: refreshedPatternOpsPanel).performClick(nil)
+
+        XCTAssertEqual(clearRequestCount, 1)
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(document.pattern(for: 0), sourcePattern)
+        XCTAssertTrue(document.pattern(for: 1)?.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        } == true)
+        XCTAssertEqual(contentView.displayState.selectedPatternIndex, 1)
+    }
+
     func testEditableDuplicateSelectedOrderInsertsAfterSelectionAndMiddlePreservesReferences() throws {
         let instrument = PlaybackInstrument(
             index: 1,
@@ -1096,7 +1248,7 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(metadata.xmPatterns.map(\.index), [0, 1])
     }
 
-    func testLoadedModuleNewPatternButtonDoesNotRequestMutation() throws {
+    func testLoadedModulePatternOpsButtonsDoNotRequestMutation() throws {
         let metadata = makeLoadedMetadata(
             orderTable: [0],
             patterns: [makePattern(index: 0, rowCount: 16)]
@@ -1107,24 +1259,39 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
             currentPatternIndex: 0
         ))
         let loadedContentView = try XCTUnwrap(loadedController.window?.contentView as? SongOrderEditorContentView)
-        var newPatternRequestCount = 0
-        loadedController.onNewPatternRequested = { newPatternRequestCount += 1 }
+        let patternOpsPanel = try identifiedView(SongOrderEditorViewIdentifier.patternOpsPanel, in: loadedContentView)
+        var patternMutationRequestCount = 0
+        loadedController.onNewPatternRequested = { patternMutationRequestCount += 1 }
+        loadedController.onDuplicateCurrentPattern = { patternMutationRequestCount += 1 }
+        loadedController.onClearCurrentPattern = { patternMutationRequestCount += 1 }
 
-        XCTAssertFalse(try button(titled: "+ NEW", in: loadedContentView).isEnabled)
-        try button(titled: "+ NEW", in: loadedContentView).performClick(nil)
-        XCTAssertEqual(newPatternRequestCount, 0)
+        XCTAssertFalse(try button(titled: "+ NEW", in: patternOpsPanel).isEnabled)
+        XCTAssertFalse(try button(titled: "⧉ DUP", in: patternOpsPanel).isEnabled)
+        XCTAssertFalse(try button(titled: "⌫ CLEAR", in: patternOpsPanel).isEnabled)
+        try button(titled: "+ NEW", in: patternOpsPanel).performClick(nil)
+        try button(titled: "⧉ DUP", in: patternOpsPanel).performClick(nil)
+        try button(titled: "⌫ CLEAR", in: patternOpsPanel).performClick(nil)
+        XCTAssertEqual(patternMutationRequestCount, 0)
         XCTAssertEqual(metadata.orderTable, [0])
         XCTAssertEqual(metadata.xmPatterns.map(\.index), [0])
     }
 
     @MainActor
     func testActivePlaybackOrderAndPatternMutationHelpersAreNoOpsWithoutSeekingPlayback() {
+        var firstPattern = makePattern(index: 0, rowCount: 16)
+        firstPattern.rows[1][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
         let document = makeBlankDocument(
             currentPosition: 0,
             currentPatternIndex: 0,
             orderTable: [0, 1],
             patterns: [
-                makePattern(index: 0, rowCount: 16),
+                firstPattern,
                 makePattern(index: 1, rowCount: 16),
             ]
         )
@@ -1167,7 +1334,16 @@ final class SongOrderEditorWindowControllerTests: XCTestCase {
             document,
             isPlaybackActive: engine.state.isPlaying
         ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocumentDuplicatingCurrentPatternForEditing(
+            document,
+            isPlaybackActive: engine.state.isPlaying
+        ))
+        XCTAssertNil(SongOrderEditorNavigation.editableDocumentClearingCurrentPatternForEditing(
+            document,
+            isPlaybackActive: engine.state.isPlaying
+        ))
         XCTAssertEqual(document, before)
+        XCTAssertEqual(document.pattern(for: 0), firstPattern)
         XCTAssertTrue(engine.state.isPlaying)
         XCTAssertEqual(engine.currentPosition, positionBeforeMutation)
         XCTAssertEqual(audioOutput.configuredPlans.count, configuredPlanCountBeforeMutation)
@@ -1694,6 +1870,13 @@ private func makeBlankDocument(
         instrumentPalette: instrumentPalette,
         patterns: patterns
     )
+}
+
+@MainActor
+private func identifiedView(_ identifier: String, in view: NSView) throws -> NSView {
+    let matchingView = view.allDescendants
+        .first { $0.identifier?.rawValue == identifier }
+    return try XCTUnwrap(matchingView)
 }
 
 @MainActor

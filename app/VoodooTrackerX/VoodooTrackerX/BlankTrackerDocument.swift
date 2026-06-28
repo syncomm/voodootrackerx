@@ -926,6 +926,39 @@ struct BlankTrackerDocument: Equatable {
         return true
     }
 
+    mutating func duplicateCurrentPatternForEditing(patternIndex: Int? = nil) -> Bool {
+        let targetPatternIndex = patternIndex ?? currentPatternIndex
+        guard let sourcePattern = pattern(for: targetPatternIndex),
+              let newPatternIndex = nextUnusedPatternIndex() else {
+            return false
+        }
+
+        let duplicatedPattern = XMPatternData(
+            index: newPatternIndex,
+            rowCount: sourcePattern.rowCount,
+            channels: sourcePattern.channels,
+            rows: sourcePattern.rows
+        )
+        var updatedPatterns = patterns
+        updatedPatterns.append(duplicatedPattern)
+        updatedPatterns.sort { $0.index < $1.index }
+
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: newPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: instrumentPalette,
+            patterns: updatedPatterns
+        )
+        return true
+    }
+
     mutating func assignPatternToSelectedOrder(_ patternIndex: Int) -> Bool {
         guard pattern(for: patternIndex) != nil else {
             return false

@@ -134,10 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             menuItem.state = isEditModeEnabled ? .on : .off
             return true
         case ApplicationMenuBuilder.Actions.clearCurrentPattern:
-            return EditorCommandAvailability.canClearCurrentPattern(
-                hasBlankDocument: blankDocument != nil,
-                sourceContext: currentEditorNoteAuditionSourceContext()
-            )
+            return !playbackEngine.state.isPlaying &&
+                EditorCommandAvailability.canClearCurrentPattern(
+                    hasBlankDocument: blankDocument != nil,
+                    sourceContext: currentEditorNoteAuditionSourceContext()
+                )
         case ApplicationMenuBuilder.Actions.clearSongData:
             return EditorCommandAvailability.canClearSongData(
                 hasBlankDocument: blankDocument != nil,
@@ -264,6 +265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         controller.onNewPatternRequested = { [weak self] in
             self?.createSongOrderEditorNewPattern()
+        }
+        controller.onDuplicateCurrentPattern = { [weak self] in
+            self?.duplicateSongOrderEditorCurrentPattern()
+        }
+        controller.onClearCurrentPattern = { [weak self] in
+            self?.clearSongOrderEditorCurrentPattern()
         }
         controller.onInsertOrderAfterSelected = { [weak self] in
             self?.insertSongOrderEditorOrderAfterSelected()
@@ -406,6 +413,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         applyEditableSongOrderDocument(updatedDocument)
     }
 
+    private func duplicateSongOrderEditorCurrentPattern() {
+        guard let document = blankDocument,
+              loadedMetadata == nil,
+              let updatedDocument = SongOrderEditorNavigation.editableDocumentDuplicatingCurrentPatternForEditing(
+                  document,
+                  isPlaybackActive: playbackEngine.state.isPlaying
+              ) else {
+            return
+        }
+
+        applyEditableSongOrderDocument(updatedDocument)
+    }
+
+    private func clearSongOrderEditorCurrentPattern() {
+        clearCurrentEditablePatternForEditing()
+    }
+
     private func insertSongOrderEditorOrderAfterSelected() {
         guard let document = blankDocument,
               loadedMetadata == nil,
@@ -525,22 +549,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func clearCurrentPattern(_ sender: Any?) {
+        clearCurrentEditablePatternForEditing()
+    }
+
+    @discardableResult
+    private func clearCurrentEditablePatternForEditing() -> Bool {
         guard var document = blankDocument,
               loadedMetadata == nil,
+              !playbackEngine.state.isPlaying,
               EditorCommandAvailability.canClearCurrentPattern(
                   hasBlankDocument: true,
                   sourceContext: document.noteAuditionSourceContext
               ) else {
-            return
+            return false
         }
 
         guard document.clearCurrentPattern(patternIndex: currentPatternIndex) else {
-            return
+            return false
         }
 
         blankDocument = document
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()
+        return true
     }
 
     @objc

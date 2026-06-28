@@ -85,6 +85,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The Song / Order editor ORDER OPS DUP, MOVE UP, and MOVE DOWN controls now
+  mutate only stopped editable document order slots. Duplicate inserts the same
+  pattern reference after the selected slot, move up/down reorder one slot at a
+  time, and loaded modules plus active playback remain read-only/no-op.
 - The Song / Order editor Pattern Ops NEW control now creates and views a blank
   unassigned pattern for stopped editable documents, displays/highlights it
   through the existing pattern-bank and tracker refresh path, and leaves order

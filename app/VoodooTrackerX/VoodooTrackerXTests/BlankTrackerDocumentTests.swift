@@ -1923,6 +1923,93 @@ final class BlankTrackerDocumentTests: XCTestCase {
         XCTAssertEqual(invalidOrderDocument, beforeInvalidOrderDocument)
     }
 
+    func testCreateBlankPatternAndSelectForEditingAllocatesNextPatternWithoutAssigningOrderAndPreservesSongState() {
+        let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
+        var sourcePattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 12, channels: 3)
+        sourcePattern.rows[2][1] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        var document = BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 2,
+            currentPosition: 1,
+            restartPosition: BlankTrackerDocument.defaultRestartPosition,
+            currentPatternIndex: 0,
+            tempo: 144,
+            speed: 3,
+            orderTable: [0, 0],
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [1: PlaybackInstrument(index: 1, name: "Lead", samples: [sample])],
+            patterns: [sourcePattern]
+        )
+        let beforePalette = document.instrumentPalette
+
+        XCTAssertTrue(document.createBlankPatternAndSelectForEditing())
+
+        let newPattern = tryUnwrap(document.pattern(for: 1))
+        XCTAssertEqual(document.orderTable, [0, 0])
+        XCTAssertEqual(document.songLength, 2)
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertEqual(document.tempo, 144)
+        XCTAssertEqual(document.speed, 3)
+        XCTAssertEqual(document.selection, TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1))
+        XCTAssertEqual(document.instrumentPalette, beforePalette)
+        XCTAssertEqual(document.pattern(for: 0), sourcePattern)
+        XCTAssertEqual(newPattern.rowCount, 12)
+        XCTAssertEqual(newPattern.channels, 3)
+        XCTAssertTrue(newPattern.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        })
+    }
+
+    func testCreateBlankPatternMultipleTimesAllocatesUniquePatternsAcrossBankBoundary() {
+        var document = makeBlankDocument(
+            currentPatternIndex: 0,
+            orderTable: [0],
+            patterns: (0..<SongOrderEditorDisplayState.bankSize).map { patternIndex in
+                BlankTrackerDocument.makeEmptyPattern(index: patternIndex, rowCount: 6, channels: 2)
+            }
+        )
+
+        XCTAssertTrue(document.createBlankPatternAndSelectForEditing())
+        XCTAssertTrue(document.createBlankPatternAndSelectForEditing())
+
+        XCTAssertNotNil(document.pattern(for: 64))
+        XCTAssertNotNil(document.pattern(for: 65))
+        XCTAssertEqual(Array(document.patterns.map(\.index).suffix(2)), [64, 65])
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.currentPosition, 0)
+        XCTAssertEqual(document.currentPatternIndex, 65)
+        XCTAssertEqual(document.pattern(for: 65)?.rowCount, 6)
+        XCTAssertEqual(document.pattern(for: 65)?.channels, 2)
+    }
+
+    func testCreateBlankPatternAndSelectForEditingDoesNotRequireSelectedOrderAssignment() {
+        var document = BlankTrackerDocument(
+            title: BlankTrackerDocument.defaultTitle,
+            songLength: 1,
+            currentPosition: 1,
+            restartPosition: BlankTrackerDocument.defaultRestartPosition,
+            currentPatternIndex: 0,
+            tempo: BlankTrackerDocument.defaultTempo,
+            speed: BlankTrackerDocument.defaultSpeed,
+            orderTable: [0],
+            selection: .default,
+            instrumentPalette: [:],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)]
+        )
+        XCTAssertTrue(document.createBlankPatternAndSelectForEditing())
+        XCTAssertEqual(document.orderTable, [0])
+        XCTAssertEqual(document.currentPosition, 1)
+        XCTAssertEqual(document.currentPatternIndex, 1)
+        XCTAssertNotNil(document.pattern(for: 1))
+    }
+
     func testInsertOrderAfterSelectedReferencesSelectedPatternAndPreservesPatternData() {
         let sample = makePlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [0.25], volume: 1, baseSampleRate: 8_363)
         var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 16, channels: 2)

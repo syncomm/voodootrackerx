@@ -367,6 +367,20 @@ enum SongOrderEditorNavigation {
         return updatedDocument
     }
 
+    static func editableDocumentCreatingBlankPatternForEditing(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool
+    ) -> BlankTrackerDocument? {
+        guard !isPlaybackActive else {
+            return nil
+        }
+        var updatedDocument = document
+        guard updatedDocument.createBlankPatternAndSelectForEditing() else {
+            return nil
+        }
+        return updatedDocument
+    }
+
     static func editableDocumentInsertingOrderAfterSelected(
         _ document: BlankTrackerDocument,
         isPlaybackActive: Bool
@@ -525,6 +539,11 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
             (window?.contentView as? SongOrderEditorContentView)?.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
         }
     }
+    var onNewPatternRequested: (() -> Void)? {
+        didSet {
+            (window?.contentView as? SongOrderEditorContentView)?.onNewPatternRequested = onNewPatternRequested
+        }
+    }
     var onInsertOrderAfterSelected: (() -> Void)? {
         didSet {
             (window?.contentView as? SongOrderEditorContentView)?.onInsertOrderAfterSelected = onInsertOrderAfterSelected
@@ -592,6 +611,7 @@ final class SongOrderEditorWindowController: NSWindowController, NSWindowDelegat
         contentView.onOrderSelected = onOrderSelected
         contentView.onPatternSelected = onPatternSelected
         contentView.onPatternDoubleClickedForAssignment = onPatternDoubleClickedForAssignment
+        contentView.onNewPatternRequested = onNewPatternRequested
         contentView.onInsertOrderAfterSelected = onInsertOrderAfterSelected
         contentView.onDeleteSelectedOrder = onDeleteSelectedOrder
         return contentView.apply(displayState: displayState)
@@ -615,6 +635,7 @@ final class SongOrderEditorContentView: FlippedEditorView {
     var onOrderSelected: ((Int) -> Void)?
     var onPatternSelected: ((Int) -> Void)?
     var onPatternDoubleClickedForAssignment: ((Int) -> Void)?
+    var onNewPatternRequested: (() -> Void)?
     var onInsertOrderAfterSelected: (() -> Void)?
     var onDeleteSelectedOrder: (() -> Void)?
     private(set) var displayState: SongOrderEditorDisplayState
@@ -670,6 +691,14 @@ final class SongOrderEditorContentView: FlippedEditorView {
             return
         }
         onDeleteSelectedOrder?()
+    }
+
+    @objc
+    private func createNewPattern(_ sender: Any?) {
+        guard displayState.isOrderMutationEnabled else {
+            return
+        }
+        onNewPatternRequested?()
     }
 
     private func showBank(_ bankIndex: Int) {
@@ -857,7 +886,15 @@ final class SongOrderEditorContentView: FlippedEditorView {
     }
 
     private func buildPatternOpsPanel(_ panel: NSView) {
-        addButton("+ NEW", to: panel, frame: NSRect(x: 10, y: 29, width: 68, height: 25))
+        addButton(
+            "+ NEW",
+            to: panel,
+            frame: NSRect(x: 10, y: 29, width: 68, height: 25),
+            target: displayState.isOrderMutationEnabled ? self : nil,
+            action: displayState.isOrderMutationEnabled ? #selector(createNewPattern(_:)) : nil,
+            isEnabled: displayState.isOrderMutationEnabled,
+            toolTip: displayState.isOrderMutationEnabled ? "Create blank pattern for editing" : "New pattern unavailable"
+        )
         addButton("⧉ DUP", to: panel, frame: NSRect(x: 84, y: 29, width: 68, height: 25))
         addButton("⌫ CLEAR", to: panel, frame: NSRect(x: 158, y: 29, width: 84, height: 25))
     }

@@ -27,8 +27,9 @@ VoodooTracker X currently has:
   assignment, stopped editable order-slot insert/delete controls, stopped
   editable ORDER OPS PTN -/+ pattern-reference stepping, and stopped editable
   Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
-  clear-current-pattern mutation, plus stopped editable DANGER / CLEAR SONG
-  reset
+  clear-current-pattern mutation, stopped editable DANGER / CLEAR SONG reset,
+  and a stopped editable-document `File > Export XM...` menu/save-panel shell
+  that records a chosen destination but does not write files yet
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -64,10 +65,11 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 1. Define editable-document ownership and save/export semantics before any
-   file-writing implementation.
-2. Add an editable-document Export XM menu/save-panel shell only after the
-   design model is reviewed.
-3. Add minimal public-safe XM writer model tests and export editable
+   file-writing implementation. Done; see
+   `docs/design/editable-document-save-export-model.md`.
+2. Build on the editable-document Export XM menu/save-panel shell by adding
+   minimal public-safe XM writer model tests before any app file output.
+3. Export editable
    order/pattern/timing data in narrow slices.
 4. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
@@ -100,6 +102,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- File > Export XM... now has an editable-document-only menu/save-panel shell:
+  it is enabled only for stopped editable documents, disabled/no-op for loaded
+  read-only modules and active playback, returns a not-implemented result after
+  destination selection, and writes no XM file. Save and Save As remain
+  disabled, and runtime playback, parser, C mixer DSP, tracker viewport, Song /
+  Order editor behavior, note entry, note audition, and Instrument/Sample
+  editor behavior did not change.
 - The tagged `v0.2.0-alpha.3` release marks the first-pass Song / Order editor
   composition workflow complete for small editable blank songs: Pattern Bank
   viewing/assignment, Pattern Ops NEW/DUP/CLEAR, Order Ops

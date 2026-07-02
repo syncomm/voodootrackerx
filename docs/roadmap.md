@@ -303,14 +303,12 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- Land the editable-document save/export model before any file-writing
-  implementation. The design should define document ownership, Save/Save As
-  semantics, Export XM scope, loaded-module editable-copy safety, and public
-  fixture/testing rules without changing app behavior.
-- After the save/export model, continue in narrow composition-path slices:
-  Export XM menu/save-panel shell, minimal public-safe XM writer tests, editable
-  order/pattern/timing export, palette/sample payload export where already
-  represented, explicit loaded-module editable-copy UI, and then
+- The editable-document save/export model and Export XM menu/save-panel shell
+  are in place. Continue with minimal public-safe XM writer model tests before
+  enabling app file output.
+- After writer model tests, continue in narrow composition-path slices:
+  editable order/pattern/timing export, palette/sample payload export where
+  already represented, explicit loaded-module editable-copy UI, and then
   Instrument/Sample editor foundations.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -323,6 +321,13 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- File > Export XM... now establishes the safe app-shell boundary for future
+  XM export: stopped editable documents can choose an `.xm` destination and
+  receive a not-implemented result, while loaded read-only modules and active
+  playback are disabled/no-op. The shell writes no files, does not enable Save
+  or Save As, and does not change parser, runtime audio, C mixer DSP, tracker
+  viewport, Song / Order editor, note entry, note audition, Instrument Editor,
+  or Sample Editor behavior.
 - The tagged `v0.2.0-alpha.3` release marks the first-pass Song / Order editor
   composition workflow complete: editable blank documents can use note entry,
   Pattern Bank viewing/assignment, Pattern Ops NEW/DUP/CLEAR, Order Ops

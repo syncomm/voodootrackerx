@@ -1,10 +1,11 @@
 # Editable Document Save/Export Model
 
-Status: design-only. This note defines product and architecture rules for
-future save/export work. It does not implement Save, Save As, Export XM, an XM
-writer, loaded-module editing, Instrument Editor behavior, Sample Editor
-behavior, runtime playback changes, parser architecture changes, or tracker
-viewport changes.
+Status: design plus first app-shell slice. This note defines product and
+architecture rules for save/export work. The app now has an Export XM
+menu/save-panel shell for stopped editable documents, but Save, Save As, XM
+writing, loaded-module editing, Instrument Editor behavior, Sample Editor
+behavior, runtime playback changes, parser architecture changes, and tracker
+viewport changes remain unimplemented by this note.
 
 ## Purpose
 
@@ -84,6 +85,12 @@ composition data. It should:
 
 Export XM is an interchange/export operation, not a promise of arbitrary XM
 round-trip parity.
+
+Current shell behavior: `File > Export XM...` is enabled only for stopped
+editable documents, presents a save panel with an `.xm` destination, and then
+returns a truthful not-implemented result without writing a file. Loaded
+read-only modules and active playback remain disabled/no-op, and Save/Save As
+remain disabled.
 
 ### Future Native Project Format
 
@@ -176,16 +183,15 @@ future PR explicitly scopes that work.
 
 Keep future PRs narrow and testable:
 
-1. `app: define editable document save/export menu state`
+1. Done: `app: add editable-document Export XM menu/save-panel shell`
 2. `xm: add minimal public-safe XM writer model tests`
 3. `xm: write editable blank document XM order/pattern/timing data`
 4. `xm: write existing palette/sample payloads when available`
-5. `app: wire Export XM save panel for editable documents`
-6. `tests: add exported-XM reload smoke using public fixtures`
-7. `app: define explicit loaded-module editable-copy command`
-8. `instrument: build Instrument Editor shell/read-only binding`
-9. `instrument: add editable palette foundation`
-10. `sample: build Sample Editor shell/import foundation`
+5. `tests: add exported-XM reload smoke using public fixtures`
+6. `app: define explicit loaded-module editable-copy command`
+7. `instrument: build Instrument Editor shell/read-only binding`
+8. `instrument: add editable palette foundation`
+9. `sample: build Sample Editor shell/import foundation`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

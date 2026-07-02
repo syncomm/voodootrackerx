@@ -4,6 +4,7 @@ enum ApplicationMenuBuilder {
     enum Actions {
         static let newTrackerDocument = NSSelectorFromString("newTrackerDocument:")
         static let openModuleFile = NSSelectorFromString("openModuleFile:")
+        static let exportXM = NSSelectorFromString("exportXM:")
         static let play = NSSelectorFromString("playPressed:")
         static let playCurrentPattern = NSSelectorFromString("playCurrentPatternPressed:")
         static let stop = NSSelectorFromString("stopPressed:")
@@ -67,6 +68,7 @@ enum ApplicationMenuBuilder {
         let saveAs = disabledItem(title: "Save As...", keyEquivalent: "S")
         saveAs.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(saveAs)
+        menu.addItem(menuItem(title: "Export XM...", action: Actions.exportXM, keyEquivalent: "", target: target))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         return menu

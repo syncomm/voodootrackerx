@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
              ApplicationMenuBuilder.Actions.openModuleFile,
              ApplicationMenuBuilder.Actions.showSongOrderEditor:
             return true
+        case ApplicationMenuBuilder.Actions.exportXM:
+            return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
@@ -236,6 +238,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc
     private func newTrackerDocument(_ sender: Any?) {
         resetToBlankTrackerDocument()
+    }
+
+    @objc
+    private func exportXM(_ sender: Any?) {
+        let destinationProvider = NSSavePanelExportXMDestinationProvider()
+        let coordinator = ExportXMCoordinator(destinationProvider: destinationProvider)
+        handleExportXMShellResult(
+            coordinator.beginExport(context: currentExportXMDocumentContext())
+        )
+    }
+
+    private func currentExportXMDocumentContext() -> ExportXMDocumentContext {
+        if let document = blankDocument, loadedMetadata == nil {
+            return .editable(
+                displayName: document.title,
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                hasValidEditableState: displayedMetadata != nil
+            )
+        }
+
+        if loadedMetadata != nil {
+            return .loadedReadOnly(isPlaybackActive: playbackEngine.state.isPlaying)
+        }
+
+        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+    }
+
+    private func handleExportXMShellResult(_ result: ExportXMShellResult) {
+        guard let message = result.userFacingMessage else {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Export XM Not Implemented"
+        alert.informativeText = message
+        if let mainWindow {
+            alert.beginSheetModal(for: mainWindow)
+        } else {
+            alert.runModal()
+        }
     }
 
     @objc

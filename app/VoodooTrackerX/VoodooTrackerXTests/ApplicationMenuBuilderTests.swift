@@ -13,15 +13,35 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(builtMenu.windowMenu.title, "Window")
     }
 
-    func testFileMenuWiresNewAndOpenWithoutSaveOrExportBehavior() throws {
-        let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "File"))
+    func testFileMenuWiresNewOpenAndExportXMWhileKeepingSaveDisabled() throws {
+        let target = NSObject()
+        let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: target).mainMenu.submenu(titled: "File"))
+
+        XCTAssertEqual(
+            fileMenu.items.map(\.title),
+            ["New", "Open...", "", "Save", "Save As...", "Export XM...", "", "Close"]
+        )
+        XCTAssertTrue(fileMenu.items[2].isSeparatorItem)
+        XCTAssertTrue(fileMenu.items[6].isSeparatorItem)
 
         XCTAssertEqual(fileMenu.item(withTitle: "New")?.action, ApplicationMenuBuilder.Actions.newTrackerDocument)
         XCTAssertEqual(fileMenu.item(withTitle: "Open...")?.action, ApplicationMenuBuilder.Actions.openModuleFile)
         XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save")).isEnabled)
         XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save As...")).isEnabled)
+
+        let exportXM = try XCTUnwrap(fileMenu.item(withTitle: "Export XM..."))
+        XCTAssertEqual(exportXM.action, ApplicationMenuBuilder.Actions.exportXM)
+        XCTAssertTrue(exportXM.target === target)
+        XCTAssertEqual(exportXM.keyEquivalent, "")
         XCTAssertNil(fileMenu.item(withTitle: "Export"))
         XCTAssertNil(fileMenu.item(withTitle: "Export..."))
+    }
+
+    func testFileMenuKeepsSaveAndSaveAsDisabledWithNilTarget() throws {
+        let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "File"))
+
+        XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save")).isEnabled)
+        XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save As...")).isEnabled)
     }
 
     func testEditMenuFutureCommandsAreDisabledPlaceholdersAndEditorUtilitiesAreWired() throws {

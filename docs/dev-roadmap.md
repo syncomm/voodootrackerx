@@ -29,7 +29,9 @@ VoodooTracker X currently has:
   Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
   clear-current-pattern mutation, stopped editable DANGER / CLEAR SONG reset,
   and a stopped editable-document `File > Export XM...` menu/save-panel shell
-  that records a chosen destination but does not write files yet
+  that records a chosen destination but does not write files yet, plus a
+  minimal in-memory editable XM writer foundation covered by public-safe
+  byte-level model tests
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -67,10 +69,9 @@ preserving the backend freeze:
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
    `docs/design/editable-document-save-export-model.md`.
-2. Build on the editable-document Export XM menu/save-panel shell by adding
-   minimal public-safe XM writer model tests before any app file output.
-3. Export editable
-   order/pattern/timing data in narrow slices.
+2. Minimal public-safe XM writer model tests are in place for the in-memory
+   editable-document writer foundation; keep app file output deferred.
+3. Export editable order/pattern/timing data in narrow slices.
 4. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 5. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
@@ -102,6 +103,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Minimal public-safe XM writer model tests now cover an in-memory editable
+  `BlankTrackerDocument` writer foundation: XM header basics, sanitized module
+  and tracker names, order/channel/timing fields, blank pattern headers,
+  packed note/instrument/key-off/volume/effect cells, multiple pattern/order
+  references, no-sample instrument headers, non-mutation, and the type-level
+  editable-document input boundary. The writer is not wired to `File > Export
+  XM...`; Save/Save As and app XM file output remain disabled/deferred.
 - File > Export XM... now has an editable-document-only menu/save-panel shell:
   it is enabled only for stopped editable documents, disabled/no-op for loaded
   read-only modules and active playback, returns a not-implemented result after

@@ -303,12 +303,11 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 
 Recommended next product PR:
 
-- The editable-document save/export model and Export XM menu/save-panel shell
-  are in place. Continue with minimal public-safe XM writer model tests before
-  enabling app file output.
-- After writer model tests, continue in narrow composition-path slices:
-  editable order/pattern/timing export, palette/sample payload export where
-  already represented, explicit loaded-module editable-copy UI, and then
+- The editable-document save/export model, Export XM menu/save-panel shell, and
+  minimal public-safe in-memory XM writer model tests are in place. Continue in
+  narrow composition-path slices before enabling app file output: editable
+  order/pattern/timing export, palette/sample payload export where already
+  represented, explicit loaded-module editable-copy UI, and then
   Instrument/Sample editor foundations.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -321,6 +320,13 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Minimal public-safe XM writer model tests now cover an in-memory editable
+  `BlankTrackerDocument` writer foundation: XM header basics, sanitized module
+  and tracker names, order/channel/timing fields, blank pattern headers,
+  packed note/instrument/key-off/volume/effect cells, multiple pattern/order
+  references, no-sample instrument headers, non-mutation, and the type-level
+  editable-document input boundary. The writer is not wired to `File > Export
+  XM...`; Save/Save As and app XM file output remain disabled/deferred.
 - File > Export XM... now establishes the safe app-shell boundary for future
   XM export: stopped editable documents can choose an `.xm` destination and
   receive a not-implemented result, while loaded read-only modules and active

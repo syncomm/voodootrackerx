@@ -29,7 +29,7 @@ the original source path.
 
 | State | Editable? | Source/output ownership | Save/export implication |
 | --- | --- | --- | --- |
-| Blank editable document from `File > New` | Yes | In-memory document with no owned path | Save remains disabled until an owned document format/path exists. Export XM may later write a user-chosen new XM file. |
+| Blank editable document from `File > New` | Yes | In-memory document with no owned path | Save remains disabled until an owned document format/path exists. Export XM may write a user-chosen new XM file without making that file an owned save path. |
 | Editable document derived from Clear Song Data or an editable-copy bridge | Yes | Value-owned copy of editable song/order/pattern state plus safely represented palette/sample data | The source module path, if any, remains external and read-only. Save/export must choose a new destination. |
 | Loaded module read-only state | No | External opened module path owned by the user or filesystem, not by VTX | Pattern, song/order, instrument, and sample mutations are blocked. Save must not target this path implicitly. |
 | Future explicit editable copy of a loaded module | Yes, after user command | New in-memory editable document derived from parsed module data | The original module remains untouched. The UI must show copied/read-only/owned state clearly. |
@@ -86,11 +86,12 @@ composition data. It should:
 Export XM is an interchange/export operation, not a promise of arbitrary XM
 round-trip parity.
 
-Current shell behavior: `File > Export XM...` is enabled only for stopped
-editable documents, presents a save panel with an `.xm` destination, and then
-returns a truthful not-implemented result without writing a file. Loaded
-read-only modules and active playback remain disabled/no-op, and Save/Save As
-remain disabled.
+Current behavior: `File > Export XM...` is enabled only for stopped editable
+documents, presents a save panel with an `.xm` destination, writes the current
+editable XM subset to that explicitly chosen file, and reports completion or a
+write failure. Cancel writes nothing. Loaded read-only modules and active
+playback remain disabled/no-op, Save/Save As remain disabled, and the exported
+XM file does not become an owned save path.
 
 ### Future Native Project Format
 
@@ -184,14 +185,15 @@ future PR explicitly scopes that work.
 Keep future PRs narrow and testable:
 
 1. Done: `app: add editable-document Export XM menu/save-panel shell`
-2. `xm: add minimal public-safe XM writer model tests`
-3. `xm: write editable blank document XM order/pattern/timing data`
-4. `xm: write existing palette/sample payloads when available`
-5. `tests: add exported-XM reload smoke using public fixtures`
-6. `app: define explicit loaded-module editable-copy command`
-7. `instrument: build Instrument Editor shell/read-only binding`
-8. `instrument: add editable palette foundation`
-9. `sample: build Sample Editor shell/import foundation`
+2. Done: `xm: add minimal public-safe XM writer model tests`
+3. Done: `xm: write editable blank document XM order/pattern/timing data`
+4. Done: `tests: add exported-XM reload smoke using public fixtures`
+5. Done: `xm: wire Export XM to writer behind safe file boundary`
+6. `xm: write existing palette/sample payloads when available`
+7. `app: define explicit loaded-module editable-copy command`
+8. `instrument: build Instrument Editor shell/read-only binding`
+9. `instrument: add editable palette foundation`
+10. `sample: build Sample Editor shell/import foundation`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

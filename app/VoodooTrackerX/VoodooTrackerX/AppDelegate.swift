@@ -252,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func currentExportXMDocumentContext() -> ExportXMDocumentContext {
         if let document = blankDocument, loadedMetadata == nil {
             return .editable(
+                document: document,
                 displayName: document.title,
                 isPlaybackActive: playbackEngine.state.isPlaying,
                 hasValidEditableState: displayedMetadata != nil
@@ -266,13 +267,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func handleExportXMShellResult(_ result: ExportXMShellResult) {
-        guard let message = result.userFacingMessage else {
+        guard let title = result.userFacingTitle,
+              let message = result.userFacingMessage else {
             return
         }
 
         let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Export XM Not Implemented"
+        if case .failed = result {
+            alert.alertStyle = .warning
+        } else {
+            alert.alertStyle = .informational
+        }
+        alert.messageText = title
         alert.informativeText = message
         if let mainWindow {
             alert.beginSheetModal(for: mainWindow)

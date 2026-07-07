@@ -304,10 +304,10 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 Recommended next product PR:
 
 - The editable-document save/export model, Export XM menu/save-panel shell, and
-  minimal public-safe in-memory XM writer model tests are in place. Continue in
-  narrow composition-path slices before enabling app file output: editable
-  order/pattern/timing export, palette/sample payload export where already
-  represented, explicit loaded-module editable-copy UI, and then
+  minimal public-safe in-memory XM writer model and reload smoke tests are in
+  place. Continue in narrow composition-path slices before enabling app file
+  output: editable order/pattern/timing export, palette/sample payload export
+  where already represented, explicit loaded-module editable-copy UI, and then
   Instrument/Sample editor foundations.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -320,6 +320,13 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Public-safe XM writer reload smoke tests now persist generated
+  editable-document XM data only under test temporary directories and reload it
+  through the existing parser path. Coverage includes blank documents, simple
+  note/instrument cells, key-off cells, multiple pattern/order references, and
+  volume/effect fields for the current VTX editable subset. The writer remains
+  in-memory only; app Export XM file output, Save, Save As, loaded-module
+  editing, and full arbitrary XM export parity remain deferred.
 - Minimal public-safe XM writer model tests now cover an in-memory editable
   `BlankTrackerDocument` writer foundation: XM header basics, sanitized module
   and tracker names, order/channel/timing fields, blank pattern headers,

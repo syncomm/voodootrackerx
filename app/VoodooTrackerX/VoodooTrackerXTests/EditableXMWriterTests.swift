@@ -151,6 +151,119 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertFalse(data.isEmpty)
     }
 
+    func testBlankDocumentReloadsThroughParserFromTemporaryXMFile() throws {
+        let metadata = try reloadedMetadata(from: BlankTrackerDocument.makeDefault())
+
+        XCTAssertEqual(metadata.type, "XM")
+        XCTAssertEqual(metadata.title, BlankTrackerDocument.defaultTitle)
+        XCTAssertEqual(metadata.version, "1.4")
+        XCTAssertEqual(metadata.songLength, 1)
+        XCTAssertEqual(metadata.orderTable, [0])
+        XCTAssertEqual(metadata.restartPosition, 0)
+        XCTAssertEqual(metadata.channels, 8)
+        XCTAssertEqual(metadata.patterns, 1)
+        XCTAssertEqual(metadata.instruments, 0)
+        XCTAssertEqual(metadata.defaultTempo, 6)
+        XCTAssertEqual(metadata.defaultBPM, 125)
+        XCTAssertEqual(metadata.xmFlags, 0x0001)
+        XCTAssertTrue(metadata.usesLinearFrequencyTable)
+
+        let pattern = try XCTUnwrap(metadata.xmPattern(index: 0))
+        XCTAssertEqual(pattern.rowCount, 64)
+        XCTAssertEqual(pattern.channels, 8)
+        XCTAssertTrue(pattern.rows.allSatisfy { row in
+            row.allSatisfy { $0 == .empty }
+        })
+    }
+
+    func testSimpleNoteAndInstrumentReloadThroughParser() throws {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 8, channels: 2)
+        pattern.rows[2][1] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        let document = makeDocument(orderTable: [0], patterns: [pattern])
+
+        let metadata = try reloadedMetadata(from: document)
+
+        XCTAssertEqual(metadata.instruments, 1)
+        let reloadedPattern = try XCTUnwrap(metadata.xmPattern(index: 0))
+        XCTAssertEqual(reloadedPattern.rowCount, 8)
+        XCTAssertEqual(reloadedPattern.channels, 2)
+        XCTAssertEqual(reloadedPattern.rows[2][1], XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0))
+        XCTAssertEqual(reloadedPattern.rows[0][0], .empty)
+    }
+
+    func testKeyOffReloadsThroughParser() throws {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        pattern.rows[1][0] = XMPatternEventCell(
+            note: XMPatternEventCell.keyOffNoteValue,
+            instrument: 0,
+            volumeColumn: 0,
+            effectType: 0,
+            effectParam: 0
+        )
+        let document = makeDocument(orderTable: [0], patterns: [pattern])
+
+        let metadata = try reloadedMetadata(from: document)
+
+        let reloadedPattern = try XCTUnwrap(metadata.xmPattern(index: 0))
+        XCTAssertEqual(reloadedPattern.rows[1][0].note, XMPatternEventCell.keyOffNoteValue)
+        XCTAssertEqual(ModuleMetadataLoader.formatXMCell(reloadedPattern.rows[1][0]), "=== .. .. ...")
+    }
+
+    func testMultiplePatternsAndOrderReferencesReloadThroughParser() throws {
+        var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
+        var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 6, channels: 2)
+        firstPattern.rows[0][0] = XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0)
+        secondPattern.rows[5][1] = XMPatternEventCell(note: 52, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0)
+        let document = makeDocument(
+            restartPosition: 1,
+            orderTable: [0, 1, 0],
+            patterns: [firstPattern, secondPattern]
+        )
+
+        let metadata = try reloadedMetadata(from: document)
+
+        XCTAssertEqual(metadata.songLength, 3)
+        XCTAssertEqual(metadata.orderTable, [0, 1, 0])
+        XCTAssertEqual(metadata.restartPosition, 1)
+        XCTAssertEqual(metadata.patterns, 2)
+        XCTAssertEqual(metadata.instruments, 2)
+
+        let reloadedFirst = try XCTUnwrap(metadata.xmPattern(index: 0))
+        let reloadedSecond = try XCTUnwrap(metadata.xmPattern(index: 1))
+        XCTAssertEqual(reloadedFirst.rowCount, 4)
+        XCTAssertEqual(reloadedSecond.rowCount, 6)
+        XCTAssertEqual(reloadedFirst.rows[0][0], XMPatternEventCell(note: 49, instrument: 1, volumeColumn: 0, effectType: 0, effectParam: 0))
+        XCTAssertEqual(reloadedFirst.rows[3][1], .empty)
+        XCTAssertEqual(reloadedSecond.rows[5][1], XMPatternEventCell(note: 52, instrument: 2, volumeColumn: 0, effectType: 0, effectParam: 0))
+        XCTAssertEqual(reloadedSecond.rows[0][0], .empty)
+    }
+
+    func testVolumeAndEffectCellReloadThroughParser() throws {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 2, channels: 1)
+        pattern.rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0x40,
+            effectType: 0x0F,
+            effectParam: 0x7D
+        )
+        let document = makeDocument(orderTable: [0], patterns: [pattern])
+
+        let metadata = try reloadedMetadata(from: document)
+
+        let reloadedPattern = try XCTUnwrap(metadata.xmPattern(index: 0))
+        XCTAssertEqual(
+            reloadedPattern.rows[0][0],
+            XMPatternEventCell(
+                note: 49,
+                instrument: 1,
+                volumeColumn: 0x40,
+                effectType: 0x0F,
+                effectParam: 0x7D
+            )
+        )
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
@@ -173,6 +286,36 @@ final class EditableXMWriterTests: XCTestCase {
             instrumentPalette: [:],
             patterns: patterns
         )
+    }
+
+    private func reloadedMetadata(
+        from document: BlankTrackerDocument,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ParsedModuleMetadata {
+        let data = try EditableXMWriter().data(from: document)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vtx-editable-xm-writer-reload-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let url = directory.appendingPathComponent("generated.xm")
+        try data.write(to: url, options: .atomic)
+        XCTAssertTrue(
+            url.path.hasPrefix(FileManager.default.temporaryDirectory.path),
+            "reload smoke wrote outside the system temporary directory",
+            file: file,
+            line: line
+        )
+
+        do {
+            return try ModuleMetadataLoader().load(fromPath: url.path)
+        } catch {
+            XCTFail("generated XM did not reload through ModuleMetadataLoader: \(error)", file: file, line: line)
+            throw error
+        }
     }
 }
 

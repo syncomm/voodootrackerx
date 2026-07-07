@@ -31,7 +31,8 @@ VoodooTracker X currently has:
   and a stopped editable-document `File > Export XM...` menu/save-panel shell
   that records a chosen destination but does not write files yet, plus a
   minimal in-memory editable XM writer foundation covered by public-safe
-  byte-level model tests
+  byte-level model tests and temporary-file reload smoke tests through the
+  existing parser path
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -69,8 +70,9 @@ preserving the backend freeze:
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
    `docs/design/editable-document-save-export-model.md`.
-2. Minimal public-safe XM writer model tests are in place for the in-memory
-   editable-document writer foundation; keep app file output deferred.
+2. Minimal public-safe XM writer model and reload smoke tests are in place for
+   the in-memory editable-document writer foundation; keep app file output
+   deferred.
 3. Export editable order/pattern/timing data in narrow slices.
 4. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
@@ -103,6 +105,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Public-safe XM writer reload smoke tests now write generated editable-document
+  XM data only under test temporary directories and reload it through the
+  existing parser path. Coverage includes blank documents, simple
+  note/instrument cells, key-off cells, multiple pattern/order references, and
+  volume/effect fields for the current VTX editable subset. The writer remains
+  in-memory only; `File > Export XM...`, Save, Save As, loaded-module editing,
+  full arbitrary XM export parity, runtime playback, parser architecture, C
+  mixer DSP, tracker viewport behavior, Song / Order behavior, Instrument
+  Editor, and Sample Editor remain unchanged/deferred.
 - Minimal public-safe XM writer model tests now cover an in-memory editable
   `BlankTrackerDocument` writer foundation: XM header basics, sanitized module
   and tracker names, order/channel/timing fields, blank pattern headers,

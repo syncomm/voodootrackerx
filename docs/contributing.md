@@ -27,6 +27,11 @@ xcodebuild -project app/VoodooTrackerX/VoodooTrackerX.xcodeproj -scheme VoodooTr
 swift test --filter ModuleCoreTests
 ```
 
+### Render tool tests (SwiftPM)
+```bash
+swift test --filter VTXRenderBoundedXMTests
+```
+
 ### Core parser manual dumper (metadata smoke check)
 ```bash
 swift run mc_dump tests/fixtures/minimal.mod

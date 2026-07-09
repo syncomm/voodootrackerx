@@ -75,6 +75,16 @@ python3 scripts/generate-synthetic-xm-fixtures.py --write-xm
 swift test --filter ModuleCoreTests
 ```
 
+## Run Render Tool Tests
+
+```bash
+swift test --filter VTXRenderBoundedXMTests
+```
+
+Run these before changes that touch the bounded XM render tool, render/export
+policy, CLI argument handling, or render diagnostics JSON. The same filtered
+suite runs in `basic-checks` CI.
+
 ## Manual Playback Stabilization Checklist
 
 Use a local, known-good XM file. Do not commit copyrighted module files.

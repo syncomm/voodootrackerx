@@ -201,6 +201,99 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(windowed.windowedRenderSummary?.totalScheduledCapacityRejects, 0)
     }
 
+    func testPlaybackSongOfflineRendererPerformanceInstrumentationDoesNotChangePCM() throws {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [
+                makePlaybackRow(index: 0, note: 49, instrument: 1),
+                makePlaybackRow(index: 1),
+                makePlaybackRow(index: 2),
+                makePlaybackRow(index: 3)
+            ]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 4
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let baseline = renderer.renderWindowed(request, windowRows: 1)
+        let instrumented = renderer.renderWindowed(
+            request,
+            windowRows: 1,
+            collectPerformanceDiagnostics: true
+        )
+
+        XCTAssertEqual(instrumented.block, baseline.block)
+        XCTAssertEqual(instrumented.scheduledVoiceIndices, baseline.scheduledVoiceIndices)
+        XCTAssertNil(baseline.performanceDiagnostics)
+        XCTAssertNotNil(instrumented.performanceDiagnostics)
+    }
+
+    func testPlaybackSongOfflineRendererPerformanceInstrumentationReportsSamplePayloadUploads() throws {
+        let sample = makePlaybackSample(pcm: [1, 0.5, -0.5], baseSampleRate: 100)
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(
+            request,
+            windowRows: 64,
+            collectPerformanceDiagnostics: true
+        )
+        let performance = try XCTUnwrap(result.performanceDiagnostics)
+
+        XCTAssertEqual(performance.samplePayloadUploadCount, 1)
+        XCTAssertEqual(performance.approximateSamplePayloadBytesCopied, 3 * MemoryLayout<Float>.size)
+        XCTAssertEqual(performance.windows.count, 1)
+        XCTAssertEqual(performance.windows.first?.samplePayloadUploadCount, 1)
+    }
+
+    func testPlaybackSongOfflineRendererPerformanceInstrumentationHandlesSilentWindowedRender() throws {
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: [makePlaybackRow(index: 0)]],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 1
+        )
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(
+            request,
+            windowRows: 64,
+            collectPerformanceDiagnostics: true
+        )
+        let performance = try XCTUnwrap(result.performanceDiagnostics)
+
+        XCTAssertEqual(result.block.interleavedPCM, [0])
+        XCTAssertEqual(performance.totalFramesPlanned, 1)
+        XCTAssertEqual(performance.totalFramesRendered, 1)
+        XCTAssertEqual(performance.renderWindowCount, 1)
+        XCTAssertEqual(performance.totalScheduledEvents, 0)
+        XCTAssertEqual(performance.samplePayloadUploadCount, 0)
+        XCTAssertEqual(performance.approximateSamplePayloadBytesCopied, 0)
+        XCTAssertTrue(performance.windows.allSatisfy { $0.schedulingDurationSeconds >= 0 })
+        XCTAssertTrue(performance.windows.allSatisfy { $0.cMixerRenderDurationSeconds >= 0 })
+    }
+
     func testPlaybackSongOfflineRendererWindowedRenderReusesScheduledCapacityAcrossRows() throws {
         let sample = makePlaybackSample(pcm: [1], baseSampleRate: 100)
         let notesPerRow = 100

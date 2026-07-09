@@ -304,6 +304,109 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(renderResult.exportDiagnostics?.autoHeadroomEnabled, true)
     }
 
+    func testExportPerformanceDiagnosticsArePopulatedForWindowedFixture() throws {
+        let destination = try temporaryDestination(filename: "performance-windowed.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingRepeatingOrderSong(orderCount: 3),
+            displayName: "Performance",
+            isPlaybackActive: false
+        ))
+
+        XCTAssertEqual(plan.renderWindowCount, 3)
+        XCTAssertEqual(plan.performanceDiagnostics.renderWindowCount, 3)
+        XCTAssertEqual(plan.performanceDiagnostics.totalFramesPlanned, plan.totalFrameCount)
+        assertNonNegativePlanPerformance(plan.performanceDiagnostics)
+
+        let completion = WAVExportCoordinator.export(plan: plan, to: destination)
+
+        guard case let .exported(_, renderResult) = completion,
+              let summary = renderResult.windowedRenderSummary,
+              let renderPerformance = renderResult.performanceDiagnostics,
+              let exportPerformance = renderResult.wavExportPerformanceDiagnostics else {
+            return XCTFail("Expected performance diagnostics, got \(completion)")
+        }
+        XCTAssertEqual(renderResult.renderedFrameCount, plan.totalFrameCount)
+        XCTAssertEqual(summary.windowRows, WAVExportCoordinator.defaultWindowRows)
+        XCTAssertEqual(summary.windowCount, 3)
+        XCTAssertEqual(summary.windows.count, 3)
+        XCTAssertEqual(renderPerformance.renderWindowCount, 3)
+        XCTAssertEqual(renderPerformance.windowRows, WAVExportCoordinator.defaultWindowRows)
+        XCTAssertEqual(renderPerformance.totalFramesPlanned, plan.totalFrameCount)
+        XCTAssertEqual(renderPerformance.totalFramesRendered, plan.totalFrameCount)
+        XCTAssertEqual(renderPerformance.windows.count, summary.windowCount)
+        XCTAssertEqual(renderPerformance.totalScheduledEvents, summary.totalScheduledEvents)
+        XCTAssertEqual(renderPerformance.totalAcceptedScheduledEvents, summary.totalAcceptedScheduledEvents)
+        XCTAssertEqual(renderPerformance.totalRejectedScheduledEvents, summary.totalRejectedScheduledEvents)
+        XCTAssertEqual(renderPerformance.totalScheduledCapacityRejects, summary.totalScheduledCapacityRejects)
+        XCTAssertEqual(renderPerformance.totalCarriedVoices, summary.totalCarriedVoices)
+        XCTAssertEqual(renderPerformance.totalBoundaryContinuations, summary.totalBoundaryContinuations)
+        XCTAssertEqual(renderPerformance.totalDroppedAtWindowBoundaries, summary.totalDroppedAtWindowBoundaries)
+        XCTAssertEqual(renderPerformance.mayContainBoundaryCuts, summary.mayContainBoundaryCuts)
+        XCTAssertGreaterThan(renderPerformance.samplePayloadUploadCount, 0)
+        XCTAssertGreaterThan(renderPerformance.approximateSamplePayloadBytesCopied, 0)
+        XCTAssertEqual(exportPerformance.totalFramesPlanned, plan.totalFrameCount)
+        XCTAssertEqual(exportPerformance.totalFramesRendered, plan.totalFrameCount)
+        XCTAssertEqual(exportPerformance.renderWindowCount, summary.windowCount)
+        XCTAssertEqual(exportPerformance.windowWriteDiagnostics.count, summary.windowCount)
+        XCTAssertEqual(exportPerformance.renderPerformanceDiagnostics, renderPerformance)
+        assertNonNegativeRenderPerformance(renderPerformance)
+        assertNonNegativeExportPerformance(exportPerformance)
+    }
+
+    func testExportPerformanceInstrumentationDoesNotChangeFloat32WAVBytes() throws {
+        let enabledDestination = try temporaryDestination(filename: "instrumented.wav")
+        let disabledDestination = try temporaryDestination(filename: "baseline.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeHotSampleBearingSong(),
+            displayName: "Byte Identity",
+            isPlaybackActive: false
+        ))
+
+        let enabled = WAVExportCoordinator.export(
+            plan: plan,
+            to: enabledDestination,
+            collectPerformanceDiagnostics: true
+        )
+        let disabled = WAVExportCoordinator.export(
+            plan: plan,
+            to: disabledDestination,
+            collectPerformanceDiagnostics: false
+        )
+
+        guard case let .exported(_, enabledResult) = enabled,
+              case let .exported(_, disabledResult) = disabled else {
+            return XCTFail("Expected two successful exports, got \(enabled) and \(disabled)")
+        }
+        XCTAssertNotNil(enabledResult.wavExportPerformanceDiagnostics)
+        XCTAssertNotNil(enabledResult.performanceDiagnostics)
+        XCTAssertNil(disabledResult.wavExportPerformanceDiagnostics)
+        XCTAssertNil(disabledResult.performanceDiagnostics)
+        XCTAssertEqual(try Data(contentsOf: enabledDestination), try Data(contentsOf: disabledDestination))
+    }
+
+    func testHeadroomPostProcessPerformanceDiagnosticsArePresent() throws {
+        let destination = try temporaryDestination(filename: "headroom-performance.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeHotSampleBearingSong(),
+            displayName: "Headroom Performance",
+            isPlaybackActive: false
+        ))
+
+        let completion = WAVExportCoordinator.export(plan: plan, to: destination)
+
+        guard case let .exported(_, renderResult) = completion,
+              let exportDiagnostics = renderResult.exportDiagnostics,
+              let performance = renderResult.wavExportPerformanceDiagnostics else {
+            return XCTFail("Expected headroom performance diagnostics, got \(completion)")
+        }
+        XCTAssertTrue(exportDiagnostics.autoHeadroomEnabled)
+        XCTAssertGreaterThan(exportDiagnostics.preExportPeak, 1)
+        XCTAssertLessThan(exportDiagnostics.computedExportGain, 1)
+        XCTAssertGreaterThanOrEqual(performance.headroomPostProcessDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performance.tempWAVWriteDurationSeconds, 0)
+        XCTAssertEqual(performance.windowWriteDiagnostics.count, renderResult.windowedRenderSummary?.windowCount)
+    }
+
     func testWindowedExportContainsNonSilentAudioAfterThirtyFiveSeconds() throws {
         let destination = try temporaryDestination(filename: "late-audio.wav")
         let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
@@ -790,6 +893,49 @@ private func exportTempFiles(in directory: URL) throws -> [String] {
     try FileManager.default.contentsOfDirectory(atPath: directory.path)
         .filter { $0.contains(".vtx-export-") || $0.hasSuffix(".tmp") }
         .sorted()
+}
+
+private func assertNonNegativePlanPerformance(
+    _ diagnostics: WAVExportPlanPerformanceDiagnostics,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertGreaterThanOrEqual(diagnostics.totalDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.songBuildDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.traversalPlanningDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.durationTimingPlanningDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.wavLayoutValidationDurationSeconds, 0, file: file, line: line)
+}
+
+private func assertNonNegativeRenderPerformance(
+    _ diagnostics: PlaybackSongRenderPerformanceDiagnostics,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertGreaterThanOrEqual(diagnostics.totalDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.planAdaptDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.totalWindowSchedulingDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.totalCMixerRenderDurationSeconds, 0, file: file, line: line)
+    for window in diagnostics.windows {
+        XCTAssertGreaterThanOrEqual(window.schedulingDurationSeconds, 0, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(window.cMixerRenderDurationSeconds, 0, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(window.totalWindowDurationSeconds, 0, file: file, line: line)
+    }
+}
+
+private func assertNonNegativeExportPerformance(
+    _ diagnostics: WAVExportPerformanceDiagnostics,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertGreaterThanOrEqual(diagnostics.totalExportDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.renderPhaseDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.tempWAVWriteDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.headroomPostProcessDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.finalAtomicReplaceDurationSeconds, 0, file: file, line: line)
+    for window in diagnostics.windowWriteDiagnostics {
+        XCTAssertGreaterThanOrEqual(window.tempWAVWriteDurationSeconds, 0, file: file, line: line)
+    }
 }
 
 private enum TestWAVExportInjectedError: LocalizedError {

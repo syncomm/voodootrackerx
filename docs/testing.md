@@ -85,6 +85,43 @@ Run these before changes that touch the bounded XM render tool, render/export
 policy, CLI argument handling, or render diagnostics JSON. The same filtered
 suite runs in `basic-checks` CI.
 
+## Render / Export Performance Timing Policy
+
+Correctness tests and Debug app smoke runs are not performance benchmarks. Any
+local render/export timing used for comparison, PR evidence, or optimization
+planning must use Release builds unless the measurement is explicitly about
+Debug behavior. Plain `swift run` builds Debug by default and is not valid for
+render/export performance comparisons.
+
+Use the Release benchmark helper for local render timing:
+
+```bash
+./scripts/bench-render.sh tests/reference-xm/generated/basic-instrument-sample.xm
+```
+
+The helper runs:
+
+```bash
+swift run -c release vtx_render_bounded_xm
+```
+
+with the product-comparable defaults: 48 kHz, Float32 WAV, VTX mix profile,
+whole selected song range from order 0, `--until-song-end`, `--tail-seconds 3`,
+64-row windowed rendering, `--allow-long-render`, and `--auto-headroom`.
+Generated WAVs, diagnostics, reports, and timing notes are local artifacts; keep
+them under `/tmp` or another ignored path and do not commit them.
+
+The helper may auto-detect the XM song length for `--order-count`. For unusual
+inputs, pass `--order-count N` explicitly. Extra render-tool flags such as
+`--progress` or `--diagnostics-json /tmp/render-diagnostics.json` may be passed
+after `--`.
+
+Run the normal SwiftPM test filters to verify correctness. Run
+`VTXRenderBoundedXMTests` before render-tool, render/export policy, CLI, or
+diagnostics changes. Run `scripts/bench-render.sh` only when collecting local
+Release-mode render/export timing evidence; do not add long benchmark runs to
+CI.
+
 ## Manual Playback Stabilization Checklist
 
 Use a local, known-good XM file. Do not commit copyrighted module files.
@@ -285,6 +322,9 @@ The helper launches the Debug app directly with `VTX_OPEN_PATH`,
 `VTX_DEBUG_REPLAY_AFTER_STOP=1`, `VTX_PLAYBACK_TIMING_TRACE=1`,
 `VTX_RUNTIME_MIXER_METRICS_TRACE=1`, and a label-based local runtime C mixer
 trace path. It does not require Accessibility permissions or GUI automation.
+Because it defaults to the Debug app binary, use this helper for local runtime
+diagnostics only, not for Release render/export performance comparisons. Use
+`scripts/bench-render.sh` for Release render timing.
 
 By default the helper runs Play, debug Stop, then Play/Stop again so summaries
 can compare first Play adapter-plan preparation with cached second Play reuse.

@@ -32,6 +32,23 @@ swift test --filter ModuleCoreTests
 swift test --filter VTXRenderBoundedXMTests
 ```
 
+Run these before changes that touch `vtx_render_bounded_xm`, render/export
+policy, CLI argument handling, or render diagnostics JSON.
+
+### Release render benchmark (local timing only)
+```bash
+./scripts/bench-render.sh tests/reference-xm/generated/basic-instrument-sample.xm
+```
+
+Render/export performance comparisons must use Release builds unless the
+measurement is explicitly about Debug behavior. Plain `swift run` builds Debug
+by default and is not comparable. The benchmark helper runs
+`swift run -c release vtx_render_bounded_xm` with 48 kHz Float32 WAV, VTX mix
+profile, `--until-song-end`, `--tail-seconds 3`, 64-row windows,
+`--allow-long-render`, and product-comparable `--auto-headroom`. Keep generated
+WAVs, diagnostics, reports, and timing notes under `/tmp` or another ignored
+path.
+
 ### Core parser manual dumper (metadata smoke check)
 ```bash
 swift run mc_dump tests/fixtures/minimal.mod

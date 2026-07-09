@@ -51,7 +51,7 @@ Classification terms:
 | Path | Classification | Purpose | Known references | Private/local corpus handling | Output under `/tmp`? | Current path? | Recommended future action |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `scripts/check-files.sh` | Active workflow; active CI/local helper | Performs the repo's basic required-file hygiene check. | `README.md`, `AGENTS.md`, `docs/agent-current-state.md`, `docs/contributing.md`, `docs/roadmap.md`, design docs. | No private data. | No generated output. | Keep. | Leave as a small stable repo hygiene script. |
-| `scripts/bench-render.sh` | Active workflow; local-only Release render benchmark helper | Runs `swift run -c release vtx_render_bounded_xm` with product-comparable defaults and prints elapsed wall-clock time for local render/export timing. | `README.md`, `docs/testing.md`, `docs/contributing.md`, `docs/audio-comparison.md`. | Reads local XM inputs; private module paths and generated timing notes must stay out of committed docs. | Yes by default for generated WAV output; extra diagnostics should also use `/tmp` or ignored scratch paths. | Keep. | Leave as a small wrapper. Do not add long benchmark runs to CI without a separate performance-benchmarking design. |
+| `scripts/bench-render.sh` | Active workflow; local-only Release render benchmark helper | Runs `swift run -c release vtx_render_bounded_xm --product-export-profile` and prints elapsed wall-clock time for local render/export timing. | `README.md`, `docs/testing.md`, `docs/contributing.md`, `docs/audio-comparison.md`. | Reads local XM inputs; private module paths and generated timing notes must stay out of committed docs. | Yes by default for generated WAV output; extra diagnostics should also use `/tmp` or ignored scratch paths. | Keep. | Leave as a small wrapper. Do not add long benchmark runs to CI without a separate performance-benchmarking design. |
 | `scripts/run-golden.sh` | Active workflow; golden/test helper | Regenerates parser golden JSON snapshots from redistribution-safe fixtures. | `README.md`, `docs/testing.md`; calls `swift run mc_dump`. | No private data; uses committed fixtures only. | No; intentionally writes `tests/golden/`. | Keep. | Leave separate from diagnostics; only run for intentional parser snapshot changes. |
 | `scripts/generate-synthetic-xm-fixtures.py` | Active test helper; fixture generator | Prints or writes the deterministic source manifest and can explicitly write approved generated XM fixtures under `tests/reference-xm/generated/`, including `basic-instrument-sample.xm` and `multi-pattern-loop-boundary.xm`. | `tests/reference-xm/README.md`, `docs/design/synthetic-xm-reference-fixture-pack.md`, `tools/synthetic_xm_fixture_generator_tests.py`. | No private data; explicitly forbids private modules and private corpus dependencies. | No by default; writes only requested manifest or XM fixture paths when invoked with `--write-manifest` or `--write-xm`; no reference renders. | Keep. | Extend in small reviewed fixture PRs; do not emit reference renders by default. |
 | `scripts/audio-compare.py` | Active workflow; diagnostic / local-only; candidate CLI subcommand | Compares reference and candidate WAVs and emits audio metrics, windows, JSON, and Markdown. | `docs/audio-comparison.md`, `docs/testing.md`, ADR 004, archived reports, `tools/audio_compare_tests.py`, Swift render tests. | Handles WAVs that may be derived from private modules; reports must use public-safe labels. | Yes for JSON/Markdown reports and source WAVs unless using temp test dirs. | Keep for now. | Make `audio_compare` a first-class unified CLI subcommand; keep compatibility wrapper until docs/tests migrate. |
@@ -146,6 +146,14 @@ Bounded render/export:
 - `scripts/bench-render.sh`
 - `tools/vtx_render_bounded_xm/main.swift`
 - `tools/vtx_render_bounded_xm/Support/BoundedXMRenderTool.swift`
+
+`vtx_render_bounded_xm --product-export-profile` expands to the shared settings
+used by app `File > Export Audio > WAV...`: 48 kHz Float32 WAV, VTX mix,
+selected range until song end, a 3-second tail, 64-row windows, auto-headroom,
+and user-initiated long-render permission. Explicit value options override the
+profile regardless of argument order, while existing duration and gain
+conflicts remain errors. The tool's diagnostic defaults remain unchanged when
+the flag is absent. Generated WAVs and diagnostics remain local artifacts.
 
 App WAV export and the shared windowed offline render path also provide
 developer-facing performance diagnostics through Swift result models. These are

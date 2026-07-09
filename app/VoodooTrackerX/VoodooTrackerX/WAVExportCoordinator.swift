@@ -114,6 +114,23 @@ struct WAVExportConfiguration: Equatable, Sendable {
     let chunkFrameCount: Int
     let windowRows: Int
     let maximumFrameCount: Int
+
+    init(productExportProfile profile: AudioExportRenderProfile) {
+        precondition(profile.scope == .untilSongEnd)
+        precondition(profile.allowLongRender)
+        precondition(profile.autoHeadroomEnabled)
+        scope = .wholeSong
+        sampleRate = profile.sampleRate
+        channelCount = profile.channelCount
+        mixProfile = profile.mixProfile
+        wavFormat = profile.wavFormat
+        longRenderPolicy = .allowUserInitiatedWholeSong
+        headroomPolicy = .auto
+        tailSeconds = profile.tailSeconds
+        chunkFrameCount = AudioExportFrameCount.frameCount(seconds: 1, sampleRate: profile.sampleRate)
+        windowRows = profile.windowRows
+        maximumFrameCount = profile.maximumFrameCount
+    }
 }
 
 struct WAVExportDestinationRequest: Equatable {
@@ -240,27 +257,15 @@ protocol WAVExportDestinationProviding {
 }
 
 struct WAVExportCoordinator {
-    static let sampleRate = 48_000.0
-    static let channelCount = MixerRenderConfig.defaultChannelCount
-    static let mixProfile = MixerMixProfile.vtx
-    static let wavFormat = MixerWAVFormat.float32
-    static let defaultChunkFrameCount = Int(sampleRate)
-    static let defaultWindowRows = 64
-    static let maximumFrameCount = 100_000_000
-    static let runtimeTailPolicy = RuntimeCMixerSongEndTailPolicy.defaultPolicy
-    static let defaultConfiguration = WAVExportConfiguration(
-        scope: .wholeSong,
-        sampleRate: sampleRate,
-        channelCount: channelCount,
-        mixProfile: mixProfile,
-        wavFormat: wavFormat,
-        longRenderPolicy: .allowUserInitiatedWholeSong,
-        headroomPolicy: .auto,
-        tailSeconds: runtimeTailPolicy.tailSeconds,
-        chunkFrameCount: defaultChunkFrameCount,
-        windowRows: defaultWindowRows,
-        maximumFrameCount: maximumFrameCount
-    )
+    static let productExportProfile = AudioExportRenderProfile.productWAVExport
+    static let sampleRate = productExportProfile.sampleRate
+    static let channelCount = productExportProfile.channelCount
+    static let mixProfile = productExportProfile.mixProfile
+    static let wavFormat = productExportProfile.wavFormat
+    static let defaultChunkFrameCount = AudioExportFrameCount.frameCount(seconds: 1, sampleRate: sampleRate)
+    static let defaultWindowRows = productExportProfile.windowRows
+    static let maximumFrameCount = productExportProfile.maximumFrameCount
+    static let defaultConfiguration = WAVExportConfiguration(productExportProfile: productExportProfile)
 
     private let destinationProvider: any WAVExportDestinationProviding
 
@@ -386,7 +391,10 @@ struct WAVExportCoordinator {
         )
         let timingDuration = VTXPerformanceClock.seconds(since: timingStartTime)
         let songEndFrames = timingPlan.frameFor(row: timingPlan.rowTimings.count, tick: 0)
-        let tailFrames = frameCountAllowingZero(seconds: configuration.tailSeconds, sampleRate: config.sampleRate)
+        let tailFrames = AudioExportFrameCount.frameCount(
+            seconds: configuration.tailSeconds,
+            sampleRate: config.sampleRate
+        )
         let (totalFrames, overflow) = songEndFrames.addingReportingOverflow(tailFrames)
         guard !overflow else {
             throw WAVExportPlanError.renderDurationTooLarge(
@@ -683,23 +691,6 @@ struct WAVExportCoordinator {
         guard !traversalPlan.guardHit else {
             throw WAVExportPlanError.renderDurationNotDeterministic("Traversal hit the song safety guard.")
         }
-    }
-
-    private static func frameCountAllowingZero(seconds: Double, sampleRate: Double) -> Int {
-        guard seconds.isFinite,
-              seconds > 0,
-              sampleRate.isFinite,
-              sampleRate > 0 else {
-            return 0
-        }
-        let frames = (seconds * sampleRate).rounded(.toNearestOrAwayFromZero)
-        guard frames > 0 else {
-            return 0
-        }
-        guard frames < Double(Int.max) else {
-            return Int.max
-        }
-        return Int(frames)
     }
 
     private static func windowCount(syntheticRowCount: Int, windowRows: Int) -> Int {

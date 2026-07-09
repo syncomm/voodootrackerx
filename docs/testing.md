@@ -105,9 +105,10 @@ The helper runs:
 swift run -c release vtx_render_bounded_xm
 ```
 
-with the product-comparable defaults: 48 kHz, Float32 WAV, VTX mix profile,
-whole selected song range from order 0, `--until-song-end`, `--tail-seconds 3`,
-64-row windowed rendering, `--allow-long-render`, and `--auto-headroom`.
+with `--product-export-profile`, which expands to the app's shared
+product-comparable settings: 48 kHz, Float32 WAV, VTX mix profile, song-end
+scope, a 3-second tail, 64-row windowed rendering, long-render permission, and
+auto-headroom. The helper supplies the whole selected song range from order 0.
 Generated WAVs, diagnostics, reports, and timing notes are local artifacts; keep
 them under `/tmp` or another ignored path and do not commit them.
 

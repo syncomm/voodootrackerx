@@ -411,6 +411,72 @@ enum MixerWAVFormat: String, CaseIterable, Equatable {
     }
 }
 
+/// Render scope represented by a shared audio-export profile.
+enum AudioExportRenderScope: Equatable {
+    case untilSongEnd
+}
+
+/// Shared safety limits for app and developer-tool offline audio exports.
+enum AudioExportRenderLimits {
+    static let maximumFrameCount = 100_000_000
+}
+
+/// App-product render values that can also be expanded by developer export tools.
+///
+/// This contains export policy only. It does not select an AppKit destination, alter the mixer,
+/// or replace the render tool's separate diagnostic defaults.
+struct AudioExportRenderProfile: Equatable {
+    static let productWAVExport = AudioExportRenderProfile(
+        scope: .untilSongEnd,
+        sampleRate: 48_000,
+        channelCount: MixerRenderConfig.defaultChannelCount,
+        wavFormat: .float32,
+        mixProfile: .vtx,
+        tailSeconds: 3,
+        windowRows: 64,
+        autoHeadroomEnabled: true,
+        allowLongRender: true,
+        maximumFrameCount: AudioExportRenderLimits.maximumFrameCount
+    )
+
+    let scope: AudioExportRenderScope
+    let sampleRate: Double
+    let channelCount: Int
+    let wavFormat: MixerWAVFormat
+    let mixProfile: MixerMixProfile
+    let tailSeconds: Double
+    let windowRows: Int
+    let autoHeadroomEnabled: Bool
+    let allowLongRender: Bool
+    let maximumFrameCount: Int
+}
+
+/// Converts export-side durations to frame counts with explicit rounding semantics.
+enum AudioExportFrameCount {
+    static let productExportRoundingRule = FloatingPointRoundingRule.toNearestOrAwayFromZero
+
+    static func frameCount(
+        seconds: Double,
+        sampleRate: Double,
+        roundingRule: FloatingPointRoundingRule = productExportRoundingRule
+    ) -> Int {
+        guard seconds.isFinite,
+              seconds > 0,
+              sampleRate.isFinite,
+              sampleRate > 0 else {
+            return 0
+        }
+        let frames = (seconds * sampleRate).rounded(roundingRule)
+        guard frames > 0 else {
+            return 0
+        }
+        guard frames < Double(Int.max) else {
+            return Int.max
+        }
+        return Int(frames)
+    }
+}
+
 /// Output policy for local/offline WAV export.
 ///
 /// The gain is applied only at the WAV export boundary, after offline Float32 rendering and before

@@ -3,6 +3,125 @@ import Foundation
 import XCTest
 
 final class VTXRenderBoundedXMTests: XCTestCase {
+    func testProductExportProfileExpandsToSharedAppExportValues() throws {
+        let profile = AudioExportRenderProfile.productWAVExport
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--order-count", "2",
+            "--product-export-profile",
+        ])
+
+        XCTAssertTrue(arguments.usesProductExportProfile)
+        XCTAssertEqual(arguments.sampleRate, profile.sampleRate)
+        XCTAssertEqual(arguments.wavFormat, profile.wavFormat)
+        XCTAssertEqual(arguments.mixProfile, profile.mixProfile)
+        XCTAssertTrue(arguments.untilSongEnd)
+        XCTAssertEqual(arguments.renderDurationMode, .untilSongEnd)
+        XCTAssertEqual(arguments.tailSeconds, profile.tailSeconds)
+        XCTAssertEqual(arguments.windowRows, profile.windowRows)
+        XCTAssertEqual(arguments.autoHeadroom, profile.autoHeadroomEnabled)
+        XCTAssertEqual(arguments.allowLongRender, profile.allowLongRender)
+        XCTAssertEqual(RenderTool.absoluteMaximumFrameCount, profile.maximumFrameCount)
+    }
+
+    func testDiagnosticDefaultsRemainUnchangedWithoutProductExportProfile() throws {
+        let arguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+        ])
+
+        XCTAssertFalse(arguments.usesProductExportProfile)
+        XCTAssertEqual(arguments.sampleRate, 44_100)
+        XCTAssertEqual(arguments.wavFormat, .pcm16)
+        XCTAssertEqual(arguments.mixProfile, .vtx)
+        XCTAssertFalse(arguments.untilSongEnd)
+        XCTAssertNil(arguments.tailSeconds)
+        XCTAssertNil(arguments.windowRows)
+        XCTAssertFalse(arguments.autoHeadroom)
+        XCTAssertFalse(arguments.allowLongRender)
+        XCTAssertNil(arguments.gain)
+        XCTAssertNil(arguments.headroomDB)
+        XCTAssertEqual(arguments.exportPolicy, .unity)
+        XCTAssertEqual(arguments.renderDurationMode, .defaultSafetyClamp)
+        XCTAssertEqual(
+            arguments.effectiveFrameCap(sampleRate: arguments.sampleRate),
+            PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+        )
+    }
+
+    func testExplicitValueFlagsOverrideProductExportProfileRegardlessOfOrder() throws {
+        let suffixOverrides = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--product-export-profile",
+            "--sample-rate", "96000",
+            "--tail-seconds", "1.25",
+            "--window-rows", "32",
+            "--wav-format", "pcm16",
+            "--mix-profile", "ft2",
+        ])
+        let prefixOverrides = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-candidate.wav",
+            "--order", "0",
+            "--sample-rate", "96000",
+            "--tail-seconds", "1.25",
+            "--window-rows", "32",
+            "--wav-format", "pcm16",
+            "--mix-profile", "ft2",
+            "--product-export-profile",
+        ])
+
+        XCTAssertEqual(suffixOverrides, prefixOverrides)
+        XCTAssertEqual(suffixOverrides.sampleRate, 96_000)
+        XCTAssertEqual(suffixOverrides.tailSeconds, 1.25)
+        XCTAssertEqual(suffixOverrides.windowRows, 32)
+        XCTAssertEqual(suffixOverrides.wavFormat, .pcm16)
+        XCTAssertEqual(suffixOverrides.mixProfile, .ft2)
+        XCTAssertTrue(suffixOverrides.untilSongEnd)
+        XCTAssertTrue(suffixOverrides.autoHeadroom)
+        XCTAssertTrue(suffixOverrides.allowLongRender)
+    }
+
+    func testProductProfileUsesAppRoundingWhileDiagnosticModePreservesFlooring() throws {
+        let productArguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-product.wav",
+            "--order", "0",
+            "--product-export-profile",
+            "--sample-rate", "100",
+            "--tail-seconds", "0.015",
+        ])
+        let diagnosticArguments = try RenderToolArguments.parse([
+            "--input", "/tmp/module.xm",
+            "--output", "/tmp/vtx-diagnostic.wav",
+            "--order", "0",
+            "--sample-rate", "100",
+            "--until-song-end",
+            "--tail-seconds", "0.015",
+        ])
+        let song = songWithRows(1, timing: PlaybackTiming(speed: 1, bpm: 250))
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 1)
+
+        let productDuration = try RenderTool().renderDurationDiagnostics(
+            song: song,
+            arguments: productArguments,
+            config: config
+        )
+        let diagnosticDuration = try RenderTool().renderDurationDiagnostics(
+            song: song,
+            arguments: diagnosticArguments,
+            config: config
+        )
+
+        XCTAssertEqual(productDuration.tailFrames, 2)
+        XCTAssertEqual(diagnosticDuration.tailFrames, 1)
+    }
+
     func testArgumentParsingAcceptsRequiredArgumentsAndBounds() throws {
         let arguments = try RenderToolArguments.parse([
             "--input", "/tmp/module.xm",
@@ -751,6 +870,10 @@ final class VTXRenderBoundedXMTests: XCTestCase {
     func testHelpAndSummaryDescribeClampAndOverrideBehavior() {
         let usage = renderToolUsage()
 
+        XCTAssertTrue(usage.contains("--product-export-profile"))
+        XCTAssertTrue(usage.contains("same settings used by app Export Audio > WAV"))
+        XCTAssertTrue(usage.contains("Explicit value options override the profile"))
+        XCTAssertTrue(usage.contains("Diagnostic defaults remain unchanged"))
         XCTAssertTrue(usage.contains("--seconds N"))
         XCTAssertTrue(usage.contains("--max-frames N"))
         XCTAssertTrue(usage.contains("--until-song-end"))

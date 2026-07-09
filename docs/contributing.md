@@ -43,9 +43,9 @@ policy, CLI argument handling, or render diagnostics JSON.
 Render/export performance comparisons must use Release builds unless the
 measurement is explicitly about Debug behavior. Plain `swift run` builds Debug
 by default and is not comparable. The benchmark helper runs
-`swift run -c release vtx_render_bounded_xm` with 48 kHz Float32 WAV, VTX mix
-profile, `--until-song-end`, `--tail-seconds 3`, 64-row windows,
-`--allow-long-render`, and product-comparable `--auto-headroom`. Keep generated
+`swift run -c release vtx_render_bounded_xm --product-export-profile`, which
+expands to the app's shared 48 kHz Float32 WAV, VTX mix, song-end, 3-second
+tail, 64-row window, auto-headroom, and long-render settings. Keep generated
 WAVs, diagnostics, reports, and timing notes under `/tmp` or another ignored
 path.
 

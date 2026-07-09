@@ -14,6 +14,13 @@ Loaded modules remain read-only until editable-copy/save semantics are designed.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
+Release status: `v0.2.0-alpha.4` is the prepared Export XM v1 alpha for VTX
+editable documents. It covers the current editable subset, including supported
+existing instrument/sample payloads where safely represented. It is not a full
+arbitrary-XM round-trip guarantee or a full FT2/OpenMPT/MilkyTracker parity
+claim. Save/Save As, loaded-module direct editing, explicit editable-copy UX,
+Instrument Editor, and Sample Editor remain future work.
+
 ## Backend Architecture
 
 - Runtime playback defaults to the CoreAudio DefaultOutput Audio Unit host
@@ -154,6 +161,9 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- Export XM v1 release-prep documentation for `v0.2.0-alpha.4` now states the
+  scoped release claim, manual smoke checklist, and maintainer-only post-merge
+  tag instructions. No tag should be created by the PR.
 - XM diagnostic and residual-scan recommendation wording aligned with the
   backend freeze and `docs/xm-effect-support.md`; no playback behavior changed.
 - Amiga frequency-table foundation for note period/frequency/sample-step

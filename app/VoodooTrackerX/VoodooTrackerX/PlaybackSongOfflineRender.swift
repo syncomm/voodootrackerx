@@ -504,6 +504,16 @@ struct PlaybackSongOfflineStreamingRenderResult: Equatable {
     }
 }
 
+private struct PlaybackSongWindowedRenderCoreResult {
+    let request: PlaybackSongOfflineRenderRequest
+    let plan: PlaybackSongSyntheticPlan
+    let outputConfig: MixerRenderConfig
+    let renderedFrameCount: Int
+    let scheduledVoiceAttempts: [PlaybackSongScheduledVoiceAttempt]
+    let windowedRenderSummary: PlaybackSongWindowedRenderSummary
+    let sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
+}
+
 /// Prepared offline render session for split renders and reset determinism checks.
 final class PlaybackSongOfflineRenderSession {
     let request: PlaybackSongOfflineRenderRequest
@@ -722,6 +732,47 @@ final class PlaybackSongOfflineRenderer {
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
     ) -> PlaybackSongOfflineRenderResult {
+        var interleavedPCM = [Float]()
+        let coreResult = renderWindowedCore(
+            request,
+            windowRows: windowRows,
+            collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            prepareOutput: { totalFrames, config in
+                interleavedPCM.reserveCapacity(totalFrames * config.channelCount)
+                return CSoftwareMixer(config: config).config
+            },
+            collectBlock: { block in
+                interleavedPCM.append(contentsOf: block.interleavedPCM)
+            },
+            windowSink: { completedWindow, totalWindows, diagnostic, _ in
+                progress?(completedWindow, totalWindows, diagnostic)
+            }
+        )
+        let block = MixerRenderBlock(
+            config: coreResult.outputConfig,
+            frameCount: coreResult.renderedFrameCount,
+            interleavedPCM: interleavedPCM
+        )
+        return PlaybackSongOfflineRenderResult(
+            request: coreResult.request,
+            plan: coreResult.plan,
+            block: block,
+            scheduledVoiceIndices: coreResult.scheduledVoiceAttempts.map(\.voiceIndex),
+            scheduledVoiceRejectionReasons: coreResult.scheduledVoiceAttempts.map(\.rejectionReason),
+            scheduledVoiceAttempts: coreResult.scheduledVoiceAttempts,
+            windowedRenderSummary: coreResult.windowedRenderSummary,
+            sameChannelVoiceLifetime: coreResult.sameChannelVoiceLifetime
+        )
+    }
+
+    private func renderWindowedCore(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int,
+        collectPerformanceDiagnostics: Bool,
+        prepareOutput: ((Int, MixerRenderConfig) -> MixerRenderConfig)?,
+        collectBlock: ((MixerRenderBlock) -> Void)?,
+        windowSink: (Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void
+    ) rethrows -> PlaybackSongWindowedRenderCoreResult {
         let renderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
@@ -748,11 +799,9 @@ final class PlaybackSongOfflineRenderer {
         )
         let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
         var renderedFrames = 0
-        var interleavedPCM = [Float]()
-        interleavedPCM.reserveCapacity(totalFrames * effectiveRequest.config.channelCount)
+        var outputConfig = prepareOutput?(totalFrames, effectiveRequest.config) ?? effectiveRequest.config
         var attempts = [PlaybackSongScheduledVoiceAttempt]()
         var windowDiagnostics = [PlaybackSongWindowedRenderWindowDiagnostic]()
-        var outputConfig = CSoftwareMixer(config: effectiveRequest.config).config
         let knownUnsupportedCarryoverReasons = Self.knownUnsupportedCarryoverReasons(for: adaptedPlan)
         let sameChannelLifetime = Self.sameChannelVoiceLifetimeDiagnostics(
             for: adaptedPlan,
@@ -923,7 +972,7 @@ final class PlaybackSongOfflineRenderer {
                 ? VTXPerformanceClock.seconds(since: mixerRenderStartTime)
                 : 0
             renderedFrames += block.frameCount
-            interleavedPCM.append(contentsOf: block.interleavedPCM)
+            collectBlock?(block)
             let samplePayloadUploads = mixer.samplePayloadUploadDiagnostics
             let performanceDiagnostic = collectPerformanceDiagnostics
                 ? PlaybackSongRenderWindowPerformanceDiagnostic(
@@ -959,7 +1008,7 @@ final class PlaybackSongOfflineRenderer {
                 performanceDiagnostics: performanceDiagnostic
             )
             windowDiagnostics.append(diagnostic)
-            progress?(spec.index + 1, windows.count, diagnostic)
+            try windowSink(spec.index + 1, windows.count, diagnostic, block)
         }
 
         let scheduledCapacityRejectedCount = attempts.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count
@@ -997,11 +1046,6 @@ final class PlaybackSongOfflineRenderer {
                 windows: windowPerformanceDiagnostics
             )
             : nil
-        let block = MixerRenderBlock(
-            config: outputConfig,
-            frameCount: renderedFrames,
-            interleavedPCM: interleavedPCM
-        )
         let summary = PlaybackSongWindowedRenderSummary(
             windowRows: safeWindowRows,
             windows: windowDiagnostics,
@@ -1021,12 +1065,11 @@ final class PlaybackSongOfflineRenderer {
             knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations,
             performanceDiagnostics: performanceDiagnostics
         )
-        return PlaybackSongOfflineRenderResult(
+        return PlaybackSongWindowedRenderCoreResult(
             request: effectiveRequest,
             plan: finalPlan,
-            block: block,
-            scheduledVoiceIndices: attempts.map(\.voiceIndex),
-            scheduledVoiceRejectionReasons: attempts.map(\.rejectionReason),
+            outputConfig: outputConfig,
+            renderedFrameCount: renderedFrames,
             scheduledVoiceAttempts: attempts,
             windowedRenderSummary: summary,
             sameChannelVoiceLifetime: sameChannelLifetime
@@ -1104,303 +1147,24 @@ final class PlaybackSongOfflineRenderer {
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
-        let renderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-        let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
-        let safeWindowRows = max(1, windowRows)
-        let planAdaptStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-        let fullPlan = PlaybackSongSyntheticAdapter.adapt(
-            effectiveRequest.song,
-            startOrderIndex: effectiveRequest.startOrderIndex,
-            orderCount: effectiveRequest.orderCount,
-            sampleRate: effectiveRequest.config.sampleRate
-        )
-        let includedEventIndices = Self.includedEventIndices(
-            for: fullPlan,
-            isolationFilter: effectiveRequest.isolationFilter
-        )
-        let adaptedPlan = Self.plan(
-            fullPlan,
-            mutingEventsNotIn: includedEventIndices
-        )
-        let totalFrames = effectiveRequest.boundedFrameCount
-        let windows = Self.windowSpecs(
-            for: adaptedPlan,
-            totalFrames: totalFrames,
-            windowRows: safeWindowRows
-        )
-        let scheduler = SyntheticTrackerScheduler(config: adaptedPlan.timingConfig)
-        var renderedFrames = 0
-        var attempts = [PlaybackSongScheduledVoiceAttempt]()
-        var windowDiagnostics = [PlaybackSongWindowedRenderWindowDiagnostic]()
-        let knownUnsupportedCarryoverReasons = Self.knownUnsupportedCarryoverReasons(for: adaptedPlan)
-        let sameChannelLifetime = Self.sameChannelVoiceLifetimeDiagnostics(
-            for: adaptedPlan,
-            renderedFrameCount: totalFrames
-        )
-        let planAdaptDuration = collectPerformanceDiagnostics
-            ? VTXPerformanceClock.seconds(since: planAdaptStartTime)
-            : 0
-
-        for spec in windows {
-            let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-            let schedulingStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-            let mixer = CSoftwareMixer(
-                config: effectiveRequest.config,
-                recordsSamplePayloadUploads: collectPerformanceDiagnostics
-            )
-            let eventPairs = Self.eventPairs(
-                in: spec,
-                plan: adaptedPlan,
-                scheduler: scheduler
-            )
-            let continuations = Self.continuations(
-                for: spec,
-                plan: adaptedPlan,
-                scheduler: scheduler,
-                sameChannelLifetime: sameChannelLifetime,
-                includedEventIndices: includedEventIndices
-            )
-            var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
-            continuationResults.reserveCapacity(continuations.count)
-            for continuation in continuations {
-                let result = Self.scheduleContinuation(continuation, on: mixer)
-                continuationResults.append(result)
-                attempts.append(PlaybackSongScheduledVoiceAttempt(
-                    eventIndex: continuation.eventIndex,
-                    voiceIndex: result.voiceIndex,
-                    rejectionReason: result.rejectionReason,
-                    windowIndex: spec.index
-                ))
+        let coreResult = try renderWindowedCore(
+            request,
+            windowRows: windowRows,
+            collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            prepareOutput: nil,
+            collectBlock: nil,
+            windowSink: { completedWindow, totalWindows, diagnostic, block in
+                try progress?(completedWindow, totalWindows, diagnostic, block)
             }
-            let localEvents = eventPairs.map { _, event in
-                Self.localEvent(from: event, windowStartFrame: spec.startFrame, scheduler: scheduler)
-            }
-            let scheduledResults = scheduler.scheduleWithResults(localEvents, on: mixer)
-            var voiceIndexByEventIndex = [Int: Int]()
-            for (continuation, result) in zip(continuations, continuationResults) {
-                if let voiceIndex = result.voiceIndex {
-                    voiceIndexByEventIndex[continuation.eventIndex] = voiceIndex
-                }
-            }
-            for (pair, result) in zip(eventPairs, scheduledResults) {
-                if let voiceIndex = result.voiceIndex {
-                    voiceIndexByEventIndex[pair.offset] = voiceIndex
-                }
-            }
-            Self.scheduleEnvelopePositionUpdates(
-                adaptedPlan.diagnostics.envelopePositionEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleVoiceStateUpdates(
-                adaptedPlan.diagnostics.voiceStateUpdates,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleTonePortamentoStepUpdates(
-                adaptedPlan.diagnostics.tonePortamentoEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.schedulePortamentoSlideStepUpdates(
-                adaptedPlan.diagnostics.portamentoSlideEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleFinePortamentoUpStepUpdates(
-                adaptedPlan.diagnostics.finePortamentoUpEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleFinePortamentoDownStepUpdates(
-                adaptedPlan.diagnostics.finePortamentoDownEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleExtraFinePortamentoStepUpdates(
-                adaptedPlan.diagnostics.extraFinePortamentoEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleArpeggioStepUpdates(
-                adaptedPlan.diagnostics.arpeggioEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleVibratoStepUpdates(
-                adaptedPlan.diagnostics.vibratoEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleNoteCuts(
-                adaptedPlan.diagnostics.noteCutEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleRetriggerCuts(
-                adaptedPlan.diagnostics.retriggerEffects,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            Self.scheduleSameChannelReplacementRamps(
-                sameChannelLifetime.replacementEvents,
-                voiceIndexByEventIndex: voiceIndexByEventIndex,
-                on: mixer,
-                windowStartFrame: spec.startFrame,
-                windowEndFrame: spec.endFrame,
-                includedEventIndices: includedEventIndices
-            )
-            attempts.append(contentsOf: zip(eventPairs, scheduledResults).map { pair, result in
-                PlaybackSongScheduledVoiceAttempt(
-                    eventIndex: pair.offset,
-                    voiceIndex: result.voiceIndex,
-                    rejectionReason: result.rejectionReason,
-                    windowIndex: spec.index
-                )
-            })
-
-            let schedulingDuration = collectPerformanceDiagnostics
-                ? VTXPerformanceClock.seconds(since: schedulingStartTime)
-                : 0
-            let mixerRenderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-            let block = mixer.render(frames: spec.frameCount)
-            let mixerRenderDuration = collectPerformanceDiagnostics
-                ? VTXPerformanceClock.seconds(since: mixerRenderStartTime)
-                : 0
-            renderedFrames += block.frameCount
-            let samplePayloadUploads = mixer.samplePayloadUploadDiagnostics
-            let performanceDiagnostic = collectPerformanceDiagnostics
-                ? PlaybackSongRenderWindowPerformanceDiagnostic(
-                    windowIndex: spec.index,
-                    schedulingDurationSeconds: schedulingDuration,
-                    cMixerRenderDurationSeconds: mixerRenderDuration,
-                    totalWindowDurationSeconds: VTXPerformanceClock.seconds(since: windowStartTime),
-                    samplePayloadUploadCount: samplePayloadUploads.uploadCount,
-                    approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied
-                )
-                : nil
-
-            let droppedContinuations = continuationResults.filter { $0.rejectionReason != nil }.count
-            let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(
-                windowIndex: spec.index,
-                startRow: spec.startRow,
-                endRowExclusive: spec.endRowExclusive,
-                startFrame: spec.startFrame,
-                endFrame: spec.endFrame,
-                renderedFrames: block.frameCount,
-                carriedVoiceCount: continuationResults.filter(\.wasAccepted).count,
-                releasedVoiceCarryoverCount: continuations.filter { !$0.runtimeState.keyOn }.count,
-                carriedTonePortamentoVoiceCount: continuations.filter(\.carriedTonePortamentoActive).count,
-                boundaryContinuationCount: continuations.count,
-                droppedAtWindowBoundaryCount: droppedContinuations,
-                mayContainBoundaryCuts: droppedContinuations > 0,
-                unsupportedCarryoverReasons: spec.index == 0 ? [] : knownUnsupportedCarryoverReasons,
-                scheduledEventCount: scheduledResults.count + continuationResults.count,
-                acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count + continuationResults.filter(\.wasAccepted).count,
-                rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count + continuationResults.filter { $0.rejectionReason != nil }.count,
-                scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count + continuationResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
-                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
-                performanceDiagnostics: performanceDiagnostic
-            )
-            windowDiagnostics.append(diagnostic)
-            try progress?(spec.index + 1, windows.count, diagnostic, block)
-        }
-
-        let scheduledCapacityRejectedCount = attempts.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count
-        let eventCoverage = adaptedPlan.diagnostics.eventCoverage
-            .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
-        let finalPlan = adaptedPlan.replacingEventCoverage(eventCoverage)
-        let windowPerformanceDiagnostics = windowDiagnostics.compactMap(\.performanceDiagnostics)
-        let totalCarriedVoices = windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +)
-        let totalReleasedVoiceCarryovers = windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +)
-        let totalCarriedTonePortamentoVoices = windowDiagnostics.map(\.carriedTonePortamentoVoiceCount).reduce(0, +)
-        let totalBoundaryContinuations = windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +)
-        let totalDroppedAtWindowBoundaries = windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +)
-        let totalInvalidScheduledVoiceRejects = attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count
-        let performanceDiagnostics = collectPerformanceDiagnostics
-            ? PlaybackSongRenderPerformanceDiagnostics(
-                totalDurationSeconds: VTXPerformanceClock.seconds(since: renderStartTime),
-                planAdaptDurationSeconds: planAdaptDuration,
-                totalWindowSchedulingDurationSeconds: windowPerformanceDiagnostics.map(\.schedulingDurationSeconds).reduce(0, +),
-                totalCMixerRenderDurationSeconds: windowPerformanceDiagnostics.map(\.cMixerRenderDurationSeconds).reduce(0, +),
-                renderWindowCount: windowDiagnostics.count,
-                windowRows: safeWindowRows,
-                totalFramesPlanned: totalFrames,
-                totalFramesRendered: renderedFrames,
-                totalScheduledEvents: attempts.count,
-                totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
-                totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
-                totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
-                totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
-                totalCarriedVoices: totalCarriedVoices,
-                totalBoundaryContinuations: totalBoundaryContinuations,
-                totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
-                mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
-                samplePayloadUploadCount: windowPerformanceDiagnostics.map(\.samplePayloadUploadCount).reduce(0, +),
-                approximateSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateSamplePayloadBytesCopied).reduce(0, +),
-                windows: windowPerformanceDiagnostics
-            )
-            : nil
-        let summary = PlaybackSongWindowedRenderSummary(
-            windowRows: safeWindowRows,
-            windows: windowDiagnostics,
-            totalRenderedFrames: renderedFrames,
-            totalCarriedVoices: totalCarriedVoices,
-            totalReleasedVoiceCarryovers: totalReleasedVoiceCarryovers,
-            totalCarriedTonePortamentoVoices: totalCarriedTonePortamentoVoices,
-            totalBoundaryContinuations: totalBoundaryContinuations,
-            totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
-            mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
-            totalScheduledEvents: attempts.count,
-            totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
-            totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
-            totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
-            totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
-            knownUnsupportedCarryoverReasons: knownUnsupportedCarryoverReasons,
-            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations,
-            performanceDiagnostics: performanceDiagnostics
         )
         return PlaybackSongOfflineStreamingRenderResult(
-            request: effectiveRequest,
-            plan: finalPlan,
-            renderedFrameCount: renderedFrames,
-            scheduledVoiceIndices: attempts.map(\.voiceIndex),
-            scheduledVoiceRejectionReasons: attempts.map(\.rejectionReason),
-            windowedRenderSummary: summary,
-            sameChannelVoiceLifetime: sameChannelLifetime,
+            request: coreResult.request,
+            plan: coreResult.plan,
+            renderedFrameCount: coreResult.renderedFrameCount,
+            scheduledVoiceIndices: coreResult.scheduledVoiceAttempts.map(\.voiceIndex),
+            scheduledVoiceRejectionReasons: coreResult.scheduledVoiceAttempts.map(\.rejectionReason),
+            windowedRenderSummary: coreResult.windowedRenderSummary,
+            sameChannelVoiceLifetime: coreResult.sameChannelVoiceLifetime,
             exportDiagnostics: nil,
             wavExportPerformanceDiagnostics: nil
         )

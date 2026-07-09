@@ -3,6 +3,47 @@ import XCTest
 
 @MainActor
 final class WAVExportCoordinatorTests: XCTestCase {
+    func testDefaultConfigurationUsesSharedProductExportProfile() {
+        let profile = AudioExportRenderProfile.productWAVExport
+        let configuration = WAVExportCoordinator.defaultConfiguration
+
+        XCTAssertEqual(profile.scope, .untilSongEnd)
+        XCTAssertEqual(profile.sampleRate, 48_000)
+        XCTAssertEqual(profile.wavFormat, .float32)
+        XCTAssertEqual(profile.mixProfile, .vtx)
+        XCTAssertEqual(profile.tailSeconds, 3)
+        XCTAssertEqual(profile.windowRows, 64)
+        XCTAssertTrue(profile.autoHeadroomEnabled)
+        XCTAssertTrue(profile.allowLongRender)
+        XCTAssertEqual(profile.maximumFrameCount, AudioExportRenderLimits.maximumFrameCount)
+        XCTAssertEqual(profile.maximumFrameCount, 100_000_000)
+
+        XCTAssertEqual(configuration.scope, .wholeSong)
+        XCTAssertEqual(configuration.sampleRate, profile.sampleRate)
+        XCTAssertEqual(configuration.channelCount, profile.channelCount)
+        XCTAssertEqual(configuration.wavFormat, profile.wavFormat)
+        XCTAssertEqual(configuration.mixProfile, profile.mixProfile)
+        XCTAssertEqual(configuration.tailSeconds, profile.tailSeconds)
+        XCTAssertEqual(configuration.chunkFrameCount, 48_000)
+        XCTAssertEqual(configuration.windowRows, profile.windowRows)
+        XCTAssertEqual(configuration.maximumFrameCount, profile.maximumFrameCount)
+        XCTAssertEqual(configuration.longRenderPolicy, .allowUserInitiatedWholeSong)
+        XCTAssertEqual(configuration.headroomPolicy, .auto)
+    }
+
+    func testProductExportFrameCountPreservesNearestRounding() {
+        XCTAssertEqual(
+            AudioExportFrameCount.frameCount(seconds: 0.015, sampleRate: 100),
+            2
+        )
+        XCTAssertEqual(
+            AudioExportFrameCount.frameCount(seconds: 3, sampleRate: 48_000),
+            144_000
+        )
+        XCTAssertEqual(AudioExportFrameCount.frameCount(seconds: 0, sampleRate: 48_000), 0)
+        XCTAssertEqual(AudioExportFrameCount.frameCount(seconds: .infinity, sampleRate: 48_000), 0)
+    }
+
     func testLoadedStoppedRenderableSongWritesFloat32WAVOnlyToNormalizedDestination() throws {
         let song = makeSampleBearingSong()
         let selectedDestination = try temporaryDestination(filename: "loaded-export")

@@ -14,14 +14,11 @@ Options:
 
 Defaults are product-comparable for local render/export timing:
   swift run -c release vtx_render_bounded_xm
-  --sample-rate 48000
-  --wav-format float32
-  --mix-profile vtx
-  --until-song-end
-  --tail-seconds 3
-  --window-rows 64
-  --allow-long-render
-  --auto-headroom
+  --product-export-profile
+
+The profile expands to 48000 Hz Float32 WAV, VTX mix, selected range until
+song end, a 3-second tail, 64-row windows, auto-headroom, and long render
+permission. Extra explicit value flags override profile values.
 
 Extra render-tool flags may be passed after --, for example:
   scripts/bench-render.sh tests/reference-xm/generated/basic-instrument-sample.xm -- --progress
@@ -170,14 +167,7 @@ cmd=(
   --output "$output_path"
   --order "$order"
   --order-count "$order_count"
-  --sample-rate 48000
-  --until-song-end
-  --tail-seconds 3
-  --window-rows 64
-  --allow-long-render
-  --wav-format float32
-  --mix-profile vtx
-  --auto-headroom
+  --product-export-profile
 )
 
 if [ "${#extra_args[@]}" -gt 0 ]; then

@@ -23,12 +23,13 @@ normal agent reading.
   `File > Export Audio > WAV...`. That UI writes whole-song 32-bit Float WAV
   at 48 kHz using the VTX mix profile, default song-end tail, 64-row windowed
   offline rendering, and export-boundary auto-headroom to a user-selected
-  destination. It uses an explicit product whole-song plan and does not use the
-  diagnostic bounded-render cap. App auto-headroom renders the mixer once,
-  computes peak diagnostics during that render, then applies gain through a
-  streamed Float32 WAV post-process. It is not a diagnostic comparison profile
-  selector and does not expose FT2 profile, isolation/stem, pattern/order range,
-  PCM16, AAC/M4A, user-selectable gain/headroom, or comparison-report options.
+  destination. Those values come from the shared product export profile. The
+  app uses an explicit product whole-song plan and does not use the diagnostic
+  bounded-render cap. App auto-headroom renders the mixer once, computes peak
+  diagnostics during that render, then applies gain through a streamed Float32
+  WAV post-process. It is not a diagnostic comparison profile selector and does
+  not expose FT2 profile, isolation/stem, pattern/order range, PCM16, AAC/M4A,
+  user-selectable gain/headroom, or comparison-report options.
 
 Do not infer behavior changes from a comparison report alone. Use reports to
 choose the smallest next implementation or diagnostic PR.
@@ -93,12 +94,31 @@ render timing, prefer:
 
 The helper uses `swift run -c release vtx_render_bounded_xm`, writes to `/tmp`
 by default, prints the exact command, and reports elapsed wall-clock time. It
-defaults to 48 kHz Float32 WAV, VTX mix profile, song-end rendering,
-`--tail-seconds 3`, 64-row windows, `--allow-long-render`, and
-`--auto-headroom` to match product WAV export behavior where practical.
+passes `--product-export-profile`, which expands to the app's shared 48 kHz
+Float32 WAV, VTX mix, song-end, 3-second tail, 64-row window,
+auto-headroom, and user-initiated long-render settings. The selected order range
+must still cover the module song length for a whole-song comparison.
 Generated WAVs, diagnostics, reports, and timing notes remain local artifacts
 and must not be committed or named in public docs when they come from private
 modules.
+
+The equivalent direct product-profile invocation is:
+
+```bash
+swift run -c release vtx_render_bounded_xm \
+  --input "$LOCAL_XM" \
+  --output /tmp/vtx-product-export-profile.wav \
+  --order 0 \
+  --order-count "$ORDER_COUNT" \
+  --product-export-profile
+```
+
+Explicit value options such as `--sample-rate`, `--tail-seconds`,
+`--window-rows`, `--wav-format`, and `--mix-profile` override profile values
+regardless of argument order. Existing duration-mode and gain-policy conflicts
+still fail clearly. Without `--product-export-profile`, the render tool keeps
+its separate diagnostic defaults: 44.1 kHz, PCM16, VTX mix, the conservative
+frame clamp, no tail, no windowing, unity gain, and no long-render override.
 
 For shorter bounded checks, constrain the render:
 
@@ -147,15 +167,14 @@ Export gain controls are export-boundary policy only:
 These options do not change C mixer DSP, runtime playback, parser behavior, or
 tracker UI behavior.
 
-The app product WAV export currently uses the VTX mix profile at 48 kHz and
-enables the same export-boundary auto-headroom policy with the fixed safety
-margin. It avoids a second full mixer render by writing an unscaled Float32 temp
-WAV during the only mixer render, then applying the computed gain in a streamed
-Float32 post-process. For comparable tool renders, pass `--sample-rate 48000`,
-`--window-rows 64`, `--mix-profile vtx`, `--wav-format float32`,
-`--until-song-end`, `--tail-seconds 3`, `--allow-long-render`, and
-`--auto-headroom`, or use `scripts/bench-render.sh`. Runtime UI playback keeps
-its separate runtime output gain/headroom policy.
+The app product WAV export uses the shared product export profile: VTX mix at
+48 kHz, Float32 WAV, whole-song/song-end scope, a 3-second tail, 64-row windows,
+auto-headroom, and user-initiated long-render permission. It avoids a second
+full mixer render by writing an unscaled Float32 temp WAV during the only mixer
+render, then applying the computed gain in a streamed Float32 post-process. For
+comparable tool renders, pass `--product-export-profile` with a full-song order
+range, or use `scripts/bench-render.sh`. Runtime UI playback keeps its separate
+runtime output gain/headroom policy.
 
 App WAV export and the shared windowed offline render path also expose
 developer-facing performance diagnostics in their result models. These measure

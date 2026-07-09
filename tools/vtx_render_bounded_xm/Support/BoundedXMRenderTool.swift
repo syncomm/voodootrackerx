@@ -141,6 +141,7 @@ struct RenderToolArguments: Equatable {
     let autoHeadroom: Bool
     let wavFormat: MixerWAVFormat
     let mixProfile: MixerMixProfile
+    let usesProductExportProfile: Bool
     let isolationFilter: PlaybackSongRenderIsolationFilter?
 
     init(
@@ -164,6 +165,7 @@ struct RenderToolArguments: Equatable {
         autoHeadroom: Bool = false,
         wavFormat: MixerWAVFormat = .pcm16,
         mixProfile: MixerMixProfile = .vtx,
+        usesProductExportProfile: Bool = false,
         isolationFilter: PlaybackSongRenderIsolationFilter? = nil
     ) {
         self.inputPath = inputPath
@@ -186,6 +188,7 @@ struct RenderToolArguments: Equatable {
         self.autoHeadroom = autoHeadroom
         self.wavFormat = wavFormat
         self.mixProfile = mixProfile
+        self.usesProductExportProfile = usesProductExportProfile
         self.isolationFilter = isolationFilter?.isEnabled == true ? isolationFilter : nil
     }
 
@@ -210,6 +213,7 @@ struct RenderToolArguments: Equatable {
         var autoHeadroom = false
         var wavFormat = MixerWAVFormat.pcm16
         var mixProfile = MixerMixProfile.vtx
+        var usesProductExportProfile = false
         var soloChannelIndex: Int?
         var soloInstrumentIndex: Int?
         var soloSampleIndex: Int?
@@ -229,6 +233,14 @@ struct RenderToolArguments: Equatable {
                     throw RenderToolError.duplicateArgument(argument)
                 }
                 allowLongRender = true
+                index += 1
+                continue
+            }
+            if argument == "--product-export-profile" {
+                if !seen.insert(argument).inserted {
+                    throw RenderToolError.duplicateArgument(argument)
+                }
+                usesProductExportProfile = true
                 index += 1
                 continue
             }
@@ -309,6 +321,31 @@ struct RenderToolArguments: Equatable {
             index += 1
         }
 
+        if usesProductExportProfile {
+            let profile = AudioExportRenderProfile.productWAVExport
+            if !seen.contains("--sample-rate") {
+                sampleRate = profile.sampleRate
+            }
+            if !seen.contains("--wav-format") {
+                wavFormat = profile.wavFormat
+            }
+            if !seen.contains("--mix-profile") {
+                mixProfile = profile.mixProfile
+            }
+            switch profile.scope {
+            case .untilSongEnd:
+                untilSongEnd = true
+            }
+            if !seen.contains("--tail-seconds") {
+                tailSeconds = profile.tailSeconds
+            }
+            if !seen.contains("--window-rows") {
+                windowRows = profile.windowRows
+            }
+            autoHeadroom = profile.autoHeadroomEnabled
+            allowLongRender = profile.allowLongRender
+        }
+
         if rows != nil && seconds != nil {
             throw RenderToolError.mutuallyExclusive("--rows", "--seconds")
         }
@@ -372,6 +409,7 @@ struct RenderToolArguments: Equatable {
             autoHeadroom: autoHeadroom,
             wavFormat: wavFormat,
             mixProfile: mixProfile,
+            usesProductExportProfile: usesProductExportProfile,
             isolationFilter: isolationFilter
         )
     }
@@ -401,9 +439,17 @@ struct RenderToolArguments: Equatable {
             return maxFrames
         }
         if let seconds {
-            return Self.frameCount(seconds: seconds, sampleRate: sampleRate)
+            return exportFrameCount(seconds: seconds, sampleRate: sampleRate)
         }
         return PlaybackSongOfflineRenderRequest.defaultMaximumFrameCount
+    }
+
+    func exportFrameCount(seconds: Double, sampleRate: Double) -> Int {
+        AudioExportFrameCount.frameCount(
+            seconds: seconds,
+            sampleRate: sampleRate,
+            roundingRule: usesProductExportProfile ? AudioExportFrameCount.productExportRoundingRule : .down
+        )
     }
 
     var exportPolicy: MixerWAVExportPolicy {
@@ -581,7 +627,7 @@ struct RenderToolArguments: Equatable {
 }
 
 struct RenderTool {
-    static let absoluteMaximumFrameCount = 100_000_000
+    static let absoluteMaximumFrameCount = AudioExportRenderLimits.maximumFrameCount
 
     let fileManager: FileManager
     let currentDirectory: URL
@@ -872,7 +918,7 @@ struct RenderTool {
         }
         let frames: Int
         if let seconds = arguments.seconds {
-            frames = Self.frameCount(seconds: seconds, sampleRate: config.sampleRate)
+            frames = arguments.exportFrameCount(seconds: seconds, sampleRate: config.sampleRate)
         } else {
             frames = maximumFrameCount
         }
@@ -907,7 +953,10 @@ struct RenderTool {
             )
             let songEndFrames = timingPlan.frameFor(row: timingPlan.rowTimings.count, tick: 0)
             let requestedTailSeconds = arguments.tailSeconds ?? 0
-            let requestedTailFrames = Self.frameCountAllowingZero(seconds: requestedTailSeconds, sampleRate: config.sampleRate)
+            let requestedTailFrames = arguments.exportFrameCount(
+                seconds: requestedTailSeconds,
+                sampleRate: config.sampleRate
+            )
             let (combinedFrames, overflow) = songEndFrames.addingReportingOverflow(requestedTailFrames)
             guard !overflow else {
                 throw RenderToolError.invalidRenderLimit("Calculated song-end plus tail exceeds integer bounds.")
@@ -1062,28 +1111,13 @@ struct RenderTool {
     }
 
     static func frameCount(seconds: Double, sampleRate: Double) -> Int {
-        guard seconds.isFinite, seconds > 0, sampleRate.isFinite, sampleRate > 0 else {
-            return 0
-        }
-        let frameCount = (seconds * sampleRate).rounded(.down)
-        guard frameCount.isFinite, frameCount > 0 else {
-            return 0
-        }
-        guard frameCount < Double(Int.max) else {
-            return Int.max
-        }
-        return Int(frameCount)
+        AudioExportFrameCount.frameCount(
+            seconds: seconds,
+            sampleRate: sampleRate,
+            roundingRule: .down
+        )
     }
 
-    static func frameCountAllowingZero(seconds: Double, sampleRate: Double) -> Int {
-        guard seconds.isFinite, seconds >= 0, sampleRate.isFinite, sampleRate > 0 else {
-            return 0
-        }
-        guard seconds > 0 else {
-            return 0
-        }
-        return frameCount(seconds: seconds, sampleRate: sampleRate)
-    }
 }
 
 enum PlaybackSongDiagnosticsJSONExporter {
@@ -5396,6 +5430,10 @@ func renderToolUsage() -> String {
                             Optional compact effect coverage JSON path for summarize-xm-effect-coverage.py; prefer /tmp.
       --order N             Zero-based order index to render. Required.
       --order-count N       Number of playable orders to include. Default: 1.
+      --product-export-profile
+                            Use the same settings used by app Export Audio > WAV: 48000 Hz Float32,
+                            VTX mix, selected range until song end, 3-second tail, 64-row windows,
+                            auto-headroom, and user-initiated long render allowed.
       --rows N              Render this many flattened rows from the bounded range.
       --sample-rate HZ      Output sample rate. Default: 44100.
       --seconds N           Render this many seconds; converted to seconds * sample-rate frames.
@@ -5421,6 +5459,8 @@ func renderToolUsage() -> String {
     --wav-format float32 writes IEEE float WAV format code 3 and preserves post-gain overrange samples.
     --progress reports render percentage by rendered frames or row windows, then a coarse WAV-writing phase.
     --until-song-end, --seconds, --max-frames, and --rows are mutually exclusive duration modes.
+    Explicit value options override the profile regardless of argument order; duration and gain conflicts still fail.
+    Diagnostic defaults remain unchanged when --product-export-profile is absent.
     --until-song-end uses the bounded adapter's selected order-range timing, including supported Fxx changes and focused Dxx/Bxx/E6x traversal; it is not full FT2/OpenMPT song loop/restart parity.
     --solo-channel may be combined with --solo-instrument or --solo-sample for local isolation diagnostics.
     Keep long outputs under /tmp or ignored scratch paths.
@@ -5555,7 +5595,7 @@ private func renderDurationDiagnostics(
 ) -> RenderDurationDiagnostics {
     let calculatedSongEndFrames: Int?
     if arguments.untilSongEnd {
-        calculatedSongEndFrames = max(0, result.requestedFrameCount - RenderTool.frameCountAllowingZero(
+        calculatedSongEndFrames = max(0, result.requestedFrameCount - arguments.exportFrameCount(
             seconds: arguments.tailSeconds ?? 0,
             sampleRate: result.block.config.sampleRate
         ))
@@ -5563,7 +5603,7 @@ private func renderDurationDiagnostics(
         calculatedSongEndFrames = nil
     }
     let tailSeconds = arguments.untilSongEnd ? arguments.tailSeconds ?? 0 : 0
-    let tailFrames = RenderTool.frameCountAllowingZero(seconds: tailSeconds, sampleRate: result.block.config.sampleRate)
+    let tailFrames = arguments.exportFrameCount(seconds: tailSeconds, sampleRate: result.block.config.sampleRate)
     return RenderDurationDiagnostics(
         mode: arguments.renderDurationMode,
         calculatedSongEndFrames: calculatedSongEndFrames,

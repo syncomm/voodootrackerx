@@ -10,7 +10,10 @@ VTX 1.0 is scoped as a self-contained XM-style sample/instrument tracker that
 can create complete sample-based songs from scratch. It is not only a playback,
 display, or pattern-entry milestone, and it is not a DAW/plugin-host milestone.
 
-Loaded modules remain read-only until editable-copy/save semantics are designed.
+Loaded modules remain read-only by default. Supported stopped loaded XM modules
+can be converted only through the explicit `File > Make Editable Copy` command,
+which creates an untitled in-memory editable copy without claiming the opened
+source path.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
@@ -18,8 +21,8 @@ Release status: `v0.2.0-alpha.4` is the prepared Export XM v1 alpha for VTX
 editable documents. It covers the current editable subset, including supported
 existing instrument/sample payloads where safely represented. It is not a full
 arbitrary-XM round-trip guarantee or a full FT2/OpenMPT/MilkyTracker parity
-claim. Save/Save As, loaded-module direct editing, explicit editable-copy UX,
-Instrument Editor, and Sample Editor remain future work.
+claim. Save/Save As, loaded-module direct editing, Instrument Editor, and
+Sample Editor remain future work.
 
 ## Backend Architecture
 
@@ -161,6 +164,15 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `File > Make Editable Copy` now defines the explicit loaded-module editable
+  copy boundary. It is available only for stopped loaded read-only XM modules
+  that can be represented by the current editable subset, creates an untitled
+  in-memory editable copy of supported song/order/pattern/note data plus
+  represented palette/sample payloads, leaves the source module read-only and
+  untouched, does not claim source-path ownership, keeps Save/Save As disabled,
+  and allows stopped Export XM to a user-selected destination. Runtime
+  playback/scheduling, `RuntimeCMixerAdapterEventPlan`, C mixer DSP, parser
+  architecture, and tracker viewport/static-highlight behavior did not change.
 - Export XM v1 release-prep documentation for `v0.2.0-alpha.4` now states the
   scoped release claim, manual smoke checklist, and maintainer-only post-merge
   tag instructions. No tag should be created by the PR.

@@ -150,10 +150,10 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Define an explicit loaded-module editable-copy command before broader
+1. Build an Instrument Editor shell/read-only binding.
+2. Add editable palette/sample workflow foundations in narrow slices.
+3. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
-2. Build an Instrument Editor shell/read-only binding.
-3. Add editable palette/sample workflow foundations in narrow slices.
 4. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
 5. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
@@ -173,13 +173,22 @@ Parked parity-watch items:
 
 Recently completed:
 
+- `File > Make Editable Copy` now establishes the explicit loaded-module
+  editable-copy boundary for supported stopped loaded read-only XM modules. It
+  creates an untitled in-memory editable copy of represented
+  song/order/pattern/note data plus supported palette/sample payloads, leaves
+  the opened source module read-only and untouched, does not claim source-path
+  ownership, keeps Save/Save As disabled, and leaves Export XM as a
+  user-selected output path. Runtime playback/scheduling,
+  `RuntimeCMixerAdapterEventPlan`, C mixer DSP, parser architecture, tracker
+  viewport/static-highlight behavior, Instrument Editor, and Sample Editor
+  behavior did not change.
 - Export XM v1 is ready for release documentation as `v0.2.0-alpha.4`: stopped
   editable documents can export the current VTX editable subset to XM,
   including supported existing instrument/sample payloads, and exported XM
   files reopen as loaded/read-only modules. Save/Save As, loaded-module direct
-  editing, explicit editable-copy UX, Instrument Editor, Sample Editor, full
-  arbitrary-XM round-trip parity, and full FT2/OpenMPT/MilkyTracker parity
-  remain future work.
+  editing, Instrument Editor, Sample Editor, full arbitrary-XM round-trip
+  parity, and full FT2/OpenMPT/MilkyTracker parity remain future work.
 - Editable blank documents and loaded-module-derived editable copies now build
   a stopped-Play `PlaybackSong` snapshot from the editable document model and
   send it through the existing `RuntimeCMixerAdapterEventPlan` /

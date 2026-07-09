@@ -25,8 +25,9 @@ latest release DMG from GitHub Releases or build from source, then try it with
 public XM/MOD tracker modules. Expect an alpha-quality app that can open,
 display, and play supported modules, and can compose a small song from scratch
 in a blank editable document with the pattern grid and Song / Order editor.
-Current editable documents can also be exported as XM through the scoped Export
-XM v1 path.
+Supported loaded XM modules can be converted into an explicit untitled
+in-memory editable copy, and current editable documents can be exported as XM
+through the scoped Export XM v1 path.
 
 ## Try It With Tracker Modules
 
@@ -81,6 +82,8 @@ What works today:
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
 - Order Ops `INSERT`, `DELETE`, `DUP`, `MOVE UP`, `MOVE DOWN`, and `PTN -/+`
   for stopped editable documents.
+- `File > Make Editable Copy` for stopped supported loaded read-only XM
+  modules. The copy is untitled/in-memory and does not claim the source path.
 - `File > Export XM...` for stopped editable documents, covering the current
   VTX editable subset and supported existing palette/sample payloads.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
@@ -111,7 +114,8 @@ What is still future work:
   alpha-quality software.
 - Export XM is scoped to VTX editable documents and the current editable subset;
   Save and Save As remain disabled.
-- Loaded modules remain read-only for editing.
+- Loaded modules remain read-only by default; editable copies are explicit,
+  in-memory, and do not overwrite or own the opened source path.
 - Editing and audition features are still evolving.
 - Not all tracker formats, effects, or edge cases are guaranteed.
 - Generated/local artifacts such as DMGs, screenshots, logs, traces, WAVs, and

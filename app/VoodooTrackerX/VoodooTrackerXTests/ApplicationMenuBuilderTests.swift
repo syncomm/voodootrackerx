@@ -13,19 +13,21 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(builtMenu.windowMenu.title, "Window")
     }
 
-    func testFileMenuWiresNewOpenAndExportXMWhileKeepingSaveDisabled() throws {
+    func testFileMenuWiresNewOpenEditableCopyAndExportXMWhileKeepingSaveDisabled() throws {
         let target = NSObject()
         let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: target).mainMenu.submenu(titled: "File"))
 
         XCTAssertEqual(
             fileMenu.items.map(\.title),
-            ["New", "Open...", "", "Save", "Save As...", "Export XM...", "", "Close"]
+            ["New", "Open...", "Make Editable Copy", "", "Save", "Save As...", "Export XM...", "", "Close"]
         )
-        XCTAssertTrue(fileMenu.items[2].isSeparatorItem)
-        XCTAssertTrue(fileMenu.items[6].isSeparatorItem)
+        XCTAssertTrue(fileMenu.items[3].isSeparatorItem)
+        XCTAssertTrue(fileMenu.items[7].isSeparatorItem)
 
         XCTAssertEqual(fileMenu.item(withTitle: "New")?.action, ApplicationMenuBuilder.Actions.newTrackerDocument)
         XCTAssertEqual(fileMenu.item(withTitle: "Open...")?.action, ApplicationMenuBuilder.Actions.openModuleFile)
+        XCTAssertEqual(fileMenu.item(withTitle: "Make Editable Copy")?.action, ApplicationMenuBuilder.Actions.makeEditableCopy)
+        XCTAssertTrue(fileMenu.item(withTitle: "Make Editable Copy")?.target === target)
         XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save")).isEnabled)
         XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save As...")).isEnabled)
 

@@ -13,16 +13,16 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(builtMenu.windowMenu.title, "Window")
     }
 
-    func testFileMenuWiresNewOpenEditableCopyAndExportXMWhileKeepingSaveDisabled() throws {
+    func testFileMenuWiresNewOpenEditableCopyExportXMAndExportAudioWhileKeepingSaveDisabled() throws {
         let target = NSObject()
         let fileMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: target).mainMenu.submenu(titled: "File"))
 
         XCTAssertEqual(
             fileMenu.items.map(\.title),
-            ["New", "Open...", "Make Editable Copy", "", "Save", "Save As...", "Export XM...", "", "Close"]
+            ["New", "Open...", "Make Editable Copy", "", "Save", "Save As...", "Export XM...", "Export Audio", "", "Close"]
         )
         XCTAssertTrue(fileMenu.items[3].isSeparatorItem)
-        XCTAssertTrue(fileMenu.items[7].isSeparatorItem)
+        XCTAssertTrue(fileMenu.items[8].isSeparatorItem)
 
         XCTAssertEqual(fileMenu.item(withTitle: "New")?.action, ApplicationMenuBuilder.Actions.newTrackerDocument)
         XCTAssertEqual(fileMenu.item(withTitle: "Open...")?.action, ApplicationMenuBuilder.Actions.openModuleFile)
@@ -37,6 +37,12 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(exportXM.keyEquivalent, "")
         XCTAssertNil(fileMenu.item(withTitle: "Export"))
         XCTAssertNil(fileMenu.item(withTitle: "Export..."))
+
+        let exportAudio = try XCTUnwrap(fileMenu.item(withTitle: "Export Audio")?.submenu)
+        let exportWAV = try XCTUnwrap(exportAudio.item(withTitle: "WAV..."))
+        XCTAssertEqual(exportWAV.action, ApplicationMenuBuilder.Actions.exportWAV)
+        XCTAssertTrue(exportWAV.target === target)
+        XCTAssertEqual(exportWAV.keyEquivalent, "")
     }
 
     func testFileMenuKeepsSaveAndSaveAsDisabledWithNilTarget() throws {

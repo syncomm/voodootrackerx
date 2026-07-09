@@ -14,6 +14,9 @@
 		E2A00000000000000000101 /* ExportXMCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A00000000000000000103 /* ExportXMCoordinator.swift */; };
 		E2A00000000000000000102 /* ExportXMCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A00000000000000000103 /* ExportXMCoordinator.swift */; };
 		E2A00000000000000000104 /* ExportXMCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A00000000000000000105 /* ExportXMCoordinatorTests.swift */; };
+		E3D00000000000000000101 /* WAVExportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D00000000000000000103 /* WAVExportCoordinator.swift */; };
+		E3D00000000000000000102 /* WAVExportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D00000000000000000103 /* WAVExportCoordinator.swift */; };
+		E3D00000000000000000104 /* WAVExportCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D00000000000000000105 /* WAVExportCoordinatorTests.swift */; };
 		E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */; };
 		E2C00000000000000000102 /* LoadedModuleEditableCopyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */; };
 		E2C00000000000000000104 /* LoadedModuleEditableCopyCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */; };
@@ -145,6 +148,8 @@
 		A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationMenuBuilderTests.swift; sourceTree = "<group>"; };
 		E2A00000000000000000103 /* ExportXMCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportXMCoordinator.swift; sourceTree = "<group>"; };
 		E2A00000000000000000105 /* ExportXMCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportXMCoordinatorTests.swift; sourceTree = "<group>"; };
+		E3D00000000000000000103 /* WAVExportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVExportCoordinator.swift; sourceTree = "<group>"; };
+		E3D00000000000000000105 /* WAVExportCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVExportCoordinatorTests.swift; sourceTree = "<group>"; };
 		E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinator.swift; sourceTree = "<group>"; };
 		E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinatorTests.swift; sourceTree = "<group>"; };
 		E2B00000000000000000103 /* EditableXMWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableXMWriter.swift; sourceTree = "<group>"; };
@@ -265,6 +270,7 @@
 				A00000000000000000000021 /* AppDelegate.swift */,
 				A10000000000000000000021 /* ApplicationMenuBuilder.swift */,
 				E2A00000000000000000103 /* ExportXMCoordinator.swift */,
+				E3D00000000000000000103 /* WAVExportCoordinator.swift */,
 				E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */,
 				E2B00000000000000000103 /* EditableXMWriter.swift */,
 				CAFE00000000000000000103 /* BlankTrackerDocument.swift */,
@@ -327,6 +333,7 @@
 				T00000000000000000000001 /* TestSupport.swift */,
 				A10000000000000000000022 /* ApplicationMenuBuilderTests.swift */,
 				E2A00000000000000000105 /* ExportXMCoordinatorTests.swift */,
+				E3D00000000000000000105 /* WAVExportCoordinatorTests.swift */,
 				E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */,
 				E2B00000000000000000105 /* EditableXMWriterTests.swift */,
 				CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */,
@@ -484,6 +491,7 @@
 				A00000000000000000000011 /* AppDelegate.swift in Sources */,
 				A10000000000000000000011 /* ApplicationMenuBuilder.swift in Sources */,
 				E2A00000000000000000101 /* ExportXMCoordinator.swift in Sources */,
+				E3D00000000000000000101 /* WAVExportCoordinator.swift in Sources */,
 				E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
 				E2B00000000000000000101 /* EditableXMWriter.swift in Sources */,
 				CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */,
@@ -579,6 +587,7 @@
 				C00000000000000000000012 /* SoftwareMixer.swift in Sources */,
 				A10000000000000000000012 /* ApplicationMenuBuilder.swift in Sources */,
 				E2A00000000000000000102 /* ExportXMCoordinator.swift in Sources */,
+				E3D00000000000000000102 /* WAVExportCoordinator.swift in Sources */,
 				E2C00000000000000000102 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
 				E2B00000000000000000102 /* EditableXMWriter.swift in Sources */,
 				CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */,
@@ -594,6 +603,7 @@
 				T00000000000000000000101 /* TestSupport.swift in Sources */,
 				A10000000000000000000013 /* ApplicationMenuBuilderTests.swift in Sources */,
 				E2A00000000000000000104 /* ExportXMCoordinatorTests.swift in Sources */,
+				E3D00000000000000000104 /* WAVExportCoordinatorTests.swift in Sources */,
 				E2C00000000000000000104 /* LoadedModuleEditableCopyCoordinatorTests.swift in Sources */,
 				E2B00000000000000000104 /* EditableXMWriterTests.swift in Sources */,
 				CAFE00000000000000000104 /* BlankTrackerDocumentTests.swift in Sources */,

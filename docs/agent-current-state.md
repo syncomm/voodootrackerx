@@ -19,10 +19,20 @@ experiments, not live plugin playback inside classic XM compatibility.
 
 Release status: `v0.2.0-alpha.4` is the prepared Export XM v1 alpha for VTX
 editable documents. It covers the current editable subset, including supported
-existing instrument/sample payloads where safely represented. It is not a full
-arbitrary-XM round-trip guarantee or a full FT2/OpenMPT/MilkyTracker parity
-claim. Save/Save As, loaded-module direct editing, Instrument Editor, and
-Sample Editor remain future work.
+existing instrument/sample payloads where safely represented. Product
+whole-song 32-bit Float WAV export is now available from
+`File > Export Audio > WAV...` for stopped loaded modules, editable documents,
+and editable copies. It is non-mutating, writes only to the selected
+destination, does not claim source-path ownership, keeps Save/Save As disabled,
+does not use the diagnostic bounded-render cap, renders through the same
+64-row windowed offline path used by the proven render tool mode, and applies
+export-boundary auto-headroom without a second full mixer render. The app
+product default is 48 kHz Float32. The release is not a full arbitrary-XM
+round-trip guarantee or a full
+FT2/OpenMPT/MilkyTracker parity claim. Save/Save As, loaded-module direct
+editing, Instrument Editor, Sample Editor, AAC/M4A export, PCM16 product
+export, pattern/order ranges, channel/stem export, diagnostic comparison
+profile UI, and user-selectable gain/headroom remain future work.
 
 ## Backend Architecture
 
@@ -39,6 +49,16 @@ Sample Editor remain future work.
   render core used by runtime playback and bounded offline renders.
 - Offline render/export remains the reference workflow for deterministic audio
   comparison. Runtime smoke checks validate the app host path and delivery.
+- Product WAV export uses the existing bounded offline C mixer render path with
+  VTX mix profile, whole-song 48 kHz Float32 WAV output, explicit
+  user-initiated long-render planning, 64-row windowed scheduling, and
+  export-boundary auto-headroom. The app path renders the mixer once, records
+  peak diagnostics while writing an unscaled Float32 temp WAV, then applies the
+  shared auto-headroom gain through a streamed Float32 WAV post-process; it
+  does not change runtime playback, scheduling, or C mixer DSP.
+- `CSoftwareMixer` owns the large `VTXCMixerState` on the heap so background
+  offline export/render workers do not initialize that fixed-size C state on a
+  smaller GCD worker stack.
 
 ## Current Runtime Default
 
@@ -164,6 +184,23 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `File > Export Audio > WAV...` now renders the current stopped loaded module,
+  editable document, or editable copy to a user-selected 32-bit Float WAV via
+  the existing bounded offline C mixer path. The app uses the VTX mix profile,
+  an explicit user-initiated whole-song long-render policy, default song-end
+  tail, 48 kHz output, 64-row windowed scheduling, and export-boundary
+  auto-headroom instead of the diagnostic bounded-render cap. It performs one
+  expensive mixer render, writes an unscaled Float32 temp WAV while computing
+  peak diagnostics, applies the shared auto-headroom gain through a streamed
+  Float32 WAV post-process, shows throttled determinate progress over the full
+  planned render and headroom phases while rendering on a background queue,
+  writes through temporary files before replacing the selected destination,
+  removes temporary output on failure, leaves source modules/documents
+  untouched, does not claim source-path ownership, keeps Save/Save As disabled,
+  and leaves loaded modules read-only. Cancellation,
+  AAC/M4A, PCM16, pattern or order ranges, channel/stem export, normalization,
+  diagnostic comparison profiles, and user-selectable gain/headroom remain
+  future work.
 - `File > Make Editable Copy` now defines the explicit loaded-module editable
   copy boundary. It is available only for stopped loaded read-only XM modules
   that can be represented by the current editable subset, creates an untitled

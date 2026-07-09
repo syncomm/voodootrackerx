@@ -31,10 +31,11 @@ VoodooTracker X currently has:
   and a stopped editable-document `File > Export XM...` path that writes the
   current editable subset to a user-chosen `.xm` file, including existing
   palette/sample payloads where the editable model safely represents signed
-  8-bit or 16-bit XM-derived PCM, plus explicit `File > Make Editable Copy`
-  for stopped supported loaded read-only XM modules, with public-safe
-  byte-level model tests and temporary-file reload smoke tests through the
-  existing parser path
+  8-bit or 16-bit XM-derived PCM, plus stopped `File > Export Audio > WAV...`
+  whole-song 32-bit Float WAV export for loaded modules and editable documents,
+  plus explicit `File > Make Editable Copy` for stopped supported loaded
+  read-only XM modules, with public-safe byte-level model tests and
+  temporary-file reload/header smoke tests through existing parser/render paths
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -54,6 +55,10 @@ model. It is not a full arbitrary-XM round-trip guarantee and does not claim
 full FastTracker II, OpenMPT, or MilkyTracker parity. Save and Save As remain
 disabled, loaded modules remain read-only by default, explicit editable copies
 are untitled/in-memory, and Instrument/Sample editors remain future work.
+Stopped loaded modules and editable documents can now export whole-song
+32-bit Float WAV audio to a selected destination without mutating documents or
+claiming source-path ownership. AAC/M4A, PCM16, pattern/order ranges,
+channel/stem export, and diagnostic comparison profile UI remain future work.
 
 ## Backend Snapshot
 
@@ -93,8 +98,10 @@ preserving the backend freeze:
    entry.
 8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
-9. Save XM and export WAV/AAC after editable document semantics and the first
-   XM export path are explicit.
+9. Save XM and broader audio export options after editable document semantics,
+   Export XM v1, and Float32 WAV export are explicit. AAC/M4A is the next
+   recommended audio-export slice; PCM16, ranges, stems, and diagnostic
+   profiles remain later.
 10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
 11. Design a weekly codebase review harness as a docs/tooling plan before
@@ -120,6 +127,23 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- `File > Export Audio > WAV...` now renders stopped loaded modules, editable
+  documents, and editable copies to whole-song 32-bit Float WAV through the
+  existing bounded offline C mixer path. It uses the VTX mix profile, an
+  explicit user-initiated long-render whole-song policy, 48 kHz output, default
+  song-end tail, 64-row windowed scheduling, and export-boundary auto-headroom
+  instead of the diagnostic bounded-render cap. It performs one expensive mixer
+  render, writes an unscaled Float32 temp WAV while computing peak diagnostics,
+  applies shared auto-headroom gain through a streamed Float32 WAV
+  post-process, shows throttled determinate progress over the render and
+  headroom phases while rendering off the main thread, writes only to the
+  selected destination through temporary files, removes temporary output on
+  failure, leaves source modules/documents untouched, does not claim source
+  paths, keeps Save/Save As disabled, and leaves loaded modules read-only by
+  default. The C mixer wrapper owns its
+  large fixed-size C state on the heap so background workers do not initialize
+  that state on a small GCD stack. Cancellation and advanced audio export
+  options remain deferred.
 - `File > Make Editable Copy` now creates an explicit untitled in-memory
   editable copy from a stopped loaded read-only XM module when the current
   supported editable subset can represent its song/order/pattern/note data and

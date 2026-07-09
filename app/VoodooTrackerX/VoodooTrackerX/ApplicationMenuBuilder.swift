@@ -6,6 +6,7 @@ enum ApplicationMenuBuilder {
         static let openModuleFile = NSSelectorFromString("openModuleFile:")
         static let makeEditableCopy = NSSelectorFromString("makeEditableCopy:")
         static let exportXM = NSSelectorFromString("exportXM:")
+        static let exportWAV = NSSelectorFromString("exportWAV:")
         static let play = NSSelectorFromString("playPressed:")
         static let playCurrentPattern = NSSelectorFromString("playCurrentPatternPressed:")
         static let stop = NSSelectorFromString("stopPressed:")
@@ -71,9 +72,18 @@ enum ApplicationMenuBuilder {
         saveAs.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(saveAs)
         menu.addItem(menuItem(title: "Export XM...", action: Actions.exportXM, keyEquivalent: "", target: target))
+        menu.addItem(exportAudioMenu(target: target))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         return menu
+    }
+
+    private static func exportAudioMenu(target: AnyObject?) -> NSMenuItem {
+        let item = NSMenuItem(title: "Export Audio", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Export Audio")
+        submenu.addItem(menuItem(title: "WAV...", action: Actions.exportWAV, keyEquivalent: "", target: target))
+        item.submenu = submenu
+        return item
     }
 
     private static func editMenu(target: AnyObject?) -> NSMenu {

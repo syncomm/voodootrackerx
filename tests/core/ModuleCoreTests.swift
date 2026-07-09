@@ -54,6 +54,176 @@ final class ModuleCoreTests: XCTestCase {
         XCTAssertEqual(cString(info.first_instrument_name), "BASS")
     }
 
+    func testValidXMOrderTableParsingRegressionUnchanged() throws {
+        let info = mc_parse_file(try fixturePath("minimal.xm"))
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.order_table_length, 3)
+        XCTAssertEqual(Array(orderTable(info).prefix(3)), [0, 1, 0])
+        XCTAssertEqual(info.song_length, 3)
+    }
+
+    func testParseClampsOrderTableWhenXMHeaderHasNoOrderBytes() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 0,
+            headerSize: 20,
+            songLength: 256,
+            channels: 1,
+            orderTable: []
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_short_header_no_orders.xm")
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.song_length, 256)
+        XCTAssertEqual(info.order_table_length, 0)
+    }
+
+    func testParseClampsOrderTableWhenXMHeaderEndsBeforeSongLength() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 0,
+            headerSize: 24,
+            songLength: 6,
+            channels: 1,
+            orderTable: [2, 3, 4, 5]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_short_header_partial_orders.xm")
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.song_length, 6)
+        XCTAssertEqual(info.order_table_length, 4)
+        XCTAssertEqual(Array(orderTable(info).prefix(4)), [2, 3, 4, 5])
+    }
+
+    func testParseRejectsXMHeaderTruncatedBeforeDeclaredHeaderSize() throws {
+        let fullBytes: Data = makeXMBytes(
+            patterns: 0,
+            headerSize: 276,
+            songLength: 16,
+            channels: 1,
+            orderTable: (0..<16).map(UInt8.init)
+        )
+        let truncatedBytes = Data(fullBytes.prefix(90))
+
+        let info: mc_module_info = try parseModuleBytes(truncatedBytes, name: "mc_xm_truncated_declared_header.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsZeroXMChannels() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 0,
+            songLength: 1,
+            channels: 0,
+            orderTable: [0]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_zero_channels.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsXMChannelCountAboveSafetyCeiling() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 0,
+            songLength: 1,
+            channels: 65,
+            orderTable: [0]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_excessive_channels.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsXMPatternCountAboveSafetyCeiling() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 257,
+            songLength: 1,
+            channels: 1,
+            orderTable: [0]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_excessive_patterns.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseAcceptsMaximumXMChannelAndPatternRowSafetyCeilings() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 1,
+            songLength: 1,
+            channels: 64,
+            orderTable: [0],
+            patternRows: [256]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_max_channels_rows.xm")
+
+        XCTAssertEqual(info.ok, 1)
+        XCTAssertEqual(info.channels, 64)
+        XCTAssertEqual(info.pattern_row_count_count, 1)
+        XCTAssertEqual(Array(patternRows(info).prefix(1)), [UInt16(256)])
+        XCTAssertEqual(Array(patternPackedSizes(info).prefix(1)), [UInt16(0)])
+    }
+
+    func testParseRejectsZeroXMPatternRows() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 1,
+            songLength: 1,
+            channels: 1,
+            orderTable: [0],
+            patternRows: [0]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_zero_pattern_rows.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsExcessiveXMPatternRows() throws {
+        let bytes: Data = makeXMBytes(
+            patterns: 1,
+            songLength: 1,
+            channels: 1,
+            orderTable: [0],
+            patternRows: [257]
+        )
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_excessive_pattern_rows.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsTruncatedXMPatternHeader() throws {
+        var bytes: Data = makeXMBytes(
+            patterns: 1,
+            songLength: 1,
+            channels: 1,
+            orderTable: [0]
+        )
+        bytes.append(contentsOf: [UInt8(9), 0, 0, 0])
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_truncated_pattern_header.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
+    func testParseRejectsTruncatedXMPatternPackedData() throws {
+        var bytes: Data = makeXMBytes(
+            patterns: 1,
+            songLength: 1,
+            channels: 1,
+            orderTable: [0]
+        )
+        appendXMPatternHeader(rowCount: 1, packedSize: 2, packedData: [0x80], to: &bytes)
+
+        let info: mc_module_info = try parseModuleBytes(bytes, name: "mc_xm_truncated_pattern_data.xm")
+
+        XCTAssertEqual(info.ok, 0)
+    }
+
     func testParseGeneratedBasicInstrumentSampleXMFixture() throws {
         let info = mc_parse_file(try referenceXMFixturePath("generated/basic-instrument-sample.xm"))
 
@@ -251,6 +421,97 @@ final class ModuleCoreTests: XCTestCase {
         xmEvents(info)
             .prefix(Int(info.xm_event_count))
             .first { $0.pattern == pattern && $0.row == row && $0.channel == channel }
+    }
+
+    private func parseModuleBytes(_ data: Data, name: String) throws -> mc_module_info {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return mc_parse_file(url.path)
+    }
+
+    private func makeXMBytes(
+        patterns: UInt16,
+        headerSize: UInt32 = 276,
+        songLength: UInt16 = 1,
+        restartPosition: UInt16 = 0,
+        channels: UInt16 = 1,
+        instruments: UInt16 = 0,
+        flags: UInt16 = 0,
+        defaultTempo: UInt16 = 6,
+        defaultBPM: UInt16 = 125,
+        orderTable: [UInt8] = [0],
+        patternRows: [UInt16] = []
+    ) -> Data {
+        var data = Data()
+
+        data.append(contentsOf: Array("Extended Module: ".utf8))
+        appendFixedASCII("TEST XM", length: 20, to: &data)
+        data.append(0x1A)
+        appendFixedASCII("VoodooTrackerX", length: 20, to: &data)
+        appendLE16(0x0104, to: &data)
+        appendLE32(headerSize, to: &data)
+        appendLE16(songLength, to: &data)
+        appendLE16(restartPosition, to: &data)
+        appendLE16(channels, to: &data)
+        appendLE16(patterns, to: &data)
+        appendLE16(instruments, to: &data)
+        appendLE16(flags, to: &data)
+        appendLE16(defaultTempo, to: &data)
+        appendLE16(defaultBPM, to: &data)
+
+        let headerOrderCapacity = max(0, Int(headerSize) - 20)
+        if headerOrderCapacity > 0 {
+            let copiedOrder = Array(orderTable.prefix(headerOrderCapacity))
+            data.append(contentsOf: copiedOrder)
+            if copiedOrder.count < headerOrderCapacity {
+                data.append(contentsOf: repeatElement(UInt8(0), count: headerOrderCapacity - copiedOrder.count))
+            }
+        }
+
+        let totalHeaderSize = 60 + Int(headerSize)
+        if data.count < totalHeaderSize {
+            data.append(contentsOf: repeatElement(UInt8(0), count: totalHeaderSize - data.count))
+        }
+
+        for rowCount in patternRows {
+            appendXMPatternHeader(rowCount: rowCount, to: &data)
+        }
+
+        return data
+    }
+
+    private func appendFixedASCII(_ string: String, length: Int, to data: inout Data) {
+        let bytes = Array(string.utf8.prefix(length))
+        data.append(contentsOf: bytes)
+        if bytes.count < length {
+            data.append(contentsOf: repeatElement(UInt8(0), count: length - bytes.count))
+        }
+    }
+
+    private func appendLE16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(value & 0x00FF))
+        data.append(UInt8((value >> 8) & 0x00FF))
+    }
+
+    private func appendLE32(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8(value & 0x000000FF))
+        data.append(UInt8((value >> 8) & 0x000000FF))
+        data.append(UInt8((value >> 16) & 0x000000FF))
+        data.append(UInt8((value >> 24) & 0x000000FF))
+    }
+
+    private func appendXMPatternHeader(
+        rowCount: UInt16,
+        packedSize: UInt16 = 0,
+        packedData: [UInt8] = [],
+        to data: inout Data
+    ) {
+        appendLE32(9, to: &data)
+        data.append(0)
+        appendLE16(rowCount, to: &data)
+        appendLE16(packedSize, to: &data)
+        data.append(contentsOf: packedData)
     }
 
     private func snapshotJSON(_ info: mc_module_info, includeEvents: Bool = false, pattern: UInt16? = nil) -> String {

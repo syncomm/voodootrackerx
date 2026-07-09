@@ -1,11 +1,12 @@
 # Editable Document Save/Export Model
 
-Status: design plus first app-shell slice. This note defines product and
-architecture rules for save/export work. The app now has an Export XM
-menu/save-panel shell for stopped editable documents, but Save, Save As, XM
-writing, loaded-module editing, Instrument Editor behavior, Sample Editor
-behavior, runtime playback changes, parser architecture changes, and tracker
-viewport changes remain unimplemented by this note.
+Status: design plus implemented initial Export XM slices. This note defines
+product and architecture rules for save/export work. The app now has Export XM
+for stopped editable documents, including existing palette/sample payloads
+where the editable model safely represents XM-derived signed PCM. Save, Save
+As, loaded-module editing, Instrument Editor behavior, Sample Editor behavior,
+runtime playback changes, parser architecture changes, and tracker viewport
+changes remain unimplemented by this note.
 
 ## Purpose
 
@@ -89,9 +90,11 @@ round-trip parity.
 Current behavior: `File > Export XM...` is enabled only for stopped editable
 documents, presents a save panel with an `.xm` destination, writes the current
 editable XM subset to that explicitly chosen file, and reports completion or a
-write failure. Cancel writes nothing. Loaded read-only modules and active
-playback remain disabled/no-op, Save/Save As remain disabled, and the exported
-XM file does not become an owned save path.
+write failure. The current writer includes existing palette/sample payloads
+only when they are already safely represented as XM-derived signed 8-bit or
+16-bit PCM in the editable document model. Cancel writes nothing. Loaded
+read-only modules and active playback remain disabled/no-op, Save/Save As
+remain disabled, and the exported XM file does not become an owned save path.
 
 ### Future Native Project Format
 
@@ -115,6 +118,12 @@ The first XM writer should be narrow and public-safe:
 - preserve channel count and row count where XM can represent them
 - include instrument/sample data only when the editable document has valid
   existing palette/sample payloads
+- for existing sample payloads, write represented instrument names, keymaps,
+  volume-envelope fields, sample headers, forward/ping-pong loop metadata, and
+  correctly delta-encoded signed 8-bit or 16-bit PCM payloads
+- return a writer error rather than guessing when sample source metadata,
+  bit depth, duplicate sample slots, loop metadata, or envelope point counts
+  cannot be safely represented in the current XM subset
 - use generated public fixtures or synthetic editable documents for tests
 
 The first writer does not need full XM feature coverage. It should produce a
@@ -126,6 +135,8 @@ First-writer limitations:
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
 - no full Sample Editor or sample-import pipeline yet
+- no panning-envelope, vibrato, sample-panning editing, WAV/AIFF import, XI
+  import, or arbitrary non-XM-derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
 - no broad parser/writer architecture rewrite
@@ -189,7 +200,7 @@ Keep future PRs narrow and testable:
 3. Done: `xm: write editable blank document XM order/pattern/timing data`
 4. Done: `tests: add exported-XM reload smoke using public fixtures`
 5. Done: `xm: wire Export XM to writer behind safe file boundary`
-6. `xm: write existing palette/sample payloads when available`
+6. Done: `xm: write existing palette/sample payloads when available`
 7. `app: define explicit loaded-module editable-copy command`
 8. `instrument: build Instrument Editor shell/read-only binding`
 9. `instrument: add editable palette foundation`

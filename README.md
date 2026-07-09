@@ -178,6 +178,10 @@ and filled findings reports under `/tmp` or another ignored local path.
 Developer-only render tools do not change runtime backend selection and do not
 provide full XM song rendering.
 
+For local render/export timing comparisons, use `./scripts/bench-render.sh`.
+Plain `swift run` builds Debug by default and is not comparable to Release
+render timing.
+
 ## Documentation Map
 
 - [docs/README.md](docs/README.md) - concise documentation index for humans and agents.

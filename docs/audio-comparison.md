@@ -63,7 +63,7 @@ Write candidates and diagnostics outside the repository:
 LOCAL_XM="path-to-untracked-local-module.xm"
 ORDER_COUNT="module-song-length"
 
-swift run vtx_render_bounded_xm \
+swift run -c release vtx_render_bounded_xm \
   --input "$LOCAL_XM" \
   --output /tmp/vtx-ft2-profile-candidate.wav \
   --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \
@@ -82,10 +82,28 @@ Use the module's effective song length for `ORDER_COUNT` when rendering a full
 one-pass local comparison. Keep the resolved private module path and generated
 diagnostics under `/tmp` or another ignored local path.
 
+Performance comparisons must use Release builds unless the measurement is
+explicitly about Debug behavior. Plain `swift run` builds Debug by default and
+is not valid for render/export timing comparisons. For product-comparable local
+render timing, prefer:
+
+```bash
+./scripts/bench-render.sh "$LOCAL_XM"
+```
+
+The helper uses `swift run -c release vtx_render_bounded_xm`, writes to `/tmp`
+by default, prints the exact command, and reports elapsed wall-clock time. It
+defaults to 48 kHz Float32 WAV, VTX mix profile, song-end rendering,
+`--tail-seconds 3`, 64-row windows, `--allow-long-render`, and
+`--auto-headroom` to match product WAV export behavior where practical.
+Generated WAVs, diagnostics, reports, and timing notes remain local artifacts
+and must not be committed or named in public docs when they come from private
+modules.
+
 For shorter bounded checks, constrain the render:
 
 ```bash
-swift run vtx_render_bounded_xm \
+swift run -c release vtx_render_bounded_xm \
   --input "$LOCAL_XM" \
   --output /tmp/vtx-bounded-candidate.wav \
   --diagnostics-json /tmp/vtx-bounded-diagnostics.json \
@@ -134,9 +152,10 @@ enables the same export-boundary auto-headroom policy with the fixed safety
 margin. It avoids a second full mixer render by writing an unscaled Float32 temp
 WAV during the only mixer render, then applying the computed gain in a streamed
 Float32 post-process. For comparable tool renders, pass `--sample-rate 48000`,
-`--window-rows 64`, `--mix-profile vtx`, `--wav-format float32`, and
-`--auto-headroom`. Runtime UI playback keeps its separate runtime output
-gain/headroom policy.
+`--window-rows 64`, `--mix-profile vtx`, `--wav-format float32`,
+`--until-song-end`, `--tail-seconds 3`, `--allow-long-render`, and
+`--auto-headroom`, or use `scripts/bench-render.sh`. Runtime UI playback keeps
+its separate runtime output gain/headroom policy.
 
 App WAV export and the shared windowed offline render path also expose
 developer-facing performance diagnostics in their result models. These measure

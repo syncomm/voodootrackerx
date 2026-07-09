@@ -86,16 +86,21 @@ gate even when local SwiftPM and newer local Xcode builds pass.
 
 ## Offline Render / Export Workflow
 
-Use `swift run vtx_render_bounded_xm` for local candidate renders. It loads XM
-through the repo parser/builders and renders through the bounded offline C
-mixer path.
+Use `swift run -c release vtx_render_bounded_xm` for local candidate renders.
+Plain `swift run` builds Debug by default and is not valid for render/export
+performance comparisons. The render tool loads XM through the repo
+parser/builders and renders through the bounded offline C mixer path.
+
+For product-comparable local render timing, prefer `./scripts/bench-render.sh`.
+Generated WAVs, diagnostics, reports, and timing notes stay under `/tmp` or
+another ignored local path.
 
 For FT2-style reference comparisons, prefer:
 
 ```bash
 LOCAL_XM="path-to-untracked-local-module.xm"
 
-swift run vtx_render_bounded_xm \
+swift run -c release vtx_render_bounded_xm \
   --input "$LOCAL_XM" \
   --output /tmp/vtx-ft2-profile-candidate.wav \
   --diagnostics-json /tmp/vtx-ft2-profile-diagnostics.json \

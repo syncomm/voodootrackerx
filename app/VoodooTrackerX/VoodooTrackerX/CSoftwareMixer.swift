@@ -65,6 +65,36 @@ struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
     let rejectionReason: CSoftwareMixerVoiceStateUpdateRejectionReason?
 }
 
+struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
+    static let zero = CSoftwareMixerSamplePayloadUploadDiagnostics(
+        uploadCount: 0,
+        approximateBytesCopied: 0
+    )
+
+    let uploadCount: Int
+    let approximateBytesCopied: Int
+
+    init(uploadCount: Int = 0, approximateBytesCopied: Int = 0) {
+        self.uploadCount = max(0, uploadCount)
+        self.approximateBytesCopied = max(0, approximateBytesCopied)
+    }
+
+    func recording(sampleFrameCount: Int) -> CSoftwareMixerSamplePayloadUploadDiagnostics {
+        let frameCount = max(0, sampleFrameCount)
+        guard frameCount > 0 else {
+            return self
+        }
+        let (bytes, byteOverflow) = frameCount.multipliedReportingOverflow(by: MemoryLayout<Float>.size)
+        let safeBytes = byteOverflow ? Int.max : bytes
+        let (nextUploadCount, uploadOverflow) = uploadCount.addingReportingOverflow(1)
+        let (nextBytes, nextBytesOverflow) = approximateBytesCopied.addingReportingOverflow(safeBytes)
+        return CSoftwareMixerSamplePayloadUploadDiagnostics(
+            uploadCount: uploadOverflow ? Int.max : nextUploadCount,
+            approximateBytesCopied: nextBytesOverflow ? Int.max : nextBytes
+        )
+    }
+}
+
 struct CSoftwareMixerVoiceDiagnostic: Equatable {
     let loaded: Bool
     let active: Bool
@@ -191,6 +221,8 @@ final class CSoftwareMixer {
     static let sampleStepPrecisionMode = "double_sample_position_and_step"
 
     private let state: UnsafeMutablePointer<VTXCMixerState>
+    private let recordsSamplePayloadUploads: Bool
+    private var storedSamplePayloadUploadDiagnostics = CSoftwareMixerSamplePayloadUploadDiagnostics.zero
     private(set) var config: MixerRenderConfig
 
     var loadedVoiceCount: Int {
@@ -221,7 +253,15 @@ final class CSoftwareMixer {
         vtx_c_mixer_current_frame(state)
     }
 
-    init(config: MixerRenderConfig = MixerRenderConfig()) {
+    var samplePayloadUploadDiagnostics: CSoftwareMixerSamplePayloadUploadDiagnostics {
+        storedSamplePayloadUploadDiagnostics
+    }
+
+    init(
+        config: MixerRenderConfig = MixerRenderConfig(),
+        recordsSamplePayloadUploads: Bool = false
+    ) {
+        self.recordsSamplePayloadUploads = recordsSamplePayloadUploads
         self.config = config
         state = UnsafeMutablePointer<VTXCMixerState>.allocate(capacity: 1)
         Self.requireOK(vtx_c_mixer_init(state, Self.cConfig(from: config)))
@@ -285,6 +325,7 @@ final class CSoftwareMixer {
             )
         }
         Self.requireOK(status)
+        recordSamplePayloadUpload(frameCount: sample.frameCount)
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -375,6 +416,7 @@ final class CSoftwareMixer {
                 rejectionReason: Self.rejectionReason(for: status)
             )
         }
+        recordSamplePayloadUpload(frameCount: sample.frameCount)
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -893,6 +935,15 @@ final class CSoftwareMixer {
             total_frames: UInt32(clamping: state.totalFrames),
             position_frame: UInt32(clamping: state.positionFrame),
             deactivate_after_ramp: state.deactivateAfterRamp ? 1 : 0
+        )
+    }
+
+    private func recordSamplePayloadUpload(frameCount: Int) {
+        guard recordsSamplePayloadUploads else {
+            return
+        }
+        storedSamplePayloadUploadDiagnostics = storedSamplePayloadUploadDiagnostics.recording(
+            sampleFrameCount: frameCount
         )
     }
 

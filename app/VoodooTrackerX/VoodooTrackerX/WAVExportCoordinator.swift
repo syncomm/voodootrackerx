@@ -138,6 +138,7 @@ struct WAVExportPlan: @unchecked Sendable {
     let songEndFrameCount: Int
     let tailFrameCount: Int
     let renderWindowCount: Int
+    let performanceDiagnostics: WAVExportPlanPerformanceDiagnostics
 
     var totalFrameCount: Int {
         request.boundedFrameCount
@@ -331,10 +332,12 @@ struct WAVExportCoordinator {
         context: WAVExportDocumentContext,
         configuration: WAVExportConfiguration
     ) throws -> WAVExportPlan {
+        let totalStartTime = VTXPerformanceClock.now()
         guard !context.isPlaybackActive else {
             throw WAVExportPlanError.noRenderableSong
         }
 
+        let songBuildStartTime = VTXPerformanceClock.now()
         let song: PlaybackSong
         switch context.kind {
         case .none:
@@ -350,6 +353,7 @@ struct WAVExportCoordinator {
             }
             song = EditablePlaybackSongBuilder.build(from: editableDocument)
         }
+        let songBuildDuration = VTXPerformanceClock.seconds(since: songBuildStartTime)
 
         guard !song.orders.isEmpty else {
             throw WAVExportPlanError.noRenderableSong
@@ -366,17 +370,21 @@ struct WAVExportCoordinator {
             channelCount: configuration.channelCount,
             mixProfile: configuration.mixProfile
         )
+        let traversalStartTime = VTXPerformanceClock.now()
         let traversalPlan = PlaybackSongTraversalPlanner.plan(
             song,
             startOrderIndex: 0,
             orderCount: song.orders.count
         )
         try validateWholeSongTraversal(traversalPlan)
+        let traversalDuration = VTXPerformanceClock.seconds(since: traversalStartTime)
+        let timingStartTime = VTXPerformanceClock.now()
         let timingPlan = PlaybackSongFxxTimingPlanner.plan(
             song,
             traversalPlan: traversalPlan,
             sampleRate: config.sampleRate
         )
+        let timingDuration = VTXPerformanceClock.seconds(since: timingStartTime)
         let songEndFrames = timingPlan.frameFor(row: timingPlan.rowTimings.count, tick: 0)
         let tailFrames = frameCountAllowingZero(seconds: configuration.tailSeconds, sampleRate: config.sampleRate)
         let (totalFrames, overflow) = songEndFrames.addingReportingOverflow(tailFrames)
@@ -405,11 +413,17 @@ struct WAVExportCoordinator {
             maximumFrameCount: totalFrames
         )
         let wavLayout: MixerWAVLayout
+        let layoutValidationStartTime = VTXPerformanceClock.now()
         do {
             wavLayout = try validatePlannedWAVLayout(config: config, frameCount: totalFrames)
         } catch {
             throw WAVExportPlanError.wavFileTooLarge(errorMessage(from: error))
         }
+        let layoutValidationDuration = VTXPerformanceClock.seconds(since: layoutValidationStartTime)
+        let renderWindowCount = windowCount(
+            syntheticRowCount: timingPlan.rowTimings.count,
+            windowRows: configuration.windowRows
+        )
         return WAVExportPlan(
             request: request,
             configuration: configuration,
@@ -419,9 +433,15 @@ struct WAVExportCoordinator {
             wavLayout: wavLayout,
             songEndFrameCount: songEndFrames,
             tailFrameCount: tailFrames,
-            renderWindowCount: windowCount(
-                syntheticRowCount: timingPlan.rowTimings.count,
-                windowRows: configuration.windowRows
+            renderWindowCount: renderWindowCount,
+            performanceDiagnostics: WAVExportPlanPerformanceDiagnostics(
+                totalDurationSeconds: VTXPerformanceClock.seconds(since: totalStartTime),
+                songBuildDurationSeconds: songBuildDuration,
+                traversalPlanningDurationSeconds: traversalDuration,
+                durationTimingPlanningDurationSeconds: timingDuration,
+                wavLayoutValidationDurationSeconds: layoutValidationDuration,
+                totalFramesPlanned: totalFrames,
+                renderWindowCount: renderWindowCount
             )
         )
     }
@@ -439,8 +459,10 @@ struct WAVExportCoordinator {
         fileManager: FileManager = .default,
         progress: WAVExportProgressHandler? = nil,
         pipelineEvents: WAVExportPipelineEventHandler? = nil,
-        executionHooks: WAVExportExecutionHooks = .none
+        executionHooks: WAVExportExecutionHooks = .none,
+        collectPerformanceDiagnostics: Bool = true
     ) -> WAVExportCompletionResult {
+        let exportStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let normalizedDestination = normalizedWAVURL(destination)
         let rawTempURL = temporaryURL(for: normalizedDestination, purpose: "render")
         let finalTempURL = temporaryURL(for: normalizedDestination, purpose: "final")
@@ -451,6 +473,9 @@ struct WAVExportCoordinator {
             var progressEmitter = WAVExportProgressEmitter(progress)
             let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: plan.request.maximumFrameCount)
             var renderResult: PlaybackSongOfflineStreamingRenderResult?
+            var tempWAVWriteDuration = Double(0)
+            var windowWriteDiagnostics = [WAVExportWindowWritePerformanceDiagnostic]()
+            let renderPhaseStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             pipelineEvents?(.expensiveRenderStarted)
             let preHeadroomDiagnostics = try MixerWAVExporter.writeStreamingFloat32WAV(
                 config: plan.request.config,
@@ -467,9 +492,19 @@ struct WAVExportCoordinator {
                 ))
                 renderResult = try renderer.renderWindowedStreaming(
                     plan.request,
-                    windowRows: plan.configuration.windowRows
+                    windowRows: plan.configuration.windowRows,
+                    collectPerformanceDiagnostics: collectPerformanceDiagnostics
                 ) { completedWindow, totalWindows, window, block in
+                    let writeStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
                     try writer.write(block: block)
+                    if collectPerformanceDiagnostics {
+                        let writeDuration = VTXPerformanceClock.seconds(since: writeStartTime)
+                        tempWAVWriteDuration += writeDuration
+                        windowWriteDiagnostics.append(WAVExportWindowWritePerformanceDiagnostic(
+                            windowIndex: window.windowIndex,
+                            tempWAVWriteDurationSeconds: writeDuration
+                        ))
+                    }
                     try executionHooks.afterRenderBlockWritten?()
                     progressEmitter.emit(WAVExportProgress(
                         stage: .rendering,
@@ -483,8 +518,12 @@ struct WAVExportCoordinator {
             guard let renderResult else {
                 throw WAVExportPlanError.renderDurationTooSmall
             }
+            let renderPhaseDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: renderPhaseStartTime)
+                : 0
 
             let exportPolicy = exportPolicy(for: plan, preHeadroomDiagnostics: preHeadroomDiagnostics)
+            let headroomStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             pipelineEvents?(.headroomPostProcessStarted)
             progressEmitter.emit(WAVExportProgress(
                 stage: .applyingHeadroom,
@@ -512,6 +551,9 @@ struct WAVExportCoordinator {
                     totalWindows: plan.renderWindowCount
                 ))
             }
+            let headroomDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: headroomStartTime)
+                : 0
 
             progressEmitter.emit(WAVExportProgress(
                 stage: .writingFile,
@@ -520,7 +562,11 @@ struct WAVExportCoordinator {
                 completedWindows: plan.renderWindowCount,
                 totalWindows: plan.renderWindowCount
             ), force: true)
+            let replaceStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             try replaceItem(at: normalizedDestination, withItemAt: finalTempURL, fileManager: fileManager)
+            let replaceDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: replaceStartTime)
+                : 0
             try? fileManager.removeItem(at: rawTempURL)
             progressEmitter.emit(WAVExportProgress(
                 stage: .completed,
@@ -529,9 +575,27 @@ struct WAVExportCoordinator {
                 completedWindows: plan.renderWindowCount,
                 totalWindows: plan.renderWindowCount
             ), force: true)
+            let exportPerformanceDiagnostics = collectPerformanceDiagnostics
+                ? WAVExportPerformanceDiagnostics(
+                    totalExportDurationSeconds: VTXPerformanceClock.seconds(since: exportStartTime),
+                    planPerformanceDiagnostics: plan.performanceDiagnostics,
+                    renderPhaseDurationSeconds: renderPhaseDuration,
+                    tempWAVWriteDurationSeconds: tempWAVWriteDuration,
+                    headroomPostProcessDurationSeconds: headroomDuration,
+                    finalAtomicReplaceDurationSeconds: replaceDuration,
+                    totalFramesPlanned: plan.totalFrameCount,
+                    totalFramesRendered: renderResult.renderedFrameCount,
+                    renderWindowCount: renderResult.windowedRenderSummary?.windowCount ?? 0,
+                    windowRows: plan.configuration.windowRows,
+                    renderPerformanceDiagnostics: renderResult.performanceDiagnostics,
+                    windowWriteDiagnostics: windowWriteDiagnostics
+                )
+                : nil
             return .exported(
                 destination: normalizedDestination,
-                renderResult: renderResult.replacingExportDiagnostics(diagnostics)
+                renderResult: renderResult
+                    .replacingExportDiagnostics(diagnostics)
+                    .replacingWAVExportPerformanceDiagnostics(exportPerformanceDiagnostics)
             )
         } catch let error as WAVExportPlanError {
             try? fileManager.removeItem(at: rawTempURL)

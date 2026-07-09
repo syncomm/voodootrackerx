@@ -138,6 +138,17 @@ Float32 post-process. For comparable tool renders, pass `--sample-rate 48000`,
 `--auto-headroom`. Runtime UI playback keeps its separate runtime output
 gain/headroom policy.
 
+App WAV export and the shared windowed offline render path also expose
+developer-facing performance diagnostics in their result models. These measure
+plan/traversal/timing work, per-window scheduling and C mixer render time,
+temporary WAV write time, headroom post-process time, final replace time,
+render window counts, frame counts, scheduled/carryover/reject counters, and
+Swift-side estimates of sample payload uploads copied into C mixer storage.
+The diagnostics are not shown in normal product UI and must not change PCM
+output, C mixer DSP, runtime playback, parser behavior, or tracker UI
+behavior. Use them to choose and validate narrow future render/export
+performance PRs.
+
 ## FT2 Mix Profile vs VTX Mix Profile
 
 `vtx_render_bounded_xm` supports explicit mix profiles:

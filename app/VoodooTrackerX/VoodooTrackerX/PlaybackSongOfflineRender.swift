@@ -1,4 +1,18 @@
+import Dispatch
 import Foundation
+
+enum VTXPerformanceClock {
+    static func now() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds
+    }
+
+    static func seconds(since start: UInt64, to end: UInt64 = now()) -> Double {
+        guard end >= start else {
+            return 0
+        }
+        return Double(end - start) / 1_000_000_000.0
+    }
+}
 
 struct PlaybackSongRenderIsolationFilter: Equatable {
     let soloChannelIndex: Int?
@@ -155,6 +169,68 @@ struct PlaybackSongScheduledVoiceAttempt: Equatable {
     let windowIndex: Int?
 }
 
+struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
+    let windowIndex: Int
+    let schedulingDurationSeconds: Double
+    let cMixerRenderDurationSeconds: Double
+    let totalWindowDurationSeconds: Double
+    let samplePayloadUploadCount: Int
+    let approximateSamplePayloadBytesCopied: Int
+}
+
+struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
+    let totalDurationSeconds: Double
+    let planAdaptDurationSeconds: Double
+    let totalWindowSchedulingDurationSeconds: Double
+    let totalCMixerRenderDurationSeconds: Double
+    let renderWindowCount: Int
+    let windowRows: Int
+    let totalFramesPlanned: Int
+    let totalFramesRendered: Int
+    let totalScheduledEvents: Int
+    let totalAcceptedScheduledEvents: Int
+    let totalRejectedScheduledEvents: Int
+    let totalScheduledCapacityRejects: Int
+    let totalInvalidScheduledVoiceRejects: Int
+    let totalCarriedVoices: Int
+    let totalBoundaryContinuations: Int
+    let totalDroppedAtWindowBoundaries: Int
+    let mayContainBoundaryCuts: Bool
+    let samplePayloadUploadCount: Int
+    let approximateSamplePayloadBytesCopied: Int
+    let windows: [PlaybackSongRenderWindowPerformanceDiagnostic]
+}
+
+struct WAVExportPlanPerformanceDiagnostics: Equatable {
+    let totalDurationSeconds: Double
+    let songBuildDurationSeconds: Double
+    let traversalPlanningDurationSeconds: Double
+    let durationTimingPlanningDurationSeconds: Double
+    let wavLayoutValidationDurationSeconds: Double
+    let totalFramesPlanned: Int
+    let renderWindowCount: Int
+}
+
+struct WAVExportWindowWritePerformanceDiagnostic: Equatable {
+    let windowIndex: Int
+    let tempWAVWriteDurationSeconds: Double
+}
+
+struct WAVExportPerformanceDiagnostics: Equatable {
+    let totalExportDurationSeconds: Double
+    let planPerformanceDiagnostics: WAVExportPlanPerformanceDiagnostics
+    let renderPhaseDurationSeconds: Double
+    let tempWAVWriteDurationSeconds: Double
+    let headroomPostProcessDurationSeconds: Double
+    let finalAtomicReplaceDurationSeconds: Double
+    let totalFramesPlanned: Int
+    let totalFramesRendered: Int
+    let renderWindowCount: Int
+    let windowRows: Int
+    let renderPerformanceDiagnostics: PlaybackSongRenderPerformanceDiagnostics?
+    let windowWriteDiagnostics: [WAVExportWindowWritePerformanceDiagnostic]
+}
+
 struct PlaybackSongWindowedRenderWindowDiagnostic: Equatable {
     let windowIndex: Int
     let startRow: Int
@@ -174,6 +250,7 @@ struct PlaybackSongWindowedRenderWindowDiagnostic: Equatable {
     let rejectedScheduledEventCount: Int
     let scheduledCapacityRejectedCount: Int
     let invalidScheduledVoiceRejectedCount: Int
+    let performanceDiagnostics: PlaybackSongRenderWindowPerformanceDiagnostic?
 }
 
 struct PlaybackSongWindowedRenderSummary: Equatable {
@@ -200,6 +277,7 @@ struct PlaybackSongWindowedRenderSummary: Equatable {
     let totalInvalidScheduledVoiceRejects: Int
     let knownUnsupportedCarryoverReasons: [String]
     let knownStateCarryoverLimitations: [String]
+    let performanceDiagnostics: PlaybackSongRenderPerformanceDiagnostics?
 
     var windowCount: Int {
         windows.count
@@ -325,6 +403,10 @@ struct PlaybackSongOfflineRenderResult: Equatable {
         plan.diagnostics
     }
 
+    var performanceDiagnostics: PlaybackSongRenderPerformanceDiagnostics? {
+        windowedRenderSummary?.performanceDiagnostics
+    }
+
     var requestedFrameCount: Int {
         request.requestedFrameCount
     }
@@ -367,9 +449,14 @@ struct PlaybackSongOfflineStreamingRenderResult: Equatable {
     let windowedRenderSummary: PlaybackSongWindowedRenderSummary?
     let sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
     let exportDiagnostics: MixerWAVExportDiagnostics?
+    let wavExportPerformanceDiagnostics: WAVExportPerformanceDiagnostics?
 
     var diagnostics: PlaybackSongSyntheticDiagnostics {
         plan.diagnostics
+    }
+
+    var performanceDiagnostics: PlaybackSongRenderPerformanceDiagnostics? {
+        windowedRenderSummary?.performanceDiagnostics
     }
 
     var requestedFrameCount: Int {
@@ -395,7 +482,24 @@ struct PlaybackSongOfflineStreamingRenderResult: Equatable {
             scheduledVoiceRejectionReasons: scheduledVoiceRejectionReasons,
             windowedRenderSummary: windowedRenderSummary,
             sameChannelVoiceLifetime: sameChannelVoiceLifetime,
-            exportDiagnostics: diagnostics
+            exportDiagnostics: diagnostics,
+            wavExportPerformanceDiagnostics: wavExportPerformanceDiagnostics
+        )
+    }
+
+    func replacingWAVExportPerformanceDiagnostics(
+        _ diagnostics: WAVExportPerformanceDiagnostics?
+    ) -> PlaybackSongOfflineStreamingRenderResult {
+        PlaybackSongOfflineStreamingRenderResult(
+            request: request,
+            plan: plan,
+            renderedFrameCount: renderedFrameCount,
+            scheduledVoiceIndices: scheduledVoiceIndices,
+            scheduledVoiceRejectionReasons: scheduledVoiceRejectionReasons,
+            windowedRenderSummary: windowedRenderSummary,
+            sameChannelVoiceLifetime: sameChannelVoiceLifetime,
+            exportDiagnostics: exportDiagnostics,
+            wavExportPerformanceDiagnostics: diagnostics
         )
     }
 }
@@ -615,10 +719,13 @@ final class PlaybackSongOfflineRenderer {
     func renderWindowed(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
+        collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
     ) -> PlaybackSongOfflineRenderResult {
+        let renderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
+        let planAdaptStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let fullPlan = PlaybackSongSyntheticAdapter.adapt(
             effectiveRequest.song,
             startOrderIndex: effectiveRequest.startOrderIndex,
@@ -651,9 +758,17 @@ final class PlaybackSongOfflineRenderer {
             for: adaptedPlan,
             renderedFrameCount: totalFrames
         )
+        let planAdaptDuration = collectPerformanceDiagnostics
+            ? VTXPerformanceClock.seconds(since: planAdaptStartTime)
+            : 0
 
         for spec in windows {
-            let mixer = CSoftwareMixer(config: effectiveRequest.config)
+            let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+            let schedulingStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+            let mixer = CSoftwareMixer(
+                config: effectiveRequest.config,
+                recordsSamplePayloadUploads: collectPerformanceDiagnostics
+            )
             outputConfig = mixer.config
             let eventPairs = Self.eventPairs(
                 in: spec,
@@ -799,9 +914,27 @@ final class PlaybackSongOfflineRenderer {
                 )
             })
 
+            let schedulingDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: schedulingStartTime)
+                : 0
+            let mixerRenderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let block = mixer.render(frames: spec.frameCount)
+            let mixerRenderDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: mixerRenderStartTime)
+                : 0
             renderedFrames += block.frameCount
             interleavedPCM.append(contentsOf: block.interleavedPCM)
+            let samplePayloadUploads = mixer.samplePayloadUploadDiagnostics
+            let performanceDiagnostic = collectPerformanceDiagnostics
+                ? PlaybackSongRenderWindowPerformanceDiagnostic(
+                    windowIndex: spec.index,
+                    schedulingDurationSeconds: schedulingDuration,
+                    cMixerRenderDurationSeconds: mixerRenderDuration,
+                    totalWindowDurationSeconds: VTXPerformanceClock.seconds(since: windowStartTime),
+                    samplePayloadUploadCount: samplePayloadUploads.uploadCount,
+                    approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied
+                )
+                : nil
 
             let droppedContinuations = continuationResults.filter { $0.rejectionReason != nil }.count
             let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(
@@ -822,7 +955,8 @@ final class PlaybackSongOfflineRenderer {
                 acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count + continuationResults.filter(\.wasAccepted).count,
                 rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count + continuationResults.filter { $0.rejectionReason != nil }.count,
                 scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count + continuationResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
-                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+                performanceDiagnostics: performanceDiagnostic
             )
             windowDiagnostics.append(diagnostic)
             progress?(spec.index + 1, windows.count, diagnostic)
@@ -832,6 +966,37 @@ final class PlaybackSongOfflineRenderer {
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
             .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
         let finalPlan = adaptedPlan.replacingEventCoverage(eventCoverage)
+        let windowPerformanceDiagnostics = windowDiagnostics.compactMap(\.performanceDiagnostics)
+        let totalCarriedVoices = windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +)
+        let totalReleasedVoiceCarryovers = windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +)
+        let totalCarriedTonePortamentoVoices = windowDiagnostics.map(\.carriedTonePortamentoVoiceCount).reduce(0, +)
+        let totalBoundaryContinuations = windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +)
+        let totalDroppedAtWindowBoundaries = windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +)
+        let totalInvalidScheduledVoiceRejects = attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+        let performanceDiagnostics = collectPerformanceDiagnostics
+            ? PlaybackSongRenderPerformanceDiagnostics(
+                totalDurationSeconds: VTXPerformanceClock.seconds(since: renderStartTime),
+                planAdaptDurationSeconds: planAdaptDuration,
+                totalWindowSchedulingDurationSeconds: windowPerformanceDiagnostics.map(\.schedulingDurationSeconds).reduce(0, +),
+                totalCMixerRenderDurationSeconds: windowPerformanceDiagnostics.map(\.cMixerRenderDurationSeconds).reduce(0, +),
+                renderWindowCount: windowDiagnostics.count,
+                windowRows: safeWindowRows,
+                totalFramesPlanned: totalFrames,
+                totalFramesRendered: renderedFrames,
+                totalScheduledEvents: attempts.count,
+                totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
+                totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
+                totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
+                totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
+                totalCarriedVoices: totalCarriedVoices,
+                totalBoundaryContinuations: totalBoundaryContinuations,
+                totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
+                mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
+                samplePayloadUploadCount: windowPerformanceDiagnostics.map(\.samplePayloadUploadCount).reduce(0, +),
+                approximateSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateSamplePayloadBytesCopied).reduce(0, +),
+                windows: windowPerformanceDiagnostics
+            )
+            : nil
         let block = MixerRenderBlock(
             config: outputConfig,
             frameCount: renderedFrames,
@@ -841,19 +1006,20 @@ final class PlaybackSongOfflineRenderer {
             windowRows: safeWindowRows,
             windows: windowDiagnostics,
             totalRenderedFrames: renderedFrames,
-            totalCarriedVoices: windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +),
-            totalReleasedVoiceCarryovers: windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +),
-            totalCarriedTonePortamentoVoices: windowDiagnostics.map(\.carriedTonePortamentoVoiceCount).reduce(0, +),
-            totalBoundaryContinuations: windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +),
-            totalDroppedAtWindowBoundaries: windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +),
+            totalCarriedVoices: totalCarriedVoices,
+            totalReleasedVoiceCarryovers: totalReleasedVoiceCarryovers,
+            totalCarriedTonePortamentoVoices: totalCarriedTonePortamentoVoices,
+            totalBoundaryContinuations: totalBoundaryContinuations,
+            totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
             mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
             totalScheduledEvents: attempts.count,
             totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
             totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
             totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
-            totalInvalidScheduledVoiceRejects: attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+            totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
             knownUnsupportedCarryoverReasons: knownUnsupportedCarryoverReasons,
-            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations
+            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations,
+            performanceDiagnostics: performanceDiagnostics
         )
         return PlaybackSongOfflineRenderResult(
             request: effectiveRequest,
@@ -927,17 +1093,21 @@ final class PlaybackSongOfflineRenderer {
             scheduledVoiceRejectionReasons: session.scheduledVoiceRejectionReasons,
             windowedRenderSummary: nil,
             sameChannelVoiceLifetime: session.sameChannelVoiceLifetime,
-            exportDiagnostics: nil
+            exportDiagnostics: nil,
+            wavExportPerformanceDiagnostics: nil
         )
     }
 
     func renderWindowedStreaming(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
+        collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
+        let renderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
+        let planAdaptStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let fullPlan = PlaybackSongSyntheticAdapter.adapt(
             effectiveRequest.song,
             startOrderIndex: effectiveRequest.startOrderIndex,
@@ -967,9 +1137,17 @@ final class PlaybackSongOfflineRenderer {
             for: adaptedPlan,
             renderedFrameCount: totalFrames
         )
+        let planAdaptDuration = collectPerformanceDiagnostics
+            ? VTXPerformanceClock.seconds(since: planAdaptStartTime)
+            : 0
 
         for spec in windows {
-            let mixer = CSoftwareMixer(config: effectiveRequest.config)
+            let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+            let schedulingStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+            let mixer = CSoftwareMixer(
+                config: effectiveRequest.config,
+                recordsSamplePayloadUploads: collectPerformanceDiagnostics
+            )
             let eventPairs = Self.eventPairs(
                 in: spec,
                 plan: adaptedPlan,
@@ -1114,8 +1292,26 @@ final class PlaybackSongOfflineRenderer {
                 )
             })
 
+            let schedulingDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: schedulingStartTime)
+                : 0
+            let mixerRenderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let block = mixer.render(frames: spec.frameCount)
+            let mixerRenderDuration = collectPerformanceDiagnostics
+                ? VTXPerformanceClock.seconds(since: mixerRenderStartTime)
+                : 0
             renderedFrames += block.frameCount
+            let samplePayloadUploads = mixer.samplePayloadUploadDiagnostics
+            let performanceDiagnostic = collectPerformanceDiagnostics
+                ? PlaybackSongRenderWindowPerformanceDiagnostic(
+                    windowIndex: spec.index,
+                    schedulingDurationSeconds: schedulingDuration,
+                    cMixerRenderDurationSeconds: mixerRenderDuration,
+                    totalWindowDurationSeconds: VTXPerformanceClock.seconds(since: windowStartTime),
+                    samplePayloadUploadCount: samplePayloadUploads.uploadCount,
+                    approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied
+                )
+                : nil
 
             let droppedContinuations = continuationResults.filter { $0.rejectionReason != nil }.count
             let diagnostic = PlaybackSongWindowedRenderWindowDiagnostic(
@@ -1136,7 +1332,8 @@ final class PlaybackSongOfflineRenderer {
                 acceptedScheduledEventCount: scheduledResults.filter(\.wasAccepted).count + continuationResults.filter(\.wasAccepted).count,
                 rejectedScheduledEventCount: scheduledResults.filter { $0.rejectionReason != nil }.count + continuationResults.filter { $0.rejectionReason != nil }.count,
                 scheduledCapacityRejectedCount: scheduledResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count + continuationResults.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count,
-                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+                invalidScheduledVoiceRejectedCount: scheduledResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count + continuationResults.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+                performanceDiagnostics: performanceDiagnostic
             )
             windowDiagnostics.append(diagnostic)
             try progress?(spec.index + 1, windows.count, diagnostic, block)
@@ -1146,23 +1343,55 @@ final class PlaybackSongOfflineRenderer {
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
             .reportingCMixerVoiceCapacityRejections(scheduledCapacityRejectedCount)
         let finalPlan = adaptedPlan.replacingEventCoverage(eventCoverage)
+        let windowPerformanceDiagnostics = windowDiagnostics.compactMap(\.performanceDiagnostics)
+        let totalCarriedVoices = windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +)
+        let totalReleasedVoiceCarryovers = windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +)
+        let totalCarriedTonePortamentoVoices = windowDiagnostics.map(\.carriedTonePortamentoVoiceCount).reduce(0, +)
+        let totalBoundaryContinuations = windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +)
+        let totalDroppedAtWindowBoundaries = windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +)
+        let totalInvalidScheduledVoiceRejects = attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count
+        let performanceDiagnostics = collectPerformanceDiagnostics
+            ? PlaybackSongRenderPerformanceDiagnostics(
+                totalDurationSeconds: VTXPerformanceClock.seconds(since: renderStartTime),
+                planAdaptDurationSeconds: planAdaptDuration,
+                totalWindowSchedulingDurationSeconds: windowPerformanceDiagnostics.map(\.schedulingDurationSeconds).reduce(0, +),
+                totalCMixerRenderDurationSeconds: windowPerformanceDiagnostics.map(\.cMixerRenderDurationSeconds).reduce(0, +),
+                renderWindowCount: windowDiagnostics.count,
+                windowRows: safeWindowRows,
+                totalFramesPlanned: totalFrames,
+                totalFramesRendered: renderedFrames,
+                totalScheduledEvents: attempts.count,
+                totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
+                totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
+                totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
+                totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
+                totalCarriedVoices: totalCarriedVoices,
+                totalBoundaryContinuations: totalBoundaryContinuations,
+                totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
+                mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
+                samplePayloadUploadCount: windowPerformanceDiagnostics.map(\.samplePayloadUploadCount).reduce(0, +),
+                approximateSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateSamplePayloadBytesCopied).reduce(0, +),
+                windows: windowPerformanceDiagnostics
+            )
+            : nil
         let summary = PlaybackSongWindowedRenderSummary(
             windowRows: safeWindowRows,
             windows: windowDiagnostics,
             totalRenderedFrames: renderedFrames,
-            totalCarriedVoices: windowDiagnostics.map(\.carriedVoiceCount).reduce(0, +),
-            totalReleasedVoiceCarryovers: windowDiagnostics.map(\.releasedVoiceCarryoverCount).reduce(0, +),
-            totalCarriedTonePortamentoVoices: windowDiagnostics.map(\.carriedTonePortamentoVoiceCount).reduce(0, +),
-            totalBoundaryContinuations: windowDiagnostics.map(\.boundaryContinuationCount).reduce(0, +),
-            totalDroppedAtWindowBoundaries: windowDiagnostics.map(\.droppedAtWindowBoundaryCount).reduce(0, +),
+            totalCarriedVoices: totalCarriedVoices,
+            totalReleasedVoiceCarryovers: totalReleasedVoiceCarryovers,
+            totalCarriedTonePortamentoVoices: totalCarriedTonePortamentoVoices,
+            totalBoundaryContinuations: totalBoundaryContinuations,
+            totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
             mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
             totalScheduledEvents: attempts.count,
             totalAcceptedScheduledEvents: attempts.filter { $0.voiceIndex != nil }.count,
             totalRejectedScheduledEvents: attempts.filter { $0.rejectionReason != nil }.count,
             totalScheduledCapacityRejects: scheduledCapacityRejectedCount,
-            totalInvalidScheduledVoiceRejects: attempts.filter { $0.rejectionReason == .invalidScheduledVoice }.count,
+            totalInvalidScheduledVoiceRejects: totalInvalidScheduledVoiceRejects,
             knownUnsupportedCarryoverReasons: knownUnsupportedCarryoverReasons,
-            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations
+            knownStateCarryoverLimitations: PlaybackSongWindowedRenderSummary.stateCarryoverLimitations,
+            performanceDiagnostics: performanceDiagnostics
         )
         return PlaybackSongOfflineStreamingRenderResult(
             request: effectiveRequest,
@@ -1172,7 +1401,8 @@ final class PlaybackSongOfflineRenderer {
             scheduledVoiceRejectionReasons: attempts.map(\.rejectionReason),
             windowedRenderSummary: summary,
             sameChannelVoiceLifetime: sameChannelLifetime,
-            exportDiagnostics: nil
+            exportDiagnostics: nil,
+            wavExportPerformanceDiagnostics: nil
         )
     }
 

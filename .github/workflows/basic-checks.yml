@@ -39,3 +39,5 @@ jobs:
           test
       - name: Run core parser tests
         run: swift test --filter ModuleCoreTests
+      - name: Run render tool tests
+        run: swift test --filter VTXRenderBoundedXMTests

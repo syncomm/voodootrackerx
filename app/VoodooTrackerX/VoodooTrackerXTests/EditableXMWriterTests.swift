@@ -109,6 +109,150 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: instrumentOffset + 27), 0)
     }
 
+    func testInstrumentHeaderExportsRepresentedNameKeymapAndVolumeEnvelope() throws {
+        let sample = makeXMSourceSample(instrumentIndex: 3, sampleIndex: 0, pcm: [0])
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 64),
+                PlaybackEnvelopePoint(tick: 10, value: 32),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 1,
+            typeFlags: 0x07,
+            fadeout: 1_234
+        )
+        let instrument = PlaybackInstrument(
+            index: 3,
+            name: "Lead One",
+            samples: [sample],
+            volumeEnvelope: envelope,
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+        let pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [pattern],
+            instrumentPalette: [3: instrument]
+        )
+
+        let data = try EditableXMWriter().data(from: document)
+        let patternHeader = data.patternHeader(at: 336)
+        let firstInstrumentOffset = patternHeader.nextOffset
+        let thirdInstrumentOffset = firstInstrumentOffset + 58
+
+        XCTAssertEqual(data.le16(at: 72), 3)
+        XCTAssertEqual(data.le32(at: firstInstrumentOffset), 29)
+        XCTAssertEqual(data.le32(at: firstInstrumentOffset + 29), 29)
+        XCTAssertEqual(data.le32(at: thirdInstrumentOffset), 263)
+        XCTAssertEqual(data.ascii(offset: thirdInstrumentOffset + 4, length: 22), "Lead One")
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 27), 1)
+        XCTAssertEqual(data.le32(at: thirdInstrumentOffset + 29), 40)
+        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 33..<thirdInstrumentOffset + 129)), Array(repeating: 0, count: 96))
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 129), 0)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 131), 64)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 133), 10)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 135), 32)
+        XCTAssertEqual(data[thirdInstrumentOffset + 225], 2)
+        XCTAssertEqual(data[thirdInstrumentOffset + 226], 0)
+        XCTAssertEqual(data[thirdInstrumentOffset + 227], 1)
+        XCTAssertEqual(data[thirdInstrumentOffset + 228], 0)
+        XCTAssertEqual(data[thirdInstrumentOffset + 229], 1)
+        XCTAssertEqual(data[thirdInstrumentOffset + 233], 0x07)
+        XCTAssertEqual(data[thirdInstrumentOffset + 234], 0)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 239), 1_234)
+    }
+
+    func testSampleHeaderExportsLoopTypeVolumePanningFinetuneRelativeNoteAndName() throws {
+        let sample = makeXMSourceSample(
+            name: "Looped",
+            pcm: [0, 0.5, -0.5, 0.25],
+            volume: 0.5,
+            relativeNote: -2,
+            finetune: 7,
+            loopStart: 1,
+            loopLength: 2,
+            loopType: 2
+        )
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, name: "Instrument", samples: [sample])
+            ]
+        )
+
+        let data = try EditableXMWriter().data(from: document)
+        let patternHeader = data.patternHeader(at: 336)
+        let instrument = data.instrumentHeader(at: patternHeader.nextOffset)
+        let sampleHeader = data.sampleHeader(at: instrument.sampleHeaderOffset)
+
+        XCTAssertEqual(instrument.headerLength, 263)
+        XCTAssertEqual(instrument.sampleCount, 1)
+        XCTAssertEqual(sampleHeader.lengthBytes, 4)
+        XCTAssertEqual(sampleHeader.loopStartBytes, 1)
+        XCTAssertEqual(sampleHeader.loopLengthBytes, 2)
+        XCTAssertEqual(sampleHeader.volume, 32)
+        XCTAssertEqual(sampleHeader.finetune, UInt8(bitPattern: Int8(7)))
+        XCTAssertEqual(sampleHeader.type, 0x02)
+        XCTAssertEqual(sampleHeader.panning, 128)
+        XCTAssertEqual(sampleHeader.relativeNote, UInt8(bitPattern: Int8(-2)))
+        XCTAssertEqual(sampleHeader.name, "Looped")
+        XCTAssertEqual(
+            Array(data.subdata(in: instrument.sampleDataOffset..<instrument.nextOffset)),
+            [0, 64, 128, 96]
+        )
+    }
+
+    func testDeltaEncodingHelperWritesExact8BitAnd16BitPayloads() {
+        XCTAssertEqual(
+            XMSampleDeltaEncoder.deltaEncodedSignedPCM(pcm: [0, 0.5, -0.5, 0.25], bitDepthBits: 8),
+            Data([0, 64, 128, 96])
+        )
+        XCTAssertEqual(
+            XMSampleDeltaEncoder.deltaEncodedSignedPCM(
+                pcm: [0, Float(1.0 / 32_768.0), Float(-1.0 / 32_768.0)],
+                bitDepthBits: 16
+            ),
+            Data([0, 0, 1, 0, 254, 255])
+        )
+        XCTAssertNil(XMSampleDeltaEncoder.deltaEncodedSignedPCM(pcm: [0], bitDepthBits: 24))
+    }
+
+    func testWriterThrowsForSamplePayloadWithoutSafeSourceMetadata() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            name: "Unsupported",
+            pcm: [0, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [sample])
+            ]
+        )
+
+        XCTAssertThrowsError(try EditableXMWriter().data(from: document)) { error in
+            XCTAssertEqual(
+                error as? EditableXMWriterError,
+                .unsupportedSampleSourceMetadata(
+                    instrumentIndex: 1,
+                    sampleIndex: 0,
+                    bitDepth: nil,
+                    signedPCM: nil,
+                    deltaEncoded: nil
+                )
+            )
+        }
+    }
+
     func testMultiplePatternsAndOrderReferencesPreserveAllocatedSlots() throws {
         var firstPattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 2)
         var secondPattern = BlankTrackerDocument.makeEmptyPattern(index: 1, rowCount: 6, channels: 2)
@@ -264,6 +408,42 @@ final class EditableXMWriterTests: XCTestCase {
         )
     }
 
+    func testSampleBearingEditableCopyExportsAndReloadsWithPayload() throws {
+        let fixtureURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        var document = try XCTUnwrap(BlankTrackerDocument.makeEditableCopyClearingSongData(
+            from: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        ))
+        XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+
+        let exportedURL = try temporaryExportURL(filename: "exported-sample.xm")
+        let data = try EditableXMWriter().data(from: document)
+        try data.write(to: exportedURL, options: .atomic)
+
+        let exportedMetadata = try ModuleMetadataLoader().load(fromPath: exportedURL.path)
+        let exportedSong = try PlaybackSongBuilder.build(from: exportedMetadata, modulePath: exportedURL.path)
+
+        XCTAssertEqual(exportedMetadata.type, "XM")
+        XCTAssertEqual(exportedMetadata.instruments, 1)
+        XCTAssertEqual(exportedMetadata.orderTable, [0])
+        let reloadedPattern = try XCTUnwrap(exportedMetadata.xmPattern(index: 0))
+        XCTAssertEqual(reloadedPattern.rows[0][0].note, 49)
+        XCTAssertEqual(reloadedPattern.rows[0][0].instrument, 1)
+        let instrument = try XCTUnwrap(exportedSong.instrument(forInstrument: 1))
+        XCTAssertEqual(instrument.name, "BASIC SAMPLE")
+        let sample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
+        XCTAssertEqual(sample.name, "SINE64")
+        XCTAssertEqual(sample.sampleLength, 64)
+        XCTAssertEqual(sample.pcm.count, 64)
+        XCTAssertFalse(sample.pcm.isEmpty)
+        XCTAssertEqual(sample.sourceBitDepthBits, 8)
+        XCTAssertEqual(sample.sourceIsSignedPCM, true)
+        XCTAssertEqual(sample.sourceIsDeltaEncoded, true)
+    }
+
     private func makeDocument(
         title: String = BlankTrackerDocument.defaultTitle,
         currentPatternIndex: Int = BlankTrackerDocument.defaultPatternIndex,
@@ -271,7 +451,8 @@ final class EditableXMWriterTests: XCTestCase {
         tempo: Int = BlankTrackerDocument.defaultTempo,
         speed: Int = BlankTrackerDocument.defaultSpeed,
         orderTable: [Int],
-        patterns: [XMPatternData]
+        patterns: [XMPatternData],
+        instrumentPalette: [Int: PlaybackInstrument] = [:]
     ) -> BlankTrackerDocument {
         BlankTrackerDocument(
             title: title,
@@ -283,9 +464,66 @@ final class EditableXMWriterTests: XCTestCase {
             speed: speed,
             orderTable: orderTable,
             selection: .default,
-            instrumentPalette: [:],
+            instrumentPalette: instrumentPalette,
             patterns: patterns
         )
+    }
+
+    private func makeXMSourceSample(
+        instrumentIndex: Int = 1,
+        sampleIndex: Int = 0,
+        name: String? = nil,
+        pcm: [Float],
+        volume: Float = 1,
+        relativeNote: Int = 0,
+        finetune: Int = 0,
+        loopStart: Int = 0,
+        loopLength: Int = 0,
+        loopType: Int = 0,
+        sourceBitDepthBits: Int = 8
+    ) -> PlaybackSample {
+        PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            name: name,
+            pcm: pcm,
+            volume: volume,
+            relativeNote: relativeNote,
+            finetune: finetune,
+            baseSampleRate: 8_363,
+            sampleLength: pcm.count,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType,
+            sourceBitDepthBits: sourceBitDepthBits,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+    }
+
+    private func referenceXMFixtureURL(_ relativePath: String) throws -> URL {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let url = root.appendingPathComponent("tests/reference-xm/\(relativePath)")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw XCTSkip("missing reference XM fixture at \(url.path)")
+        }
+        return url
+    }
+
+    private func temporaryExportURL(filename: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vtx-editable-xm-writer-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let url = directory.appendingPathComponent(filename)
+        XCTAssertTrue(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        return url
     }
 
     private func reloadedMetadata(
@@ -328,6 +566,27 @@ private struct XMTestPatternHeader {
     let nextOffset: Int
 }
 
+private struct XMTestInstrumentHeader {
+    let headerLength: UInt32
+    let sampleCount: UInt16
+    let sampleHeaderSize: UInt32
+    let sampleHeaderOffset: Int
+    let sampleDataOffset: Int
+    let nextOffset: Int
+}
+
+private struct XMTestSampleHeader {
+    let lengthBytes: UInt32
+    let loopStartBytes: UInt32
+    let loopLengthBytes: UInt32
+    let volume: UInt8
+    let finetune: UInt8
+    let type: UInt8
+    let panning: UInt8
+    let relativeNote: UInt8
+    let name: String
+}
+
 private extension Data {
     func le16(at offset: Int) -> UInt16 {
         UInt16(self[offset]) | (UInt16(self[offset + 1]) << 8)
@@ -358,6 +617,43 @@ private extension Data {
             packedSize: packedSize,
             dataRange: dataStart..<dataEnd,
             nextOffset: dataEnd
+        )
+    }
+
+    func instrumentHeader(at offset: Int) -> XMTestInstrumentHeader {
+        let headerLength = le32(at: offset)
+        let sampleCount = le16(at: offset + 27)
+        let sampleHeaderSize = sampleCount == 0 ? 0 : le32(at: offset + 29)
+        let sampleHeaderOffset = offset + Int(headerLength)
+        let sampleDataOffset = sampleHeaderOffset + (Int(sampleHeaderSize) * Int(sampleCount))
+        var nextOffset = sampleDataOffset
+        if sampleCount > 0 {
+            for sampleIndex in 0..<Int(sampleCount) {
+                let sampleOffset = sampleHeaderOffset + (sampleIndex * Int(sampleHeaderSize))
+                nextOffset += Int(le32(at: sampleOffset))
+            }
+        }
+        return XMTestInstrumentHeader(
+            headerLength: headerLength,
+            sampleCount: sampleCount,
+            sampleHeaderSize: sampleHeaderSize,
+            sampleHeaderOffset: sampleHeaderOffset,
+            sampleDataOffset: sampleDataOffset,
+            nextOffset: nextOffset
+        )
+    }
+
+    func sampleHeader(at offset: Int) -> XMTestSampleHeader {
+        XMTestSampleHeader(
+            lengthBytes: le32(at: offset),
+            loopStartBytes: le32(at: offset + 4),
+            loopLengthBytes: le32(at: offset + 8),
+            volume: self[offset + 12],
+            finetune: self[offset + 13],
+            type: self[offset + 14],
+            panning: self[offset + 15],
+            relativeNote: self[offset + 16],
+            name: ascii(offset: offset + 18, length: 22)
         )
     }
 }

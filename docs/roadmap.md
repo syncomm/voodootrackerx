@@ -304,10 +304,10 @@ Not allowed during the freeze unless a narrow blocker is promoted:
 Recommended next product PR:
 
 - The editable-document save/export model, Export XM menu/save-panel shell,
-  current editable-subset app file output, and public-safe writer/reload smoke
-  tests are in place. Continue in narrow composition-path slices: palette/sample
-  payload export where already represented, explicit loaded-module editable-copy
-  UI, and then Instrument/Sample editor foundations.
+  current editable-subset app file output, existing palette/sample payload
+  export, and public-safe writer/reload smoke tests are in place. Continue in
+  narrow composition-path slices: explicit loaded-module editable-copy UI and
+  then Instrument/Sample editor foundations.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -319,6 +319,16 @@ Recommended next product PR:
 
 Recently completed product foundation:
 
+- Editable XM export now writes existing palette/sample payloads for stopped
+  editable documents when the editable copy safely represents XM-derived signed
+  8-bit or 16-bit PCM. The supported subset includes instrument names,
+  keymaps, represented volume-envelope fields, sample headers, forward and
+  ping-pong loop metadata, and XM delta-encoded sample payloads. Unsupported
+  sample metadata fails with focused writer errors, while Save/Save As, loaded
+  read-only module export/editing, full arbitrary XM writer parity, runtime
+  playback, parser architecture, C mixer DSP, tracker viewport, Song / Order
+  behavior, Instrument Editor, Sample Editor, sample import, WAV export, and
+  offline render behavior remain unchanged/deferred.
 - Public-safe XM writer reload smoke tests now persist generated
   editable-document XM data only under test temporary directories and reload it
   through the existing parser path. Coverage includes blank documents, simple

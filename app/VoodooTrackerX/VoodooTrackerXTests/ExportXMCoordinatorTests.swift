@@ -79,6 +79,63 @@ final class ExportXMCoordinatorTests: XCTestCase {
         )
     }
 
+    func testEditableStoppedSampleBearingDocumentWritesReloadableSamplePayload() throws {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        pattern.rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0,
+            effectType: 0,
+            effectParam: 0
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            name: "Tiny",
+            pcm: [0, 0.5, -0.5, 0.25],
+            volume: 0.5,
+            relativeNote: -1,
+            finetune: 2,
+            baseSampleRate: 8_363,
+            sampleLength: 4,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        let document = makeDocument(
+            title: "Sample Export",
+            orderTable: [0],
+            patterns: [pattern],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, name: "Tiny Inst", samples: [sample])
+            ]
+        )
+        let selectedDestination = try temporaryDestination(filename: "sample-export.xm")
+        let provider = FakeExportXMDestinationProvider(destination: selectedDestination)
+        let coordinator = ExportXMCoordinator(destinationProvider: provider)
+
+        let result = coordinator.beginExport(context: .editable(
+            document: document,
+            displayName: document.title,
+            isPlaybackActive: false
+        ))
+
+        XCTAssertEqual(result, .exported(destination: selectedDestination))
+        let metadata = try ModuleMetadataLoader().load(fromPath: selectedDestination.path)
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: selectedDestination.path)
+        XCTAssertEqual(metadata.instruments, 1)
+        let reloadedPattern = try XCTUnwrap(metadata.xmPattern(index: 0))
+        XCTAssertEqual(reloadedPattern.rows[0][0].instrument, 1)
+        let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
+        XCTAssertEqual(instrument.name, "Tiny Inst")
+        let reloadedSample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
+        XCTAssertEqual(reloadedSample.name, "Tiny")
+        XCTAssertEqual(reloadedSample.pcm.count, 4)
+        XCTAssertEqual(reloadedSample.volume, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(reloadedSample.relativeNote, -1)
+        XCTAssertEqual(reloadedSample.finetune, 2)
+    }
+
     func testCancelingDestinationSelectionWritesNothingAndLeavesDocumentUnchanged() throws {
         let document = BlankTrackerDocument.makeDefault()
         let originalDocument = document
@@ -187,6 +244,42 @@ final class ExportXMCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    func testUnsupportedSamplePayloadFailureReturnsWriterFailureWithoutWritingFile() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0, 0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [sample])
+            ]
+        )
+        let destination = try temporaryDestination(filename: "unsupported-sample.xm")
+        let provider = FakeExportXMDestinationProvider(destination: destination)
+        let coordinator = ExportXMCoordinator(destinationProvider: provider)
+
+        let result = coordinator.beginExport(context: .editable(
+            document: document,
+            displayName: document.title,
+            isPlaybackActive: false
+        ))
+
+        guard case let .failed(.writerFailed(message)) = result else {
+            return XCTFail("Expected writer failure, got \(result)")
+        }
+        XCTAssertTrue(message.contains("unsupportedSampleSourceMetadata"))
+        XCTAssertEqual(result.userFacingTitle, "Export XM Failed")
+        XCTAssertTrue(result.userFacingMessage?.contains("Could not build XM data.") == true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     func testFileWriteFailureReturnsFailureWithoutCreatingFile() throws {
         let document = BlankTrackerDocument.makeDefault()
         let destination = try temporaryDestinationInMissingDirectory(filename: "write-failure.xm")
@@ -230,7 +323,8 @@ final class ExportXMCoordinatorTests: XCTestCase {
         tempo: Int = BlankTrackerDocument.defaultTempo,
         speed: Int = BlankTrackerDocument.defaultSpeed,
         orderTable: [Int],
-        patterns: [XMPatternData]
+        patterns: [XMPatternData],
+        instrumentPalette: [Int: PlaybackInstrument] = [:]
     ) -> BlankTrackerDocument {
         BlankTrackerDocument(
             title: title,
@@ -242,7 +336,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
             speed: speed,
             orderTable: orderTable,
             selection: .default,
-            instrumentPalette: [:],
+            instrumentPalette: instrumentPalette,
             patterns: patterns
         )
     }

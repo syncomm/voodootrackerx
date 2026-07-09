@@ -29,8 +29,9 @@ VoodooTracker X currently has:
   Pattern Ops NEW/DUP/CLEAR pattern creation, duplication, and
   clear-current-pattern mutation, stopped editable DANGER / CLEAR SONG reset,
   and a stopped editable-document `File > Export XM...` path that writes the
-  current editable subset to a user-chosen `.xm` file, plus a minimal editable
-  XM writer foundation covered by public-safe byte-level model tests and
+  current editable subset to a user-chosen `.xm` file, including existing
+  palette/sample payloads where the editable model safely represents signed
+  8-bit or 16-bit XM-derived PCM, with public-safe byte-level model tests and
   temporary-file reload smoke tests through the existing parser path
 
 The app is still under active development and is not production-ready. VTX 1.0
@@ -69,10 +70,11 @@ preserving the backend freeze:
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
    `docs/design/editable-document-save-export-model.md`.
-2. Minimal public-safe XM writer model, app export wiring, and reload smoke
-   tests are in place for the current editable-document writer subset.
-3. Expand Export XM only in narrow slices, starting with palette/sample payloads
-   where the editable model already safely represents them.
+2. Minimal public-safe XM writer model, app export wiring, reload smoke tests,
+   and existing palette/sample payload export are in place for the current
+   editable-document writer subset.
+3. Keep later Export XM work in narrow slices beyond currently represented
+   palette/sample payloads.
 4. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 5. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
@@ -104,6 +106,16 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Editable XM export now writes existing instrument/sample palette data for
+  stopped editable documents when the copied palette safely represents
+  XM-derived signed 8-bit or 16-bit PCM payloads. The writer emits instrument
+  names, keymaps, represented volume-envelope fields, sample headers, loop
+  metadata for forward/ping-pong loops, and correctly delta-encoded sample
+  payloads; unsupported sample metadata returns focused writer errors. Save,
+  Save As, loaded-module direct export/editing, arbitrary XM writer parity,
+  runtime playback, parser architecture, C mixer DSP, tracker viewport, Song /
+  Order behavior, Instrument Editor, Sample Editor, sample import, WAV export,
+  and offline render behavior remain unchanged/deferred.
 - File > Export XM... now wires the current editable XM writer to the app's
   final file-output boundary: stopped editable documents can choose an `.xm`
   destination, VTX writes atomically where possible, reload smoke covers the

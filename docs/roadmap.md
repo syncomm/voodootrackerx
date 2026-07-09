@@ -6,6 +6,15 @@ play-by-play; older audio comparison details live under `docs/reports/`.
 For the shortest backend snapshot, read `docs/agent-current-state.md` first.
 For effect status, read `docs/xm-effect-support.md`.
 
+## Current Release Status
+
+`v0.2.0-alpha.3` is tagged as the Song / Order editor composition alpha.
+`v0.2.0-alpha.4` is being prepared as the Export XM v1 alpha for VTX editable
+documents. The alpha.4 release claim is intentionally scoped to the current
+editable subset and supported existing instrument/sample payloads; it is not a
+full arbitrary-XM round-trip guarantee and does not claim full FastTracker II,
+OpenMPT, or MilkyTracker parity.
+
 ## Project Goals
 
 - Preserve classic MOD/XM compatibility and tracker workflow.
@@ -66,6 +75,8 @@ Current expectations:
 
 - preserve classic MOD/XM read-only compatibility
 - keep parser logic isolated from UI and playback behavior
+- keep loaded modules read-only until an explicit editable-copy workflow is
+  designed and implemented
 - add focused parser tests before changing parser behavior
 - do not change on-disk/file-format assumptions without a design note,
   compatibility tests, and migration plan where applicable
@@ -139,13 +150,17 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Design a weekly codebase review harness as a docs/tooling plan before
+1. Define an explicit loaded-module editable-copy command before broader
+   loaded-module editing or Save/Save As work.
+2. Build an Instrument Editor shell/read-only binding.
+3. Add editable palette/sample workflow foundations in narrow slices.
+4. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-2. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
+5. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
    synchronous load path while improving first-Play readiness, and loaded-module
    TIME is derived only from the installed adapter-plan duration.
-3. Consider README badges later only if they point at stable, useful CI or
+6. Consider README badges later only if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -158,6 +173,13 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Export XM v1 is ready for release documentation as `v0.2.0-alpha.4`: stopped
+  editable documents can export the current VTX editable subset to XM,
+  including supported existing instrument/sample payloads, and exported XM
+  files reopen as loaded/read-only modules. Save/Save As, loaded-module direct
+  editing, explicit editable-copy UX, Instrument Editor, Sample Editor, full
+  arbitrary-XM round-trip parity, and full FT2/OpenMPT/MilkyTracker parity
+  remain future work.
 - Editable blank documents and loaded-module-derived editable copies now build
   a stopped-Play `PlaybackSong` snapshot from the editable document model and
   send it through the existing `RuntimeCMixerAdapterEventPlan` /
@@ -533,6 +555,7 @@ alpha completed the first-pass workflow for small editable blank songs. Tracker
 display, blank startup, note-entry foundations, loaded-module audition,
 clear-current-pattern, stable viewport behavior, adapter-safe pattern-loop
 playback, and stopped editable song/order arrangement controls are implemented.
+Export XM v1 for stopped editable documents is prepared as `v0.2.0-alpha.4`.
 VTX 1.0 still needs the broader composition surface below.
 
 Current implemented foundation:
@@ -558,6 +581,8 @@ Current implemented foundation:
 - stopped editable Pattern Ops NEW/DUP/CLEAR
 - stopped editable Order Ops INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+
 - stopped editable Song / Order Clear Song reset
+- Export XM v1 for stopped editable documents, scoped to the current editable
+  subset and supported existing palette/sample payloads
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:

@@ -10,8 +10,8 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 Tagged releases are published on the
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
-Tagged releases such as `v0.2.0-alpha.3` include a downloadable macOS DMG named
-`VoodooTrackerX-v0.2.0-alpha.3.dmg`.
+Tagged releases such as `v0.2.0-alpha.4` include a downloadable macOS DMG named
+`VoodooTrackerX-v0.2.0-alpha.4.dmg`.
 
 The first public builds are early alpha/demo builds, not 1.0 releases. The
 release workflow builds a macOS 26+ universal app for Apple silicon and Intel
@@ -25,7 +25,8 @@ latest release DMG from GitHub Releases or build from source, then try it with
 public XM/MOD tracker modules. Expect an alpha-quality app that can open,
 display, and play supported modules, and can compose a small song from scratch
 in a blank editable document with the pattern grid and Song / Order editor.
-Save/export remains future work.
+Current editable documents can also be exported as XM through the scoped Export
+XM v1 path.
 
 ## Try It With Tracker Modules
 
@@ -58,10 +59,11 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
-The tagged `v0.2.0-alpha.3` release is a Song / Order editor composition alpha:
-a user can reasonably build a small song from scratch in an editable blank
-document, arrange order slots, manage patterns, and audition playback through
-the existing runtime path.
+The prepared `v0.2.0-alpha.4` release is an Export XM v1 alpha for VoodooTracker
+X editable documents. It exports the current supported song/order/pattern/note
+data and safely represented existing instrument/sample payloads where the
+editable model supports them. This is not a full arbitrary-XM round-trip
+guarantee or a full FastTracker II, OpenMPT, or MilkyTracker parity claim.
 
 What works today:
 
@@ -79,6 +81,8 @@ What works today:
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
 - Order Ops `INSERT`, `DELETE`, `DUP`, `MOVE UP`, `MOVE DOWN`, and `PTN -/+`
   for stopped editable documents.
+- `File > Export XM...` for stopped editable documents, covering the current
+  VTX editable subset and supported existing palette/sample payloads.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
   through the existing CoreAudio C mixer path when the copied palette has
   playable sample payloads. During editable current-pattern Loop playback,
@@ -93,7 +97,8 @@ What works today:
 
 What is still future work:
 
-- Save/export from the app.
+- Save and Save As.
+- Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
 - Instrument and sample editors.
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
@@ -104,7 +109,8 @@ What is still future work:
 
 - Early release builds are signed and notarized for distribution, but remain
   alpha-quality software.
-- Save/export is not available yet.
+- Export XM is scoped to VTX editable documents and the current editable subset;
+  Save and Save As remain disabled.
 - Loaded modules remain read-only for editing.
 - Editing and audition features are still evolving.
 - Not all tracker formats, effects, or edge cases are guaranteed.

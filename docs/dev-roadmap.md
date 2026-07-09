@@ -45,6 +45,14 @@ editable document using the main pattern grid, transport controls, Pattern
 Bank, Pattern Ops, Order Ops, and Clear Song while loaded modules remain
 read-only.
 
+The prepared `v0.2.0-alpha.4` release centers on Export XM v1 for VTX editable
+documents. Export covers the current editable subset, including supported
+existing instrument/sample payloads where safely represented by the editable
+model. It is not a full arbitrary-XM round-trip guarantee and does not claim
+full FastTracker II, OpenMPT, or MilkyTracker parity. Save and Save As remain
+disabled, loaded modules remain read-only, and Instrument/Sample editors remain
+future work.
+
 ## Backend Snapshot
 
 - Runtime default: CoreAudio DefaultOutput Audio Unit C mixer.
@@ -73,19 +81,23 @@ preserving the backend freeze:
 2. Minimal public-safe XM writer model, app export wiring, reload smoke tests,
    and existing palette/sample payload export are in place for the current
    editable-document writer subset.
-3. Keep later Export XM work in narrow slices beyond currently represented
-   palette/sample payloads.
-4. Pattern editor completion for instrument, volume-column, and effect-column
+3. Prepare and tag `v0.2.0-alpha.4` after release smoke; the release-prep PR
+   must not create the tag.
+4. Define an explicit loaded-module editable-copy command before direct
+   loaded-module editing or Save/Save As work.
+5. Build an Instrument Editor shell/read-only binding.
+6. Add editable palette/sample workflow foundations in narrow slices.
+7. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
-5. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
+8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
-6. Save XM and export WAV/AAC after editable document semantics and the first
+9. Save XM and export WAV/AAC after editable document semantics and the first
    XM export path are explicit.
-7. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
+10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
-8. Design a weekly codebase review harness as a docs/tooling plan before
+11. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-9. Module analysis follow-up should use
+12. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
    while first-Play adapter-plan preparation remains the synchronous fallback.
@@ -93,7 +105,7 @@ preserving the backend freeze:
    adapter-plan duration with clear load/File New invalidation. A later
    optimization PR can profile and reduce adapter-plan construction cost
    itself.
-10. README badges may be added later if they point at stable, useful CI or
+13. README badges may be added later if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -516,9 +528,14 @@ First-pass scope now complete for the `v0.2.0-alpha.3` composition alpha:
 - Order Ops INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+
 - Play Current Pattern and Loop-at-Play-start composition audition
 
+Export XM v1 is prepared for `v0.2.0-alpha.4` and covers stopped editable
+documents in the current VTX editable subset, including supported existing
+palette/sample payloads where safely represented.
+
 Remaining phase scope:
 
-- save/export design and first XM export slices before file-writing expands
+- explicit loaded-module editable-copy command before direct loaded-module
+  editing or Save/Save As work
 - instrument entry
 - volume-column entry
 - effect entry

@@ -721,6 +721,35 @@ struct BlankTrackerDocument: Equatable {
         )
     }
 
+    static func makeEditableCopy(
+        from metadata: ParsedModuleMetadata,
+        playbackSong: PlaybackSong,
+        selection: TrackerEditorSelection,
+        sourcePatternIndex: Int = defaultPatternIndex
+    ) -> BlankTrackerDocument? {
+        guard let copiedPatterns = copiedEditablePatterns(from: metadata) else {
+            return nil
+        }
+
+        let safeOrderTable = copiedOrderTable(from: metadata, availablePatterns: copiedPatterns)
+        let selectedPosition = min(max(0, sourceOrderPosition(for: sourcePatternIndex, in: safeOrderTable)), safeOrderTable.count - 1)
+        let selectedPatternIndex = safeOrderTable[selectedPosition]
+        let palette = playbackSong.instrumentsByIndex
+        return BlankTrackerDocument(
+            title: defaultTitle,
+            songLength: safeOrderTable.count,
+            currentPosition: selectedPosition,
+            restartPosition: clampedRestartPosition(metadata.restartPosition, songLength: safeOrderTable.count),
+            currentPatternIndex: selectedPatternIndex,
+            tempo: metadata.defaultBPM > 0 ? metadata.defaultBPM : defaultTempo,
+            speed: metadata.defaultTempo > 0 ? metadata.defaultTempo : defaultSpeed,
+            orderTable: safeOrderTable,
+            selection: clampedSelection(selection, instrumentPalette: palette),
+            instrumentPalette: palette,
+            patterns: copiedPatterns
+        )
+    }
+
     static func makeEmptyPattern(
         index: Int,
         rowCount: Int = defaultRowCount,
@@ -1227,6 +1256,55 @@ struct BlankTrackerDocument: Equatable {
         palette.values.contains { instrument in
             instrument.samples.contains { !$0.pcm.isEmpty }
         }
+    }
+
+    private static func copiedEditablePatterns(from metadata: ParsedModuleMetadata) -> [XMPatternData]? {
+        guard metadata.type == "XM" else {
+            return nil
+        }
+        let channelCount = max(1, metadata.channels)
+        let sourcePatterns = metadata.xmPatterns.sorted { $0.index < $1.index }
+        guard !sourcePatterns.isEmpty else {
+            return nil
+        }
+
+        let copiedPatterns = sourcePatterns.map { sourcePattern in
+            let rows = (0..<max(1, sourcePattern.rowCount)).map { rowIndex -> [XMPatternEventCell] in
+                let sourceRow = sourcePattern.rows.indices.contains(rowIndex) ? sourcePattern.rows[rowIndex] : []
+                return (0..<channelCount).map { channelIndex in
+                    sourceRow.indices.contains(channelIndex) ? sourceRow[channelIndex] : .empty
+                }
+            }
+            return XMPatternData(
+                index: max(0, sourcePattern.index),
+                rowCount: rows.count,
+                channels: channelCount,
+                rows: rows
+            )
+        }
+        return copiedPatterns
+    }
+
+    private static func copiedOrderTable(from metadata: ParsedModuleMetadata, availablePatterns: [XMPatternData]) -> [Int] {
+        let availablePatternIndices = Set(availablePatterns.map(\.index))
+        let effectiveOrderTable = metadata.orderTable
+            .prefix(max(0, metadata.songLength))
+            .filter { availablePatternIndices.contains($0) }
+        if !effectiveOrderTable.isEmpty {
+            return Array(effectiveOrderTable)
+        }
+        return [availablePatterns.sorted { $0.index < $1.index }[0].index]
+    }
+
+    private static func clampedRestartPosition(_ restartPosition: Int, songLength: Int) -> Int {
+        guard songLength > 0 else {
+            return defaultRestartPosition
+        }
+        return min(max(0, restartPosition), songLength - 1)
+    }
+
+    private static func sourceOrderPosition(for sourcePatternIndex: Int, in orderTable: [Int]) -> Int {
+        orderTable.firstIndex(of: sourcePatternIndex) ?? defaultCurrentPosition
     }
 
     private static func clampedSelection(

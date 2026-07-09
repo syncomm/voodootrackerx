@@ -31,8 +31,10 @@ VoodooTracker X currently has:
   and a stopped editable-document `File > Export XM...` path that writes the
   current editable subset to a user-chosen `.xm` file, including existing
   palette/sample payloads where the editable model safely represents signed
-  8-bit or 16-bit XM-derived PCM, with public-safe byte-level model tests and
-  temporary-file reload smoke tests through the existing parser path
+  8-bit or 16-bit XM-derived PCM, plus explicit `File > Make Editable Copy`
+  for stopped supported loaded read-only XM modules, with public-safe
+  byte-level model tests and temporary-file reload smoke tests through the
+  existing parser path
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -50,8 +52,8 @@ documents. Export covers the current editable subset, including supported
 existing instrument/sample payloads where safely represented by the editable
 model. It is not a full arbitrary-XM round-trip guarantee and does not claim
 full FastTracker II, OpenMPT, or MilkyTracker parity. Save and Save As remain
-disabled, loaded modules remain read-only, and Instrument/Sample editors remain
-future work.
+disabled, loaded modules remain read-only by default, explicit editable copies
+are untitled/in-memory, and Instrument/Sample editors remain future work.
 
 ## Backend Snapshot
 
@@ -84,7 +86,7 @@ preserving the backend freeze:
 3. Prepare and tag `v0.2.0-alpha.4` after release smoke; the release-prep PR
    must not create the tag.
 4. Define an explicit loaded-module editable-copy command before direct
-   loaded-module editing or Save/Save As work.
+   loaded-module editing or Save/Save As work. Done.
 5. Build an Instrument Editor shell/read-only binding.
 6. Add editable palette/sample workflow foundations in narrow slices.
 7. Pattern editor completion for instrument, volume-column, and effect-column
@@ -118,6 +120,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- `File > Make Editable Copy` now creates an explicit untitled in-memory
+  editable copy from a stopped loaded read-only XM module when the current
+  supported editable subset can represent its song/order/pattern/note data and
+  represented instrument/sample palette payloads. Loaded modules remain
+  read-only by default, the opened source path is untouched and not owned by
+  the copy, Save and Save As remain disabled, and Export XM remains a
+  user-selected output path. Runtime playback/scheduling, parser architecture,
+  C mixer DSP, tracker viewport/static-highlight behavior, Instrument Editor,
+  and Sample Editor behavior did not change.
 - Editable XM export now writes existing instrument/sample palette data for
   stopped editable documents when the copied palette safely represents
   XM-derived signed 8-bit or 16-bit PCM payloads. The writer emits instrument

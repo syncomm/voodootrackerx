@@ -4,6 +4,7 @@ enum ApplicationMenuBuilder {
     enum Actions {
         static let newTrackerDocument = NSSelectorFromString("newTrackerDocument:")
         static let openModuleFile = NSSelectorFromString("openModuleFile:")
+        static let makeEditableCopy = NSSelectorFromString("makeEditableCopy:")
         static let exportXM = NSSelectorFromString("exportXM:")
         static let play = NSSelectorFromString("playPressed:")
         static let playCurrentPattern = NSSelectorFromString("playCurrentPatternPressed:")
@@ -63,6 +64,7 @@ enum ApplicationMenuBuilder {
         let menu = NSMenu(title: "File")
         menu.addItem(menuItem(title: "New", action: Actions.newTrackerDocument, keyEquivalent: "n", target: target))
         menu.addItem(menuItem(title: "Open...", action: Actions.openModuleFile, keyEquivalent: "o", target: target))
+        menu.addItem(menuItem(title: "Make Editable Copy", action: Actions.makeEditableCopy, keyEquivalent: "", target: target))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Save", keyEquivalent: "s"))
         let saveAs = disabledItem(title: "Save As...", keyEquivalent: "S")

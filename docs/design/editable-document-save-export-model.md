@@ -1,19 +1,22 @@
 # Editable Document Save/Export Model
 
-Status: design plus implemented initial Export XM slices. This note defines
-product and architecture rules for save/export work. The app now has Export XM
-for stopped editable documents, including existing palette/sample payloads
-where the editable model safely represents XM-derived signed PCM. Save, Save
-As, loaded-module editing, Instrument Editor behavior, Sample Editor behavior,
-runtime playback changes, parser architecture changes, and tracker viewport
-changes remain unimplemented by this note.
+Status: design plus implemented initial Export XM and explicit editable-copy
+slices. This note defines product and architecture rules for save/export work.
+The app now has Export XM for stopped editable documents, including existing
+palette/sample payloads where the editable model safely represents XM-derived
+signed PCM, and `File > Make Editable Copy` for supported stopped loaded XM
+modules. Save, Save As, loaded-module direct editing, Instrument Editor
+behavior, Sample Editor behavior, runtime playback changes, parser
+architecture changes, and tracker viewport changes remain unimplemented by
+this note.
 
 ## Purpose
 
 VoodooTracker X now supports a first-pass composition workflow for blank
-editable documents and loaded-module-derived clear-song copies. Before file
-writing exists, the app needs explicit ownership rules so persistence cannot
-overwrite a user's opened source module by accident.
+editable documents, loaded-module-derived clear-song copies, and explicit
+loaded-module editable copies. Before file writing exists, the app needs
+explicit ownership rules so persistence cannot overwrite a user's opened
+source module by accident.
 
 The design goal is to separate three concepts:
 
@@ -33,7 +36,7 @@ the original source path.
 | Blank editable document from `File > New` | Yes | In-memory document with no owned path | Save remains disabled until an owned document format/path exists. Export XM may write a user-chosen new XM file without making that file an owned save path. |
 | Editable document derived from Clear Song Data or an editable-copy bridge | Yes | Value-owned copy of editable song/order/pattern state plus safely represented palette/sample data | The source module path, if any, remains external and read-only. Save/export must choose a new destination. |
 | Loaded module read-only state | No | External opened module path owned by the user or filesystem, not by VTX | Pattern, song/order, instrument, and sample mutations are blocked. Save must not target this path implicitly. |
-| Future explicit editable copy of a loaded module | Yes, after user command | New in-memory editable document derived from parsed module data | The original module remains untouched. The UI must show copied/read-only/owned state clearly. |
+| Explicit editable copy of a loaded module from `File > Make Editable Copy` | Yes, after user command | New untitled in-memory editable document derived from the supported loaded XM subset | The original module remains untouched. Save/Save As remain disabled. Export XM must choose a new destination. |
 | Future saved/exported editable document state | Yes | User-chosen destination, with ownership made explicit | A native saved state requires a chosen native format/path. Exported XM is a public interchange artifact and should not silently become permission to overwrite an opened source module. |
 
 Current `Edit > Clear Song Data` on a loaded module is an editable-copy bridge
@@ -88,13 +91,14 @@ Export XM is an interchange/export operation, not a promise of arbitrary XM
 round-trip parity.
 
 Current behavior: `File > Export XM...` is enabled only for stopped editable
-documents, presents a save panel with an `.xm` destination, writes the current
-editable XM subset to that explicitly chosen file, and reports completion or a
-write failure. The current writer includes existing palette/sample payloads
-only when they are already safely represented as XM-derived signed 8-bit or
-16-bit PCM in the editable document model. Cancel writes nothing. Loaded
-read-only modules and active playback remain disabled/no-op, Save/Save As
-remain disabled, and the exported XM file does not become an owned save path.
+documents, including explicit editable copies, presents a save panel with an
+`.xm` destination, writes the current editable XM subset to that explicitly
+chosen file, and reports completion or a write failure. The current writer
+includes existing palette/sample payloads only when they are already safely
+represented as XM-derived signed 8-bit or 16-bit PCM in the editable document
+model. Cancel writes nothing. Loaded read-only modules and active playback
+remain disabled/no-op, Save/Save As remain disabled, and the exported XM file
+does not become an owned save path.
 
 ### Future Native Project Format
 
@@ -144,21 +148,25 @@ First-writer limitations:
 
 ## Loaded Module Editable-Copy Workflow
 
-Future loaded-module editing must be explicit:
+Loaded-module editing must stay behind an explicit copy boundary:
 
 1. User opens a module. The loaded module remains read-only.
-2. User chooses a command such as `Make Editable Copy` or
-   `Save As Editable Copy...`.
-3. VTX creates an editable in-memory copy of safely represented song/order,
+2. User chooses `File > Make Editable Copy`.
+3. VTX creates an untitled editable in-memory copy of supported song/order,
    pattern, instrument, and sample data.
 4. The UI communicates that the new document is a copy, not the source module.
 5. Save/export writes only to a user-chosen destination.
 6. The original opened source module remains untouched.
 
-The copy workflow may preserve parsed instrument/sample palette data where the
-current models can represent it safely. Data that VTX cannot yet represent
-should be omitted or diagnosed rather than silently written back in a lossy
-way.
+Current behavior: the command is enabled only for stopped loaded read-only XM
+modules that expose representable pattern data through the current metadata
+model. It is disabled for already-editable documents, no loaded document,
+active playback, missing playback-song state, and unsupported loaded modules.
+The resulting document is untitled/in-memory, does not claim the opened source
+path, keeps Save and Save As disabled, and can use Export XM when stopped.
+The copy workflow preserves parsed instrument/sample palette data where the
+current models can represent it safely. Data that VTX cannot yet represent is
+diagnosed rather than silently written back in a lossy way.
 
 ## Safety And Privacy Rules
 
@@ -201,7 +209,7 @@ Keep future PRs narrow and testable:
 4. Done: `tests: add exported-XM reload smoke using public fixtures`
 5. Done: `xm: wire Export XM to writer behind safe file boundary`
 6. Done: `xm: write existing palette/sample payloads when available`
-7. `app: define explicit loaded-module editable-copy command`
+7. Done: `app: define explicit loaded-module editable-copy command`
 8. `instrument: build Instrument Editor shell/read-only binding`
 9. `instrument: add editable palette foundation`
 10. `sample: build Sample Editor shell/import foundation`

@@ -119,6 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         case ApplicationMenuBuilder.Actions.exportXM:
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
+        case ApplicationMenuBuilder.Actions.makeEditableCopy:
+            return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
@@ -249,6 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
     }
 
+    @objc
+    private func makeEditableCopy(_ sender: Any?) {
+        discardHiddenSongOrderEditorController()
+        handleLoadedModuleEditableCopyResult(
+            LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: currentLoadedModuleEditableCopyContext())
+        )
+    }
+
     private func currentExportXMDocumentContext() -> ExportXMDocumentContext {
         if let document = blankDocument, loadedMetadata == nil {
             return .editable(
@@ -278,6 +288,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             alert.alertStyle = .informational
         }
+        alert.messageText = title
+        alert.informativeText = message
+        if let mainWindow {
+            alert.beginSheetModal(for: mainWindow)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func currentLoadedModuleEditableCopyContext() -> LoadedModuleEditableCopyContext {
+        if blankDocument != nil, loadedMetadata == nil {
+            return .editable(isPlaybackActive: playbackEngine.state.isPlaying)
+        }
+        if loadedMetadata != nil {
+            return .loadedReadOnly(
+                metadata: loadedMetadata,
+                playbackSong: playbackEngine.song,
+                selection: loadedModuleSelection,
+                currentPatternIndex: currentPatternIndex,
+                isPlaybackActive: playbackEngine.state.isPlaying
+            )
+        }
+        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+    }
+
+    private func handleLoadedModuleEditableCopyResult(_ result: LoadedModuleEditableCopyResult) {
+        guard case let .copied(document) = result else {
+            presentLoadedModuleEditableCopyMessage(result)
+            return
+        }
+
+        noteAuditionPreviewer.cancelPreview()
+        playbackEngine.load(song: nil)
+        applyUntitledEditableCopy(document)
+        presentLoadedModuleEditableCopyMessage(result)
+    }
+
+    private func applyUntitledEditableCopy(_ document: BlankTrackerDocument) {
+        blankDocument = document
+        loadedMetadata = nil
+        loadedModuleSelection = .default
+        debugAutoplayTimer?.invalidate()
+        debugAutoplayTimer = nil
+        debugStopTimer?.invalidate()
+        debugStopTimer = nil
+        selectedSongPositionIndex = document.currentPosition
+        currentPatternIndex = document.currentPatternIndex
+        cursor = PatternCursor(row: 0, channel: 0, field: .note)
+        visibleGridRangesByRow = [:]
+        currentViewportState = nil
+        currentViewportLayout = nil
+        updatePatternSelector(for: document.metadata, keepPattern: document.currentPatternIndex)
+        renderCurrentPattern(metadata: document.metadata)
+        syncControlPanelView()
+    }
+
+    private func presentLoadedModuleEditableCopyMessage(_ result: LoadedModuleEditableCopyResult) {
+        guard let title = result.userFacingTitle,
+              let message = result.userFacingMessage else {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
         alert.messageText = title
         alert.informativeText = message
         if let mainWindow {

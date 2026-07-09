@@ -71,6 +71,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/EditorNoteAuditionAudioSink.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/EditableXMWriter.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ExportXMCoordinator.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/LoadedModuleEditableCopyCoordinator.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/LogoPanelView.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ModuleCoreBridge.h",
                 "app/VoodooTrackerX/VoodooTrackerX/PlaybackEffect.swift",

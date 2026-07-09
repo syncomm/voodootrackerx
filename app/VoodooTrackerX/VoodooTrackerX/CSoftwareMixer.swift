@@ -190,52 +190,53 @@ final class CSoftwareMixer {
     static let interpolationPointSamplingFallback = false
     static let sampleStepPrecisionMode = "double_sample_position_and_step"
 
-    private var state: VTXCMixerState
+    private let state: UnsafeMutablePointer<VTXCMixerState>
     private(set) var config: MixerRenderConfig
 
     var loadedVoiceCount: Int {
-        Int(vtx_c_mixer_loaded_voice_count(&state))
+        Int(vtx_c_mixer_loaded_voice_count(state))
     }
 
     var activeVoiceCount: Int {
-        Int(vtx_c_mixer_active_voice_count(&state))
+        Int(vtx_c_mixer_active_voice_count(state))
     }
 
     var rampingOutVoiceCount: Int {
-        Int(vtx_c_mixer_ramping_out_voice_count(&state))
+        Int(vtx_c_mixer_ramping_out_voice_count(state))
     }
 
     var rampDownStartCount: UInt64 {
-        vtx_c_mixer_ramp_down_start_count(&state)
+        vtx_c_mixer_ramp_down_start_count(state)
     }
 
     var rampDownCompletionCount: UInt64 {
-        vtx_c_mixer_ramp_down_completion_count(&state)
+        vtx_c_mixer_ramp_down_completion_count(state)
     }
 
     var abruptRampDownStopCount: UInt64 {
-        vtx_c_mixer_abrupt_ramp_down_stop_count(&state)
+        vtx_c_mixer_abrupt_ramp_down_stop_count(state)
     }
 
     var currentFrame: UInt64 {
-        vtx_c_mixer_current_frame(&state)
+        vtx_c_mixer_current_frame(state)
     }
 
     init(config: MixerRenderConfig = MixerRenderConfig()) {
         self.config = config
-        state = VTXCMixerState()
-        Self.requireOK(vtx_c_mixer_init(&state, Self.cConfig(from: config)))
-        self.config = Self.swiftConfig(from: state.config)
+        state = UnsafeMutablePointer<VTXCMixerState>.allocate(capacity: 1)
+        Self.requireOK(vtx_c_mixer_init(state, Self.cConfig(from: config)))
+        self.config = Self.swiftConfig(from: state.pointee.config)
     }
 
     deinit {
-        _ = vtx_c_mixer_clear_voices(&state)
+        _ = vtx_c_mixer_clear_voices(state)
+        state.deallocate()
     }
 
     /// Applies a complete render configuration and resets transient C mixer state.
     func configure(_ config: MixerRenderConfig) {
-        Self.requireOK(vtx_c_mixer_configure(&state, Self.cConfig(from: config)))
-        self.config = Self.swiftConfig(from: state.config)
+        Self.requireOK(vtx_c_mixer_configure(state, Self.cConfig(from: config)))
+        self.config = Self.swiftConfig(from: state.pointee.config)
         reset()
     }
 
@@ -270,7 +271,7 @@ final class CSoftwareMixer {
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
             vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
-                &state,
+                state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
                 playbackStep,
@@ -354,7 +355,7 @@ final class CSoftwareMixer {
         var voiceIndex = UInt32(0)
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
             vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
-                &state,
+                state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
                 playbackStep,
@@ -390,7 +391,7 @@ final class CSoftwareMixer {
     func setVolumeEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
         let status = Self.withCEnvelope(envelope) { cEnvelope in
-            vtx_c_mixer_set_voice_volume_envelope(&state, UInt32(voiceIndex), cEnvelope)
+            vtx_c_mixer_set_voice_volume_envelope(state, UInt32(voiceIndex), cEnvelope)
         }
         Self.requireOK(status)
     }
@@ -399,7 +400,7 @@ final class CSoftwareMixer {
     func setPanEnvelope(_ envelope: MixerEnvelope?, forVoiceAt voiceIndex: Int) {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
         let status = Self.withCEnvelope(envelope) { cEnvelope in
-            vtx_c_mixer_set_voice_pan_envelope(&state, UInt32(voiceIndex), cEnvelope)
+            vtx_c_mixer_set_voice_pan_envelope(state, UInt32(voiceIndex), cEnvelope)
         }
         Self.requireOK(status)
     }
@@ -409,7 +410,7 @@ final class CSoftwareMixer {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
         precondition(keyOffFrame >= 0, "C mixer key-off frame is out of range")
         let status = vtx_c_mixer_set_voice_key_off_frame(
-            &state,
+            state,
             UInt32(voiceIndex),
             UInt64(keyOffFrame),
             fadeoutFrameDecrement.isFinite ? fadeoutFrameDecrement : 0
@@ -424,7 +425,7 @@ final class CSoftwareMixer {
     func setRuntimeState(_ runtimeState: CSoftwareMixerVoiceRuntimeState, forVoiceAt voiceIndex: Int) {
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
         let status = vtx_c_mixer_set_voice_runtime_state(
-            &state,
+            state,
             UInt32(voiceIndex),
             runtimeState.samplePosition,
             Int32(runtimeState.pingPongDirection),
@@ -435,7 +436,7 @@ final class CSoftwareMixer {
         )
         Self.requireOK(status)
         let rampStatus = vtx_c_mixer_set_voice_gain_pan_ramp_state(
-            &state,
+            state,
             UInt32(voiceIndex),
             Self.cRampState(from: runtimeState.gainRamp),
             Self.cRampState(from: runtimeState.panRamp)
@@ -451,7 +452,7 @@ final class CSoftwareMixer {
         precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
         precondition(voiceIndex >= 0 && voiceIndex <= Int(UInt32.max), "C mixer voice index is out of range")
         let status = vtx_c_mixer_set_voice_channel_tag(
-            &state,
+            state,
             UInt32(voiceIndex),
             UInt32(channel)
         )
@@ -465,7 +466,7 @@ final class CSoftwareMixer {
         }
         var diagnostic = VTXCMixerVoiceDiagnostic()
         let status = vtx_c_mixer_get_voice_diagnostic(
-            &state,
+            state,
             UInt32(voiceIndex),
             &diagnostic
         )
@@ -481,7 +482,7 @@ final class CSoftwareMixer {
         precondition(channel >= 0 && channel <= Int(UInt32.max), "C mixer channel tag is out of range")
         var stoppedCount = UInt32(0)
         let status = vtx_c_mixer_stop_voices_for_channel_tag(
-            &state,
+            state,
             UInt32(channel),
             &stoppedCount
         )
@@ -496,7 +497,7 @@ final class CSoftwareMixer {
         precondition(rampFrames > 0 && rampFrames <= Int(UInt32.max), "C mixer replacement ramp length is out of range")
         var rampedCount = UInt32(0)
         let status = vtx_c_mixer_ramp_down_voices_for_channel_tag(
-            &state,
+            state,
             UInt32(channel),
             UInt32(rampFrames),
             &rampedCount
@@ -525,7 +526,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_gain_pan_update(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             gain == nil ? 0 : 1,
@@ -559,7 +560,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_gain_pan_update_immediate(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             gain == nil ? 0 : 1,
@@ -593,7 +594,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_ramp_down_and_deactivate(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             UInt32(clamping: rampFrames)
@@ -627,7 +628,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_sample_step_update(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             playbackStep
@@ -660,7 +661,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_volume_envelope_position_update(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             UInt32(clamping: positionFrame)
@@ -697,7 +698,7 @@ final class CSoftwareMixer {
             )
         }
         let status = vtx_c_mixer_schedule_voice_gain_pan_sample_step_update(
-            &state,
+            state,
             UInt32(clamping: voiceIndex),
             UInt64(clamping: scheduledFrame),
             gain == nil ? 0 : 1,
@@ -717,7 +718,7 @@ final class CSoftwareMixer {
 
     /// Removes all loaded C-backed voices so subsequent renders produce silence.
     func clearVoices() {
-        Self.requireOK(vtx_c_mixer_clear_voices(&state))
+        Self.requireOK(vtx_c_mixer_clear_voices(state))
     }
 
     /// Removes all loaded and scheduled C-backed voices.
@@ -768,14 +769,14 @@ final class CSoftwareMixer {
             interleavedPCM.count >= frameCount * config.channelCount,
             "C mixer output buffer is smaller than the requested frame count"
         )
-        let status = vtx_c_mixer_render(&state, interleavedPCM.baseAddress, UInt32(frameCount))
+        let status = vtx_c_mixer_render(state, interleavedPCM.baseAddress, UInt32(frameCount))
         Self.requireOK(status)
         return frameCount
     }
 
     /// Resets the C mixer state so repeated renders from the same inputs are deterministic.
     func reset() {
-        Self.requireOK(vtx_c_mixer_reset(&state))
+        Self.requireOK(vtx_c_mixer_reset(state))
     }
 
     private static func cConfig(from config: MixerRenderConfig) -> VTXCMixerConfig {

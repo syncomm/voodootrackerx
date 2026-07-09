@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var liveResizeHorizontalOrigin: CGFloat?
     private var debugStopTimer: Timer?
     private var debugAutoplayTimer: Timer?
+    private var wavExportProgressSheet: WAVExportProgressSheet?
 
     private var mainWindow: NSWindow? { windowController?.window }
     private var controlPanelView: ControlPanelView? { windowController?.controlPanelView }
@@ -119,6 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         case ApplicationMenuBuilder.Actions.exportXM:
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
+        case ApplicationMenuBuilder.Actions.exportWAV:
+            return WAVExportCoordinator.canExport(context: currentWAVExportDocumentContext())
         case ApplicationMenuBuilder.Actions.makeEditableCopy:
             return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
         case ApplicationMenuBuilder.Actions.play:
@@ -252,6 +255,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc
+    private func exportWAV(_ sender: Any?) {
+        let destinationProvider = NSSavePanelWAVExportDestinationProvider()
+        let coordinator = WAVExportCoordinator(destinationProvider: destinationProvider)
+        handleWAVExportStartResult(
+            coordinator.beginExport(context: currentWAVExportDocumentContext())
+        )
+    }
+
+    @objc
     private func makeEditableCopy(_ sender: Any?) {
         discardHiddenSongOrderEditorController()
         handleLoadedModuleEditableCopyResult(
@@ -276,6 +288,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return .none(isPlaybackActive: playbackEngine.state.isPlaying)
     }
 
+    private func currentWAVExportDocumentContext() -> WAVExportDocumentContext {
+        if let document = blankDocument, loadedMetadata == nil {
+            return .editable(
+                document: document,
+                displayName: document.title,
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                hasValidDisplayState: displayedMetadata != nil
+            )
+        }
+
+        if let metadata = loadedMetadata {
+            return .loadedReadOnly(
+                playbackSong: playbackEngine.song,
+                displayName: metadata.title,
+                isPlaybackActive: playbackEngine.state.isPlaying,
+                hasValidDisplayState: displayedMetadata != nil
+            )
+        }
+
+        return .none(isPlaybackActive: playbackEngine.state.isPlaying)
+    }
+
     private func handleExportXMShellResult(_ result: ExportXMShellResult) {
         guard let title = result.userFacingTitle,
               let message = result.userFacingMessage else {
@@ -290,6 +324,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         alert.messageText = title
         alert.informativeText = message
+        if let mainWindow {
+            alert.beginSheetModal(for: mainWindow)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func handleWAVExportStartResult(_ result: WAVExportStartResult) {
+        guard case let .ready(plan, destination) = result else {
+            return
+        }
+
+        let progressSheet = WAVExportProgressSheet()
+        wavExportProgressSheet = progressSheet
+        if let mainWindow {
+            progressSheet.beginSheet(for: mainWindow)
+        } else {
+            progressSheet.show()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [plan, destination] in
+            let completion = WAVExportCoordinator.export(plan: plan, to: destination) { progress in
+                Task { @MainActor [weak self] in
+                    self?.wavExportProgressSheet?.update(progress)
+                }
+            }
+            Task { @MainActor [weak self] in
+                self?.finishWAVExport(completion)
+            }
+        }
+    }
+
+    private func finishWAVExport(_ result: WAVExportCompletionResult) {
+        wavExportProgressSheet?.close()
+        wavExportProgressSheet = nil
+
+        let alert = NSAlert()
+        if case .failed = result {
+            alert.alertStyle = .warning
+        } else {
+            alert.alertStyle = .informational
+        }
+        alert.messageText = result.userFacingTitle
+        alert.informativeText = result.userFacingMessage
         if let mainWindow {
             alert.beginSheetModal(for: mainWindow)
         } else {
@@ -2184,4 +2262,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sender.selectedItem?.representedObject as? Int
     }
 
+}
+
+@MainActor
+private final class WAVExportProgressSheet {
+    private let panel: NSPanel
+    private let statusLabel: NSTextField
+    private let progressIndicator: NSProgressIndicator
+    private weak var sheetParent: NSWindow?
+
+    init() {
+        panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 118),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Export WAV"
+        panel.isReleasedWhenClosed = false
+
+        statusLabel = NSTextField(labelWithString: "Rendering WAV...")
+        statusLabel.lineBreakMode = .byTruncatingTail
+
+        progressIndicator = NSProgressIndicator()
+        progressIndicator.isIndeterminate = false
+        progressIndicator.minValue = 0
+        progressIndicator.maxValue = 1
+        progressIndicator.doubleValue = 0
+        progressIndicator.controlSize = .regular
+
+        let stack = NSStackView(views: [statusLabel, progressIndicator])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentView = NSView()
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            progressIndicator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+        ])
+        panel.contentView = contentView
+    }
+
+    func beginSheet(for parent: NSWindow) {
+        sheetParent = parent
+        parent.beginSheet(panel)
+    }
+
+    func show() {
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func update(_ progress: WAVExportProgress) {
+        progressIndicator.doubleValue = progress.fractionCompleted
+        switch progress.stage {
+        case .rendering:
+            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+            if progress.totalWindows > 0 {
+                statusLabel.stringValue = "Rendering audio... \(percent)% (\(progress.completedWindows)/\(progress.totalWindows))"
+            } else {
+                statusLabel.stringValue = "Rendering audio... \(percent)%"
+            }
+        case .applyingHeadroom:
+            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+            statusLabel.stringValue = "Applying headroom... \(percent)%"
+        case .writingFile:
+            statusLabel.stringValue = "Writing 32-bit float WAV..."
+        case .completed:
+            statusLabel.stringValue = "Export complete."
+            progressIndicator.doubleValue = 1
+        }
+    }
+
+    func close() {
+        if let sheetParent {
+            sheetParent.endSheet(panel)
+        }
+        panel.orderOut(nil)
+    }
 }

@@ -69,6 +69,29 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertTrue(mixer.config.isInterleaved)
     }
 
+    func testCSoftwareMixerInitializesAndRendersOnBackgroundQueue() {
+        let expectation = expectation(description: "background mixer render completes")
+        let resultBox = LockedResultBox<MixerRenderBlock>()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 44_100, channelCount: 2))
+            _ = mixer.addScheduledVoice(
+                sample: MixerSampleBuffer(monoPCM: Array(repeating: 0.25, count: 2_048)),
+                scheduledStartFrame: 0,
+                gain: 0.5,
+                pan: 0
+            )
+            resultBox.store(.success(mixer.render(frames: 8_192)))
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 5)
+        let block = try? resultBox.result?.get()
+        XCTAssertEqual(block?.frameCount, 8_192)
+        XCTAssertEqual(block?.interleavedPCM.count, 16_384)
+        XCTAssertEqual(block?.config.channelCount, 2)
+    }
+
     func testCSoftwareMixerCanConfigureSampleRateAndChannelCount() {
         let mixer = CSoftwareMixer()
 
@@ -2463,5 +2486,22 @@ final class CSoftwareMixerTests: XCTestCase {
 
         XCTAssertEqual(forward.block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 1, 2]))
         XCTAssertEqual(pingPong.block.interleavedPCM, stereoPCM(from: [0, 1, 2, 3, 2, 1]))
+    }
+}
+
+private final class LockedResultBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedResult: Result<Value, Error>?
+
+    var result: Result<Value, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedResult
+    }
+
+    func store(_ result: Result<Value, Error>) {
+        lock.lock()
+        storedResult = result
+        lock.unlock()
     }
 }

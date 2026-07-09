@@ -19,6 +19,16 @@ normal agent reading.
 - Offline C mixer render/export is the authoritative comparison workflow.
 - Runtime CoreAudio capture and offline render have been shown equivalent for
   tested modules when sample rate, gain/headroom, and bounds match.
+- Product audio export is available separately in the app as
+  `File > Export Audio > WAV...`. That UI writes whole-song 32-bit Float WAV
+  at 48 kHz using the VTX mix profile, default song-end tail, 64-row windowed
+  offline rendering, and export-boundary auto-headroom to a user-selected
+  destination. It uses an explicit product whole-song plan and does not use the
+  diagnostic bounded-render cap. App auto-headroom renders the mixer once,
+  computes peak diagnostics during that render, then applies gain through a
+  streamed Float32 WAV post-process. It is not a diagnostic comparison profile
+  selector and does not expose FT2 profile, isolation/stem, pattern/order range,
+  PCM16, AAC/M4A, user-selectable gain/headroom, or comparison-report options.
 
 Do not infer behavior changes from a comparison report alone. Use reports to
 choose the smallest next implementation or diagnostic PR.
@@ -118,6 +128,15 @@ Export gain controls are export-boundary policy only:
 
 These options do not change C mixer DSP, runtime playback, parser behavior, or
 tracker UI behavior.
+
+The app product WAV export currently uses the VTX mix profile at 48 kHz and
+enables the same export-boundary auto-headroom policy with the fixed safety
+margin. It avoids a second full mixer render by writing an unscaled Float32 temp
+WAV during the only mixer render, then applying the computed gain in a streamed
+Float32 post-process. For comparable tool renders, pass `--sample-rate 48000`,
+`--window-rows 64`, `--mix-profile vtx`, `--wav-format float32`, and
+`--auto-headroom`. Runtime UI playback keeps its separate runtime output
+gain/headroom policy.
 
 ## FT2 Mix Profile vs VTX Mix Profile
 

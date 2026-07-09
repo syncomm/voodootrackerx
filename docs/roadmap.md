@@ -13,7 +13,11 @@ For effect status, read `docs/xm-effect-support.md`.
 documents. The alpha.4 release claim is intentionally scoped to the current
 editable subset and supported existing instrument/sample payloads; it is not a
 full arbitrary-XM round-trip guarantee and does not claim full FastTracker II,
-OpenMPT, or MilkyTracker parity.
+OpenMPT, or MilkyTracker parity. Product whole-song 32-bit Float WAV export is
+now available from `File > Export Audio > WAV...` for stopped loaded modules
+and editable documents without changing Save/Save As semantics. The app export
+uses an explicit 48 kHz product whole-song plan and 64-row windowed offline
+render path, not the diagnostic bounded-render cap.
 
 ## Project Goals
 
@@ -123,6 +127,7 @@ Done at a high level:
   parsed-XM adapter render paths
 - bounded candidate WAV export through `vtx_render_bounded_xm`
 - PCM16 and Float32 WAV export diagnostics
+- product whole-song 32-bit Float WAV export UI using the VTX mix profile
 - `--mix-profile vtx` and `--mix-profile ft2`
 - runtime CoreAudio C mixer default selection
 - runtime trace and capture diagnostics
@@ -150,17 +155,18 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Build an Instrument Editor shell/read-only binding.
-2. Add editable palette/sample workflow foundations in narrow slices.
-3. Continue explicit loaded-module copy/import flows before broader
+1. Add AAC/M4A audio export foundation.
+2. Build an Instrument Editor shell/read-only binding.
+3. Add editable palette/sample workflow foundations in narrow slices.
+4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
-4. Design a weekly codebase review harness as a docs/tooling plan before
+5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-5. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
+6. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
    synchronous load path while improving first-Play readiness, and loaded-module
    TIME is derived only from the installed adapter-plan duration.
-6. Consider README badges later only if they point at stable, useful CI or
+7. Consider README badges later only if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -173,6 +179,24 @@ Parked parity-watch items:
 
 Recently completed:
 
+- `File > Export Audio > WAV...` now exposes product whole-song 32-bit Float
+  WAV export for stopped loaded read-only modules, editable documents, and
+  editable copies. Export uses the existing bounded offline C mixer path with
+  VTX mix profile, an explicit user-initiated long-render whole-song policy,
+  48 kHz output, default song-end tail, 64-row windowed scheduling, and
+  export-boundary auto-headroom. It performs one expensive mixer render, writes
+  an unscaled Float32 temp WAV while computing peak diagnostics, applies shared
+  auto-headroom gain through a streamed Float32 WAV post-process, runs off the
+  main thread with throttled determinate progress over the render and headroom
+  phases, writes through temporary files to the selected destination, and does
+  not mutate documents, claim source paths, enable Save/Save As, alter
+  loaded-module read-only defaults, change runtime playback/scheduling, change
+  C mixer DSP, change parser architecture, or touch tracker viewport/static
+  highlight behavior. The C mixer wrapper owns its large
+  fixed-size C state on the heap so background workers do not initialize that
+  state on a small GCD stack. Cancellation and advanced options remain
+  deferred: AAC/M4A, PCM16, pattern/order ranges, channel/stem export,
+  normalization, and diagnostic comparison profiles.
 - `File > Make Editable Copy` now establishes the explicit loaded-module
   editable-copy boundary for supported stopped loaded read-only XM modules. It
   creates an untitled in-memory editable copy of represented

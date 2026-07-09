@@ -365,6 +365,7 @@ enum MixerWAVExportError: LocalizedError, Equatable {
     case invalidChannelCount(Int)
     case invalidSampleRate(Double)
     case invalidPCMShape(expectedSampleCount: Int, actualSampleCount: Int)
+    case invalidWAVFile(String)
     case fileTooLarge
 
     var errorDescription: String? {
@@ -375,6 +376,8 @@ enum MixerWAVExportError: LocalizedError, Equatable {
             return "Cannot export WAV with invalid sample rate: \(sampleRate)."
         case let .invalidPCMShape(expectedSampleCount, actualSampleCount):
             return "Cannot export WAV with \(actualSampleCount) samples; expected \(expectedSampleCount)."
+        case let .invalidWAVFile(message):
+            return "Cannot process Float32 WAV file. \(message)"
         case .fileTooLarge:
             return "Cannot export WAV because the render block exceeds RIFF/WAVE size limits."
         }
@@ -446,6 +449,10 @@ struct MixerWAVExportPolicy: Equatable {
 
     static func autoHeadroom(for block: MixerRenderBlock) -> MixerWAVExportPolicy {
         let preExportPeak = MixerWAVExporter.diagnostics(for: block).preExportPeak
+        return autoHeadroom(preExportPeak: preExportPeak)
+    }
+
+    static func autoHeadroom(preExportPeak: Float) -> MixerWAVExportPolicy {
         let gain: Float
         if preExportPeak > 1 {
             let safetyMargin = pow(10.0, autoHeadroomSafetyDB / 20.0)
@@ -458,6 +465,94 @@ struct MixerWAVExportPolicy: Equatable {
             autoHeadroomEnabled: true,
             autoHeadroomSafetyDB: autoHeadroomSafetyDB
         )
+    }
+}
+
+/// Incremental export-time level statistics for streamed WAV writing and auto-headroom preflight.
+struct MixerWAVExportDiagnosticsAccumulator {
+    let channelCount: Int
+    let exportPolicy: MixerWAVExportPolicy
+    let wavFormat: MixerWAVFormat
+
+    private var prePerChannelPeak: [Float]
+    private var postPerChannelPeak: [Float]
+    private var preSquareSum = Double(0)
+    private var postSquareSum = Double(0)
+    private var prePeak = Float(0)
+    private var postPeak = Float(0)
+    private var preOverrange = 0
+    private var postOverrange = 0
+    private var pcm16Clipping = 0
+    private var sampleCount = 0
+
+    init(
+        channelCount: Int,
+        exportPolicy: MixerWAVExportPolicy = .unity,
+        wavFormat: MixerWAVFormat = .float32
+    ) {
+        self.channelCount = max(1, channelCount)
+        self.exportPolicy = exportPolicy
+        self.wavFormat = wavFormat
+        prePerChannelPeak = Array(repeating: Float(0), count: self.channelCount)
+        postPerChannelPeak = Array(repeating: Float(0), count: self.channelCount)
+    }
+
+    mutating func append(samples: [Float]) {
+        for (sampleOffset, sample) in samples.enumerated() {
+            append(sample: sample, absoluteSampleOffset: sampleCount + sampleOffset)
+        }
+        sampleCount += samples.count
+    }
+
+    mutating func append(sample: Float) {
+        append(sample: sample, absoluteSampleOffset: sampleCount)
+        sampleCount += 1
+    }
+
+    mutating func append(block: MixerRenderBlock) throws {
+        _ = try MixerWAVExporter.validatePCMShape(block)
+        append(samples: block.interleavedPCM)
+    }
+
+    func diagnostics() -> MixerWAVExportDiagnostics {
+        let safeSampleCount = max(1, sampleCount)
+        return MixerWAVExportDiagnostics(
+            wavFormat: wavFormat,
+            policy: exportPolicy,
+            preExportPeak: prePeak,
+            preExportPerChannelPeak: prePerChannelPeak,
+            preExportOverrangeSampleCount: preOverrange,
+            preExportRMS: Float(sqrt(preSquareSum / Double(safeSampleCount))),
+            postGainPeak: postPeak,
+            postGainPerChannelPeak: postPerChannelPeak,
+            postGainOverrangeSampleCount: postOverrange,
+            postGainRMS: Float(sqrt(postSquareSum / Double(safeSampleCount))),
+            pcm16ClippingSampleCount: pcm16Clipping
+        )
+    }
+
+    private mutating func append(sample: Float, absoluteSampleOffset: Int) {
+        let channel = absoluteSampleOffset % channelCount
+        let finiteSample = sample.isFinite ? sample : 0
+        let preAbs = abs(finiteSample)
+        let postSample = MixerWAVExporter.scaledSample(finiteSample, gain: exportPolicy.gain)
+        let postAbs = abs(postSample)
+
+        prePeak = max(prePeak, preAbs)
+        postPeak = max(postPeak, postAbs)
+        prePerChannelPeak[channel] = max(prePerChannelPeak[channel], preAbs)
+        postPerChannelPeak[channel] = max(postPerChannelPeak[channel], postAbs)
+        preSquareSum += Double(finiteSample) * Double(finiteSample)
+        postSquareSum += Double(postSample) * Double(postSample)
+        if preAbs > 1 {
+            preOverrange += 1
+        }
+        if postAbs > 1 {
+            postOverrange += 1
+        }
+        if wavFormat == .pcm16 && abs(Double(finiteSample) * Double(exportPolicy.gain)) >= 1 {
+            pcm16Clipping += 1
+        }
     }
 }
 
@@ -512,12 +607,74 @@ struct MixerWAVExportResult: Equatable {
     let diagnostics: MixerWAVExportDiagnostics
 }
 
+struct MixerWAVLayout: Equatable {
+    let sampleRate: UInt32
+    let channelCount: UInt16
+    let blockAlign: UInt16
+    let byteRate: UInt32
+    let dataByteCount: UInt32
+    let riffChunkSize: UInt32
+    let expectedSampleCount: Int
+}
+
 /// Deterministic RIFF/WAVE writer for offline mixer render blocks.
 ///
 /// This helper is local/offline infrastructure only. It does not add a runtime playback backend,
 /// change mixer DSP behavior, parse modules, or compare candidate audio against references.
 enum MixerWAVExporter {
     static let bitsPerSample = MixerWAVFormat.pcm16.bitsPerSample
+    private static let canonicalWAVHeaderByteCount = 44
+
+    static func layout(
+        config: MixerRenderConfig,
+        frameCount: Int,
+        format: MixerWAVFormat
+    ) throws -> MixerWAVLayout {
+        let channelCount = config.channelCount
+        guard channelCount > 0, channelCount <= Int(UInt16.max) else {
+            throw MixerWAVExportError.invalidChannelCount(channelCount)
+        }
+
+        let roundedSampleRate = config.sampleRate.rounded(.toNearestOrAwayFromZero)
+        guard config.sampleRate.isFinite,
+              roundedSampleRate > 0,
+              roundedSampleRate <= Double(UInt32.max) else {
+            throw MixerWAVExportError.invalidSampleRate(config.sampleRate)
+        }
+
+        let safeFrameCount = max(0, frameCount)
+        let (expectedSampleCount, sampleCountOverflow) = safeFrameCount.multipliedReportingOverflow(by: channelCount)
+        guard !sampleCountOverflow else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        let (dataByteCount, dataByteCountOverflow) = expectedSampleCount.multipliedReportingOverflow(by: format.bytesPerSample)
+        let (riffChunkSize, riffChunkSizeOverflow) = dataByteCount.addingReportingOverflow(36)
+        guard !dataByteCountOverflow,
+              !riffChunkSizeOverflow,
+              dataByteCount <= Int(UInt32.max),
+              riffChunkSize <= Int(UInt32.max) else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        let sampleRate = UInt32(roundedSampleRate)
+        let blockAlign = channelCount * format.bytesPerSample
+        let byteRate = UInt64(sampleRate) * UInt64(blockAlign)
+        guard blockAlign <= Int(UInt16.max),
+              byteRate <= UInt64(UInt32.max) else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        return MixerWAVLayout(
+            sampleRate: sampleRate,
+            channelCount: UInt16(channelCount),
+            blockAlign: UInt16(blockAlign),
+            byteRate: UInt32(byteRate),
+            dataByteCount: UInt32(dataByteCount),
+            riffChunkSize: UInt32(riffChunkSize),
+            expectedSampleCount: expectedSampleCount
+        )
+    }
 
     static func pcm16WAVData(
         from block: MixerRenderBlock,
@@ -560,59 +717,18 @@ enum MixerWAVExporter {
         format: MixerWAVFormat = .pcm16,
         exportPolicy: MixerWAVExportPolicy = .unity
     ) throws -> MixerWAVExportResult {
-        let channelCount = block.config.channelCount
-        guard channelCount > 0, channelCount <= Int(UInt16.max) else {
-            throw MixerWAVExportError.invalidChannelCount(channelCount)
-        }
-
-        let roundedSampleRate = block.config.sampleRate.rounded(.toNearestOrAwayFromZero)
-        guard block.config.sampleRate.isFinite,
-              roundedSampleRate > 0,
-              roundedSampleRate <= Double(UInt32.max) else {
-            throw MixerWAVExportError.invalidSampleRate(block.config.sampleRate)
-        }
-
-        let (expectedSampleCount, sampleCountOverflow) = block.frameCount.multipliedReportingOverflow(by: channelCount)
-        guard !sampleCountOverflow,
-              expectedSampleCount == block.interleavedPCM.count else {
+        let layout = try layout(config: block.config, frameCount: block.frameCount, format: format)
+        guard layout.expectedSampleCount == block.interleavedPCM.count else {
+            let (expectedSampleCount, sampleCountOverflow) = block.frameCount.multipliedReportingOverflow(by: block.config.channelCount)
             throw MixerWAVExportError.invalidPCMShape(
                 expectedSampleCount: sampleCountOverflow ? Int.max : expectedSampleCount,
                 actualSampleCount: block.interleavedPCM.count
             )
         }
 
-        let (dataByteCount, dataByteCountOverflow) = expectedSampleCount.multipliedReportingOverflow(by: format.bytesPerSample)
-        let (riffChunkSize, riffChunkSizeOverflow) = dataByteCount.addingReportingOverflow(36)
-        guard !dataByteCountOverflow,
-              !riffChunkSizeOverflow,
-              dataByteCount <= Int(UInt32.max),
-              riffChunkSize <= Int(UInt32.max) else {
-            throw MixerWAVExportError.fileTooLarge
-        }
-
-        let sampleRate = UInt32(roundedSampleRate)
-        let blockAlign = channelCount * format.bytesPerSample
-        let byteRate = UInt64(sampleRate) * UInt64(blockAlign)
-        guard blockAlign <= Int(UInt16.max),
-              byteRate <= UInt64(UInt32.max) else {
-            throw MixerWAVExportError.fileTooLarge
-        }
-
         var data = Data()
-        data.reserveCapacity(44 + dataByteCount)
-        appendASCII("RIFF", to: &data)
-        appendLE32(UInt32(riffChunkSize), to: &data)
-        appendASCII("WAVE", to: &data)
-        appendASCII("fmt ", to: &data)
-        appendLE32(16, to: &data)
-        appendLE16(format.wavFormatCode, to: &data)
-        appendLE16(UInt16(channelCount), to: &data)
-        appendLE32(sampleRate, to: &data)
-        appendLE32(UInt32(byteRate), to: &data)
-        appendLE16(UInt16(blockAlign), to: &data)
-        appendLE16(UInt16(format.bitsPerSample), to: &data)
-        appendASCII("data", to: &data)
-        appendLE32(UInt32(dataByteCount), to: &data)
+        data.reserveCapacity(44 + Int(layout.dataByteCount))
+        appendHeader(layout: layout, format: format, to: &data)
 
         for sample in block.interleavedPCM {
             let scaledSample = scaledSample(sample, gain: exportPolicy.gain)
@@ -627,6 +743,231 @@ enum MixerWAVExporter {
             data: data,
             diagnostics: diagnostics(for: block, exportPolicy: exportPolicy, wavFormat: format)
         )
+    }
+
+    @discardableResult
+    static func writeStreamingFloat32WAV(
+        config: MixerRenderConfig,
+        frameCount: Int,
+        to url: URL,
+        exportPolicy: MixerWAVExportPolicy = .unity,
+        writeBlocks: (_ writer: MixerFloat32WAVStreamWriter) throws -> Void
+    ) throws -> MixerWAVExportDiagnostics {
+        let writer = try MixerFloat32WAVStreamWriter(
+            config: config,
+            expectedFrameCount: frameCount,
+            url: url,
+            exportPolicy: exportPolicy
+        )
+        do {
+            try writeBlocks(writer)
+            return try writer.finish()
+        } catch {
+            writer.close()
+            throw error
+        }
+    }
+
+    @discardableResult
+    static func writeFloat32WAVApplyingGain(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        exportPolicy: MixerWAVExportPolicy,
+        chunkSampleCount: Int = 262_144,
+        progress: ((Int, Int) throws -> Void)? = nil
+    ) throws -> MixerWAVExportDiagnostics {
+        let layout = try readCanonicalFloat32WAVLayout(from: sourceURL)
+        let inputHandle = try FileHandle(forReadingFrom: sourceURL)
+        defer {
+            try? inputHandle.close()
+        }
+        guard let header = try inputHandle.read(upToCount: canonicalWAVHeaderByteCount),
+              header.count == canonicalWAVHeaderByteCount else {
+            throw MixerWAVExportError.invalidWAVFile("Missing canonical WAV header.")
+        }
+
+        try? FileManager.default.removeItem(at: destinationURL)
+        FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: destinationURL)
+        var outputClosed = false
+        func closeOutput() {
+            guard !outputClosed else {
+                return
+            }
+            try? outputHandle.close()
+            outputClosed = true
+        }
+        defer {
+            closeOutput()
+        }
+
+        do {
+            try outputHandle.write(contentsOf: header)
+            var diagnosticsAccumulator = MixerWAVExportDiagnosticsAccumulator(
+                channelCount: Int(layout.channelCount),
+                exportPolicy: exportPolicy,
+                wavFormat: .float32
+            )
+            let safeChunkSampleCount = max(1, chunkSampleCount)
+            let chunkByteCount = safeChunkSampleCount * MixerWAVFormat.float32.bytesPerSample
+            let totalDataBytes = Int(layout.dataByteCount)
+            var processedDataBytes = 0
+            var pendingBytes = Data()
+
+            while processedDataBytes < totalDataBytes {
+                let requestedByteCount = min(chunkByteCount, totalDataBytes - processedDataBytes)
+                guard let inputData = try inputHandle.read(upToCount: requestedByteCount),
+                      !inputData.isEmpty else {
+                    throw MixerWAVExportError.invalidWAVFile("Unexpected end of Float32 sample data.")
+                }
+                processedDataBytes += inputData.count
+                pendingBytes.append(inputData)
+
+                let processableByteCount = pendingBytes.count - (pendingBytes.count % MixerWAVFormat.float32.bytesPerSample)
+                if processableByteCount > 0 {
+                    let samplesData = pendingBytes.prefix(processableByteCount)
+                    var outputData = Data()
+                    outputData.reserveCapacity(processableByteCount)
+                    try appendScaledFloat32Samples(
+                        from: samplesData,
+                        to: &outputData,
+                        exportPolicy: exportPolicy,
+                        diagnosticsAccumulator: &diagnosticsAccumulator
+                    )
+                    try outputHandle.write(contentsOf: outputData)
+                    pendingBytes.removeFirst(processableByteCount)
+                }
+                try progress?(processedDataBytes, totalDataBytes)
+            }
+
+            guard pendingBytes.isEmpty else {
+                throw MixerWAVExportError.invalidWAVFile("Float32 sample data is not four-byte aligned.")
+            }
+            closeOutput()
+            return diagnosticsAccumulator.diagnostics()
+        } catch {
+            closeOutput()
+            try? FileManager.default.removeItem(at: destinationURL)
+            throw error
+        }
+    }
+
+    @discardableResult
+    static func validatePCMShape(_ block: MixerRenderBlock) throws -> Int {
+        let (expectedSampleCount, sampleCountOverflow) = block.frameCount.multipliedReportingOverflow(by: block.config.channelCount)
+        guard !sampleCountOverflow,
+              expectedSampleCount == block.interleavedPCM.count else {
+            throw MixerWAVExportError.invalidPCMShape(
+                expectedSampleCount: sampleCountOverflow ? Int.max : expectedSampleCount,
+                actualSampleCount: block.interleavedPCM.count
+            )
+        }
+        return expectedSampleCount
+    }
+
+    fileprivate static func appendHeader(layout: MixerWAVLayout, format: MixerWAVFormat, to data: inout Data) {
+        appendASCII("RIFF", to: &data)
+        appendLE32(layout.riffChunkSize, to: &data)
+        appendASCII("WAVE", to: &data)
+        appendASCII("fmt ", to: &data)
+        appendLE32(16, to: &data)
+        appendLE16(format.wavFormatCode, to: &data)
+        appendLE16(layout.channelCount, to: &data)
+        appendLE32(layout.sampleRate, to: &data)
+        appendLE32(layout.byteRate, to: &data)
+        appendLE16(layout.blockAlign, to: &data)
+        appendLE16(UInt16(format.bitsPerSample), to: &data)
+        appendASCII("data", to: &data)
+        appendLE32(layout.dataByteCount, to: &data)
+    }
+
+    private static func readCanonicalFloat32WAVLayout(from url: URL) throws -> MixerWAVLayout {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let fileSize = attributes[.size] as? NSNumber else {
+            throw MixerWAVExportError.invalidWAVFile("Could not determine file size.")
+        }
+        let inputHandle = try FileHandle(forReadingFrom: url)
+        defer {
+            try? inputHandle.close()
+        }
+        guard let header = try inputHandle.read(upToCount: canonicalWAVHeaderByteCount),
+              header.count == canonicalWAVHeaderByteCount,
+              Array(header[0..<4]) == Array("RIFF".utf8),
+              Array(header[8..<12]) == Array("WAVE".utf8),
+              Array(header[12..<16]) == Array("fmt ".utf8),
+              Array(header[36..<40]) == Array("data".utf8) else {
+            throw MixerWAVExportError.invalidWAVFile("Expected a canonical 44-byte RIFF/WAVE header.")
+        }
+
+        let formatCode = readLE16(header, offset: 20)
+        let channelCount = readLE16(header, offset: 22)
+        let sampleRate = readLE32(header, offset: 24)
+        let byteRate = readLE32(header, offset: 28)
+        let blockAlign = readLE16(header, offset: 32)
+        let bitsPerSample = readLE16(header, offset: 34)
+        let dataByteCount = readLE32(header, offset: 40)
+        let riffChunkSize = readLE32(header, offset: 4)
+        let expectedFileSize = UInt64(canonicalWAVHeaderByteCount) + UInt64(dataByteCount)
+        let expectedByteRate = UInt64(sampleRate) * UInt64(blockAlign)
+        let expectedRiffChunkSize = UInt64(dataByteCount) + 36
+
+        guard readLE32(header, offset: 16) == 16,
+              formatCode == MixerWAVFormat.float32.wavFormatCode,
+              bitsPerSample == UInt16(MixerWAVFormat.float32.bitsPerSample),
+              channelCount > 0,
+              blockAlign == channelCount * UInt16(MixerWAVFormat.float32.bytesPerSample),
+              UInt64(byteRate) == expectedByteRate,
+              dataByteCount % UInt32(blockAlign) == 0,
+              UInt64(riffChunkSize) == expectedRiffChunkSize,
+              UInt64(fileSize.uint64Value) == expectedFileSize else {
+            throw MixerWAVExportError.invalidWAVFile("Header fields do not describe a supported Float32 WAV file.")
+        }
+
+        let expectedSampleCount = Int(dataByteCount) / MixerWAVFormat.float32.bytesPerSample
+        return MixerWAVLayout(
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            blockAlign: blockAlign,
+            byteRate: byteRate,
+            dataByteCount: dataByteCount,
+            riffChunkSize: riffChunkSize,
+            expectedSampleCount: expectedSampleCount
+        )
+    }
+
+    private static func appendScaledFloat32Samples(
+        from samplesData: Data.SubSequence,
+        to outputData: inout Data,
+        exportPolicy: MixerWAVExportPolicy,
+        diagnosticsAccumulator: inout MixerWAVExportDiagnosticsAccumulator
+    ) throws {
+        guard samplesData.count % MixerWAVFormat.float32.bytesPerSample == 0 else {
+            throw MixerWAVExportError.invalidWAVFile("Float32 sample data is not four-byte aligned.")
+        }
+        let bytes = Array(samplesData)
+        var offset = 0
+        while offset < bytes.count {
+            let bitPattern = UInt32(bytes[offset])
+                | (UInt32(bytes[offset + 1]) << 8)
+                | (UInt32(bytes[offset + 2]) << 16)
+                | (UInt32(bytes[offset + 3]) << 24)
+            let sample = Float(bitPattern: bitPattern)
+            diagnosticsAccumulator.append(sample: sample)
+            appendLEFloat32(scaledSample(sample, gain: exportPolicy.gain), to: &outputData)
+            offset += MixerWAVFormat.float32.bytesPerSample
+        }
+    }
+
+    private static func readLE16(_ data: Data, offset: Int) -> UInt16 {
+        UInt16(data[offset])
+            | (UInt16(data[offset + 1]) << 8)
+    }
+
+    private static func readLE32(_ data: Data, offset: Int) -> UInt32 {
+        UInt32(data[offset])
+            | (UInt32(data[offset + 1]) << 8)
+            | (UInt32(data[offset + 2]) << 16)
+            | (UInt32(data[offset + 3]) << 24)
     }
 
     @discardableResult
@@ -668,55 +1009,13 @@ enum MixerWAVExporter {
         exportPolicy: MixerWAVExportPolicy = .unity,
         wavFormat: MixerWAVFormat = .pcm16
     ) -> MixerWAVExportDiagnostics {
-        let channelCount = max(1, block.config.channelCount)
-        var prePerChannelPeak = Array(repeating: Float(0), count: channelCount)
-        var postPerChannelPeak = Array(repeating: Float(0), count: channelCount)
-        var preSquareSum = Double(0)
-        var postSquareSum = Double(0)
-        var prePeak = Float(0)
-        var postPeak = Float(0)
-        var preOverrange = 0
-        var postOverrange = 0
-        var pcm16Clipping = 0
-
-        for (sampleIndex, sample) in block.interleavedPCM.enumerated() {
-            let channel = sampleIndex % channelCount
-            let finiteSample = sample.isFinite ? sample : 0
-            let preAbs = abs(finiteSample)
-            let postSample = scaledSample(finiteSample, gain: exportPolicy.gain)
-            let postAbs = abs(postSample)
-
-            prePeak = max(prePeak, preAbs)
-            postPeak = max(postPeak, postAbs)
-            prePerChannelPeak[channel] = max(prePerChannelPeak[channel], preAbs)
-            postPerChannelPeak[channel] = max(postPerChannelPeak[channel], postAbs)
-            preSquareSum += Double(finiteSample) * Double(finiteSample)
-            postSquareSum += Double(postSample) * Double(postSample)
-            if preAbs > 1 {
-                preOverrange += 1
-            }
-            if postAbs > 1 {
-                postOverrange += 1
-            }
-            if wavFormat == .pcm16 && abs(Double(finiteSample) * Double(exportPolicy.gain)) >= 1 {
-                pcm16Clipping += 1
-            }
-        }
-
-        let sampleCount = max(1, block.interleavedPCM.count)
-        return MixerWAVExportDiagnostics(
-            wavFormat: wavFormat,
-            policy: exportPolicy,
-            preExportPeak: prePeak,
-            preExportPerChannelPeak: prePerChannelPeak,
-            preExportOverrangeSampleCount: preOverrange,
-            preExportRMS: Float(sqrt(preSquareSum / Double(sampleCount))),
-            postGainPeak: postPeak,
-            postGainPerChannelPeak: postPerChannelPeak,
-            postGainOverrangeSampleCount: postOverrange,
-            postGainRMS: Float(sqrt(postSquareSum / Double(sampleCount))),
-            pcm16ClippingSampleCount: pcm16Clipping
+        var accumulator = MixerWAVExportDiagnosticsAccumulator(
+            channelCount: block.config.channelCount,
+            exportPolicy: exportPolicy,
+            wavFormat: wavFormat
         )
+        try? accumulator.append(block: block)
+        return accumulator.diagnostics()
     }
 
     static func pcm16Sample(from sample: Float) -> Int16 {
@@ -731,7 +1030,7 @@ enum MixerWAVExporter {
         return Int16((Double(clamped) * Double(Int16.max)).rounded(.toNearestOrAwayFromZero))
     }
 
-    private static func scaledSample(_ sample: Float, gain: Float) -> Float {
+    fileprivate static func scaledSample(_ sample: Float, gain: Float) -> Float {
         let finiteSample = sample.isFinite ? Double(sample) : 0
         let finiteGain = gain.isFinite && gain > 0 ? Double(gain) : 1
         let scaled = finiteSample * finiteGain
@@ -747,28 +1046,126 @@ enum MixerWAVExporter {
         return Float(scaled)
     }
 
-    private static func appendASCII(_ string: String, to data: inout Data) {
+    fileprivate static func appendASCII(_ string: String, to data: inout Data) {
         data.append(contentsOf: string.utf8)
     }
 
-    private static func appendLE16(_ value: UInt16, to data: inout Data) {
+    fileprivate static func appendLE16(_ value: UInt16, to data: inout Data) {
         var littleEndianValue = value.littleEndian
         withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
     }
 
-    private static func appendLE32(_ value: UInt32, to data: inout Data) {
+    fileprivate static func appendLE32(_ value: UInt32, to data: inout Data) {
         var littleEndianValue = value.littleEndian
         withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
     }
 
-    private static func appendLEInt16(_ value: Int16, to data: inout Data) {
+    fileprivate static func appendLEInt16(_ value: Int16, to data: inout Data) {
         var littleEndianValue = value.littleEndian
         withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
     }
 
-    private static func appendLEFloat32(_ value: Float, to data: inout Data) {
+    fileprivate static func appendLEFloat32(_ value: Float, to data: inout Data) {
         var littleEndianValue = value.bitPattern.littleEndian
         withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+    }
+}
+
+final class MixerFloat32WAVStreamWriter {
+    private let layout: MixerWAVLayout
+    private let exportPolicy: MixerWAVExportPolicy
+    private let fileHandle: FileHandle
+    private let channelCount: Int
+    private var isClosed = false
+    private var writtenFrames = 0
+    private var writtenSamples = 0
+    private var diagnosticsAccumulator: MixerWAVExportDiagnosticsAccumulator
+
+    init(
+        config: MixerRenderConfig,
+        expectedFrameCount: Int,
+        url: URL,
+        exportPolicy: MixerWAVExportPolicy = .unity
+    ) throws {
+        layout = try MixerWAVExporter.layout(
+            config: config,
+            frameCount: expectedFrameCount,
+            format: .float32
+        )
+        self.exportPolicy = exportPolicy
+        channelCount = Int(layout.channelCount)
+        diagnosticsAccumulator = MixerWAVExportDiagnosticsAccumulator(
+            channelCount: channelCount,
+            exportPolicy: exportPolicy,
+            wavFormat: .float32
+        )
+
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        fileHandle = try FileHandle(forWritingTo: url)
+        var header = Data()
+        header.reserveCapacity(44)
+        MixerWAVExporter.appendHeader(layout: layout, format: .float32, to: &header)
+        try fileHandle.write(contentsOf: header)
+    }
+
+    func write(block: MixerRenderBlock) throws {
+        guard !isClosed else {
+            throw MixerWAVExportError.invalidPCMShape(
+                expectedSampleCount: layout.expectedSampleCount,
+                actualSampleCount: writtenSamples
+            )
+        }
+        _ = try MixerWAVExporter.validatePCMShape(block)
+        let blockLayout = try MixerWAVExporter.layout(
+            config: block.config,
+            frameCount: block.frameCount,
+            format: .float32
+        )
+        guard blockLayout.channelCount == layout.channelCount,
+              blockLayout.sampleRate == layout.sampleRate,
+              blockLayout.blockAlign == layout.blockAlign else {
+            throw MixerWAVExportError.invalidPCMShape(
+                expectedSampleCount: layout.expectedSampleCount,
+                actualSampleCount: writtenSamples + block.interleavedPCM.count
+            )
+        }
+        guard writtenFrames <= Int.max - block.frameCount,
+              writtenFrames + block.frameCount <= layout.expectedSampleCount / channelCount else {
+            throw MixerWAVExportError.fileTooLarge
+        }
+
+        var data = Data()
+        data.reserveCapacity(block.interleavedPCM.count * MixerWAVFormat.float32.bytesPerSample)
+        for sample in block.interleavedPCM {
+            let postSample = MixerWAVExporter.scaledSample(sample, gain: exportPolicy.gain)
+            MixerWAVExporter.appendLEFloat32(postSample, to: &data)
+        }
+        diagnosticsAccumulator.append(samples: block.interleavedPCM)
+
+        try fileHandle.write(contentsOf: data)
+        writtenFrames += block.frameCount
+        writtenSamples += block.interleavedPCM.count
+    }
+
+    func finish() throws -> MixerWAVExportDiagnostics {
+        defer {
+            close()
+        }
+        guard writtenSamples == layout.expectedSampleCount else {
+            throw MixerWAVExportError.invalidPCMShape(
+                expectedSampleCount: layout.expectedSampleCount,
+                actualSampleCount: writtenSamples
+            )
+        }
+        return diagnosticsAccumulator.diagnostics()
+    }
+
+    func close() {
+        guard !isClosed else {
+            return
+        }
+        try? fileHandle.close()
+        isClosed = true
     }
 }
 

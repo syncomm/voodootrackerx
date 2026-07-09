@@ -201,6 +201,59 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(windowed.windowedRenderSummary?.totalScheduledCapacityRejects, 0)
     }
 
+    func testPlaybackSongOfflineRendererWindowedMatchesConcatenatedStreamingBlocksAcrossMultipleWindows() {
+        let sample = makePlaybackSample(
+            pcm: [0.25, -0.5, 0.75, -1],
+            baseSampleRate: 100,
+            loopStart: 0,
+            loopLength: 4,
+            loopType: 1
+        )
+        let rows = (0..<130).map { rowIndex in
+            makePlaybackRow(
+                index: rowIndex,
+                note: rowIndex == 0 || rowIndex == 70 ? 49 : 0,
+                instrument: rowIndex == 0 || rowIndex == 70 ? 1 : 0
+            )
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 130
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+        let accumulated = renderer.renderWindowed(request, windowRows: 64)
+        var streamedBlocks = [MixerRenderBlock]()
+
+        let streaming = renderer.renderWindowedStreaming(request, windowRows: 64) { completedWindow, totalWindows, diagnostic, block in
+            XCTAssertEqual(completedWindow, streamedBlocks.count + 1)
+            XCTAssertEqual(totalWindows, 3)
+            XCTAssertEqual(diagnostic.renderedFrames, block.frameCount)
+            streamedBlocks.append(block)
+        }
+        let streamedPCM = streamedBlocks.flatMap(\.interleavedPCM)
+
+        XCTAssertEqual(streamedBlocks.map(\.frameCount), [64, 64, 2])
+        XCTAssertTrue(streamedBlocks.allSatisfy { $0.config == accumulated.block.config })
+        XCTAssertEqual(streamedPCM, accumulated.block.interleavedPCM)
+        XCTAssertTrue(streamedPCM.dropFirst(64).contains { $0 != 0 })
+        XCTAssertGreaterThan(accumulated.windowedRenderSummary?.totalBoundaryContinuations ?? 0, 0)
+        XCTAssertEqual(streaming.request, accumulated.request)
+        XCTAssertEqual(streaming.plan, accumulated.plan)
+        XCTAssertEqual(streaming.renderedFrameCount, accumulated.renderedFrameCount)
+        XCTAssertEqual(streaming.scheduledVoiceIndices, accumulated.scheduledVoiceIndices)
+        XCTAssertEqual(streaming.scheduledVoiceRejectionReasons, accumulated.scheduledVoiceRejectionReasons)
+        XCTAssertEqual(streaming.windowedRenderSummary, accumulated.windowedRenderSummary)
+        XCTAssertEqual(streaming.sameChannelVoiceLifetime, accumulated.sameChannelVoiceLifetime)
+    }
+
     func testPlaybackSongOfflineRendererPerformanceInstrumentationDoesNotChangePCM() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(

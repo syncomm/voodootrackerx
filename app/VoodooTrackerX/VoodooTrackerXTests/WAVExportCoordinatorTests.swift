@@ -384,6 +384,95 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: enabledDestination), try Data(contentsOf: disabledDestination))
     }
 
+    func testAppExportFloat32WAVBytesMatchToolEquivalentWindowedRender() throws {
+        let appDestination = try temporaryDestination(filename: "app-parity.wav")
+        let referenceDestination = try temporaryDestination(filename: "tool-equivalent-parity.wav")
+        let unityDestination = try temporaryDestination(filename: "unity-policy-parity.wav")
+        let song = makeAppToolParitySong()
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: song,
+            displayName: "App Tool Parity",
+            isPlaybackActive: false
+        ))
+
+        XCTAssertEqual(plan.configuration.sampleRate, 48_000)
+        XCTAssertEqual(plan.configuration.wavFormat, .float32)
+        XCTAssertEqual(plan.configuration.mixProfile, .vtx)
+        XCTAssertEqual(plan.configuration.windowRows, 64)
+        XCTAssertEqual(plan.configuration.headroomPolicy, .auto)
+        XCTAssertEqual(plan.configuration.longRenderPolicy, .allowUserInitiatedWholeSong)
+        XCTAssertEqual(plan.tailFrameCount, RuntimeCMixerSongEndTailPolicy.defaultPolicy.tailFrames(
+            sampleRate: WAVExportCoordinator.sampleRate
+        ))
+        XCTAssertGreaterThan(plan.renderWindowCount, 1)
+
+        let appCompletion = WAVExportCoordinator.export(plan: plan, to: appDestination)
+        guard case let .exported(_, appRenderResult) = appCompletion else {
+            return XCTFail("Expected app export, got \(appCompletion)")
+        }
+
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: plan.request.maximumFrameCount)
+        let referenceRenderResult = renderer.renderWindowed(plan.request, windowRows: 64)
+        let referencePolicy = MixerWAVExportPolicy.autoHeadroom(for: referenceRenderResult.block)
+        let referenceDiagnostics = try MixerWAVExporter.writeWAV(
+            from: referenceRenderResult.block,
+            to: referenceDestination,
+            format: .float32,
+            exportPolicy: referencePolicy
+        )
+        try MixerWAVExporter.writeWAV(
+            from: referenceRenderResult.block,
+            to: unityDestination,
+            format: .float32,
+            exportPolicy: .unity
+        )
+
+        let appSummary = try XCTUnwrap(appRenderResult.windowedRenderSummary)
+        let referenceSummary = try XCTUnwrap(referenceRenderResult.windowedRenderSummary)
+        XCTAssertEqual(appRenderResult.renderedFrameCount, plan.totalFrameCount)
+        XCTAssertEqual(referenceRenderResult.renderedFrameCount, plan.totalFrameCount)
+        XCTAssertEqual(appSummary.windowRows, 64)
+        XCTAssertEqual(referenceSummary.windowRows, 64)
+        XCTAssertGreaterThan(appSummary.windowCount, 1)
+        XCTAssertEqual(appSummary.windowCount, referenceSummary.windowCount)
+        XCTAssertGreaterThan(appSummary.totalScheduledEvents, 1)
+        XCTAssertGreaterThan(appSummary.totalBoundaryContinuations, 0)
+        XCTAssertEqual(appSummary.totalScheduledCapacityRejects, 0)
+
+        let firstBoundaryFrame = try XCTUnwrap(appSummary.windows.dropFirst().first?.startFrame)
+        XCTAssertGreaterThan(firstBoundaryFrame, 0)
+        let appBytes = try Data(contentsOf: appDestination)
+        let referenceBytes = try Data(contentsOf: referenceDestination)
+        let unityBytes = try Data(contentsOf: unityDestination)
+        let appWAV = try assertValidProductFloat32WAV(appBytes, expectedFrameCount: plan.totalFrameCount)
+        _ = try assertValidProductFloat32WAV(referenceBytes, expectedFrameCount: plan.totalFrameCount)
+
+        XCTAssertGreaterThan(appBytes.count, 44)
+        XCTAssertGreaterThan(referenceBytes.count, 44)
+        XCTAssertEqual(appRenderResult.exportDiagnostics?.wavFormat, .float32)
+        XCTAssertTrue(appRenderResult.exportDiagnostics?.autoHeadroomEnabled ?? false)
+        XCTAssertEqual(appRenderResult.exportDiagnostics?.preExportPeak, referenceDiagnostics.preExportPeak)
+        XCTAssertEqual(appRenderResult.exportDiagnostics?.computedExportGain, referenceDiagnostics.computedExportGain)
+        XCTAssertGreaterThan(referenceDiagnostics.preExportPeak, 1)
+        XCTAssertLessThan(referenceDiagnostics.computedExportGain, 1)
+        XCTAssertGreaterThan(
+            maxAbsFloat32Sample(in: appBytes, channelCount: Int(appWAV.channelCount), sampleRate: Int(appWAV.sampleRate), fromSecond: 0, durationSeconds: 2),
+            0.001
+        )
+        XCTAssertGreaterThan(
+            maxAbsFloat32Sample(
+                in: appBytes,
+                channelCount: Int(appWAV.channelCount),
+                sampleRate: Int(appWAV.sampleRate),
+                fromSecond: Double(firstBoundaryFrame) / Double(appWAV.sampleRate),
+                durationSeconds: 2
+            ),
+            0.001
+        )
+        XCTAssertEqual(appBytes, referenceBytes)
+        XCTAssertNotEqual(appBytes, unityBytes)
+    }
+
     func testHeadroomPostProcessPerformanceDiagnosticsArePresent() throws {
         let destination = try temporaryDestination(filename: "headroom-performance.wav")
         let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
@@ -774,6 +863,30 @@ final class WAVExportCoordinatorTests: XCTestCase {
         )
     }
 
+    private func makeAppToolParitySong() -> PlaybackSong {
+        let sample = makePlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [2.0, -1.5, 1.25, -2.0, 0.75, -0.5, 1.75, -1.25],
+            volume: 1,
+            baseSampleRate: 48_000,
+            loopStart: 0,
+            loopLength: 8,
+            loopType: 1
+        )
+        let rows = (0..<64).map { rowIndex in
+            rowIndex == 0 || rowIndex == 32
+                ? makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+                : makePlaybackRow(index: rowIndex)
+        }
+        return makePlaybackSong(
+            orderPatternIndices: Array(repeating: 0, count: 3),
+            patternRowsByIndex: [0: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 6, bpm: 125)
+        )
+    }
+
     private func temporaryDestination(filename: String) throws -> URL {
         try temporaryDirectory().appendingPathComponent(filename)
     }
@@ -859,6 +972,22 @@ private func parseFloat32WAV(_ data: Data) throws -> TestFloat32WAV {
         bitsPerSample: bitsPerSample,
         dataSize: dataSize
     )
+}
+
+private func assertValidProductFloat32WAV(
+    _ data: Data,
+    expectedFrameCount: Int,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> TestFloat32WAV {
+    let wav = try parseFloat32WAV(data)
+    XCTAssertEqual(wav.formatCode, 3, file: file, line: line)
+    XCTAssertEqual(wav.bitsPerSample, 32, file: file, line: line)
+    XCTAssertEqual(wav.channelCount, UInt16(WAVExportCoordinator.channelCount), file: file, line: line)
+    XCTAssertEqual(wav.sampleRate, UInt32(WAVExportCoordinator.sampleRate), file: file, line: line)
+    XCTAssertEqual(wav.frameCount, expectedFrameCount, file: file, line: line)
+    XCTAssertGreaterThan(wav.frameCount, 0, file: file, line: line)
+    return wav
 }
 
 private func maxAbsFloat32Sample(

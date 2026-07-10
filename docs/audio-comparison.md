@@ -189,11 +189,18 @@ Swift-side estimates of sample payload uploads copied into C mixer storage.
 Payload diagnostics include accepted C voice adds, copied bytes, per-window
 and continuation uploads, duplicate sample identities, defensive versus
 pre-sanitized bulk-copy counts, and shared-payload allocations, references, and
-avoided per-voice copies. An explicit offline/test prototype can retain one
-render-session cache of C-owned payloads across windows; product windowed export
-still uses per-voice bulk copies, runtime keeps the defensive path, and both
-original paths remain available. Byte-parity tests gate a later production
-offline switch.
+avoided per-voice copies. Production accumulated and streaming windowed renders,
+including app WAV export and product-equivalent tool renders, retain one
+render-session cache of C-owned payloads across windows. The defensive and
+pre-sanitized per-voice copy modes remain explicit fallback/reference paths;
+runtime and immediate/non-windowed rendering remain on copied payloads.
+Byte-identical shared-versus-copied, accumulated-versus-streaming,
+indexed-versus-scan, and app-versus-tool tests pin output, while continuation
+shared-reference diagnostics cover window carryovers.
+App export reports an indexing-render-windows preparation phase before the
+first completed-window render update. Continuation replacement-ramp lookup is
+pre-indexed by old event identity while preserving the prior last-matching-ramp
+rule; existing index-build duration diagnostics include this preparation work.
 The diagnostics are not shown in normal product UI and must not change PCM
 output, C mixer DSP, runtime playback, parser behavior, or tracker UI
 behavior. Use them to choose and validate narrow future render/export

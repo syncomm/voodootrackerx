@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for developer-only bounded XM candidate WAV exports.
+Accepted for windowed offline rendering, including product WAV export.
 
 ## Context
 
@@ -30,12 +30,18 @@ This decision does not switch runtime playback, wire the app Play button to the
 C mixer, change parser ownership, implement new XM effects, change C mixer DSP
 semantics, or touch tracker viewport rendering.
 
-An additive offline/test prototype may retain a Swift-owned render-session
-cache of immutable C-owned sample payload objects across fresh window mixers.
-Voices reference those payloads without borrowing Swift memory; mixer teardown
-drops references, and the cache destroys each payload only after referencing
-voices are cleared. Product windowed export remains on per-voice C copies until
-a separate byte-parity-gated switch PR.
+Windowed offline rendering retains a Swift-owned render-session cache of
+immutable C-owned sample payload objects across fresh window mixers. Voices
+reference those payloads without borrowing Swift memory; mixer teardown drops
+references, and the cache destroys each payload only after every referencing
+voice is cleared. Byte-identical parity tests gate the production default. The
+defensive and pre-sanitized per-voice copy modes remain available, and runtime
+plus immediate/non-windowed rendering remain on copied payloads.
+
+Pre-index construction groups same-channel replacement ramps by old event
+identity and preserves the prior last-matching-before-boundary rule without a
+full reverse scan for every continuation candidate. Product export reports this
+work as an indexing preparation phase before completed-window progress begins.
 
 ## Rationale
 

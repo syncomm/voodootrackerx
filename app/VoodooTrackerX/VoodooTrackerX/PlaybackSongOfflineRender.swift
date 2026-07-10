@@ -170,11 +170,19 @@ struct PlaybackSongScheduledVoiceAttempt: Equatable {
 }
 
 enum PlaybackSongOfflineSamplePayloadStorageMode: Equatable {
+    case perVoiceDefensiveCopy
     case perVoicePreSanitizedCopy
-    case sharedCPrototype
+    case sharedCPayload
 
     var cUploadMode: CSoftwareMixerSamplePayloadUploadMode {
-        self == .sharedCPrototype ? .sharedPreSanitizedCache : .preSanitizedBulkCopy
+        switch self {
+        case .perVoiceDefensiveCopy:
+            .defensiveSanitizingCopy
+        case .perVoicePreSanitizedCopy:
+            .preSanitizedBulkCopy
+        case .sharedCPayload:
+            .sharedPreSanitizedCache
+        }
     }
 }
 
@@ -188,6 +196,7 @@ struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
     let approximateSamplePayloadBytesCopied: Int
     let continuationSamplePayloadUploadCount: Int
     let approximateContinuationSamplePayloadBytesCopied: Int
+    let continuationSharedSamplePayloadVoiceReferenceCount: Int
     let uniqueSamplePayloadIdentityCount: Int
     let duplicateSamplePayloadUploadCount: Int
     let defensiveSanitizingUploadCount: Int
@@ -225,6 +234,7 @@ struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
     let approximateSamplePayloadBytesCopied: Int
     let continuationSamplePayloadUploadCount: Int
     let approximateContinuationSamplePayloadBytesCopied: Int
+    let continuationSharedSamplePayloadVoiceReferenceCount: Int
     let uniqueSamplePayloadIdentityCount: Int
     let duplicateSamplePayloadUploadCount: Int
     let defensiveSanitizingUploadCount: Int
@@ -449,12 +459,13 @@ struct PlaybackSongSameChannelVoiceLifetimeDiagnostics: Equatable {
     let oldVoiceRampDurationFrames: Int
     let windowBoundaryPruneCount: Int
     let replacementEvents: [PlaybackSongSameChannelReplacementEvent]
+    let replacementEventsByOldEventIndex: [Int: [PlaybackSongSameChannelReplacementEvent]]
 
     func rampEvent(
         forOldEventIndex eventIndex: Int,
         at boundaryFrame: Int
     ) -> PlaybackSongSameChannelReplacementEvent? {
-        replacementEvents.last { event in
+        replacementEventsByOldEventIndex[eventIndex]?.last { event in
             event.oldEventIndex == eventIndex &&
                 event.replacementFrame <= boundaryFrame &&
                 boundaryFrame < event.completionFrame
@@ -853,7 +864,7 @@ final class PlaybackSongOfflineRenderer {
     func renderWindowed(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
-        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .perVoicePreSanitizedCopy,
+        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .sharedCPayload,
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
     ) -> PlaybackSongOfflineRenderResult {
@@ -935,7 +946,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
-            samplePayloadUploadMode: .defensiveSanitizingCopy,
+            samplePayloadUploadMode: PlaybackSongOfflineSamplePayloadStorageMode.perVoiceDefensiveCopy.cUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             progress: nil
         )
@@ -1419,6 +1430,9 @@ final class PlaybackSongOfflineRenderer {
                 : acceptedContinuationPayloads.reduce(0) { partial, pair in
                     partial + pair.0.event.sample.frameCount * MemoryLayout<Float>.size
                 }
+            let continuationSharedPayloadVoiceReferenceCount = samplePayloadUploadMode == .sharedPreSanitizedCache
+                ? acceptedContinuationPayloads.count
+                : 0
             let performanceDiagnostic = collectPerformanceDiagnostics
                 ? PlaybackSongRenderWindowPerformanceDiagnostic(
                     windowIndex: spec.index,
@@ -1430,6 +1444,7 @@ final class PlaybackSongOfflineRenderer {
                     approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied,
                     continuationSamplePayloadUploadCount: continuationPayloadUploadCount,
                     approximateContinuationSamplePayloadBytesCopied: continuationPayloadBytes,
+                    continuationSharedSamplePayloadVoiceReferenceCount: continuationSharedPayloadVoiceReferenceCount,
                     uniqueSamplePayloadIdentityCount: samplePayloadUploads.uniqueSampleIdentityCount,
                     duplicateSamplePayloadUploadCount: samplePayloadUploads.duplicateUploadCount,
                     defensiveSanitizingUploadCount: samplePayloadUploads.defensiveSanitizingUploadCount,
@@ -1507,6 +1522,7 @@ final class PlaybackSongOfflineRenderer {
                 approximateSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateSamplePayloadBytesCopied).reduce(0, +),
                 continuationSamplePayloadUploadCount: windowPerformanceDiagnostics.map(\.continuationSamplePayloadUploadCount).reduce(0, +),
                 approximateContinuationSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateContinuationSamplePayloadBytesCopied).reduce(0, +),
+                continuationSharedSamplePayloadVoiceReferenceCount: windowPerformanceDiagnostics.map(\.continuationSharedSamplePayloadVoiceReferenceCount).reduce(0, +),
                 uniqueSamplePayloadIdentityCount: uploadedSamplePayloadIdentities.count,
                 duplicateSamplePayloadUploadCount: max(
                     0,
@@ -1620,7 +1636,7 @@ final class PlaybackSongOfflineRenderer {
     func renderWindowedStreaming(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
-        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .perVoicePreSanitizedCopy,
+        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .sharedCPayload,
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
@@ -2343,13 +2359,14 @@ final class PlaybackSongOfflineRenderer {
             guard eventStartFrame < windowStartFrame else {
                 return nil
             }
+            let replacementRampEvent = sameChannelLifetime.rampEvent(
+                forOldEventIndex: eventIndex,
+                at: windowStartFrame
+            )
             if let mapping = mappingsByEventIndex[eventIndex],
                let latestEventIndex = latestEventIndexByChannel[mapping.channelIndex] {
                 let isLatestChannelVoice = latestEventIndex == eventIndex
-                let isReplacementRampCarry = sameChannelLifetime.rampEvent(
-                    forOldEventIndex: eventIndex,
-                    at: windowStartFrame
-                ) != nil
+                let isReplacementRampCarry = replacementRampEvent != nil
                 if !isLatestChannelVoice && !isReplacementRampCarry {
                     return nil
                 }
@@ -2370,10 +2387,6 @@ final class PlaybackSongOfflineRenderer {
                 eventIndex: eventIndex,
                 plan: plan,
                 before: windowStartFrame
-            )
-            let replacementRampEvent = sameChannelLifetime.rampEvent(
-                forOldEventIndex: eventIndex,
-                at: windowStartFrame
             )
             let replacementGainRamp = replacementRampEvent?.rampState(
                 startGain: replacementRampStartGain(
@@ -2724,6 +2737,11 @@ final class PlaybackSongOfflineRenderer {
         let keptReasonCounts = replacementEvents.reduce(into: [String: Int]()) { result, event in
             result[event.oldVoiceKeptReason, default: 0] += 1
         }
+        let replacementEventsByOldEventIndex = replacementEvents.reduce(
+            into: [Int: [PlaybackSongSameChannelReplacementEvent]]()
+        ) { result, event in
+            result[event.oldEventIndex, default: []].append(event)
+        }
         return PlaybackSongSameChannelVoiceLifetimeDiagnostics(
             replacementRampFrameCount: rampFrames,
             activeVoicesBySourceChannel: activeAtEndByChannel,
@@ -2736,7 +2754,8 @@ final class PlaybackSongOfflineRenderer {
             oldVoiceKeptReasonCounts: keptReasonCounts,
             oldVoiceRampDurationFrames: rampFrames,
             windowBoundaryPruneCount: max(0, windowBoundaryPruneCount),
-            replacementEvents: replacementEvents
+            replacementEvents: replacementEvents,
+            replacementEventsByOldEventIndex: replacementEventsByOldEventIndex
         )
     }
 

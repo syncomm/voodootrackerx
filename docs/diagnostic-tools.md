@@ -164,7 +164,9 @@ sample identities, defensive-copy versus pre-sanitized bulk-copy counts, and
 unity-gain fast-path use. Windowed offline rendering uses the output-neutral
 bulk-copy path because `MixerSampleBuffer` guarantees finite Float32 PCM; the
 original defensive C sanitizer remains the default for runtime and untrusted
-callers. Broader shared/interned C sample storage remains future work.
+callers. An explicit offline/test shared-payload cache prototype now reports
+C-owned payload creates/bytes, voice references, and avoided per-voice upload
+counts/bytes. Product windowed export has not switched to it.
 
 The shared windowed offline render core now consumes its internal scheduling
 index. Performance diagnostics report index build duration, bucket counts,

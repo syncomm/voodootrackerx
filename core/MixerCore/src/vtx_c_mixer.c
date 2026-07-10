@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct VTXCMixerSharedSamplePayload {
+    float *sample_pcm;
+    uint32_t sample_frame_count;
+    VTXCMixerSharedSamplePayloadDiagnostics diagnostics;
+};
+
 static double vtx_c_mixer_sanitized_sample_rate(double sample_rate) {
     return isfinite(sample_rate) && sample_rate > 0.0
         ? sample_rate
@@ -703,11 +709,77 @@ static void vtx_c_mixer_advance_sample_position(VTXCMixerVoice *voice) {
     }
 }
 
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_create_pre_sanitized(
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    VTXCMixerSharedSamplePayload **out_payload
+) {
+    VTXCMixerSharedSamplePayload *payload;
+    size_t byte_count;
+
+    if (out_payload != NULL) {
+        *out_payload = NULL;
+    }
+    if (sample_pcm == NULL || sample_frame_count == 0u || out_payload == NULL ||
+        (size_t)sample_frame_count > SIZE_MAX / sizeof(float)) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    byte_count = (size_t)sample_frame_count * sizeof(float);
+    payload = (VTXCMixerSharedSamplePayload *)calloc(1u, sizeof(*payload));
+    if (payload == NULL) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    payload->sample_pcm = (float *)malloc(byte_count);
+    if (payload->sample_pcm == NULL) {
+        free(payload);
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    memcpy(payload->sample_pcm, sample_pcm, byte_count);
+    payload->sample_frame_count = sample_frame_count;
+    payload->diagnostics.payload_bytes_allocated = (uint64_t)byte_count;
+    *out_payload = payload;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_get_diagnostics(
+    const VTXCMixerSharedSamplePayload *payload,
+    VTXCMixerSharedSamplePayloadDiagnostics *out_diagnostics
+) {
+    if (payload == NULL || out_diagnostics == NULL) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    *out_diagnostics = payload->diagnostics;
+    return VTX_C_MIXER_STATUS_OK;
+}
+
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_destroy(
+    VTXCMixerSharedSamplePayload *payload,
+    VTXCMixerSharedSamplePayloadDiagnostics *out_final_diagnostics
+) {
+    if (payload == NULL || payload->diagnostics.active_voice_reference_count > 0u) {
+        return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
+    }
+    payload->diagnostics.payload_destroy_count = 1u;
+    payload->diagnostics.payload_bytes_freed = payload->diagnostics.payload_bytes_allocated;
+    if (out_final_diagnostics != NULL) {
+        *out_final_diagnostics = payload->diagnostics;
+    }
+    free(payload->sample_pcm);
+    free(payload);
+    return VTX_C_MIXER_STATUS_OK;
+}
+
 static void vtx_c_mixer_release_voice(VTXCMixerVoice *voice) {
     if (voice == NULL) {
         return;
     }
-    free(voice->sample_pcm);
+    if (voice->shared_sample_payload != NULL) {
+        if (voice->shared_sample_payload->diagnostics.active_voice_reference_count > 0u) {
+            voice->shared_sample_payload->diagnostics.active_voice_reference_count--;
+        }
+    } else {
+        free(voice->sample_pcm);
+    }
     memset(voice, 0, sizeof(*voice));
 }
 
@@ -792,6 +864,7 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     uint32_t initial_sample_frame,
     int reject_past_scheduled_start,
     int sample_pcm_is_pre_sanitized,
+    VTXCMixerSharedSamplePayload *shared_sample_payload,
     uint32_t *out_voice_index
 ) {
     VTXCMixerVoice *voice;
@@ -800,7 +873,13 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     uint32_t voice_index;
     int reused_slot = 0;
 
-    if (state == NULL) {
+    if (shared_sample_payload != NULL) {
+        sample_pcm = shared_sample_payload->sample_pcm;
+        sample_frame_count = shared_sample_payload->sample_frame_count;
+    }
+    if (state == NULL ||
+        (shared_sample_payload != NULL &&
+         (sample_frame_count == 0u || sample_pcm == NULL))) {
         return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
     }
     if (sample_frame_count > 0 && sample_pcm == NULL) {
@@ -813,7 +892,9 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     if (voice_index >= VTX_C_MIXER_MAX_VOICES) {
         return VTX_C_MIXER_STATUS_VOICE_CAPACITY_EXCEEDED;
     }
-    if (sample_frame_count > 0) {
+    if (shared_sample_payload != NULL) {
+        sample_copy = shared_sample_payload->sample_pcm;
+    } else if (sample_frame_count > 0) {
         if ((size_t)sample_frame_count > SIZE_MAX / sizeof(float)) {
             return VTX_C_MIXER_STATUS_INVALID_ARGUMENT;
         }
@@ -841,6 +922,7 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice = &state->voices[voice_index];
     memset(voice, 0, sizeof(*voice));
     voice->sample_pcm = sample_copy;
+    voice->shared_sample_payload = shared_sample_payload;
     voice->sample_frame_count = sample_frame_count;
     voice->initial_sample_frame = initial_sample_frame;
     voice->sample_position = (double)initial_sample_frame;
@@ -859,6 +941,10 @@ static VTXCMixerStatus vtx_c_mixer_add_sample_voice_internal(
     voice->fadeout_value = 1.0f;
     voice->fadeout_decrement_per_frame = 0.0f;
     voice->active = sample_frame_count > 0 && sample_copy != NULL && initial_sample_frame < sample_frame_count;
+    if (shared_sample_payload != NULL) {
+        shared_sample_payload->diagnostics.voice_reference_count++;
+        shared_sample_payload->diagnostics.active_voice_reference_count++;
+    }
     if (out_voice_index != NULL) {
         *out_voice_index = voice_index;
     }
@@ -1269,6 +1355,7 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
         initial_sample_frame,
         0,
         0,
+        NULL,
         out_voice_index
     );
 }
@@ -1300,6 +1387,7 @@ VTXCMixerStatus vtx_c_mixer_add_sample_voice_with_step_at_source_frame_pre_sanit
         initial_sample_frame,
         0,
         1,
+        NULL,
         out_voice_index
     );
 }
@@ -1388,6 +1476,7 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame
         initial_sample_frame,
         1,
         0,
+        NULL,
         out_voice_index
     );
 }
@@ -1420,7 +1509,28 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame
         initial_sample_frame,
         1,
         1,
+        NULL,
         out_voice_index
+    );
+}
+
+VTXCMixerStatus vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    VTXCMixerSharedSamplePayload *payload,
+    double sample_step,
+    uint32_t initial_sample_frame,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint64_t scheduled_start_frame,
+    uint32_t *out_voice_index
+) {
+    return vtx_c_mixer_add_sample_voice_internal(
+        state, NULL, 0u, sample_step, gain, pan, loop_mode, loop_start_frame,
+        loop_end_frame, scheduled_start_frame, initial_sample_frame, 1, 1,
+        payload, out_voice_index
     );
 }
 

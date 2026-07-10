@@ -184,6 +184,101 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(output.map(\.bitPattern), [0, 0, 0, Float(0.5).bitPattern])
     }
 
+    func testCSharedSamplePayloadServesMultipleVoicesAndFreesOnce() throws {
+        let sample: [Float] = [0.25, -0.5, 0.75]
+        var payload: OpaquePointer?
+        XCTAssertEqual(sample.withUnsafeBufferPointer { buffer in
+            vtx_c_mixer_shared_sample_payload_create_pre_sanitized(
+                buffer.baseAddress, UInt32(buffer.count), &payload
+            )
+        }, VTX_C_MIXER_STATUS_OK)
+        defer {
+            if let payload {
+                _ = vtx_c_mixer_shared_sample_payload_destroy(payload, nil)
+            }
+        }
+        let payloadHandle = try XCTUnwrap(payload)
+        var sharedState = VTXCMixerState()
+        var config = vtx_c_mixer_default_config()
+        config.channel_count = 1
+        XCTAssertEqual(vtx_c_mixer_init(&sharedState, config), VTX_C_MIXER_STATUS_OK)
+        defer { _ = vtx_c_mixer_clear_voices(&sharedState) }
+        let copied = CSoftwareMixer(config: MixerRenderConfig(sampleRate: config.sample_rate, channelCount: 1))
+        let copiedSample = MixerSampleBuffer(monoPCM: sample)
+
+        for _ in 0..<2 {
+            XCTAssertEqual(
+                vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+                    &sharedState, payloadHandle, 1, 0, 1, 0, VTX_C_MIXER_LOOP_NONE, 0, 0, 0, nil
+                ),
+                VTX_C_MIXER_STATUS_OK
+            )
+            copied.addVoice(sample: copiedSample)
+        }
+        var sharedOutput = Array(repeating: Float(0), count: 4)
+        XCTAssertEqual(sharedOutput.withUnsafeMutableBufferPointer {
+            vtx_c_mixer_render(&sharedState, $0.baseAddress, UInt32($0.count))
+        }, VTX_C_MIXER_STATUS_OK)
+        XCTAssertEqual(sharedOutput.map(\.bitPattern), copied.render(frames: 4).interleavedPCM.map(\.bitPattern))
+
+        var diagnostics = VTXCMixerSharedSamplePayloadDiagnostics()
+        XCTAssertEqual(vtx_c_mixer_shared_sample_payload_get_diagnostics(payloadHandle, &diagnostics), VTX_C_MIXER_STATUS_OK)
+        XCTAssertEqual(diagnostics.voice_reference_count, 2)
+        XCTAssertEqual(vtx_c_mixer_shared_sample_payload_destroy(payloadHandle, nil), VTX_C_MIXER_STATUS_INVALID_ARGUMENT)
+        XCTAssertEqual(vtx_c_mixer_clear_voices(&sharedState), VTX_C_MIXER_STATUS_OK)
+        XCTAssertEqual(vtx_c_mixer_clear_voices(&sharedState), VTX_C_MIXER_STATUS_OK)
+
+        var finalDiagnostics = VTXCMixerSharedSamplePayloadDiagnostics()
+        XCTAssertEqual(vtx_c_mixer_shared_sample_payload_destroy(payloadHandle, &finalDiagnostics), VTX_C_MIXER_STATUS_OK)
+        payload = nil
+        XCTAssertEqual(finalDiagnostics.payload_destroy_count, 1)
+        XCTAssertEqual(finalDiagnostics.payload_bytes_allocated, UInt64(sample.count * MemoryLayout<Float>.size))
+        XCTAssertEqual(finalDiagnostics.payload_bytes_freed, finalDiagnostics.payload_bytes_allocated)
+    }
+
+    func testCSoftwareMixerSharedPayloadMatchesDefensiveCopyForFiniteLoopEnvelopeGainAndPan() {
+        let sample = MixerSampleBuffer(monoPCM: [1, 0.5, -0.25, -1])
+        let envelope = MixerEnvelope(points: [
+            MixerEnvelopePoint(positionFrame: 0, value: 1),
+            MixerEnvelopePoint(positionFrame: 4, value: 0.5),
+        ])
+        let loop = MixerSampleLoop(mode: .forward, startFrame: 1, endFrame: 4)
+        let cache = CSoftwareMixerSharedSamplePayloadCache()
+        let shared = CSoftwareMixer(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
+            samplePayloadUploadMode: .sharedPreSanitizedCache,
+            sharedSamplePayloadCache: cache,
+            recordsSamplePayloadUploads: true
+        )
+        let copied = CSoftwareMixer(
+            config: MixerRenderConfig(sampleRate: 1_000, channelCount: 2),
+            samplePayloadUploadMode: .defensiveSanitizingCopy,
+            recordsSamplePayloadUploads: true
+        )
+        for mixer in [shared, copied] {
+            mixer.addScheduledVoice(
+                sample: sample, scheduledStartFrame: 0, gain: 0.75, pan: -0.25,
+                loop: loop, volumeEnvelope: envelope
+            )
+            mixer.addScheduledVoice(
+                sample: sample, scheduledStartFrame: 2, gain: 0.5, pan: 0.5,
+                loop: loop, volumeEnvelope: envelope
+            )
+        }
+
+        XCTAssertEqual(
+            shared.render(frames: 12).interleavedPCM.map(\.bitPattern),
+            copied.render(frames: 12).interleavedPCM.map(\.bitPattern)
+        )
+        let sharedDiagnostics = shared.samplePayloadUploadDiagnostics
+        XCTAssertEqual(sharedDiagnostics.sharedPayloadCreateCount, 1)
+        XCTAssertEqual(sharedDiagnostics.sharedPayloadVoiceReferenceCount, 2)
+        XCTAssertEqual(sharedDiagnostics.avoidedPerVoiceUploadCount, 1)
+        XCTAssertEqual(sharedDiagnostics.defensiveSanitizingUploadCount, 0)
+        XCTAssertEqual(copied.samplePayloadUploadDiagnostics.defensiveSanitizingUploadCount, 2)
+        shared.clearVoices()
+    }
+
     func testCSoftwareMixerUploadDiagnosticsReportVoiceAddsBytesPathsAndDuplicates() {
         let repeatedSample = MixerSampleBuffer(monoPCM: [1, 0.5])
         let otherSample = MixerSampleBuffer(monoPCM: [-0.25])

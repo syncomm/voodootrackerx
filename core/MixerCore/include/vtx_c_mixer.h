@@ -79,6 +79,16 @@ typedef struct {
     uint32_t loop_end_frame;
 } VTXCMixerEnvelope;
 
+typedef struct VTXCMixerSharedSamplePayload VTXCMixerSharedSamplePayload;
+
+typedef struct {
+    uint64_t payload_destroy_count;
+    uint64_t payload_bytes_allocated;
+    uint64_t payload_bytes_freed;
+    uint64_t voice_reference_count;
+    uint64_t active_voice_reference_count;
+} VTXCMixerSharedSamplePayloadDiagnostics;
+
 typedef struct {
     VTXCMixerEnvelopePoint points[VTX_C_MIXER_MAX_ENVELOPE_POINTS];
     uint32_t point_count;
@@ -93,6 +103,7 @@ typedef struct {
 
 typedef struct {
     float *sample_pcm;
+    VTXCMixerSharedSamplePayload *shared_sample_payload;
     uint32_t sample_frame_count;
     uint32_t initial_sample_frame;
     double sample_position;
@@ -203,6 +214,27 @@ VTXCMixerStatus vtx_c_mixer_configure(VTXCMixerState *state, VTXCMixerConfig con
 
 // Clears all active one-shot voices and returns the mixer to deterministic silence.
 VTXCMixerStatus vtx_c_mixer_clear_voices(VTXCMixerState *state);
+
+// Copies finite mono Float32 PCM once into a C-owned shared payload. The caller's
+// buffer is used only for this call and is never borrowed by the payload or voices.
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_create_pre_sanitized(
+    const float *sample_pcm,
+    uint32_t sample_frame_count,
+    VTXCMixerSharedSamplePayload **out_payload
+);
+
+// Copies current payload counters into caller-owned storage without exposing addresses.
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_get_diagnostics(
+    const VTXCMixerSharedSamplePayload *payload,
+    VTXCMixerSharedSamplePayloadDiagnostics *out_diagnostics
+);
+
+// Frees the payload exactly once and optionally returns final counters.
+// Destruction is rejected while any mixer voice still references the payload.
+VTXCMixerStatus vtx_c_mixer_shared_sample_payload_destroy(
+    VTXCMixerSharedSamplePayload *payload,
+    VTXCMixerSharedSamplePayloadDiagnostics *out_final_diagnostics
+);
 
 // Attaches a caller-owned channel tag to an existing voice. The C mixer treats
 // this as an opaque identifier; callers own tracker/channel semantics.
@@ -369,6 +401,22 @@ VTXCMixerStatus vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame
     VTXCMixerState *state,
     const float *sample_pcm,
     uint32_t sample_frame_count,
+    double sample_step,
+    uint32_t initial_sample_frame,
+    float gain,
+    float pan,
+    VTXCMixerLoopMode loop_mode,
+    uint32_t loop_start_frame,
+    uint32_t loop_end_frame,
+    uint64_t scheduled_start_frame,
+    uint32_t *out_voice_index
+);
+
+// Adds a scheduled voice that references C-owned shared PCM without a per-voice copy.
+// Voice release drops only its reference; the caller-owned payload remains valid.
+VTXCMixerStatus vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+    VTXCMixerState *state,
+    VTXCMixerSharedSamplePayload *payload,
     double sample_step,
     uint32_t initial_sample_frame,
     float gain,

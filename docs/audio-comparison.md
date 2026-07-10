@@ -191,6 +191,11 @@ output, C mixer DSP, runtime playback, parser behavior, or tracker UI
 behavior. Use them to choose and validate narrow future render/export
 performance PRs.
 
+An internal pre-indexed per-window scheduling prototype now compares window,
+event, and carryover identities and pins representative update candidates
+against the current diagnostics. Production render paths do not consume it; a
+future byte-identity-gated PR may use its evidence to optimize scheduling.
+
 ## FT2 Mix Profile vs VTX Mix Profile
 
 `vtx_render_bounded_xm` supports explicit mix profiles:

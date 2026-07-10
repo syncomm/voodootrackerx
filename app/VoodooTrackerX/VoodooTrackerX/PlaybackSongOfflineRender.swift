@@ -289,6 +289,80 @@ struct PlaybackSongWindowedRenderSummary: Equatable {
     }
 }
 
+enum PlaybackSongWindowSchedulingUpdateKind: String, CaseIterable, Hashable {
+    case envelopePosition
+    case voiceGainPan
+    case tonePortamentoStep
+    case portamentoSlideStep
+    case finePortamentoUpStep
+    case finePortamentoDownStep
+    case extraFinePortamentoStep
+    case arpeggioStep
+    case vibratoStep
+    case noteCut
+    case retriggerCut
+    case sameChannelReplacementRamp
+}
+
+struct PlaybackSongWindowScheduledEvent: Equatable {
+    let eventIndex: Int
+    let source: PlaybackPosition?
+    let channelIndex: Int?
+    let scheduledFrame: Int
+}
+
+struct PlaybackSongWindowContinuationCandidate: Equatable {
+    let eventIndex: Int
+    let source: PlaybackPosition?
+    let channelIndex: Int?
+    let scheduledFrame: Int
+}
+
+struct PlaybackSongWindowSchedulingUpdateCandidate: Equatable {
+    let kind: PlaybackSongWindowSchedulingUpdateKind
+    let sourceDiagnosticIndex: Int
+    let childUpdateIndex: Int?
+    let activeEventIndex: Int
+    let scheduledFrame: Int
+}
+
+struct PlaybackSongWindowBucket: Equatable {
+    let windowIndex: Int
+    let startRow: Int
+    let endRowExclusive: Int
+    let startFrame: Int
+    let endFrame: Int
+    let scheduledEvents: [PlaybackSongWindowScheduledEvent]
+    let continuationCandidates: [PlaybackSongWindowContinuationCandidate]
+    let schedulingUpdateCandidates: [PlaybackSongWindowSchedulingUpdateCandidate]
+}
+
+struct PlaybackSongWindowedRenderIndexDiagnostics: Equatable {
+    // Scan estimates cover top-level source passes; nested continuation-history lookups are excluded.
+    let buildDurationSeconds: Double
+    let indexedWindowCount: Int
+    let indexedEventCount: Int
+    let indexedContinuationCandidateCount: Int
+    let indexedUpdateCandidateCount: Int
+    let currentWindowEventAndUpdateFullArrayScanCount: Int
+    let currentContinuationTopLevelFullArrayScanCount: Int
+    let currentTopLevelFullArrayScanCount: Int
+    let indexedEventAndUpdateSourceArrayScanCount: Int
+    let estimatedAvoidedEventAndUpdateFullArrayScanCount: Int
+    let eventCountsByWindow: [Int]
+    let continuationCandidateCountsByWindow: [Int]
+    let updateCandidateCountsByWindow: [Int]
+}
+
+/// Output-neutral prototype index for existing pre-acceptance window scheduler inputs.
+///
+/// Production `renderWindowed` and `renderWindowedStreaming` do not consume this representation.
+struct PlaybackSongWindowedRenderIndex: Equatable {
+    let windowRows: Int
+    let windows: [PlaybackSongWindowBucket]
+    let diagnostics: PlaybackSongWindowedRenderIndexDiagnostics
+}
+
 struct PlaybackSongSameChannelReplacementEvent: Equatable {
     let sourceChannelIndex: Int
     let oldEventIndex: Int
@@ -764,6 +838,170 @@ final class PlaybackSongOfflineRenderer {
             windowedRenderSummary: coreResult.windowedRenderSummary,
             sameChannelVoiceLifetime: coreResult.sameChannelVoiceLifetime
         )
+    }
+
+    /// Builds an opt-in prototype index; `includedEventIndices` must match any adapted isolation filter.
+    /// Production windowed rendering does not call this method or consume the returned buckets.
+    func makeWindowedRenderScheduleIndex(
+        for plan: PlaybackSongSyntheticPlan,
+        totalFrames: Int,
+        windowRows: Int,
+        includedEventIndices: Set<Int>?
+    ) -> PlaybackSongWindowedRenderIndex {
+        let buildStartTime = VTXPerformanceClock.now()
+        let safeWindowRows = max(1, windowRows)
+        let safeTotalFrames = max(0, totalFrames)
+        let specs = Self.windowSpecs(
+            for: plan,
+            totalFrames: safeTotalFrames,
+            windowRows: safeWindowRows
+        )
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        let mappingsByEventIndex = Dictionary(
+            uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
+        )
+        let sameChannelLifetime = Self.sameChannelVoiceLifetimeDiagnostics(
+            for: plan,
+            renderedFrameCount: safeTotalFrames
+        )
+        var eventBuckets = Array(repeating: [PlaybackSongWindowScheduledEvent](), count: specs.count)
+        var continuationBuckets = Array(repeating: [PlaybackSongWindowContinuationCandidate](), count: specs.count)
+        var updateBuckets = Array(repeating: [PlaybackSongWindowSchedulingUpdateCandidate](), count: specs.count)
+        var windowIndexByRow = [Int: Int]()
+        for spec in specs {
+            for row in spec.startRow..<spec.endRowExclusive {
+                windowIndexByRow[row] = spec.index
+            }
+        }
+
+        for (eventIndex, event) in plan.pattern.events.enumerated() {
+            let scheduledFrame = scheduler.frame(for: event)
+            guard let windowIndex = windowIndexByRow[event.row],
+                  specs.indices.contains(windowIndex),
+                  scheduledFrame >= specs[windowIndex].startFrame,
+                  scheduledFrame < specs[windowIndex].endFrame else {
+                continue
+            }
+            eventBuckets[windowIndex].append(Self.windowScheduledEvent(
+                eventIndex: eventIndex,
+                event: event,
+                scheduledFrame: scheduledFrame,
+                mappingsByEventIndex: mappingsByEventIndex
+            ))
+        }
+
+        for spec in specs where spec.startFrame > 0 {
+            continuationBuckets[spec.index] = Self.continuations(
+                for: spec,
+                plan: plan,
+                scheduler: scheduler,
+                sameChannelLifetime: sameChannelLifetime,
+                includedEventIndices: includedEventIndices
+            ).map { continuation in
+                Self.windowContinuationCandidate(
+                    continuation,
+                    scheduler: scheduler,
+                    mappingsByEventIndex: mappingsByEventIndex
+                )
+            }
+        }
+
+        let allUpdates = Self.windowSchedulingUpdateCandidates(
+            for: plan,
+            sameChannelLifetime: sameChannelLifetime,
+            includedEventIndices: includedEventIndices
+        )
+        for update in allUpdates {
+            guard let windowIndex = Self.windowIndex(
+                containingFrame: update.scheduledFrame,
+                in: specs
+            ) else {
+                continue
+            }
+            updateBuckets[windowIndex].append(update)
+        }
+        let buckets = specs.map { spec in
+            PlaybackSongWindowBucket(
+                windowIndex: spec.index,
+                startRow: spec.startRow,
+                endRowExclusive: spec.endRowExclusive,
+                startFrame: spec.startFrame,
+                endFrame: spec.endFrame,
+                scheduledEvents: eventBuckets[spec.index],
+                continuationCandidates: continuationBuckets[spec.index],
+                schedulingUpdateCandidates: updateBuckets[spec.index]
+            )
+        }
+        let buildDuration = VTXPerformanceClock.seconds(since: buildStartTime)
+        let indexedSourceScanCount = PlaybackSongWindowSchedulingUpdateKind.allCases.count + 1
+        let currentWindowScanCount = specs.count * indexedSourceScanCount
+        let continuationScanCount = max(0, specs.count - 1) * 3
+        let diagnostics = PlaybackSongWindowedRenderIndexDiagnostics(
+            buildDurationSeconds: buildDuration,
+            indexedWindowCount: buckets.count,
+            indexedEventCount: buckets.map(\.scheduledEvents.count).reduce(0, +),
+            indexedContinuationCandidateCount: buckets.map(\.continuationCandidates.count).reduce(0, +),
+            indexedUpdateCandidateCount: buckets.map(\.schedulingUpdateCandidates.count).reduce(0, +),
+            currentWindowEventAndUpdateFullArrayScanCount: currentWindowScanCount,
+            currentContinuationTopLevelFullArrayScanCount: continuationScanCount,
+            currentTopLevelFullArrayScanCount: currentWindowScanCount + continuationScanCount,
+            indexedEventAndUpdateSourceArrayScanCount: indexedSourceScanCount,
+            estimatedAvoidedEventAndUpdateFullArrayScanCount: max(0, currentWindowScanCount - indexedSourceScanCount),
+            eventCountsByWindow: buckets.map(\.scheduledEvents.count),
+            continuationCandidateCountsByWindow: buckets.map(\.continuationCandidates.count),
+            updateCandidateCountsByWindow: buckets.map(\.schedulingUpdateCandidates.count)
+        )
+        return PlaybackSongWindowedRenderIndex(
+            windowRows: safeWindowRows,
+            windows: buckets,
+            diagnostics: diagnostics
+        )
+    }
+
+    /// Recreates the existing scan-per-window inputs for prototype equivalence tests only.
+    func currentWindowedRenderPreAcceptanceInputs(
+        for plan: PlaybackSongSyntheticPlan,
+        totalFrames: Int,
+        windowRows: Int,
+        includedEventIndices: Set<Int>?
+    ) -> [PlaybackSongWindowBucket] {
+        let specs = Self.windowSpecs(for: plan, totalFrames: max(0, totalFrames), windowRows: max(1, windowRows))
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        let mappings = Dictionary(uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) })
+        let lifetime = Self.sameChannelVoiceLifetimeDiagnostics(for: plan, renderedFrameCount: max(0, totalFrames))
+        return specs.map { spec in
+            let events = Self.eventPairs(in: spec, plan: plan, scheduler: scheduler).map { pair in
+                Self.windowScheduledEvent(
+                    eventIndex: pair.offset,
+                    event: pair.element,
+                    scheduledFrame: scheduler.frame(for: pair.element),
+                    mappingsByEventIndex: mappings
+                )
+            }
+            let continuations = Self.continuations(
+                for: spec,
+                plan: plan,
+                scheduler: scheduler,
+                sameChannelLifetime: lifetime,
+                includedEventIndices: includedEventIndices
+            ).map { Self.windowContinuationCandidate($0, scheduler: scheduler, mappingsByEventIndex: mappings) }
+            return PlaybackSongWindowBucket(
+                windowIndex: spec.index,
+                startRow: spec.startRow,
+                endRowExclusive: spec.endRowExclusive,
+                startFrame: spec.startFrame,
+                endFrame: spec.endFrame,
+                scheduledEvents: events,
+                continuationCandidates: continuations,
+                schedulingUpdateCandidates: Self.windowSchedulingUpdateCandidates(
+                    for: plan,
+                    sameChannelLifetime: lifetime,
+                    includedEventIndices: includedEventIndices,
+                    windowStartFrame: spec.startFrame,
+                    windowEndFrame: spec.endFrame
+                )
+            )
+        }
     }
 
     private func renderWindowedCore(
@@ -2618,6 +2856,153 @@ final class PlaybackSongOfflineRenderer {
             reasons.append("deferred_pattern_traversal_effects_not_applied")
         }
         return reasons
+    }
+
+    private static func windowScheduledEvent(
+        eventIndex: Int,
+        event: SyntheticTrackerEvent,
+        scheduledFrame: Int,
+        mappingsByEventIndex: [Int: PlaybackSongSyntheticEventMapping]
+    ) -> PlaybackSongWindowScheduledEvent {
+        let mapping = mappingsByEventIndex[eventIndex]
+        return PlaybackSongWindowScheduledEvent(
+            eventIndex: eventIndex,
+            source: mapping?.source,
+            channelIndex: mapping?.channelIndex,
+            scheduledFrame: scheduledFrame
+        )
+    }
+
+    private static func windowContinuationCandidate(
+        _ continuation: WindowContinuation,
+        scheduler: SyntheticTrackerScheduler,
+        mappingsByEventIndex: [Int: PlaybackSongSyntheticEventMapping]
+    ) -> PlaybackSongWindowContinuationCandidate {
+        let mapping = mappingsByEventIndex[continuation.eventIndex]
+        return PlaybackSongWindowContinuationCandidate(
+            eventIndex: continuation.eventIndex,
+            source: mapping?.source,
+            channelIndex: mapping?.channelIndex,
+            scheduledFrame: scheduler.frame(for: continuation.event)
+        )
+    }
+
+    private static func windowIndex(
+        containingFrame frame: Int,
+        in specs: [RenderWindowSpec]
+    ) -> Int? {
+        var lowerBound = 0
+        var upperBound = specs.count
+        while lowerBound < upperBound {
+            let midpoint = lowerBound + ((upperBound - lowerBound) / 2)
+            let spec = specs[midpoint]
+            if frame < spec.startFrame {
+                upperBound = midpoint
+            } else if frame >= spec.endFrame {
+                lowerBound = midpoint + 1
+            } else {
+                return spec.index
+            }
+        }
+        return nil
+    }
+
+    private static func windowSchedulingUpdateCandidates(
+        for plan: PlaybackSongSyntheticPlan,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
+        includedEventIndices: Set<Int>?,
+        windowStartFrame: Int? = nil,
+        windowEndFrame: Int? = nil
+    ) -> [PlaybackSongWindowSchedulingUpdateCandidate] {
+        var updates = [PlaybackSongWindowSchedulingUpdateCandidate]()
+        func append(
+            _ kind: PlaybackSongWindowSchedulingUpdateKind,
+            diagnosticIndex: Int,
+            childIndex: Int? = nil,
+            eventIndex: Int,
+            frame: Int
+        ) {
+            guard includesEvent(eventIndex, includedEventIndices: includedEventIndices) else {
+                return
+            }
+            if let windowStartFrame, frame < windowStartFrame {
+                return
+            }
+            if let windowEndFrame, frame >= windowEndFrame {
+                return
+            }
+            updates.append(PlaybackSongWindowSchedulingUpdateCandidate(
+                kind: kind,
+                sourceDiagnosticIndex: diagnosticIndex,
+                childUpdateIndex: childIndex,
+                activeEventIndex: eventIndex,
+                scheduledFrame: frame
+            ))
+        }
+        func appendStepDiagnostics<Diagnostic>(
+            _ diagnostics: [Diagnostic],
+            kind: PlaybackSongWindowSchedulingUpdateKind,
+            isApplied: (Diagnostic) -> Bool,
+            eventIndex: (Diagnostic) -> Int?,
+            stepUpdates: (Diagnostic) -> [PlaybackSongSyntheticTonePortamentoStepUpdate]
+        ) {
+            for (diagnosticIndex, diagnostic) in diagnostics.enumerated() where isApplied(diagnostic) {
+                guard let activeEventIndex = eventIndex(diagnostic) else {
+                    continue
+                }
+                for (childIndex, update) in stepUpdates(diagnostic).enumerated() {
+                    append(
+                        kind,
+                        diagnosticIndex: diagnosticIndex,
+                        childIndex: childIndex,
+                        eventIndex: activeEventIndex,
+                        frame: update.scheduledFrame
+                    )
+                }
+            }
+        }
+
+        for (diagnosticIndex, diagnostic) in plan.diagnostics.envelopePositionEffects.enumerated() {
+            guard diagnostic.applied,
+                  let activeEventIndex = diagnostic.activeEventIndex,
+                  diagnostic.appliedPositionFrame != nil else {
+                continue
+            }
+            append(.envelopePosition, diagnosticIndex: diagnosticIndex, eventIndex: activeEventIndex, frame: diagnostic.scheduledFrame)
+        }
+        for (diagnosticIndex, diagnostic) in plan.diagnostics.voiceStateUpdates.enumerated() where diagnostic.activeVoiceUpdated {
+            guard let activeEventIndex = diagnostic.activeEventIndex else {
+                continue
+            }
+            guard changedGain(from: diagnostic) != nil || changedPan(from: diagnostic) != nil else {
+                continue
+            }
+            append(.voiceGainPan, diagnosticIndex: diagnosticIndex, eventIndex: activeEventIndex, frame: diagnostic.scheduledFrame)
+        }
+        appendStepDiagnostics(plan.diagnostics.tonePortamentoEffects, kind: .tonePortamentoStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.portamentoSlideEffects, kind: .portamentoSlideStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.finePortamentoUpEffects, kind: .finePortamentoUpStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.finePortamentoDownEffects, kind: .finePortamentoDownStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.extraFinePortamentoEffects, kind: .extraFinePortamentoStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.arpeggioEffects, kind: .arpeggioStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        appendStepDiagnostics(plan.diagnostics.vibratoEffects, kind: .vibratoStep, isApplied: { $0.applied }, eventIndex: { $0.activeEventIndex }, stepUpdates: { $0.stepUpdates })
+        for (diagnosticIndex, diagnostic) in plan.diagnostics.noteCutEffects.enumerated() where diagnostic.applied {
+            guard let activeEventIndex = diagnostic.activeEventIndex,
+                  let scheduledFrame = diagnostic.scheduledFrame else {
+                continue
+            }
+            append(.noteCut, diagnosticIndex: diagnosticIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
+        }
+        for (diagnosticIndex, diagnostic) in plan.diagnostics.retriggerEffects.enumerated() where diagnostic.applied {
+            for (childIndex, pair) in zip(diagnostic.replacedEventIndices, diagnostic.retriggerFrames).enumerated() {
+                let (activeEventIndex, scheduledFrame) = pair
+                append(.retriggerCut, diagnosticIndex: diagnosticIndex, childIndex: childIndex, eventIndex: activeEventIndex, frame: scheduledFrame)
+            }
+        }
+        for (replacementIndex, replacement) in sameChannelLifetime.replacementEvents.enumerated() {
+            append(.sameChannelReplacementRamp, diagnosticIndex: replacementIndex, eventIndex: replacement.oldEventIndex, frame: replacement.replacementFrame)
+        }
+        return updates
     }
 
     private static func eventPairs(

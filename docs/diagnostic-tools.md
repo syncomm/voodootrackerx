@@ -163,6 +163,10 @@ estimates and unity-gain fast-path use, so future performance PRs can be
 prioritized with measured data. Unity-gain auto-headroom exports can safely
 skip the rewrite pass; output semantics remain unchanged.
 
+The internal window-scheduling index prototype also reports build duration,
+bucket counts, per-window event/update-candidate counts, and avoided-scan estimates.
+It is test/diagnostic-only, not a CLI or production render dependency.
+
 ## Future Unified CLI Shape
 
 Do not implement this in the inventory PR. A future CLI can be either a Python

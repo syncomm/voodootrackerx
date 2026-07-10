@@ -320,6 +320,48 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(current.sameChannelVoiceLifetime.replacementEvents.map(\.replacementFrame), [64, 70, 70, 129])
     }
 
+    func testProductionWindowedRenderConsumesPreindexedSchedulingBuckets() throws {
+        let request = makePreindexedWindowSchedulingRequest()
+
+        let result = PlaybackSongOfflineRenderer().renderWindowed(request, windowRows: 64, collectPerformanceDiagnostics: true)
+        let summary = try XCTUnwrap(result.windowedRenderSummary)
+        let performance = try XCTUnwrap(result.performanceDiagnostics)
+        let indexDiagnostics = try XCTUnwrap(performance.windowedRenderIndexDiagnostics)
+
+        XCTAssertTrue(performance.usedPreindexedWindowScheduling)
+        XCTAssertEqual(performance.preindexedWindowSchedulingConsumedWindowCount, summary.windowCount)
+        XCTAssertEqual(indexDiagnostics.indexedWindowCount, 3)
+        XCTAssertEqual(indexDiagnostics.indexedEventCount, 4)
+        XCTAssertEqual(indexDiagnostics.indexedContinuationCandidateCount, 2)
+        XCTAssertEqual(indexDiagnostics.indexedUpdateCandidateCount, 7)
+        XCTAssertEqual(indexDiagnostics.estimatedAvoidedEventAndUpdateFullArrayScanCount, 26)
+        XCTAssertGreaterThanOrEqual(indexDiagnostics.buildDurationSeconds, 0)
+    }
+
+    func testProductionPreindexedWindowSchedulingMatchesScanReferenceBytesAndDiagnostics() throws {
+        let request = makePreindexedWindowSchedulingRequest()
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let indexed = renderer.renderWindowed(request, windowRows: 64)
+        let scanReference = renderer.renderWindowedUsingScanPerWindowSchedulingReference(request, windowRows: 64)
+        let indexedSummary = try XCTUnwrap(indexed.windowedRenderSummary)
+        let indexedWAV = try MixerWAVExporter.float32WAVData(from: indexed.block, exportPolicy: .autoHeadroom(for: indexed.block))
+        let scanWAV = try MixerWAVExporter.float32WAVData(from: scanReference.block, exportPolicy: .autoHeadroom(for: scanReference.block))
+
+        XCTAssertEqual(indexed, scanReference)
+        XCTAssertEqual(indexedWAV, scanWAV)
+        XCTAssertEqual(indexedSummary.windowCount, 3)
+        XCTAssertEqual(indexedSummary.totalScheduledEvents, 6)
+        XCTAssertEqual(indexedSummary.totalAcceptedScheduledEvents, 6)
+        XCTAssertEqual(indexedSummary.totalRejectedScheduledEvents, 0)
+        XCTAssertEqual(indexedSummary.totalCarriedVoices, 2)
+        XCTAssertEqual(indexedSummary.totalBoundaryContinuations, 2)
+        XCTAssertEqual(indexedSummary.totalDroppedAtWindowBoundaries, 0)
+        XCTAssertFalse(indexedSummary.mayContainBoundaryCuts)
+        XCTAssertTrue(indexed.block.interleavedPCM.dropFirst(64).contains { $0 != 0 })
+        XCTAssertTrue(indexed.block.interleavedPCM.dropFirst(128).contains { $0 != 0 })
+    }
+
     func testPlaybackSongOfflineRendererPerformanceInstrumentationDoesNotChangePCM() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(

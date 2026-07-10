@@ -163,9 +163,12 @@ estimates and unity-gain fast-path use, so future performance PRs can be
 prioritized with measured data. Unity-gain auto-headroom exports can safely
 skip the rewrite pass; output semantics remain unchanged.
 
-The internal window-scheduling index prototype also reports build duration,
-bucket counts, per-window event/update-candidate counts, and avoided-scan estimates.
-It is test/diagnostic-only, not a CLI or production render dependency.
+The shared windowed offline render core now consumes its internal scheduling
+index. Performance diagnostics report index build duration, bucket counts,
+consumed production windows, per-window event/update-candidate counts, and
+avoided scan estimates. Byte-parity tests keep this optimization output-neutral;
+continuation history construction retains its separately counted per-window
+scan. The change does not alter the CLI surface, C mixer DSP, or runtime playback.
 
 ## Future Unified CLI Shape
 

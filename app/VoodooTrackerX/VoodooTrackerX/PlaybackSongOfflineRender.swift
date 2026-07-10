@@ -181,6 +181,9 @@ struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
 struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
     let totalDurationSeconds: Double
     let planAdaptDurationSeconds: Double
+    let usedPreindexedWindowScheduling: Bool
+    let preindexedWindowSchedulingConsumedWindowCount: Int
+    let windowedRenderIndexDiagnostics: PlaybackSongWindowedRenderIndexDiagnostics?
     let totalWindowSchedulingDurationSeconds: Double
     let totalCMixerRenderDurationSeconds: Double
     let renderWindowCount: Int
@@ -326,6 +329,14 @@ struct PlaybackSongWindowSchedulingUpdateCandidate: Equatable {
     let scheduledFrame: Int
 }
 
+struct PlaybackSongWindowContinuation: Equatable {
+    let eventIndex: Int
+    let event: SyntheticTrackerEvent
+    let runtimeState: CSoftwareMixerVoiceRuntimeState
+    let keyOffFrame: Int?
+    let carriedTonePortamentoActive: Bool
+}
+
 struct PlaybackSongWindowBucket: Equatable {
     let windowIndex: Int
     let startRow: Int
@@ -334,11 +345,13 @@ struct PlaybackSongWindowBucket: Equatable {
     let endFrame: Int
     let scheduledEvents: [PlaybackSongWindowScheduledEvent]
     let continuationCandidates: [PlaybackSongWindowContinuationCandidate]
+    let continuations: [PlaybackSongWindowContinuation]
     let schedulingUpdateCandidates: [PlaybackSongWindowSchedulingUpdateCandidate]
 }
 
 struct PlaybackSongWindowedRenderIndexDiagnostics: Equatable {
     // Scan estimates cover top-level source passes; nested continuation-history lookups are excluded.
+    // Continuation state still uses its proven per-window history scan and is counted separately.
     let buildDurationSeconds: Double
     let indexedWindowCount: Int
     let indexedEventCount: Int
@@ -354,9 +367,7 @@ struct PlaybackSongWindowedRenderIndexDiagnostics: Equatable {
     let updateCandidateCountsByWindow: [Int]
 }
 
-/// Output-neutral prototype index for existing pre-acceptance window scheduler inputs.
-///
-/// Production `renderWindowed` and `renderWindowedStreaming` do not consume this representation.
+/// Internal offline index for the existing pre-acceptance window scheduler inputs.
 struct PlaybackSongWindowedRenderIndex: Equatable {
     let windowRows: Int
     let windows: [PlaybackSongWindowBucket]
@@ -589,6 +600,11 @@ private struct PlaybackSongWindowedRenderCoreResult {
     let sameChannelVoiceLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics
 }
 
+private enum PlaybackSongWindowedSchedulingSource {
+    case preindexed
+    case scanPerWindowReference
+}
+
 /// Prepared offline render session for split renders and reset determinism checks.
 final class PlaybackSongOfflineRenderSession {
     let request: PlaybackSongOfflineRenderRequest
@@ -807,10 +823,27 @@ final class PlaybackSongOfflineRenderer {
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
     ) -> PlaybackSongOfflineRenderResult {
+        renderWindowed(
+            request,
+            windowRows: windowRows,
+            schedulingSource: .preindexed,
+            collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            progress: progress
+        )
+    }
+
+    private func renderWindowed(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int,
+        schedulingSource: PlaybackSongWindowedSchedulingSource,
+        collectPerformanceDiagnostics: Bool,
+        progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)?
+    ) -> PlaybackSongOfflineRenderResult {
         var interleavedPCM = [Float]()
         let coreResult = renderWindowedCore(
             request,
             windowRows: windowRows,
+            schedulingSource: schedulingSource,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             prepareOutput: { totalFrames, config in
                 interleavedPCM.reserveCapacity(totalFrames * config.channelCount)
@@ -840,8 +873,21 @@ final class PlaybackSongOfflineRenderer {
         )
     }
 
-    /// Builds an opt-in prototype index; `includedEventIndices` must match any adapted isolation filter.
-    /// Production windowed rendering does not call this method or consume the returned buckets.
+    /// Retains the former scan-per-window scheduler as a byte-parity reference for tests only.
+    func renderWindowedUsingScanPerWindowSchedulingReference(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int
+    ) -> PlaybackSongOfflineRenderResult {
+        renderWindowed(
+            request,
+            windowRows: windowRows,
+            schedulingSource: .scanPerWindowReference,
+            collectPerformanceDiagnostics: false,
+            progress: nil
+        )
+    }
+
+    /// Builds the internal offline index; `includedEventIndices` must match any adapted isolation filter.
     func makeWindowedRenderScheduleIndex(
         for plan: PlaybackSongSyntheticPlan,
         totalFrames: Int,
@@ -856,16 +902,35 @@ final class PlaybackSongOfflineRenderer {
             totalFrames: safeTotalFrames,
             windowRows: safeWindowRows
         )
-        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
-        let mappingsByEventIndex = Dictionary(
-            uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
-        )
         let sameChannelLifetime = Self.sameChannelVoiceLifetimeDiagnostics(
             for: plan,
             renderedFrameCount: safeTotalFrames
         )
+        return makeWindowedRenderScheduleIndex(
+            for: plan,
+            specs: specs,
+            windowRows: safeWindowRows,
+            includedEventIndices: includedEventIndices,
+            sameChannelLifetime: sameChannelLifetime,
+            buildStartTime: buildStartTime
+        )
+    }
+
+    private func makeWindowedRenderScheduleIndex(
+        for plan: PlaybackSongSyntheticPlan,
+        specs: [RenderWindowSpec],
+        windowRows: Int,
+        includedEventIndices: Set<Int>?,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
+        buildStartTime: UInt64
+    ) -> PlaybackSongWindowedRenderIndex {
+        let scheduler = SyntheticTrackerScheduler(config: plan.timingConfig)
+        let mappingsByEventIndex = Dictionary(
+            uniqueKeysWithValues: plan.diagnostics.eventMappings.map { ($0.eventIndex, $0) }
+        )
         var eventBuckets = Array(repeating: [PlaybackSongWindowScheduledEvent](), count: specs.count)
         var continuationBuckets = Array(repeating: [PlaybackSongWindowContinuationCandidate](), count: specs.count)
+        var continuations = Array(repeating: [PlaybackSongWindowContinuation](), count: specs.count)
         var updateBuckets = Array(repeating: [PlaybackSongWindowSchedulingUpdateCandidate](), count: specs.count)
         var windowIndexByRow = [Int: Int]()
         for spec in specs {
@@ -891,13 +956,15 @@ final class PlaybackSongOfflineRenderer {
         }
 
         for spec in specs where spec.startFrame > 0 {
-            continuationBuckets[spec.index] = Self.continuations(
+            let windowContinuations = Self.continuations(
                 for: spec,
                 plan: plan,
                 scheduler: scheduler,
                 sameChannelLifetime: sameChannelLifetime,
                 includedEventIndices: includedEventIndices
-            ).map { continuation in
+            )
+            continuations[spec.index] = windowContinuations
+            continuationBuckets[spec.index] = windowContinuations.map { continuation in
                 Self.windowContinuationCandidate(
                     continuation,
                     scheduler: scheduler,
@@ -929,6 +996,7 @@ final class PlaybackSongOfflineRenderer {
                 endFrame: spec.endFrame,
                 scheduledEvents: eventBuckets[spec.index],
                 continuationCandidates: continuationBuckets[spec.index],
+                continuations: continuations[spec.index],
                 schedulingUpdateCandidates: updateBuckets[spec.index]
             )
         }
@@ -952,7 +1020,7 @@ final class PlaybackSongOfflineRenderer {
             updateCandidateCountsByWindow: buckets.map(\.schedulingUpdateCandidates.count)
         )
         return PlaybackSongWindowedRenderIndex(
-            windowRows: safeWindowRows,
+            windowRows: windowRows,
             windows: buckets,
             diagnostics: diagnostics
         )
@@ -978,13 +1046,16 @@ final class PlaybackSongOfflineRenderer {
                     mappingsByEventIndex: mappings
                 )
             }
-            let continuations = Self.continuations(
+            let windowContinuations = Self.continuations(
                 for: spec,
                 plan: plan,
                 scheduler: scheduler,
                 sameChannelLifetime: lifetime,
                 includedEventIndices: includedEventIndices
-            ).map { Self.windowContinuationCandidate($0, scheduler: scheduler, mappingsByEventIndex: mappings) }
+            )
+            let continuationCandidates = windowContinuations.map {
+                Self.windowContinuationCandidate($0, scheduler: scheduler, mappingsByEventIndex: mappings)
+            }
             return PlaybackSongWindowBucket(
                 windowIndex: spec.index,
                 startRow: spec.startRow,
@@ -992,7 +1063,8 @@ final class PlaybackSongOfflineRenderer {
                 startFrame: spec.startFrame,
                 endFrame: spec.endFrame,
                 scheduledEvents: events,
-                continuationCandidates: continuations,
+                continuationCandidates: continuationCandidates,
+                continuations: windowContinuations,
                 schedulingUpdateCandidates: Self.windowSchedulingUpdateCandidates(
                     for: plan,
                     sameChannelLifetime: lifetime,
@@ -1007,6 +1079,7 @@ final class PlaybackSongOfflineRenderer {
     private func renderWindowedCore(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
+        schedulingSource: PlaybackSongWindowedSchedulingSource,
         collectPerformanceDiagnostics: Bool,
         prepareOutput: ((Int, MixerRenderConfig) -> MixerRenderConfig)?,
         collectBlock: ((MixerRenderBlock) -> Void)?,
@@ -1031,6 +1104,7 @@ final class PlaybackSongOfflineRenderer {
             mutingEventsNotIn: includedEventIndices
         )
         let totalFrames = effectiveRequest.boundedFrameCount
+        let indexBuildStartTime = VTXPerformanceClock.now()
         let windows = Self.windowSpecs(
             for: adaptedPlan,
             totalFrames: totalFrames,
@@ -1049,6 +1123,21 @@ final class PlaybackSongOfflineRenderer {
         let planAdaptDuration = collectPerformanceDiagnostics
             ? VTXPerformanceClock.seconds(since: planAdaptStartTime)
             : 0
+        let windowedRenderIndex: PlaybackSongWindowedRenderIndex?
+        switch schedulingSource {
+        case .preindexed:
+            windowedRenderIndex = makeWindowedRenderScheduleIndex(
+                for: adaptedPlan,
+                specs: windows,
+                windowRows: safeWindowRows,
+                includedEventIndices: includedEventIndices,
+                sameChannelLifetime: sameChannelLifetime,
+                buildStartTime: indexBuildStartTime
+            )
+        case .scanPerWindowReference:
+            windowedRenderIndex = nil
+        }
+        var preindexedConsumedWindowCount = 0
 
         for spec in windows {
             let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
@@ -1058,18 +1147,47 @@ final class PlaybackSongOfflineRenderer {
                 recordsSamplePayloadUploads: collectPerformanceDiagnostics
             )
             outputConfig = mixer.config
-            let eventPairs = Self.eventPairs(
-                in: spec,
-                plan: adaptedPlan,
-                scheduler: scheduler
-            )
-            let continuations = Self.continuations(
-                for: spec,
-                plan: adaptedPlan,
-                scheduler: scheduler,
-                sameChannelLifetime: sameChannelLifetime,
-                includedEventIndices: includedEventIndices
-            )
+            let indexedBucket: PlaybackSongWindowBucket?
+            if let windowedRenderIndex {
+                precondition(windowedRenderIndex.windows.indices.contains(spec.index))
+                let bucket = windowedRenderIndex.windows[spec.index]
+                precondition(
+                    bucket.windowIndex == spec.index &&
+                        bucket.startRow == spec.startRow &&
+                        bucket.endRowExclusive == spec.endRowExclusive &&
+                        bucket.startFrame == spec.startFrame &&
+                        bucket.endFrame == spec.endFrame
+                )
+                indexedBucket = bucket
+                preindexedConsumedWindowCount += 1
+            } else {
+                indexedBucket = nil
+            }
+            let eventPairs: [(offset: Int, element: SyntheticTrackerEvent)]
+            let continuations: [PlaybackSongWindowContinuation]
+            if let indexedBucket {
+                eventPairs = indexedBucket.scheduledEvents.map { scheduledEvent in
+                    precondition(adaptedPlan.pattern.events.indices.contains(scheduledEvent.eventIndex))
+                    return (
+                        offset: scheduledEvent.eventIndex,
+                        element: adaptedPlan.pattern.events[scheduledEvent.eventIndex]
+                    )
+                }
+                continuations = indexedBucket.continuations
+            } else {
+                eventPairs = Self.eventPairs(
+                    in: spec,
+                    plan: adaptedPlan,
+                    scheduler: scheduler
+                )
+                continuations = Self.continuations(
+                    for: spec,
+                    plan: adaptedPlan,
+                    scheduler: scheduler,
+                    sameChannelLifetime: sameChannelLifetime,
+                    includedEventIndices: includedEventIndices
+                )
+            }
             var continuationResults = [CSoftwareMixerScheduledVoiceResult]()
             continuationResults.reserveCapacity(continuations.count)
             for continuation in continuations {
@@ -1097,8 +1215,21 @@ final class PlaybackSongOfflineRenderer {
                     voiceIndexByEventIndex[pair.offset] = voiceIndex
                 }
             }
+            if let indexedBucket {
+                Self.schedulePreindexedWindowUpdates(
+                    indexedBucket.schedulingUpdateCandidates,
+                    plan: adaptedPlan,
+                    sameChannelLifetime: sameChannelLifetime,
+                    voiceIndexByEventIndex: voiceIndexByEventIndex,
+                    on: mixer,
+                    windowStartFrame: spec.startFrame
+                )
+            }
+            let usesScanReference = indexedBucket == nil
+            // The legacy calls remain a parity-test reference; production passes empty inputs after
+            // consuming the ordered pre-indexed candidates above.
             Self.scheduleEnvelopePositionUpdates(
-                adaptedPlan.diagnostics.envelopePositionEffects,
+                usesScanReference ? adaptedPlan.diagnostics.envelopePositionEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1106,7 +1237,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleVoiceStateUpdates(
-                adaptedPlan.diagnostics.voiceStateUpdates,
+                usesScanReference ? adaptedPlan.diagnostics.voiceStateUpdates : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1114,7 +1245,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleTonePortamentoStepUpdates(
-                adaptedPlan.diagnostics.tonePortamentoEffects,
+                usesScanReference ? adaptedPlan.diagnostics.tonePortamentoEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1122,7 +1253,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.schedulePortamentoSlideStepUpdates(
-                adaptedPlan.diagnostics.portamentoSlideEffects,
+                usesScanReference ? adaptedPlan.diagnostics.portamentoSlideEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1130,7 +1261,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleFinePortamentoUpStepUpdates(
-                adaptedPlan.diagnostics.finePortamentoUpEffects,
+                usesScanReference ? adaptedPlan.diagnostics.finePortamentoUpEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1138,7 +1269,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleFinePortamentoDownStepUpdates(
-                adaptedPlan.diagnostics.finePortamentoDownEffects,
+                usesScanReference ? adaptedPlan.diagnostics.finePortamentoDownEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1146,7 +1277,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleExtraFinePortamentoStepUpdates(
-                adaptedPlan.diagnostics.extraFinePortamentoEffects,
+                usesScanReference ? adaptedPlan.diagnostics.extraFinePortamentoEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1154,7 +1285,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleArpeggioStepUpdates(
-                adaptedPlan.diagnostics.arpeggioEffects,
+                usesScanReference ? adaptedPlan.diagnostics.arpeggioEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1162,7 +1293,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleVibratoStepUpdates(
-                adaptedPlan.diagnostics.vibratoEffects,
+                usesScanReference ? adaptedPlan.diagnostics.vibratoEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1170,7 +1301,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleNoteCuts(
-                adaptedPlan.diagnostics.noteCutEffects,
+                usesScanReference ? adaptedPlan.diagnostics.noteCutEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1178,7 +1309,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleRetriggerCuts(
-                adaptedPlan.diagnostics.retriggerEffects,
+                usesScanReference ? adaptedPlan.diagnostics.retriggerEffects : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1186,7 +1317,7 @@ final class PlaybackSongOfflineRenderer {
                 includedEventIndices: includedEventIndices
             )
             Self.scheduleSameChannelReplacementRamps(
-                sameChannelLifetime.replacementEvents,
+                usesScanReference ? sameChannelLifetime.replacementEvents : [],
                 voiceIndexByEventIndex: voiceIndexByEventIndex,
                 on: mixer,
                 windowStartFrame: spec.startFrame,
@@ -1265,6 +1396,10 @@ final class PlaybackSongOfflineRenderer {
             ? PlaybackSongRenderPerformanceDiagnostics(
                 totalDurationSeconds: VTXPerformanceClock.seconds(since: renderStartTime),
                 planAdaptDurationSeconds: planAdaptDuration,
+                usedPreindexedWindowScheduling: windowedRenderIndex != nil &&
+                    preindexedConsumedWindowCount == windows.count,
+                preindexedWindowSchedulingConsumedWindowCount: preindexedConsumedWindowCount,
+                windowedRenderIndexDiagnostics: windowedRenderIndex?.diagnostics,
                 totalWindowSchedulingDurationSeconds: windowPerformanceDiagnostics.map(\.schedulingDurationSeconds).reduce(0, +),
                 totalCMixerRenderDurationSeconds: windowPerformanceDiagnostics.map(\.cMixerRenderDurationSeconds).reduce(0, +),
                 renderWindowCount: windowDiagnostics.count,
@@ -1389,6 +1524,7 @@ final class PlaybackSongOfflineRenderer {
         let coreResult = try renderWindowedCore(
             request,
             windowRows: windowRows,
+            schedulingSource: .preindexed,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             prepareOutput: nil,
             collectBlock: nil,
@@ -1407,6 +1543,123 @@ final class PlaybackSongOfflineRenderer {
             exportDiagnostics: nil,
             wavExportPerformanceDiagnostics: nil
         )
+    }
+
+    private static func schedulePreindexedWindowUpdates(
+        _ candidates: [PlaybackSongWindowSchedulingUpdateCandidate],
+        plan: PlaybackSongSyntheticPlan,
+        sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
+        voiceIndexByEventIndex: [Int: Int],
+        on mixer: CSoftwareMixer,
+        windowStartFrame: Int
+    ) {
+        for candidate in candidates {
+            guard let voiceIndex = voiceIndexByEventIndex[candidate.activeEventIndex] else {
+                continue
+            }
+            precondition(candidate.scheduledFrame >= windowStartFrame)
+            let localFrame = candidate.scheduledFrame - windowStartFrame
+            switch candidate.kind {
+            case .envelopePosition:
+                let diagnostics = plan.diagnostics.envelopePositionEffects
+                precondition(diagnostics.indices.contains(candidate.sourceDiagnosticIndex))
+                guard let position = diagnostics[candidate.sourceDiagnosticIndex].appliedPositionFrame else {
+                    preconditionFailure("Pre-indexed envelope update lost its applied position")
+                }
+                _ = mixer.scheduleVoiceVolumeEnvelopePositionUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame,
+                    positionFrame: position
+                )
+            case .voiceGainPan:
+                let updates = plan.diagnostics.voiceStateUpdates
+                precondition(updates.indices.contains(candidate.sourceDiagnosticIndex))
+                let update = updates[candidate.sourceDiagnosticIndex]
+                _ = mixer.scheduleVoiceGainPanUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame,
+                    gain: changedGain(from: update),
+                    pan: changedPan(from: update)
+                )
+            case .tonePortamentoStep,
+                 .portamentoSlideStep,
+                 .finePortamentoUpStep,
+                 .finePortamentoDownStep,
+                 .extraFinePortamentoStep,
+                 .arpeggioStep,
+                 .vibratoStep:
+                let update = preindexedStepUpdate(candidate, diagnostics: plan.diagnostics)
+                _ = mixer.scheduleVoicePlaybackStepUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame,
+                    playbackStep: update.playbackStepAfter
+                )
+            case .noteCut, .retriggerCut:
+                _ = mixer.scheduleVoiceGainPanImmediateUpdate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame,
+                    gain: 0,
+                    pan: nil
+                )
+            case .sameChannelReplacementRamp:
+                let replacements = sameChannelLifetime.replacementEvents
+                precondition(replacements.indices.contains(candidate.sourceDiagnosticIndex))
+                _ = mixer.scheduleVoiceRampDownAndDeactivate(
+                    voiceIndex: voiceIndex,
+                    scheduledFrame: localFrame,
+                    rampFrames: replacements[candidate.sourceDiagnosticIndex].oldVoiceRampDurationFrames
+                )
+            }
+        }
+    }
+
+    private static func preindexedStepUpdate(
+        _ candidate: PlaybackSongWindowSchedulingUpdateCandidate,
+        diagnostics: PlaybackSongSyntheticDiagnostics
+    ) -> PlaybackSongSyntheticTonePortamentoStepUpdate {
+        guard let childIndex = candidate.childUpdateIndex else {
+            preconditionFailure("Pre-indexed step update lost its child index")
+        }
+        let diagnosticIndex = candidate.sourceDiagnosticIndex
+        switch candidate.kind {
+        case .tonePortamentoStep:
+            precondition(diagnostics.tonePortamentoEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.tonePortamentoEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .portamentoSlideStep:
+            precondition(diagnostics.portamentoSlideEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.portamentoSlideEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .finePortamentoUpStep:
+            precondition(diagnostics.finePortamentoUpEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.finePortamentoUpEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .finePortamentoDownStep:
+            precondition(diagnostics.finePortamentoDownEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.finePortamentoDownEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .extraFinePortamentoStep:
+            precondition(diagnostics.extraFinePortamentoEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.extraFinePortamentoEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .arpeggioStep:
+            precondition(diagnostics.arpeggioEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.arpeggioEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        case .vibratoStep:
+            precondition(diagnostics.vibratoEffects.indices.contains(diagnosticIndex))
+            let updates = diagnostics.vibratoEffects[diagnosticIndex].stepUpdates
+            precondition(updates.indices.contains(childIndex))
+            return updates[childIndex]
+        default:
+            preconditionFailure("Pre-indexed non-step update reached the step scheduler")
+        }
     }
 
     fileprivate static func scheduleVoiceStateUpdates(
@@ -1852,14 +2105,6 @@ final class PlaybackSongOfflineRenderer {
         }
     }
 
-    private struct WindowContinuation: Equatable {
-        let eventIndex: Int
-        let event: SyntheticTrackerEvent
-        let runtimeState: CSoftwareMixerVoiceRuntimeState
-        let keyOffFrame: Int?
-        let carriedTonePortamentoActive: Bool
-    }
-
     private struct SourcePositionState: Equatable {
         let samplePosition: Double
         let pingPongDirection: Int
@@ -1975,7 +2220,7 @@ final class PlaybackSongOfflineRenderer {
         scheduler: SyntheticTrackerScheduler,
         sameChannelLifetime: PlaybackSongSameChannelVoiceLifetimeDiagnostics,
         includedEventIndices: Set<Int>? = nil
-    ) -> [WindowContinuation] {
+    ) -> [PlaybackSongWindowContinuation] {
         let windowStartFrame = window.startFrame
         guard windowStartFrame > 0 else {
             return []
@@ -2449,7 +2694,7 @@ final class PlaybackSongOfflineRenderer {
         gainRamp: CSoftwareMixerValueRampRuntimeState?,
         panRamp: CSoftwareMixerValueRampRuntimeState?,
         carriedTonePortamentoActive: Bool
-    ) -> WindowContinuation? {
+    ) -> PlaybackSongWindowContinuation? {
         let elapsedFrames = max(0, boundaryFrame - eventStartFrame)
         guard elapsedFrames > 0,
               let sourceState = sourcePositionState(
@@ -2498,7 +2743,7 @@ final class PlaybackSongOfflineRenderer {
         } else {
             localKeyOffFrame = nil
         }
-        return WindowContinuation(
+        return PlaybackSongWindowContinuation(
             eventIndex: eventIndex,
             event: event,
             runtimeState: CSoftwareMixerVoiceRuntimeState(
@@ -2517,7 +2762,7 @@ final class PlaybackSongOfflineRenderer {
     }
 
     private static func scheduleContinuation(
-        _ continuation: WindowContinuation,
+        _ continuation: PlaybackSongWindowContinuation,
         on mixer: CSoftwareMixer
     ) -> CSoftwareMixerScheduledVoiceResult {
         let event = continuation.event
@@ -2874,7 +3119,7 @@ final class PlaybackSongOfflineRenderer {
     }
 
     private static func windowContinuationCandidate(
-        _ continuation: WindowContinuation,
+        _ continuation: PlaybackSongWindowContinuation,
         scheduler: SyntheticTrackerScheduler,
         mappingsByEventIndex: [Int: PlaybackSongSyntheticEventMapping]
     ) -> PlaybackSongWindowContinuationCandidate {

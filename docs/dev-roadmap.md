@@ -127,6 +127,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Windowed offline rendering now bulk-copies already-sanitized Float32 sample
+  payloads into the same C-owned per-voice storage while preserving the
+  defensive sanitizing C APIs for runtime/untrusted callers. Diagnostics report
+  accepted C voice adds, payload counts/bytes, continuation uploads, duplicate
+  identities, and fast/slow copy counts; byte-parity tests pin output. Shared C
+  sample payload storage/interning remains a separate future PR.
 - Windowed offline rendering now consumes pre-indexed event, continuation, and
   update-candidate buckets to reduce repeated scheduling scans. Public-safe
   scan-reference, accumulated-vs-streaming, and app-vs-tool byte-parity tests

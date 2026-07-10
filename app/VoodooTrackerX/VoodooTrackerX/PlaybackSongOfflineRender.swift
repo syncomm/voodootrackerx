@@ -174,8 +174,15 @@ struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
     let schedulingDurationSeconds: Double
     let cMixerRenderDurationSeconds: Double
     let totalWindowDurationSeconds: Double
+    let cMixerVoiceAddCount: Int
     let samplePayloadUploadCount: Int
     let approximateSamplePayloadBytesCopied: Int
+    let continuationSamplePayloadUploadCount: Int
+    let approximateContinuationSamplePayloadBytesCopied: Int
+    let uniqueSamplePayloadIdentityCount: Int
+    let duplicateSamplePayloadUploadCount: Int
+    let defensiveSanitizingUploadCount: Int
+    let preSanitizedBulkCopyUploadCount: Int
 }
 
 struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
@@ -199,8 +206,15 @@ struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
     let totalBoundaryContinuations: Int
     let totalDroppedAtWindowBoundaries: Int
     let mayContainBoundaryCuts: Bool
+    let cMixerVoiceAddCount: Int
     let samplePayloadUploadCount: Int
     let approximateSamplePayloadBytesCopied: Int
+    let continuationSamplePayloadUploadCount: Int
+    let approximateContinuationSamplePayloadBytesCopied: Int
+    let uniqueSamplePayloadIdentityCount: Int
+    let duplicateSamplePayloadUploadCount: Int
+    let defensiveSanitizingUploadCount: Int
+    let preSanitizedBulkCopyUploadCount: Int
     let windows: [PlaybackSongRenderWindowPerformanceDiagnostic]
 }
 
@@ -827,6 +841,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
+            samplePayloadUploadMode: .preSanitizedBulkCopy,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             progress: progress
         )
@@ -836,6 +851,7 @@ final class PlaybackSongOfflineRenderer {
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
         schedulingSource: PlaybackSongWindowedSchedulingSource,
+        samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode,
         collectPerformanceDiagnostics: Bool,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)?
     ) -> PlaybackSongOfflineRenderResult {
@@ -844,6 +860,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: schedulingSource,
+            samplePayloadUploadMode: samplePayloadUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             prepareOutput: { totalFrames, config in
                 interleavedPCM.reserveCapacity(totalFrames * config.channelCount)
@@ -882,7 +899,24 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .scanPerWindowReference,
+            samplePayloadUploadMode: .preSanitizedBulkCopy,
             collectPerformanceDiagnostics: false,
+            progress: nil
+        )
+    }
+
+    /// Retains the defensive C sample sanitizer as an output-parity reference for tests.
+    func renderWindowedUsingDefensiveSamplePayloadUploadReference(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int,
+        collectPerformanceDiagnostics: Bool = false
+    ) -> PlaybackSongOfflineRenderResult {
+        renderWindowed(
+            request,
+            windowRows: windowRows,
+            schedulingSource: .preindexed,
+            samplePayloadUploadMode: .defensiveSanitizingCopy,
+            collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             progress: nil
         )
     }
@@ -1080,6 +1114,7 @@ final class PlaybackSongOfflineRenderer {
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
         schedulingSource: PlaybackSongWindowedSchedulingSource,
+        samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode,
         collectPerformanceDiagnostics: Bool,
         prepareOutput: ((Int, MixerRenderConfig) -> MixerRenderConfig)?,
         collectBlock: ((MixerRenderBlock) -> Void)?,
@@ -1138,12 +1173,14 @@ final class PlaybackSongOfflineRenderer {
             windowedRenderIndex = nil
         }
         var preindexedConsumedWindowCount = 0
+        var uploadedSamplePayloadIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
 
         for spec in windows {
             let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let schedulingStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let mixer = CSoftwareMixer(
                 config: effectiveRequest.config,
+                samplePayloadUploadMode: samplePayloadUploadMode,
                 recordsSamplePayloadUploads: collectPerformanceDiagnostics
             )
             outputConfig = mixer.config
@@ -1344,14 +1381,30 @@ final class PlaybackSongOfflineRenderer {
             renderedFrames += block.frameCount
             collectBlock?(block)
             let samplePayloadUploads = mixer.samplePayloadUploadDiagnostics
+            uploadedSamplePayloadIdentities.formUnion(samplePayloadUploads.uploadedSampleIdentities)
+            let acceptedContinuationPayloads = collectPerformanceDiagnostics
+                ? zip(continuations, continuationResults).filter {
+                    $0.1.wasAccepted && $0.0.event.sample.frameCount > 0
+                }
+                : []
+            let continuationPayloadBytes = acceptedContinuationPayloads.reduce(0) { partial, pair in
+                partial + pair.0.event.sample.frameCount * MemoryLayout<Float>.size
+            }
             let performanceDiagnostic = collectPerformanceDiagnostics
                 ? PlaybackSongRenderWindowPerformanceDiagnostic(
                     windowIndex: spec.index,
                     schedulingDurationSeconds: schedulingDuration,
                     cMixerRenderDurationSeconds: mixerRenderDuration,
                     totalWindowDurationSeconds: VTXPerformanceClock.seconds(since: windowStartTime),
+                    cMixerVoiceAddCount: samplePayloadUploads.cMixerVoiceAddCount,
                     samplePayloadUploadCount: samplePayloadUploads.uploadCount,
-                    approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied
+                    approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied,
+                    continuationSamplePayloadUploadCount: acceptedContinuationPayloads.count,
+                    approximateContinuationSamplePayloadBytesCopied: continuationPayloadBytes,
+                    uniqueSamplePayloadIdentityCount: samplePayloadUploads.uniqueSampleIdentityCount,
+                    duplicateSamplePayloadUploadCount: samplePayloadUploads.duplicateUploadCount,
+                    defensiveSanitizingUploadCount: samplePayloadUploads.defensiveSanitizingUploadCount,
+                    preSanitizedBulkCopyUploadCount: samplePayloadUploads.preSanitizedBulkCopyUploadCount
                 )
                 : nil
 
@@ -1415,8 +1468,18 @@ final class PlaybackSongOfflineRenderer {
                 totalBoundaryContinuations: totalBoundaryContinuations,
                 totalDroppedAtWindowBoundaries: totalDroppedAtWindowBoundaries,
                 mayContainBoundaryCuts: windowDiagnostics.contains { $0.mayContainBoundaryCuts },
+                cMixerVoiceAddCount: windowPerformanceDiagnostics.map(\.cMixerVoiceAddCount).reduce(0, +),
                 samplePayloadUploadCount: windowPerformanceDiagnostics.map(\.samplePayloadUploadCount).reduce(0, +),
                 approximateSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateSamplePayloadBytesCopied).reduce(0, +),
+                continuationSamplePayloadUploadCount: windowPerformanceDiagnostics.map(\.continuationSamplePayloadUploadCount).reduce(0, +),
+                approximateContinuationSamplePayloadBytesCopied: windowPerformanceDiagnostics.map(\.approximateContinuationSamplePayloadBytesCopied).reduce(0, +),
+                uniqueSamplePayloadIdentityCount: uploadedSamplePayloadIdentities.count,
+                duplicateSamplePayloadUploadCount: max(
+                    0,
+                    windowPerformanceDiagnostics.map(\.samplePayloadUploadCount).reduce(0, +) - uploadedSamplePayloadIdentities.count
+                ),
+                defensiveSanitizingUploadCount: windowPerformanceDiagnostics.map(\.defensiveSanitizingUploadCount).reduce(0, +),
+                preSanitizedBulkCopyUploadCount: windowPerformanceDiagnostics.map(\.preSanitizedBulkCopyUploadCount).reduce(0, +),
                 windows: windowPerformanceDiagnostics
             )
             : nil
@@ -1525,6 +1588,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
+            samplePayloadUploadMode: .preSanitizedBulkCopy,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             prepareOutput: nil,
             collectBlock: nil,

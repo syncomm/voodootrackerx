@@ -65,33 +65,62 @@ struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
     let rejectionReason: CSoftwareMixerVoiceStateUpdateRejectionReason?
 }
 
+enum CSoftwareMixerSamplePayloadUploadMode: Equatable {
+    case defensiveSanitizingCopy
+    case preSanitizedBulkCopy
+}
+
+struct CSoftwareMixerSamplePayloadIdentity: Hashable {
+    let storageAddress: UInt
+    let frameCount: Int
+}
+
 struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
-    static let zero = CSoftwareMixerSamplePayloadUploadDiagnostics(
-        uploadCount: 0,
-        approximateBytesCopied: 0
-    )
+    static let zero = CSoftwareMixerSamplePayloadUploadDiagnostics()
 
-    let uploadCount: Int
-    let approximateBytesCopied: Int
+    private(set) var cMixerVoiceAddCount = 0
+    private(set) var uploadCount = 0
+    private(set) var approximateBytesCopied = 0
+    private(set) var defensiveSanitizingUploadCount = 0
+    private(set) var preSanitizedBulkCopyUploadCount = 0
+    private(set) var uploadedSampleIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
 
-    init(uploadCount: Int = 0, approximateBytesCopied: Int = 0) {
-        self.uploadCount = max(0, uploadCount)
-        self.approximateBytesCopied = max(0, approximateBytesCopied)
+    var uniqueSampleIdentityCount: Int {
+        uploadedSampleIdentities.count
     }
 
-    func recording(sampleFrameCount: Int) -> CSoftwareMixerSamplePayloadUploadDiagnostics {
+    var duplicateUploadCount: Int {
+        max(0, uploadCount - uniqueSampleIdentityCount)
+    }
+
+    mutating func recordAcceptedVoiceAdd(
+        sampleFrameCount: Int,
+        sampleIdentity: CSoftwareMixerSamplePayloadIdentity?,
+        uploadMode: CSoftwareMixerSamplePayloadUploadMode
+    ) {
+        cMixerVoiceAddCount = Self.incrementing(cMixerVoiceAddCount)
         let frameCount = max(0, sampleFrameCount)
         guard frameCount > 0 else {
-            return self
+            return
         }
         let (bytes, byteOverflow) = frameCount.multipliedReportingOverflow(by: MemoryLayout<Float>.size)
         let safeBytes = byteOverflow ? Int.max : bytes
-        let (nextUploadCount, uploadOverflow) = uploadCount.addingReportingOverflow(1)
+        if let sampleIdentity {
+            uploadedSampleIdentities.insert(sampleIdentity)
+        }
         let (nextBytes, nextBytesOverflow) = approximateBytesCopied.addingReportingOverflow(safeBytes)
-        return CSoftwareMixerSamplePayloadUploadDiagnostics(
-            uploadCount: uploadOverflow ? Int.max : nextUploadCount,
-            approximateBytesCopied: nextBytesOverflow ? Int.max : nextBytes
-        )
+        uploadCount = Self.incrementing(uploadCount)
+        approximateBytesCopied = nextBytesOverflow ? Int.max : nextBytes
+        if uploadMode == .defensiveSanitizingCopy {
+            defensiveSanitizingUploadCount = Self.incrementing(defensiveSanitizingUploadCount)
+        } else {
+            preSanitizedBulkCopyUploadCount = Self.incrementing(preSanitizedBulkCopyUploadCount)
+        }
+    }
+
+    private static func incrementing(_ count: Int) -> Int {
+        let (next, overflow) = count.addingReportingOverflow(1)
+        return overflow ? Int.max : next
     }
 }
 
@@ -221,6 +250,7 @@ final class CSoftwareMixer {
     static let sampleStepPrecisionMode = "double_sample_position_and_step"
 
     private let state: UnsafeMutablePointer<VTXCMixerState>
+    private let samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode
     private let recordsSamplePayloadUploads: Bool
     private var storedSamplePayloadUploadDiagnostics = CSoftwareMixerSamplePayloadUploadDiagnostics.zero
     private(set) var config: MixerRenderConfig
@@ -259,8 +289,10 @@ final class CSoftwareMixer {
 
     init(
         config: MixerRenderConfig = MixerRenderConfig(),
+        samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode = .defensiveSanitizingCopy,
         recordsSamplePayloadUploads: Bool = false
     ) {
+        self.samplePayloadUploadMode = samplePayloadUploadMode
         self.recordsSamplePayloadUploads = recordsSamplePayloadUploads
         self.config = config
         state = UnsafeMutablePointer<VTXCMixerState>.allocate(capacity: 1)
@@ -309,8 +341,17 @@ final class CSoftwareMixer {
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
+        var sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
+            sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: buffer) : nil
+            if samplePayloadUploadMode == .preSanitizedBulkCopy {
+                return vtx_c_mixer_add_sample_voice_with_step_at_source_frame_pre_sanitized(
+                    state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
+                    sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
+                    UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame), &voiceIndex
+                )
+            }
+            return vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
                 state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
@@ -325,7 +366,7 @@ final class CSoftwareMixer {
             )
         }
         Self.requireOK(status)
-        recordSamplePayloadUpload(frameCount: sample.frameCount)
+        recordAcceptedVoiceAdd(frameCount: sample.frameCount, sampleIdentity: sampleIdentity)
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -394,8 +435,18 @@ final class CSoftwareMixer {
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
+        var sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
+            sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: buffer) : nil
+            if samplePayloadUploadMode == .preSanitizedBulkCopy {
+                return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame_pre_sanitized(
+                    state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
+                    sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
+                    UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame),
+                    UInt64(scheduledStartFrame), &voiceIndex
+                )
+            }
+            return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
                 state,
                 buffer.baseAddress,
                 UInt32(sample.frameCount),
@@ -416,7 +467,7 @@ final class CSoftwareMixer {
                 rejectionReason: Self.rejectionReason(for: status)
             )
         }
-        recordSamplePayloadUpload(frameCount: sample.frameCount)
+        recordAcceptedVoiceAdd(frameCount: sample.frameCount, sampleIdentity: sampleIdentity)
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -938,12 +989,29 @@ final class CSoftwareMixer {
         )
     }
 
-    private func recordSamplePayloadUpload(frameCount: Int) {
+    private static func samplePayloadIdentity(
+        for buffer: UnsafeBufferPointer<Float>
+    ) -> CSoftwareMixerSamplePayloadIdentity? {
+        guard buffer.count > 0, buffer.baseAddress != nil else {
+            return nil
+        }
+        return CSoftwareMixerSamplePayloadIdentity(
+            storageAddress: UInt(bitPattern: buffer.baseAddress),
+            frameCount: buffer.count
+        )
+    }
+
+    private func recordAcceptedVoiceAdd(
+        frameCount: Int,
+        sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
+    ) {
         guard recordsSamplePayloadUploads else {
             return
         }
-        storedSamplePayloadUploadDiagnostics = storedSamplePayloadUploadDiagnostics.recording(
-            sampleFrameCount: frameCount
+        storedSamplePayloadUploadDiagnostics.recordAcceptedVoiceAdd(
+            sampleFrameCount: frameCount,
+            sampleIdentity: sampleIdentity,
+            uploadMode: samplePayloadUploadMode
         )
     }
 

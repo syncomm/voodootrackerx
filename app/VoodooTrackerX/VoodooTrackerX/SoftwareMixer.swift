@@ -159,7 +159,7 @@ struct MixerFrame: Equatable {
     }
 }
 
-/// A mono Float32 PCM source owned by the deterministic software mixer.
+/// Immutable mono Float32 PCM that preserves finite input and replaces non-finite values with zero.
 struct MixerSampleBuffer: Equatable {
     let monoPCM: [Float]
 

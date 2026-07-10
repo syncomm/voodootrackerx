@@ -254,6 +254,72 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(streaming.sameChannelVoiceLifetime, accumulated.sameChannelVoiceLifetime)
     }
 
+    func testPlaybackSongWindowedRenderIndexMatchesCurrentPreAcceptanceInputs() throws {
+        let request = makePreindexedWindowSchedulingRequest()
+        let renderer = PlaybackSongOfflineRenderer()
+        let current = renderer.renderWindowed(request, windowRows: 64)
+        let summary = try XCTUnwrap(current.windowedRenderSummary)
+
+        let index = renderer.makeWindowedRenderScheduleIndex(
+            for: current.plan,
+            totalFrames: current.renderedFrameCount,
+            windowRows: 64, includedEventIndices: nil
+        )
+        let currentInputs = renderer.currentWindowedRenderPreAcceptanceInputs(
+            for: current.plan,
+            totalFrames: current.renderedFrameCount,
+            windowRows: 64, includedEventIndices: nil
+        )
+        let diagnostics = index.diagnostics
+
+        XCTAssertEqual(index.windows.map(\.startRow), summary.windows.map(\.startRow))
+        XCTAssertEqual(index.windows.map(\.endRowExclusive), summary.windows.map(\.endRowExclusive))
+        XCTAssertEqual(index.windows.map(\.startFrame), summary.windows.map(\.startFrame))
+        XCTAssertEqual(index.windows.map(\.endFrame), summary.windows.map(\.endFrame))
+        XCTAssertEqual(index.windows.map { $0.scheduledEvents.map(\.eventIndex) }, [[0], [1, 2], [3]])
+        XCTAssertEqual(
+            index.windows.map { bucket in
+                bucket.scheduledEvents.map { event in
+                    "\(event.source?.rowIndex ?? -1):\(event.channelIndex ?? -1)"
+                }
+            },
+            [["0:0"], ["64:0", "70:0"], ["129:0"]]
+        )
+        XCTAssertEqual(index.windows.map { $0.scheduledEvents.map(\.scheduledFrame) }, [[0], [64, 70], [129]])
+        XCTAssertEqual(index.windows.map { $0.continuationCandidates.map(\.eventIndex) }, [[], [0], [2]])
+        XCTAssertEqual(index.windows.map(\.continuationCandidates.count), summary.windows.map(\.boundaryContinuationCount))
+        XCTAssertEqual(summary.windows.map(\.scheduledEventCount), [1, 3, 2])
+        XCTAssertEqual(summary.windows.map(\.acceptedScheduledEventCount), [1, 3, 2])
+        XCTAssertEqual(summary.windows.map(\.rejectedScheduledEventCount), [0, 0, 0])
+        XCTAssertEqual(index.windows, currentInputs)
+        XCTAssertEqual(renderer.renderWindowed(request, windowRows: 64), current)
+        XCTAssertTrue(current.block.interleavedPCM.dropFirst(64).contains { $0 != 0 })
+        XCTAssertTrue(current.block.interleavedPCM.dropFirst(128).contains { $0 != 0 })
+        XCTAssertGreaterThanOrEqual(diagnostics.buildDurationSeconds, 0)
+        XCTAssertEqual(diagnostics.indexedWindowCount, 3)
+        XCTAssertEqual(diagnostics.indexedEventCount, 4)
+        XCTAssertEqual(diagnostics.indexedContinuationCandidateCount, 2)
+        XCTAssertEqual(diagnostics.eventCountsByWindow, [1, 2, 1])
+        XCTAssertEqual(diagnostics.continuationCandidateCountsByWindow, [0, 1, 1])
+        XCTAssertEqual(diagnostics.updateCandidateCountsByWindow, [1, 4, 2])
+        XCTAssertEqual(diagnostics.indexedUpdateCandidateCount, 7)
+        XCTAssertEqual(diagnostics.currentWindowEventAndUpdateFullArrayScanCount, 39)
+        XCTAssertEqual(diagnostics.currentContinuationTopLevelFullArrayScanCount, 6)
+        XCTAssertEqual(diagnostics.currentTopLevelFullArrayScanCount, 45)
+        XCTAssertEqual(diagnostics.indexedEventAndUpdateSourceArrayScanCount, 13)
+        XCTAssertEqual(diagnostics.estimatedAvoidedEventAndUpdateFullArrayScanCount, 26)
+        XCTAssertEqual(index.windows[0].schedulingUpdateCandidates.map(\.kind), [.voiceGainPan])
+        XCTAssertEqual(index.windows[0].schedulingUpdateCandidates.map(\.scheduledFrame), [63])
+        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.kind), [.finePortamentoUpStep, .sameChannelReplacementRamp, .sameChannelReplacementRamp, .sameChannelReplacementRamp])
+        XCTAssertEqual(index.windows[1].schedulingUpdateCandidates.map(\.scheduledFrame), [65, 64, 70, 70])
+        XCTAssertEqual(index.windows[2].schedulingUpdateCandidates.map(\.kind), [.voiceGainPan, .sameChannelReplacementRamp])
+        XCTAssertEqual(index.windows[2].schedulingUpdateCandidates.map(\.scheduledFrame), [128, 129])
+        XCTAssertEqual(index.windows.flatMap(\.schedulingUpdateCandidates).map(\.activeEventIndex), [0, 1, 0, 0, 1, 2, 2])
+        XCTAssertEqual(current.diagnostics.voiceStateUpdates.filter(\.activeVoiceUpdated).map(\.scheduledFrame), [63, 128])
+        XCTAssertEqual(current.diagnostics.finePortamentoUpEffects.filter(\.applied).flatMap(\.stepUpdates).map(\.scheduledFrame), [65])
+        XCTAssertEqual(current.sameChannelVoiceLifetime.replacementEvents.map(\.replacementFrame), [64, 70, 70, 129])
+    }
+
     func testPlaybackSongOfflineRendererPerformanceInstrumentationDoesNotChangePCM() throws {
         let sample = makePlaybackSample(pcm: [1, 0.5, -0.5, 0.25], baseSampleRate: 100)
         let song = makePlaybackSong(
@@ -1280,5 +1346,41 @@ final class OfflineRenderTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: firstURL), try Data(contentsOf: secondURL))
         XCTAssertEqual(singleRender.block.interleavedPCM, splitRender.block.interleavedPCM)
+    }
+
+    private func makePreindexedWindowSchedulingRequest() -> PlaybackSongOfflineRenderRequest {
+        let rows = (0..<130).map { rowIndex -> PlaybackRow in
+            switch rowIndex {
+            case 0, 64, 70, 129:
+                return makePlaybackRow(index: rowIndex, note: 49, instrument: 1)
+            case 63:
+                return makePlaybackRow(index: rowIndex, volumeColumn: 0x20)
+            case 65:
+                return makePlaybackRow(index: rowIndex, effectType: 0x0E, effectParam: 0x11)
+            case 128:
+                return makePlaybackRow(index: rowIndex, volumeColumn: 0x30)
+            default:
+                return makePlaybackRow(index: rowIndex)
+            }
+        }
+        let loopingSample = makePlaybackSample(
+            pcm: [0.25, -0.5, 0.75, -1],
+            baseSampleRate: 100,
+            loopStart: 0,
+            loopLength: 4,
+            loopType: 1
+        )
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [loopingSample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        return PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 130
+        )
     }
 }

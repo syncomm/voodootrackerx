@@ -127,6 +127,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Pre-indexed per-window scheduling diagnostics now prove public-safe window,
+  event, and carryover equivalence plus representative update candidates. It is
+  not the production render path; output, playback, mixer DSP, parser,
+  tracker viewport, and XM writer behavior remain unchanged.
 - `File > Export Audio > WAV...` now renders stopped loaded modules, editable
   documents, and editable copies to whole-song 32-bit Float WAV through the
   existing bounded offline C mixer path. It uses the VTX mix profile, an

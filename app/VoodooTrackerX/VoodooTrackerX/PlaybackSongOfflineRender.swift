@@ -222,6 +222,7 @@ struct WAVExportPerformanceDiagnostics: Equatable {
     let renderPhaseDurationSeconds: Double
     let tempWAVWriteDurationSeconds: Double
     let headroomPostProcessDurationSeconds: Double
+    let usedUnityGainFastPath: Bool
     let finalAtomicReplaceDurationSeconds: Double
     let totalFramesPlanned: Int
     let totalFramesRendered: Int

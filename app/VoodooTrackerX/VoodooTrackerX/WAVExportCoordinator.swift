@@ -531,8 +531,17 @@ struct WAVExportCoordinator {
                 : 0
 
             let exportPolicy = exportPolicy(for: plan, preHeadroomDiagnostics: preHeadroomDiagnostics)
-            let headroomStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-            pipelineEvents?(.headroomPostProcessStarted)
+            // Pass 1 is already canonical Float32 and sanitizes non-finite samples at unity gain.
+            let usedUnityGainFastPath = exportPolicy.gain == 1
+                && plan.wavFormat == .float32
+                && preHeadroomDiagnostics.wavFormat == .float32
+                && preHeadroomDiagnostics.policy.gain == 1
+            let headroomStartTime = collectPerformanceDiagnostics && !usedUnityGainFastPath
+                ? VTXPerformanceClock.now()
+                : 0
+            if !usedUnityGainFastPath {
+                pipelineEvents?(.headroomPostProcessStarted)
+            }
             progressEmitter.emit(WAVExportProgress(
                 stage: .applyingHeadroom,
                 completedFrames: 0,
@@ -540,26 +549,34 @@ struct WAVExportCoordinator {
                 completedWindows: 0,
                 totalWindows: plan.renderWindowCount
             ), force: true)
-            let diagnostics = try MixerWAVExporter.writeFloat32WAVApplyingGain(
-                from: rawTempURL,
-                to: finalTempURL,
-                exportPolicy: exportPolicy,
-                chunkSampleCount: max(1, plan.chunkFrameCount * plan.request.config.channelCount)
-            ) { completedBytes, totalBytes in
-                try executionHooks.afterPostProcessChunkWritten?()
-                progressEmitter.emit(WAVExportProgress(
-                    stage: .applyingHeadroom,
-                    completedFrames: frameProgress(
-                        completedBytes: completedBytes,
-                        totalBytes: totalBytes,
-                        totalFrames: plan.totalFrameCount
-                    ),
-                    totalFrames: plan.totalFrameCount,
-                    completedWindows: plan.renderWindowCount,
-                    totalWindows: plan.renderWindowCount
-                ))
+            let diagnostics: MixerWAVExportDiagnostics
+            let completedTempURL: URL
+            if usedUnityGainFastPath {
+                diagnostics = preHeadroomDiagnostics.replacingPolicy(withEquivalentGain: exportPolicy)
+                completedTempURL = rawTempURL
+            } else {
+                diagnostics = try MixerWAVExporter.writeFloat32WAVApplyingGain(
+                    from: rawTempURL,
+                    to: finalTempURL,
+                    exportPolicy: exportPolicy,
+                    chunkSampleCount: max(1, plan.chunkFrameCount * plan.request.config.channelCount)
+                ) { completedBytes, totalBytes in
+                    try executionHooks.afterPostProcessChunkWritten?()
+                    progressEmitter.emit(WAVExportProgress(
+                        stage: .applyingHeadroom,
+                        completedFrames: frameProgress(
+                            completedBytes: completedBytes,
+                            totalBytes: totalBytes,
+                            totalFrames: plan.totalFrameCount
+                        ),
+                        totalFrames: plan.totalFrameCount,
+                        completedWindows: plan.renderWindowCount,
+                        totalWindows: plan.renderWindowCount
+                    ))
+                }
+                completedTempURL = finalTempURL
             }
-            let headroomDuration = collectPerformanceDiagnostics
+            let headroomDuration = collectPerformanceDiagnostics && !usedUnityGainFastPath
                 ? VTXPerformanceClock.seconds(since: headroomStartTime)
                 : 0
 
@@ -571,7 +588,7 @@ struct WAVExportCoordinator {
                 totalWindows: plan.renderWindowCount
             ), force: true)
             let replaceStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
-            try replaceItem(at: normalizedDestination, withItemAt: finalTempURL, fileManager: fileManager)
+            try replaceItem(at: normalizedDestination, withItemAt: completedTempURL, fileManager: fileManager)
             let replaceDuration = collectPerformanceDiagnostics
                 ? VTXPerformanceClock.seconds(since: replaceStartTime)
                 : 0
@@ -590,6 +607,7 @@ struct WAVExportCoordinator {
                     renderPhaseDurationSeconds: renderPhaseDuration,
                     tempWAVWriteDurationSeconds: tempWAVWriteDuration,
                     headroomPostProcessDurationSeconds: headroomDuration,
+                    usedUnityGainFastPath: usedUnityGainFastPath,
                     finalAtomicReplaceDurationSeconds: replaceDuration,
                     totalFramesPlanned: plan.totalFrameCount,
                     totalFramesRendered: renderResult.renderedFrameCount,

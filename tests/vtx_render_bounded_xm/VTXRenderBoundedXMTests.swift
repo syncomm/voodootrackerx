@@ -772,6 +772,134 @@ final class VTXRenderBoundedXMTests: XCTestCase {
         XCTAssertFalse(export.diagnostics.clippingDetected)
     }
 
+    func testFloat32WAVExportMatchesExpectedLittleEndianBytesAndSanitizesNonFiniteSamples() throws {
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 8_000, channelCount: 2),
+            frameCount: 3,
+            interleavedPCM: [0.25, -0.5, .nan, .infinity, -Float.infinity, -0.0]
+        )
+
+        let export = try MixerWAVExporter.wavExport(from: block, format: .float32)
+
+        XCTAssertEqual(Array(export.data), [
+            0x52, 0x49, 0x46, 0x46, 0x3C, 0x00, 0x00, 0x00,
+            0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20,
+            0x10, 0x00, 0x00, 0x00, 0x03, 0x00, 0x02, 0x00,
+            0x40, 0x1F, 0x00, 0x00, 0x00, 0xFA, 0x00, 0x00,
+            0x08, 0x00, 0x20, 0x00, 0x64, 0x61, 0x74, 0x61,
+            0x18, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x80, 0x3E,
+            0x00, 0x00, 0x00, 0xBF,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x80,
+        ])
+        XCTAssertEqual(try parseFloat32WAV(export.data).samples.map(\.bitPattern), [
+            Float(0.25).bitPattern,
+            Float(-0.5).bitPattern,
+            Float(0).bitPattern,
+            Float(0).bitPattern,
+            Float(0).bitPattern,
+            Float(-0.0).bitPattern,
+        ])
+    }
+
+    func testUnityFloat32BulkEncodingPreservesFiniteBitPatterns() throws {
+        let samples: [Float] = [
+            -0.0,
+            Float.leastNonzeroMagnitude,
+            -Float.leastNonzeroMagnitude,
+            Float.greatestFiniteMagnitude,
+        ]
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 8_000, channelCount: 1),
+            frameCount: samples.count,
+            interleavedPCM: samples
+        )
+
+        let data = try MixerWAVExporter.float32WAVData(from: block)
+
+        XCTAssertEqual(Array(data[44...]), [
+            0x00, 0x00, 0x00, 0x80,
+            0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x80,
+            0xFF, 0xFF, 0x7F, 0x7F,
+        ])
+        XCTAssertEqual(try parseFloat32WAV(data).samples.map(\.bitPattern), samples.map(\.bitPattern))
+    }
+
+    func testStreamingFloat32WAVWriterMatchesInMemoryBytesAcrossBlocks() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("streaming.wav")
+        let config = MixerRenderConfig(sampleRate: 8_000, channelCount: 2)
+        let firstBlock = MixerRenderBlock(
+            config: config,
+            frameCount: 1,
+            interleavedPCM: [0.25, .nan]
+        )
+        let secondBlock = MixerRenderBlock(
+            config: config,
+            frameCount: 2,
+            interleavedPCM: [-0.5, .infinity, -Float.infinity, -0.0]
+        )
+        let combinedBlock = MixerRenderBlock(
+            config: config,
+            frameCount: 3,
+            interleavedPCM: firstBlock.interleavedPCM + secondBlock.interleavedPCM
+        )
+        let expected = try MixerWAVExporter.wavExport(from: combinedBlock, format: .float32)
+
+        let diagnostics = try MixerWAVExporter.writeStreamingFloat32WAV(
+            config: config,
+            frameCount: combinedBlock.frameCount,
+            to: outputURL
+        ) { writer in
+            try writer.write(block: firstBlock)
+            try writer.write(block: secondBlock)
+        }
+
+        XCTAssertEqual(try Data(contentsOf: outputURL), expected.data)
+        XCTAssertEqual(diagnostics, expected.diagnostics)
+    }
+
+    func testFloat32GainPostProcessMatchesDirectExportBytesAndDiagnostics() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appendingPathComponent("source.wav")
+        let destinationURL = directory.appendingPathComponent("gained.wav")
+        let block = MixerRenderBlock(
+            config: MixerRenderConfig(sampleRate: 8_000, channelCount: 2),
+            frameCount: 3,
+            interleavedPCM: [0.25, -0.5, .nan, .infinity, -Float.infinity, -0.0]
+        )
+        let policy = MixerWAVExportPolicy(gain: 0.5)
+        let expected = try MixerWAVExporter.wavExport(
+            from: block,
+            format: .float32,
+            exportPolicy: policy
+        )
+        var sourceBytes = try MixerWAVExporter.float32WAVData(from: block)
+        sourceBytes.replaceSubrange(52..<56, with: [0x00, 0x00, 0xC0, 0x7F])
+        sourceBytes.replaceSubrange(56..<60, with: [0x00, 0x00, 0x80, 0x7F])
+        sourceBytes.replaceSubrange(60..<64, with: [0x00, 0x00, 0x80, 0xFF])
+        try sourceBytes.write(to: sourceURL)
+
+        let diagnostics = try MixerWAVExporter.writeFloat32WAVApplyingGain(
+            from: sourceURL,
+            to: destinationURL,
+            exportPolicy: policy,
+            chunkSampleCount: 1
+        )
+
+        XCTAssertEqual(try Data(contentsOf: destinationURL), expected.data)
+        XCTAssertEqual(diagnostics, expected.diagnostics)
+        XCTAssertEqual(try parseFloat32WAV(Data(contentsOf: destinationURL)).samples, [
+            0.125, -0.25, 0, 0, 0, -0.0,
+        ])
+    }
+
     func testSoloChannelRenderMutesOtherChannels() {
         let song = twoChannelIsolationSong()
         let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: 16)

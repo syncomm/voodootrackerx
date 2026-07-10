@@ -319,6 +319,49 @@ final class WAVExportCoordinatorTests: XCTestCase {
         )
     }
 
+    func testUnityGainAutoHeadroomSkipsRewriteAndPreservesPreHeadroomWAVBytes() throws {
+        let destination = try temporaryDestination(filename: "unity-fast-path.wav")
+        let song = makeSampleBearingSong()
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: song,
+            displayName: "Unity Fast Path",
+            isPlaybackActive: false
+        ))
+        let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: plan.request.maximumFrameCount)
+        let expectedRender = renderer.renderWindowed(
+            plan.request,
+            windowRows: plan.configuration.windowRows
+        )
+        let expectedBytes = try MixerWAVExporter.float32WAVData(
+            from: expectedRender.block,
+            exportPolicy: .unity
+        )
+        let eventRecorder = TestWAVExportPipelineEventRecorder()
+
+        let completion = WAVExportCoordinator.export(
+            plan: plan,
+            to: destination,
+            pipelineEvents: { eventRecorder.append($0) }
+        )
+
+        guard case let .exported(_, renderResult) = completion,
+              let diagnostics = renderResult.exportDiagnostics,
+              let performance = renderResult.wavExportPerformanceDiagnostics else {
+            return XCTFail("Expected unity-gain export, got \(completion)")
+        }
+        let finalBytes = try Data(contentsOf: destination)
+        _ = try assertValidProductFloat32WAV(finalBytes, expectedFrameCount: plan.totalFrameCount)
+        XCTAssertTrue(diagnostics.autoHeadroomEnabled)
+        XCTAssertGreaterThan(diagnostics.preExportPeak, 0)
+        XCTAssertLessThanOrEqual(diagnostics.preExportPeak, 1)
+        XCTAssertEqual(diagnostics.computedExportGain, 1)
+        XCTAssertEqual(eventRecorder.events.filter { $0 == .expensiveRenderStarted }.count, 1)
+        XCTAssertEqual(eventRecorder.events.filter { $0 == .headroomPostProcessStarted }.count, 0)
+        XCTAssertTrue(performance.usedUnityGainFastPath)
+        XCTAssertEqual(performance.headroomPostProcessDurationSeconds, 0)
+        XCTAssertEqual(finalBytes, expectedBytes)
+    }
+
     func testAutoHeadroomUsesOneExpensiveRenderAndOneFloat32PostProcess() throws {
         let destination = try temporaryDestination(filename: "single-render-auto-headroom.wav")
         let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
@@ -343,6 +386,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(eventRecorder.events.filter { $0 == .headroomPostProcessStarted }.count, 1)
         XCTAssertEqual(renderResult.windowedRenderSummary?.windowRows, WAVExportCoordinator.defaultWindowRows)
         XCTAssertEqual(renderResult.exportDiagnostics?.autoHeadroomEnabled, true)
+        XCTAssertEqual(renderResult.wavExportPerformanceDiagnostics?.usedUnityGainFastPath, false)
     }
 
     func testExportPerformanceDiagnosticsArePopulatedForWindowedFixture() throws {
@@ -532,6 +576,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertTrue(exportDiagnostics.autoHeadroomEnabled)
         XCTAssertGreaterThan(exportDiagnostics.preExportPeak, 1)
         XCTAssertLessThan(exportDiagnostics.computedExportGain, 1)
+        XCTAssertFalse(performance.usedUnityGainFastPath)
         XCTAssertGreaterThanOrEqual(performance.headroomPostProcessDurationSeconds, 0)
         XCTAssertGreaterThanOrEqual(performance.tempWAVWriteDurationSeconds, 0)
         XCTAssertEqual(performance.windowWriteDiagnostics.count, renderResult.windowedRenderSummary?.windowCount)

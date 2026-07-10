@@ -427,8 +427,16 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(renderPerformance.totalBoundaryContinuations, summary.totalBoundaryContinuations)
         XCTAssertEqual(renderPerformance.totalDroppedAtWindowBoundaries, summary.totalDroppedAtWindowBoundaries)
         XCTAssertEqual(renderPerformance.mayContainBoundaryCuts, summary.mayContainBoundaryCuts)
+        XCTAssertEqual(renderPerformance.cMixerVoiceAddCount, renderPerformance.totalAcceptedScheduledEvents)
         XCTAssertGreaterThan(renderPerformance.samplePayloadUploadCount, 0)
         XCTAssertGreaterThan(renderPerformance.approximateSamplePayloadBytesCopied, 0)
+        XCTAssertGreaterThan(renderPerformance.uniqueSamplePayloadIdentityCount, 0)
+        XCTAssertEqual(
+            renderPerformance.duplicateSamplePayloadUploadCount,
+            renderPerformance.samplePayloadUploadCount - renderPerformance.uniqueSamplePayloadIdentityCount
+        )
+        XCTAssertEqual(renderPerformance.preSanitizedBulkCopyUploadCount, renderPerformance.samplePayloadUploadCount)
+        XCTAssertEqual(renderPerformance.defensiveSanitizingUploadCount, 0)
         XCTAssertEqual(exportPerformance.totalFramesPlanned, plan.totalFrameCount)
         XCTAssertEqual(exportPerformance.totalFramesRendered, plan.totalFrameCount)
         XCTAssertEqual(exportPerformance.renderWindowCount, summary.windowCount)
@@ -1131,6 +1139,12 @@ private func assertNonNegativeRenderPerformance(
     XCTAssertGreaterThanOrEqual(diagnostics.planAdaptDurationSeconds, 0, file: file, line: line)
     XCTAssertGreaterThanOrEqual(diagnostics.totalWindowSchedulingDurationSeconds, 0, file: file, line: line)
     XCTAssertGreaterThanOrEqual(diagnostics.totalCMixerRenderDurationSeconds, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.cMixerVoiceAddCount, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.samplePayloadUploadCount, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.approximateSamplePayloadBytesCopied, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.continuationSamplePayloadUploadCount, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.approximateContinuationSamplePayloadBytesCopied, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.duplicateSamplePayloadUploadCount, 0, file: file, line: line)
     for window in diagnostics.windows {
         XCTAssertGreaterThanOrEqual(window.schedulingDurationSeconds, 0, file: file, line: line)
         XCTAssertGreaterThanOrEqual(window.cMixerRenderDurationSeconds, 0, file: file, line: line)

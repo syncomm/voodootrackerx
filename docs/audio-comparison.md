@@ -186,6 +186,12 @@ plan/traversal/timing work, per-window scheduling and C mixer render time,
 temporary WAV write time, headroom post-process time, final replace time,
 render window counts, frame counts, scheduled/carryover/reject counters, and
 Swift-side estimates of sample payload uploads copied into C mixer storage.
+Payload diagnostics include accepted C voice adds, copied bytes, per-window
+and continuation uploads, duplicate sample identities, and defensive versus
+pre-sanitized bulk-copy counts. Windowed offline render uses the bulk path only
+for immutable `MixerSampleBuffer` PCM already sanitized to finite Float32;
+runtime keeps the original defensive path. Both paths retain C ownership and
+produce byte-identical output. Shared/interned C payload storage is deferred.
 The diagnostics are not shown in normal product UI and must not change PCM
 output, C mixer DSP, runtime playback, parser behavior, or tracker UI
 behavior. Use them to choose and validate narrow future render/export

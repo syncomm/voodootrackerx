@@ -101,6 +101,108 @@ final class CSoftwareMixerTests: XCTestCase {
         XCTAssertEqual(mixer.config.channelCount, 1)
     }
 
+    func testMixerSampleBufferMakesFinitePCMInvariantExplicit() {
+        let source: [Float] = [-0.0, Float.leastNonzeroMagnitude, -Float.leastNonzeroMagnitude,
+                               2.5, -3.75, .nan, .infinity, -.infinity]
+
+        let sample = MixerSampleBuffer(monoPCM: source)
+
+        XCTAssertTrue(sample.monoPCM.allSatisfy(\.isFinite))
+        XCTAssertEqual(
+            sample.monoPCM.prefix(5).map(\.bitPattern),
+            source.prefix(5).map(\.bitPattern)
+        )
+        XCTAssertEqual(sample.monoPCM.suffix(3).map(\.bitPattern), Array(repeating: Float(0).bitPattern, count: 3))
+    }
+
+    func testCSoftwareMixerDefensiveAndPreSanitizedBulkUploadsProduceIdenticalPCM() {
+        let sourceCases: [[Float]] = [
+            [0.25, -0.5, 0.75, -1],
+            [2.5, -3.75, Float.greatestFiniteMagnitude, -Float.greatestFiniteMagnitude],
+            [-0.0, Float.leastNonzeroMagnitude, -Float.leastNonzeroMagnitude, 0.5],
+            [.nan, .infinity, -.infinity, 0.5],
+        ]
+
+        for source in sourceCases {
+            let sample = MixerSampleBuffer(monoPCM: source)
+            let defensive = CSoftwareMixer(
+                config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+                samplePayloadUploadMode: .defensiveSanitizingCopy,
+                recordsSamplePayloadUploads: true
+            )
+            let bulk = CSoftwareMixer(
+                config: MixerRenderConfig(sampleRate: 1_000, channelCount: 1),
+                samplePayloadUploadMode: .preSanitizedBulkCopy,
+                recordsSamplePayloadUploads: true
+            )
+
+            XCTAssertEqual(defensive.addVoice(sample: sample), 0)
+            XCTAssertEqual(bulk.addVoice(sample: sample), 0)
+            let defensivePCM = defensive.render(frames: source.count).interleavedPCM
+            let bulkPCM = bulk.render(frames: source.count).interleavedPCM
+
+            XCTAssertEqual(bulkPCM.map(\.bitPattern), defensivePCM.map(\.bitPattern))
+            XCTAssertEqual(defensive.samplePayloadUploadDiagnostics.defensiveSanitizingUploadCount, 1)
+            XCTAssertEqual(defensive.samplePayloadUploadDiagnostics.preSanitizedBulkCopyUploadCount, 0)
+            XCTAssertEqual(bulk.samplePayloadUploadDiagnostics.defensiveSanitizingUploadCount, 0)
+            XCTAssertEqual(bulk.samplePayloadUploadDiagnostics.preSanitizedBulkCopyUploadCount, 1)
+        }
+    }
+
+    func testDefensiveCMixerUploadStillSanitizesUntrustedNonFinitePCM() {
+        var config = vtx_c_mixer_default_config()
+        config.channel_count = 1
+        var state = VTXCMixerState()
+        XCTAssertEqual(vtx_c_mixer_init(&state, config), VTX_C_MIXER_STATUS_OK)
+        defer { XCTAssertEqual(vtx_c_mixer_clear_voices(&state), VTX_C_MIXER_STATUS_OK) }
+        let untrusted: [Float] = [.nan, .infinity, -.infinity, 0.5]
+        var voiceIndex = UInt32(0)
+
+        let addStatus = untrusted.withUnsafeBufferPointer { buffer in
+            vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
+                &state,
+                buffer.baseAddress,
+                UInt32(buffer.count),
+                1,
+                0,
+                1,
+                0,
+                VTX_C_MIXER_LOOP_NONE,
+                0,
+                0,
+                &voiceIndex
+            )
+        }
+        var output = Array(repeating: Float(-1), count: untrusted.count)
+        let renderStatus = output.withUnsafeMutableBufferPointer { buffer in
+            vtx_c_mixer_render(&state, buffer.baseAddress, UInt32(untrusted.count))
+        }
+
+        XCTAssertEqual(addStatus, VTX_C_MIXER_STATUS_OK)
+        XCTAssertEqual(voiceIndex, 0)
+        XCTAssertEqual(renderStatus, VTX_C_MIXER_STATUS_OK)
+        XCTAssertEqual(output.map(\.bitPattern), [0, 0, 0, Float(0.5).bitPattern])
+    }
+
+    func testCSoftwareMixerUploadDiagnosticsReportVoiceAddsBytesPathsAndDuplicates() {
+        let repeatedSample = MixerSampleBuffer(monoPCM: [1, 0.5])
+        let otherSample = MixerSampleBuffer(monoPCM: [-0.25])
+        let mixer = CSoftwareMixer(recordsSamplePayloadUploads: true)
+
+        mixer.addVoice(sample: repeatedSample)
+        mixer.addVoice(sample: repeatedSample)
+        mixer.addVoice(sample: otherSample)
+        let diagnostics = mixer.samplePayloadUploadDiagnostics
+
+        XCTAssertEqual(diagnostics.cMixerVoiceAddCount, 3)
+        XCTAssertEqual(diagnostics.uploadCount, 3)
+        XCTAssertEqual(diagnostics.approximateBytesCopied, 5 * MemoryLayout<Float>.size)
+        XCTAssertEqual(diagnostics.defensiveSanitizingUploadCount, 3)
+        XCTAssertEqual(diagnostics.preSanitizedBulkCopyUploadCount, 0)
+        XCTAssertEqual(diagnostics.uniqueSampleIdentityCount, 2)
+        XCTAssertEqual(diagnostics.duplicateUploadCount, 1)
+    }
+
     func testCSoftwareMixerZeroFrameRenderReturnsEmptyBlock() {
         let mixer = CSoftwareMixer(config: MixerRenderConfig(sampleRate: 48_000, channelCount: 2))
 

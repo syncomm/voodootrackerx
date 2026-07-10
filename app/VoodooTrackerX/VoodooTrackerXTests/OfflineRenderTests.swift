@@ -424,6 +424,70 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(performance.windows.first?.samplePayloadUploadCount, 1)
     }
 
+    func testWindowedRenderReportsRepeatedAndContinuationSamplePayloadUploads() throws {
+        let sample = makePlaybackSample(
+            pcm: [0.25, -0.5, 0.75, -1],
+            baseSampleRate: 100,
+            loopStart: 0,
+            loopLength: 4,
+            loopType: 1
+        )
+        let rows = (0..<130).map { rowIndex in
+            makePlaybackRow(
+                index: rowIndex,
+                note: rowIndex == 0 || rowIndex == 70 ? 49 : 0,
+                instrument: rowIndex == 0 || rowIndex == 70 ? 1 : 0
+            )
+        }
+        let song = makePlaybackSong(
+            orderPatternIndices: [2],
+            patternRowsByIndex: [2: rows],
+            instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])],
+            initialTiming: PlaybackTiming(speed: 1, bpm: 250)
+        )
+        let request = PlaybackSongOfflineRenderRequest(
+            song: song,
+            orderIndex: 0,
+            config: MixerRenderConfig(sampleRate: 100, channelCount: 1),
+            frames: 130
+        )
+        let renderer = PlaybackSongOfflineRenderer()
+
+        let optimized = renderer.renderWindowed(
+            request,
+            windowRows: 64,
+            collectPerformanceDiagnostics: true
+        )
+        let defensive = renderer.renderWindowedUsingDefensiveSamplePayloadUploadReference(
+            request,
+            windowRows: 64,
+            collectPerformanceDiagnostics: true
+        )
+        let performance = try XCTUnwrap(optimized.performanceDiagnostics)
+        let defensivePerformance = try XCTUnwrap(defensive.performanceDiagnostics)
+        let payloadBytes = 4 * MemoryLayout<Float>.size
+
+        XCTAssertEqual(optimized.block.interleavedPCM.map(\.bitPattern), defensive.block.interleavedPCM.map(\.bitPattern))
+        XCTAssertEqual(performance.cMixerVoiceAddCount, 4)
+        XCTAssertEqual(performance.samplePayloadUploadCount, 4)
+        XCTAssertEqual(performance.approximateSamplePayloadBytesCopied, 4 * payloadBytes)
+        XCTAssertEqual(performance.continuationSamplePayloadUploadCount, 2)
+        XCTAssertEqual(performance.approximateContinuationSamplePayloadBytesCopied, 2 * payloadBytes)
+        XCTAssertEqual(performance.uniqueSamplePayloadIdentityCount, 1)
+        XCTAssertEqual(performance.duplicateSamplePayloadUploadCount, 3)
+        XCTAssertEqual(performance.preSanitizedBulkCopyUploadCount, 4)
+        XCTAssertEqual(performance.defensiveSanitizingUploadCount, 0)
+        XCTAssertEqual(performance.windows.map(\.cMixerVoiceAddCount), [1, 2, 1])
+        XCTAssertEqual(performance.windows.map(\.samplePayloadUploadCount), [1, 2, 1])
+        XCTAssertEqual(performance.windows.map(\.continuationSamplePayloadUploadCount), [0, 1, 1])
+        XCTAssertEqual(performance.windows.map(\.approximateContinuationSamplePayloadBytesCopied), [0, payloadBytes, payloadBytes])
+        XCTAssertEqual(performance.windows.map(\.duplicateSamplePayloadUploadCount), [0, 1, 0])
+        XCTAssertEqual(performance.windows.map(\.preSanitizedBulkCopyUploadCount), [1, 2, 1])
+        XCTAssertEqual(performance.windows.map(\.defensiveSanitizingUploadCount), [0, 0, 0])
+        XCTAssertEqual(defensivePerformance.preSanitizedBulkCopyUploadCount, 0)
+        XCTAssertEqual(defensivePerformance.defensiveSanitizingUploadCount, 4)
+    }
+
     func testPlaybackSongOfflineRendererPerformanceInstrumentationHandlesSilentWindowedRender() throws {
         let song = makePlaybackSong(
             orderPatternIndices: [2],

@@ -27,9 +27,11 @@ normal agent reading.
   app uses an explicit product whole-song plan and does not use the diagnostic
   bounded-render cap. App auto-headroom renders the mixer once, computes peak
   diagnostics during that render, then applies gain through a streamed Float32
-  WAV post-process. It is not a diagnostic comparison profile selector and does
-  not expose FT2 profile, isolation/stem, pattern/order range, PCM16, AAC/M4A,
-  user-selectable gain/headroom, or comparison-report options.
+  WAV post-process. Unity-gain auto-headroom exports can safely skip that
+  rewrite; output semantics remain unchanged. It is not a diagnostic
+  comparison profile selector and does not expose FT2 profile, isolation/stem,
+  pattern/order range, PCM16, AAC/M4A, user-selectable gain/headroom, or
+  comparison-report options.
 
 Do not infer behavior changes from a comparison report alone. Use reports to
 choose the smallest next implementation or diagnostic PR.
@@ -171,10 +173,12 @@ The app product WAV export uses the shared product export profile: VTX mix at
 48 kHz, Float32 WAV, whole-song/song-end scope, a 3-second tail, 64-row windows,
 auto-headroom, and user-initiated long-render permission. It avoids a second
 full mixer render by writing an unscaled Float32 temp WAV during the only mixer
-render, then applying the computed gain in a streamed Float32 post-process. For
-comparable tool renders, pass `--product-export-profile` with a full-song order
-range, or use `scripts/bench-render.sh`. Runtime UI playback keeps its separate
-runtime output gain/headroom policy.
+render, then applying the computed gain in a streamed Float32 post-process.
+Unity-gain auto-headroom exports can safely skip that rewrite; output semantics
+remain unchanged. For comparable tool renders, pass
+`--product-export-profile` with a full-song order range, or use
+`scripts/bench-render.sh`. Runtime UI playback keeps its separate runtime output
+gain/headroom policy.
 
 App WAV export and the shared windowed offline render path also expose
 developer-facing performance diagnostics in their result models. These measure

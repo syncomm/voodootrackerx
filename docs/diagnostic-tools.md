@@ -159,8 +159,9 @@ App WAV export and the shared windowed offline render path also provide
 developer-facing performance diagnostics through Swift result models. These are
 not a separate CLI surface and are intentionally output-neutral: they measure
 render/export phase durations and counters, including sample-payload copy
-estimates, so future performance PRs can be prioritized with measured data
-without changing PCM output or normal product UI behavior.
+estimates and unity-gain fast-path use, so future performance PRs can be
+prioritized with measured data. Unity-gain auto-headroom exports can safely
+skip the rewrite pass; output semantics remain unchanged.
 
 ## Future Unified CLI Shape
 

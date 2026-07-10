@@ -162,11 +162,18 @@ render/export phase durations and counters, including sample-payload copy
 estimates, accepted C voice adds, per-window and continuation uploads, duplicate
 sample identities, defensive-copy versus pre-sanitized bulk-copy counts, and
 unity-gain fast-path use. Windowed offline rendering uses the output-neutral
-bulk-copy path because `MixerSampleBuffer` guarantees finite Float32 PCM; the
-original defensive C sanitizer remains the default for runtime and untrusted
-callers. An explicit offline/test shared-payload cache prototype now reports
-C-owned payload creates/bytes, voice references, and avoided per-voice upload
-counts/bytes. Product windowed export has not switched to it.
+shared C payload path because `MixerSampleBuffer` guarantees finite Float32
+PCM. One render-session cache owns the C payloads across fresh window mixers;
+runtime and immediate/non-windowed rendering remain on copied payloads. The
+original defensive sanitizer and pre-sanitized per-voice bulk-copy modes remain
+available as fallback/reference paths. Diagnostics report C-owned payload
+creates/bytes, voice and continuation references, avoided per-voice upload
+counts/bytes, and fallback copies. Byte-identical parity tests pin shared output
+to the copied references and preserve app-versus-tool and streaming parity.
+App WAV progress identifies pre-index construction as an indexing preparation
+phase before the first completed window. Replacement-ramp continuation lookups
+use an event-keyed index instead of repeated full reverse scans, while the
+existing index-build duration covers the work and output remains unchanged.
 
 The shared windowed offline render core now consumes its internal scheduling
 index. Performance diagnostics report index build duration, bucket counts,

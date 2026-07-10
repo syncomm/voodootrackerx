@@ -2281,15 +2281,16 @@ private final class WAVExportProgressSheet {
         panel.title = "Export WAV"
         panel.isReleasedWhenClosed = false
 
-        statusLabel = NSTextField(labelWithString: "Rendering WAV...")
+        statusLabel = NSTextField(labelWithString: "Preparing render...")
         statusLabel.lineBreakMode = .byTruncatingTail
 
         progressIndicator = NSProgressIndicator()
-        progressIndicator.isIndeterminate = false
+        progressIndicator.isIndeterminate = true
         progressIndicator.minValue = 0
         progressIndicator.maxValue = 1
         progressIndicator.doubleValue = 0
         progressIndicator.controlSize = .regular
+        progressIndicator.startAnimation(nil)
 
         let stack = NSStackView(views: [statusLabel, progressIndicator])
         stack.orientation = .vertical
@@ -2321,8 +2322,21 @@ private final class WAVExportProgressSheet {
     }
 
     func update(_ progress: WAVExportProgress) {
-        progressIndicator.doubleValue = progress.fractionCompleted
+        if progressIndicator.isIndeterminate != progress.isIndeterminate {
+            if progress.isIndeterminate {
+                progressIndicator.isIndeterminate = true
+                progressIndicator.startAnimation(nil)
+            } else {
+                progressIndicator.stopAnimation(nil)
+                progressIndicator.isIndeterminate = false
+            }
+        }
+        if !progress.isIndeterminate {
+            progressIndicator.doubleValue = progress.fractionCompleted
+        }
         switch progress.stage {
+        case .preparingRender:
+            statusLabel.stringValue = "Indexing render windows..."
         case .rendering:
             let percent = Int((progress.fractionCompleted * 100).rounded(.down))
             if progress.totalWindows > 0 {

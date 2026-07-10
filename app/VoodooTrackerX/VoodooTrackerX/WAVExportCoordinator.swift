@@ -206,6 +206,7 @@ enum WAVExportCompletionResult: @unchecked Sendable {
 }
 
 enum WAVExportProgressStage: Equatable, Sendable {
+    case preparingRender
     case rendering
     case applyingHeadroom
     case writingFile
@@ -218,6 +219,10 @@ struct WAVExportProgress: Equatable, Sendable {
     let totalFrames: Int
     let completedWindows: Int
     let totalWindows: Int
+
+    var isIndeterminate: Bool {
+        stage == .preparingRender
+    }
 
     var fractionCompleted: Double {
         guard totalFrames > 0 else {
@@ -492,7 +497,7 @@ struct WAVExportCoordinator {
                 exportPolicy: .unity
             ) { writer in
                 progressEmitter.emit(WAVExportProgress(
-                    stage: .rendering,
+                    stage: .preparingRender,
                     completedFrames: 0,
                     totalFrames: plan.totalFrameCount,
                     completedWindows: 0,

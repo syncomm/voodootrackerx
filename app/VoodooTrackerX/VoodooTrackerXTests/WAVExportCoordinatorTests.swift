@@ -201,7 +201,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 
-    func testProgressCallbacksRepresentRenderingWritingAndCompletion() throws {
+    func testProgressCallbacksUseIndeterminatePreparationThenDeterminatePipelineOrdering() throws {
         let destination = try temporaryDestination(filename: "progress.wav")
         let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
             playbackSong: makeSampleBearingSong(),
@@ -218,15 +218,34 @@ final class WAVExportCoordinatorTests: XCTestCase {
         guard case .exported = completion else {
             return XCTFail("Expected exported result, got \(completion)")
         }
-        XCTAssertEqual(progressEvents.first?.stage, .rendering)
+        XCTAssertEqual(progressEvents.first?.stage, .preparingRender)
+        XCTAssertEqual(progressEvents.first?.isIndeterminate, true)
+        XCTAssertEqual(progressEvents.filter { $0.stage == .preparingRender }.count, 1)
         XCTAssertTrue(progressEvents.contains { $0.stage == .rendering })
         XCTAssertTrue(progressEvents.contains { $0.stage == .applyingHeadroom })
         XCTAssertTrue(progressEvents.contains { $0.stage == .writingFile })
         XCTAssertEqual(progressEvents.last?.stage, .completed)
         XCTAssertEqual(progressEvents.last?.fractionCompleted, 1)
+        XCTAssertTrue(
+            progressEvents
+                .filter { $0.stage == .rendering }
+                .allSatisfy { !$0.isIndeterminate }
+        )
+        XCTAssertTrue(
+            progressEvents
+                .filter { $0.stage == .applyingHeadroom || $0.stage == .writingFile || $0.stage == .completed }
+                .allSatisfy { !$0.isIndeterminate }
+        )
         XCTAssertTrue(progressEvents.allSatisfy { $0.totalFrames == plan.totalFrameCount })
         XCTAssertTrue(progressEvents.allSatisfy { $0.totalWindows == plan.renderWindowCount })
-        XCTAssertEqual(progressEvents.map(\.stage).firstIndex(of: .rendering), 0)
+        XCTAssertLessThan(
+            try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .preparingRender)),
+            try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .rendering))
+        )
+        XCTAssertGreaterThan(
+            try XCTUnwrap(progressEvents.first { $0.stage == .rendering }).completedWindows,
+            0
+        )
         XCTAssertLessThan(
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .rendering)),
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .applyingHeadroom))
@@ -234,6 +253,10 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertLessThan(
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .applyingHeadroom)),
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .writingFile))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .writingFile)),
+            try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .completed))
         )
     }
 
@@ -431,10 +454,14 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertGreaterThan(renderPerformance.samplePayloadUploadCount, 0)
         XCTAssertGreaterThan(renderPerformance.approximateSamplePayloadBytesCopied, 0)
         XCTAssertGreaterThan(renderPerformance.uniqueSamplePayloadIdentityCount, 0)
+        XCTAssertEqual(renderPerformance.samplePayloadUploadCount, renderPerformance.sharedSamplePayloadCreateCount)
+        XCTAssertEqual(renderPerformance.approximateSamplePayloadBytesCopied, renderPerformance.sharedSamplePayloadBytesAllocated)
+        XCTAssertEqual(renderPerformance.sharedSamplePayloadVoiceReferenceCount, renderPerformance.cMixerVoiceAddCount)
         XCTAssertEqual(
-            renderPerformance.duplicateSamplePayloadUploadCount,
-            renderPerformance.samplePayloadUploadCount - renderPerformance.uniqueSamplePayloadIdentityCount
+            renderPerformance.avoidedPerVoiceSamplePayloadUploadCount,
+            renderPerformance.sharedSamplePayloadVoiceReferenceCount - renderPerformance.sharedSamplePayloadCreateCount
         )
+        XCTAssertGreaterThan(renderPerformance.avoidedPerVoiceSamplePayloadUploadCount, 0)
         XCTAssertEqual(renderPerformance.preSanitizedBulkCopyUploadCount, renderPerformance.samplePayloadUploadCount)
         XCTAssertEqual(renderPerformance.defensiveSanitizingUploadCount, 0)
         XCTAssertEqual(exportPerformance.totalFramesPlanned, plan.totalFrameCount)
@@ -521,6 +548,8 @@ final class WAVExportCoordinatorTests: XCTestCase {
         )
 
         let appSummary = try XCTUnwrap(appRenderResult.windowedRenderSummary)
+        let appPerformance = try XCTUnwrap(appRenderResult.performanceDiagnostics)
+        let indexDiagnostics = try XCTUnwrap(appPerformance.windowedRenderIndexDiagnostics)
         let referenceSummary = try XCTUnwrap(referenceRenderResult.windowedRenderSummary)
         XCTAssertEqual(appRenderResult.renderedFrameCount, plan.totalFrameCount)
         XCTAssertEqual(referenceRenderResult.renderedFrameCount, plan.totalFrameCount)
@@ -531,6 +560,10 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertGreaterThan(appSummary.totalScheduledEvents, 1)
         XCTAssertGreaterThan(appSummary.totalBoundaryContinuations, 0)
         XCTAssertEqual(appSummary.totalScheduledCapacityRejects, 0)
+        XCTAssertTrue(appPerformance.usedPreindexedWindowScheduling)
+        XCTAssertEqual(appPerformance.preindexedWindowSchedulingConsumedWindowCount, appSummary.windowCount)
+        XCTAssertEqual(indexDiagnostics.indexedWindowCount, appSummary.windowCount)
+        XCTAssertGreaterThan(indexDiagnostics.buildDurationSeconds, 0)
 
         let firstBoundaryFrame = try XCTUnwrap(appSummary.windows.dropFirst().first?.startFrame)
         XCTAssertGreaterThan(firstBoundaryFrame, 0)
@@ -1144,6 +1177,7 @@ private func assertNonNegativeRenderPerformance(
     XCTAssertGreaterThanOrEqual(diagnostics.approximateSamplePayloadBytesCopied, 0, file: file, line: line)
     XCTAssertGreaterThanOrEqual(diagnostics.continuationSamplePayloadUploadCount, 0, file: file, line: line)
     XCTAssertGreaterThanOrEqual(diagnostics.approximateContinuationSamplePayloadBytesCopied, 0, file: file, line: line)
+    XCTAssertGreaterThanOrEqual(diagnostics.continuationSharedSamplePayloadVoiceReferenceCount, 0, file: file, line: line)
     XCTAssertGreaterThanOrEqual(diagnostics.duplicateSamplePayloadUploadCount, 0, file: file, line: line)
     for window in diagnostics.windows {
         XCTAssertGreaterThanOrEqual(window.schedulingDurationSeconds, 0, file: file, line: line)

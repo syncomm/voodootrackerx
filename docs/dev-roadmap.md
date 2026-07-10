@@ -127,11 +127,21 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
-- An explicit offline/test prototype now caches finite sample PCM in C-owned
-  shared payload objects for repeated notes and window carryovers. Ownership
-  tests cover multiple references and exact-once frees; parity tests cover
-  copied/shared and accumulated/streaming output. Product windowed export and
-  runtime playback remain on their prior paths.
+- Production accumulated and streaming windowed offline rendering now caches
+  finite sample PCM in render-session-scoped, C-owned shared payload objects for
+  repeated notes and window carryovers. App WAV export and product-equivalent
+  tool rendering inherit that path; defensive and pre-sanitized per-voice copy
+  modes remain explicit fallbacks/references, while runtime and immediate
+  rendering remain unchanged. Diagnostics report shared creates/bytes, voice
+  and continuation references, avoided uploads, and fallback copies.
+  Byte-identical shared-versus-copied, accumulated-versus-streaming,
+  indexed-versus-scan, and app-versus-tool tests pin output.
+- App WAV export now reports pre-index construction as an indexing-render-
+  windows preparation phase instead of appearing stalled at rendering 0/N.
+  Same-channel replacement-ramp continuation lookup is pre-indexed by old event
+  identity and preserves the prior last-matching-ramp semantics. Existing
+  index-build timing diagnostics include the preparation work; PCM output and
+  runtime playback remain unchanged.
 - Windowed offline rendering now bulk-copies already-sanitized Float32 sample
   payloads into the same C-owned per-voice storage while preserving the
   defensive sanitizing C APIs for runtime/untrusted callers. Diagnostics report

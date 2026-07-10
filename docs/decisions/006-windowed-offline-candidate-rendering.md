@@ -30,6 +30,13 @@ This decision does not switch runtime playback, wire the app Play button to the
 C mixer, change parser ownership, implement new XM effects, change C mixer DSP
 semantics, or touch tracker viewport rendering.
 
+An additive offline/test prototype may retain a Swift-owned render-session
+cache of immutable C-owned sample payload objects across fresh window mixers.
+Voices reference those payloads without borrowing Swift memory; mixer teardown
+drops references, and the cache destroys each payload only after referencing
+voices are cleared. Product windowed export remains on per-voice C copies until
+a separate byte-parity-gated switch PR.
+
 ## Rationale
 
 Windowed scheduling reuses the fixed scheduled-voice pool without changing the

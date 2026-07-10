@@ -169,6 +169,15 @@ struct PlaybackSongScheduledVoiceAttempt: Equatable {
     let windowIndex: Int?
 }
 
+enum PlaybackSongOfflineSamplePayloadStorageMode: Equatable {
+    case perVoicePreSanitizedCopy
+    case sharedCPrototype
+
+    var cUploadMode: CSoftwareMixerSamplePayloadUploadMode {
+        self == .sharedCPrototype ? .sharedPreSanitizedCache : .preSanitizedBulkCopy
+    }
+}
+
 struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
     let windowIndex: Int
     let schedulingDurationSeconds: Double
@@ -183,6 +192,11 @@ struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
     let duplicateSamplePayloadUploadCount: Int
     let defensiveSanitizingUploadCount: Int
     let preSanitizedBulkCopyUploadCount: Int
+    let sharedSamplePayloadCreateCount: Int
+    let sharedSamplePayloadBytesAllocated: Int
+    let sharedSamplePayloadVoiceReferenceCount: Int
+    let avoidedPerVoiceSamplePayloadUploadCount: Int
+    let approximateAvoidedPerVoiceSamplePayloadUploadBytes: Int
 }
 
 struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
@@ -215,6 +229,11 @@ struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
     let duplicateSamplePayloadUploadCount: Int
     let defensiveSanitizingUploadCount: Int
     let preSanitizedBulkCopyUploadCount: Int
+    let sharedSamplePayloadCreateCount: Int
+    let sharedSamplePayloadBytesAllocated: Int
+    let sharedSamplePayloadVoiceReferenceCount: Int
+    let avoidedPerVoiceSamplePayloadUploadCount: Int
+    let approximateAvoidedPerVoiceSamplePayloadUploadBytes: Int
     let windows: [PlaybackSongRenderWindowPerformanceDiagnostic]
 }
 
@@ -834,6 +853,7 @@ final class PlaybackSongOfflineRenderer {
     func renderWindowed(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
+        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .perVoicePreSanitizedCopy,
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic) -> Void)? = nil
     ) -> PlaybackSongOfflineRenderResult {
@@ -841,7 +861,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
-            samplePayloadUploadMode: .preSanitizedBulkCopy,
+            samplePayloadUploadMode: samplePayloadStorageMode.cUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             progress: progress
         )
@@ -1174,6 +1194,9 @@ final class PlaybackSongOfflineRenderer {
         }
         var preindexedConsumedWindowCount = 0
         var uploadedSamplePayloadIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
+        let sharedSamplePayloadCache = samplePayloadUploadMode == .sharedPreSanitizedCache
+            ? CSoftwareMixerSharedSamplePayloadCache()
+            : nil
 
         for spec in windows {
             let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
@@ -1181,6 +1204,7 @@ final class PlaybackSongOfflineRenderer {
             let mixer = CSoftwareMixer(
                 config: effectiveRequest.config,
                 samplePayloadUploadMode: samplePayloadUploadMode,
+                sharedSamplePayloadCache: sharedSamplePayloadCache,
                 recordsSamplePayloadUploads: collectPerformanceDiagnostics
             )
             outputConfig = mixer.config
@@ -1387,9 +1411,14 @@ final class PlaybackSongOfflineRenderer {
                     $0.1.wasAccepted && $0.0.event.sample.frameCount > 0
                 }
                 : []
-            let continuationPayloadBytes = acceptedContinuationPayloads.reduce(0) { partial, pair in
-                partial + pair.0.event.sample.frameCount * MemoryLayout<Float>.size
-            }
+            let continuationPayloadUploadCount = samplePayloadUploadMode == .sharedPreSanitizedCache
+                ? 0
+                : acceptedContinuationPayloads.count
+            let continuationPayloadBytes = samplePayloadUploadMode == .sharedPreSanitizedCache
+                ? 0
+                : acceptedContinuationPayloads.reduce(0) { partial, pair in
+                    partial + pair.0.event.sample.frameCount * MemoryLayout<Float>.size
+                }
             let performanceDiagnostic = collectPerformanceDiagnostics
                 ? PlaybackSongRenderWindowPerformanceDiagnostic(
                     windowIndex: spec.index,
@@ -1399,12 +1428,17 @@ final class PlaybackSongOfflineRenderer {
                     cMixerVoiceAddCount: samplePayloadUploads.cMixerVoiceAddCount,
                     samplePayloadUploadCount: samplePayloadUploads.uploadCount,
                     approximateSamplePayloadBytesCopied: samplePayloadUploads.approximateBytesCopied,
-                    continuationSamplePayloadUploadCount: acceptedContinuationPayloads.count,
+                    continuationSamplePayloadUploadCount: continuationPayloadUploadCount,
                     approximateContinuationSamplePayloadBytesCopied: continuationPayloadBytes,
                     uniqueSamplePayloadIdentityCount: samplePayloadUploads.uniqueSampleIdentityCount,
                     duplicateSamplePayloadUploadCount: samplePayloadUploads.duplicateUploadCount,
                     defensiveSanitizingUploadCount: samplePayloadUploads.defensiveSanitizingUploadCount,
-                    preSanitizedBulkCopyUploadCount: samplePayloadUploads.preSanitizedBulkCopyUploadCount
+                    preSanitizedBulkCopyUploadCount: samplePayloadUploads.preSanitizedBulkCopyUploadCount,
+                    sharedSamplePayloadCreateCount: samplePayloadUploads.sharedPayloadCreateCount,
+                    sharedSamplePayloadBytesAllocated: samplePayloadUploads.sharedPayloadBytesAllocated,
+                    sharedSamplePayloadVoiceReferenceCount: samplePayloadUploads.sharedPayloadVoiceReferenceCount,
+                    avoidedPerVoiceSamplePayloadUploadCount: samplePayloadUploads.avoidedPerVoiceUploadCount,
+                    approximateAvoidedPerVoiceSamplePayloadUploadBytes: samplePayloadUploads.avoidedPerVoiceUploadBytes
                 )
                 : nil
 
@@ -1480,6 +1514,11 @@ final class PlaybackSongOfflineRenderer {
                 ),
                 defensiveSanitizingUploadCount: windowPerformanceDiagnostics.map(\.defensiveSanitizingUploadCount).reduce(0, +),
                 preSanitizedBulkCopyUploadCount: windowPerformanceDiagnostics.map(\.preSanitizedBulkCopyUploadCount).reduce(0, +),
+                sharedSamplePayloadCreateCount: windowPerformanceDiagnostics.map(\.sharedSamplePayloadCreateCount).reduce(0, +),
+                sharedSamplePayloadBytesAllocated: windowPerformanceDiagnostics.map(\.sharedSamplePayloadBytesAllocated).reduce(0, +),
+                sharedSamplePayloadVoiceReferenceCount: windowPerformanceDiagnostics.map(\.sharedSamplePayloadVoiceReferenceCount).reduce(0, +),
+                avoidedPerVoiceSamplePayloadUploadCount: windowPerformanceDiagnostics.map(\.avoidedPerVoiceSamplePayloadUploadCount).reduce(0, +),
+                approximateAvoidedPerVoiceSamplePayloadUploadBytes: windowPerformanceDiagnostics.map(\.approximateAvoidedPerVoiceSamplePayloadUploadBytes).reduce(0, +),
                 windows: windowPerformanceDiagnostics
             )
             : nil
@@ -1581,6 +1620,7 @@ final class PlaybackSongOfflineRenderer {
     func renderWindowedStreaming(
         _ request: PlaybackSongOfflineRenderRequest,
         windowRows: Int,
+        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .perVoicePreSanitizedCopy,
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
@@ -1588,7 +1628,7 @@ final class PlaybackSongOfflineRenderer {
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
-            samplePayloadUploadMode: .preSanitizedBulkCopy,
+            samplePayloadUploadMode: samplePayloadStorageMode.cUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
             prepareOutput: nil,
             collectBlock: nil,

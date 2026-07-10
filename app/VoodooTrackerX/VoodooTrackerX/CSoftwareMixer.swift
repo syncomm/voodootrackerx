@@ -68,6 +68,7 @@ struct CSoftwareMixerVoiceStateUpdateResult: Equatable {
 enum CSoftwareMixerSamplePayloadUploadMode: Equatable {
     case defensiveSanitizingCopy
     case preSanitizedBulkCopy
+    case sharedPreSanitizedCache
 }
 
 struct CSoftwareMixerSamplePayloadIdentity: Hashable {
@@ -83,6 +84,11 @@ struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
     private(set) var approximateBytesCopied = 0
     private(set) var defensiveSanitizingUploadCount = 0
     private(set) var preSanitizedBulkCopyUploadCount = 0
+    private(set) var sharedPayloadCreateCount = 0
+    private(set) var sharedPayloadBytesAllocated = 0
+    private(set) var sharedPayloadVoiceReferenceCount = 0
+    private(set) var avoidedPerVoiceUploadCount = 0
+    private(set) var avoidedPerVoiceUploadBytes = 0
     private(set) var uploadedSampleIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
 
     var uniqueSampleIdentityCount: Int {
@@ -96,7 +102,8 @@ struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
     mutating func recordAcceptedVoiceAdd(
         sampleFrameCount: Int,
         sampleIdentity: CSoftwareMixerSamplePayloadIdentity?,
-        uploadMode: CSoftwareMixerSamplePayloadUploadMode
+        uploadMode: CSoftwareMixerSamplePayloadUploadMode,
+        sharedPayloadWasCreated: Bool = false
     ) {
         cMixerVoiceAddCount = Self.incrementing(cMixerVoiceAddCount)
         let frameCount = max(0, sampleFrameCount)
@@ -108,9 +115,22 @@ struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
         if let sampleIdentity {
             uploadedSampleIdentities.insert(sampleIdentity)
         }
-        let (nextBytes, nextBytesOverflow) = approximateBytesCopied.addingReportingOverflow(safeBytes)
+        if uploadMode == .sharedPreSanitizedCache {
+            sharedPayloadVoiceReferenceCount = Self.incrementing(sharedPayloadVoiceReferenceCount)
+            if sharedPayloadWasCreated {
+                uploadCount = Self.incrementing(uploadCount)
+                approximateBytesCopied = Self.adding(approximateBytesCopied, safeBytes)
+                preSanitizedBulkCopyUploadCount = Self.incrementing(preSanitizedBulkCopyUploadCount)
+                sharedPayloadCreateCount = Self.incrementing(sharedPayloadCreateCount)
+                sharedPayloadBytesAllocated = Self.adding(sharedPayloadBytesAllocated, safeBytes)
+            } else {
+                avoidedPerVoiceUploadCount = Self.incrementing(avoidedPerVoiceUploadCount)
+                avoidedPerVoiceUploadBytes = Self.adding(avoidedPerVoiceUploadBytes, safeBytes)
+            }
+            return
+        }
         uploadCount = Self.incrementing(uploadCount)
-        approximateBytesCopied = nextBytesOverflow ? Int.max : nextBytes
+        approximateBytesCopied = Self.adding(approximateBytesCopied, safeBytes)
         if uploadMode == .defensiveSanitizingCopy {
             defensiveSanitizingUploadCount = Self.incrementing(defensiveSanitizingUploadCount)
         } else {
@@ -121,6 +141,50 @@ struct CSoftwareMixerSamplePayloadUploadDiagnostics: Equatable {
     private static func incrementing(_ count: Int) -> Int {
         let (next, overflow) = count.addingReportingOverflow(1)
         return overflow ? Int.max : next
+    }
+
+    private static func adding(_ count: Int, _ amount: Int) -> Int {
+        let (next, overflow) = count.addingReportingOverflow(amount)
+        return overflow ? Int.max : next
+    }
+}
+
+/// Owns immutable C payload copies for one explicit offline render session.
+final class CSoftwareMixerSharedSamplePayloadCache {
+    // PCM values retain only the Swift storage identity used as the key; C owns separate copies.
+    private var entries = [CSoftwareMixerSamplePayloadIdentity: (pcm: [Float], payload: OpaquePointer)]()
+
+    deinit {
+        for entry in entries.values {
+            precondition(
+                vtx_c_mixer_shared_sample_payload_destroy(entry.payload, nil) == VTX_C_MIXER_STATUS_OK,
+                "C shared sample cache outlived one of its voice references"
+            )
+        }
+    }
+
+    func acquirePayload(for sample: MixerSampleBuffer) -> (payload: OpaquePointer, wasCreated: Bool) {
+        precondition(sample.frameCount > 0, "Shared C sample payloads must not be empty")
+        let identity = sample.monoPCM.withUnsafeBufferPointer { buffer in
+            CSoftwareMixerSamplePayloadIdentity(
+                storageAddress: UInt(bitPattern: buffer.baseAddress),
+                frameCount: buffer.count
+            )
+        }
+        if let entry = entries[identity] {
+            return (entry.payload, false)
+        }
+        var payload: OpaquePointer?
+        let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
+            vtx_c_mixer_shared_sample_payload_create_pre_sanitized(
+                buffer.baseAddress,
+                UInt32(buffer.count),
+                &payload
+            )
+        }
+        precondition(status == VTX_C_MIXER_STATUS_OK && payload != nil)
+        entries[identity] = (sample.monoPCM, payload!)
+        return (payload!, true)
     }
 }
 
@@ -226,9 +290,9 @@ struct CSoftwareMixerVoiceRuntimeState: Equatable {
 ///
 /// This wrapper exists for deterministic offline tests and the narrow runtime C mixer hot path. It does not
 /// replace `SoftwareMixer`; callers decide whether the wrapper is used for offline export or runtime rendering.
-/// Synthetic samples added through this wrapper are copied into C-owned storage so Swift array lifetimes do
-/// not leak across the C render boundary. Synthetic envelope points are also copied into C-owned voice
-/// storage when attached.
+/// Samples use C-owned storage so Swift buffer pointers never escape their call scope. The default paths
+/// retain per-voice copies; the explicit offline prototype cache copies each immutable payload once.
+/// Synthetic envelope points are also copied into C-owned voice storage when attached.
 final class CSoftwareMixer {
     static let maximumVoiceCount = Int(VTX_C_MIXER_MAX_VOICES)
     static let maximumScheduledVoiceCount = Int(VTX_C_MIXER_MAX_SCHEDULED_VOICES)
@@ -251,6 +315,7 @@ final class CSoftwareMixer {
 
     private let state: UnsafeMutablePointer<VTXCMixerState>
     private let samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode
+    private let sharedSamplePayloadCache: CSoftwareMixerSharedSamplePayloadCache?
     private let recordsSamplePayloadUploads: Bool
     private var storedSamplePayloadUploadDiagnostics = CSoftwareMixerSamplePayloadUploadDiagnostics.zero
     private(set) var config: MixerRenderConfig
@@ -290,9 +355,14 @@ final class CSoftwareMixer {
     init(
         config: MixerRenderConfig = MixerRenderConfig(),
         samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode = .defensiveSanitizingCopy,
+        sharedSamplePayloadCache: CSoftwareMixerSharedSamplePayloadCache? = nil,
         recordsSamplePayloadUploads: Bool = false
     ) {
+        let resolvedSharedCache = samplePayloadUploadMode == .sharedPreSanitizedCache
+            ? sharedSamplePayloadCache ?? CSoftwareMixerSharedSamplePayloadCache()
+            : nil
         self.samplePayloadUploadMode = samplePayloadUploadMode
+        self.sharedSamplePayloadCache = resolvedSharedCache
         self.recordsSamplePayloadUploads = recordsSamplePayloadUploads
         self.config = config
         state = UnsafeMutablePointer<VTXCMixerState>.allocate(capacity: 1)
@@ -342,9 +412,12 @@ final class CSoftwareMixer {
         let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
         var sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
+        let effectiveUploadMode = samplePayloadUploadMode == .sharedPreSanitizedCache
+            ? .preSanitizedBulkCopy
+            : samplePayloadUploadMode
         let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
             sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: buffer) : nil
-            if samplePayloadUploadMode == .preSanitizedBulkCopy {
+            if effectiveUploadMode == .preSanitizedBulkCopy {
                 return vtx_c_mixer_add_sample_voice_with_step_at_source_frame_pre_sanitized(
                     state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
                     sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
@@ -352,21 +425,18 @@ final class CSoftwareMixer {
                 )
             }
             return vtx_c_mixer_add_sample_voice_with_step_at_source_frame(
-                state,
-                buffer.baseAddress,
-                UInt32(sample.frameCount),
-                playbackStep,
-                sanitizedInitialSourceFrame,
-                gain,
-                pan,
-                Self.cLoopMode(from: sanitizedLoop.mode),
-                UInt32(sanitizedLoop.startFrame),
-                UInt32(sanitizedLoop.endFrame),
-                &voiceIndex
+                state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
+                sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
+                UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame), &voiceIndex
             )
         }
         Self.requireOK(status)
-        recordAcceptedVoiceAdd(frameCount: sample.frameCount, sampleIdentity: sampleIdentity)
+        recordAcceptedVoiceAdd(
+            frameCount: sample.frameCount,
+            sampleIdentity: sampleIdentity,
+            uploadMode: effectiveUploadMode,
+            sharedPayloadWasCreated: false
+        )
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -431,35 +501,52 @@ final class CSoftwareMixer {
         guard scheduledStartFrame >= 0 else {
             return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .invalidScheduledVoice)
         }
+        if samplePayloadUploadMode == .sharedPreSanitizedCache {
+            guard UInt64(scheduledStartFrame) >= currentFrame else {
+                return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .invalidScheduledVoice)
+            }
+            guard loadedVoiceCount < Self.maximumScheduledVoiceCount else {
+                return CSoftwareMixerScheduledVoiceResult(voiceIndex: nil, rejectionReason: .scheduledVoiceCapacity)
+            }
+        }
         precondition(sample.frameCount <= Int(UInt32.max), "C mixer sample is too large")
         let sanitizedLoop = loop.sanitized(sampleFrameCount: sample.frameCount)
         let sanitizedInitialSourceFrame = Self.sanitizedInitialSourceFrame(initialSourceFrame)
         var voiceIndex = UInt32(0)
         var sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
-        let status = sample.monoPCM.withUnsafeBufferPointer { buffer in
-            sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: buffer) : nil
-            if samplePayloadUploadMode == .preSanitizedBulkCopy {
-                return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame_pre_sanitized(
+        var sharedPayloadWasCreated = false
+        var effectiveUploadMode = samplePayloadUploadMode
+        let status: VTXCMixerStatus
+        if samplePayloadUploadMode == .sharedPreSanitizedCache, sample.frameCount > 0 {
+            let acquisition = sharedSamplePayloadCache!.acquirePayload(for: sample)
+            sharedPayloadWasCreated = acquisition.wasCreated
+            sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: sample) : nil
+            status = vtx_c_mixer_add_scheduled_shared_sample_voice_with_step_at_source_frame(
+                state, acquisition.payload, playbackStep, sanitizedInitialSourceFrame, gain, pan,
+                Self.cLoopMode(from: sanitizedLoop.mode), UInt32(sanitizedLoop.startFrame),
+                UInt32(sanitizedLoop.endFrame), UInt64(scheduledStartFrame), &voiceIndex
+            )
+        } else {
+            if samplePayloadUploadMode == .sharedPreSanitizedCache {
+                effectiveUploadMode = .preSanitizedBulkCopy
+            }
+            status = sample.monoPCM.withUnsafeBufferPointer { buffer in
+                sampleIdentity = recordsSamplePayloadUploads ? Self.samplePayloadIdentity(for: buffer) : nil
+                if effectiveUploadMode == .preSanitizedBulkCopy {
+                    return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame_pre_sanitized(
+                        state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
+                        sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
+                        UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame),
+                        UInt64(scheduledStartFrame), &voiceIndex
+                    )
+                }
+                return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
                     state, buffer.baseAddress, UInt32(sample.frameCount), playbackStep,
                     sanitizedInitialSourceFrame, gain, pan, Self.cLoopMode(from: sanitizedLoop.mode),
                     UInt32(sanitizedLoop.startFrame), UInt32(sanitizedLoop.endFrame),
                     UInt64(scheduledStartFrame), &voiceIndex
                 )
             }
-            return vtx_c_mixer_add_scheduled_sample_voice_with_step_at_source_frame(
-                state,
-                buffer.baseAddress,
-                UInt32(sample.frameCount),
-                playbackStep,
-                sanitizedInitialSourceFrame,
-                gain,
-                pan,
-                Self.cLoopMode(from: sanitizedLoop.mode),
-                UInt32(sanitizedLoop.startFrame),
-                UInt32(sanitizedLoop.endFrame),
-                UInt64(scheduledStartFrame),
-                &voiceIndex
-            )
         }
         guard status == VTX_C_MIXER_STATUS_OK else {
             return CSoftwareMixerScheduledVoiceResult(
@@ -467,7 +554,12 @@ final class CSoftwareMixer {
                 rejectionReason: Self.rejectionReason(for: status)
             )
         }
-        recordAcceptedVoiceAdd(frameCount: sample.frameCount, sampleIdentity: sampleIdentity)
+        recordAcceptedVoiceAdd(
+            frameCount: sample.frameCount,
+            sampleIdentity: sampleIdentity,
+            uploadMode: effectiveUploadMode,
+            sharedPayloadWasCreated: sharedPayloadWasCreated
+        )
         if let volumeEnvelope {
             setVolumeEnvelope(volumeEnvelope, forVoiceAt: Int(voiceIndex))
         }
@@ -1001,9 +1093,17 @@ final class CSoftwareMixer {
         )
     }
 
+    private static func samplePayloadIdentity(
+        for sample: MixerSampleBuffer
+    ) -> CSoftwareMixerSamplePayloadIdentity? {
+        sample.monoPCM.withUnsafeBufferPointer { samplePayloadIdentity(for: $0) }
+    }
+
     private func recordAcceptedVoiceAdd(
         frameCount: Int,
-        sampleIdentity: CSoftwareMixerSamplePayloadIdentity?
+        sampleIdentity: CSoftwareMixerSamplePayloadIdentity?,
+        uploadMode: CSoftwareMixerSamplePayloadUploadMode,
+        sharedPayloadWasCreated: Bool
     ) {
         guard recordsSamplePayloadUploads else {
             return
@@ -1011,7 +1111,8 @@ final class CSoftwareMixer {
         storedSamplePayloadUploadDiagnostics.recordAcceptedVoiceAdd(
             sampleFrameCount: frameCount,
             sampleIdentity: sampleIdentity,
-            uploadMode: samplePayloadUploadMode
+            uploadMode: uploadMode,
+            sharedPayloadWasCreated: sharedPayloadWasCreated
         )
     }
 

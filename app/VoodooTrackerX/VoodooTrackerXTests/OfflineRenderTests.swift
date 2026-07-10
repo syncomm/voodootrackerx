@@ -463,11 +463,29 @@ final class OfflineRenderTests: XCTestCase {
             windowRows: 64,
             collectPerformanceDiagnostics: true
         )
+        let shared = renderer.renderWindowed(
+            request,
+            windowRows: 64,
+            samplePayloadStorageMode: .sharedCPrototype,
+            collectPerformanceDiagnostics: true
+        )
+        var streamedSharedPCM = [Float]()
+        let streamedShared = renderer.renderWindowedStreaming(
+            request,
+            windowRows: 64,
+            samplePayloadStorageMode: .sharedCPrototype
+        ) { _, _, _, block in
+            streamedSharedPCM.append(contentsOf: block.interleavedPCM)
+        }
         let performance = try XCTUnwrap(optimized.performanceDiagnostics)
         let defensivePerformance = try XCTUnwrap(defensive.performanceDiagnostics)
+        let sharedPerformance = try XCTUnwrap(shared.performanceDiagnostics)
         let payloadBytes = 4 * MemoryLayout<Float>.size
 
         XCTAssertEqual(optimized.block.interleavedPCM.map(\.bitPattern), defensive.block.interleavedPCM.map(\.bitPattern))
+        XCTAssertEqual(shared.block.interleavedPCM.map(\.bitPattern), defensive.block.interleavedPCM.map(\.bitPattern))
+        XCTAssertEqual(streamedSharedPCM.map(\.bitPattern), shared.block.interleavedPCM.map(\.bitPattern))
+        XCTAssertEqual(streamedShared.scheduledVoiceIndices, shared.scheduledVoiceIndices)
         XCTAssertEqual(performance.cMixerVoiceAddCount, 4)
         XCTAssertEqual(performance.samplePayloadUploadCount, 4)
         XCTAssertEqual(performance.approximateSamplePayloadBytesCopied, 4 * payloadBytes)
@@ -486,6 +504,21 @@ final class OfflineRenderTests: XCTestCase {
         XCTAssertEqual(performance.windows.map(\.defensiveSanitizingUploadCount), [0, 0, 0])
         XCTAssertEqual(defensivePerformance.preSanitizedBulkCopyUploadCount, 0)
         XCTAssertEqual(defensivePerformance.defensiveSanitizingUploadCount, 4)
+        XCTAssertEqual(sharedPerformance.cMixerVoiceAddCount, 4)
+        XCTAssertEqual(sharedPerformance.samplePayloadUploadCount, 1)
+        XCTAssertEqual(sharedPerformance.approximateSamplePayloadBytesCopied, payloadBytes)
+        XCTAssertEqual(sharedPerformance.continuationSamplePayloadUploadCount, 0)
+        XCTAssertEqual(sharedPerformance.approximateContinuationSamplePayloadBytesCopied, 0)
+        XCTAssertEqual(sharedPerformance.sharedSamplePayloadCreateCount, 1)
+        XCTAssertEqual(sharedPerformance.sharedSamplePayloadBytesAllocated, payloadBytes)
+        XCTAssertEqual(sharedPerformance.sharedSamplePayloadVoiceReferenceCount, 4)
+        XCTAssertEqual(sharedPerformance.avoidedPerVoiceSamplePayloadUploadCount, 3)
+        XCTAssertEqual(sharedPerformance.approximateAvoidedPerVoiceSamplePayloadUploadBytes, 3 * payloadBytes)
+        XCTAssertEqual(sharedPerformance.defensiveSanitizingUploadCount, 0)
+        XCTAssertEqual(sharedPerformance.preSanitizedBulkCopyUploadCount, 1)
+        XCTAssertEqual(sharedPerformance.windows.map(\.sharedSamplePayloadCreateCount), [1, 0, 0])
+        XCTAssertEqual(sharedPerformance.windows.map(\.sharedSamplePayloadVoiceReferenceCount), [1, 2, 1])
+        XCTAssertEqual(sharedPerformance.windows.map(\.avoidedPerVoiceSamplePayloadUploadCount), [0, 2, 1])
     }
 
     func testPlaybackSongOfflineRendererPerformanceInstrumentationHandlesSilentWindowedRender() throws {

@@ -127,12 +127,16 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- An explicit offline/test prototype now caches finite sample PCM in C-owned
+  shared payload objects for repeated notes and window carryovers. Ownership
+  tests cover multiple references and exact-once frees; parity tests cover
+  copied/shared and accumulated/streaming output. Product windowed export and
+  runtime playback remain on their prior paths.
 - Windowed offline rendering now bulk-copies already-sanitized Float32 sample
   payloads into the same C-owned per-voice storage while preserving the
   defensive sanitizing C APIs for runtime/untrusted callers. Diagnostics report
   accepted C voice adds, payload counts/bytes, continuation uploads, duplicate
-  identities, and fast/slow copy counts; byte-parity tests pin output. Shared C
-  sample payload storage/interning remains a separate future PR.
+  identities, and fast/slow copy counts; byte-parity tests pin output.
 - Windowed offline rendering now consumes pre-indexed event, continuation, and
   update-candidate buckets to reduce repeated scheduling scans. Public-safe
   scan-reference, accumulated-vs-streaming, and app-vs-tool byte-parity tests

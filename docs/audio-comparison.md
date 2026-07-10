@@ -191,10 +191,12 @@ output, C mixer DSP, runtime playback, parser behavior, or tracker UI
 behavior. Use them to choose and validate narrow future render/export
 performance PRs.
 
-An internal pre-indexed per-window scheduling prototype now compares window,
-event, and carryover identities and pins representative update candidates
-against the current diagnostics. Production render paths do not consume it; a
-future byte-identity-gated PR may use its evidence to optimize scheduling.
+The shared windowed offline render core now consumes pre-indexed event,
+continuation, and update-candidate buckets to reduce repeated whole-plan
+scheduling scans. Scan-reference, accumulated-vs-streaming, and app-vs-tool
+parity tests pin PCM and final WAV bytes, while performance diagnostics report
+index build duration, consumed buckets, and reduced-scan estimates. C mixer DSP
+and runtime playback are unchanged.
 
 ## FT2 Mix Profile vs VTX Mix Profile
 

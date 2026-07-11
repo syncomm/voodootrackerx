@@ -20,21 +20,22 @@ experiments, not live plugin playback inside classic XM compatibility.
 Release status: `v0.2.0-alpha.4` is the prepared Export XM v1 alpha for VTX
 editable documents. It covers the current editable subset, including supported
 existing instrument/sample payloads where safely represented. Product
-whole-song 32-bit Float WAV export is now available from
-`File > Export Audio > WAV...` for stopped loaded modules, editable documents,
-and editable copies. It is non-mutating, writes only to the selected
+whole-song 32-bit Float WAV and AAC/M4A export is now available from
+`File > Export Audio` for stopped loaded modules, editable documents, and
+editable copies. Export is non-mutating, writes only to the selected
 destination, does not claim source-path ownership, keeps Save/Save As disabled,
 does not use the diagnostic bounded-render cap, renders through the same
 64-row windowed offline path used by the proven render tool mode, and applies
 export-boundary auto-headroom without a second full mixer render. The app
-product default is 48 kHz Float32. Export can be cancelled cooperatively at
+product render default is 48 kHz Float32; M4A encodes the completed scaled PCM
+as 192 kbps AAC for convenient sharing. Export can be cancelled cooperatively at
 safe preparation, render-window, headroom-chunk, and final-write boundaries;
 temporary output is removed, cancellation is non-mutating, and determinate
 progress is continuous and weighted across the remaining phases. The release
 is not a full arbitrary-XM round-trip guarantee or a full
 FT2/OpenMPT/MilkyTracker parity claim. Save/Save As, loaded-module direct
-editing, Instrument Editor, Sample Editor, AAC/M4A export, PCM16 product
-export, pattern/order ranges, channel/stem export, diagnostic comparison
+editing, Instrument Editor, Sample Editor, PCM16 product export,
+pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 
 ## Backend Architecture
@@ -59,6 +60,10 @@ profile UI, and user-selectable gain/headroom remain future work.
   peak diagnostics while writing an unscaled Float32 temp WAV, then applies the
   shared auto-headroom gain through a streamed Float32 WAV post-process; it
   does not change runtime playback, scheduling, or C mixer DSP.
+- Product M4A export reuses the same WAV plan and completed scaled Float32 temp
+  output, then encodes fixed 192 kbps AAC through AVFoundation. The encoder is
+  an app-level boundary and does not change WAV output, render PCM, runtime
+  playback, scheduling, or C mixer DSP.
 - `CSoftwareMixer` owns the large `VTXCMixerState` on the heap so background
   offline export/render workers do not initialize that fixed-size C state on a
   smaller GCD worker stack.
@@ -192,6 +197,15 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `File > Export Audio > M4A...` now reuses the stopped product WAV plan and
+  scaled Float32 temp output for loaded modules, editable documents, and
+  editable copies, then encodes fixed 192 kbps AAC through a narrow
+  AVFoundation boundary. It writes only to the selected `.m4a` destination,
+  reports render/headroom/encoding/write progress, cancels cooperatively,
+  cleans temporary/partial output, leaves documents and source ownership
+  untouched, and keeps Save/Save As plus loaded-module editing disabled. WAV
+  output, render PCM, runtime playback/scheduling, C mixer DSP, parser,
+  tracker viewport, and XM writer behavior are unchanged.
 - `File > Export Audio > WAV...` now renders the current stopped loaded module,
   editable document, or editable copy to a user-selected 32-bit Float WAV via
   the existing bounded offline C mixer path. The app uses the VTX mix profile,
@@ -207,7 +221,7 @@ Recently completed narrow targets:
   supports cooperative cancellation at safe phase boundaries, removes
   temporary output on cancellation or failure, leaves source modules/documents
   untouched, does not claim source-path ownership, keeps Save/Save As disabled,
-  and leaves loaded modules read-only. AAC/M4A, PCM16, pattern or order ranges,
+  and leaves loaded modules read-only. PCM16, pattern or order ranges,
   channel/stem export, normalization,
   diagnostic comparison profiles, and user-selectable gain/headroom remain
   future work.

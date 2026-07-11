@@ -13,11 +13,12 @@ For effect status, read `docs/xm-effect-support.md`.
 documents. The alpha.4 release claim is intentionally scoped to the current
 editable subset and supported existing instrument/sample payloads; it is not a
 full arbitrary-XM round-trip guarantee and does not claim full FastTracker II,
-OpenMPT, or MilkyTracker parity. Product whole-song 32-bit Float WAV export is
-now available from `File > Export Audio > WAV...` for stopped loaded modules
-and editable documents without changing Save/Save As semantics. The app export
-uses an explicit 48 kHz product whole-song plan and 64-row windowed offline
-render path, not the diagnostic bounded-render cap.
+OpenMPT, or MilkyTracker parity. Product whole-song 32-bit Float WAV and
+AAC/M4A export is now available from `File > Export Audio` for stopped loaded
+modules and editable documents without changing Save/Save As semantics. Both
+use the explicit 48 kHz product whole-song plan and 64-row windowed offline
+render path, not the diagnostic bounded-render cap; M4A adds fixed 192 kbps AAC
+encoding for convenient sharing.
 
 ## Project Goals
 
@@ -128,6 +129,7 @@ Done at a high level:
 - bounded candidate WAV export through `vtx_render_bounded_xm`
 - PCM16 and Float32 WAV export diagnostics
 - product whole-song 32-bit Float WAV export UI using the VTX mix profile
+- product AAC/M4A sharing export using the same scaled Float32 render output
 - `--mix-profile vtx` and `--mix-profile ft2`
 - runtime CoreAudio C mixer default selection
 - runtime trace and capture diagnostics
@@ -155,7 +157,7 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Add AAC/M4A export foundation without changing the WAV product defaults.
+1. `release: prepare v0.2.0-alpha.5 Rendered Audio Export alpha`.
 2. Build an Instrument Editor shell/read-only binding.
 3. Add editable palette/sample workflow foundations in narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
@@ -179,6 +181,13 @@ Parked parity-watch items:
 
 Recently completed:
 
+- `File > Export Audio > M4A...` now exposes fixed 192 kbps AAC-in-M4A sharing
+  export for the same stopped loaded modules and editable documents as WAV.
+  It reuses the immutable product WAV plan and completed auto-headroom-scaled
+  Float32 temp output, adds encoding progress/cancellation and cleanup, writes
+  only to the selected destination, and leaves WAV output, render PCM, runtime
+  playback/scheduling, C mixer DSP, parser architecture, tracker viewport, XM
+  writer behavior, Save/Save As, and loaded-module read-only state unchanged.
 - App WAV export now has a Cancel button backed by a thread-safe cooperative
   token and a dedicated non-error cancellation result. Safe checks surround
   preparation/indexing, each render window, each headroom chunk, and the final
@@ -212,8 +221,8 @@ Recently completed:
   C mixer DSP, change parser architecture, or touch tracker viewport/static
   highlight behavior. The C mixer wrapper owns its large
   fixed-size C state on the heap so background workers do not initialize that
-  state on a small GCD stack. Advanced options remain deferred: AAC/M4A,
-  PCM16, pattern/order ranges, channel/stem export,
+  state on a small GCD stack. Advanced options remain deferred: PCM16,
+  pattern/order ranges, channel/stem export,
   normalization, and diagnostic comparison profiles.
 - `File > Make Editable Copy` now establishes the explicit loaded-module
   editable-copy boundary for supported stopped loaded read-only XM modules. It
@@ -247,7 +256,7 @@ Recently completed:
   sample payloads, clears song/order/pattern note data, resets to order 0 and
   pattern 0, and preserves safe timing and dimensions. Broader arrangement
   editing, undo/redo, WAV/AIFF import, XI import, sample/instrument editors,
-  save XM, and export WAV/AAC remain deferred.
+  Save XM, and advanced audio export options remain deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
   the cached `RuntimeCMixerAdapterEventPlan`. The runtime C mixer render core
@@ -649,7 +658,7 @@ Next composition targets after backend foundation freeze:
 - Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
   pattern length utilities, and deeper arrangement editing
 - broader loop-and-edit workflow for composing while hearing playback
-- save XM and export WAV/AAC
+- save XM and advanced audio export options
 - keyboard workflow parity
 
 Loaded modules remain read-only until editable-copy/save semantics are designed.

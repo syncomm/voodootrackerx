@@ -20,21 +20,24 @@ normal agent reading.
 - Runtime CoreAudio capture and offline render have been shown equivalent for
   tested modules when sample rate, gain/headroom, and bounds match.
 - Product audio export is available separately in the app as
-  `File > Export Audio > WAV...`. That UI writes whole-song 32-bit Float WAV
-  at 48 kHz using the VTX mix profile, default song-end tail, 64-row windowed
-  offline rendering, and export-boundary auto-headroom to a user-selected
-  destination. Those values come from the shared product export profile. The
-  app uses an explicit product whole-song plan and does not use the diagnostic
-  bounded-render cap. App auto-headroom renders the mixer once, computes peak
-  diagnostics during that render, then applies gain through a streamed Float32
-  WAV post-process. Unity-gain auto-headroom exports can safely skip that
-  rewrite; output semantics remain unchanged. The app export can be cancelled
+  `File > Export Audio > WAV...` and `File > Export Audio > M4A...`. Both use
+  whole-song 48 kHz rendering with the VTX mix profile, default song-end tail,
+  64-row windowed offline rendering, and export-boundary auto-headroom to a
+  user-selected destination. Those values come from the shared product export
+  profile. The app uses an explicit product whole-song plan and does not use
+  the diagnostic bounded-render cap. App auto-headroom renders the mixer once,
+  computes peak diagnostics during that render, then applies gain through a
+  streamed Float32 WAV post-process. Unity-gain auto-headroom exports can
+  safely skip that rewrite; output semantics remain unchanged. The app export
+  can be cancelled
   at safe pipeline boundaries without mutating the source or leaving temporary
   output, and its determinate progress is continuous and weighted across
-  render, headroom, and final-write work. It is not a diagnostic
-  comparison profile selector and does not expose FT2 profile, isolation/stem,
-  pattern/order range, PCM16, AAC/M4A, user-selectable gain/headroom, or
-  comparison-report options.
+  render, headroom, and final-write work. M4A export consumes that completed
+  scaled Float32 temp WAV through a narrow AVFoundation boundary and writes
+  192 kbps AAC for convenient sharing. WAV remains the preferred diagnostic
+  and lossless-ish export path. Neither UI is a diagnostic comparison profile
+  selector or exposes FT2 profile, isolation/stem, pattern/order range, PCM16,
+  user-selectable gain/headroom, or comparison-report options.
 
 Do not infer behavior changes from a comparison report alone. Use reports to
 choose the smallest next implementation or diagnostic PR.
@@ -187,6 +190,13 @@ comparable tool renders, pass
 `--product-export-profile` with a full-song order range, or use
 `scripts/bench-render.sh`. Runtime UI playback keeps its separate runtime output
 gain/headroom policy.
+
+App M4A export reuses that exact WAV plan and completed auto-headroom-scaled
+Float32 PCM temp output, then encodes it as fixed 192 kbps AAC in an MPEG-4
+audio container. Its progress adds an encoding phase and retains cooperative
+cancellation plus temporary-file cleanup. This convenience path does not
+change WAV bytes, render PCM, product profile defaults, runtime playback, or C
+mixer DSP.
 
 App WAV export and the shared windowed offline render path also expose
 developer-facing performance diagnostics in their result models. These measure

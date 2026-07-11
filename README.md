@@ -10,7 +10,7 @@ _VoodooTracker X_ is a modern macOS re-imagining of the classic scene trackers t
 
 Tagged releases are published on the
 [GitHub Releases](https://github.com/syncomm/voodootrackerx/releases) page.
-Tagged releases such as `v0.2.0-alpha.4` include a downloadable macOS DMG named
+Tagged releases include a versioned downloadable macOS DMG, such as
 `VoodooTrackerX-v0.2.0-alpha.4.dmg`.
 
 The first public builds are early alpha/demo builds, not 1.0 releases. The
@@ -62,11 +62,15 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
-The prepared `v0.2.0-alpha.4` release is an Export XM v1 alpha for VoodooTracker
-X editable documents. It exports the current supported song/order/pattern/note
-data and safely represented existing instrument/sample payloads where the
-editable model supports them. This is not a full arbitrary-XM round-trip
-guarantee or a full FastTracker II, OpenMPT, or MilkyTracker parity claim.
+The prepared `v0.2.0-alpha.5` release is the Rendered Audio Export Alpha. It
+adds app-level whole-song 48 kHz Float32 WAV export with the VTX render profile,
+a 3-second tail, auto-headroom, weighted progress, cancellation, and performance
+diagnostics, plus AAC-encoded M4A export for convenient sharing. Export is
+non-mutating and writes only to a user-selected destination. WAV remains the
+preferred high-quality and export-diagnostic format; M4A is the sharing format.
+Loaded modules remain read-only, Save and Save As remain disabled, Export XM
+remains scoped to the current editable subset, and advanced audio export
+options remain future work.
 
 What works today:
 
@@ -113,6 +117,9 @@ What works today:
 What is still future work:
 
 - Save and Save As.
+- Advanced audio export options, including pattern/order ranges, stems,
+  channel exports, PCM16 product export, bitrate/quality controls, and custom
+  export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
 - Instrument and sample editors.

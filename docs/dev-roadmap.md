@@ -51,17 +51,19 @@ editable document using the main pattern grid, transport controls, Pattern
 Bank, Pattern Ops, Order Ops, and Clear Song while loaded modules remain
 read-only.
 
-The prepared `v0.2.0-alpha.4` release centers on Export XM v1 for VTX editable
-documents. Export covers the current editable subset, including supported
-existing instrument/sample payloads where safely represented by the editable
-model. It is not a full arbitrary-XM round-trip guarantee and does not claim
-full FastTracker II, OpenMPT, or MilkyTracker parity. Save and Save As remain
-disabled, loaded modules remain read-only by default, explicit editable copies
-are untitled/in-memory, and Instrument/Sample editors remain future work.
-Stopped loaded modules and editable documents can now export whole-song
-32-bit Float WAV or AAC/M4A audio to a selected destination without mutating
-documents or claiming source-path ownership. PCM16, pattern/order ranges,
-channel/stem export, and diagnostic comparison profile UI remain future work.
+`v0.2.0-alpha.4` was the Export XM v1 release for the current editable subset.
+
+The prepared `v0.2.0-alpha.5` release centers on the Rendered Audio Export
+Alpha. Stopped loaded modules and editable documents can export whole-song
+48 kHz Float32 WAV using the VTX render profile, 3-second tail, auto-headroom,
+weighted progress, cancellation, and performance diagnostics, or AAC-in-M4A
+for convenient sharing. Export writes only to a user-selected destination and
+does not mutate documents or claim source-path ownership. WAV remains the
+preferred high-quality and export-diagnostic format. Loaded modules remain
+read-only, Save and Save As remain disabled, Export XM remains scoped to the
+current editable subset, and advanced options such as PCM16, pattern/order
+ranges, channel/stem export, bitrate/quality controls, and diagnostic profile
+selection remain future work.
 
 ## Backend Snapshot
 
@@ -85,14 +87,15 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
+Recommended next PR: build an Instrument Editor shell/read-only binding.
+
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
    `docs/design/editable-document-save-export-model.md`.
 2. Minimal public-safe XM writer model, app export wiring, reload smoke tests,
    and existing palette/sample payload export are in place for the current
    editable-document writer subset.
-3. Prepare and tag `v0.2.0-alpha.4` after release smoke; the release-prep PR
-   must not create the tag.
+3. Export XM v1 release preparation for `v0.2.0-alpha.4` is complete.
 4. Define an explicit loaded-module editable-copy command before direct
    loaded-module editing or Save/Save As work. Done.
 5. Build an Instrument Editor shell/read-only binding.
@@ -101,10 +104,9 @@ preserving the backend freeze:
    entry.
 8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
-9. AAC/M4A export foundation now follows the explicit editable-document and
-   Float32 WAV export semantics. Keep PCM16, ranges, stems, and diagnostic
-   profiles as later slices; the next PR is
-   `release: prepare v0.2.0-alpha.5 Rendered Audio Export alpha`.
+9. Rendered audio export release preparation for `v0.2.0-alpha.5` is complete.
+   Keep PCM16, ranges, stems, bitrate/quality controls, and diagnostic profiles
+   as later slices.
 10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
 11. Design a weekly codebase review harness as a docs/tooling plan before
@@ -610,9 +612,15 @@ First-pass scope now complete for the `v0.2.0-alpha.3` composition alpha:
 - Order Ops INSERT/DELETE/DUP/MOVE UP/MOVE DOWN/PTN -/+
 - Play Current Pattern and Loop-at-Play-start composition audition
 
-Export XM v1 is prepared for `v0.2.0-alpha.4` and covers stopped editable
+Export XM v1 was released as `v0.2.0-alpha.4` and covers stopped editable
 documents in the current VTX editable subset, including supported existing
 palette/sample payloads where safely represented.
+
+Rendered audio export is prepared for `v0.2.0-alpha.5`: whole-song 48 kHz
+Float32 WAV is the preferred high-quality and diagnostic format, while
+AAC-in-M4A provides a convenient sharing format. Both write only to a selected
+destination and preserve loaded-module read-only and disabled Save/Save As
+semantics.
 
 Remaining phase scope:
 
@@ -628,8 +636,8 @@ Remaining phase scope:
 - save XM
 - advanced audio export options
 
-Loaded modules remain read-only until explicit editable-copy/save semantics are
-designed and implemented.
+Loaded modules remain read-only by default. Broader direct editing and Save/Save
+As semantics remain deferred.
 
 ## Phase 4: Instruments And Samples
 

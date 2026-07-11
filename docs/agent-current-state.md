@@ -17,10 +17,8 @@ source path.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
-Release status: `v0.2.0-alpha.4` is the prepared Export XM v1 alpha for VTX
-editable documents. It covers the current editable subset, including supported
-existing instrument/sample payloads where safely represented. Product
-whole-song 32-bit Float WAV and AAC/M4A export is now available from
+Release status: `v0.2.0-alpha.5` is the prepared Rendered Audio Export Alpha.
+Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
 editable copies. Export is non-mutating, writes only to the selected
 destination, does not claim source-path ownership, keeps Save/Save As disabled,
@@ -31,10 +29,12 @@ product render default is 48 kHz Float32; M4A encodes the completed scaled PCM
 as 192 kbps AAC for convenient sharing. Export can be cancelled cooperatively at
 safe preparation, render-window, headroom-chunk, and final-write boundaries;
 temporary output is removed, cancellation is non-mutating, and determinate
-progress is continuous and weighted across the remaining phases. The release
-is not a full arbitrary-XM round-trip guarantee or a full
-FT2/OpenMPT/MilkyTracker parity claim. Save/Save As, loaded-module direct
-editing, Instrument Editor, Sample Editor, PCM16 product export,
+progress is continuous and weighted across the remaining phases. WAV remains
+the preferred high-quality and export-diagnostic format; M4A is intended for
+convenient sharing. Export XM remains scoped to the current editable subset,
+not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
+parity claim. Save/Save As, loaded-module direct editing, Instrument Editor,
+Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 

@@ -28,7 +28,10 @@ normal agent reading.
   bounded-render cap. App auto-headroom renders the mixer once, computes peak
   diagnostics during that render, then applies gain through a streamed Float32
   WAV post-process. Unity-gain auto-headroom exports can safely skip that
-  rewrite; output semantics remain unchanged. It is not a diagnostic
+  rewrite; output semantics remain unchanged. The app export can be cancelled
+  at safe pipeline boundaries without mutating the source or leaving temporary
+  output, and its determinate progress is continuous and weighted across
+  render, headroom, and final-write work. It is not a diagnostic
   comparison profile selector and does not expose FT2 profile, isolation/stem,
   pattern/order range, PCM16, AAC/M4A, user-selectable gain/headroom, or
   comparison-report options.
@@ -175,7 +178,12 @@ auto-headroom, and user-initiated long-render permission. It avoids a second
 full mixer render by writing an unscaled Float32 temp WAV during the only mixer
 render, then applying the computed gain in a streamed Float32 post-process.
 Unity-gain auto-headroom exports can safely skip that rewrite; output semantics
-remain unchanged. For comparable tool renders, pass
+remain unchanged. Preparation/indexing remains indeterminate; once rendering
+begins, app progress uses whole-export weights of 5% prepared, 80% rendering,
+10% headroom, and 5% final writing. Cooperative cancellation checks occur
+between preparation/indexing work, render-window calls, headroom chunks, and
+before final replacement, without interrupting a C mixer render call. For
+comparable tool renders, pass
 `--product-export-profile` with a full-song order range, or use
 `scripts/bench-render.sh`. Runtime UI playback keeps its separate runtime output
 gain/headroom policy.

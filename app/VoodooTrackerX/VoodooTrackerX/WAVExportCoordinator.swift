@@ -184,12 +184,15 @@ enum WAVExportFailure: Equatable, Sendable {
 
 enum WAVExportCompletionResult: @unchecked Sendable {
     case exported(destination: URL, renderResult: PlaybackSongOfflineStreamingRenderResult)
+    case cancelled
     case failed(WAVExportFailure)
 
     var userFacingTitle: String {
         switch self {
         case .exported:
             return "Export Audio Completed"
+        case .cancelled:
+            return "Export Audio Cancelled"
         case .failed:
             return "Export WAV Failed"
         }
@@ -199,6 +202,8 @@ enum WAVExportCompletionResult: @unchecked Sendable {
         switch self {
         case .exported:
             return "WAV file saved successfully."
+        case .cancelled:
+            return "WAV export was cancelled."
         case let .failed(failure):
             return "Export WAV failed: \(failure.userFacingMessage)"
         }
@@ -214,6 +219,11 @@ enum WAVExportProgressStage: Equatable, Sendable {
 }
 
 struct WAVExportProgress: Equatable, Sendable {
+    private static let preparationWeight = 0.05
+    private static let renderingWeight = 0.80
+    private static let headroomWeight = 0.10
+    private static let writingWeight = 0.05
+
     let stage: WAVExportProgressStage
     let completedFrames: Int
     let totalFrames: Int
@@ -228,11 +238,53 @@ struct WAVExportProgress: Equatable, Sendable {
         guard totalFrames > 0 else {
             return stage == .completed ? 1 : 0
         }
-        return min(1, max(0, Double(completedFrames) / Double(totalFrames)))
+        let phaseFraction = min(1, max(0, Double(completedFrames) / Double(totalFrames)))
+        switch stage {
+        case .preparingRender:
+            return 0
+        case .rendering:
+            return Self.preparationWeight + (Self.renderingWeight * phaseFraction)
+        case .applyingHeadroom:
+            return Self.preparationWeight + Self.renderingWeight + (Self.headroomWeight * phaseFraction)
+        case .writingFile:
+            return Self.preparationWeight + Self.renderingWeight + Self.headroomWeight
+        case .completed:
+            return Self.preparationWeight + Self.renderingWeight + Self.headroomWeight + Self.writingWeight
+        }
     }
 }
 
 typealias WAVExportProgressHandler = @Sendable (WAVExportProgress) -> Void
+
+private enum WAVExportCancellationError: Error {
+    case cancelled
+}
+
+/// A thread-safe, cooperative cancellation signal for one WAV export operation.
+final class WAVExportCancellationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancellationRequested = false
+
+    /// Requests cancellation. Repeated calls are harmless.
+    func cancel() {
+        lock.lock()
+        cancellationRequested = true
+        lock.unlock()
+    }
+
+    /// Reports whether cancellation has been requested.
+    var isCancellationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
+    }
+
+    fileprivate func checkCancellation() throws {
+        if isCancellationRequested {
+            throw WAVExportCancellationError.cancelled
+        }
+    }
+}
 
 enum WAVExportPipelineEvent: Equatable, Sendable {
     case expensiveRenderStarted
@@ -470,6 +522,7 @@ struct WAVExportCoordinator {
         plan: WAVExportPlan,
         to destination: URL,
         fileManager: FileManager = .default,
+        cancellationToken: WAVExportCancellationToken = WAVExportCancellationToken(),
         progress: WAVExportProgressHandler? = nil,
         pipelineEvents: WAVExportPipelineEventHandler? = nil,
         executionHooks: WAVExportExecutionHooks = .none,
@@ -483,6 +536,7 @@ struct WAVExportCoordinator {
         try? fileManager.removeItem(at: finalTempURL)
 
         do {
+            try cancellationToken.checkCancellation()
             var progressEmitter = WAVExportProgressEmitter(progress)
             let renderer = PlaybackSongOfflineRenderer(maximumFrameCount: plan.request.maximumFrameCount)
             var renderResult: PlaybackSongOfflineStreamingRenderResult?
@@ -490,6 +544,7 @@ struct WAVExportCoordinator {
             var windowWriteDiagnostics = [WAVExportWindowWritePerformanceDiagnostic]()
             let renderPhaseStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             pipelineEvents?(.expensiveRenderStarted)
+            try cancellationToken.checkCancellation()
             let preHeadroomDiagnostics = try MixerWAVExporter.writeStreamingFloat32WAV(
                 config: plan.request.config,
                 frameCount: plan.totalFrameCount,
@@ -503,11 +558,25 @@ struct WAVExportCoordinator {
                     completedWindows: 0,
                     totalWindows: plan.renderWindowCount
                 ))
+                try cancellationToken.checkCancellation()
                 renderResult = try renderer.renderWindowedStreaming(
                     plan.request,
                     windowRows: plan.configuration.windowRows,
-                    collectPerformanceDiagnostics: collectPerformanceDiagnostics
+                    collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+                    cancellationCheck: cancellationToken.checkCancellation,
+                    preparationCompleted: {
+                        try cancellationToken.checkCancellation()
+                        progressEmitter.emit(WAVExportProgress(
+                            stage: .rendering,
+                            completedFrames: 0,
+                            totalFrames: plan.totalFrameCount,
+                            completedWindows: 0,
+                            totalWindows: plan.renderWindowCount
+                        ), force: true)
+                        try cancellationToken.checkCancellation()
+                    }
                 ) { completedWindow, totalWindows, window, block in
+                    try cancellationToken.checkCancellation()
                     let writeStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
                     try writer.write(block: block)
                     if collectPerformanceDiagnostics {
@@ -519,6 +588,7 @@ struct WAVExportCoordinator {
                         ))
                     }
                     try executionHooks.afterRenderBlockWritten?()
+                    try cancellationToken.checkCancellation()
                     progressEmitter.emit(WAVExportProgress(
                         stage: .rendering,
                         completedFrames: min(plan.totalFrameCount, max(0, window.endFrame)),
@@ -526,8 +596,10 @@ struct WAVExportCoordinator {
                         completedWindows: completedWindow,
                         totalWindows: totalWindows
                     ))
+                    try cancellationToken.checkCancellation()
                 }
             }
+            try cancellationToken.checkCancellation()
             guard let renderResult else {
                 throw WAVExportPlanError.renderDurationTooSmall
             }
@@ -554,6 +626,7 @@ struct WAVExportCoordinator {
                 completedWindows: 0,
                 totalWindows: plan.renderWindowCount
             ), force: true)
+            try cancellationToken.checkCancellation()
             let diagnostics: MixerWAVExportDiagnostics
             let completedTempURL: URL
             if usedUnityGainFastPath {
@@ -566,7 +639,9 @@ struct WAVExportCoordinator {
                     exportPolicy: exportPolicy,
                     chunkSampleCount: max(1, plan.chunkFrameCount * plan.request.config.channelCount)
                 ) { completedBytes, totalBytes in
+                    try cancellationToken.checkCancellation()
                     try executionHooks.afterPostProcessChunkWritten?()
+                    try cancellationToken.checkCancellation()
                     progressEmitter.emit(WAVExportProgress(
                         stage: .applyingHeadroom,
                         completedFrames: frameProgress(
@@ -578,9 +653,11 @@ struct WAVExportCoordinator {
                         completedWindows: plan.renderWindowCount,
                         totalWindows: plan.renderWindowCount
                     ))
+                    try cancellationToken.checkCancellation()
                 }
                 completedTempURL = finalTempURL
             }
+            try cancellationToken.checkCancellation()
             let headroomDuration = collectPerformanceDiagnostics && !usedUnityGainFastPath
                 ? VTXPerformanceClock.seconds(since: headroomStartTime)
                 : 0
@@ -592,6 +669,7 @@ struct WAVExportCoordinator {
                 completedWindows: plan.renderWindowCount,
                 totalWindows: plan.renderWindowCount
             ), force: true)
+            try cancellationToken.checkCancellation()
             let replaceStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             try replaceItem(at: normalizedDestination, withItemAt: completedTempURL, fileManager: fileManager)
             let replaceDuration = collectPerformanceDiagnostics
@@ -628,6 +706,10 @@ struct WAVExportCoordinator {
                     .replacingExportDiagnostics(diagnostics)
                     .replacingWAVExportPerformanceDiagnostics(exportPerformanceDiagnostics)
             )
+        } catch is WAVExportCancellationError {
+            try? fileManager.removeItem(at: rawTempURL)
+            try? fileManager.removeItem(at: finalTempURL)
+            return .cancelled
         } catch let error as WAVExportPlanError {
             try? fileManager.removeItem(at: rawTempURL)
             try? fileManager.removeItem(at: finalTempURL)

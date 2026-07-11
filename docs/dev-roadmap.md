@@ -100,8 +100,9 @@ preserving the backend freeze:
    instrument import target.
 9. Save XM and broader audio export options after editable document semantics,
    Export XM v1, and Float32 WAV export are explicit. Cancellation and
-   continuous weighted progress are the next recommended audio-export slice;
-   AAC/M4A, PCM16, ranges, stems, and diagnostic profiles remain later.
+   continuous weighted progress are complete; AAC/M4A export foundation is the
+   next recommended audio-export slice, while PCM16, ranges, stems, and
+   diagnostic profiles remain later.
 10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
 11. Design a weekly codebase review harness as a docs/tooling plan before
@@ -127,6 +128,12 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- App WAV export now supports safe cooperative cancellation from its progress
+  sheet with a dedicated cancelled result, temporary-file cleanup, and checks
+  around preparation/indexing, render windows, headroom chunks, and final
+  replacement. Preparation stays indeterminate; determinate progress is
+  monotonic and weighted 5%/80%/10%/5% across prepared/render/headroom/write.
+  Completed WAV output and product defaults are unchanged.
 - Successful app WAV exports now provide a concise, typed
   `WAVExportPerformanceSummary` built from existing instrumentation. It covers
   plan/adapt, preparation/index, render, headroom, write/replace, window/frame/
@@ -167,15 +174,15 @@ Recently completed narrow target:
   instead of the diagnostic bounded-render cap. It performs one expensive mixer
   render, writes an unscaled Float32 temp WAV while computing peak diagnostics,
   applies shared auto-headroom gain through a streamed Float32 WAV
-  post-process, shows throttled determinate progress over the render and
-  headroom phases while rendering off the main thread, writes only to the
+  post-process, shows continuous weighted progress after indeterminate
+  preparation while rendering off the main thread, writes only to the
   selected destination through temporary files, removes temporary output on
   failure, leaves source modules/documents untouched, does not claim source
   paths, keeps Save/Save As disabled, and leaves loaded modules read-only by
   default. The C mixer wrapper owns its
   large fixed-size C state on the heap so background workers do not initialize
-  that state on a small GCD stack. Cancellation and advanced audio export
-  options remain deferred.
+  that state on a small GCD stack. Advanced audio export options remain
+  deferred.
 - `File > Make Editable Copy` now creates an explicit untitled in-memory
   editable copy from a stopped loaded read-only XM module when the current
   supported editable subset can represent its song/order/pattern/note data and

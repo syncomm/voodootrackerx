@@ -204,7 +204,7 @@ final class WAVExportCoordinatorTests: XCTestCase {
     func testProgressCallbacksUseIndeterminatePreparationThenDeterminatePipelineOrdering() throws {
         let destination = try temporaryDestination(filename: "progress.wav")
         let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
-            playbackSong: makeSampleBearingSong(),
+            playbackSong: makeAppToolParitySong(),
             displayName: "Progress",
             isPlaybackActive: false
         ))
@@ -226,6 +226,10 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertTrue(progressEvents.contains { $0.stage == .writingFile })
         XCTAssertEqual(progressEvents.last?.stage, .completed)
         XCTAssertEqual(progressEvents.last?.fractionCompleted, 1)
+        let determinateProgress = progressEvents.filter { !$0.isIndeterminate }
+        for (current, next) in zip(determinateProgress, determinateProgress.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(next.fractionCompleted, current.fractionCompleted)
+        }
         XCTAssertTrue(
             progressEvents
                 .filter { $0.stage == .rendering }
@@ -242,10 +246,9 @@ final class WAVExportCoordinatorTests: XCTestCase {
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .preparingRender)),
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .rendering))
         )
-        XCTAssertGreaterThan(
-            try XCTUnwrap(progressEvents.first { $0.stage == .rendering }).completedWindows,
-            0
-        )
+        let firstRenderingProgress = try XCTUnwrap(progressEvents.first { $0.stage == .rendering })
+        XCTAssertEqual(firstRenderingProgress.completedWindows, 0)
+        XCTAssertEqual(firstRenderingProgress.fractionCompleted, 0.05, accuracy: 0.000_001)
         XCTAssertLessThan(
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .rendering)),
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .applyingHeadroom))
@@ -258,6 +261,157 @@ final class WAVExportCoordinatorTests: XCTestCase {
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .writingFile)),
             try XCTUnwrap(progressEvents.map(\.stage).firstIndex(of: .completed))
         )
+        let renderingProgress = progressEvents.filter { $0.stage == .rendering }
+        let headroomProgress = progressEvents.filter { $0.stage == .applyingHeadroom }
+        XCTAssertTrue(renderingProgress.allSatisfy {
+            $0.fractionCompleted >= 0.05 && $0.fractionCompleted <= 0.850_001
+        })
+        XCTAssertEqual(try XCTUnwrap(headroomProgress.first).fractionCompleted, 0.85, accuracy: 0.000_001)
+        XCTAssertTrue(headroomProgress.allSatisfy {
+            $0.fractionCompleted >= 0.85 && $0.fractionCompleted <= 0.950_001
+        })
+        XCTAssertEqual(
+            try XCTUnwrap(progressEvents.first { $0.stage == .writingFile }).fractionCompleted,
+            0.95,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testCancellationBeforeRenderReturnsCancelledAndCleansTemporaryFiles() throws {
+        let directory = try temporaryDirectory()
+        let destination = directory.appendingPathComponent("cancel-before-render.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingSong(),
+            displayName: "Cancel Before Render",
+            isPlaybackActive: false
+        ))
+        let cancellationToken = WAVExportCancellationToken()
+        let eventRecorder = TestWAVExportPipelineEventRecorder()
+        cancellationToken.cancel()
+
+        let completion = WAVExportCoordinator.export(
+            plan: plan,
+            to: destination,
+            cancellationToken: cancellationToken,
+            pipelineEvents: { eventRecorder.append($0) }
+        )
+
+        guard case .cancelled = completion else {
+            return XCTFail("Expected cancelled result, got \(completion)")
+        }
+        XCTAssertEqual(completion.userFacingTitle, "Export Audio Cancelled")
+        XCTAssertEqual(completion.userFacingMessage, "WAV export was cancelled.")
+        XCTAssertTrue(eventRecorder.events.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
+    }
+
+    func testCancellationDuringRenderWindowReturnsCancelledAfterProgressAndCleansTemporaryFiles() throws {
+        let directory = try temporaryDirectory()
+        let destination = directory.appendingPathComponent("cancel-during-render.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingRepeatingOrderSong(orderCount: 3),
+            displayName: "Cancel During Render",
+            isPlaybackActive: false
+        ))
+        let cancellationToken = WAVExportCancellationToken()
+        let progressRecorder = TestWAVExportProgressRecorder()
+
+        let completion = WAVExportCoordinator.export(
+            plan: plan,
+            to: destination,
+            cancellationToken: cancellationToken
+        ) { progress in
+            progressRecorder.append(progress)
+            if progress.stage == .rendering, progress.completedWindows > 0 {
+                cancellationToken.cancel()
+            }
+        }
+
+        guard case .cancelled = completion else {
+            return XCTFail("Expected cancelled result, got \(completion)")
+        }
+        XCTAssertTrue(progressRecorder.events.contains {
+            $0.stage == .rendering && $0.completedWindows > 0
+        })
+        XCTAssertFalse(progressRecorder.events.contains { $0.stage == .applyingHeadroom })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
+    }
+
+    func testCancellationDuringHeadroomReturnsCancelledAndCleansTemporaryFiles() throws {
+        let directory = try temporaryDirectory()
+        let destination = directory.appendingPathComponent("cancel-during-headroom.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeHotSampleBearingSong(),
+            displayName: "Cancel During Headroom",
+            isPlaybackActive: false
+        ))
+        let cancellationToken = WAVExportCancellationToken()
+        let progressRecorder = TestWAVExportProgressRecorder()
+
+        let completion = WAVExportCoordinator.export(
+            plan: plan,
+            to: destination,
+            cancellationToken: cancellationToken
+        ) { progress in
+            progressRecorder.append(progress)
+            if progress.stage == .applyingHeadroom, progress.completedFrames > 0 {
+                cancellationToken.cancel()
+            }
+        }
+
+        guard case .cancelled = completion else {
+            return XCTFail("Expected cancelled result, got \(completion)")
+        }
+        XCTAssertTrue(progressRecorder.events.contains {
+            $0.stage == .applyingHeadroom && $0.completedFrames > 0
+        })
+        XCTAssertFalse(progressRecorder.events.contains { $0.stage == .writingFile })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
+    }
+
+    func testCancellationAtFinalWriteCheckpointPreservesExistingDestination() throws {
+        let directory = try temporaryDirectory()
+        let destination = directory.appendingPathComponent("existing.wav")
+        let originalData = Data("existing destination".utf8)
+        try originalData.write(to: destination)
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingSong(),
+            displayName: "Cancel Before Replace",
+            isPlaybackActive: false
+        ))
+        let cancellationToken = WAVExportCancellationToken()
+
+        let completion = WAVExportCoordinator.export(
+            plan: plan,
+            to: destination,
+            cancellationToken: cancellationToken
+        ) { progress in
+            if progress.stage == .writingFile {
+                cancellationToken.cancel()
+            }
+        }
+
+        guard case .cancelled = completion else {
+            return XCTFail("Expected cancelled result, got \(completion)")
+        }
+        XCTAssertEqual(try Data(contentsOf: destination), originalData)
+        XCTAssertTrue(try exportTempFiles(in: directory).isEmpty)
+    }
+
+    func testCancellationResultIsDistinctFromFailure() {
+        let cancelled = WAVExportCompletionResult.cancelled
+        let failed = WAVExportCompletionResult.failed(.fileWriteFailed("failure"))
+
+        guard case .cancelled = cancelled else {
+            return XCTFail("Expected a dedicated cancellation result")
+        }
+        guard case .failed = failed else {
+            return XCTFail("Expected failure to remain distinct from cancellation")
+        }
+        XCTAssertNil(cancelled.performanceSummary)
     }
 
     func testWholeSongExportLongerThanThirtySecondsIsNotTruncatedAndTailStartsAfterSongEnd() throws {

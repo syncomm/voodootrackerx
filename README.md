@@ -91,7 +91,9 @@ What works today:
 - `File > Export Audio > WAV...` for stopped loaded modules, editable
   documents, and editable copies. Audio export is non-mutating, writes only to
   a user-selected destination, and uses whole-song 48 kHz 32-bit Float WAV with
-  the VTX product render profile and export-boundary auto-headroom.
+  the VTX product render profile and export-boundary auto-headroom. Its progress
+  sheet supports safe cancellation and continuous weighted progress after
+  indeterminate preparation.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
   through the existing CoreAudio C mixer path when the copied palette has
   playable sample payloads. During editable current-pattern Loop playback,
@@ -125,7 +127,9 @@ What is still future work:
   render path, and export-boundary auto-headroom. App auto-headroom renders the
   mixer once, computes peak during that render, then applies gain through a
   streamed Float32 WAV post-process rather than a second full mixer render. It
-  does not use the diagnostic bounded-render cap. AAC/M4A, PCM16,
+  does not use the diagnostic bounded-render cap. Cancellation removes
+  temporary output, does not mutate the source, and leaves completed-export
+  bytes unchanged. AAC/M4A, PCM16,
   pattern/order ranges, channel/stem export, normalization, diagnostic
   comparison profiles, and user-selectable gain/headroom remain future work.
 - Loaded modules remain read-only by default; editable copies are explicit,

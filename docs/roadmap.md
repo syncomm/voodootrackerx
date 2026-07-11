@@ -155,7 +155,7 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Add WAV export cancellation and continuous weighted progress.
+1. Add AAC/M4A export foundation without changing the WAV product defaults.
 2. Build an Instrument Editor shell/read-only binding.
 3. Add editable palette/sample workflow foundations in narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
@@ -179,6 +179,14 @@ Parked parity-watch items:
 
 Recently completed:
 
+- App WAV export now has a Cancel button backed by a thread-safe cooperative
+  token and a dedicated non-error cancellation result. Safe checks surround
+  preparation/indexing, each render window, each headroom chunk, and the final
+  replace commit; cancellation removes temporary output and leaves an existing
+  destination and the source document untouched. Preparation remains
+  indeterminate, followed by monotonic whole-export weighting of 5% prepared,
+  80% rendering, 10% headroom, and 5% final writing. Completed WAV bytes and
+  product export defaults are unchanged.
 - Successful app WAV exports now expose a concise structured performance
   summary built from existing instrumentation. It compares plan/adapt,
   preparation/index, render, headroom, write/replace, window/frame/event/
@@ -197,15 +205,15 @@ Recently completed:
   export-boundary auto-headroom. It performs one expensive mixer render, writes
   an unscaled Float32 temp WAV while computing peak diagnostics, applies shared
   auto-headroom gain through a streamed Float32 WAV post-process, runs off the
-  main thread with throttled determinate progress over the render and headroom
-  phases, writes through temporary files to the selected destination, and does
-  not mutate documents, claim source paths, enable Save/Save As, alter
+  main thread with continuous weighted progress after indeterminate
+  preparation, writes through temporary files to the selected destination, and
+  does not mutate documents, claim source paths, enable Save/Save As, alter
   loaded-module read-only defaults, change runtime playback/scheduling, change
   C mixer DSP, change parser architecture, or touch tracker viewport/static
   highlight behavior. The C mixer wrapper owns its large
   fixed-size C state on the heap so background workers do not initialize that
-  state on a small GCD stack. Cancellation and advanced options remain
-  deferred: AAC/M4A, PCM16, pattern/order ranges, channel/stem export,
+  state on a small GCD stack. Advanced options remain deferred: AAC/M4A,
+  PCM16, pattern/order ranges, channel/stem export,
   normalization, and diagnostic comparison profiles.
 - `File > Make Editable Copy` now establishes the explicit loaded-module
   editable-copy boundary for supported stopped loaded read-only XM modules. It

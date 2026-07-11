@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let instrumentEditorWindowPresenter = InstrumentEditorWindowPresenter()
     private var blankDocument: BlankTrackerDocument?
     private var loadedMetadata: ParsedModuleMetadata?
+    private lazy var editableDocumentEditCoordinator = EditableDocumentEditCoordinator(
+        contextProvider: { [weak self] in self?.currentEditableDocumentEditContext() ?? .none },
+        documentApplyHandler: { [weak self] document in self?.applyEditableDocumentSnapshot(document) }
+    )
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
     private var invalidReferencedPatternIndices = [Int]()
     private var selectedPatternSelectionIndex = 0
@@ -128,6 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return M4AExportCoordinator.canExport(context: currentWAVExportDocumentContext())
         case ApplicationMenuBuilder.Actions.makeEditableCopy:
             return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
+        case ApplicationMenuBuilder.Actions.undoDocumentEdit:
+            menuItem.title = editableDocumentEditCoordinator.undoMenuItemTitle
+            return editableDocumentEditCoordinator.canUndo
+        case ApplicationMenuBuilder.Actions.redoDocumentEdit:
+            menuItem.title = editableDocumentEditCoordinator.redoMenuItemTitle
+            return editableDocumentEditCoordinator.canRedo
         case ApplicationMenuBuilder.Actions.play:
             return displayedMetadata != nil && !playbackEngine.state.isPlaying
         case ApplicationMenuBuilder.Actions.playCurrentPattern:
@@ -248,6 +258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func newTrackerDocument(_ sender: Any?) {
         resetToBlankTrackerDocument()
     }
+
+    @objc private func undoDocumentEdit(_ sender: Any?) { editableDocumentEditCoordinator.undo() }
+
+    @objc private func redoDocumentEdit(_ sender: Any?) { editableDocumentEditCoordinator.redo() }
 
     @objc
     private func exportXM(_ sender: Any?) {
@@ -481,6 +495,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func applyUntitledEditableCopy(_ document: BlankTrackerDocument) {
         blankDocument = document
         loadedMetadata = nil
+        editableDocumentEditCoordinator.discardUndoHistory()
         loadedModuleSelection = .default
         debugAutoplayTimer?.invalidate()
         debugAutoplayTimer = nil
@@ -685,6 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         blankDocument = updatedDocument
+        editableDocumentEditCoordinator.discardUndoHistory()
         selectedSongPositionIndex = updatedDocument.currentPosition
         currentPatternIndex = updatedDocument.currentPatternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
@@ -819,8 +835,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         applyClearedEditableSongData(updatedDocument)
     }
 
+    private func currentEditableDocumentEditContext() -> EditableDocumentEditContext {
+        if let blankDocument, loadedMetadata == nil {
+            return .editable(document: blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
+        }
+        return loadedMetadata == nil ? .none : .loadedReadOnly
+    }
+
+    private func applyEditableDocumentSnapshot(_ document: BlankTrackerDocument) {
+        guard blankDocument != nil, loadedMetadata == nil else {
+            return
+        }
+        blankDocument = document
+        selectedSongPositionIndex = document.currentPosition
+        currentPatternIndex = document.currentPatternIndex
+        let metadata = document.metadata
+        updatePatternSelector(for: metadata, keepPattern: document.currentPatternIndex)
+        _ = selectPatternForDisplay(document.currentPatternIndex, in: metadata)
+        renderCurrentPattern(metadata: metadata)
+        syncControlPanelView()
+    }
+
     private func applyEditableSongOrderDocument(_ updatedDocument: BlankTrackerDocument) {
         blankDocument = updatedDocument
+        editableDocumentEditCoordinator.discardUndoHistory()
         selectedSongPositionIndex = updatedDocument.currentPosition
         currentPatternIndex = updatedDocument.currentPatternIndex
         cursor = PatternCursor(row: 0, channel: 0, field: .note)
@@ -892,10 +930,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return false
         }
 
-        blankDocument = document
-        renderCurrentPattern(metadata: document.metadata)
-        syncControlPanelView()
-        return true
+        return editableDocumentEditCoordinator.applyEdit(
+            label: "Clear Current Pattern",
+            updatedDocument: document
+        )
     }
 
     @objc
@@ -933,6 +971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         playbackEngine.load(song: nil)
         blankDocument = document
         loadedMetadata = nil
+        editableDocumentEditCoordinator.discardUndoHistory()
         loadedModuleSelection = .default
         debugAutoplayTimer?.invalidate()
         debugAutoplayTimer = nil
@@ -951,6 +990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func applyClearedEditableSongData(_ document: BlankTrackerDocument) {
         blankDocument = document
+        editableDocumentEditCoordinator.discardUndoHistory()
         selectedSongPositionIndex = document.currentPosition
         currentPatternIndex = document.currentPatternIndex
         cursor = .clearSongDataResetPosition
@@ -981,6 +1021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             noteAuditionPreviewer.cancelPreview()
             blankDocument = nil
             loadedMetadata = metadata
+            editableDocumentEditCoordinator.discardUndoHistory()
             timingSession?.recordPhase("app_module_state_update", startedAt: stateUpdateStart)
 
             let playbackSongBuildStart = timingSession?.beginPhase()
@@ -1071,6 +1112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let document = BlankTrackerDocument.makeDefault()
         blankDocument = document
         loadedMetadata = nil
+        editableDocumentEditCoordinator.discardUndoHistory()
         playbackEngine.load(song: nil)
         loadedModuleSelection = .default
         debugAutoplayTimer?.invalidate()
@@ -1765,6 +1807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let editedPattern = document.pattern(for: currentPatternIndex) ?? document.pattern
         cursor.row = TrackerEditStep.advancedRow(after: cursor.row, rowCount: editedPattern.rowCount)
         blankDocument = document
+        editableDocumentEditCoordinator.discardUndoHistory()
         scheduleEditablePatternLoopRefreshIfNeeded(from: document)
         renderCurrentPattern(metadata: document.metadata)
         syncControlPanelView()

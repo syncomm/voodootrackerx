@@ -37,8 +37,11 @@ parity claim. The first `Window > Instrument Editor` shell follows the v1
 mockup hierarchy as a read-only view of the current palette selection,
 represented sample metadata, volume-envelope preview, and note-map ranges for
 loaded modules, editable documents, and editable copies. Editing controls are
-disabled/inert. It does not add instrument/sample mutation, undo, XI behavior,
-envelope/keymap editing, audition changes, or waveform display. Save/Save As,
+disabled/inert. A capped whole-document `applyEdit`/undo foundation now serves
+stopped editable documents, with Clear Current Pattern as its first routed
+operation and standard Edit > Undo/Redo wiring. It does not add instrument or
+sample mutation, XI behavior, envelope/keymap editing, audition changes, or
+waveform display. Save/Save As,
 loaded-module direct editing, Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
@@ -202,13 +205,19 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `EditableDocumentEditCoordinator` now applies labeled whole-document value
+  snapshots with a 20-level `UndoManager`, refreshes the existing tracker,
+  control-panel, Song / Order, and Instrument Editor state paths, and rejects
+  loaded read-only or playback-active contexts. Clear Current Pattern proves
+  undo/redo; source paths are absent from the edit context, Save/Save As stay
+  disabled, and instrument/sample editing remains future work.
 - `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
   window aligned to `assets/mockups/instrument-editor-v1.html`: header,
   instrument/sample lists, envelope preview, vibrato/defaults clusters, and
   note-keymap placeholder/range strip. It remains bound read-only to the current
   document and instrument/sample selection; all future editing/XI/audition/
   keymap controls are disabled. Loaded modules remain read-only; editable
-  documents keep their existing pattern/song editability; no mutation, undo,
+  documents keep their existing pattern/song editability; no instrument or sample mutation,
   envelope/keymap editing, waveform display, playback, parser, writer, or
   export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and

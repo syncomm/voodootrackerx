@@ -4,8 +4,9 @@
 **Fixed size (first pass):** ~940 × 560. (Most likely first candidate for a later resizable pass.)
 **Mockup:** `assets/mockups/sample-editor-v1.html`.
 **Reference:** FastTracker II sample editor, reinterpreted in VTX's tactile language.
-**Status:** Design-only. Does not change playback, audition, the tracker viewport, the parser, or
-audio backend.
+**Status:** Design-only. The shared document applyEdit/whole-snapshot undo foundation now exists,
+but no Sample Editor, waveform editing, sample import/export, or sample mutation has been added.
+This design does not change playback, audition, the tracker viewport, the parser, or audio backend.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
 
@@ -93,9 +94,9 @@ window.
 
 ## 6. Nice-to-have controls for later
 
-Multi-level undo / edit history; spectrum or RMS/peak overlay; resample / pitch-shift / format
-convert; filters (lp/hp) and X-fade loop smoothing; snap selection to zero-crossings; auto loop-point
-finder; drag-and-drop import.
+Visible edit history; spectrum or RMS/peak overlay; resample / pitch-shift / format convert; filters
+(lp/hp) and X-fade loop smoothing; snap selection to zero-crossings; auto loop-point finder;
+drag-and-drop import.
 
 ---
 
@@ -123,7 +124,7 @@ reuses the isolated preview surface).
 ## 9. Keyboard / navigation notes
 
 Space = audition play/stop; Esc = stop; `[`/`]` nudge loop start/end; `Cmd+A` select all; standard
-`Cmd+X/C/V` cut/copy/paste; `Cmd+Z` undo (single level v1.0); `+`/`-` zoom; arrows scroll when zoomed;
+`Cmd+X/C/V` cut/copy/paste; `Cmd+Z` undo through the shared document history; `+`/`-` zoom; arrows scroll when zoomed;
 Up/Down move the sample list; the computer keyboard plays audition notes when the waveform area has
 focus.
 
@@ -137,14 +138,16 @@ focus.
   handles selection drag, loop-flag drag, zoom, and scroll. Downsample for display — never draw
   per-sample at full length.
 - **Knobs / pan slider / LEDs / switches / segments:** reuse the shared control library.
-- **Edit bank + generators:** wire each op to a sample-editing command that mutates the sample buffer
-  through the document/command layer with a single undo step; keep DSP generation off the audio
+- **Edit bank + generators:** wire each op through
+  `EditableDocumentEditCoordinator.applyEdit` as one labeled whole-document undo step; keep DSP generation off the audio
   thread; confirm-on-replace for generators and Clear.
 - **Audition:** route play through the existing isolated preview surface, honoring loop mode. Do not
   create a new playback path or touch mixer timing.
 - **Format readout:** display-only from existing metadata; no conversion in v1.0.
 
 ### Suggested PR sequence
+
+Prerequisite done: document applyEdit/undo funnel with capped whole-value snapshots.
 
 1. Window shell + menu toggle.
 2. Sample list + name/format readout bound to document.
@@ -154,7 +157,7 @@ focus.
 6. Sample params (volume/pan/rel/finetune) wired.
 7. Audition (play/stop honoring loop) via preview path.
 8. Edit bank — trim/crop first, then cut/copy/paste.
-9. Normalize/reverse/fade with single-level undo.
+9. Normalize/reverse/fade with one atomic whole-document undo step per operation.
 10. Waveform generators (confirm-on-replace).
 11. File load/export.
 
@@ -176,8 +179,8 @@ stay responsive (downsampled draw).
 
 - Waveform rendering performance on long samples is the main perf risk — downsample for display, avoid
   per-sample work.
-- Destructive edits without robust undo are dangerous — keep at least single-level undo and
-  confirm-on-replace; consider multi-level undo sooner if it proves fiddly.
+- Destructive edits without robust undo are dangerous — keep each operation to one atomic snapshot
+  and retain confirm-on-replace for generators and Clear.
 - Loop-flag vs selection drag can collide — give flags their own hit zones.
-- Open: single vs multi-level undo for v1.0; loop end vs length as the primary editable field.
+- Open: loop end vs length as the primary editable field.
 - Open: when to promote the window to resizable (the waveform benefits first).

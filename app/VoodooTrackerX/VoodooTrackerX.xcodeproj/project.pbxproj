@@ -25,6 +25,9 @@
 		E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */; };
 		E2C00000000000000000102 /* LoadedModuleEditableCopyCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */; };
 		E2C00000000000000000104 /* LoadedModuleEditableCopyCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */; };
+		ED2A00000000000000000101 /* EditableDocumentEditCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2A00000000000000000103 /* EditableDocumentEditCoordinator.swift */; };
+		ED2A00000000000000000102 /* EditableDocumentEditCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2A00000000000000000103 /* EditableDocumentEditCoordinator.swift */; };
+		ED2A00000000000000000104 /* EditableDocumentEditCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2A00000000000000000105 /* EditableDocumentEditCoordinatorTests.swift */; };
 		E2B00000000000000000101 /* EditableXMWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B00000000000000000103 /* EditableXMWriter.swift */; };
 		E2B00000000000000000102 /* EditableXMWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B00000000000000000103 /* EditableXMWriter.swift */; };
 		E2B00000000000000000104 /* EditableXMWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B00000000000000000105 /* EditableXMWriterTests.swift */; };
@@ -163,6 +166,8 @@
 		E3F00000000000000000105 /* M4AExportCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4AExportCoordinatorTests.swift; sourceTree = "<group>"; };
 		E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinator.swift; sourceTree = "<group>"; };
 		E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadedModuleEditableCopyCoordinatorTests.swift; sourceTree = "<group>"; };
+		ED2A00000000000000000103 /* EditableDocumentEditCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableDocumentEditCoordinator.swift; sourceTree = "<group>"; };
+		ED2A00000000000000000105 /* EditableDocumentEditCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableDocumentEditCoordinatorTests.swift; sourceTree = "<group>"; };
 		E2B00000000000000000103 /* EditableXMWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableXMWriter.swift; sourceTree = "<group>"; };
 		E2B00000000000000000105 /* EditableXMWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableXMWriterTests.swift; sourceTree = "<group>"; };
 		CAFE00000000000000000103 /* BlankTrackerDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlankTrackerDocument.swift; sourceTree = "<group>"; };
@@ -287,6 +292,7 @@
 				E3E00000000000000000103 /* WAVExportPerformanceSummary.swift */,
 				E3F00000000000000000103 /* M4AExportCoordinator.swift */,
 				E2C00000000000000000103 /* LoadedModuleEditableCopyCoordinator.swift */,
+				ED2A00000000000000000103 /* EditableDocumentEditCoordinator.swift */,
 				E2B00000000000000000103 /* EditableXMWriter.swift */,
 				CAFE00000000000000000103 /* BlankTrackerDocument.swift */,
 				ED1A00000000000000000103 /* EditorNoteAuditionAudioSink.swift */,
@@ -352,6 +358,7 @@
 				E3D00000000000000000105 /* WAVExportCoordinatorTests.swift */,
 				E3F00000000000000000105 /* M4AExportCoordinatorTests.swift */,
 				E2C00000000000000000105 /* LoadedModuleEditableCopyCoordinatorTests.swift */,
+				ED2A00000000000000000105 /* EditableDocumentEditCoordinatorTests.swift */,
 				E2B00000000000000000105 /* EditableXMWriterTests.swift */,
 				CAFE00000000000000000105 /* BlankTrackerDocumentTests.swift */,
 				D15A00000000000000000105 /* ControlPanelViewTests.swift */,
@@ -513,6 +520,7 @@
 				E3E00000000000000000101 /* WAVExportPerformanceSummary.swift in Sources */,
 				E3F00000000000000000101 /* M4AExportCoordinator.swift in Sources */,
 				E2C00000000000000000101 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
+				ED2A00000000000000000101 /* EditableDocumentEditCoordinator.swift in Sources */,
 				E2B00000000000000000101 /* EditableXMWriter.swift in Sources */,
 				CAFE00000000000000000101 /* BlankTrackerDocument.swift in Sources */,
 				ED1A00000000000000000101 /* EditorNoteAuditionAudioSink.swift in Sources */,
@@ -612,6 +620,7 @@
 				E3E00000000000000000102 /* WAVExportPerformanceSummary.swift in Sources */,
 				E3F00000000000000000102 /* M4AExportCoordinator.swift in Sources */,
 				E2C00000000000000000102 /* LoadedModuleEditableCopyCoordinator.swift in Sources */,
+				ED2A00000000000000000102 /* EditableDocumentEditCoordinator.swift in Sources */,
 				E2B00000000000000000102 /* EditableXMWriter.swift in Sources */,
 				CAFE00000000000000000102 /* BlankTrackerDocument.swift in Sources */,
 				ED1A00000000000000000102 /* EditorNoteAuditionAudioSink.swift in Sources */,
@@ -630,6 +639,7 @@
 				E3D00000000000000000104 /* WAVExportCoordinatorTests.swift in Sources */,
 				E3F00000000000000000104 /* M4AExportCoordinatorTests.swift in Sources */,
 				E2C00000000000000000104 /* LoadedModuleEditableCopyCoordinatorTests.swift in Sources */,
+				ED2A00000000000000000104 /* EditableDocumentEditCoordinatorTests.swift in Sources */,
 				E2B00000000000000000104 /* EditableXMWriterTests.swift in Sources */,
 				CAFE00000000000000000104 /* BlankTrackerDocumentTests.swift in Sources */,
 				D15A00000000000000000104 /* ControlPanelViewTests.swift in Sources */,

@@ -5,8 +5,9 @@
 **Mockup:** `assets/mockups/instrument-editor-v1.html`.
 **Reference:** FastTracker II instrument editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed-size shell now follows the v1 mockup hierarchy with read-only
-document/selection binding. Editing, undo, import/export XI behavior, envelope/keymap editing,
-waveform display, and audition changes remain future work. The shell does not change playback, the
+document/selection binding. The document applyEdit/whole-snapshot undo foundation exists, but
+instrument editing, import/export XI behavior, envelope/keymap editing, waveform display, and
+audition changes remain future work. The shell does not change playback, the
 tracker viewport, the parser, writers, exports, or audio backend.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
@@ -163,15 +164,16 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 - **Keymap:** the current custom views draw the keyboard placeholder + represented per-range color
   band but return no hit target. Future click/drag behavior may add isolated-preview audition and
   assign-range handling.
-- All edits mutate the selected instrument's document state through the existing document command
-  layer. Do not alter the audio backend, mixer, parser, or tracker viewport.
+- All future edits must submit a new whole document through
+  `EditableDocumentEditCoordinator.applyEdit`; direct palette write-back is not
+  an editor integration path. Do not alter the audio backend, mixer, parser, or tracker viewport.
 
 ### Suggested PR sequence
 
 1. Done: v1-mockup window shell + menu command + read-only instrument/sample-slot,
    volume-envelope-preview, and note-map-range binding.
-2. Add the document applyEdit/undo funnel required before mutation.
-3. Add editable palette/sample foundations in narrow slices.
+2. Done: add the document applyEdit/undo funnel required before mutation.
+3. Add editable instrument metadata/palette foundations behind applyEdit.
 4. Complete any shared editing-control primitives still needed for mutation.
 5. Envelope editing (points, sustain, loop, add/del) wired.
 6. VOL/PAN switch + panning envelope.

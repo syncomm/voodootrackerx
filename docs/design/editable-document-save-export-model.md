@@ -6,10 +6,17 @@ The app now has Export XM for stopped editable documents, including existing
 palette/sample payloads where the editable model safely represents XM-derived
 signed PCM, and `File > Make Editable Copy` for supported stopped loaded XM
 modules. The read-only Instrument Editor shell is now implemented outside this
-save/export design. Save, Save As, loaded-module direct editing, instrument or
+save/export design, and a document-level applyEdit/whole-snapshot undo funnel
+now owns labeled editable-document replacement. Save, Save As, loaded-module direct editing,
+instrument or
 sample mutation, Sample Editor behavior, runtime playback changes, parser
 architecture changes, and tracker viewport changes remain unimplemented by
 this note.
+
+Future instrument and sample mutations must submit new editable-document
+values through that funnel. Its context carries no source URL, rejects loaded
+read-only and playback-active states, and does not turn undo, redo, or export
+destinations into source-path ownership.
 
 ## Purpose
 
@@ -212,8 +219,8 @@ Keep future PRs narrow and testable:
 6. Done: `xm: write existing palette/sample payloads when available`
 7. Done: `app: define explicit loaded-module editable-copy command`
 8. Done: `instrument: build Instrument Editor shell/read-only binding`
-9. `app: add document applyEdit/undo funnel for future instrument and sample editing`
-10. `instrument: add editable palette foundation`
+9. Done: `app: add document applyEdit/undo funnel for future instrument and sample editing`
+10. `instrument: add editable instrument metadata foundation behind applyEdit`
 11. `sample: build Sample Editor shell/import foundation`
 
 Save and Save As should remain disabled until the owned-path/native-format

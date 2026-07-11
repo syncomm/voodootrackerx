@@ -40,7 +40,9 @@ VoodooTracker X currently has:
   read-only XM modules, with public-safe byte-level model tests and
   temporary-file reload/header smoke tests through existing parser/render
   paths, plus a reusable read-only `Window > Instrument Editor` shell bound to
-  the current palette and selected instrument/sample
+  the current palette and selected instrument/sample, plus a capped
+  whole-document applyEdit/undo funnel with Clear Current Pattern as the first
+  routed operation
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -89,8 +91,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
-Recommended next PR: add the document `applyEdit`/undo funnel required before
-instrument and sample mutation.
+Recommended next PR:
+`instrument: add editable instrument metadata foundation behind applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -103,6 +105,7 @@ instrument and sample mutation.
    loaded-module editing or Save/Save As work. Done.
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
+   Done.
 7. Add editable palette/sample workflow foundations in narrow slices.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
@@ -136,6 +139,10 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Labeled whole-editable-document snapshots now flow through
+  `EditableDocumentEditCoordinator` and a capped `UndoManager`. Clear Current
+  Pattern is the first routed operation; undo/redo refresh existing editor
+  displays and remain unavailable for loaded read-only or playing contexts.
 - The first Instrument Editor foundation now provides one reusable fixed
   920 × 638 read-only utility window from the Window menu, aligned to the v1
   mockup's header, instrument/sample lists, envelope, vibrato/defaults, and
@@ -143,8 +150,8 @@ Recently completed narrow target:
   Clear Song transitions, and main control-panel instrument/sample selection;
   shows represented metadata, immutable volume-envelope and keymap-range data,
   and clean empty states. Future editing/XI/audition/keymap controls are
-  disabled. No mutation, undo, envelope/keymap editing, waveform display,
-  playback, parser, writer, or export behavior changed.
+  disabled. It adds no mutation, envelope/keymap editing, or waveform display;
+  playback, parser, writer, and export behavior remain unchanged.
 - App M4A export now reuses the existing whole-song product WAV plan and
   completed scaled Float32 temp output, then encodes fixed 192 kbps AAC through
   AVFoundation. It has the same stopped-document gating, non-mutation and
@@ -349,7 +356,8 @@ Recently completed narrow target:
   Clear Song Data creates a new editable blank song with copied instrument and
   sample palette data, playable sample payloads where available, cleared
   song/order/pattern note data, order 0, pattern 0, and safe preserved timing
-  and dimensions. Broader arrangement editing, undo/redo, WAV/AIFF import, XI import,
+  and dimensions. Broader arrangement editing and undo/redo migration beyond
+  Clear Current Pattern, WAV/AIFF import, XI import,
   sample/instrument editors, Save XM, and advanced audio export options remain
   deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
@@ -654,13 +662,15 @@ As semantics remain deferred.
 
 Implemented foundation:
 
+- document-level applyEdit/undo using capped whole-value snapshots, with Clear
+  Current Pattern as the first routed operation
 - v1-mockup-aligned read-only Instrument Editor shell bound to loaded modules,
   editable documents, editable copies, and the current instrument/sample
   selection, with future editing/import/envelope/keymap/audition controls inert
 
 Remaining VTX 1.0 scope:
 
-- document applyEdit/undo funnel and instrument editing
+- editable instrument metadata and instrument editing behind applyEdit
 - sample editor foundation
 - WAV/AIFF sample import
 - XI instrument import target

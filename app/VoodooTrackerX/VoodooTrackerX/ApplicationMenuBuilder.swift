@@ -13,6 +13,8 @@ enum ApplicationMenuBuilder {
         static let stop = NSSelectorFromString("stopPressed:")
         static let toggleLoop = NSSelectorFromString("loopToggled:")
         static let toggleEditMode = NSSelectorFromString("editModeToggled:")
+        static let undoDocumentEdit = NSSelectorFromString("undoDocumentEdit:")
+        static let redoDocumentEdit = NSSelectorFromString("redoDocumentEdit:")
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
         static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
@@ -92,9 +94,22 @@ enum ApplicationMenuBuilder {
     private static func editMenu(target: AnyObject?) -> NSMenu {
         let menu = NSMenu(title: "Edit")
 
-        menu.addItem(disabledItem(title: "Undo", keyEquivalent: "z"))
-        let redo = disabledItem(title: "Redo", keyEquivalent: "Z")
+        let undo = menuItem(
+            title: "Undo",
+            action: Actions.undoDocumentEdit,
+            keyEquivalent: "z",
+            target: target
+        )
+        undo.isEnabled = false
+        menu.addItem(undo)
+        let redo = menuItem(
+            title: "Redo",
+            action: Actions.redoDocumentEdit,
+            keyEquivalent: "Z",
+            target: target
+        )
         redo.keyEquivalentModifierMask = [.command, .shift]
+        redo.isEnabled = false
         menu.addItem(redo)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(disabledItem(title: "Cut", keyEquivalent: "x"))

@@ -70,6 +70,7 @@ let package = Package(
                 "app/VoodooTrackerX/VoodooTrackerX/EditorControlPrimitives.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/EditorKnobControls.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/EditorNoteAuditionAudioSink.swift",
+                "app/VoodooTrackerX/VoodooTrackerX/EditableDocumentEditCoordinator.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/InstrumentEditorWindowController.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/EditableXMWriter.swift",
                 "app/VoodooTrackerX/VoodooTrackerX/ExportXMCoordinator.swift",

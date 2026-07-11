@@ -56,10 +56,24 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(fileMenu.item(withTitle: "Save As...")).isEnabled)
     }
 
-    func testEditMenuFutureCommandsAreDisabledPlaceholdersAndEditorUtilitiesAreWired() throws {
-        let editMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: nil).mainMenu.submenu(titled: "Edit"))
+    func testEditMenuWiresUndoRedoWhileKeepingOtherFutureCommandsDisabled() throws {
+        let target = NSObject()
+        let editMenu = try XCTUnwrap(ApplicationMenuBuilder.build(target: target).mainMenu.submenu(titled: "Edit"))
 
-        for title in ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All"] {
+        let undo = try XCTUnwrap(editMenu.item(withTitle: "Undo"))
+        XCTAssertEqual(undo.action, ApplicationMenuBuilder.Actions.undoDocumentEdit)
+        XCTAssertTrue(undo.target === target)
+        XCTAssertEqual(undo.keyEquivalent, "z")
+        XCTAssertFalse(undo.isEnabled)
+
+        let redo = try XCTUnwrap(editMenu.item(withTitle: "Redo"))
+        XCTAssertEqual(redo.action, ApplicationMenuBuilder.Actions.redoDocumentEdit)
+        XCTAssertTrue(redo.target === target)
+        XCTAssertEqual(redo.keyEquivalent, "Z")
+        XCTAssertEqual(redo.keyEquivalentModifierMask, [.command, .shift])
+        XCTAssertFalse(redo.isEnabled)
+
+        for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] {
             let item = try XCTUnwrap(editMenu.item(withTitle: title))
             XCTAssertFalse(item.isEnabled, "\(title) should stay disabled until editor behavior exists")
             XCTAssertNil(item.action, "\(title) should not introduce editor behavior")

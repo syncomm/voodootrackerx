@@ -156,9 +156,10 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 Recommended next PR sequence:
 
 1. Done: build an Instrument Editor shell/read-only binding.
-2. Add the document `applyEdit`/undo funnel needed before instrument and sample
-   mutation.
-3. Add editable palette/sample workflow foundations in narrow slices.
+2. Done: add the document `applyEdit`/undo funnel needed before instrument and
+   sample mutation.
+3. Add editable instrument metadata behind applyEdit, then palette/sample
+   workflow foundations in narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -187,7 +188,7 @@ Recently completed:
   represented sample ranges. It follows the active loaded module, editable
   document, or editable copy and current instrument/sample selection. Future
   editing/XI/audition/keymap controls are disabled; instrument/sample mutation,
-  undo, applyEdit, envelope/keymap editing, waveform display, and writer/export
+  envelope/keymap editing, waveform display, and writer/export
   changes remain deferred.
 - `File > Export Audio > M4A...` now exposes fixed 192 kbps AAC-in-M4A sharing
   export for the same stopped loaded modules and editable documents as WAV.
@@ -263,7 +264,8 @@ Recently completed:
   blank song that copies the available instrument/sample palette and playable
   sample payloads, clears song/order/pattern note data, resets to order 0 and
   pattern 0, and preserves safe timing and dimensions. Broader arrangement
-  editing, undo/redo, WAV/AIFF import, XI import, sample/instrument editors,
+  editing and undo/redo migration beyond Clear Current Pattern, WAV/AIFF
+  import, XI import, sample/instrument editors,
   Save XM, and advanced audio export options remain deferred.
 - Adapter-safe pattern-loop playback now wires the existing Loop control into
   Play start for the selected/current order/pattern, using a bounded range over
@@ -396,9 +398,9 @@ Recommended next product PR:
 - The editable-document save/export model, Export XM menu/save-panel shell,
   current editable-subset app file output, existing palette/sample payload
   export, public-safe writer/reload smoke tests, explicit loaded-module
-  editable-copy UI, and the read-only Instrument Editor shell are in place.
-  Continue with the document applyEdit/undo funnel before instrument/sample
-  mutation, then editable palette/sample foundations in narrow slices.
+  editable-copy UI, read-only Instrument Editor shell, and document
+  applyEdit/undo funnel are in place. Continue with editable instrument
+  metadata behind applyEdit, then palette/sample foundations in narrow slices.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -642,7 +644,8 @@ Current implemented foundation:
 - blank-document note entry
 - selected instrument/sample slot state
 - loaded-module note audition and sample-slot preview
-- clear current pattern for blank/editable documents
+- clear current pattern for blank/editable documents, with labeled
+  whole-document undo/redo
 - clear song data for blank/editable documents
 - pattern-loop playback at Play start
 - Transport > Play Current Pattern
@@ -656,12 +659,14 @@ Current implemented foundation:
   subset and supported existing palette/sample payloads
 - v1-mockup-aligned read-only Instrument Editor utility-window shell bound to
   the current document palette and selected instrument/sample
+- capped whole-document applyEdit/undo foundation for stopped editable
+  documents, including Edit > Undo/Redo and existing editor refresh paths
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- document applyEdit/undo funnel for future instrument/sample mutation
-- instrument editing and sample editor foundations
+- editable instrument metadata and instrument editing behind applyEdit
+- sample editor foundations behind applyEdit
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
 - WAV/AIFF sample import and XI instrument import target

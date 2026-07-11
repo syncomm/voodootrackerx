@@ -382,6 +382,10 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(eventRecorder.events.filter { $0 == .headroomPostProcessStarted }.count, 0)
         XCTAssertTrue(performance.usedUnityGainFastPath)
         XCTAssertEqual(performance.headroomPostProcessDurationSeconds, 0)
+        let performanceSummary = try XCTUnwrap(completion.performanceSummary)
+        XCTAssertEqual(performanceSummary.autoHeadroomGain, 1)
+        XCTAssertTrue(performanceSummary.usedUnityGainFastPath)
+        XCTAssertEqual(performanceSummary.headroomPostProcessDurationSeconds, 0)
         XCTAssertEqual(finalBytes, expectedBytes)
     }
 
@@ -410,6 +414,10 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(renderResult.windowedRenderSummary?.windowRows, WAVExportCoordinator.defaultWindowRows)
         XCTAssertEqual(renderResult.exportDiagnostics?.autoHeadroomEnabled, true)
         XCTAssertEqual(renderResult.wavExportPerformanceDiagnostics?.usedUnityGainFastPath, false)
+        let performanceSummary = try XCTUnwrap(completion.performanceSummary)
+        XCTAssertLessThan(performanceSummary.autoHeadroomGain, 1)
+        XCTAssertFalse(performanceSummary.usedUnityGainFastPath)
+        XCTAssertGreaterThanOrEqual(performanceSummary.headroomPostProcessDurationSeconds, 0)
     }
 
     func testExportPerformanceDiagnosticsArePopulatedForWindowedFixture() throws {
@@ -430,7 +438,9 @@ final class WAVExportCoordinatorTests: XCTestCase {
         guard case let .exported(_, renderResult) = completion,
               let summary = renderResult.windowedRenderSummary,
               let renderPerformance = renderResult.performanceDiagnostics,
-              let exportPerformance = renderResult.wavExportPerformanceDiagnostics else {
+              let exportPerformance = renderResult.wavExportPerformanceDiagnostics,
+              let performanceSummary = completion.performanceSummary,
+              let exportDiagnostics = renderResult.exportDiagnostics else {
             return XCTFail("Expected performance diagnostics, got \(completion)")
         }
         XCTAssertEqual(renderResult.renderedFrameCount, plan.totalFrameCount)
@@ -469,6 +479,62 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertEqual(exportPerformance.renderWindowCount, summary.windowCount)
         XCTAssertEqual(exportPerformance.windowWriteDiagnostics.count, summary.windowCount)
         XCTAssertEqual(exportPerformance.renderPerformanceDiagnostics, renderPerformance)
+        XCTAssertGreaterThanOrEqual(performanceSummary.totalDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performanceSummary.planAndAdaptDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performanceSummary.preparationIndexDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performanceSummary.renderDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performanceSummary.headroomPostProcessDurationSeconds, 0)
+        XCTAssertGreaterThanOrEqual(performanceSummary.writeAndAtomicReplaceDurationSeconds, 0)
+        XCTAssertEqual(
+            performanceSummary.totalDurationSeconds,
+            plan.performanceDiagnostics.totalDurationSeconds + exportPerformance.totalExportDurationSeconds
+        )
+        XCTAssertEqual(
+            performanceSummary.planAndAdaptDurationSeconds,
+            plan.performanceDiagnostics.totalDurationSeconds + renderPerformance.planAdaptDurationSeconds
+        )
+        XCTAssertEqual(
+            performanceSummary.preparationIndexDurationSeconds,
+            renderPerformance.windowedRenderIndexDiagnostics?.buildDurationSeconds
+        )
+        XCTAssertEqual(performanceSummary.renderDurationSeconds, exportPerformance.renderPhaseDurationSeconds)
+        XCTAssertEqual(
+            performanceSummary.writeAndAtomicReplaceDurationSeconds,
+            exportPerformance.tempWAVWriteDurationSeconds + exportPerformance.finalAtomicReplaceDurationSeconds
+        )
+        XCTAssertGreaterThan(performanceSummary.renderWindowCount, 0)
+        XCTAssertEqual(performanceSummary.renderWindowCount, summary.windowCount)
+        XCTAssertEqual(performanceSummary.totalFramesPlanned, plan.totalFrameCount)
+        XCTAssertEqual(performanceSummary.totalFramesRendered, plan.totalFrameCount)
+        XCTAssertEqual(performanceSummary.scheduledEventCount, summary.totalScheduledEvents)
+        XCTAssertEqual(performanceSummary.acceptedEventCount, summary.totalAcceptedScheduledEvents)
+        XCTAssertEqual(performanceSummary.rejectedEventCount, summary.totalRejectedScheduledEvents)
+        XCTAssertEqual(performanceSummary.carriedVoiceCount, summary.totalCarriedVoices)
+        XCTAssertEqual(performanceSummary.boundaryDropCount, summary.totalDroppedAtWindowBoundaries)
+        XCTAssertEqual(performanceSummary.mayContainBoundaryCuts, summary.mayContainBoundaryCuts)
+        XCTAssertEqual(performanceSummary.sharedSamplePayloadCount, renderPerformance.sharedSamplePayloadCreateCount)
+        XCTAssertEqual(performanceSummary.sharedSamplePayloadBytes, renderPerformance.sharedSamplePayloadBytesAllocated)
+        XCTAssertEqual(
+            performanceSummary.sharedSamplePayloadVoiceReferenceCount,
+            renderPerformance.sharedSamplePayloadVoiceReferenceCount
+        )
+        XCTAssertGreaterThan(performanceSummary.sharedSamplePayloadCount, 0)
+        XCTAssertGreaterThan(performanceSummary.sharedSamplePayloadBytes, 0)
+        XCTAssertGreaterThan(performanceSummary.sharedSamplePayloadVoiceReferenceCount, 0)
+        XCTAssertEqual(
+            performanceSummary.avoidedSamplePayloadUploadCount,
+            renderPerformance.avoidedPerVoiceSamplePayloadUploadCount
+        )
+        XCTAssertEqual(
+            performanceSummary.avoidedSamplePayloadUploadBytes,
+            renderPerformance.approximateAvoidedPerVoiceSamplePayloadUploadBytes
+        )
+        XCTAssertGreaterThan(performanceSummary.avoidedSamplePayloadUploadCount, 0)
+        XCTAssertEqual(performanceSummary.fallbackCopiedSamplePayloadUploadCount, 0)
+        XCTAssertEqual(performanceSummary.fallbackCopiedSamplePayloadUploadBytes, 0)
+        XCTAssertEqual(performanceSummary.uploadCopyMode, .sharedCPayload)
+        XCTAssertEqual(performanceSummary.autoHeadroomGain, exportDiagnostics.computedExportGain)
+        XCTAssertEqual(performanceSummary.usedUnityGainFastPath, exportPerformance.usedUnityGainFastPath)
         assertNonNegativeRenderPerformance(renderPerformance)
         assertNonNegativeExportPerformance(exportPerformance)
     }
@@ -501,7 +567,75 @@ final class WAVExportCoordinatorTests: XCTestCase {
         XCTAssertNotNil(enabledResult.performanceDiagnostics)
         XCTAssertNil(disabledResult.wavExportPerformanceDiagnostics)
         XCTAssertNil(disabledResult.performanceDiagnostics)
+        XCTAssertNotNil(enabled.performanceSummary)
+        XCTAssertNil(disabled.performanceSummary)
         XCTAssertEqual(try Data(contentsOf: enabledDestination), try Data(contentsOf: disabledDestination))
+    }
+
+    func testPerformanceSummaryFormattingIsConciseAndDoesNotIncludeLocalExportContext() throws {
+        let destination = try temporaryDestination(filename: "summary-output.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingRepeatingOrderSong(orderCount: 3),
+            displayName: "Local Summary Fixture",
+            isPlaybackActive: false
+        ))
+        let completion = WAVExportCoordinator.export(plan: plan, to: destination)
+        let performanceSummary = try XCTUnwrap(completion.performanceSummary)
+
+        let line = WAVExportPerformanceSummaryFormatter.line(for: performanceSummary)
+
+        XCTAssertTrue(line.hasPrefix("vtx_wav_export_performance_summary schema=1 "))
+        XCTAssertTrue(line.contains("upload_copy_mode=shared_c_payload"))
+        XCTAssertTrue(line.contains("unity_fast_path="))
+        XCTAssertFalse(line.contains(destination.path))
+        XCTAssertFalse(line.contains(destination.lastPathComponent))
+        XCTAssertFalse(line.contains("Local Summary Fixture"))
+        let absoluteHomeMarker = ["", "Users", "example"].joined(separator: "/")
+        let desktopMarker = ["Desk", "top"].joined()
+        XCTAssertFalse(line.contains(absoluteHomeMarker))
+        XCTAssertFalse(line.localizedCaseInsensitiveContains(desktopMarker))
+    }
+
+    func testPerformanceSummaryLoggingIsOffByDefaultAndEnabledOnlyByExplicitEnvironmentFlag() throws {
+        let destination = try temporaryDestination(filename: "summary-log-output.wav")
+        let plan = try WAVExportCoordinator.makePlan(context: .loadedReadOnly(
+            playbackSong: makeSampleBearingSong(),
+            displayName: "Summary Logging",
+            isPlaybackActive: false
+        ))
+        let completion = WAVExportCoordinator.export(plan: plan, to: destination)
+        let sink = TestWAVExportPerformanceSummarySink()
+
+        XCTAssertFalse(WAVExportPerformanceSummaryLogger.isEnabled(environment: [:]))
+        XCTAssertFalse(WAVExportPerformanceSummaryLogger.isEnabled(environment: [
+            WAVExportPerformanceSummaryLogger.enabledEnvironmentKey: "0",
+        ]))
+        XCTAssertFalse(WAVExportPerformanceSummaryLogger.isEnabled(environment: [
+            WAVExportPerformanceSummaryLogger.enabledEnvironmentKey: "unexpected",
+        ]))
+        WAVExportPerformanceSummaryLogger.writeIfEnabled(
+            completion,
+            environment: [:],
+            sink: sink
+        )
+        XCTAssertTrue(sink.lines.isEmpty)
+
+        WAVExportPerformanceSummaryLogger.writeIfEnabled(
+            completion,
+            environment: [WAVExportPerformanceSummaryLogger.enabledEnvironmentKey: "1"],
+            sink: sink
+        )
+
+        XCTAssertEqual(sink.lines.count, 1)
+        XCTAssertEqual(
+            sink.lines.first,
+            completion.performanceSummary.map(WAVExportPerformanceSummaryFormatter.line(for:))
+        )
+        for enabledValue in ["true", "YES", "on"] {
+            XCTAssertTrue(WAVExportPerformanceSummaryLogger.isEnabled(environment: [
+                WAVExportPerformanceSummaryLogger.enabledEnvironmentKey: enabledValue,
+            ]))
+        }
     }
 
     func testAppExportFloat32WAVBytesMatchToolEquivalentWindowedRender() throws {
@@ -1245,6 +1379,23 @@ private final class TestWAVExportPipelineEventRecorder: @unchecked Sendable {
     func append(_ event: WAVExportPipelineEvent) {
         lock.lock()
         storedEvents.append(event)
+        lock.unlock()
+    }
+}
+
+private final class TestWAVExportPerformanceSummarySink: WAVExportPerformanceSummarySinking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedLines = [String]()
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLines
+    }
+
+    func writeWAVExportPerformanceSummaryLine(_ line: String) {
+        lock.lock()
+        storedLines.append(line)
         lock.unlock()
     }
 }

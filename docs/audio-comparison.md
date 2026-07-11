@@ -206,6 +206,18 @@ output, C mixer DSP, runtime playback, parser behavior, or tracker UI
 behavior. Use them to choose and validate narrow future render/export
 performance PRs.
 
+Each successful app export with performance instrumentation also provides a
+typed `WAVExportPerformanceSummary` through its coordinator completion result.
+The summary keeps raw metrics separate from its one-line formatter and covers
+planning/adaptation, preparation/indexing, rendering, headroom post-process,
+temporary-WAV write/final replace, windows, frames, accepted/rejected events,
+carryovers/boundary drops, shared versus copied sample-payload costs,
+auto-headroom gain, and unity-fast-path use. For an opt-in app log, launch with
+`VTX_WAV_EXPORT_PERFORMANCE_SUMMARY=1`; the default is silent. The formatted
+line is public-safe by construction and omits paths, filenames, titles, local
+labels, and pointer addresses. It is diagnostic only and does not change WAV
+bytes or normal completion UI.
+
 The shared windowed offline render core now consumes pre-indexed event,
 continuation, and update-candidate buckets to reduce repeated whole-plan
 scheduling scans. Scan-reference, accumulated-vs-streaming, and app-vs-tool

@@ -359,6 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func finishWAVExport(_ result: WAVExportCompletionResult) {
         wavExportProgressSheet?.close()
         wavExportProgressSheet = nil
+        WAVExportPerformanceSummaryLogger.writeIfEnabled(result)
 
         let alert = NSAlert()
         if case .failed = result {

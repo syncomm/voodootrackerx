@@ -155,7 +155,7 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Add AAC/M4A audio export foundation.
+1. Add WAV export cancellation and continuous weighted progress.
 2. Build an Instrument Editor shell/read-only binding.
 3. Add editable palette/sample workflow foundations in narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
@@ -179,6 +179,16 @@ Parked parity-watch items:
 
 Recently completed:
 
+- Successful app WAV exports now expose a concise structured performance
+  summary built from existing instrumentation. It compares plan/adapt,
+  preparation/index, render, headroom, write/replace, window/frame/event/
+  boundary, and shared/fallback sample-payload costs, plus auto-headroom gain
+  and unity-fast-path use. The optional
+  `VTX_WAV_EXPORT_PERFORMANCE_SUMMARY=1` stderr route is off by default and
+  public-safe: no paths, filenames, titles, corpus labels, or pointer addresses
+  are included. PCM output, normal completion UI, runtime playback/scheduling,
+  C mixer DSP, parser architecture, tracker viewport behavior, and XM writer
+  behavior are unchanged.
 - `File > Export Audio > WAV...` now exposes product whole-song 32-bit Float
   WAV export for stopped loaded read-only modules, editable documents, and
   editable copies. Export uses the existing bounded offline C mixer path with

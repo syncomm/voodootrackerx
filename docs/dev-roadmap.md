@@ -99,9 +99,9 @@ preserving the backend freeze:
 8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
 9. Save XM and broader audio export options after editable document semantics,
-   Export XM v1, and Float32 WAV export are explicit. AAC/M4A is the next
-   recommended audio-export slice; PCM16, ranges, stems, and diagnostic
-   profiles remain later.
+   Export XM v1, and Float32 WAV export are explicit. Cancellation and
+   continuous weighted progress are the next recommended audio-export slice;
+   AAC/M4A, PCM16, ranges, stems, and diagnostic profiles remain later.
 10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
 11. Design a weekly codebase review harness as a docs/tooling plan before
@@ -127,6 +127,13 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- Successful app WAV exports now provide a concise, typed
+  `WAVExportPerformanceSummary` built from existing instrumentation. It covers
+  plan/adapt, preparation/index, render, headroom, write/replace, window/frame/
+  event/boundary, shared/fallback payload-copy, auto-headroom, and unity-fast-
+  path metrics. `VTX_WAV_EXPORT_PERFORMANCE_SUMMARY=1` enables a single
+  public-safe developer stderr line; logging is off by default, normal export
+  alerts and PCM bytes are unchanged, and no render optimization was included.
 - Production accumulated and streaming windowed offline rendering now caches
   finite sample PCM in render-session-scoped, C-owned shared payload objects for
   repeated notes and window carryovers. App WAV export and product-equivalent

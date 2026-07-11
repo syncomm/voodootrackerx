@@ -175,6 +175,18 @@ phase before the first completed window. Replacement-ramp continuation lookups
 use an event-keyed index instead of repeated full reverse scans, while the
 existing index-build duration covers the work and output remains unchanged.
 
+Successful app exports now also expose a concise
+`WAVExportPerformanceSummary` from `WAVExportCompletionResult`. It aggregates
+the existing plan/adapt, preparation/index, render, headroom, write/replace,
+window/frame/event, boundary, sample-payload, auto-headroom, and unity-fast-path
+metrics without changing the WAV bytes. Set
+`VTX_WAV_EXPORT_PERFORMANCE_SUMMARY=1` to write the same summary as one
+developer-only stderr line. Logging is off by default and never includes source
+or destination paths, filenames, module titles, corpus labels, or pointer
+addresses; normal export alerts are unchanged. Use the summary for local
+planning/rendering/headroom/write/sample-payload cost comparisons, not as a
+benchmark result committed to the repository.
+
 The shared windowed offline render core now consumes its internal scheduling
 index. Performance diagnostics report index build duration, bucket counts,
 consumed production windows, per-window event/update-candidate counts, and

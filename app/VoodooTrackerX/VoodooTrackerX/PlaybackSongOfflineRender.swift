@@ -169,7 +169,7 @@ struct PlaybackSongScheduledVoiceAttempt: Equatable {
     let windowIndex: Int?
 }
 
-enum PlaybackSongOfflineSamplePayloadStorageMode: Equatable {
+enum PlaybackSongOfflineSamplePayloadStorageMode: Equatable, Sendable {
     case perVoiceDefensiveCopy
     case perVoicePreSanitizedCopy
     case sharedCPayload
@@ -182,6 +182,17 @@ enum PlaybackSongOfflineSamplePayloadStorageMode: Equatable {
             .preSanitizedBulkCopy
         case .sharedCPayload:
             .sharedPreSanitizedCache
+        }
+    }
+
+    init(cUploadMode: CSoftwareMixerSamplePayloadUploadMode) {
+        switch cUploadMode {
+        case .defensiveSanitizingCopy:
+            self = .perVoiceDefensiveCopy
+        case .preSanitizedBulkCopy:
+            self = .perVoicePreSanitizedCopy
+        case .sharedPreSanitizedCache:
+            self = .sharedCPayload
         }
     }
 }
@@ -211,6 +222,7 @@ struct PlaybackSongRenderWindowPerformanceDiagnostic: Equatable {
 struct PlaybackSongRenderPerformanceDiagnostics: Equatable {
     let totalDurationSeconds: Double
     let planAdaptDurationSeconds: Double
+    let samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode
     let usedPreindexedWindowScheduling: Bool
     let preindexedWindowSchedulingConsumedWindowCount: Int
     let windowedRenderIndexDiagnostics: PlaybackSongWindowedRenderIndexDiagnostics?
@@ -1498,6 +1510,9 @@ final class PlaybackSongOfflineRenderer {
             ? PlaybackSongRenderPerformanceDiagnostics(
                 totalDurationSeconds: VTXPerformanceClock.seconds(since: renderStartTime),
                 planAdaptDurationSeconds: planAdaptDuration,
+                samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode(
+                    cUploadMode: samplePayloadUploadMode
+                ),
                 usedPreindexedWindowScheduling: windowedRenderIndex != nil &&
                     preindexedConsumedWindowCount == windows.count,
                 preindexedWindowSchedulingConsumedWindowCount: preindexedConsumedWindowCount,

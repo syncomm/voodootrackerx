@@ -524,6 +524,9 @@ final class OfflineRenderTests: XCTestCase {
         let defensivePerformance = try XCTUnwrap(defensive.performanceDiagnostics)
         let payloadBytes = 4 * MemoryLayout<Float>.size
 
+        XCTAssertEqual(productionPerformance.samplePayloadStorageMode, .sharedCPayload)
+        XCTAssertEqual(copyPerformance.samplePayloadStorageMode, .perVoicePreSanitizedCopy)
+        XCTAssertEqual(defensivePerformance.samplePayloadStorageMode, .perVoiceDefensiveCopy)
         XCTAssertEqual(production.block.interleavedPCM.map(\.bitPattern), preSanitizedCopy.block.interleavedPCM.map(\.bitPattern))
         XCTAssertEqual(production.block.interleavedPCM.map(\.bitPattern), defensive.block.interleavedPCM.map(\.bitPattern))
         XCTAssertEqual(streamedProductionPCM.map(\.bitPattern), production.block.interleavedPCM.map(\.bitPattern))

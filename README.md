@@ -28,8 +28,8 @@ in a blank editable document with the pattern grid and Song / Order editor.
 Supported loaded XM modules can be converted into an explicit untitled
 in-memory editable copy, and current editable documents can be exported as XM
 through the scoped Export XM v1 path. Stopped loaded modules and editable
-documents can also be rendered to 32-bit Float WAV through
-`File > Export Audio > WAV...`.
+documents can also be rendered through `File > Export Audio` as 32-bit Float
+WAV for lossless-ish/diagnostic use or AAC-in-M4A for convenient sharing.
 
 ## Try It With Tracker Modules
 
@@ -94,6 +94,10 @@ What works today:
   the VTX product render profile and export-boundary auto-headroom. Its progress
   sheet supports safe cancellation and continuous weighted progress after
   indeterminate preparation.
+- `File > Export Audio > M4A...` for the same stopped renderable documents.
+  It reuses the WAV product render plan and auto-headroom-scaled Float32 render,
+  then encodes AAC at a fixed 192 kbps into a user-selected `.m4a` file. It is
+  likewise non-mutating and cancellable.
 - Editable copies created with `Edit > Clear Song Data` can play entered notes
   through the existing CoreAudio C mixer path when the copied palette has
   playable sample payloads. During editable current-pattern Loop playback,
@@ -122,22 +126,20 @@ What is still future work:
   alpha-quality software.
 - Export XM is scoped to VTX editable documents and the current editable subset;
   Save and Save As remain disabled.
-- Export Audio currently supports product whole-song 32-bit Float WAV only. It
-  uses an explicit 48 kHz VTX product render profile, a 64-row windowed offline
-  render path, and export-boundary auto-headroom. App auto-headroom renders the
-  mixer once, computes peak during that render, then applies gain through a
-  streamed Float32 WAV post-process rather than a second full mixer render. It
-  does not use the diagnostic bounded-render cap. Cancellation removes
-  temporary output, does not mutate the source, and leaves completed-export
-  bytes unchanged. AAC/M4A, PCM16,
-  pattern/order ranges, channel/stem export, normalization, diagnostic
-  comparison profiles, and user-selectable gain/headroom remain future work.
+- Export Audio supports whole-song 48 kHz 32-bit Float WAV and 192 kbps AAC in
+  an M4A container. Both use the VTX product profile, 64-row windowed render,
+  3-second tail, and export-boundary auto-headroom without the diagnostic
+  bounded-render cap. WAV remains the preferred lossless-ish diagnostic path;
+  M4A is intended for convenient sharing. Cancellation removes temporary
+  output and does not mutate or claim ownership of the source. PCM16 UI,
+  pattern/order ranges, channel/stem export, normalization, diagnostic profiles,
+  and user-selectable gain/headroom remain future work.
 - Loaded modules remain read-only by default; editable copies are explicit,
   in-memory, and do not overwrite or own the opened source path.
 - Editing and audition features are still evolving.
 - Not all tracker formats, effects, or edge cases are guaranteed.
-- Generated/local artifacts such as DMGs, screenshots, logs, traces, WAVs, and
-  uncommitted comparison inputs are not included in the repository.
+- Generated/local artifacts such as DMGs, screenshots, logs, traces, WAV/M4A
+  files, and uncommitted comparison inputs are not included in the repository.
 
 ## Build/Test Quick Start
 

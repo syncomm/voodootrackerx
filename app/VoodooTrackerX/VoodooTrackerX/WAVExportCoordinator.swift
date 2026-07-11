@@ -260,7 +260,7 @@ private enum WAVExportCancellationError: Error {
     case cancelled
 }
 
-/// A thread-safe, cooperative cancellation signal for one WAV export operation.
+/// A thread-safe, cooperative cancellation signal for one product audio export operation.
 final class WAVExportCancellationToken: @unchecked Sendable {
     private let lock = NSLock()
     private var cancellationRequested = false

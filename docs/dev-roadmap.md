@@ -33,6 +33,9 @@ VoodooTracker X currently has:
   palette/sample payloads where the editable model safely represents signed
   8-bit or 16-bit XM-derived PCM, plus stopped `File > Export Audio > WAV...`
   whole-song 32-bit Float WAV export for loaded modules and editable documents,
+  plus stopped `File > Export Audio > M4A...` sharing export that reuses the
+  same product render plan and scaled Float32 PCM before fixed 192 kbps AAC
+  encoding,
   plus explicit `File > Make Editable Copy` for stopped supported loaded
   read-only XM modules, with public-safe byte-level model tests and
   temporary-file reload/header smoke tests through existing parser/render paths
@@ -56,8 +59,8 @@ full FastTracker II, OpenMPT, or MilkyTracker parity. Save and Save As remain
 disabled, loaded modules remain read-only by default, explicit editable copies
 are untitled/in-memory, and Instrument/Sample editors remain future work.
 Stopped loaded modules and editable documents can now export whole-song
-32-bit Float WAV audio to a selected destination without mutating documents or
-claiming source-path ownership. AAC/M4A, PCM16, pattern/order ranges,
+32-bit Float WAV or AAC/M4A audio to a selected destination without mutating
+documents or claiming source-path ownership. PCM16, pattern/order ranges,
 channel/stem export, and diagnostic comparison profile UI remain future work.
 
 ## Backend Snapshot
@@ -98,11 +101,10 @@ preserving the backend freeze:
    entry.
 8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
    instrument import target.
-9. Save XM and broader audio export options after editable document semantics,
-   Export XM v1, and Float32 WAV export are explicit. Cancellation and
-   continuous weighted progress are complete; AAC/M4A export foundation is the
-   next recommended audio-export slice, while PCM16, ranges, stems, and
-   diagnostic profiles remain later.
+9. AAC/M4A export foundation now follows the explicit editable-document and
+   Float32 WAV export semantics. Keep PCM16, ranges, stems, and diagnostic
+   profiles as later slices; the next PR is
+   `release: prepare v0.2.0-alpha.5 Rendered Audio Export alpha`.
 10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
 11. Design a weekly codebase review harness as a docs/tooling plan before
@@ -128,6 +130,11 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- App M4A export now reuses the existing whole-song product WAV plan and
+  completed scaled Float32 temp output, then encodes fixed 192 kbps AAC through
+  AVFoundation. It has the same stopped-document gating, non-mutation and
+  source-ownership safety, progress/cancellation behavior, and temporary-file
+  cleanup expectations as WAV export without changing WAV bytes or render PCM.
 - App WAV export now supports safe cooperative cancellation from its progress
   sheet with a dedicated cancelled result, temporary-file cleanup, and checks
   around preparation/indexing, render windows, headroom chunks, and final
@@ -328,7 +335,8 @@ Recently completed narrow target:
   sample palette data, playable sample payloads where available, cleared
   song/order/pattern note data, order 0, pattern 0, and safe preserved timing
   and dimensions. Broader arrangement editing, undo/redo, WAV/AIFF import, XI import,
-  sample/instrument editors, save XM, and export WAV/AAC remain deferred.
+  sample/instrument editors, Save XM, and advanced audio export options remain
+  deferred.
 - Adapter-safe pattern-loop playback now uses the existing Loop control at Play
   start to repeat the selected/current order/pattern through a bounded range of
   the cached `RuntimeCMixerAdapterEventPlan`. The loop path keeps adapter-plan
@@ -618,7 +626,7 @@ Remaining phase scope:
 - pattern length editing and deeper pattern-table utilities
 - editable-copy/save semantics before loaded-module mutation
 - save XM
-- export WAV/AAC
+- advanced audio export options
 
 Loaded modules remain read-only until explicit editable-copy/save semantics are
 designed and implemented.

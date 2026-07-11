@@ -43,6 +43,10 @@ final class ApplicationMenuBuilderTests: XCTestCase {
         XCTAssertEqual(exportWAV.action, ApplicationMenuBuilder.Actions.exportWAV)
         XCTAssertTrue(exportWAV.target === target)
         XCTAssertEqual(exportWAV.keyEquivalent, "")
+        let exportM4A = try XCTUnwrap(exportAudio.item(withTitle: "M4A..."))
+        XCTAssertEqual(exportM4A.action, ApplicationMenuBuilder.Actions.exportM4A)
+        XCTAssertTrue(exportM4A.target === target)
+        XCTAssertEqual(exportM4A.keyEquivalent, "")
     }
 
     func testFileMenuKeepsSaveAndSaveAsDisabledWithNilTarget() throws {

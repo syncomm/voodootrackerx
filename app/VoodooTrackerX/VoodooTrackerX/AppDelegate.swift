@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var liveResizeHorizontalOrigin: CGFloat?
     private var debugStopTimer: Timer?
     private var debugAutoplayTimer: Timer?
-    private var wavExportProgressSheet: WAVExportProgressSheet?
+    private var audioExportProgressSheet: AudioExportProgressSheet?
 
     private var mainWindow: NSWindow? { windowController?.window }
     private var controlPanelView: ControlPanelView? { windowController?.controlPanelView }
@@ -122,6 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
         case ApplicationMenuBuilder.Actions.exportWAV:
             return WAVExportCoordinator.canExport(context: currentWAVExportDocumentContext())
+        case ApplicationMenuBuilder.Actions.exportM4A:
+            return M4AExportCoordinator.canExport(context: currentWAVExportDocumentContext())
         case ApplicationMenuBuilder.Actions.makeEditableCopy:
             return LoadedModuleEditableCopyCoordinator.canMakeEditableCopy(context: currentLoadedModuleEditableCopyContext())
         case ApplicationMenuBuilder.Actions.play:
@@ -264,6 +266,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc
+    private func exportM4A(_ sender: Any?) {
+        let destinationProvider = NSSavePanelM4AExportDestinationProvider()
+        let coordinator = M4AExportCoordinator(destinationProvider: destinationProvider)
+        handleM4AExportStartResult(
+            coordinator.beginExport(context: currentWAVExportDocumentContext())
+        )
+    }
+
+    @objc
     private func makeEditableCopy(_ sender: Any?) {
         discardHiddenSongOrderEditorController()
         handleLoadedModuleEditableCopyResult(
@@ -337,10 +348,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let cancellationToken = WAVExportCancellationToken()
-        let progressSheet = WAVExportProgressSheet {
+        let progressSheet = AudioExportProgressSheet(title: "Export WAV") {
             cancellationToken.cancel()
         }
-        wavExportProgressSheet = progressSheet
+        audioExportProgressSheet = progressSheet
         if let mainWindow {
             progressSheet.beginSheet(for: mainWindow)
         } else {
@@ -354,7 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 cancellationToken: cancellationToken
             ) { progress in
                 Task { @MainActor [weak self] in
-                    self?.wavExportProgressSheet?.update(progress)
+                    self?.audioExportProgressSheet?.update(progress)
                 }
             }
             Task { @MainActor [weak self] in
@@ -364,8 +375,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func finishWAVExport(_ result: WAVExportCompletionResult) {
-        wavExportProgressSheet?.close()
-        wavExportProgressSheet = nil
+        audioExportProgressSheet?.close()
+        audioExportProgressSheet = nil
         WAVExportPerformanceSummaryLogger.writeIfEnabled(result)
 
         if case .cancelled = result {
@@ -378,6 +389,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             alert.alertStyle = .informational
         }
+        alert.messageText = result.userFacingTitle
+        alert.informativeText = result.userFacingMessage
+        if let mainWindow {
+            alert.beginSheetModal(for: mainWindow)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func handleM4AExportStartResult(_ result: M4AExportStartResult) {
+        guard case let .ready(plan, destination) = result else {
+            return
+        }
+
+        let cancellationToken = M4AExportCancellationToken()
+        let progressSheet = AudioExportProgressSheet(title: "Export M4A") {
+            cancellationToken.cancel()
+        }
+        audioExportProgressSheet = progressSheet
+        if let mainWindow {
+            progressSheet.beginSheet(for: mainWindow)
+        } else {
+            progressSheet.show()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [plan, destination, cancellationToken] in
+            let completion = M4AExportCoordinator.export(
+                plan: plan,
+                to: destination,
+                cancellationToken: cancellationToken
+            ) { progress in
+                Task { @MainActor [weak self] in
+                    self?.audioExportProgressSheet?.update(progress)
+                }
+            }
+            Task { @MainActor [weak self] in
+                self?.finishM4AExport(completion)
+            }
+        }
+    }
+
+    private func finishM4AExport(_ result: M4AExportCompletionResult) {
+        audioExportProgressSheet?.close()
+        audioExportProgressSheet = nil
+        if case .cancelled = result {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = if case .failed = result { .warning } else { .informational }
         alert.messageText = result.userFacingTitle
         alert.informativeText = result.userFacingMessage
         if let mainWindow {
@@ -2277,7 +2338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 }
 
 @MainActor
-private final class WAVExportProgressSheet: NSObject {
+private final class AudioExportProgressSheet: NSObject {
     private let panel: NSPanel
     private let statusLabel: NSTextField
     private let progressIndicator: NSProgressIndicator
@@ -2286,7 +2347,7 @@ private final class WAVExportProgressSheet: NSObject {
     private weak var sheetParent: NSWindow?
     private var isCancelling = false
 
-    init(cancellationHandler: @escaping () -> Void) {
+    init(title: String, cancellationHandler: @escaping () -> Void) {
         self.cancellationHandler = cancellationHandler
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 124),
@@ -2303,7 +2364,7 @@ private final class WAVExportProgressSheet: NSObject {
         self.cancelButton = cancelButton
         super.init()
 
-        panel.title = "Export WAV"
+        panel.title = title
         panel.isReleasedWhenClosed = false
 
         statusLabel.lineBreakMode = .byTruncatingTail
@@ -2360,11 +2421,71 @@ private final class WAVExportProgressSheet: NSObject {
     }
 
     func update(_ progress: WAVExportProgress) {
+        let status: String
+        switch progress.stage {
+        case .preparingRender:
+            status = "Indexing render windows..."
+        case .rendering:
+            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+            if progress.totalWindows > 0 {
+                status = "Rendering audio... \(percent)% (\(progress.completedWindows)/\(progress.totalWindows))"
+            } else {
+                status = "Rendering audio... \(percent)%"
+            }
+        case .applyingHeadroom:
+            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+            status = "Applying headroom... \(percent)%"
+        case .writingFile:
+            status = "Writing 32-bit float WAV..."
+        case .completed:
+            status = "Export complete."
+        }
+        applyProgress(
+            isIndeterminate: progress.isIndeterminate,
+            fractionCompleted: progress.fractionCompleted,
+            status: status,
+            completed: progress.stage == .completed
+        )
+    }
+
+    func update(_ progress: M4AExportProgress) {
+        let status: String
+        switch progress.stage {
+        case .preparingRender:
+            status = "Indexing render windows..."
+        case .rendering:
+            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
+            status = progress.totalWindows > 0
+                ? "Rendering audio... \(percent)% (\(progress.completedWindows)/\(progress.totalWindows))"
+                : "Rendering audio... \(percent)%"
+        case .applyingHeadroom:
+            status = "Applying headroom... \(Int((progress.fractionCompleted * 100).rounded(.down)))%"
+        case .encoding:
+            status = "Encoding AAC audio... \(Int((progress.fractionCompleted * 100).rounded(.down)))%"
+        case .writingFile:
+            status = "Writing M4A..."
+        case .completed:
+            status = "Export complete."
+        }
+        applyProgress(
+            isIndeterminate: progress.isIndeterminate,
+            fractionCompleted: progress.fractionCompleted,
+            status: status,
+            completed: progress.stage == .completed
+        )
+    }
+
+    private func applyProgress(
+        isIndeterminate: Bool,
+        fractionCompleted: Double,
+        status: String,
+        completed: Bool
+    ) {
         guard !isCancelling else {
             return
         }
-        if progressIndicator.isIndeterminate != progress.isIndeterminate {
-            if progress.isIndeterminate {
+        if progressIndicator.isIndeterminate != isIndeterminate {
+            if isIndeterminate {
                 progressIndicator.isIndeterminate = true
                 progressIndicator.startAnimation(nil)
             } else {
@@ -2372,28 +2493,10 @@ private final class WAVExportProgressSheet: NSObject {
                 progressIndicator.isIndeterminate = false
             }
         }
-        if !progress.isIndeterminate {
-            progressIndicator.doubleValue = progress.fractionCompleted
+        if !isIndeterminate {
+            progressIndicator.doubleValue = completed ? 1 : fractionCompleted
         }
-        switch progress.stage {
-        case .preparingRender:
-            statusLabel.stringValue = "Indexing render windows..."
-        case .rendering:
-            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
-            if progress.totalWindows > 0 {
-                statusLabel.stringValue = "Rendering audio... \(percent)% (\(progress.completedWindows)/\(progress.totalWindows))"
-            } else {
-                statusLabel.stringValue = "Rendering audio... \(percent)%"
-            }
-        case .applyingHeadroom:
-            let percent = Int((progress.fractionCompleted * 100).rounded(.down))
-            statusLabel.stringValue = "Applying headroom... \(percent)%"
-        case .writingFile:
-            statusLabel.stringValue = "Writing 32-bit float WAV..."
-        case .completed:
-            statusLabel.stringValue = "Export complete."
-            progressIndicator.doubleValue = 1
-        }
+        statusLabel.stringValue = status
     }
 
     @objc

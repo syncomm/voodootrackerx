@@ -7,6 +7,7 @@ enum ApplicationMenuBuilder {
         static let makeEditableCopy = NSSelectorFromString("makeEditableCopy:")
         static let exportXM = NSSelectorFromString("exportXM:")
         static let exportWAV = NSSelectorFromString("exportWAV:")
+        static let exportM4A = NSSelectorFromString("exportM4A:")
         static let play = NSSelectorFromString("playPressed:")
         static let playCurrentPattern = NSSelectorFromString("playCurrentPatternPressed:")
         static let stop = NSSelectorFromString("stopPressed:")
@@ -82,6 +83,7 @@ enum ApplicationMenuBuilder {
         let item = NSMenuItem(title: "Export Audio", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Export Audio")
         submenu.addItem(menuItem(title: "WAV...", action: Actions.exportWAV, keyEquivalent: "", target: target))
+        submenu.addItem(menuItem(title: "M4A...", action: Actions.exportM4A, keyEquivalent: "", target: target))
         item.submenu = submenu
         return item
     }

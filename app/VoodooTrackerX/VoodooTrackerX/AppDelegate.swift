@@ -336,7 +336,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        let progressSheet = WAVExportProgressSheet()
+        let cancellationToken = WAVExportCancellationToken()
+        let progressSheet = WAVExportProgressSheet {
+            cancellationToken.cancel()
+        }
         wavExportProgressSheet = progressSheet
         if let mainWindow {
             progressSheet.beginSheet(for: mainWindow)
@@ -344,8 +347,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             progressSheet.show()
         }
 
-        DispatchQueue.global(qos: .userInitiated).async { [plan, destination] in
-            let completion = WAVExportCoordinator.export(plan: plan, to: destination) { progress in
+        DispatchQueue.global(qos: .userInitiated).async { [plan, destination, cancellationToken] in
+            let completion = WAVExportCoordinator.export(
+                plan: plan,
+                to: destination,
+                cancellationToken: cancellationToken
+            ) { progress in
                 Task { @MainActor [weak self] in
                     self?.wavExportProgressSheet?.update(progress)
                 }
@@ -360,6 +367,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         wavExportProgressSheet?.close()
         wavExportProgressSheet = nil
         WAVExportPerformanceSummaryLogger.writeIfEnabled(result)
+
+        if case .cancelled = result {
+            return
+        }
 
         let alert = NSAlert()
         if case .failed = result {
@@ -2266,26 +2277,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 }
 
 @MainActor
-private final class WAVExportProgressSheet {
+private final class WAVExportProgressSheet: NSObject {
     private let panel: NSPanel
     private let statusLabel: NSTextField
     private let progressIndicator: NSProgressIndicator
+    private let cancelButton: NSButton
+    private let cancellationHandler: () -> Void
     private weak var sheetParent: NSWindow?
+    private var isCancelling = false
 
-    init() {
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 118),
+    init(cancellationHandler: @escaping () -> Void) {
+        self.cancellationHandler = cancellationHandler
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 124),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
+        self.panel = panel
+        let statusLabel = NSTextField(labelWithString: "Preparing render...")
+        self.statusLabel = statusLabel
+        let progressIndicator = NSProgressIndicator()
+        self.progressIndicator = progressIndicator
+        let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+        self.cancelButton = cancelButton
+        super.init()
+
         panel.title = "Export WAV"
         panel.isReleasedWhenClosed = false
 
-        statusLabel = NSTextField(labelWithString: "Preparing render...")
         statusLabel.lineBreakMode = .byTruncatingTail
 
-        progressIndicator = NSProgressIndicator()
         progressIndicator.isIndeterminate = true
         progressIndicator.minValue = 0
         progressIndicator.maxValue = 1
@@ -2293,7 +2315,19 @@ private final class WAVExportProgressSheet {
         progressIndicator.controlSize = .regular
         progressIndicator.startAnimation(nil)
 
-        let stack = NSStackView(views: [statusLabel, progressIndicator])
+        cancelButton.keyEquivalent = "\u{1b}"
+        let buttonRow = NSView()
+        buttonRow.addSubview(cancelButton)
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            cancelButton.centerXAnchor.constraint(equalTo: buttonRow.centerXAnchor),
+            cancelButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
+            cancelButton.leadingAnchor.constraint(greaterThanOrEqualTo: buttonRow.leadingAnchor),
+            cancelButton.trailingAnchor.constraint(lessThanOrEqualTo: buttonRow.trailingAnchor),
+        ])
+
+        let stack = NSStackView(views: [statusLabel, progressIndicator, buttonRow])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -2308,8 +2342,11 @@ private final class WAVExportProgressSheet {
             stack.topAnchor.constraint(equalTo: contentView.topAnchor),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             progressIndicator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            buttonRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         panel.contentView = contentView
+        cancelButton.target = self
+        cancelButton.action = #selector(cancelExport)
     }
 
     func beginSheet(for parent: NSWindow) {
@@ -2323,6 +2360,9 @@ private final class WAVExportProgressSheet {
     }
 
     func update(_ progress: WAVExportProgress) {
+        guard !isCancelling else {
+            return
+        }
         if progressIndicator.isIndeterminate != progress.isIndeterminate {
             if progress.isIndeterminate {
                 progressIndicator.isIndeterminate = true
@@ -2354,6 +2394,17 @@ private final class WAVExportProgressSheet {
             statusLabel.stringValue = "Export complete."
             progressIndicator.doubleValue = 1
         }
+    }
+
+    @objc
+    private func cancelExport() {
+        guard !isCancelling else {
+            return
+        }
+        isCancelling = true
+        cancelButton.isEnabled = false
+        statusLabel.stringValue = "Cancelling export..."
+        cancellationHandler()
     }
 
     func close() {

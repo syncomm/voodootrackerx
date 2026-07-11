@@ -170,10 +170,14 @@ available as fallback/reference paths. Diagnostics report C-owned payload
 creates/bytes, voice and continuation references, avoided per-voice upload
 counts/bytes, and fallback copies. Byte-identical parity tests pin shared output
 to the copied references and preserve app-versus-tool and streaming parity.
-App WAV progress identifies pre-index construction as an indexing preparation
-phase before the first completed window. Replacement-ramp continuation lookups
-use an event-keyed index instead of repeated full reverse scans, while the
-existing index-build duration covers the work and output remains unchanged.
+App WAV progress identifies pre-index construction as an indeterminate indexing
+preparation phase before the first completed window, then reports monotonic
+whole-export progress weighted 5% prepared, 80% rendering, 10% headroom, and
+5% final writing. The sheet can cancel safely at cooperative preparation,
+render-window, headroom-chunk, and final-replace checkpoints; cancellation is a
+non-error result and removes temporary output. Replacement-ramp continuation
+lookups use an event-keyed index instead of repeated full reverse scans, while
+the existing index-build duration covers the work and output remains unchanged.
 
 Successful app exports now also expose a concise
 `WAVExportPerformanceSummary` from `WAVExportCompletionResult`. It aggregates

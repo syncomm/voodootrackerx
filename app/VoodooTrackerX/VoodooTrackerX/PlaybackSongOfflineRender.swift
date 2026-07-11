@@ -905,6 +905,8 @@ final class PlaybackSongOfflineRenderer {
             schedulingSource: schedulingSource,
             samplePayloadUploadMode: samplePayloadUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            cancellationCheck: nil,
+            preparationCompleted: nil,
             prepareOutput: { totalFrames, config in
                 interleavedPCM.reserveCapacity(totalFrames * config.channelCount)
                 return CSoftwareMixer(config: config).config
@@ -1159,10 +1161,13 @@ final class PlaybackSongOfflineRenderer {
         schedulingSource: PlaybackSongWindowedSchedulingSource,
         samplePayloadUploadMode: CSoftwareMixerSamplePayloadUploadMode,
         collectPerformanceDiagnostics: Bool,
+        cancellationCheck: (() throws -> Void)?,
+        preparationCompleted: (() throws -> Void)?,
         prepareOutput: ((Int, MixerRenderConfig) -> MixerRenderConfig)?,
         collectBlock: ((MixerRenderBlock) -> Void)?,
         windowSink: (Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void
     ) rethrows -> PlaybackSongWindowedRenderCoreResult {
+        try cancellationCheck?()
         let renderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
         let effectiveRequest = effectiveRequest(from: request, frames: request.requestedFrameCount)
         let safeWindowRows = max(1, windowRows)
@@ -1173,6 +1178,7 @@ final class PlaybackSongOfflineRenderer {
             orderCount: effectiveRequest.orderCount,
             sampleRate: effectiveRequest.config.sampleRate
         )
+        try cancellationCheck?()
         let includedEventIndices = Self.includedEventIndices(
             for: fullPlan,
             isolationFilter: effectiveRequest.isolationFilter
@@ -1204,6 +1210,7 @@ final class PlaybackSongOfflineRenderer {
         let windowedRenderIndex: PlaybackSongWindowedRenderIndex?
         switch schedulingSource {
         case .preindexed:
+            try cancellationCheck?()
             windowedRenderIndex = makeWindowedRenderScheduleIndex(
                 for: adaptedPlan,
                 specs: windows,
@@ -1215,6 +1222,9 @@ final class PlaybackSongOfflineRenderer {
         case .scanPerWindowReference:
             windowedRenderIndex = nil
         }
+        try cancellationCheck?()
+        try preparationCompleted?()
+        try cancellationCheck?()
         var preindexedConsumedWindowCount = 0
         var uploadedSamplePayloadIdentities = Set<CSoftwareMixerSamplePayloadIdentity>()
         let sharedSamplePayloadCache = samplePayloadUploadMode == .sharedPreSanitizedCache
@@ -1222,6 +1232,7 @@ final class PlaybackSongOfflineRenderer {
             : nil
 
         for spec in windows {
+            try cancellationCheck?()
             let windowStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let schedulingStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
             let mixer = CSoftwareMixer(
@@ -1421,7 +1432,9 @@ final class PlaybackSongOfflineRenderer {
                 ? VTXPerformanceClock.seconds(since: schedulingStartTime)
                 : 0
             let mixerRenderStartTime = collectPerformanceDiagnostics ? VTXPerformanceClock.now() : 0
+            try cancellationCheck?()
             let block = mixer.render(frames: spec.frameCount)
+            try cancellationCheck?()
             let mixerRenderDuration = collectPerformanceDiagnostics
                 ? VTXPerformanceClock.seconds(since: mixerRenderStartTime)
                 : 0
@@ -1493,7 +1506,10 @@ final class PlaybackSongOfflineRenderer {
             )
             windowDiagnostics.append(diagnostic)
             try windowSink(spec.index + 1, windows.count, diagnostic, block)
+            try cancellationCheck?()
         }
+
+        try cancellationCheck?()
 
         let scheduledCapacityRejectedCount = attempts.filter { $0.rejectionReason == .scheduledVoiceCapacity }.count
         let eventCoverage = adaptedPlan.diagnostics.eventCoverage
@@ -1655,12 +1671,34 @@ final class PlaybackSongOfflineRenderer {
         collectPerformanceDiagnostics: Bool = false,
         progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
     ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
+        try renderWindowedStreaming(
+            request,
+            windowRows: windowRows,
+            samplePayloadStorageMode: samplePayloadStorageMode,
+            collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            cancellationCheck: nil,
+            preparationCompleted: nil,
+            progress: progress
+        )
+    }
+
+    func renderWindowedStreaming(
+        _ request: PlaybackSongOfflineRenderRequest,
+        windowRows: Int,
+        samplePayloadStorageMode: PlaybackSongOfflineSamplePayloadStorageMode = .sharedCPayload,
+        collectPerformanceDiagnostics: Bool = false,
+        cancellationCheck: (() throws -> Void)?,
+        preparationCompleted: (() throws -> Void)? = nil,
+        progress: ((Int, Int, PlaybackSongWindowedRenderWindowDiagnostic, MixerRenderBlock) throws -> Void)? = nil
+    ) rethrows -> PlaybackSongOfflineStreamingRenderResult {
         let coreResult = try renderWindowedCore(
             request,
             windowRows: windowRows,
             schedulingSource: .preindexed,
             samplePayloadUploadMode: samplePayloadStorageMode.cUploadMode,
             collectPerformanceDiagnostics: collectPerformanceDiagnostics,
+            cancellationCheck: cancellationCheck,
+            preparationCompleted: preparationCompleted,
             prepareOutput: nil,
             collectBlock: nil,
             windowSink: { completedWindow, totalWindows, diagnostic, block in

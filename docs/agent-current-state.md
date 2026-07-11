@@ -27,8 +27,11 @@ destination, does not claim source-path ownership, keeps Save/Save As disabled,
 does not use the diagnostic bounded-render cap, renders through the same
 64-row windowed offline path used by the proven render tool mode, and applies
 export-boundary auto-headroom without a second full mixer render. The app
-product default is 48 kHz Float32. The release is not a full arbitrary-XM
-round-trip guarantee or a full
+product default is 48 kHz Float32. Export can be cancelled cooperatively at
+safe preparation, render-window, headroom-chunk, and final-write boundaries;
+temporary output is removed, cancellation is non-mutating, and determinate
+progress is continuous and weighted across the remaining phases. The release
+is not a full arbitrary-XM round-trip guarantee or a full
 FT2/OpenMPT/MilkyTracker parity claim. Save/Save As, loaded-module direct
 editing, Instrument Editor, Sample Editor, AAC/M4A export, PCM16 product
 export, pattern/order ranges, channel/stem export, diagnostic comparison
@@ -197,13 +200,15 @@ Recently completed narrow targets:
   auto-headroom instead of the diagnostic bounded-render cap. It performs one
   expensive mixer render, writes an unscaled Float32 temp WAV while computing
   peak diagnostics, applies the shared auto-headroom gain through a streamed
-  Float32 WAV post-process, shows throttled determinate progress over the full
-  planned render and headroom phases while rendering on a background queue,
+  Float32 WAV post-process, keeps preparation/indexing indeterminate, then
+  shows continuous weighted whole-export progress across rendering, headroom,
+  and final writing while rendering on a background queue,
   writes through temporary files before replacing the selected destination,
-  removes temporary output on failure, leaves source modules/documents
+  supports cooperative cancellation at safe phase boundaries, removes
+  temporary output on cancellation or failure, leaves source modules/documents
   untouched, does not claim source-path ownership, keeps Save/Save As disabled,
-  and leaves loaded modules read-only. Cancellation,
-  AAC/M4A, PCM16, pattern or order ranges, channel/stem export, normalization,
+  and leaves loaded modules read-only. AAC/M4A, PCM16, pattern or order ranges,
+  channel/stem export, normalization,
   diagnostic comparison profiles, and user-selectable gain/headroom remain
   future work.
 - `File > Make Editable Copy` now defines the explicit loaded-module editable

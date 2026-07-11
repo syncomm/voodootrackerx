@@ -16,6 +16,7 @@ enum ApplicationMenuBuilder {
         static let clearCurrentPattern = NSSelectorFromString("clearCurrentPattern:")
         static let clearSongData = NSSelectorFromString("clearSongData:")
         static let showSongOrderEditor = NSSelectorFromString("showSongOrderEditor:")
+        static let showInstrumentEditor = NSSelectorFromString("showInstrumentEditor:")
     }
 
     struct BuiltMenu {
@@ -153,6 +154,12 @@ enum ApplicationMenuBuilder {
         menu.addItem(menuItem(
             title: "Song / Order Editor",
             action: Actions.showSongOrderEditor,
+            keyEquivalent: "",
+            target: target
+        ))
+        menu.addItem(menuItem(
+            title: "Instrument Editor",
+            action: Actions.showInstrumentEditor,
             keyEquivalent: "",
             target: target
         ))

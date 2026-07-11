@@ -5,8 +5,9 @@ slices. This note defines product and architecture rules for save/export work.
 The app now has Export XM for stopped editable documents, including existing
 palette/sample payloads where the editable model safely represents XM-derived
 signed PCM, and `File > Make Editable Copy` for supported stopped loaded XM
-modules. Save, Save As, loaded-module direct editing, Instrument Editor
-behavior, Sample Editor behavior, runtime playback changes, parser
+modules. The read-only Instrument Editor shell is now implemented outside this
+save/export design. Save, Save As, loaded-module direct editing, instrument or
+sample mutation, Sample Editor behavior, runtime playback changes, parser
 architecture changes, and tracker viewport changes remain unimplemented by
 this note.
 
@@ -193,7 +194,7 @@ Save/export is a file-output boundary. It must not change:
 - C mixer DSP
 - parser architecture
 - tracker viewport or static-highlight behavior
-- Instrument Editor or Sample Editor behavior
+- Instrument Editor mutation or Sample Editor behavior
 
 Export validation may later reuse existing offline/public-safe render tooling,
 but save/export implementation should not add render behavior unless a focused
@@ -210,9 +211,10 @@ Keep future PRs narrow and testable:
 5. Done: `xm: wire Export XM to writer behind safe file boundary`
 6. Done: `xm: write existing palette/sample payloads when available`
 7. Done: `app: define explicit loaded-module editable-copy command`
-8. `instrument: build Instrument Editor shell/read-only binding`
-9. `instrument: add editable palette foundation`
-10. `sample: build Sample Editor shell/import foundation`
+8. Done: `instrument: build Instrument Editor shell/read-only binding`
+9. `app: add document applyEdit/undo funnel for future instrument and sample editing`
+10. `instrument: add editable palette foundation`
+11. `sample: build Sample Editor shell/import foundation`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

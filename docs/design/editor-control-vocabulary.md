@@ -5,9 +5,11 @@ Sample). Defining it once keeps knobs, sliders, switches, LEDs, and readouts con
 editors and any future UI work.
 
 **Status:** Shared theme, panel label, segment readout, indicator LED, chunky button, knob, and
-center-detent pan slider primitives now exist as additive AppKit foundations. Switches, canvases, and
-editor windows remain design-only. Reference: `assets/mockups/editor-control-knob-lab.html` is the
-canonical visual for the knob and pan slider; the per-window mockups show them in context.
+center-detent pan slider primitives now exist as additive AppKit foundations. The Song / Order editor
+and read-only Instrument Editor shell consume this vocabulary; Instrument Editor canvases are inert
+display views only. Switches and interactive canvas behavior remain design-only. Reference:
+`assets/mockups/editor-control-knob-lab.html` is the canonical visual for the knob and pan slider;
+the per-window mockups show them in context.
 
 This vocabulary extends the control-panel system in `docs/design/UI-DESIGN-control-panel.md` — same
 palette, same monospace, same recessed-vs-interactive hierarchy.

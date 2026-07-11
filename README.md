@@ -62,7 +62,7 @@ Some archives include formats VoodooTracker X does not currently support.
 VoodooTracker X is under active development and should not be treated as
 production-ready.
 
-The prepared `v0.2.0-alpha.5` release is the Rendered Audio Export Alpha. It
+The released `v0.2.0-alpha.5` is the Rendered Audio Export Alpha. It
 adds app-level whole-song 48 kHz Float32 WAV export with the VTX render profile,
 a 3-second tail, auto-headroom, weighted progress, cancellation, and performance
 diagnostics, plus AAC-encoded M4A export for convenient sharing. Export is
@@ -83,6 +83,10 @@ What works today:
   `Transport > Play Current Pattern` for focused pattern audition.
 - Song / Order editor floating utility window with order-list navigation and a
   paginated Pattern Bank.
+- `Window > Instrument Editor` opens a fixed read-only editor shell following
+  the v1 mockup hierarchy, with instrument/sample lists, an envelope preview,
+  vibrato/default placeholders, and note-map ranges for loaded modules,
+  editable documents, and editable copies. Editing controls remain disabled.
 - Pattern Bank single-click viewing/navigation and double-click assignment for
   editable documents.
 - Pattern Ops `NEW`, `DUP`, and `CLEAR` for stopped editable documents.
@@ -122,7 +126,8 @@ What is still future work:
   export settings.
 - Full arbitrary-XM round-trip parity.
 - Full loaded-module editing.
-- Instrument and sample editors.
+- Instrument editing and the Sample Editor, including undo, envelopes,
+  waveform display, and sample/instrument import.
 - Live Loop retargeting during active playback, loop-range editing, arbitrary
   loop ranges, and broader tracker editing workflows.
 - Full FastTracker II, OpenMPT, or MikMod parity.

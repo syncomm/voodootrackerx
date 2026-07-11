@@ -1,13 +1,27 @@
 # VoodooTracker X — Instrument Editor Window
 
 **Window:** Instrument editor (independent floating utility window).
-**Fixed size (first pass):** ~920 × 638.
+**Implemented read-only shell size:** 920 × 638.
 **Mockup:** `assets/mockups/instrument-editor-v1.html`.
 **Reference:** FastTracker II instrument editor, reinterpreted in VTX's tactile language.
-**Status:** Design-only. Does not change playback, audition, the tracker viewport, the parser, or
-audio backend.
+**Status:** The fixed-size shell now follows the v1 mockup hierarchy with read-only
+document/selection binding. Editing, undo, import/export XI behavior, envelope/keymap editing,
+waveform display, and audition changes remain future work. The shell does not change playback, the
+tracker viewport, the parser, writers, exports, or audio backend.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
+
+### Implemented read-only foundation
+
+`Window > Instrument Editor` opens one reusable AppKit utility window using the mockup's header,
+left instrument/sample lists, center envelope panel, right vibrato/defaults panels, and bottom note
+keymap hierarchy. It follows the current loaded module, editable document, or editable copy plus the
+main control-panel instrument and sample selection. The shell shows represented instrument
+number/name/sample count, sample slot/name/length/loop mode and range/volume/relative note/finetune,
+an immutable volume-envelope preview, and represented note-to-sample ranges. Missing data has an
+explicit empty state. Future buttons, knobs, tabs, panning/vibrato fields, XI actions, keymap
+assignment, and audition affordances are disabled/inert; a compact header badge states read-only.
+No controls mutate data.
 
 ---
 
@@ -136,37 +150,45 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 
 ---
 
-## 10. AppKit implementation notes (for a future PR)
+## 10. AppKit implementation notes
 
 - Fixed-size window, single shared instance, menu-toggled.
 - **Lists:** view-based tables for instruments and sample slots; custom cell drawing; indigo
   selection; lists fill their panels.
-- **Envelope canvas:** a custom view drawing the curve, points, and sustain/loop markers, handling
-  point hit-testing/drag with Core Graphics (no per-point subviews).
+- **Envelope canvas:** the current custom view draws represented volume points and sustain/loop
+  context but returns no hit target. Future editing may add point hit-testing/drag without creating
+  per-point subviews.
 - **Knobs / pan slider / LEDs / switches / segments:** reuse the shared control library
   (`docs/design/editor-control-vocabulary.md`).
-- **Keymap:** a custom view drawing the keyboard + per-range color band, handling click (audition) and
-  drag (assign-range); audition calls the existing isolated preview surface.
+- **Keymap:** the current custom views draw the keyboard placeholder + represented per-range color
+  band but return no hit target. Future click/drag behavior may add isolated-preview audition and
+  assign-range handling.
 - All edits mutate the selected instrument's document state through the existing document command
   layer. Do not alter the audio backend, mixer, parser, or tracker viewport.
 
 ### Suggested PR sequence
 
-1. Window shell + menu toggle.
-2. Instrument + sample-slot lists bound to document.
-3. Shared knob / pan-slider / LED / segment controls (if not already landed).
-4. Envelope canvas (volume) read-only render.
+1. Done: v1-mockup window shell + menu command + read-only instrument/sample-slot,
+   volume-envelope-preview, and note-map-range binding.
+2. Add the document applyEdit/undo funnel required before mutation.
+3. Add editable palette/sample foundations in narrow slices.
+4. Complete any shared editing-control primitives still needed for mutation.
 5. Envelope editing (points, sustain, loop, add/del) wired.
 6. VOL/PAN switch + panning envelope.
 7. Vibrato + defaults clusters wired.
-8. Note keymap render + audition.
+8. Note-keymap audition through the isolated preview path.
 9. Keymap drag-to-assign-range.
 
 ---
 
 ## 11. Testing / manual verification
 
-Screenshot before/after per PR; verify the surface reads as calm at fixed size. Envelope: points
+For the implemented shell, verify empty/default, loaded-module, editable-copy, and selection-change
+states; confirm one window is reused; and confirm every field remains read-only. Use public-safe
+fixtures only and keep screenshots local/untracked.
+
+For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
+fixed size. Envelope: points
 add/drag/delete; sustain/loop markers track point indices; VOL/PAN swaps cleanly; fadeout maps
 correctly. Knobs ↔ segments stay in sync; double-click entry clamps to valid ranges; relative note +
 fine tune affect audition pitch. Keymap: color band matches assignments; drag-assign updates the right

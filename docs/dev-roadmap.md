@@ -38,7 +38,9 @@ VoodooTracker X currently has:
   encoding,
   plus explicit `File > Make Editable Copy` for stopped supported loaded
   read-only XM modules, with public-safe byte-level model tests and
-  temporary-file reload/header smoke tests through existing parser/render paths
+  temporary-file reload/header smoke tests through existing parser/render
+  paths, plus a reusable read-only `Window > Instrument Editor` shell bound to
+  the current palette and selected instrument/sample
 
 The app is still under active development and is not production-ready. VTX 1.0
 is now scoped as a real XM-style composition-capable tracker: users should be
@@ -53,7 +55,7 @@ read-only.
 
 `v0.2.0-alpha.4` was the Export XM v1 release for the current editable subset.
 
-The prepared `v0.2.0-alpha.5` release centers on the Rendered Audio Export
+The released `v0.2.0-alpha.5` centers on the Rendered Audio Export
 Alpha. Stopped loaded modules and editable documents can export whole-song
 48 kHz Float32 WAV using the VTX render profile, 3-second tail, auto-headroom,
 weighted progress, cancellation, and performance diagnostics, or AAC-in-M4A
@@ -87,7 +89,8 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
-Recommended next PR: build an Instrument Editor shell/read-only binding.
+Recommended next PR: add the document `applyEdit`/undo funnel required before
+instrument and sample mutation.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -98,20 +101,21 @@ Recommended next PR: build an Instrument Editor shell/read-only binding.
 3. Export XM v1 release preparation for `v0.2.0-alpha.4` is complete.
 4. Define an explicit loaded-module editable-copy command before direct
    loaded-module editing or Save/Save As work. Done.
-5. Build an Instrument Editor shell/read-only binding.
-6. Add editable palette/sample workflow foundations in narrow slices.
-7. Pattern editor completion for instrument, volume-column, and effect-column
+5. Build an Instrument Editor shell/read-only binding. Done.
+6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
+7. Add editable palette/sample workflow foundations in narrow slices.
+8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
-8. Sample/instrument editor foundations plus WAV/AIFF sample import and XI
+9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
    instrument import target.
-9. Rendered audio export release preparation for `v0.2.0-alpha.5` is complete.
+10. Rendered audio export release preparation for `v0.2.0-alpha.5` is complete.
    Keep PCM16, ranges, stems, bitrate/quality controls, and diagnostic profiles
    as later slices.
-10. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
+11. Song / Order follow-ups such as confirmation, undo/redo, keyboard polish,
    pattern length utilities, and deeper arrangement editing.
-11. Design a weekly codebase review harness as a docs/tooling plan before
+12. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-12. Module analysis follow-up should use
+13. Module analysis follow-up should use
    `docs/design/module-analysis-lifecycle.md`: async adapter-plan prewarm now
    prepares the same cached runtime plan after load without blocking file open,
    while first-Play adapter-plan preparation remains the synchronous fallback.
@@ -119,7 +123,7 @@ Recommended next PR: build an Instrument Editor shell/read-only binding.
    adapter-plan duration with clear load/File New invalidation. A later
    optimization PR can profile and reduce adapter-plan construction cost
    itself.
-13. README badges may be added later if they point at stable, useful CI or
+14. README badges may be added later if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -132,6 +136,15 @@ Parked parity-watch items:
 
 Recently completed narrow target:
 
+- The first Instrument Editor foundation now provides one reusable fixed
+  920 × 638 read-only utility window from the Window menu, aligned to the v1
+  mockup's header, instrument/sample lists, envelope, vibrato/defaults, and
+  note-keymap hierarchy. It follows File New, module load, Make Editable Copy,
+  Clear Song transitions, and main control-panel instrument/sample selection;
+  shows represented metadata, immutable volume-envelope and keymap-range data,
+  and clean empty states. Future editing/XI/audition/keymap controls are
+  disabled. No mutation, undo, envelope/keymap editing, waveform display,
+  playback, parser, writer, or export behavior changed.
 - App M4A export now reuses the existing whole-song product WAV plan and
   completed scaled Float32 temp output, then encodes fixed 192 kbps AAC through
   AVFoundation. It has the same stopped-document gating, non-mutation and
@@ -616,7 +629,7 @@ Export XM v1 was released as `v0.2.0-alpha.4` and covers stopped editable
 documents in the current VTX editable subset, including supported existing
 palette/sample payloads where safely represented.
 
-Rendered audio export is prepared for `v0.2.0-alpha.5`: whole-song 48 kHz
+Rendered audio export was released as `v0.2.0-alpha.5`: whole-song 48 kHz
 Float32 WAV is the preferred high-quality and diagnostic format, while
 AAC-in-M4A provides a convenient sharing format. Both write only to a selected
 destination and preserve loaded-module read-only and disabled Save/Save As
@@ -624,8 +637,6 @@ semantics.
 
 Remaining phase scope:
 
-- explicit loaded-module editable-copy command before direct loaded-module
-  editing or Save/Save As work
 - instrument entry
 - volume-column entry
 - effect entry
@@ -641,9 +652,15 @@ As semantics remain deferred.
 
 ## Phase 4: Instruments And Samples
 
-Planned VTX 1.0 scope:
+Implemented foundation:
 
-- instrument editor foundation
+- v1-mockup-aligned read-only Instrument Editor shell bound to loaded modules,
+  editable documents, editable copies, and the current instrument/sample
+  selection, with future editing/import/envelope/keymap/audition controls inert
+
+Remaining VTX 1.0 scope:
+
+- document applyEdit/undo funnel and instrument editing
 - sample editor foundation
 - WAV/AIFF sample import
 - XI instrument import target

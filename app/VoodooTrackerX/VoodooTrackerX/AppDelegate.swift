@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private static var retainedDelegate: AppDelegate?
     private var windowController: TrackerWindowController?
     private var songOrderEditorWindowController: SongOrderEditorWindowController?
+    private let instrumentEditorWindowPresenter = InstrumentEditorWindowPresenter()
     private var blankDocument: BlankTrackerDocument?
     private var loadedMetadata: ParsedModuleMetadata?
     private var displayedPatternEntries = [ModuleMetadataLoader.PatternSelectionEntry]()
@@ -116,7 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch menuItem.action {
         case ApplicationMenuBuilder.Actions.newTrackerDocument,
              ApplicationMenuBuilder.Actions.openModuleFile,
-             ApplicationMenuBuilder.Actions.showSongOrderEditor:
+             ApplicationMenuBuilder.Actions.showSongOrderEditor,
+             ApplicationMenuBuilder.Actions.showInstrumentEditor:
             return true
         case ApplicationMenuBuilder.Actions.exportXM:
             return ExportXMCoordinator.canExport(context: currentExportXMDocumentContext())
@@ -569,6 +571,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         controller.apply(displayState: currentSongOrderEditorDisplayState())
         controller.showWindowAndActivate()
+    }
+
+    @objc
+    private func showInstrumentEditor(_ sender: Any?) {
+        instrumentEditorWindowPresenter.show(displayState: currentInstrumentEditorDisplayState())
+    }
+
+    private func currentInstrumentEditorDisplayState() -> InstrumentEditorDisplayState {
+        if let blankDocument {
+            return .editableDocument(blankDocument)
+        }
+        if loadedMetadata != nil {
+            return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)
+        }
+        return .empty
     }
 
     private func selectSongOrderEditorOrder(_ orderPosition: Int) {
@@ -2161,6 +2178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func syncControlPanelView(reloadInstrumentControls shouldReloadInstrumentControls: Bool = true) {
         defer {
             refreshSongOrderEditor()
+            instrumentEditorWindowPresenter.refresh(displayState: currentInstrumentEditorDisplayState())
         }
 
         if let blankDocument {

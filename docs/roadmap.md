@@ -11,7 +11,7 @@ For effect status, read `docs/xm-effect-support.md`.
 `v0.2.0-alpha.3` is tagged as the Song / Order editor composition alpha.
 `v0.2.0-alpha.4` was the Export XM v1 release for the current VTX editable
 subset.
-`v0.2.0-alpha.5` is being prepared as the Rendered Audio Export Alpha. It adds
+`v0.2.0-alpha.5` is released as the Rendered Audio Export Alpha. It adds
 whole-song 48 kHz Float32 WAV export with the VTX render profile, 3-second tail,
 auto-headroom, progress, cancellation, and performance diagnostics, plus
 AAC-encoded M4A export for convenient sharing. Both formats write only to a
@@ -155,17 +155,19 @@ docs/tooling-only unless a freeze-exit blocker is promoted.
 
 Recommended next PR sequence:
 
-1. Build an Instrument Editor shell/read-only binding.
-2. Add editable palette/sample workflow foundations in narrow slices.
-3. Continue explicit loaded-module copy/import flows before broader
+1. Done: build an Instrument Editor shell/read-only binding.
+2. Add the document `applyEdit`/undo funnel needed before instrument and sample
+   mutation.
+3. Add editable palette/sample workflow foundations in narrow slices.
+4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
-4. Design a weekly codebase review harness as a docs/tooling plan before
+5. Design a weekly codebase review harness as a docs/tooling plan before
    adding automation.
-5. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
+6. Use `docs/design/module-analysis-lifecycle.md` to sequence module-analysis
    work: async adapter-plan prewarm now keeps the cached runtime plan off the
    synchronous load path while improving first-Play readiness, and loaded-module
    TIME is derived only from the installed adapter-plan duration.
-6. Consider README badges later only if they point at stable, useful CI or
+7. Consider README badges later only if they point at stable, useful CI or
    release signals.
 
 Parked parity-watch items:
@@ -178,6 +180,15 @@ Parked parity-watch items:
 
 Recently completed:
 
+- The first Instrument Editor foundation now opens from the Window menu as one
+  reusable fixed 920 × 638 read-only utility window following the v1 mockup
+  hierarchy: instrument/name/XI/audition header, instrument/sample lists,
+  envelope preview, vibrato/defaults clusters, and note-keymap placeholder with
+  represented sample ranges. It follows the active loaded module, editable
+  document, or editable copy and current instrument/sample selection. Future
+  editing/XI/audition/keymap controls are disabled; instrument/sample mutation,
+  undo, applyEdit, envelope/keymap editing, waveform display, and writer/export
+  changes remain deferred.
 - `File > Export Audio > M4A...` now exposes fixed 192 kbps AAC-in-M4A sharing
   export for the same stopped loaded modules and editable documents as WAV.
   It reuses the immutable product WAV plan and completed auto-headroom-scaled
@@ -384,9 +395,10 @@ Recommended next product PR:
 
 - The editable-document save/export model, Export XM menu/save-panel shell,
   current editable-subset app file output, existing palette/sample payload
-  export, and public-safe writer/reload smoke tests are in place. Continue in
-  narrow composition-path slices: explicit loaded-module editable-copy UI and
-  then Instrument/Sample editor foundations.
+  export, public-safe writer/reload smoke tests, explicit loaded-module
+  editable-copy UI, and the read-only Instrument Editor shell are in place.
+  Continue with the document applyEdit/undo funnel before instrument/sample
+  mutation, then editable palette/sample foundations in narrow slices.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -614,7 +626,7 @@ clear-current-pattern, stable viewport behavior, adapter-safe pattern-loop
 playback, and stopped editable song/order arrangement controls are implemented.
 Export XM v1 for stopped editable documents was released as
 `v0.2.0-alpha.4`.
-Rendered audio export is prepared as `v0.2.0-alpha.5`. VTX 1.0 still needs the
+Rendered audio export was released as `v0.2.0-alpha.5`. VTX 1.0 still needs the
 broader composition surface below.
 
 Current implemented foundation:
@@ -642,14 +654,16 @@ Current implemented foundation:
 - stopped editable Song / Order Clear Song reset
 - Export XM v1 for stopped editable documents, scoped to the current editable
   subset and supported existing palette/sample payloads
+- v1-mockup-aligned read-only Instrument Editor utility-window shell bound to
+  the current document palette and selected instrument/sample
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- editable-document save/export semantics and first XM export implementation
-  slices
+- document applyEdit/undo funnel for future instrument/sample mutation
+- instrument editing and sample editor foundations
+- editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry
-- sample editor and instrument editor foundations
 - WAV/AIFF sample import and XI instrument import target
 - copy/paste rows, selections, instruments, and samples
 - copy/import instruments or samples from loaded modules into blank/editable

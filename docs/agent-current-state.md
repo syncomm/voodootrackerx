@@ -17,7 +17,7 @@ source path.
 Future plugin or audio-input bridges should start as later sample/import
 experiments, not live plugin playback inside classic XM compatibility.
 
-Release status: `v0.2.0-alpha.5` is the prepared Rendered Audio Export Alpha.
+Release status: `v0.2.0-alpha.5` is the released Rendered Audio Export Alpha.
 Product whole-song 48 kHz Float32 WAV and AAC/M4A export is available from
 `File > Export Audio` for stopped loaded modules, editable documents, and
 editable copies. Export is non-mutating, writes only to the selected
@@ -33,8 +33,13 @@ progress is continuous and weighted across the remaining phases. WAV remains
 the preferred high-quality and export-diagnostic format; M4A is intended for
 convenient sharing. Export XM remains scoped to the current editable subset,
 not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
-parity claim. Save/Save As, loaded-module direct editing, Instrument Editor,
-Sample Editor, PCM16 product export,
+parity claim. The first `Window > Instrument Editor` shell follows the v1
+mockup hierarchy as a read-only view of the current palette selection,
+represented sample metadata, volume-envelope preview, and note-map ranges for
+loaded modules, editable documents, and editable copies. Editing controls are
+disabled/inert. It does not add instrument/sample mutation, undo, XI behavior,
+envelope/keymap editing, audition changes, or waveform display. Save/Save As,
+loaded-module direct editing, Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
 
@@ -197,6 +202,15 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `Window > Instrument Editor` now opens one reusable fixed 920 × 638 utility
+  window aligned to `assets/mockups/instrument-editor-v1.html`: header,
+  instrument/sample lists, envelope preview, vibrato/defaults clusters, and
+  note-keymap placeholder/range strip. It remains bound read-only to the current
+  document and instrument/sample selection; all future editing/XI/audition/
+  keymap controls are disabled. Loaded modules remain read-only; editable
+  documents keep their existing pattern/song editability; no mutation, undo,
+  envelope/keymap editing, waveform display, playback, parser, writer, or
+  export behavior changed.
 - `File > Export Audio > M4A...` now reuses the stopped product WAV plan and
   scaled Float32 temp output for loaded modules, editable documents, and
   editable copies, then encodes fixed 192 kbps AAC through a narrow

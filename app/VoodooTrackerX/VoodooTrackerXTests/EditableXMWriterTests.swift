@@ -418,6 +418,7 @@ final class EditableXMWriterTests: XCTestCase {
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
         ))
         XCTAssertTrue(document.enterNote(trackerKey: "z", octave: 4, row: 0, channel: 0))
+        XCTAssertTrue(document.renameInstrument(at: 0, name: "Renamed Public"))
 
         let exportedURL = try temporaryExportURL(filename: "exported-sample.xm")
         let data = try EditableXMWriter().data(from: document)
@@ -433,7 +434,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(reloadedPattern.rows[0][0].note, 49)
         XCTAssertEqual(reloadedPattern.rows[0][0].instrument, 1)
         let instrument = try XCTUnwrap(exportedSong.instrument(forInstrument: 1))
-        XCTAssertEqual(instrument.name, "BASIC SAMPLE")
+        XCTAssertEqual(instrument.name, "Renamed Public")
         let sample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
         XCTAssertEqual(sample.name, "SINE64")
         XCTAssertEqual(sample.sampleLength, 64)

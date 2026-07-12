@@ -102,7 +102,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
             sourceIsSignedPCM: true,
             sourceIsDeltaEncoded: true
         )
-        let document = makeDocument(
+        var document = makeDocument(
             title: "Sample Export",
             orderTable: [0],
             patterns: [pattern],
@@ -110,6 +110,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
                 1: PlaybackInstrument(index: 1, name: "Tiny Inst", samples: [sample])
             ]
         )
+        XCTAssertTrue(document.renameInstrument(at: 0, name: "Renamed Tiny"))
         let selectedDestination = try temporaryDestination(filename: "sample-export.xm")
         let provider = FakeExportXMDestinationProvider(destination: selectedDestination)
         let coordinator = ExportXMCoordinator(destinationProvider: provider)
@@ -127,7 +128,7 @@ final class ExportXMCoordinatorTests: XCTestCase {
         let reloadedPattern = try XCTUnwrap(metadata.xmPattern(index: 0))
         XCTAssertEqual(reloadedPattern.rows[0][0].instrument, 1)
         let instrument = try XCTUnwrap(song.instrument(forInstrument: 1))
-        XCTAssertEqual(instrument.name, "Tiny Inst")
+        XCTAssertEqual(instrument.name, "Renamed Tiny")
         let reloadedSample = try XCTUnwrap(instrument.sample(mappedSampleIndex: 0))
         XCTAssertEqual(reloadedSample.name, "Tiny")
         XCTAssertEqual(reloadedSample.pcm.count, 4)

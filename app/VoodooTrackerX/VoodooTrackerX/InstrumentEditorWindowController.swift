@@ -13,6 +13,7 @@ enum InstrumentEditorViewIdentifier {
     static let keymapRangeStrip = "instrumentEditor.keymapRangeStrip"
     static let keyboardPlaceholder = "instrumentEditor.keyboardPlaceholder"
     static let readOnlyBadge = "instrumentEditor.readOnlyBadge"
+    static let instrumentNameField = "instrumentEditor.instrumentNameField"
     static let instrumentRowPrefix = "instrumentEditor.instrumentRow."
     static let sampleRowPrefix = "instrumentEditor.sampleRow."
     static let futureControlPrefix = "instrumentEditor.futureControl."
@@ -131,6 +132,8 @@ struct InstrumentEditorDisplayState: Equatable {
         instrumentSlots: [],
         selectedInstrumentSlot: nil,
         instrumentName: "No instrument available",
+        instrumentNameEditValue: "",
+        isInstrumentNameEditable: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
         sampleSlots: [],
@@ -143,13 +146,15 @@ struct InstrumentEditorDisplayState: Equatable {
     let instrumentSlots: [InstrumentSlot]
     let selectedInstrumentSlot: Int?
     let instrumentName: String
+    let instrumentNameEditValue: String
+    let isInstrumentNameEditable: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
     let sampleSlots: [SampleSlot]
     let volumeEnvelope: PlaybackVolumeEnvelope?
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
-    var isReadOnly: Bool { true }
+    var isReadOnly: Bool { !isInstrumentNameEditable }
 
     var selectedSample: SampleSlot? {
         sampleSlots.first(where: \.isSelected)
@@ -170,18 +175,28 @@ struct InstrumentEditorDisplayState: Equatable {
         make(
             source: .loadedModule,
             palette: playbackSong?.instrumentsByIndex ?? [:],
-            selection: selection
+            selection: selection,
+            allowsInstrumentNameEditing: false
         )
     }
 
-    static func editableDocument(_ document: BlankTrackerDocument) -> InstrumentEditorDisplayState {
-        make(source: .editableDocument, palette: document.instrumentPalette, selection: document.selection)
+    static func editableDocument(
+        _ document: BlankTrackerDocument,
+        isPlaybackActive: Bool = false
+    ) -> InstrumentEditorDisplayState {
+        make(
+            source: .editableDocument,
+            palette: document.instrumentPalette,
+            selection: document.selection,
+            allowsInstrumentNameEditing: !isPlaybackActive
+        )
     }
 
     private static func make(
         source: Source,
         palette: [Int: PlaybackInstrument],
-        selection: TrackerEditorSelection
+        selection: TrackerEditorSelection,
+        allowsInstrumentNameEditing: Bool
     ) -> InstrumentEditorDisplayState {
         let instrumentSlots = palette
             .filter { (1...255).contains($0.key) }
@@ -204,6 +219,8 @@ struct InstrumentEditorDisplayState: Equatable {
                 instrumentSlots: instrumentSlots,
                 selectedInstrumentSlot: nil,
                 instrumentName: "No instrument available",
+                instrumentNameEditValue: "",
+                isInstrumentNameEditable: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
                 sampleSlots: [],
@@ -222,6 +239,8 @@ struct InstrumentEditorDisplayState: Equatable {
             instrumentSlots: instrumentSlots,
             selectedInstrumentSlot: selection.selectedInstrument,
             instrumentName: normalizedName(instrument.name, fallback: "(unnamed instrument)"),
+            instrumentNameEditValue: instrument.name ?? "",
+            isInstrumentNameEditable: allowsInstrumentNameEditing,
             sampleCount: instrument.samples.count,
             selectedSampleSlot: selectedSampleSlot,
             sampleSlots: slots,
@@ -270,19 +289,28 @@ struct InstrumentEditorDisplayState: Equatable {
     }
 }
 
+typealias InstrumentNameEditHandler = (_ zeroBasedInstrumentIndex: Int, _ name: String) -> Bool
+
 @MainActor
 final class InstrumentEditorWindowPresenter {
     private(set) var windowController: InstrumentEditorWindowController?
 
     @discardableResult
-    func show(displayState: InstrumentEditorDisplayState) -> InstrumentEditorWindowController {
+    func show(
+        displayState: InstrumentEditorDisplayState,
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+    ) -> InstrumentEditorWindowController {
         if let windowController {
+            windowController.instrumentNameEditHandler = instrumentNameEditHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
         }
 
-        let controller = InstrumentEditorWindowController(displayState: displayState)
+        let controller = InstrumentEditorWindowController(
+            displayState: displayState,
+            instrumentNameEditHandler: instrumentNameEditHandler
+        )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
             self.windowController = nil
@@ -301,11 +329,21 @@ final class InstrumentEditorWindowPresenter {
 final class InstrumentEditorWindowController: NSWindowController, NSWindowDelegate {
     static let contentSize = NSSize(width: 920, height: 638)
     var closeHandler: (() -> Void)?
+    var instrumentNameEditHandler: InstrumentNameEditHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.instrumentNameEditHandler = instrumentNameEditHandler
+        }
+    }
 
-    init(displayState: InstrumentEditorDisplayState = .empty) {
+    init(
+        displayState: InstrumentEditorDisplayState = .empty,
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+    ) {
+        self.instrumentNameEditHandler = instrumentNameEditHandler
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
-            displayState: displayState
+            displayState: displayState,
+            instrumentNameEditHandler: instrumentNameEditHandler
         )
         let panel = NSPanel(
             contentRect: contentView.frame,
@@ -356,9 +394,15 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 final class InstrumentEditorView: FlippedEditorView {
     private(set) var displayState: InstrumentEditorDisplayState
     private(set) var rebuildCount = 0
+    var instrumentNameEditHandler: InstrumentNameEditHandler?
 
-    init(frame frameRect: NSRect, displayState: InstrumentEditorDisplayState = .empty) {
+    init(
+        frame frameRect: NSRect,
+        displayState: InstrumentEditorDisplayState = .empty,
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+    ) {
         self.displayState = displayState
+        self.instrumentNameEditHandler = instrumentNameEditHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -426,7 +470,7 @@ final class InstrumentEditorView: FlippedEditorView {
         addReadout(displayState.instrumentDisplay, to: panel, frame: NSRect(x: 42, y: 13, width: 42, height: 23))
 
         addLabel("NAME", to: panel, frame: NSRect(x: 96, y: 20, width: 32, height: 12), color: VTXEditorControlTheme.accentGold, size: 9, weight: .bold)
-        addReadout(displayState.instrumentName, to: panel, frame: NSRect(x: 133, y: 13, width: 257, height: 23), alignment: .left)
+        addInstrumentNameField(to: panel, frame: NSRect(x: 133, y: 13, width: 257, height: 23))
 
         addDisabledButton("IMPORT XI", id: "importXI", to: panel, frame: NSRect(x: 402, y: 12, width: 92, height: 25))
         addDisabledButton("EXPORT XI", id: "exportXI", to: panel, frame: NSRect(x: 500, y: 12, width: 92, height: 25))
@@ -436,10 +480,61 @@ final class InstrumentEditorView: FlippedEditorView {
         addDisabledButton("▶", id: "audition", to: panel, frame: NSRect(x: 710, y: 12, width: 32, height: 25), role: .activePlay)
         addControl(VTXEditorControlFactory.makeIndicatorLED(state: .off, diameter: 8), to: panel, frame: NSRect(x: 750, y: 21, width: 8, height: 8))
 
-        let readOnly = VTXEditorControlFactory.makeSegmentReadout(value: "READ-ONLY", fixedWidth: 112)
+        let readOnly = VTXEditorControlFactory.makeSegmentReadout(
+            value: displayState.isInstrumentNameEditable ? "NAME EDITABLE" : "READ-ONLY",
+            fixedWidth: 112
+        )
         readOnly.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.readOnlyBadge)
         addControl(readOnly, to: panel, frame: NSRect(x: 774, y: 5, width: 112, height: 23))
-        addLabel("EDITING COMING LATER", to: panel, frame: NSRect(x: 774, y: 31, width: 112, height: 10), color: VTXEditorControlTheme.panelLabelText, size: 7.5, weight: .bold, alignment: .center)
+        addLabel(
+            displayState.isInstrumentNameEditable ? "OTHER FIELDS READ-ONLY" : "EDITING UNAVAILABLE",
+            to: panel,
+            frame: NSRect(x: 765, y: 31, width: 130, height: 10),
+            color: VTXEditorControlTheme.panelLabelText,
+            size: 7.5,
+            weight: .bold,
+            alignment: .center
+        )
+    }
+
+    private func addInstrumentNameField(to parent: NSView, frame: NSRect) {
+        let isEditable = displayState.isInstrumentNameEditable
+        let value = isEditable ? displayState.instrumentNameEditValue : displayState.instrumentName
+        let field = VTXEditorControlFactory.makeSegmentReadout(
+            value: value,
+            fixedWidth: frame.width,
+            alignment: .left
+        )
+        field.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.instrumentNameField)
+        field.isEnabled = isEditable
+        field.isEditable = isEditable
+        field.isSelectable = isEditable
+        field.focusRingType = isEditable ? .exterior : .none
+        field.placeholderString = isEditable ? "(unnamed instrument)" : nil
+        field.cell?.sendsActionOnEndEditing = true
+        field.layer?.backgroundColor = (isEditable
+            ? VTXEditorControlTheme.interactiveFieldBackground
+            : VTXEditorControlTheme.recessedReadoutBackground).cgColor
+        field.layer?.borderColor = (isEditable
+            ? VTXEditorControlTheme.mutedGoldBorderMedium
+            : VTXEditorControlTheme.mutedGoldBorderSubtle).cgColor
+        field.target = isEditable ? self : nil
+        field.action = isEditable ? #selector(commitInstrumentName(_:)) : nil
+        field.toolTip = isEditable
+            ? "Edit the selected instrument name and press Return"
+            : "Instrument names are editable only in stopped editable documents"
+        addControl(field, to: parent, frame: frame)
+    }
+
+    @objc
+    private func commitInstrumentName(_ sender: NSTextField) {
+        guard displayState.isInstrumentNameEditable,
+              let instrumentSlot = displayState.selectedInstrumentSlot,
+              instrumentSlot > 0,
+              instrumentNameEditHandler?(instrumentSlot - 1, sender.stringValue) == true else {
+            sender.stringValue = displayState.instrumentNameEditValue
+            return
+        }
     }
 
     private func buildInstrumentList(_ panel: NSView) {

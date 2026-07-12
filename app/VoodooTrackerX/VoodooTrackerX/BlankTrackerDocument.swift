@@ -880,6 +880,33 @@ struct BlankTrackerDocument: Equatable {
         selection = selection.withSelectedSample(sampleIndex)
     }
 
+    @discardableResult
+    mutating func renameInstrument(at zeroBasedIndex: Int, name: String) -> Bool {
+        guard zeroBasedIndex >= 0, zeroBasedIndex < 255 else { return false }
+        let instrumentSlot = zeroBasedIndex + 1
+        guard let instrument = instrumentPalette[instrumentSlot] else { return false }
+
+        let sanitizedName = EditableXMTextEncoding.sanitizedInstrumentName(name)
+        guard instrument.name != sanitizedName else { return false }
+
+        var updatedPalette = instrumentPalette
+        updatedPalette[instrumentSlot] = instrument.withName(sanitizedName)
+        self = BlankTrackerDocument(
+            title: title,
+            songLength: songLength,
+            currentPosition: currentPosition,
+            restartPosition: restartPosition,
+            currentPatternIndex: currentPatternIndex,
+            tempo: tempo,
+            speed: speed,
+            orderTable: orderTable,
+            selection: selection,
+            instrumentPalette: updatedPalette,
+            patterns: patterns
+        )
+        return true
+    }
+
     mutating func enterNote(
         trackerKey: Character,
         octave: Int,

@@ -17,11 +17,12 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
     }
 
     func testPlaybackActiveEditableContextKeepsMutationPolicyBlocked() {
-        let before = BlankTrackerDocument.makeDefault()
+        let before = documentWithInstrumentName("Before")
         var edited = before
         XCTAssertTrue(edited.enterNote(trackerKey: "q", octave: 4, row: 0, channel: 0))
         let harness = EditHarness(context: .editable(document: before, isPlaybackActive: true))
         XCTAssertFalse(harness.coordinator.applyEdit(label: "Enter Note", updatedDocument: edited))
+        XCTAssertFalse(harness.coordinator.renameInstrument(at: 0, name: "Blocked Rename"))
         XCTAssertTrue(harness.appliedDocuments.isEmpty)
     }
 
@@ -53,26 +54,60 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments, [cleared, before, cleared])
     }
 
-    func testInstrumentEditorRefreshReflectsUndoRedoAndRemainsReadOnly() throws {
+    func testInstrumentRenameAppliesThroughUndoRedoAndRefreshesExistingDisplays() throws {
         let before = documentWithInstrumentName("Snapshot")
-        var edited = before
-        edited.selection = TrackerEditorSelection(selectedInstrument: 1, selectedSample: 2)
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))
         let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
         let harness = EditHarness(
             context: .editable(document: before, isPlaybackActive: false),
             onApply: { controller.apply(displayState: .editableDocument($0)) }
         )
-        XCTAssertTrue(harness.coordinator.applyEdit(label: "Test Palette Snapshot", updatedDocument: edited))
-        XCTAssertEqual(view.displayState.selectedSampleDisplay, "—")
-        XCTAssertTrue(view.displayState.isReadOnly)
-        XCTAssertEqual(samplePCMBaseAddress(in: before), samplePCMBaseAddress(in: edited))
+
+        XCTAssertTrue(harness.coordinator.renameInstrument(at: 0, name: "Renamed"))
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Renamed")
+        XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Renamed")
+        XCTAssertEqual(view.displayState.instrumentName, "Renamed")
+        XCTAssertTrue(view.displayState.isInstrumentNameEditable)
+        XCTAssertEqual(samplePCMBaseAddress(in: before), samplePCMBaseAddress(in: try XCTUnwrap(harness.editableDocument)))
+        XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Rename Instrument")
+
         XCTAssertTrue(harness.coordinator.undo())
-        XCTAssertEqual(view.displayState.selectedSampleDisplay, "S01")
-        XCTAssertTrue(view.displayState.isReadOnly)
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Snapshot")
+        XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Snapshot")
+        XCTAssertEqual(view.displayState.instrumentName, "Snapshot")
+        XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Rename Instrument")
+
         XCTAssertTrue(harness.coordinator.redo())
-        XCTAssertEqual(view.displayState.selectedSampleDisplay, "—")
-        XCTAssertTrue(view.displayState.isReadOnly)
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Renamed")
+        XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Renamed")
+        XCTAssertEqual(view.displayState.instrumentName, "Renamed")
+        XCTAssertEqual(harness.appliedDocuments.count, 3)
+    }
+
+    func testInstrumentRenameSanitizesToXMNameConstraintsAndRejectsMissingInstrument() {
+        let before = documentWithInstrumentName("Before")
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertTrue(harness.coordinator.renameInstrument(at: 0, name: "  Long\nNámé 12345678901234567890  "))
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Long N?m? 123456789012")
+        XCTAssertFalse(harness.coordinator.renameInstrument(at: 1, name: "Missing"))
+        XCTAssertEqual(harness.appliedDocuments.count, 1)
+    }
+
+    func testLoadedReadOnlyContextCannotRenameInstrumentOrMutateSourceMetadata() {
+        let sourceMetadata = PlaybackInstrument(
+            index: 1,
+            name: "Loaded Source",
+            samples: []
+        )
+        let sourceBefore = sourceMetadata
+        let harness = EditHarness(context: .loadedReadOnly)
+
+        XCTAssertFalse(harness.coordinator.renameInstrument(at: 0, name: "Blocked Rename"))
+        XCTAssertEqual(sourceMetadata, sourceBefore)
+        XCTAssertEqual(sourceMetadata.name, "Loaded Source")
+        XCTAssertTrue(harness.appliedDocuments.isEmpty)
+        XCTAssertFalse(containsURL(in: harness.context))
     }
 }
 

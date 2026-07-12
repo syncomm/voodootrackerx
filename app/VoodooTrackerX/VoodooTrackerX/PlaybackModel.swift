@@ -196,6 +196,16 @@ struct PlaybackInstrument: Equatable {
         noteSampleMap != nil
     }
 
+    func withName(_ name: String?) -> PlaybackInstrument {
+        PlaybackInstrument(
+            index: index,
+            name: name,
+            samples: samples,
+            volumeEnvelope: volumeEnvelope,
+            noteSampleMap: noteSampleMap
+        )
+    }
+
     func mappedSampleIndex(forNote note: UInt8) -> Int? {
         guard (1...96).contains(note),
               let noteSampleMap else {

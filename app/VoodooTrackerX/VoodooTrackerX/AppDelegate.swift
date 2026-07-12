@@ -590,12 +590,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc
     private func showInstrumentEditor(_ sender: Any?) {
-        instrumentEditorWindowPresenter.show(displayState: currentInstrumentEditorDisplayState())
+        instrumentEditorWindowPresenter.show(
+            displayState: currentInstrumentEditorDisplayState(),
+            instrumentNameEditHandler: { [weak self] index, name in
+                self?.editableDocumentEditCoordinator.renameInstrument(at: index, name: name) ?? false
+            }
+        )
     }
 
     private func currentInstrumentEditorDisplayState() -> InstrumentEditorDisplayState {
         if let blankDocument {
-            return .editableDocument(blankDocument)
+            return .editableDocument(blankDocument, isPlaybackActive: playbackEngine.state.isPlaying)
         }
         if loadedMetadata != nil {
             return .loadedModule(playbackSong: playbackEngine.song, selection: loadedModuleSelection)

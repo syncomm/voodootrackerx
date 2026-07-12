@@ -1,5 +1,30 @@
 import Foundation
 
+enum EditableXMTextEncoding {
+    static let instrumentNameByteLimit = 22
+
+    static func sanitizedInstrumentName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let bytes = Array(sanitizedASCIIBytes(from: trimmed).prefix(instrumentNameByteLimit))
+        return bytes.isEmpty ? nil : String(bytes: bytes, encoding: .ascii)
+    }
+
+    static func sanitizedASCIIBytes(from value: String) -> [UInt8] {
+        var bytes = [UInt8]()
+        for scalar in value.unicodeScalars {
+            if scalar.value >= 0x20, scalar.value <= 0x7E {
+                bytes.append(UInt8(scalar.value))
+            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                bytes.append(UInt8(ascii: " "))
+            } else {
+                bytes.append(UInt8(ascii: "?"))
+            }
+        }
+        return bytes
+    }
+}
+
 enum EditableXMWriterError: Error, Equatable {
     case unsupportedOrderLength(Int)
     case unsupportedPatternIndex(Int)
@@ -484,7 +509,7 @@ private struct XMByteWriter {
 
     mutating func appendFixedASCII(_ value: String, length: Int, fallback: String) {
         let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitized = sanitizedASCIIBytes(from: source.isEmpty ? fallback : source)
+        let sanitized = EditableXMTextEncoding.sanitizedASCIIBytes(from: source.isEmpty ? fallback : source)
         data.append(contentsOf: sanitized.prefix(length))
         if sanitized.count < length {
             data.append(contentsOf: Array(repeating: UInt8(0), count: length - sanitized.count))
@@ -579,17 +604,4 @@ private struct XMByteWriter {
         return UInt8(index)
     }
 
-    private func sanitizedASCIIBytes(from value: String) -> [UInt8] {
-        var bytes = [UInt8]()
-        for scalar in value.unicodeScalars {
-            if scalar.value >= 0x20, scalar.value <= 0x7E {
-                bytes.append(UInt8(scalar.value))
-            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                bytes.append(UInt8(ascii: " "))
-            } else {
-                bytes.append(UInt8(ascii: "?"))
-            }
-        }
-        return bytes
-    }
 }

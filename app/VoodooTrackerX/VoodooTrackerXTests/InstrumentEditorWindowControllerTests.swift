@@ -9,6 +9,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(noDocument.source, .none)
         XCTAssertTrue(noDocument.isReadOnly)
+        XCTAssertFalse(noDocument.isInstrumentNameEditable)
         XCTAssertNil(noDocument.selectedInstrumentSlot)
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(noDocument.sampleSlots.isEmpty)
@@ -18,6 +19,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(blankDocument.source, .editableDocument)
         XCTAssertTrue(blankDocument.isReadOnly)
+        XCTAssertFalse(blankDocument.isInstrumentNameEditable)
         XCTAssertNil(blankDocument.selectedInstrumentSlot)
         XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
@@ -35,6 +37,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(state.source, .loadedModule)
         XCTAssertTrue(state.isReadOnly)
+        XCTAssertFalse(state.isInstrumentNameEditable)
         XCTAssertEqual(state.instrumentDisplay, "I02")
         XCTAssertEqual(state.instrumentName, "Lead")
         XCTAssertEqual(state.sampleCount, 2)
@@ -157,7 +160,8 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
 
         XCTAssertEqual(document, before)
         XCTAssertEqual(document.instrumentPalette, palette)
-        XCTAssertTrue(state.isReadOnly)
+        XCTAssertFalse(state.isReadOnly)
+        XCTAssertTrue(state.isInstrumentNameEditable)
         XCTAssertEqual(state.source, .editableDocument)
         XCTAssertTrue(EditorCommandAvailability.canClearCurrentPattern(
             hasBlankDocument: true,
@@ -166,9 +170,13 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertFalse(EditorPatternMutationPolicy.canMutatePattern(
             sourceContext: .loadedModule(patternIndex: 0)
         ))
+
+        let playingState = InstrumentEditorDisplayState.editableDocument(document, isPlaybackActive: true)
+        XCTAssertTrue(playingState.isReadOnly)
+        XCTAssertFalse(playingState.isInstrumentNameEditable)
     }
 
-    func testWindowCreatesFixedMockupHierarchyWithOnlyDisabledFutureControls() throws {
+    func testWindowCreatesFixedMockupHierarchyWithOnlyNameFieldEditable() throws {
         let controller = InstrumentEditorWindowController(
             displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette()))
         )
@@ -197,9 +205,13 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.noteKeymapPanel))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keymapRangeStrip))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keyboardPlaceholder))
-        XCTAssertTrue(fieldValues.contains("READ-ONLY"))
-        XCTAssertTrue(fieldValues.contains("EDITING COMING LATER"))
-        XCTAssertTrue(descendants.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isEditable })
+        XCTAssertTrue(fieldValues.contains("NAME EDITABLE"))
+        XCTAssertTrue(fieldValues.contains("OTHER FIELDS READ-ONLY"))
+        let nameField = try XCTUnwrap(contentView.instrumentEditorNameField)
+        XCTAssertTrue(nameField.isEnabled)
+        XCTAssertTrue(nameField.isEditable)
+        XCTAssertEqual(nameField.stringValue, "Lead")
+        XCTAssertTrue(descendants.compactMap { $0 as? NSTextField }.filter { $0 !== nameField }.allSatisfy { !$0.isEditable })
 
         let futureControls = descendants.compactMap { $0 as? NSControl }.filter {
             $0.identifier?.rawValue.hasPrefix(InstrumentEditorViewIdentifier.futureControlPrefix) == true
@@ -221,6 +233,40 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         })
         XCTAssertNil(envelopeGraph.hitTest(.zero))
         XCTAssertNil(keyboard.hitTest(.zero))
+    }
+
+    func testLoadedModuleNameFieldRemainsDisabledAndReadOnly() throws {
+        let controller = InstrumentEditorWindowController(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: makeInstrumentPalette()),
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 1)
+        ))
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let nameField = try XCTUnwrap(contentView.instrumentEditorNameField)
+
+        XCTAssertFalse(nameField.isEnabled)
+        XCTAssertFalse(nameField.isEditable)
+        XCTAssertEqual(nameField.stringValue, "Lead")
+        XCTAssertTrue((contentView as? InstrumentEditorView)?.displayState.isReadOnly == true)
+    }
+
+    func testEditableNameFieldSubmitsSelectedZeroBasedInstrumentIndex() throws {
+        var submittedIndex: Int?
+        var submittedName: String?
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette())),
+            instrumentNameEditHandler: { index, name in
+                submittedIndex = index
+                submittedName = name
+                return true
+            }
+        )
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let nameField = try XCTUnwrap(contentView.instrumentEditorNameField)
+        nameField.stringValue = "Renamed Lead"
+
+        XCTAssertTrue(nameField.sendAction(nameField.action, to: nameField.target))
+        XCTAssertEqual(submittedIndex, 1)
+        XCTAssertEqual(submittedName, "Renamed Lead")
     }
 
     func testApplyingSelectionChangeRefreshesVisibleSampleRows() throws {
@@ -267,6 +313,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(controller.apply(displayState: editable))
         XCTAssertEqual(contentView.displayState.source, .editableDocument)
         XCTAssertEqual(contentView.displayState.instrumentName, "Lead")
+        XCTAssertTrue(contentView.displayState.isInstrumentNameEditable)
         XCTAssertEqual(document, before)
     }
 
@@ -386,5 +433,11 @@ private func makeEditableDocument(palette: [Int: PlaybackInstrument]) -> BlankTr
 private extension NSView {
     var instrumentEditorDescendants: [NSView] {
         [self] + subviews.flatMap(\.instrumentEditorDescendants)
+    }
+
+    var instrumentEditorNameField: NSTextField? {
+        instrumentEditorDescendants.compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.instrumentNameField
+        }
     }
 }

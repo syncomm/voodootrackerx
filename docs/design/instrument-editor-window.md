@@ -1,18 +1,18 @@
 # VoodooTracker X — Instrument Editor Window
 
 **Window:** Instrument editor (independent floating utility window).
-**Implemented read-only shell size:** 920 × 638.
+**Implemented shell size:** 920 × 638.
 **Mockup:** `assets/mockups/instrument-editor-v1.html`.
 **Reference:** FastTracker II instrument editor, reinterpreted in VTX's tactile language.
-**Status:** The fixed-size shell now follows the v1 mockup hierarchy with read-only
-document/selection binding. The document applyEdit/whole-snapshot undo foundation exists, but
-instrument editing, import/export XI behavior, envelope/keymap editing, waveform display, and
-audition changes remain future work. The shell does not change playback, the
-tracker viewport, the parser, writers, exports, or audio backend.
+**Status:** The fixed-size v1-mockup shell binds to document/selection state. Represented instrument
+NAME is editable only in stopped editable documents and routes through applyEdit/whole-snapshot
+undo. Loaded modules, playing documents, and every other control remain read-only. Sample/XI,
+envelope/keymap, waveform, and audition work remains future scope; playback, parser architecture,
+broad writer/export behavior, tracker viewport, and audio backend behavior are unchanged.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
 
-### Implemented read-only foundation
+### Implemented foundation and first metadata edit
 
 `Window > Instrument Editor` opens one reusable AppKit utility window using the mockup's header,
 left instrument/sample lists, center envelope panel, right vibrato/defaults panels, and bottom note
@@ -20,9 +20,10 @@ keymap hierarchy. It follows the current loaded module, editable document, or ed
 main control-panel instrument and sample selection. The shell shows represented instrument
 number/name/sample count, sample slot/name/length/loop mode and range/volume/relative note/finetune,
 an immutable volume-envelope preview, and represented note-to-sample ranges. Missing data has an
-explicit empty state. Future buttons, knobs, tabs, panning/vibrato fields, XI actions, keymap
-assignment, and audition affordances are disabled/inert; a compact header badge states read-only.
-No controls mutate data.
+explicit empty state. NAME is inline-editable only for represented instruments in stopped editable
+documents; it uses XM's 22-byte constraint and one labeled `Rename Instrument` undo step. Undo/redo
+refresh this window and the main control panel. Sample, panning/vibrato, XI, keymap, and audition
+controls remain disabled/inert, including loaded-module NAME.
 
 ---
 
@@ -166,15 +167,16 @@ name → sample slots → envelope → vibrato → defaults → keymap.
   assign-range handling.
 - All future edits must submit a new whole document through
   `EditableDocumentEditCoordinator.applyEdit`; direct palette write-back is not
-  an editor integration path. Do not alter the audio backend, mixer, parser, or tracker viewport.
+  an editor integration path; the implemented name field follows this rule.
+  Do not alter the audio backend, mixer, parser, or tracker viewport.
 
 ### Suggested PR sequence
 
 1. Done: v1-mockup window shell + menu command + read-only instrument/sample-slot,
    volume-envelope-preview, and note-map-range binding.
 2. Done: add the document applyEdit/undo funnel required before mutation.
-3. Add editable instrument metadata/palette foundations behind applyEdit.
-4. Complete any shared editing-control primitives still needed for mutation.
+3. Done: represented instrument NAME editing. Next: sample panning model round-trip foundation.
+4. Complete any shared editing-control primitives still needed for later mutation.
 5. Envelope editing (points, sustain, loop, add/del) wired.
 6. VOL/PAN switch + panning envelope.
 7. Vibrato + defaults clusters wired.
@@ -185,9 +187,11 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 
 ## 11. Testing / manual verification
 
-For the implemented shell, verify empty/default, loaded-module, editable-copy, and selection-change
-states; confirm one window is reused; and confirm every field remains read-only. Use public-safe
-fixtures only and keep screenshots local/untracked.
+For the implemented slice, verify empty/default, loaded-module, editable-copy, playing, and
+selection-change states; confirm one window is reused; confirm only NAME is editable in a stopped
+editable document; and confirm edit/undo/redo refresh both the window and control panel. Export a
+supported represented instrument to a temporary XM and reload its name. Use public-safe fixtures
+only and keep screenshots/exports local and untracked.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

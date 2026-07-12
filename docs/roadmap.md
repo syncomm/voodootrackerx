@@ -158,8 +158,8 @@ Recommended next PR sequence:
 1. Done: build an Instrument Editor shell/read-only binding.
 2. Done: add the document `applyEdit`/undo funnel needed before instrument and
    sample mutation.
-3. Add editable instrument metadata behind applyEdit, then palette/sample
-   workflow foundations in narrow slices.
+3. Represented instrument NAME editing behind applyEdit is done; next add
+   sample panning model round-trip support and continue palette/sample slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -181,15 +181,17 @@ Parked parity-watch items:
 
 Recently completed:
 
-- The first Instrument Editor foundation now opens from the Window menu as one
-  reusable fixed 920 × 638 read-only utility window following the v1 mockup
+- The Instrument Editor opens from the Window menu as one
+  reusable fixed 920 × 638 utility window following the v1 mockup
   hierarchy: instrument/name/XI/audition header, instrument/sample lists,
   envelope preview, vibrato/defaults clusters, and note-keymap placeholder with
   represented sample ranges. It follows the active loaded module, editable
-  document, or editable copy and current instrument/sample selection. Future
-  editing/XI/audition/keymap controls are disabled; instrument/sample mutation,
-  envelope/keymap editing, waveform display, and writer/export
-  changes remain deferred.
+  document, or editable copy and current instrument/sample selection. Only
+  represented instrument NAME is editable in stopped editable documents;
+  it uses XM name constraints and labeled applyEdit undo/redo, refreshing the
+  editor/control panel and preserving existing Export XM support. Loaded
+  modules and all sample/envelope/keymap/vibrato/waveform controls stay
+  read-only.
 - `File > Export Audio > M4A...` now exposes fixed 192 kbps AAC-in-M4A sharing
   export for the same stopped loaded modules and editable documents as WAV.
   It reuses the immutable product WAV plan and completed auto-headroom-scaled
@@ -398,9 +400,9 @@ Recommended next product PR:
 - The editable-document save/export model, Export XM menu/save-panel shell,
   current editable-subset app file output, existing palette/sample payload
   export, public-safe writer/reload smoke tests, explicit loaded-module
-  editable-copy UI, read-only Instrument Editor shell, and document
-  applyEdit/undo funnel are in place. Continue with editable instrument
-  metadata behind applyEdit, then palette/sample foundations in narrow slices.
+  editable-copy UI, Instrument Editor shell, instrument NAME editing, and
+  document applyEdit/undo funnel are in place. Continue with sample panning
+  model round-trip support, then palette/sample foundations in narrow slices.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -657,15 +659,19 @@ Current implemented foundation:
 - stopped editable Song / Order Clear Song reset
 - Export XM v1 for stopped editable documents, scoped to the current editable
   subset and supported existing palette/sample payloads
-- v1-mockup-aligned read-only Instrument Editor utility-window shell bound to
-  the current document palette and selected instrument/sample
+- v1-mockup-aligned Instrument Editor utility-window shell bound to the current
+  document palette and selected instrument/sample; represented instrument NAME
+  editing is enabled only for stopped editable documents and editable copies
 - capped whole-document applyEdit/undo foundation for stopped editable
-  documents, including Edit > Undo/Redo and existing editor refresh paths
+  documents, including Edit > Undo/Redo, instrument rename, and existing
+  editor/control-panel refresh paths
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- editable instrument metadata and instrument editing behind applyEdit
+- sample panning model round-trip foundation
+- panning-envelope, autovibrato, and broader instrument metadata/editing behind
+  applyEdit
 - sample editor foundations behind applyEdit
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry

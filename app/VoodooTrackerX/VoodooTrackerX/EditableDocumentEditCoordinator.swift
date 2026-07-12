@@ -56,6 +56,15 @@ final class EditableDocumentEditCoordinator {
     }
 
     @discardableResult
+    func renameInstrument(at zeroBasedIndex: Int, name: String) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.renameInstrument(at: zeroBasedIndex, name: name) else {
+            return false
+        }
+        return applyEdit(label: "Rename Instrument", updatedDocument: document)
+    }
+
+    @discardableResult
     func undo() -> Bool {
         guard canUndo else { return false }
         let before = contextProvider().editableDocument

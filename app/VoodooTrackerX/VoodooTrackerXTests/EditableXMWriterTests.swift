@@ -109,7 +109,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: instrumentOffset + 27), 0)
     }
 
-    func testInstrumentHeaderExportsRepresentedNameKeymapVolumeEnvelopeAndAutoVibrato() throws {
+    func testInstrumentHeaderExportsRepresentedVolumePanningEnvelopesAndAutoVibrato() throws {
         let sample = makeXMSourceSample(instrumentIndex: 3, sampleIndex: 0, pcm: [0])
         let envelope = PlaybackVolumeEnvelope(
             enabled: true,
@@ -123,11 +123,24 @@ final class EditableXMWriterTests: XCTestCase {
             typeFlags: 0x07,
             fadeout: 1_234
         )
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 32),
+                PlaybackEnvelopePoint(tick: 6, value: 48),
+                PlaybackEnvelopePoint(tick: 18, value: 16),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 2,
+            typeFlags: 0x07
+        )
         let instrument = PlaybackInstrument(
             index: 3,
             name: "Lead One",
             samples: [sample],
             volumeEnvelope: envelope,
+            panningEnvelope: panningEnvelope,
             autoVibrato: PlaybackInstrumentAutoVibrato(
                 waveformType: 3,
                 sweep: 17,
@@ -160,20 +173,49 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 131), 64)
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 133), 10)
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 135), 32)
-        XCTAssertEqual(
-            Array(data.subdata(in: thirdInstrumentOffset + 177..<thirdInstrumentOffset + 225)),
-            Array(repeating: 0, count: 48)
-        )
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 177), 0)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 179), 32)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 181), 6)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 183), 48)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 185), 18)
+        XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 187), 16)
+        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 189..<thirdInstrumentOffset + 225)), Array(repeating: 0, count: 36))
         XCTAssertEqual(data[thirdInstrumentOffset + 225], 2)
-        XCTAssertEqual(data[thirdInstrumentOffset + 226], 0)
+        XCTAssertEqual(data[thirdInstrumentOffset + 226], 3)
         XCTAssertEqual(data[thirdInstrumentOffset + 227], 1)
         XCTAssertEqual(data[thirdInstrumentOffset + 228], 0)
         XCTAssertEqual(data[thirdInstrumentOffset + 229], 1)
-        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 230..<thirdInstrumentOffset + 233)), [0, 0, 0])
+        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 230..<thirdInstrumentOffset + 233)), [1, 0, 2])
         XCTAssertEqual(data[thirdInstrumentOffset + 233], 0x07)
-        XCTAssertEqual(data[thirdInstrumentOffset + 234], 0)
+        XCTAssertEqual(data[thirdInstrumentOffset + 234], 0x07)
         XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 235..<thirdInstrumentOffset + 239)), [3, 17, 42, 199])
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 239), 1_234)
+    }
+
+    func testWriterRejectsMoreThanTwelvePanningEnvelopePoints() {
+        let sample = makeXMSourceSample(pcm: [0])
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: (0..<13).map { PlaybackEnvelopePoint(tick: $0, value: 32) },
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x01
+        )
+        let document = makeDocument(
+            orderTable: [0],
+            patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, samples: [sample], panningEnvelope: panningEnvelope)
+            ]
+        )
+
+        XCTAssertThrowsError(try EditableXMWriter().data(from: document)) { error in
+            XCTAssertEqual(
+                error as? EditableXMWriterError,
+                .unsupportedPanningEnvelopePointCount(instrumentIndex: 1, pointCount: 13)
+            )
+        }
     }
 
     func testSampleHeaderExportsLoopTypeVolumePanningFinetuneRelativeNoteAndName() throws {
@@ -202,6 +244,11 @@ final class EditableXMWriterTests: XCTestCase {
 
         XCTAssertEqual(instrument.headerLength, 263)
         XCTAssertEqual(instrument.sampleCount, 1)
+        XCTAssertEqual(
+            Array(data.subdata(in: patternHeader.nextOffset + 177..<patternHeader.nextOffset + 225)),
+            Array(repeating: 0, count: 48)
+        )
+        XCTAssertEqual(Array(data.subdata(in: patternHeader.nextOffset + 226..<patternHeader.nextOffset + 235)), Array(repeating: 0, count: 9))
         XCTAssertEqual(
             Array(data.subdata(in: patternHeader.nextOffset + 235..<patternHeader.nextOffset + 239)),
             [0, 0, 0, 0]

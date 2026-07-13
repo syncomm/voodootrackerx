@@ -42,7 +42,8 @@ VoodooTracker X currently has:
   paths, plus a reusable `Window > Instrument Editor` shell bound to the
   current palette and selected instrument/sample, with represented instrument
   NAME editing for stopped editable documents only and exact XM sample panning
-  plus instrument autovibrato shown read-only, plus a capped
+  plus instrument autovibrato shown read-only, exact runtime-inert XM panning-
+  envelope metadata preserved through editable copy and Export XM, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
   instrument rename
 
@@ -94,7 +95,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recommended next PR:
-`instrument: add panning envelope model round-trip foundation`.
+`instrument: expose represented panning envelopes read-only`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -108,8 +109,9 @@ Recommended next PR:
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
-7. Instrument NAME editing plus sample-panning and autovibrato round-trip
-   support are done; next add the runtime-inert panning-envelope foundation.
+7. Instrument NAME editing plus sample-panning, panning-envelope, and
+   autovibrato round-trip support are done; next expose the represented panning
+   envelope read-only or continue palette/sample foundations in a narrow slice.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -677,11 +679,14 @@ Implemented foundation:
   playback and render output remain unchanged
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
+- exact XM panning-envelope point/count/index/flag preservation through loaded
+  state, editable copy, snapshots, undo/redo, and Export XM; adapter plans,
+  voice pan, and render output remain unchanged
 
 Remaining VTX 1.0 scope:
 
-- panning-envelope and broader instrument
-  metadata/editing foundations behind applyEdit
+- read-only panning-envelope display, envelope playback/editing, and broader
+  instrument metadata/editing behind applyEdit
 - sample editor foundation
 - WAV/AIFF sample import
 - XI instrument import target

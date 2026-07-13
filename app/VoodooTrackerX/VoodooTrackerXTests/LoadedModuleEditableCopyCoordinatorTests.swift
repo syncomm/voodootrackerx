@@ -265,7 +265,19 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testInstrumentAutoVibratoSurvivesLoadedCopyExportAndReopenRoundTrip() throws {
+    func testInstrumentPanningEnvelopeAndAutoVibratoSurviveLoadedCopyExportAndReopenRoundTrip() throws {
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 32),
+                PlaybackEnvelopePoint(tick: 6, value: 48),
+                PlaybackEnvelopePoint(tick: 18, value: 16),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 2,
+            typeFlags: 0x07
+        )
         let autoVibrato = PlaybackInstrumentAutoVibrato(
             waveformType: 3,
             sweep: 17,
@@ -275,6 +287,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let sourceURL = try temporaryDestination(filename: "instrument-autovibrato-source.xm")
         let sourceData = try EditableXMWriter().data(from: samplePanningSourceDocument(
             panning: 37,
+            panningEnvelope: panningEnvelope,
             autoVibrato: autoVibrato
         ))
         try sourceData.write(to: sourceURL, options: .atomic)
@@ -288,11 +301,13 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             isPlaybackActive: false
         )
 
+        XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.panningEnvelope, panningEnvelope)
         XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.autoVibrato, autoVibrato)
         XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
         guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
             return XCTFail("expected generated public-safe XM to become an editable copy")
         }
+        XCTAssertEqual(document.instrumentPalette[1]?.panningEnvelope, panningEnvelope)
         XCTAssertEqual(document.instrumentPalette[1]?.autoVibrato, autoVibrato)
         XCTAssertEqual(document.instrumentPalette[1]?.samples.first?.panning, 37)
 
@@ -308,6 +323,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
 
         let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
         let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.panningEnvelope, panningEnvelope)
         XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.autoVibrato, autoVibrato)
         XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
         XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
@@ -343,6 +359,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
 
     private func samplePanningSourceDocument(
         panning: UInt8,
+        panningEnvelope: PlaybackPanningEnvelope = .disabled,
         autoVibrato: PlaybackInstrumentAutoVibrato = .disabled
     ) -> BlankTrackerDocument {
         var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
@@ -382,6 +399,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
                     index: 1,
                     name: "Panning Instrument",
                     samples: [sample],
+                    panningEnvelope: panningEnvelope,
                     autoVibrato: autoVibrato
                 )
             ],

@@ -44,6 +44,7 @@ enum EditableXMWriterError: Error, Equatable {
     case unsupportedSampleLoopRegion(instrumentIndex: Int, sampleIndex: Int, loopStart: Int, loopLength: Int)
     case unsupportedSampleLength(instrumentIndex: Int, sampleIndex: Int, frameCount: Int, bitDepth: Int)
     case unsupportedVolumeEnvelopePointCount(instrumentIndex: Int, pointCount: Int)
+    case unsupportedPanningEnvelopePointCount(instrumentIndex: Int, pointCount: Int)
 }
 
 struct EditableXMWriter {
@@ -265,6 +266,12 @@ struct EditableXMWriter {
                 pointCount: paletteInstrument.volumeEnvelope.points.count
             )
         }
+        guard paletteInstrument.panningEnvelope.points.count <= 12 else {
+            throw EditableXMWriterError.unsupportedPanningEnvelopePointCount(
+                instrumentIndex: instrumentIndex,
+                pointCount: paletteInstrument.panningEnvelope.points.count
+            )
+        }
 
         let exportedSamples = try samplesWithPayload.map { sample in
             try exportedSample(sample, instrumentIndex: instrumentIndex)
@@ -283,6 +290,7 @@ struct EditableXMWriter {
             name: paletteInstrument.name,
             noteSampleMap: noteSampleMap,
             volumeEnvelope: paletteInstrument.volumeEnvelope,
+            panningEnvelope: paletteInstrument.panningEnvelope,
             autoVibrato: paletteInstrument.autoVibrato,
             samples: exportedSamples
         )
@@ -408,6 +416,7 @@ private struct XMInstrumentExport {
     let name: String?
     let noteSampleMap: [UInt8]
     let volumeEnvelope: PlaybackVolumeEnvelope
+    let panningEnvelope: PlaybackPanningEnvelope
     let autoVibrato: PlaybackInstrumentAutoVibrato
     let samples: [XMSampleExport]
 
@@ -416,6 +425,7 @@ private struct XMInstrumentExport {
             name: name,
             noteSampleMap: Array(repeating: 0, count: 96),
             volumeEnvelope: .disabled,
+            panningEnvelope: .disabled,
             autoVibrato: .disabled,
             samples: []
         )
@@ -545,18 +555,18 @@ private struct XMByteWriter {
         if instrument.noteSampleMap.count < 96 {
             data.append(contentsOf: Array(repeating: UInt8(0), count: 96 - instrument.noteSampleMap.count))
         }
-        appendVolumeEnvelope(instrument.volumeEnvelope)
-        data.append(contentsOf: Array(repeating: UInt8(0), count: 48))
+        appendEnvelopePoints(instrument.volumeEnvelope.points)
+        appendEnvelopePoints(instrument.panningEnvelope.points)
         appendUInt8(UInt8(instrument.volumeEnvelope.points.count))
-        appendUInt8(0)
+        appendUInt8(UInt8(instrument.panningEnvelope.points.count))
         appendUInt8(envelopePointIndex(instrument.volumeEnvelope.sustainPointIndex, points: instrument.volumeEnvelope.points))
         appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopStartPointIndex, points: instrument.volumeEnvelope.points))
         appendUInt8(envelopePointIndex(instrument.volumeEnvelope.loopEndPointIndex, points: instrument.volumeEnvelope.points))
-        appendUInt8(0)
-        appendUInt8(0)
-        appendUInt8(0)
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.sustainPointIndex, points: instrument.panningEnvelope.points))
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopStartPointIndex, points: instrument.panningEnvelope.points))
+        appendUInt8(envelopePointIndex(instrument.panningEnvelope.loopEndPointIndex, points: instrument.panningEnvelope.points))
         appendUInt8(instrument.volumeEnvelope.points.isEmpty ? 0 : instrument.volumeEnvelope.typeFlags & 0x07)
-        appendUInt8(0)
+        appendUInt8(instrument.panningEnvelope.points.isEmpty ? 0 : instrument.panningEnvelope.typeFlags & 0x07)
         appendUInt8(instrument.autoVibrato.waveformType)
         appendUInt8(instrument.autoVibrato.sweep)
         appendUInt8(instrument.autoVibrato.depth)
@@ -572,10 +582,10 @@ private struct XMByteWriter {
         }
     }
 
-    private mutating func appendVolumeEnvelope(_ envelope: PlaybackVolumeEnvelope) {
+    private mutating func appendEnvelopePoints(_ points: [PlaybackEnvelopePoint]) {
         for pointIndex in 0..<12 {
-            if envelope.points.indices.contains(pointIndex) {
-                let point = envelope.points[pointIndex]
+            if points.indices.contains(pointIndex) {
+                let point = points[pointIndex]
                 appendUInt16(UInt16(max(0, min(65_535, point.tick))))
                 appendUInt16(UInt16(max(0, min(64, point.value))))
             } else {

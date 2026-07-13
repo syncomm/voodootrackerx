@@ -264,6 +264,56 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }
 
+    @MainActor
+    func testInstrumentAutoVibratoSurvivesLoadedCopyExportAndReopenRoundTrip() throws {
+        let autoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 3,
+            sweep: 17,
+            depth: 42,
+            rate: 199
+        )
+        let sourceURL = try temporaryDestination(filename: "instrument-autovibrato-source.xm")
+        let sourceData = try EditableXMWriter().data(from: samplePanningSourceDocument(
+            panning: 37,
+            autoVibrato: autoVibrato
+        ))
+        try sourceData.write(to: sourceURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.autoVibrato, autoVibrato)
+        XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected generated public-safe XM to become an editable copy")
+        }
+        XCTAssertEqual(document.instrumentPalette[1]?.autoVibrato, autoVibrato)
+        XCTAssertEqual(document.instrumentPalette[1]?.samples.first?.panning, 37)
+
+        let destination = try temporaryDestination(filename: "instrument-autovibrato-export.xm")
+        let result = ExportXMCoordinator(
+            destinationProvider: FakeEditableCopyExportXMDestinationProvider(destination: destination)
+        ).beginExport(context: .editable(
+            document: document,
+            displayName: document.title,
+            isPlaybackActive: false
+        ))
+        XCTAssertEqual(result, .exported(destination: destination))
+
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.autoVibrato, autoVibrato)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+        XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
+    }
+
     private func supportedLoadedContext(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         let pattern = pattern(
             index: 0,
@@ -291,7 +341,10 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         )
     }
 
-    private func samplePanningSourceDocument(panning: UInt8) -> BlankTrackerDocument {
+    private func samplePanningSourceDocument(
+        panning: UInt8,
+        autoVibrato: PlaybackInstrumentAutoVibrato = .disabled
+    ) -> BlankTrackerDocument {
         var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
         pattern.rows[0][0] = XMPatternEventCell(
             note: 49,
@@ -325,7 +378,12 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             orderTable: [0],
             selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
             instrumentPalette: [
-                1: PlaybackInstrument(index: 1, name: "Panning Instrument", samples: [sample])
+                1: PlaybackInstrument(
+                    index: 1,
+                    name: "Panning Instrument",
+                    samples: [sample],
+                    autoVibrato: autoVibrato
+                )
             ],
             patterns: [pattern]
         )

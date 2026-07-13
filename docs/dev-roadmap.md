@@ -42,7 +42,7 @@ VoodooTracker X currently has:
   paths, plus a reusable `Window > Instrument Editor` shell bound to the
   current palette and selected instrument/sample, with represented instrument
   NAME editing for stopped editable documents only and exact XM sample panning
-  shown read-only, plus a capped
+  plus instrument autovibrato shown read-only, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
   instrument rename
 
@@ -108,8 +108,8 @@ Recommended next PR:
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
-7. Instrument NAME editing and sample panning model round-trip support are done;
-   next add the runtime-inert panning envelope model round-trip foundation.
+7. Instrument NAME editing plus sample-panning and autovibrato round-trip
+   support are done; next add the runtime-inert panning-envelope foundation.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -675,10 +675,12 @@ Implemented foundation:
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
   Export XM preservation, and disabled Instrument Editor PAN display; runtime
   playback and render output remain unchanged
+- exact XM autovibrato byte preservation and disabled VIBRATO display;
+  playback, audition, adapter plans, and render output remain unchanged
 
 Remaining VTX 1.0 scope:
 
-- panning-envelope, autovibrato, and broader instrument
+- panning-envelope and broader instrument
   metadata/editing foundations behind applyEdit
 - sample editor foundation
 - WAV/AIFF sample import

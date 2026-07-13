@@ -109,6 +109,47 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 241)
     }
 
+    func testWholeDocumentUndoRedoSnapshotsPreserveExactInstrumentAutoVibratoAndAuditionBehavior() {
+        let beforeAutoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 1,
+            sweep: 2,
+            depth: 3,
+            rate: 4
+        )
+        let afterAutoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 255,
+            sweep: 254,
+            depth: 253,
+            rate: 252
+        )
+        let before = documentWithInstrumentName(
+            "Snapshot",
+            panning: 37,
+            autoVibrato: beforeAutoVibrato
+        )
+        let after = documentWithInstrumentName(
+            "Snapshot",
+            panning: 37,
+            autoVibrato: afterAutoVibrato
+        )
+        let beforeAudition = before.noteAuditionAvailability
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertEqual(after.noteAuditionAvailability, beforeAudition)
+        XCTAssertTrue(harness.coordinator.applyEdit(label: "Snapshot Test", updatedDocument: after))
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, afterAutoVibrato)
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 37)
+        XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, beforeAutoVibrato)
+        XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
+
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, afterAutoVibrato)
+        XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
+    }
+
     func testLoadedReadOnlyContextCannotRenameInstrumentOrMutateSourceMetadata() {
         let sourceMetadata = PlaybackInstrument(
             index: 1,
@@ -159,7 +200,11 @@ private func containsURL(in value: Any, remainingDepth: Int = 16) -> Bool {
     }
 }
 
-private func documentWithInstrumentName(_ name: String, panning: UInt8 = 128) -> BlankTrackerDocument {
+private func documentWithInstrumentName(
+    _ name: String,
+    panning: UInt8 = 128,
+    autoVibrato: PlaybackInstrumentAutoVibrato = .disabled
+) -> BlankTrackerDocument {
     let base = BlankTrackerDocument.makeDefault()
     let sample = PlaybackSample(
         instrumentIndex: 1,
@@ -171,7 +216,12 @@ private func documentWithInstrumentName(_ name: String, panning: UInt8 = 128) ->
         finetune: 0,
         baseSampleRate: 8_363
     )
-    let instrument = PlaybackInstrument(index: 1, name: name, samples: [sample])
+    let instrument = PlaybackInstrument(
+        index: 1,
+        name: name,
+        samples: [sample],
+        autoVibrato: autoVibrato
+    )
     return BlankTrackerDocument(
         title: base.title,
         songLength: base.songLength,

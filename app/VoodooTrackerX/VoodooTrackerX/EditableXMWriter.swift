@@ -283,6 +283,7 @@ struct EditableXMWriter {
             name: paletteInstrument.name,
             noteSampleMap: noteSampleMap,
             volumeEnvelope: paletteInstrument.volumeEnvelope,
+            autoVibrato: paletteInstrument.autoVibrato,
             samples: exportedSamples
         )
     }
@@ -407,6 +408,7 @@ private struct XMInstrumentExport {
     let name: String?
     let noteSampleMap: [UInt8]
     let volumeEnvelope: PlaybackVolumeEnvelope
+    let autoVibrato: PlaybackInstrumentAutoVibrato
     let samples: [XMSampleExport]
 
     static func noSample(name: String?) -> XMInstrumentExport {
@@ -414,6 +416,7 @@ private struct XMInstrumentExport {
             name: name,
             noteSampleMap: Array(repeating: 0, count: 96),
             volumeEnvelope: .disabled,
+            autoVibrato: .disabled,
             samples: []
         )
     }
@@ -554,10 +557,10 @@ private struct XMByteWriter {
         appendUInt8(0)
         appendUInt8(instrument.volumeEnvelope.points.isEmpty ? 0 : instrument.volumeEnvelope.typeFlags & 0x07)
         appendUInt8(0)
-        appendUInt8(0)
-        appendUInt8(0)
-        appendUInt8(0)
-        appendUInt8(0)
+        appendUInt8(instrument.autoVibrato.waveformType)
+        appendUInt8(instrument.autoVibrato.sweep)
+        appendUInt8(instrument.autoVibrato.depth)
+        appendUInt8(instrument.autoVibrato.rate)
         appendUInt16(UInt16(max(0, min(65_535, instrument.volumeEnvelope.fadeout))))
         data.append(contentsOf: Array(repeating: UInt8(0), count: 22))
 

@@ -109,7 +109,7 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: instrumentOffset + 27), 0)
     }
 
-    func testInstrumentHeaderExportsRepresentedNameKeymapAndVolumeEnvelope() throws {
+    func testInstrumentHeaderExportsRepresentedNameKeymapVolumeEnvelopeAndAutoVibrato() throws {
         let sample = makeXMSourceSample(instrumentIndex: 3, sampleIndex: 0, pcm: [0])
         let envelope = PlaybackVolumeEnvelope(
             enabled: true,
@@ -128,6 +128,12 @@ final class EditableXMWriterTests: XCTestCase {
             name: "Lead One",
             samples: [sample],
             volumeEnvelope: envelope,
+            autoVibrato: PlaybackInstrumentAutoVibrato(
+                waveformType: 3,
+                sweep: 17,
+                depth: 42,
+                rate: 199
+            ),
             noteSampleMap: Array(repeating: 0, count: 96)
         )
         let pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)
@@ -154,13 +160,19 @@ final class EditableXMWriterTests: XCTestCase {
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 131), 64)
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 133), 10)
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 135), 32)
+        XCTAssertEqual(
+            Array(data.subdata(in: thirdInstrumentOffset + 177..<thirdInstrumentOffset + 225)),
+            Array(repeating: 0, count: 48)
+        )
         XCTAssertEqual(data[thirdInstrumentOffset + 225], 2)
         XCTAssertEqual(data[thirdInstrumentOffset + 226], 0)
         XCTAssertEqual(data[thirdInstrumentOffset + 227], 1)
         XCTAssertEqual(data[thirdInstrumentOffset + 228], 0)
         XCTAssertEqual(data[thirdInstrumentOffset + 229], 1)
+        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 230..<thirdInstrumentOffset + 233)), [0, 0, 0])
         XCTAssertEqual(data[thirdInstrumentOffset + 233], 0x07)
         XCTAssertEqual(data[thirdInstrumentOffset + 234], 0)
+        XCTAssertEqual(Array(data.subdata(in: thirdInstrumentOffset + 235..<thirdInstrumentOffset + 239)), [3, 17, 42, 199])
         XCTAssertEqual(data.le16(at: thirdInstrumentOffset + 239), 1_234)
     }
 
@@ -190,6 +202,10 @@ final class EditableXMWriterTests: XCTestCase {
 
         XCTAssertEqual(instrument.headerLength, 263)
         XCTAssertEqual(instrument.sampleCount, 1)
+        XCTAssertEqual(
+            Array(data.subdata(in: patternHeader.nextOffset + 235..<patternHeader.nextOffset + 239)),
+            [0, 0, 0, 0]
+        )
         XCTAssertEqual(sampleHeader.lengthBytes, 4)
         XCTAssertEqual(sampleHeader.loopStartBytes, 1)
         XCTAssertEqual(sampleHeader.loopLengthBytes, 2)

@@ -8,8 +8,9 @@ signed PCM, and `File > Make Editable Copy` for supported stopped loaded XM
 modules. The Instrument Editor shell and represented instrument-name editing
 are implemented outside this save/export design. The active sample model,
 loader, editable-copy/snapshot path, and writer now preserve exact XM sample
-panning bytes; the Instrument Editor displays them read-only. A document-level
-applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
+panning bytes and exact instrument autovibrato bytes; the Instrument Editor
+displays both read-only. Autovibrato remains playback/audition-inert. A
+document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
 behavior, runtime playback changes, parser architecture changes, and tracker
 viewport changes remain unimplemented by this note.

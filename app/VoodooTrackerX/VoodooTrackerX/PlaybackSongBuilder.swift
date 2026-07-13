@@ -129,6 +129,11 @@ enum PlaybackSongBuilder {
                 break
             }
             let volumeEnvelope = readVolumeEnvelope(data, instrumentOffset: offset, instrumentHeaderSize: instrumentHeaderSize)
+            let autoVibrato = readInstrumentAutoVibrato(
+                data,
+                instrumentOffset: offset,
+                instrumentHeaderSize: instrumentHeaderSize
+            )
             let sampleHeaderSize = max(40, Int(readLE32(data, offset: offset + 29)))
             let sampleHeaderOffset = offset + instrumentHeaderSize
             let sampleDataOffset = sampleHeaderOffset + (sampleHeaderSize * sampleCount)
@@ -184,6 +189,7 @@ enum PlaybackSongBuilder {
                 name: instrumentName,
                 samples: samples,
                 volumeEnvelope: volumeEnvelope,
+                autoVibrato: autoVibrato,
                 noteSampleMap: noteSampleMap
             )
             offset = dataOffset
@@ -248,6 +254,25 @@ enum PlaybackSongBuilder {
             loopEndPointIndex: points.indices.contains(loopEndIndex) && loopEndIndex >= loopStartIndex ? loopEndIndex : nil,
             typeFlags: typeFlags,
             fadeout: max(0, min(65_536, fadeout))
+        )
+    }
+
+    private static func readInstrumentAutoVibrato(
+        _ data: Data,
+        instrumentOffset: Int,
+        instrumentHeaderSize: Int
+    ) -> PlaybackInstrumentAutoVibrato {
+        let requiredHeaderSize = 239
+        guard instrumentHeaderSize >= requiredHeaderSize,
+              instrumentOffset + requiredHeaderSize <= data.count,
+              instrumentOffset + instrumentHeaderSize <= data.count else {
+            return .disabled
+        }
+        return PlaybackInstrumentAutoVibrato(
+            waveformType: data[instrumentOffset + 235],
+            sweep: data[instrumentOffset + 236],
+            depth: data[instrumentOffset + 237],
+            rate: data[instrumentOffset + 238]
         )
     }
 

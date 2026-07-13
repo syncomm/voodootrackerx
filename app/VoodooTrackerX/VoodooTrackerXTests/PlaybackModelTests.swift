@@ -127,6 +127,34 @@ final class PlaybackModelTests: XCTestCase {
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
 
         XCTAssertEqual(song.instrumentsByIndex[1]?.samples.first?.panning, 128)
+        XCTAssertEqual(song.instrumentsByIndex[1]?.autoVibrato, .disabled)
+    }
+
+    func testPlaybackSongBuilderLoadsExactInstrumentAutoVibratoBytesWithNeighboringMetadata() throws {
+        let autoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 3,
+            sweep: 17,
+            depth: 42,
+            rate: 199
+        )
+        let fixtureURL = try temporaryBasicInstrumentFixture(
+            samplePanning: 37,
+            autoVibrato: autoVibrato,
+            fadeout: 1_234
+        )
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let instrument = try XCTUnwrap(song.instrumentsByIndex[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+
+        XCTAssertEqual(instrument.autoVibrato, autoVibrato)
+        XCTAssertFalse(instrument.volumeEnvelope.enabled)
+        XCTAssertTrue(instrument.volumeEnvelope.points.isEmpty)
+        XCTAssertEqual(instrument.volumeEnvelope.fadeout, 1_234)
+        XCTAssertEqual(sample.panning, 37)
+        XCTAssertEqual(sample.name, "SINE64")
+        XCTAssertEqual(sample.volume, 1)
     }
 
     func testIsolatedPatternLoopSongAnchorsDisplayedPatternAtSelectedOrderWithoutMutatingSourceSong() throws {
@@ -578,6 +606,59 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(renamedInstrument.samples.first).panning, 37)
     }
 
+    func testPlaybackInstrumentAutoVibratoDefaultsToDisabledZeroBytes() {
+        let instrument = PlaybackInstrument(index: 1, samples: [])
+
+        XCTAssertEqual(instrument.autoVibrato, .disabled)
+        XCTAssertEqual(instrument.autoVibrato.waveformType, 0)
+        XCTAssertEqual(instrument.autoVibrato.sweep, 0)
+        XCTAssertEqual(instrument.autoVibrato.depth, 0)
+        XCTAssertEqual(instrument.autoVibrato.rate, 0)
+    }
+
+    func testPlaybackInstrumentPreservesExactAutoVibratoAndNeighboringFieldsThroughCopyHelper() throws {
+        let sample = PlaybackSample(
+            instrumentIndex: 3,
+            sampleIndex: 0,
+            pcm: [0, 0.5, -0.5],
+            volume: 0.75,
+            panning: 37,
+            relativeNote: -2,
+            finetune: 7,
+            baseSampleRate: 8_363
+        )
+        let envelope = PlaybackVolumeEnvelope(
+            enabled: true,
+            points: [PlaybackEnvelopePoint(tick: 0, value: 64)],
+            sustainPointIndex: 0,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0x03,
+            fadeout: 512
+        )
+        let autoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 255,
+            sweep: 1,
+            depth: 128,
+            rate: 254
+        )
+        let instrument = PlaybackInstrument(
+            index: 3,
+            name: "Before",
+            samples: [sample],
+            volumeEnvelope: envelope,
+            autoVibrato: autoVibrato,
+            noteSampleMap: Array(repeating: 0, count: 96)
+        )
+
+        let renamed = instrument.withName("After")
+
+        XCTAssertEqual(renamed.autoVibrato, autoVibrato)
+        XCTAssertEqual(renamed.volumeEnvelope, envelope)
+        XCTAssertEqual(try XCTUnwrap(renamed.samples.first).panning, 37)
+        XCTAssertEqual(renamed.noteSampleMap, Array(repeating: 0, count: 96))
+    }
+
     func testPlaybackInstrumentMapsOneBasedSampleSlotsToStoredSampleIndices() {
         let first = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
         let third = PlaybackSample(instrumentIndex: 1, sampleIndex: 2, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
@@ -879,7 +960,11 @@ final class PlaybackModelTests: XCTestCase {
         return url
     }
 
-    private func temporaryBasicInstrumentFixture(samplePanning: UInt8) throws -> URL {
+    private func temporaryBasicInstrumentFixture(
+        samplePanning: UInt8,
+        autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
+        fadeout: UInt16 = 0
+    ) throws -> URL {
         let sourceURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
         var data = try Data(contentsOf: sourceURL)
 
@@ -899,8 +984,16 @@ final class PlaybackModelTests: XCTestCase {
             let packedSize = le16(at: offset + 7)
             offset += patternHeaderLength + packedSize
         }
-        let instrumentHeaderLength = le32(at: offset)
-        let sampleHeaderOffset = offset + instrumentHeaderLength
+        let instrumentOffset = offset
+        let instrumentHeaderLength = le32(at: instrumentOffset)
+        XCTAssertGreaterThanOrEqual(instrumentHeaderLength, 241)
+        data[instrumentOffset + 235] = autoVibrato.waveformType
+        data[instrumentOffset + 236] = autoVibrato.sweep
+        data[instrumentOffset + 237] = autoVibrato.depth
+        data[instrumentOffset + 238] = autoVibrato.rate
+        data[instrumentOffset + 239] = UInt8(fadeout & 0x00FF)
+        data[instrumentOffset + 240] = UInt8((fadeout >> 8) & 0x00FF)
+        let sampleHeaderOffset = instrumentOffset + instrumentHeaderLength
         XCTAssertGreaterThanOrEqual(data.count, sampleHeaderOffset + 40)
         data[sampleHeaderOffset + 15] = samplePanning
 

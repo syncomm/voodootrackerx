@@ -43,9 +43,11 @@ all other Instrument Editor controls remain read-only/inert. XM sample-header
 panning is represented as its exact `0...255` byte, preserved through loaded
 state, editable copies, snapshots, and Export XM, and shown for the selected
 sample on the disabled PAN control. Sample panning remains runtime-inert and
-does not change adapter plans, voice pan, or render output. It does not add
-sample mutation, XI behavior, envelope/keymap editing, audition changes, or
-waveform display. Save/Save As,
+does not change adapter plans, voice pan, or render output. XM instrument
+autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
+copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
+runtime/audition-inert. Neither slice adds sample/vibrato mutation, XI behavior,
+envelope/keymap editing, or waveform display. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
@@ -209,12 +211,14 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
-- `PlaybackSample` now represents the exact XM sample-header panning byte with
+- `PlaybackSample` represents the exact XM sample-header panning byte with
   center (`128`) as the generated/default value. The Swift loader and
   `EditableXMWriter` preserve it through loaded modules, editable copies,
   snapshots, undo/redo, and Export XM; the Instrument Editor displays it on
-  its disabled PAN surface. Playback scheduling, voice pan, render PCM, C
-  mixer DSP, parser architecture, and loaded-module read-only rules are unchanged.
+  its disabled PAN surface. `PlaybackInstrumentAutoVibrato` now provides the
+  same exact preservation for the four XM autovibrato bytes and read-only
+  VIBRATO display. Playback/audition behavior, scheduling, render PCM, C mixer
+  DSP, parser architecture, and loaded-module read-only rules are unchanged.
 - `EditableDocumentEditCoordinator` now applies labeled whole-document value
   snapshots with a 20-level `UndoManager`, refreshes the existing tracker,
   control-panel, Song / Order, and Instrument Editor state paths, and rejects

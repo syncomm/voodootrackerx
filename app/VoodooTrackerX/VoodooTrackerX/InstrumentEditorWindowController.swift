@@ -157,6 +157,7 @@ struct InstrumentEditorDisplayState: Equatable {
         selectedSampleSlot: nil,
         sampleSlots: [],
         volumeEnvelope: nil,
+        autoVibrato: nil,
         keymapRanges: [],
         emptyMessage: "No document instrument palette is available."
     )
@@ -171,6 +172,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let selectedSampleSlot: Int?
     let sampleSlots: [SampleSlot]
     let volumeEnvelope: PlaybackVolumeEnvelope?
+    let autoVibrato: PlaybackInstrumentAutoVibrato?
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
     var isReadOnly: Bool { !isInstrumentNameEditable }
@@ -244,6 +246,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 selectedSampleSlot: nil,
                 sampleSlots: [],
                 volumeEnvelope: nil,
+                autoVibrato: nil,
                 keymapRanges: [],
                 emptyMessage: message
             )
@@ -264,6 +267,7 @@ struct InstrumentEditorDisplayState: Equatable {
             selectedSampleSlot: selectedSampleSlot,
             sampleSlots: slots,
             volumeEnvelope: instrument.volumeEnvelope,
+            autoVibrato: instrument.autoVibrato,
             keymapRanges: makeKeymapRanges(instrument: instrument, selectedSampleSlot: selection.selectedSample),
             emptyMessage: slots.isEmpty ? "This instrument has no represented sample slots." : ""
         )
@@ -641,15 +645,23 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildVibrato(_ panel: NSView) {
+        let autoVibrato = displayState.autoVibrato
         let waveforms = [("∿", 75), ("⊓", 104), ("⊿", 133), ("◺", 162)]
         for (index, waveform) in waveforms.enumerated() {
-            addDisabledButton(waveform.0, id: "vibratoWaveform\(index)", to: panel, frame: NSRect(x: waveform.1, y: 5, width: 26, height: 25))
+            addDisabledButton(
+                waveform.0,
+                id: "vibratoWaveform\(index)",
+                to: panel,
+                frame: NSRect(x: waveform.1, y: 5, width: 26, height: 25),
+                role: autoVibrato.map { Int($0.waveformType) == index } == true ? .activePlay : .normal
+            )
         }
-        addControl(VTXEditorControlFactory.makeIndicatorLED(state: .off, diameter: 8), to: panel, frame: NSRect(x: 210, y: 13, width: 8, height: 8))
+        let indicatorState: VTXEditorIndicatorLEDState = autoVibrato.map { $0 != .disabled } == true ? .amberActive : .off
+        addControl(VTXEditorControlFactory.makeIndicatorLED(state: indicatorState, diameter: 8), to: panel, frame: NSRect(x: 210, y: 13, width: 8, height: 8))
 
-        addDisabledKnob(value: 0, minimum: 0, maximum: 64, id: "vibratoSweep", label: "SWEEP", readout: "—", to: panel, x: 10)
-        addDisabledKnob(value: 0, minimum: 0, maximum: 64, id: "vibratoDepth", label: "DEPTH", readout: "—", to: panel, x: 82)
-        addDisabledKnob(value: 0, minimum: 0, maximum: 64, id: "vibratoRate", label: "RATE", readout: "—", to: panel, x: 154)
+        addDisabledKnob(value: Double(autoVibrato?.sweep ?? 0), minimum: 0, maximum: 255, id: "vibratoSweep", label: "SWEEP", readout: autoVibrato.map { "\($0.sweep)" } ?? "—", to: panel, x: 10)
+        addDisabledKnob(value: Double(autoVibrato?.depth ?? 0), minimum: 0, maximum: 255, id: "vibratoDepth", label: "DEPTH", readout: autoVibrato.map { "\($0.depth)" } ?? "—", to: panel, x: 82)
+        addDisabledKnob(value: Double(autoVibrato?.rate ?? 0), minimum: 0, maximum: 255, id: "vibratoRate", label: "RATE", readout: autoVibrato.map { "\($0.rate)" } ?? "—", to: panel, x: 154)
     }
 
     private func buildDefaults(_ panel: NSView) {

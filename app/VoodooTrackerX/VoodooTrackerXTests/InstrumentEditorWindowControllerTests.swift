@@ -14,6 +14,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(noDocument.sampleSlots.isEmpty)
         XCTAssertNil(noDocument.volumeEnvelope)
+        XCTAssertNil(noDocument.autoVibrato)
         XCTAssertTrue(noDocument.keymapRanges.isEmpty)
         XCTAssertEqual(noDocument.emptyMessage, "No document instrument palette is available.")
 
@@ -24,6 +25,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
         XCTAssertNil(blankDocument.volumeEnvelope)
+        XCTAssertNil(blankDocument.autoVibrato)
         XCTAssertTrue(blankDocument.keymapRanges.isEmpty)
         XCTAssertEqual(blankDocument.emptyMessage, "No represented instruments are available.")
     }
@@ -178,6 +180,69 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             XCTAssertEqual(pan.value, -0.75, accuracy: 0.000_001)
             XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("32 / 255"))
         }
+    }
+
+    func testLoadedAndEditableDocumentsDisplayRepresentedAutoVibratoReadOnly() throws {
+        let expected = PlaybackInstrumentAutoVibrato(
+            waveformType: 3,
+            sweep: 17,
+            depth: 42,
+            rate: 199
+        )
+        let palette = makeInstrumentPalette()
+        let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        let loaded = InstrumentEditorDisplayState.loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: selection
+        )
+        let editable = InstrumentEditorDisplayState.editableDocument(makeEditableDocument(palette: palette))
+
+        XCTAssertEqual(loaded.autoVibrato, expected)
+        XCTAssertEqual(editable.autoVibrato, expected)
+
+        for state in [loaded, editable] {
+            let controller = InstrumentEditorWindowController(displayState: state)
+            let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+            let vibratoPanel = try XCTUnwrap(descendants.first {
+                $0.identifier?.rawValue == InstrumentEditorViewIdentifier.vibratoPanel
+            })
+            let vibratoDescendants = vibratoPanel.instrumentEditorDescendants
+            let buttons = vibratoDescendants.compactMap { $0 as? VTXEditorButton }
+            let knobs = vibratoDescendants.compactMap { $0 as? VTXEditorKnobControl }
+            let readouts = Set(vibratoDescendants.compactMap { ($0 as? VTXEditorSegmentReadout)?.stringValue })
+            let indicator = try XCTUnwrap(vibratoDescendants.compactMap { $0 as? VTXEditorIndicatorLEDView }.first)
+
+            XCTAssertEqual(buttons.map(\.editorRole), [.normal, .normal, .normal, .activePlay])
+            XCTAssertTrue(buttons.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
+            XCTAssertEqual(knobs.map(\.value), [17, 42, 199])
+            XCTAssertEqual(knobs.map(\.maximumValue), [255, 255, 255])
+            XCTAssertTrue(knobs.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
+            XCTAssertEqual(readouts, ["17", "42", "199"])
+            XCTAssertEqual(indicator.state, .amberActive)
+        }
+    }
+
+    func testDefaultAutoVibratoDisplayIsCleanZeroAndInert() throws {
+        let state = InstrumentEditorDisplayState.loadedModule(
+            playbackSong: makePlaybackSong(instruments: makeInstrumentPalette()),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        )
+        let controller = InstrumentEditorWindowController(displayState: state)
+        let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+        let vibratoPanel = try XCTUnwrap(descendants.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.vibratoPanel
+        })
+        let vibratoDescendants = vibratoPanel.instrumentEditorDescendants
+        let buttons = vibratoDescendants.compactMap { $0 as? VTXEditorButton }
+        let knobs = vibratoDescendants.compactMap { $0 as? VTXEditorKnobControl }
+        let indicator = try XCTUnwrap(vibratoDescendants.compactMap { $0 as? VTXEditorIndicatorLEDView }.first)
+
+        XCTAssertEqual(state.autoVibrato, .disabled)
+        XCTAssertEqual(buttons.map(\.editorRole), [.activePlay, .normal, .normal, .normal])
+        XCTAssertEqual(knobs.map(\.value), [0, 0, 0])
+        XCTAssertTrue(buttons.allSatisfy { !$0.isEnabled })
+        XCTAssertTrue(knobs.allSatisfy { !$0.isEnabled })
+        XCTAssertEqual(indicator.state, .off)
     }
 
     func testEmptySampleStateKeepsPanDisplayCleanAndInert() throws {
@@ -411,6 +476,12 @@ private func makeInstrumentPalette() -> [Int: PlaybackInstrument] {
             loopEndPointIndex: 2,
             typeFlags: 0x07,
             fadeout: 128
+        ),
+        autoVibrato: PlaybackInstrumentAutoVibrato(
+            waveformType: 3,
+            sweep: 17,
+            depth: 42,
+            rate: 199
         ),
         noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
     )

@@ -7,6 +7,8 @@ enum InstrumentEditorViewIdentifier {
     static let sampleSlotsPanel = "instrumentEditor.sampleSlotsPanel"
     static let envelopePanel = "instrumentEditor.envelopePanel"
     static let envelopeGraph = "instrumentEditor.envelopeGraph"
+    static let volumeEnvelopeTab = "instrumentEditor.volumeEnvelopeTab"
+    static let panningEnvelopeTab = "instrumentEditor.panningEnvelopeTab"
     static let vibratoPanel = "instrumentEditor.vibratoPanel"
     static let defaultsPanel = "instrumentEditor.defaultsPanel"
     static let noteKeymapPanel = "instrumentEditor.noteKeymapPanel"
@@ -17,6 +19,80 @@ enum InstrumentEditorViewIdentifier {
     static let instrumentRowPrefix = "instrumentEditor.instrumentRow."
     static let sampleRowPrefix = "instrumentEditor.sampleRow."
     static let futureControlPrefix = "instrumentEditor.futureControl."
+}
+
+enum InstrumentEnvelopeDisplayMode: Equatable {
+    case volume
+    case panning
+
+    var title: String {
+        switch self {
+        case .volume: "VOLUME"
+        case .panning: "PANNING"
+        }
+    }
+}
+
+enum InstrumentEnvelopeReadout: String, CaseIterable {
+    case pointCount
+    case sustainState
+    case sustainPoint
+    case loopState
+    case loopStart
+    case loopEnd
+    case fadeout
+
+    var identifier: String { "instrumentEditor.envelopeReadout.\(rawValue)" }
+}
+
+struct InstrumentEditorEnvelopeDisplayState: Equatable {
+    let enabled: Bool
+    let points: [PlaybackEnvelopePoint]
+    let sustainEnabled: Bool
+    let sustainPointIndex: Int?
+    let loopEnabled: Bool
+    let loopStartPointIndex: Int?
+    let loopEndPointIndex: Int?
+    let fadeout: Int?
+
+    var pointCount: Int { points.count }
+
+    var sustainPoint: PlaybackEnvelopePoint? {
+        guard let sustainPointIndex, points.indices.contains(sustainPointIndex) else { return nil }
+        return points[sustainPointIndex]
+    }
+
+    var loopStartPoint: PlaybackEnvelopePoint? {
+        guard let loopStartPointIndex, points.indices.contains(loopStartPointIndex) else { return nil }
+        return points[loopStartPointIndex]
+    }
+
+    var loopEndPoint: PlaybackEnvelopePoint? {
+        guard let loopEndPointIndex, points.indices.contains(loopEndPointIndex) else { return nil }
+        return points[loopEndPointIndex]
+    }
+
+    init(volumeEnvelope envelope: PlaybackVolumeEnvelope) {
+        enabled = envelope.enabled
+        points = envelope.points
+        sustainEnabled = envelope.sustainEnabled
+        sustainPointIndex = envelope.sustainPointIndex
+        loopEnabled = envelope.loopEnabled
+        loopStartPointIndex = envelope.loopStartPointIndex
+        loopEndPointIndex = envelope.loopEndPointIndex
+        fadeout = envelope.fadeout
+    }
+
+    init(panningEnvelope envelope: PlaybackPanningEnvelope) {
+        enabled = envelope.enabled
+        points = envelope.points
+        sustainEnabled = envelope.sustainEnabled
+        sustainPointIndex = envelope.sustainPointIndex
+        loopEnabled = envelope.loopEnabled
+        loopStartPointIndex = envelope.loopStartPointIndex
+        loopEndPointIndex = envelope.loopEndPointIndex
+        fadeout = nil
+    }
 }
 
 struct InstrumentEditorDisplayState: Equatable {
@@ -157,6 +233,7 @@ struct InstrumentEditorDisplayState: Equatable {
         selectedSampleSlot: nil,
         sampleSlots: [],
         volumeEnvelope: nil,
+        panningEnvelope: nil,
         autoVibrato: nil,
         keymapRanges: [],
         emptyMessage: "No document instrument palette is available."
@@ -172,6 +249,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let selectedSampleSlot: Int?
     let sampleSlots: [SampleSlot]
     let volumeEnvelope: PlaybackVolumeEnvelope?
+    let panningEnvelope: PlaybackPanningEnvelope?
     let autoVibrato: PlaybackInstrumentAutoVibrato?
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
@@ -179,6 +257,15 @@ struct InstrumentEditorDisplayState: Equatable {
 
     var selectedSample: SampleSlot? {
         sampleSlots.first(where: \.isSelected)
+    }
+
+    func envelope(for mode: InstrumentEnvelopeDisplayMode) -> InstrumentEditorEnvelopeDisplayState? {
+        switch mode {
+        case .volume:
+            volumeEnvelope.map(InstrumentEditorEnvelopeDisplayState.init(volumeEnvelope:))
+        case .panning:
+            panningEnvelope.map(InstrumentEditorEnvelopeDisplayState.init(panningEnvelope:))
+        }
     }
 
     var instrumentDisplay: String {
@@ -246,6 +333,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 selectedSampleSlot: nil,
                 sampleSlots: [],
                 volumeEnvelope: nil,
+                panningEnvelope: nil,
                 autoVibrato: nil,
                 keymapRanges: [],
                 emptyMessage: message
@@ -267,6 +355,7 @@ struct InstrumentEditorDisplayState: Equatable {
             selectedSampleSlot: selectedSampleSlot,
             sampleSlots: slots,
             volumeEnvelope: instrument.volumeEnvelope,
+            panningEnvelope: instrument.panningEnvelope,
             autoVibrato: instrument.autoVibrato,
             keymapRanges: makeKeymapRanges(instrument: instrument, selectedSampleSlot: selection.selectedSample),
             emptyMessage: slots.isEmpty ? "This instrument has no represented sample slots." : ""
@@ -416,7 +505,9 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
 @MainActor
 final class InstrumentEditorView: FlippedEditorView {
     private(set) var displayState: InstrumentEditorDisplayState
+    private(set) var envelopeDisplayMode: InstrumentEnvelopeDisplayMode = .volume
     private(set) var rebuildCount = 0
+    private var envelopePanelView: NSView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
 
     init(
@@ -466,11 +557,7 @@ final class InstrumentEditorView: FlippedEditorView {
             title: "Sample slots",
             frame: NSRect(x: 12, y: 278, width: 170, height: 155)
         ))
-        buildEnvelope(panel(
-            InstrumentEditorViewIdentifier.envelopePanel,
-            title: "Envelope",
-            frame: NSRect(x: 192, y: 73, width: 468, height: 360)
-        ))
+        buildEnvelopePanel()
         buildVibrato(panel(
             InstrumentEditorViewIdentifier.vibratoPanel,
             title: "Vibrato",
@@ -486,6 +573,33 @@ final class InstrumentEditorView: FlippedEditorView {
             title: "Note keymap",
             frame: NSRect(x: 12, y: 443, width: 896, height: 183)
         ))
+    }
+
+    private func buildEnvelopePanel() {
+        let envelopePanel = panel(
+            InstrumentEditorViewIdentifier.envelopePanel,
+            title: "Envelope",
+            frame: NSRect(x: 192, y: 73, width: 468, height: 360)
+        )
+        envelopePanelView = envelopePanel
+        buildEnvelope(envelopePanel)
+    }
+
+    @discardableResult
+    func selectEnvelopeDisplayMode(_ mode: InstrumentEnvelopeDisplayMode) -> Bool {
+        guard envelopeDisplayMode != mode else { return false }
+        envelopeDisplayMode = mode
+        envelopePanelView?.removeFromSuperview()
+        buildEnvelopePanel()
+        return true
+    }
+
+    @objc private func showVolumeEnvelope(_ sender: Any?) {
+        selectEnvelopeDisplayMode(.volume)
+    }
+
+    @objc private func showPanningEnvelope(_ sender: Any?) {
+        selectEnvelopeDisplayMode(.panning)
     }
 
     private func buildHeader(_ panel: NSView) {
@@ -610,38 +724,65 @@ final class InstrumentEditorView: FlippedEditorView {
     }
 
     private func buildEnvelope(_ panel: NSView) {
-        addDisabledButton("VOL", id: "volumeEnvelopeTab", to: panel, frame: NSRect(x: 70, y: 5, width: 40, height: 25))
-        addDisabledButton("PAN", id: "panEnvelopeTab", to: panel, frame: NSRect(x: 114, y: 5, width: 40, height: 25))
+        addEnvelopeSelector("VOL", mode: .volume, to: panel, frame: NSRect(x: 70, y: 5, width: 40, height: 25))
+        addEnvelopeSelector("PAN", mode: .panning, to: panel, frame: NSRect(x: 114, y: 5, width: 40, height: 25))
         addDisabledButton("+ ADD PT", id: "addEnvelopePoint", to: panel, frame: NSRect(x: 164, y: 5, width: 78, height: 25))
         addDisabledButton("DEL PT", id: "deleteEnvelopePoint", to: panel, frame: NSRect(x: 246, y: 5, width: 72, height: 25))
         addLabel("ENABLE", to: panel, frame: NSRect(x: 326, y: 12, width: 43, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        let envelopeEnabled = displayState.volumeEnvelope?.enabled == true
+        let envelope = displayState.envelope(for: envelopeDisplayMode)
+        let envelopeEnabled = envelope?.enabled == true
         addDisabledButton(envelopeEnabled ? "ON" : "OFF", id: "envelopeEnable", to: panel, frame: NSRect(x: 373, y: 5, width: 42, height: 25))
-        addControl(VTXEditorControlFactory.makeIndicatorLED(state: .off, diameter: 8), to: panel, frame: NSRect(x: 431, y: 13, width: 8, height: 8))
+        addControl(
+            VTXEditorControlFactory.makeIndicatorLED(state: envelopeEnabled ? .amberActive : .off, diameter: 8),
+            to: panel,
+            frame: NSRect(x: 431, y: 13, width: 8, height: 8)
+        )
 
         let graph = InstrumentEditorEnvelopeGraphView(
             frame: NSRect(x: 10, y: 42, width: 448, height: 242),
-            envelope: displayState.volumeEnvelope
+            mode: envelopeDisplayMode,
+            envelope: envelope
         )
         graph.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.envelopeGraph)
         panel.addSubview(graph)
 
-        let envelope = displayState.volumeEnvelope
         addLabel("SUSTAIN", to: panel, frame: NSRect(x: 10, y: 307, width: 45, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        addReadout(envelope?.sustainEnabled == true ? "ON" : "OFF", to: panel, frame: NSRect(x: 58, y: 300, width: 46, height: 23))
+        addEnvelopeReadout(envelope?.sustainEnabled == true ? "ON" : "OFF", readout: .sustainState, to: panel, frame: NSRect(x: 58, y: 300, width: 46, height: 23))
         addLabel("PT", to: panel, frame: NSRect(x: 108, y: 307, width: 15, height: 11), color: VTXEditorControlTheme.panelLabelText, size: 8, weight: .bold)
-        addReadout(pointDisplay(envelope?.sustainPointIndex), to: panel, frame: NSRect(x: 126, y: 300, width: 34, height: 23))
+        addEnvelopeReadout(pointDisplay(envelope?.sustainPointIndex), readout: .sustainPoint, to: panel, frame: NSRect(x: 126, y: 300, width: 34, height: 23))
 
         addLabel("LOOP", to: panel, frame: NSRect(x: 169, y: 307, width: 29, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        addReadout(envelope?.loopEnabled == true ? "ON" : "OFF", to: panel, frame: NSRect(x: 201, y: 300, width: 46, height: 23))
+        addEnvelopeReadout(envelope?.loopEnabled == true ? "ON" : "OFF", readout: .loopState, to: panel, frame: NSRect(x: 201, y: 300, width: 46, height: 23))
         addLabel("ST", to: panel, frame: NSRect(x: 251, y: 307, width: 15, height: 11), color: VTXEditorControlTheme.panelLabelText, size: 8, weight: .bold)
-        addReadout(pointDisplay(envelope?.loopStartPointIndex), to: panel, frame: NSRect(x: 269, y: 300, width: 34, height: 23))
+        addEnvelopeReadout(pointDisplay(envelope?.loopStartPointIndex), readout: .loopStart, to: panel, frame: NSRect(x: 269, y: 300, width: 34, height: 23))
         addLabel("EN", to: panel, frame: NSRect(x: 307, y: 307, width: 15, height: 11), color: VTXEditorControlTheme.panelLabelText, size: 8, weight: .bold)
-        addReadout(pointDisplay(envelope?.loopEndPointIndex), to: panel, frame: NSRect(x: 325, y: 300, width: 34, height: 23))
+        addEnvelopeReadout(pointDisplay(envelope?.loopEndPointIndex), readout: .loopEnd, to: panel, frame: NSRect(x: 325, y: 300, width: 34, height: 23))
 
         addLabel("FADE", to: panel, frame: NSRect(x: 367, y: 307, width: 28, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        addReadout(envelope.map { String(format: "%04X", max(0, $0.fadeout)) } ?? "—", to: panel, frame: NSRect(x: 398, y: 300, width: 60, height: 23))
-        addLabel("VOLUME ENVELOPE · DISPLAY ONLY", to: panel, frame: NSRect(x: 10, y: 337, width: 448, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8, alignment: .center)
+        addEnvelopeReadout(envelope?.fadeout.map { String(format: "%04X", max(0, $0)) } ?? "—", readout: .fadeout, to: panel, frame: NSRect(x: 398, y: 300, width: 60, height: 23))
+
+        addLabel("PTS", to: panel, frame: NSRect(x: 10, y: 337, width: 22, height: 11), color: VTXEditorControlTheme.panelLabelText, size: 8, weight: .bold)
+        addEnvelopeReadout(String(format: "%02d", envelope?.pointCount ?? 0), readout: .pointCount, to: panel, frame: NSRect(x: 35, y: 330, width: 38, height: 23))
+        addLabel("\(envelopeDisplayMode.title) ENVELOPE · DISPLAY ONLY", to: panel, frame: NSRect(x: 82, y: 337, width: 376, height: 11), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 8, alignment: .center)
+    }
+
+    private func addEnvelopeSelector(
+        _ title: String, mode: InstrumentEnvelopeDisplayMode, to parent: NSView, frame: NSRect
+    ) {
+        let button = VTXEditorControlFactory.makeButton(
+            title: title,
+            role: envelopeDisplayMode == mode ? .selected : .normal,
+            fixedWidth: frame.width
+        )
+        button.identifier = NSUserInterfaceItemIdentifier(
+            mode == .volume
+                ? InstrumentEditorViewIdentifier.volumeEnvelopeTab
+                : InstrumentEditorViewIdentifier.panningEnvelopeTab
+        )
+        button.target = self
+        button.action = mode == .volume ? #selector(showVolumeEnvelope(_:)) : #selector(showPanningEnvelope(_:))
+        button.toolTip = "Show the represented \(mode.title.lowercased()) envelope read-only"
+        addControl(button, to: parent, frame: frame)
     }
 
     private func buildVibrato(_ panel: NSView) {
@@ -783,6 +924,14 @@ final class InstrumentEditorView: FlippedEditorView {
         )
     }
 
+    private func addEnvelopeReadout(
+        _ value: String, readout: InstrumentEnvelopeReadout, to parent: NSView, frame: NSRect
+    ) {
+        let field = VTXEditorControlFactory.makeSegmentReadout(value: value, fixedWidth: frame.width)
+        field.identifier = NSUserInterfaceItemIdentifier(readout.identifier)
+        addControl(field, to: parent, frame: frame)
+    }
+
     private func listDocumentView(frame: NSRect, contentHeight: CGFloat) -> FlippedEditorView {
         let view = FlippedEditorView(frame: NSRect(x: 0, y: 0, width: frame.width, height: contentHeight))
         view.style(background: VTXEditorControlTheme.recessedReadoutBackground)
@@ -904,9 +1053,11 @@ final class InstrumentEditorView: FlippedEditorView {
 }
 
 final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
-    private let envelope: PlaybackVolumeEnvelope?
+    let displayMode: InstrumentEnvelopeDisplayMode
+    private(set) var envelope: InstrumentEditorEnvelopeDisplayState?
 
-    init(frame frameRect: NSRect, envelope: PlaybackVolumeEnvelope?) {
+    init(frame frameRect: NSRect, mode: InstrumentEnvelopeDisplayMode, envelope: InstrumentEditorEnvelopeDisplayState?) {
+        displayMode = mode
         self.envelope = envelope
         super.init(frame: frameRect)
         style(
@@ -928,11 +1079,26 @@ final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawGrid()
-        guard let envelope, !envelope.points.isEmpty else {
-            drawCenteredText("NO VOLUME ENVELOPE REPRESENTED")
+        if let emptyStateMessage {
+            drawCenteredText(emptyStateMessage)
             return
         }
+        guard let envelope else { return }
         drawEnvelope(envelope)
+    }
+
+    var emptyStateMessage: String? {
+        guard let envelope else {
+            return "NO \(displayMode.title) ENVELOPE REPRESENTED"
+        }
+        guard envelope.points.isEmpty else { return nil }
+        if displayMode == .panning, !envelope.enabled {
+            return "PANNING ENVELOPE DISABLED / EMPTY"
+        }
+        if envelope.enabled {
+            return "\(displayMode.title) ENVELOPE EMPTY"
+        }
+        return "NO \(displayMode.title) ENVELOPE REPRESENTED"
     }
 
     private func drawGrid() {
@@ -953,7 +1119,7 @@ final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
         }
     }
 
-    private func drawEnvelope(_ envelope: PlaybackVolumeEnvelope) {
+    private func drawEnvelope(_ envelope: InstrumentEditorEnvelopeDisplayState) {
         let points = envelope.points.sorted { ($0.tick, $0.value) < ($1.tick, $1.value) }
         let maxTick = max(1, points.map(\.tick).max() ?? 1)
         let graphRect = bounds.insetBy(dx: 12, dy: 12)
@@ -997,7 +1163,8 @@ final class InstrumentEditorEnvelopeGraphView: FlippedEditorView {
             markerPath.stroke()
         }
 
-        drawCornerText(envelope.enabled ? "VOLUME · ENABLED · READ-ONLY" : "VOLUME · DISABLED · READ-ONLY")
+        let state = envelope.enabled ? "ENABLED" : "DISABLED"
+        drawCornerText("\(displayMode.title) · \(state) · \(envelope.pointCount) PTS · READ-ONLY")
     }
 
     private func graphX(tick: Int, maxTick: Int, rect: NSRect) -> CGFloat {

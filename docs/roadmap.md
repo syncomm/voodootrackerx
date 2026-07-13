@@ -159,8 +159,8 @@ Recommended next PR sequence:
 2. Done: add the document `applyEdit`/undo funnel needed before instrument and
    sample mutation.
 3. Represented instrument NAME editing plus sample-panning, panning-envelope,
-   and autovibrato model round-trip preservation are done; next expose panning-
-   envelope data read-only or continue palette/sample slices.
+   and autovibrato round-trip preservation are done; the read-only VOL/PAN
+   envelope display is also done. Continue with narrow palette/sample slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -189,9 +189,9 @@ Recently completed:
   read-only behavior are unchanged.
 - XM instrument panning envelopes now preserve up to 12 points, point ticks/
   values, counts, sustain/loop indices, and supported flags through loading,
-  editable copy, snapshots, undo/redo, and Export XM. The Instrument Editor
-  remains volume-envelope-only, and adapter plans, voice pan, rendered PCM,
-  C mixer DSP, and loaded-module read-only behavior are unchanged.
+  editable copy, snapshots, undo/redo, and Export XM. The Instrument Editor's
+  local VOL/PAN selector shows either envelope read-only; adapter plans, voice
+  pan, rendered PCM, C mixer DSP, and loaded-module rules are unchanged.
 - The Instrument Editor opens from the Window menu as one
   reusable fixed 920 × 638 utility window following the v1 mockup
   hierarchy: instrument/name/XI/audition header, instrument/sample lists,
@@ -413,8 +413,8 @@ Recommended next product PR:
   export, public-safe writer/reload smoke tests, explicit loaded-module
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
-  autovibrato model round-trip support are in place. Continue with read-only
-  panning-envelope display or palette/sample foundations in narrow slices.
+  autovibrato round-trip support and read-only envelope display are in place.
+  Continue with editable sample panning mutation behind `applyEdit`.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -682,13 +682,13 @@ Current implemented foundation:
 - exact XM instrument autovibrato preservation through the same paths, with
   disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - exact XM instrument panning-envelope preservation through the same paths,
-  with no playback, voice-pan, scheduling, PCM, or editor-display change
+  with read-only VOL/PAN display and no playback, voice-pan, scheduling, or PCM change
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- read-only panning-envelope display, envelope playback/editing, and broader
-  instrument metadata/editing behind applyEdit
+- envelope playback/editing and broader instrument metadata behind applyEdit,
+  beginning with editable sample panning mutation
 - sample editor foundations behind applyEdit
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry

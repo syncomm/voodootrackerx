@@ -158,8 +158,9 @@ Recommended next PR sequence:
 1. Done: build an Instrument Editor shell/read-only binding.
 2. Done: add the document `applyEdit`/undo funnel needed before instrument and
    sample mutation.
-3. Represented instrument NAME editing behind applyEdit is done; next add
-   sample panning model round-trip support and continue palette/sample slices.
+3. Represented instrument NAME editing and sample panning model round-trip
+   preservation are done; next add the runtime-inert panning envelope model
+   round-trip foundation and continue palette/sample slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -181,6 +182,11 @@ Parked parity-watch items:
 
 Recently completed:
 
+- XM sample-header panning is now a first-class `UInt8` sample field with
+  center (`128`) defaults, exact loader/writer preservation through editable
+  copy and Export XM, snapshot/undo coverage, and a disabled Instrument Editor
+  PAN display. Adapter plans, voice pan, rendered PCM, and loaded-module
+  read-only behavior are unchanged.
 - The Instrument Editor opens from the Window menu as one
   reusable fixed 920 × 638 utility window following the v1 mockup
   hierarchy: instrument/name/XI/audition header, instrument/sample lists,
@@ -401,8 +407,9 @@ Recommended next product PR:
   current editable-subset app file output, existing palette/sample payload
   export, public-safe writer/reload smoke tests, explicit loaded-module
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
-  document applyEdit/undo funnel are in place. Continue with sample panning
-  model round-trip support, then palette/sample foundations in narrow slices.
+  document applyEdit/undo funnel, and sample panning model round-trip support
+  are in place. Continue with the panning envelope model round-trip foundation,
+  then palette/sample foundations in narrow slices.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -665,11 +672,12 @@ Current implemented foundation:
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
+- exact XM sample panning preservation through load, editable copy, snapshots,
+  undo/redo, and Export XM, with read-only Instrument Editor display
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- sample panning model round-trip foundation
 - panning-envelope, autovibrato, and broader instrument metadata/editing behind
   applyEdit
 - sample editor foundations behind applyEdit

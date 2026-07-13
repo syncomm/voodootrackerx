@@ -41,7 +41,8 @@ VoodooTracker X currently has:
   temporary-file reload/header smoke tests through existing parser/render
   paths, plus a reusable `Window > Instrument Editor` shell bound to the
   current palette and selected instrument/sample, with represented instrument
-  NAME editing for stopped editable documents only, plus a capped
+  NAME editing for stopped editable documents only and exact XM sample panning
+  shown read-only, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
   instrument rename
 
@@ -93,7 +94,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recommended next PR:
-`instrument: add sample panning model round-trip foundation`.
+`instrument: add panning envelope model round-trip foundation`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -107,7 +108,8 @@ Recommended next PR:
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
-7. Instrument NAME editing is done; next add sample panning model round-trip support.
+7. Instrument NAME editing and sample panning model round-trip support are done;
+   next add the runtime-inert panning envelope model round-trip foundation.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -670,10 +672,13 @@ Implemented foundation:
   selection; only the represented instrument NAME field is editable in stopped
   editable documents, with future sample/import/envelope/keymap/audition
   controls inert
+- exact XM sample panning byte representation, loaded/editable-copy/snapshot/
+  Export XM preservation, and disabled Instrument Editor PAN display; runtime
+  playback and render output remain unchanged
 
 Remaining VTX 1.0 scope:
 
-- sample panning, panning-envelope, autovibrato, and broader instrument
+- panning-envelope, autovibrato, and broader instrument
   metadata/editing foundations behind applyEdit
 - sample editor foundation
 - WAV/AIFF sample import

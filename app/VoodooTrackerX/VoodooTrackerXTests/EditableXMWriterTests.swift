@@ -205,6 +205,43 @@ final class EditableXMWriterTests: XCTestCase {
         )
     }
 
+    func testSampleHeaderEmitsExactPanningBytesWithoutChangingOtherHeaderFields() throws {
+        for panning in [UInt8(0), 128, 255, 37] {
+            let sample = makeXMSourceSample(
+                name: "Panned",
+                pcm: [0, 0.5, -0.5, 0.25],
+                volume: 0.5,
+                panning: panning,
+                relativeNote: -2,
+                finetune: 7,
+                loopStart: 1,
+                loopLength: 2,
+                loopType: 2
+            )
+            let document = makeDocument(
+                orderTable: [0],
+                patterns: [BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 1, channels: 1)],
+                instrumentPalette: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+
+            let data = try EditableXMWriter().data(from: document)
+            let patternHeader = data.patternHeader(at: 336)
+            let instrument = data.instrumentHeader(at: patternHeader.nextOffset)
+            let sampleHeader = data.sampleHeader(at: instrument.sampleHeaderOffset)
+
+            XCTAssertEqual(sampleHeader.panning, panning)
+            XCTAssertEqual(sampleHeader.lengthBytes, 4)
+            XCTAssertEqual(sampleHeader.loopStartBytes, 1)
+            XCTAssertEqual(sampleHeader.loopLengthBytes, 2)
+            XCTAssertEqual(sampleHeader.volume, 32)
+            XCTAssertEqual(sampleHeader.finetune, UInt8(bitPattern: Int8(7)))
+            XCTAssertEqual(sampleHeader.type, 0x02)
+            XCTAssertEqual(sampleHeader.relativeNote, UInt8(bitPattern: Int8(-2)))
+            XCTAssertEqual(sampleHeader.name, "Panned")
+            XCTAssertEqual(Array(data.subdata(in: instrument.sampleDataOffset..<instrument.nextOffset)), [0, 64, 128, 96])
+        }
+    }
+
     func testDeltaEncodingHelperWritesExact8BitAnd16BitPayloads() {
         XCTAssertEqual(
             XMSampleDeltaEncoder.deltaEncodedSignedPCM(pcm: [0, 0.5, -0.5, 0.25], bitDepthBits: 8),
@@ -476,6 +513,7 @@ final class EditableXMWriterTests: XCTestCase {
         name: String? = nil,
         pcm: [Float],
         volume: Float = 1,
+        panning: UInt8 = 128,
         relativeNote: Int = 0,
         finetune: Int = 0,
         loopStart: Int = 0,
@@ -489,6 +527,7 @@ final class EditableXMWriterTests: XCTestCase {
             name: name,
             pcm: pcm,
             volume: volume,
+            panning: panning,
             relativeNote: relativeNote,
             finetune: finetune,
             baseSampleRate: 8_363,

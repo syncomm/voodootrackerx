@@ -6,7 +6,8 @@
 **Reference:** FastTracker II instrument editor, reinterpreted in VTX's tactile language.
 **Status:** The fixed-size v1-mockup shell binds to document/selection state. Represented instrument
 NAME is editable only in stopped editable documents and routes through applyEdit/whole-snapshot
-undo. Loaded modules, playing documents, and every other control remain read-only. Sample/XI,
+undo. The selected represented sample's exact XM panning byte is shown on the disabled PAN surface.
+Loaded modules, playing documents, and every other control remain read-only. Sample/XI,
 envelope/keymap, waveform, and audition work remains future scope; playback, parser architecture,
 broad writer/export behavior, tracker viewport, and audio backend behavior are unchanged.
 
@@ -18,12 +19,14 @@ See `docs/design/editor-window-design-overview.md` and `docs/design/editor-contr
 left instrument/sample lists, center envelope panel, right vibrato/defaults panels, and bottom note
 keymap hierarchy. It follows the current loaded module, editable document, or editable copy plus the
 main control-panel instrument and sample selection. The shell shows represented instrument
-number/name/sample count, sample slot/name/length/loop mode and range/volume/relative note/finetune,
+number/name/sample count, sample slot/name/length/loop mode and range/volume/panning/relative
+note/finetune,
 an immutable volume-envelope preview, and represented note-to-sample ranges. Missing data has an
 explicit empty state. NAME is inline-editable only for represented instruments in stopped editable
 documents; it uses XM's 22-byte constraint and one labeled `Rename Instrument` undo step. Undo/redo
-refresh this window and the main control panel. Sample, panning/vibrato, XI, keymap, and audition
-controls remain disabled/inert, including loaded-module NAME.
+refresh this window and the main control panel. The represented sample panning value is display-only
+and runtime-inert. Sample mutation, panning-envelope/vibrato, XI, keymap, and audition controls
+remain disabled/inert, including loaded-module NAME.
 
 ---
 
@@ -175,13 +178,15 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 1. Done: v1-mockup window shell + menu command + read-only instrument/sample-slot,
    volume-envelope-preview, and note-map-range binding.
 2. Done: add the document applyEdit/undo funnel required before mutation.
-3. Done: represented instrument NAME editing. Next: sample panning model round-trip foundation.
-4. Complete any shared editing-control primitives still needed for later mutation.
-5. Envelope editing (points, sustain, loop, add/del) wired.
-6. VOL/PAN switch + panning envelope.
-7. Vibrato + defaults clusters wired.
-8. Note-keymap audition through the isolated preview path.
-9. Keymap drag-to-assign-range.
+3. Done: represented instrument NAME editing.
+4. Done: sample panning model/load/editable-copy/Export XM round-trip plus read-only PAN display.
+5. Next: panning envelope model round-trip foundation; keep it runtime-inert.
+6. Complete any shared editing-control primitives still needed for later mutation.
+7. Envelope editing (points, sustain, loop, add/del) wired.
+8. VOL/PAN switch + panning envelope.
+9. Vibrato + defaults clusters wired.
+10. Note-keymap audition through the isolated preview path.
+11. Keymap drag-to-assign-range.
 
 ---
 
@@ -190,8 +195,10 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 For the implemented slice, verify empty/default, loaded-module, editable-copy, playing, and
 selection-change states; confirm one window is reused; confirm only NAME is editable in a stopped
 editable document; and confirm edit/undo/redo refresh both the window and control panel. Export a
-supported represented instrument to a temporary XM and reload its name. Use public-safe fixtures
-only and keep screenshots/exports local and untracked.
+supported represented instrument to a temporary XM and reload its name. For sample panning, confirm
+a non-center value displays exactly in loaded and editable-copy states, PAN stays disabled, and the
+value survives Export XM/reopen. Use public-safe fixtures only and keep screenshots/exports local
+and untracked.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

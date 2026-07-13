@@ -39,7 +39,11 @@ preview, and note-map ranges. Its NAME field is the first editable metadata
 slice: a represented instrument can be renamed only in a stopped editable
 document or editable copy, with XM-compatible sanitization and labeled
 whole-document `applyEdit` undo/redo. Loaded modules, playing documents, and
-all other Instrument Editor controls remain read-only/inert. It does not add
+all other Instrument Editor controls remain read-only/inert. XM sample-header
+panning is represented as its exact `0...255` byte, preserved through loaded
+state, editable copies, snapshots, and Export XM, and shown for the selected
+sample on the disabled PAN control. Sample panning remains runtime-inert and
+does not change adapter plans, voice pan, or render output. It does not add
 sample mutation, XI behavior, envelope/keymap editing, audition changes, or
 waveform display. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
@@ -205,6 +209,12 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
+- `PlaybackSample` now represents the exact XM sample-header panning byte with
+  center (`128`) as the generated/default value. The Swift loader and
+  `EditableXMWriter` preserve it through loaded modules, editable copies,
+  snapshots, undo/redo, and Export XM; the Instrument Editor displays it on
+  its disabled PAN surface. Playback scheduling, voice pan, render PCM, C
+  mixer DSP, parser architecture, and loaded-module read-only rules are unchanged.
 - `EditableDocumentEditCoordinator` now applies labeled whole-document value
   snapshots with a 20-level `UndoManager`, refreshes the existing tracker,
   control-panel, Song / Order, and Instrument Editor state paths, and rejects

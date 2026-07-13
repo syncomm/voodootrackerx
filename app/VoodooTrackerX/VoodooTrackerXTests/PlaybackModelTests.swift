@@ -111,6 +111,24 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertEqual(song.instrumentsByIndex[1]?.firstPlayableSample?.name, "BOUNDARY64")
     }
 
+    func testPlaybackSongBuilderLoadsExactNonCenterSamplePanningByte() throws {
+        let fixtureURL = try temporaryBasicInstrumentFixture(samplePanning: 37)
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        XCTAssertEqual(song.instrumentsByIndex[1]?.samples.first?.panning, 37)
+    }
+
+    func testPlaybackSongBuilderLoadsCenterSamplePanningByte() throws {
+        let fixtureURL = try temporaryBasicInstrumentFixture(samplePanning: 128)
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+
+        XCTAssertEqual(song.instrumentsByIndex[1]?.samples.first?.panning, 128)
+    }
+
     func testIsolatedPatternLoopSongAnchorsDisplayedPatternAtSelectedOrderWithoutMutatingSourceSong() throws {
         let sourceSong = makePlaybackSong(
             orderPatternIndices: [3, 7],
@@ -500,6 +518,66 @@ final class PlaybackModelTests: XCTestCase {
         XCTAssertNil(song.sample(forInstrument: 2))
     }
 
+    func testPlaybackSampleDefaultsToXMCenterPanning() {
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            pcm: [0.25],
+            volume: 1,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363
+        )
+
+        XCTAssertEqual(sample.panning, 128)
+    }
+
+    func testPlaybackSamplePreservesLeftCenterRightAndIntermediatePanning() {
+        for panning in [UInt8(0), 128, 255, 37] {
+            let sample = PlaybackSample(
+                instrumentIndex: 1,
+                sampleIndex: 0,
+                pcm: [0.25],
+                volume: 1,
+                panning: panning,
+                relativeNote: 0,
+                finetune: 0,
+                baseSampleRate: 8_363
+            )
+
+            XCTAssertEqual(sample.panning, panning)
+        }
+    }
+
+    func testPlaybackSampleAndInstrumentCopyHelpersPreservePanning() throws {
+        let original = PlaybackSample(
+            instrumentIndex: 3,
+            sampleIndex: 2,
+            name: "Source",
+            pcm: [0, 0.5, -0.5],
+            volume: 0.75,
+            panning: 37,
+            relativeNote: -2,
+            finetune: 7,
+            baseSampleRate: 8_363,
+            sampleLength: 3,
+            loopStart: 1,
+            loopLength: 2,
+            loopType: 1,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+
+        let changed = original.withPanning(201)
+        let renamedInstrument = PlaybackInstrument(index: 3, name: "Before", samples: [original])
+            .withName("After")
+
+        XCTAssertEqual(changed.panning, 201)
+        XCTAssertEqual(changed.withPanning(37), original)
+        XCTAssertEqual(try XCTUnwrap(renamedInstrument.samples.first).panning, 37)
+    }
+
     func testPlaybackInstrumentMapsOneBasedSampleSlotsToStoredSampleIndices() {
         let first = PlaybackSample(instrumentIndex: 1, sampleIndex: 0, pcm: [1], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
         let third = PlaybackSample(instrumentIndex: 1, sampleIndex: 2, pcm: [0.25], volume: 1, relativeNote: 0, finetune: 0, baseSampleRate: 8_363)
@@ -798,6 +876,42 @@ final class PlaybackModelTests: XCTestCase {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw XCTSkip("Missing reference XM fixture \(relativePath)")
         }
+        return url
+    }
+
+    private func temporaryBasicInstrumentFixture(samplePanning: UInt8) throws -> URL {
+        let sourceURL = try referenceXMFixtureURL("generated/basic-instrument-sample.xm")
+        var data = try Data(contentsOf: sourceURL)
+
+        func le16(at offset: Int) -> Int {
+            Int(data[offset]) | (Int(data[offset + 1]) << 8)
+        }
+        func le32(at offset: Int) -> Int {
+            Int(data[offset]) |
+                (Int(data[offset + 1]) << 8) |
+                (Int(data[offset + 2]) << 16) |
+                (Int(data[offset + 3]) << 24)
+        }
+
+        var offset = 60 + le32(at: 60)
+        for _ in 0..<le16(at: 70) {
+            let patternHeaderLength = le32(at: offset)
+            let packedSize = le16(at: offset + 7)
+            offset += patternHeaderLength + packedSize
+        }
+        let instrumentHeaderLength = le32(at: offset)
+        let sampleHeaderOffset = offset + instrumentHeaderLength
+        XCTAssertGreaterThanOrEqual(data.count, sampleHeaderOffset + 40)
+        data[sampleHeaderOffset + 15] = samplePanning
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vtx-sample-panning-loader-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let url = directory.appendingPathComponent("sample-panning.xm")
+        try data.write(to: url, options: .atomic)
         return url
     }
 }

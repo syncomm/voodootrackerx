@@ -109,6 +109,49 @@ final class PlaybackSongAdapterTests: XCTestCase {
         XCTAssertTrue(mapping.pitchMappingUsedNeutralStep)
     }
 
+    func testSampleHeaderPanningIsRuntimeInertForAdapterPlansVoicePanAndPCM() throws {
+        func song(samplePanning: UInt8) -> PlaybackSong {
+            let sample = makePlaybackSample(
+                pcm: [0, 1, 0.5, -0.5],
+                volume: 1,
+                panning: samplePanning,
+                baseSampleRate: 100
+            )
+            return makePlaybackSong(
+                orderPatternIndices: [2],
+                patternRowsByIndex: [2: [makePlaybackRow(index: 0, note: 49, instrument: 1)]],
+                instrumentsByIndex: [1: PlaybackInstrument(index: 1, samples: [sample])]
+            )
+        }
+
+        let leftSong = song(samplePanning: 0)
+        let rightSong = song(samplePanning: 255)
+        let leftAdapterPlan = PlaybackSongSyntheticAdapter.adapt(leftSong, orderIndex: 0, sampleRate: 100)
+        let rightAdapterPlan = PlaybackSongSyntheticAdapter.adapt(rightSong, orderIndex: 0, sampleRate: 100)
+        let leftRuntimePlan = RuntimeCMixerAdapterEventPlan.make(song: leftSong, sampleRate: 100)
+        let rightRuntimePlan = RuntimeCMixerAdapterEventPlan.make(song: rightSong, sampleRate: 100)
+        let config = MixerRenderConfig(sampleRate: 100, channelCount: 2)
+        let renderer = PlaybackSongOfflineRenderer()
+        let leftRender = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: leftSong,
+            orderIndex: 0,
+            config: config,
+            frames: 6
+        ))
+        let rightRender = renderer.render(PlaybackSongOfflineRenderRequest(
+            song: rightSong,
+            orderIndex: 0,
+            config: config,
+            frames: 6
+        ))
+
+        XCTAssertEqual(leftAdapterPlan, rightAdapterPlan)
+        XCTAssertEqual(try XCTUnwrap(leftAdapterPlan.pattern.events.first).pan, 0)
+        XCTAssertEqual(try XCTUnwrap(rightAdapterPlan.pattern.events.first).pan, 0)
+        XCTAssertEqual(leftRuntimePlan, rightRuntimePlan)
+        XCTAssertEqual(leftRender.block.interleavedPCM.map(\.bitPattern), rightRender.block.interleavedPCM.map(\.bitPattern))
+    }
+
     func testPlaybackSongSyntheticAdapterMapsPingPongLoopMetadata() throws {
         let sample = makePlaybackSample(pcm: [0, 1, 2, 3, 4], loopStart: 1, loopLength: 3, loopType: 2)
         let song = makePlaybackSong(

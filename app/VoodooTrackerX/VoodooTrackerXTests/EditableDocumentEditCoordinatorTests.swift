@@ -94,6 +94,21 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.appliedDocuments.count, 1)
     }
 
+    func testWholeDocumentUndoRedoSnapshotsPreserveExactSamplePanning() {
+        let before = documentWithInstrumentName("Snapshot", panning: 17)
+        let after = documentWithInstrumentName("Snapshot", panning: 241)
+        let harness = EditHarness(context: .editable(document: before, isPlaybackActive: false))
+
+        XCTAssertTrue(harness.coordinator.applyEdit(label: "Snapshot Test", updatedDocument: after))
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 241)
+
+        XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 17)
+
+        XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 241)
+    }
+
     func testLoadedReadOnlyContextCannotRenameInstrumentOrMutateSourceMetadata() {
         let sourceMetadata = PlaybackInstrument(
             index: 1,
@@ -144,13 +159,14 @@ private func containsURL(in value: Any, remainingDepth: Int = 16) -> Bool {
     }
 }
 
-private func documentWithInstrumentName(_ name: String) -> BlankTrackerDocument {
+private func documentWithInstrumentName(_ name: String, panning: UInt8 = 128) -> BlankTrackerDocument {
     let base = BlankTrackerDocument.makeDefault()
     let sample = PlaybackSample(
         instrumentIndex: 1,
         sampleIndex: 0,
         pcm: [0, 0.5, -0.5],
         volume: 1,
+        panning: panning,
         relativeNote: 0,
         finetune: 0,
         baseSampleRate: 8_363

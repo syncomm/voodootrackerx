@@ -9,11 +9,16 @@ struct PlaybackCell: Equatable {
 }
 
 struct PlaybackSample: Equatable {
+    /// XM sample-header center/default panning byte.
+    static let xmCenterPanning: UInt8 = 128
+
     let instrumentIndex: Int
     let sampleIndex: Int
     let name: String?
     let pcm: [Float]
     let volume: Float
+    /// Raw XM sample-header panning byte: 0 left, 128 center, and 255 right.
+    let panning: UInt8
     let relativeNote: Int
     let finetune: Int
     let baseSampleRate: Double
@@ -31,6 +36,7 @@ struct PlaybackSample: Equatable {
         name: String? = nil,
         pcm: [Float],
         volume: Float,
+        panning: UInt8 = PlaybackSample.xmCenterPanning,
         relativeNote: Int,
         finetune: Int,
         baseSampleRate: Double,
@@ -47,6 +53,7 @@ struct PlaybackSample: Equatable {
         self.name = name
         self.pcm = pcm
         self.volume = volume
+        self.panning = panning
         self.relativeNote = relativeNote
         self.finetune = finetune
         self.baseSampleRate = baseSampleRate
@@ -57,6 +64,27 @@ struct PlaybackSample: Equatable {
         self.sourceBitDepthBits = sourceBitDepthBits
         self.sourceIsSignedPCM = sourceIsSignedPCM
         self.sourceIsDeltaEncoded = sourceIsDeltaEncoded
+    }
+
+    func withPanning(_ panning: UInt8) -> PlaybackSample {
+        PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            name: name,
+            pcm: pcm,
+            volume: volume,
+            panning: panning,
+            relativeNote: relativeNote,
+            finetune: finetune,
+            baseSampleRate: baseSampleRate,
+            sampleLength: sampleLength,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType,
+            sourceBitDepthBits: sourceBitDepthBits,
+            sourceIsSignedPCM: sourceIsSignedPCM,
+            sourceIsDeltaEncoded: sourceIsDeltaEncoded
+        )
     }
 
     var isPlayable: Bool {

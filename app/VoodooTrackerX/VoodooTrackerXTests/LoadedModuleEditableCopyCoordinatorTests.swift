@@ -131,6 +131,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             name: "Tiny",
             pcm: [0, 0.5, -0.5, 0.25],
             volume: 0.5,
+            panning: 37,
             relativeNote: -1,
             finetune: 2,
             baseSampleRate: 8_363,
@@ -181,6 +182,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertEqual(copiedSample.name, "Tiny")
         XCTAssertEqual(copiedSample.pcm, [0, 0.5, -0.5, 0.25])
         XCTAssertEqual(copiedSample.volume, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(copiedSample.panning, 37)
         XCTAssertEqual(copiedSample.relativeNote, -1)
         XCTAssertEqual(copiedSample.finetune, 2)
     }
@@ -223,6 +225,45 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }
 
+    @MainActor
+    func testNonCenterSamplePanningSurvivesLoadedCopyExportAndReopenRoundTrip() throws {
+        let sourceURL = try temporaryDestination(filename: "sample-panning-source.xm")
+        let sourceData = try EditableXMWriter().data(from: samplePanningSourceDocument(panning: 37))
+        try sourceData.write(to: sourceURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+
+        XCTAssertEqual(context.kind, .loadedReadOnly)
+        XCTAssertEqual(loadedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected generated public-safe XM to become an editable copy")
+        }
+        XCTAssertEqual(document.instrumentPalette[1]?.samples.first?.panning, 37)
+
+        let destination = try temporaryDestination(filename: "sample-panning-export.xm")
+        let result = ExportXMCoordinator(
+            destinationProvider: FakeEditableCopyExportXMDestinationProvider(destination: destination)
+        ).beginExport(context: .editable(
+            document: document,
+            displayName: document.title,
+            isPlaybackActive: false
+        ))
+        XCTAssertEqual(result, .exported(destination: destination))
+
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+        XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
+    }
+
     private func supportedLoadedContext(isPlaybackActive: Bool) -> LoadedModuleEditableCopyContext {
         let pattern = pattern(
             index: 0,
@@ -247,6 +288,46 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             selection: .default,
             currentPatternIndex: 0,
             isPlaybackActive: isPlaybackActive
+        )
+    }
+
+    private func samplePanningSourceDocument(panning: UInt8) -> BlankTrackerDocument {
+        var pattern = BlankTrackerDocument.makeEmptyPattern(index: 0, rowCount: 4, channels: 1)
+        pattern.rows[0][0] = XMPatternEventCell(
+            note: 49,
+            instrument: 1,
+            volumeColumn: 0,
+            effectType: 0,
+            effectParam: 0
+        )
+        let sample = PlaybackSample(
+            instrumentIndex: 1,
+            sampleIndex: 0,
+            name: "Panning Sample",
+            pcm: [0, 0.5, -0.5, 0.25],
+            volume: 1,
+            panning: panning,
+            relativeNote: 0,
+            finetune: 0,
+            baseSampleRate: 8_363,
+            sourceBitDepthBits: 8,
+            sourceIsSignedPCM: true,
+            sourceIsDeltaEncoded: true
+        )
+        return BlankTrackerDocument(
+            title: "Panning Source",
+            songLength: 1,
+            currentPosition: 0,
+            restartPosition: 0,
+            currentPatternIndex: 0,
+            tempo: 125,
+            speed: 6,
+            orderTable: [0],
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            instrumentPalette: [
+                1: PlaybackInstrument(index: 1, name: "Panning Instrument", samples: [sample])
+            ],
+            patterns: [pattern]
         )
     }
 
@@ -298,6 +379,9 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vtx-editable-copy-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
         return directory.appendingPathComponent(filename)
     }
 

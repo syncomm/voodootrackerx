@@ -147,8 +147,49 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(sample.loopModeDisplay, "Ping-pong")
         XCTAssertEqual(sample.loopRangeDisplay, "128..<384")
         XCTAssertEqual(sample.volumeDisplay, "48 / 64")
+        XCTAssertEqual(sample.panning, 32)
+        XCTAssertEqual(sample.panningDisplay, "32 / 255")
+        XCTAssertEqual(sample.panSliderValue, -0.75, accuracy: 0.000_001)
         XCTAssertEqual(sample.relativeNoteDisplay, "+2")
         XCTAssertEqual(sample.finetuneDisplay, "-8")
+    }
+
+    func testLoadedAndEditableDocumentsDisplayRepresentedSamplePanningReadOnly() throws {
+        let palette = makeInstrumentPalette()
+        let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        let loaded = InstrumentEditorDisplayState.loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: selection
+        )
+        let editable = InstrumentEditorDisplayState.editableDocument(makeEditableDocument(palette: palette))
+
+        XCTAssertEqual(try XCTUnwrap(loaded.selectedSample).panning, 32)
+        XCTAssertEqual(try XCTUnwrap(editable.selectedSample).panning, 32)
+        XCTAssertEqual(loaded.selectedSample?.panningDisplay, "32 / 255")
+        XCTAssertEqual(editable.selectedSample?.panningDisplay, "32 / 255")
+
+        for state in [loaded, editable] {
+            let controller = InstrumentEditorWindowController(displayState: state)
+            let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+            let pan = try XCTUnwrap(descendants.compactMap { $0 as? VTXEditorPanSliderControl }.first)
+            XCTAssertFalse(pan.isEnabled)
+            XCTAssertNil(pan.target)
+            XCTAssertNil(pan.action)
+            XCTAssertEqual(pan.value, -0.75, accuracy: 0.000_001)
+            XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("32 / 255"))
+        }
+    }
+
+    func testEmptySampleStateKeepsPanDisplayCleanAndInert() throws {
+        let controller = InstrumentEditorWindowController(displayState: .editableDocument(.makeDefault()))
+        let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
+        let pan = try XCTUnwrap(descendants.compactMap { $0 as? VTXEditorPanSliderControl }.first)
+
+        XCTAssertFalse(pan.isEnabled)
+        XCTAssertNil(pan.target)
+        XCTAssertNil(pan.action)
+        XCTAssertEqual(pan.value, 0)
+        XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("— NO SAMPLE"))
     }
 
     func testDisplayStateConstructionDoesNotMutateEditableDocumentOrPalette() {
@@ -350,6 +391,7 @@ private func makeInstrumentPalette() -> [Int: PlaybackInstrument] {
                 name: "Lead Bright",
                 length: 1024,
                 volume: 0.75,
+                panning: 32,
                 relativeNote: 2,
                 finetune: -8,
                 loopStart: 128,
@@ -381,6 +423,7 @@ private func makeInstrumentEditorSample(
     name: String,
     length: Int = 4,
     volume: Float = 1,
+    panning: UInt8 = 128,
     relativeNote: Int = 0,
     finetune: Int = 0,
     loopStart: Int = 0,
@@ -393,6 +436,7 @@ private func makeInstrumentEditorSample(
         name: name,
         pcm: Array(repeating: 0.25, count: length),
         volume: volume,
+        panning: panning,
         relativeNote: relativeNote,
         finetune: finetune,
         baseSampleRate: 8_363,

@@ -61,7 +61,6 @@ struct EditableXMWriter {
     private static let maxXMPatternRows = 256
     private static let maxXMInstruments = 255
     private static let maxXMSamplesPerInstrument = 16
-    private static let xmCenterPanning: UInt8 = 128
 
     func data(from document: BlankTrackerDocument) throws -> Data {
         let orderTable = effectiveOrderTable(for: document)
@@ -367,7 +366,7 @@ struct EditableXMWriter {
             volume: clampedXMVolume(sample.volume),
             finetune: clampedSignedByte(sample.finetune),
             type: sampleType(loopType: sample.loopType, bitDepth: bitDepth),
-            panning: Self.xmCenterPanning,
+            panning: sample.panning,
             relativeNote: clampedSignedByte(sample.relativeNote),
             payload: payload
         )

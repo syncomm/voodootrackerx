@@ -46,7 +46,11 @@ sample on the disabled PAN control. Sample panning remains runtime-inert and
 does not change adapter plans, voice pan, or render output. XM instrument
 autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
 copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
-runtime/audition-inert. Neither slice adds sample/vibrato mutation, XI behavior,
+runtime/audition-inert. XM instrument panning-envelope points, counts, sustain/
+loop indices, and supported flags are now preserved through the same loaded,
+editable-copy, snapshot, and Export XM paths. They remain runtime-inert and are
+not yet exposed by the volume-only Instrument Editor envelope preview. These
+metadata slices add no sample/envelope/vibrato mutation, XI behavior,
 envelope/keymap editing, or waveform display. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
@@ -217,8 +221,12 @@ Recently completed narrow targets:
   snapshots, undo/redo, and Export XM; the Instrument Editor displays it on
   its disabled PAN surface. `PlaybackInstrumentAutoVibrato` now provides the
   same exact preservation for the four XM autovibrato bytes and read-only
-  VIBRATO display. Playback/audition behavior, scheduling, render PCM, C mixer
-  DSP, parser architecture, and loaded-module read-only rules are unchanged.
+  VIBRATO display. `PlaybackPanningEnvelope` preserves up to 12 XM panning-
+  envelope points plus count, sustain/loop indices, and supported type flags
+  through the same value paths and writer, while the Instrument Editor remains
+  volume-envelope-only. Playback/audition behavior, scheduling, render PCM, C
+  mixer DSP, parser architecture, and loaded-module read-only rules are
+  unchanged.
 - `EditableDocumentEditCoordinator` now applies labeled whole-document value
   snapshots with a 20-level `UndoManager`, refreshes the existing tracker,
   control-panel, Song / Order, and Instrument Editor state paths, and rejects

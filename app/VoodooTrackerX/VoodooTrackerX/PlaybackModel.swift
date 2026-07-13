@@ -191,6 +191,57 @@ struct PlaybackVolumeEnvelope: Equatable {
     }
 }
 
+/// Exact supported XM instrument panning-envelope fields. Playback intentionally ignores this foundation value.
+struct PlaybackPanningEnvelope: Equatable {
+    static let disabled = PlaybackPanningEnvelope(
+        enabled: false,
+        points: [],
+        sustainPointIndex: nil,
+        loopStartPointIndex: nil,
+        loopEndPointIndex: nil,
+        typeFlags: 0
+    )
+
+    let enabled: Bool
+    let points: [PlaybackEnvelopePoint]
+    let sustainPointIndex: Int?
+    let loopStartPointIndex: Int?
+    let loopEndPointIndex: Int?
+    let typeFlags: UInt8
+
+    var sustainEnabled: Bool {
+        (typeFlags & 0x02) != 0 && sustainPoint != nil
+    }
+
+    var loopEnabled: Bool {
+        (typeFlags & 0x04) != 0 && loopStartPoint != nil && loopEndPoint != nil
+    }
+
+    var sustainPoint: PlaybackEnvelopePoint? {
+        guard let sustainPointIndex,
+              points.indices.contains(sustainPointIndex) else {
+            return nil
+        }
+        return points[sustainPointIndex]
+    }
+
+    var loopStartPoint: PlaybackEnvelopePoint? {
+        guard let loopStartPointIndex,
+              points.indices.contains(loopStartPointIndex) else {
+            return nil
+        }
+        return points[loopStartPointIndex]
+    }
+
+    var loopEndPoint: PlaybackEnvelopePoint? {
+        guard let loopEndPointIndex,
+              points.indices.contains(loopEndPointIndex) else {
+            return nil
+        }
+        return points[loopEndPointIndex]
+    }
+}
+
 /// Exact XM instrument-header autovibrato bytes. Playback intentionally ignores this foundation value.
 struct PlaybackInstrumentAutoVibrato: Equatable {
     static let disabled = PlaybackInstrumentAutoVibrato()
@@ -218,6 +269,7 @@ struct PlaybackInstrument: Equatable {
     let name: String?
     let samples: [PlaybackSample]
     let volumeEnvelope: PlaybackVolumeEnvelope
+    let panningEnvelope: PlaybackPanningEnvelope
     let autoVibrato: PlaybackInstrumentAutoVibrato
     let noteSampleMap: [Int]?
 
@@ -226,6 +278,7 @@ struct PlaybackInstrument: Equatable {
         name: String? = nil,
         samples: [PlaybackSample],
         volumeEnvelope: PlaybackVolumeEnvelope = .disabled,
+        panningEnvelope: PlaybackPanningEnvelope = .disabled,
         autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
         noteSampleMap: [Int]? = nil
     ) {
@@ -233,6 +286,7 @@ struct PlaybackInstrument: Equatable {
         self.name = name
         self.samples = samples
         self.volumeEnvelope = volumeEnvelope
+        self.panningEnvelope = panningEnvelope
         self.autoVibrato = autoVibrato
         self.noteSampleMap = noteSampleMap?.count == 96 ? noteSampleMap : nil
     }
@@ -255,6 +309,7 @@ struct PlaybackInstrument: Equatable {
             name: name,
             samples: samples,
             volumeEnvelope: volumeEnvelope,
+            panningEnvelope: panningEnvelope,
             autoVibrato: autoVibrato,
             noteSampleMap: noteSampleMap
         )

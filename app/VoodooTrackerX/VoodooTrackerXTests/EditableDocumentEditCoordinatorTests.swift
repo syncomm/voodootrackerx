@@ -109,7 +109,26 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 241)
     }
 
-    func testWholeDocumentUndoRedoSnapshotsPreserveExactInstrumentAutoVibratoAndAuditionBehavior() {
+    func testWholeDocumentUndoRedoSnapshotsPreserveExactInstrumentEnvelopeMetadataAndAuditionBehavior() {
+        let beforePanningEnvelope = PlaybackPanningEnvelope(
+            enabled: false,
+            points: [PlaybackEnvelopePoint(tick: 0, value: 32)],
+            sustainPointIndex: nil,
+            loopStartPointIndex: nil,
+            loopEndPointIndex: nil,
+            typeFlags: 0
+        )
+        let afterPanningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 32),
+                PlaybackEnvelopePoint(tick: 8, value: 48),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 1,
+            typeFlags: 0x07
+        )
         let beforeAutoVibrato = PlaybackInstrumentAutoVibrato(
             waveformType: 1,
             sweep: 2,
@@ -125,11 +144,13 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let before = documentWithInstrumentName(
             "Snapshot",
             panning: 37,
+            panningEnvelope: beforePanningEnvelope,
             autoVibrato: beforeAutoVibrato
         )
         let after = documentWithInstrumentName(
             "Snapshot",
             panning: 37,
+            panningEnvelope: afterPanningEnvelope,
             autoVibrato: afterAutoVibrato
         )
         let beforeAudition = before.noteAuditionAvailability
@@ -137,15 +158,18 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(after.noteAuditionAvailability, beforeAudition)
         XCTAssertTrue(harness.coordinator.applyEdit(label: "Snapshot Test", updatedDocument: after))
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.panningEnvelope, afterPanningEnvelope)
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, afterAutoVibrato)
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.samples.first?.panning, 37)
         XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
 
         XCTAssertTrue(harness.coordinator.undo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.panningEnvelope, beforePanningEnvelope)
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, beforeAutoVibrato)
         XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
 
         XCTAssertTrue(harness.coordinator.redo())
+        XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.panningEnvelope, afterPanningEnvelope)
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.autoVibrato, afterAutoVibrato)
         XCTAssertEqual(harness.editableDocument?.noteAuditionAvailability, beforeAudition)
     }
@@ -203,6 +227,7 @@ private func containsURL(in value: Any, remainingDepth: Int = 16) -> Bool {
 private func documentWithInstrumentName(
     _ name: String,
     panning: UInt8 = 128,
+    panningEnvelope: PlaybackPanningEnvelope = .disabled,
     autoVibrato: PlaybackInstrumentAutoVibrato = .disabled
 ) -> BlankTrackerDocument {
     let base = BlankTrackerDocument.makeDefault()
@@ -220,6 +245,7 @@ private func documentWithInstrumentName(
         index: 1,
         name: name,
         samples: [sample],
+        panningEnvelope: panningEnvelope,
         autoVibrato: autoVibrato
     )
     return BlankTrackerDocument(

@@ -129,6 +129,11 @@ enum PlaybackSongBuilder {
                 break
             }
             let volumeEnvelope = readVolumeEnvelope(data, instrumentOffset: offset, instrumentHeaderSize: instrumentHeaderSize)
+            let panningEnvelope = readPanningEnvelope(
+                data,
+                instrumentOffset: offset,
+                instrumentHeaderSize: instrumentHeaderSize
+            )
             let autoVibrato = readInstrumentAutoVibrato(
                 data,
                 instrumentOffset: offset,
@@ -189,6 +194,7 @@ enum PlaybackSongBuilder {
                 name: instrumentName,
                 samples: samples,
                 volumeEnvelope: volumeEnvelope,
+                panningEnvelope: panningEnvelope,
                 autoVibrato: autoVibrato,
                 noteSampleMap: noteSampleMap
             )
@@ -273,6 +279,49 @@ enum PlaybackSongBuilder {
             sweep: data[instrumentOffset + 236],
             depth: data[instrumentOffset + 237],
             rate: data[instrumentOffset + 238]
+        )
+    }
+
+    private static func readPanningEnvelope(
+        _ data: Data,
+        instrumentOffset: Int,
+        instrumentHeaderSize: Int
+    ) -> PlaybackPanningEnvelope {
+        let envelopePointOffset = instrumentOffset + 177
+        let minimumEnvelopeHeaderSize = 235
+        guard instrumentHeaderSize >= minimumEnvelopeHeaderSize,
+              instrumentOffset + minimumEnvelopeHeaderSize <= data.count,
+              instrumentOffset + instrumentHeaderSize <= data.count else {
+            return .disabled
+        }
+
+        let pointCount = min(12, Int(data[instrumentOffset + 226]))
+        var points = [PlaybackEnvelopePoint]()
+        points.reserveCapacity(pointCount)
+        for pointIndex in 0..<pointCount {
+            let pointOffset = envelopePointOffset + (pointIndex * 4)
+            guard pointOffset + 4 <= instrumentOffset + instrumentHeaderSize,
+                  pointOffset + 4 <= data.count else {
+                break
+            }
+            points.append(PlaybackEnvelopePoint(
+                tick: Int(readLE16(data, offset: pointOffset)),
+                value: Int(readLE16(data, offset: pointOffset + 2))
+            ))
+        }
+
+        let typeFlags = data[instrumentOffset + 234]
+        let sustainIndex = Int(data[instrumentOffset + 230])
+        let loopStartIndex = Int(data[instrumentOffset + 231])
+        let loopEndIndex = Int(data[instrumentOffset + 232])
+
+        return PlaybackPanningEnvelope(
+            enabled: (typeFlags & 0x01) != 0 && !points.isEmpty,
+            points: points,
+            sustainPointIndex: points.indices.contains(sustainIndex) ? sustainIndex : nil,
+            loopStartPointIndex: points.indices.contains(loopStartIndex) ? loopStartIndex : nil,
+            loopEndPointIndex: points.indices.contains(loopEndIndex) && loopEndIndex >= loopStartIndex ? loopEndIndex : nil,
+            typeFlags: typeFlags
         )
     }
 

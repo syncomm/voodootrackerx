@@ -127,7 +127,49 @@ final class PlaybackModelTests: XCTestCase {
         let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
 
         XCTAssertEqual(song.instrumentsByIndex[1]?.samples.first?.panning, 128)
+        XCTAssertEqual(song.instrumentsByIndex[1]?.panningEnvelope, .disabled)
         XCTAssertEqual(song.instrumentsByIndex[1]?.autoVibrato, .disabled)
+    }
+
+    func testPlaybackSongBuilderLoadsExactPanningEnvelopeWithNeighboringMetadata() throws {
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 32),
+                PlaybackEnvelopePoint(tick: 6, value: 48),
+                PlaybackEnvelopePoint(tick: 18, value: 16),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 2,
+            typeFlags: 0x07
+        )
+        let autoVibrato = PlaybackInstrumentAutoVibrato(
+            waveformType: 3,
+            sweep: 17,
+            depth: 42,
+            rate: 199
+        )
+        let fixtureURL = try temporaryBasicInstrumentFixture(
+            samplePanning: 37,
+            panningEnvelope: panningEnvelope,
+            autoVibrato: autoVibrato,
+            fadeout: 1_234
+        )
+        let metadata = try ModuleMetadataLoader().load(fromPath: fixtureURL.path)
+
+        let song = try PlaybackSongBuilder.build(from: metadata, modulePath: fixtureURL.path)
+        let instrument = try XCTUnwrap(song.instrumentsByIndex[1])
+        let sample = try XCTUnwrap(instrument.samples.first)
+
+        XCTAssertEqual(instrument.panningEnvelope, panningEnvelope)
+        XCTAssertTrue(instrument.panningEnvelope.sustainEnabled)
+        XCTAssertTrue(instrument.panningEnvelope.loopEnabled)
+        XCTAssertFalse(instrument.volumeEnvelope.enabled)
+        XCTAssertTrue(instrument.volumeEnvelope.points.isEmpty)
+        XCTAssertEqual(instrument.volumeEnvelope.fadeout, 1_234)
+        XCTAssertEqual(instrument.autoVibrato, autoVibrato)
+        XCTAssertEqual(sample.panning, 37)
     }
 
     func testPlaybackSongBuilderLoadsExactInstrumentAutoVibratoBytesWithNeighboringMetadata() throws {
@@ -609,6 +651,11 @@ final class PlaybackModelTests: XCTestCase {
     func testPlaybackInstrumentAutoVibratoDefaultsToDisabledZeroBytes() {
         let instrument = PlaybackInstrument(index: 1, samples: [])
 
+        XCTAssertEqual(instrument.panningEnvelope, .disabled)
+        XCTAssertFalse(instrument.panningEnvelope.enabled)
+        XCTAssertTrue(instrument.panningEnvelope.points.isEmpty)
+        XCTAssertFalse(instrument.panningEnvelope.sustainEnabled)
+        XCTAssertFalse(instrument.panningEnvelope.loopEnabled)
         XCTAssertEqual(instrument.autoVibrato, .disabled)
         XCTAssertEqual(instrument.autoVibrato.waveformType, 0)
         XCTAssertEqual(instrument.autoVibrato.sweep, 0)
@@ -642,11 +689,23 @@ final class PlaybackModelTests: XCTestCase {
             depth: 128,
             rate: 254
         )
+        let panningEnvelope = PlaybackPanningEnvelope(
+            enabled: true,
+            points: [
+                PlaybackEnvelopePoint(tick: 0, value: 32),
+                PlaybackEnvelopePoint(tick: 9, value: 48),
+            ],
+            sustainPointIndex: 1,
+            loopStartPointIndex: 0,
+            loopEndPointIndex: 1,
+            typeFlags: 0x07
+        )
         let instrument = PlaybackInstrument(
             index: 3,
             name: "Before",
             samples: [sample],
             volumeEnvelope: envelope,
+            panningEnvelope: panningEnvelope,
             autoVibrato: autoVibrato,
             noteSampleMap: Array(repeating: 0, count: 96)
         )
@@ -655,6 +714,9 @@ final class PlaybackModelTests: XCTestCase {
 
         XCTAssertEqual(renamed.autoVibrato, autoVibrato)
         XCTAssertEqual(renamed.volumeEnvelope, envelope)
+        XCTAssertEqual(renamed.panningEnvelope, panningEnvelope)
+        XCTAssertTrue(renamed.panningEnvelope.sustainEnabled)
+        XCTAssertTrue(renamed.panningEnvelope.loopEnabled)
         XCTAssertEqual(try XCTUnwrap(renamed.samples.first).panning, 37)
         XCTAssertEqual(renamed.noteSampleMap, Array(repeating: 0, count: 96))
     }
@@ -962,6 +1024,7 @@ final class PlaybackModelTests: XCTestCase {
 
     private func temporaryBasicInstrumentFixture(
         samplePanning: UInt8,
+        panningEnvelope: PlaybackPanningEnvelope = .disabled,
         autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
         fadeout: UInt16 = 0
     ) throws -> URL {
@@ -987,6 +1050,19 @@ final class PlaybackModelTests: XCTestCase {
         let instrumentOffset = offset
         let instrumentHeaderLength = le32(at: instrumentOffset)
         XCTAssertGreaterThanOrEqual(instrumentHeaderLength, 241)
+        XCTAssertLessThanOrEqual(panningEnvelope.points.count, 12)
+        for (pointIndex, point) in panningEnvelope.points.enumerated() {
+            let pointOffset = instrumentOffset + 177 + (pointIndex * 4)
+            data[pointOffset] = UInt8(point.tick & 0x00FF)
+            data[pointOffset + 1] = UInt8((point.tick >> 8) & 0x00FF)
+            data[pointOffset + 2] = UInt8(point.value & 0x00FF)
+            data[pointOffset + 3] = UInt8((point.value >> 8) & 0x00FF)
+        }
+        data[instrumentOffset + 226] = UInt8(panningEnvelope.points.count)
+        data[instrumentOffset + 230] = UInt8(panningEnvelope.sustainPointIndex ?? 0)
+        data[instrumentOffset + 231] = UInt8(panningEnvelope.loopStartPointIndex ?? 0)
+        data[instrumentOffset + 232] = UInt8(panningEnvelope.loopEndPointIndex ?? 0)
+        data[instrumentOffset + 234] = panningEnvelope.points.isEmpty ? 0 : panningEnvelope.typeFlags
         data[instrumentOffset + 235] = autoVibrato.waveformType
         data[instrumentOffset + 236] = autoVibrato.sweep
         data[instrumentOffset + 237] = autoVibrato.depth

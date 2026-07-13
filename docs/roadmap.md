@@ -407,8 +407,8 @@ Recommended next product PR:
   current editable-subset app file output, existing palette/sample payload
   export, public-safe writer/reload smoke tests, explicit loaded-module
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
-  document applyEdit/undo funnel, and sample panning model round-trip support
-  are in place. Continue with the panning envelope model round-trip foundation,
+  document applyEdit/undo funnel, plus sample-panning and autovibrato model
+  round-trip support are in place. Continue with the panning-envelope foundation,
   then palette/sample foundations in narrow slices.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
@@ -674,11 +674,13 @@ Current implemented foundation:
   editor/control-panel refresh paths
 - exact XM sample panning preservation through load, editable copy, snapshots,
   undo/redo, and Export XM, with read-only Instrument Editor display
+- exact XM instrument autovibrato preservation through the same paths, with
+  disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - basic transport smoke workflow
 
 Next composition targets after backend foundation freeze:
 
-- panning-envelope, autovibrato, and broader instrument metadata/editing behind
+- panning-envelope and broader instrument metadata/editing behind
   applyEdit
 - sample editor foundations behind applyEdit
 - editable palette/sample workflow foundations

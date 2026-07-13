@@ -191,11 +191,34 @@ struct PlaybackVolumeEnvelope: Equatable {
     }
 }
 
+/// Exact XM instrument-header autovibrato bytes. Playback intentionally ignores this foundation value.
+struct PlaybackInstrumentAutoVibrato: Equatable {
+    static let disabled = PlaybackInstrumentAutoVibrato()
+
+    let waveformType: UInt8
+    let sweep: UInt8
+    let depth: UInt8
+    let rate: UInt8
+
+    init(
+        waveformType: UInt8 = 0,
+        sweep: UInt8 = 0,
+        depth: UInt8 = 0,
+        rate: UInt8 = 0
+    ) {
+        self.waveformType = waveformType
+        self.sweep = sweep
+        self.depth = depth
+        self.rate = rate
+    }
+}
+
 struct PlaybackInstrument: Equatable {
     let index: Int
     let name: String?
     let samples: [PlaybackSample]
     let volumeEnvelope: PlaybackVolumeEnvelope
+    let autoVibrato: PlaybackInstrumentAutoVibrato
     let noteSampleMap: [Int]?
 
     init(
@@ -203,12 +226,14 @@ struct PlaybackInstrument: Equatable {
         name: String? = nil,
         samples: [PlaybackSample],
         volumeEnvelope: PlaybackVolumeEnvelope = .disabled,
+        autoVibrato: PlaybackInstrumentAutoVibrato = .disabled,
         noteSampleMap: [Int]? = nil
     ) {
         self.index = index
         self.name = name
         self.samples = samples
         self.volumeEnvelope = volumeEnvelope
+        self.autoVibrato = autoVibrato
         self.noteSampleMap = noteSampleMap?.count == 96 ? noteSampleMap : nil
     }
 
@@ -230,6 +255,7 @@ struct PlaybackInstrument: Equatable {
             name: name,
             samples: samples,
             volumeEnvelope: volumeEnvelope,
+            autoVibrato: autoVibrato,
             noteSampleMap: noteSampleMap
         )
     }

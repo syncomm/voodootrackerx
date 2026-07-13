@@ -7,8 +7,9 @@
 **Status:** The fixed-size v1-mockup shell binds to document/selection state. Represented instrument
 NAME is editable only in stopped editable documents and routes through applyEdit/whole-snapshot
 undo. The selected represented sample's exact XM panning byte is shown on the disabled PAN surface.
-Loaded modules, playing documents, and every other control remain read-only. Sample/XI,
-envelope/keymap, waveform, and audition work remains future scope; playback, parser architecture,
+Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
+playing documents, and every other control remain read-only. Sample/XI, envelope/keymap, waveform,
+autovibrato playback, and audition work remains future scope; parser architecture,
 broad writer/export behavior, tracker viewport, and audio backend behavior are unchanged.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
@@ -24,9 +25,9 @@ note/finetune,
 an immutable volume-envelope preview, and represented note-to-sample ranges. Missing data has an
 explicit empty state. NAME is inline-editable only for represented instruments in stopped editable
 documents; it uses XM's 22-byte constraint and one labeled `Rename Instrument` undo step. Undo/redo
-refresh this window and the main control panel. The represented sample panning value is display-only
-and runtime-inert. Sample mutation, panning-envelope/vibrato, XI, keymap, and audition controls
-remain disabled/inert, including loaded-module NAME.
+refresh this window and the main control panel. Represented sample panning and instrument
+autovibrato are display-only and runtime-inert. Their mutation, panning-envelope, XI, keymap, and
+audition controls remain disabled/inert, including loaded-module NAME.
 
 ---
 
@@ -180,7 +181,7 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 2. Done: add the document applyEdit/undo funnel required before mutation.
 3. Done: represented instrument NAME editing.
 4. Done: sample panning model/load/editable-copy/Export XM round-trip plus read-only PAN display.
-5. Next: panning envelope model round-trip foundation; keep it runtime-inert.
+5. Done: autovibrato round-trip plus read-only display; next add the runtime-inert panning envelope.
 6. Complete any shared editing-control primitives still needed for later mutation.
 7. Envelope editing (points, sustain, loop, add/del) wired.
 8. VOL/PAN switch + panning envelope.
@@ -197,8 +198,8 @@ selection-change states; confirm one window is reused; confirm only NAME is edit
 editable document; and confirm edit/undo/redo refresh both the window and control panel. Export a
 supported represented instrument to a temporary XM and reload its name. For sample panning, confirm
 a non-center value displays exactly in loaded and editable-copy states, PAN stays disabled, and the
-value survives Export XM/reopen. Use public-safe fixtures only and keep screenshots/exports local
-and untracked.
+value survives Export XM/reopen. Verify autovibrato likewise survives while VIBRATO remains disabled
+and playback/audition output is unchanged. Keep screenshots/exports local and untracked.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

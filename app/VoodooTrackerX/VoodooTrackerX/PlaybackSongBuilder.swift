@@ -166,6 +166,7 @@ enum PlaybackSongBuilder {
                     name: header.name,
                     pcm: pcm,
                     volume: min(1, Float(header.volume) / 64.0),
+                    panning: header.panning,
                     relativeNote: header.relativeNote,
                     finetune: header.finetune,
                     baseSampleRate: 8_363,
@@ -257,6 +258,7 @@ enum PlaybackSongBuilder {
         let volume: UInt8
         let finetune: Int
         let type: UInt8
+        let panning: UInt8
         let relativeNote: Int
         let name: String?
 
@@ -298,6 +300,7 @@ enum PlaybackSongBuilder {
             volume: data[offset + 12],
             finetune: Int(Int8(bitPattern: data[offset + 13])),
             type: data[offset + 14],
+            panning: data[offset + 15],
             relativeNote: Int(Int8(bitPattern: data[offset + 16])),
             name: readXMText(data, offset: offset + 18, length: 22)
         )

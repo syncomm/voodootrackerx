@@ -2702,6 +2702,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
             name: "Lead Sample",
             pcm: [0.25, -0.25, 0.125],
             volume: 0.75,
+            panning: 37,
             relativeNote: -1,
             finetune: 12,
             baseSampleRate: 8_363,
@@ -2755,6 +2756,7 @@ final class BlankTrackerDocumentTests: XCTestCase {
         ))
         XCTAssertEqual(song.instrumentsByIndex[2], instrument)
         XCTAssertEqual(song.instrumentsByIndex[2]?.sample(selectedSampleSlot: 1)?.pcm, sample.pcm)
+        XCTAssertEqual(song.instrumentsByIndex[2]?.sample(selectedSampleSlot: 1)?.panning, 37)
         XCTAssertTrue(song.instrumentsByIndex[2]?.sample(selectedSampleSlot: 1)?.isPlayable == true)
         XCTAssertTrue(song.usesLinearFrequencyTable)
     }

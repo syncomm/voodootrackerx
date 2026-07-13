@@ -59,6 +59,7 @@ struct InstrumentEditorDisplayState: Equatable {
         let loopStart: Int
         let loopLength: Int
         let volume: Float
+        let panning: UInt8
         let relativeNote: Int
         let finetune: Int
         let isSelected: Bool
@@ -85,6 +86,23 @@ struct InstrumentEditorDisplayState: Equatable {
             return Int((normalizedVolume * 64).rounded())
         }
         var volumeDisplay: String { "\(volumeLevel) / 64" }
+        var panningDisplay: String {
+            switch panning {
+            case 0: "0 · LEFT"
+            case PlaybackSample.xmCenterPanning: "128 · CENTER"
+            case 255: "255 · RIGHT"
+            default: "\(panning) / 255"
+            }
+        }
+        var panSliderValue: Double {
+            if panning == PlaybackSample.xmCenterPanning {
+                return 0
+            }
+            if panning < PlaybackSample.xmCenterPanning {
+                return Double(Int(panning) - 128) / 128.0
+            }
+            return Double(Int(panning) - 128) / 127.0
+        }
         var relativeNoteDisplay: String { Self.signed(relativeNote) }
         var finetuneDisplay: String { Self.signed(finetune) }
 
@@ -96,6 +114,7 @@ struct InstrumentEditorDisplayState: Equatable {
             loopStart = sample.loopStart
             loopLength = sample.loopLength
             volume = sample.volume
+            panning = sample.panning
             relativeNote = sample.relativeNote
             finetune = sample.finetune
             isSelected = slot == selectedSampleSlot
@@ -644,13 +663,18 @@ final class InstrumentEditorView: FlippedEditorView {
         addDisabledKnob(value: Double(sample?.finetune ?? 0), minimum: -128, maximum: 127, id: "defaultFinetune", label: "FINETUNE", readout: sample?.finetuneDisplay ?? "—", to: panel, x: 110, y: 34)
 
         addLabel("PAN", to: panel, frame: NSRect(x: 10, y: 151, width: 28, height: 11), color: VTXEditorControlTheme.accentGold, size: 8, weight: .bold)
-        let pan = VTXEditorControlFactory.makePanSliderControl(value: 0, showsCenteredIndicator: false)
+        let pan = VTXEditorControlFactory.makePanSliderControl(
+            value: sample?.panSliderValue ?? 0,
+            centerDetentThreshold: 0,
+            snapsToCenter: false,
+            showsCenteredIndicator: sample?.panning == PlaybackSample.xmCenterPanning
+        )
         pan.isEnabled = false
         pan.target = nil
         pan.action = nil
         pan.identifier = futureControlIdentifier("defaultPan")
         addControl(pan, to: panel, frame: NSRect(x: 52, y: 142, width: 170, height: 32))
-        addLabel("—  NOT REPRESENTED", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.28), size: 7.5, alignment: .center)
+        addLabel(sample?.panningDisplay ?? "— NO SAMPLE", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 7.5, alignment: .center)
     }
 
     private func buildKeymap(_ panel: NSView) {

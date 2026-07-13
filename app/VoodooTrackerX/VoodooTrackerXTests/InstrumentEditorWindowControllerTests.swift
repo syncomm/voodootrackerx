@@ -10,6 +10,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(noDocument.source, .none)
         XCTAssertTrue(noDocument.isReadOnly)
         XCTAssertFalse(noDocument.isInstrumentNameEditable)
+        XCTAssertFalse(noDocument.isSamplePanningEditable)
         XCTAssertNil(noDocument.selectedInstrumentSlot)
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(noDocument.sampleSlots.isEmpty)
@@ -22,6 +23,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(blankDocument.source, .editableDocument)
         XCTAssertTrue(blankDocument.isReadOnly)
         XCTAssertFalse(blankDocument.isInstrumentNameEditable)
+        XCTAssertFalse(blankDocument.isSamplePanningEditable)
         XCTAssertNil(blankDocument.selectedInstrumentSlot)
         XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
@@ -294,11 +296,15 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(sample.panning, 32)
         XCTAssertEqual(sample.panningDisplay, "32 / 255")
         XCTAssertEqual(sample.panSliderValue, -0.75, accuracy: 0.000_001)
+        XCTAssertEqual(InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: -1), 0)
+        XCTAssertEqual(InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: 0), 128)
+        XCTAssertEqual(InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: 1), 255)
+        XCTAssertEqual(InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: Double(37 - 128) / 128), 37)
         XCTAssertEqual(sample.relativeNoteDisplay, "+2")
         XCTAssertEqual(sample.finetuneDisplay, "-8")
     }
 
-    func testLoadedAndEditableDocumentsDisplayRepresentedSamplePanningReadOnly() throws {
+    func testPanIsEnabledOnlyForStoppedEditableRepresentedSample() throws {
         let palette = makeInstrumentPalette()
         let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
         let loaded = InstrumentEditorDisplayState.loadedModule(
@@ -312,13 +318,17 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(loaded.selectedSample?.panningDisplay, "32 / 255")
         XCTAssertEqual(editable.selectedSample?.panningDisplay, "32 / 255")
 
-        for state in [loaded, editable] {
+        let playing = InstrumentEditorDisplayState.editableDocument(
+            makeEditableDocument(palette: palette),
+            isPlaybackActive: true
+        )
+
+        for (state, expectedEnabled) in [(loaded, false), (editable, true), (playing, false)] {
             let controller = InstrumentEditorWindowController(displayState: state)
             let descendants = try XCTUnwrap(controller.window?.contentView).instrumentEditorDescendants
-            let pan = try XCTUnwrap(descendants.compactMap { $0 as? VTXEditorPanSliderControl }.first)
-            XCTAssertFalse(pan.isEnabled)
-            XCTAssertNil(pan.target)
-            XCTAssertNil(pan.action)
+            let pan = try XCTUnwrap(descendants.samplePanningControl)
+            XCTAssertEqual(pan.isEnabled, expectedEnabled)
+            XCTAssertEqual(state.isSamplePanningEditable, expectedEnabled)
             XCTAssertEqual(pan.value, -0.75, accuracy: 0.000_001)
             XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("32 / 255"))
         }
@@ -393,8 +403,6 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let pan = try XCTUnwrap(descendants.compactMap { $0 as? VTXEditorPanSliderControl }.first)
 
         XCTAssertFalse(pan.isEnabled)
-        XCTAssertNil(pan.target)
-        XCTAssertNil(pan.action)
         XCTAssertEqual(pan.value, 0)
         XCTAssertTrue(descendants.compactMap { ($0 as? NSTextField)?.stringValue }.contains("— NO SAMPLE"))
     }
@@ -410,6 +418,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(document.instrumentPalette, palette)
         XCTAssertFalse(state.isReadOnly)
         XCTAssertTrue(state.isInstrumentNameEditable)
+        XCTAssertTrue(state.isSamplePanningEditable)
         XCTAssertEqual(state.source, .editableDocument)
         XCTAssertTrue(EditorCommandAvailability.canClearCurrentPattern(
             hasBlankDocument: true,
@@ -422,9 +431,10 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         let playingState = InstrumentEditorDisplayState.editableDocument(document, isPlaybackActive: true)
         XCTAssertTrue(playingState.isReadOnly)
         XCTAssertFalse(playingState.isInstrumentNameEditable)
+        XCTAssertFalse(playingState.isSamplePanningEditable)
     }
 
-    func testWindowCreatesFixedMockupHierarchyWithOnlyNameFieldEditable() throws {
+    func testWindowCreatesFixedMockupHierarchyWithNameAndPanEditable() throws {
         let controller = InstrumentEditorWindowController(
             displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette()))
         )
@@ -453,7 +463,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.noteKeymapPanel))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keymapRangeStrip))
         XCTAssertTrue(identifiers.contains(InstrumentEditorViewIdentifier.keyboardPlaceholder))
-        XCTAssertTrue(fieldValues.contains("NAME EDITABLE"))
+        XCTAssertTrue(fieldValues.contains("NAME + PAN"))
         XCTAssertTrue(fieldValues.contains("OTHER FIELDS READ-ONLY"))
         let nameField = try XCTUnwrap(contentView.instrumentEditorNameField)
         XCTAssertTrue(nameField.isEnabled)
@@ -471,7 +481,8 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
             ["IMPORT XI", "EXPORT XI", "▶", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺", "◀ C-2", "C-4 ▶"]
         )
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorKnobControl }.count, 5)
-        XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorPanSliderControl }.count, 1)
+        XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorPanSliderControl }.count, 0)
+        XCTAssertTrue(try XCTUnwrap(descendants.samplePanningControl).isEnabled)
 
         let envelopeGraph = try XCTUnwrap(descendants.first {
             $0.identifier?.rawValue == InstrumentEditorViewIdentifier.envelopeGraph
@@ -517,6 +528,29 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(nameField.sendAction(nameField.action, to: nameField.target))
         XCTAssertEqual(submittedIndex, 1)
         XCTAssertEqual(submittedName, "Renamed Lead")
+    }
+
+    func testEditablePanSubmitsSelectedZeroBasedIndicesAndExactByte() throws {
+        var submittedInstrument: Int?
+        var submittedSample: Int?
+        var submittedPanning: UInt8?
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(makeEditableDocument(palette: makeInstrumentPalette())),
+            samplePanningEditHandler: { instrument, sample, panning in
+                submittedInstrument = instrument
+                submittedSample = sample
+                submittedPanning = panning
+                return true
+            }
+        )
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let pan = try XCTUnwrap(contentView.instrumentEditorDescendants.samplePanningControl)
+
+        XCTAssertFalse(pan.isContinuous)
+        XCTAssertTrue(pan.setValue(1, sendAction: true, applyCenterDetent: false))
+        XCTAssertEqual(submittedInstrument, 1)
+        XCTAssertEqual(submittedSample, 1)
+        XCTAssertEqual(submittedPanning, 255)
     }
 
     func testApplyingSelectionChangeRefreshesVisibleSampleRows() throws {
@@ -738,5 +772,14 @@ private extension NSView {
 
     func envelopeGraph() throws -> InstrumentEditorEnvelopeGraphView {
         try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? InstrumentEditorEnvelopeGraphView }.first)
+    }
+}
+
+@MainActor
+private extension Array where Element == NSView {
+    var samplePanningControl: VTXEditorPanSliderControl? {
+        compactMap { $0 as? VTXEditorPanSliderControl }.first {
+            $0.identifier?.rawValue == InstrumentEditorViewIdentifier.samplePanningControl
+        }
     }
 }

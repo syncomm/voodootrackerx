@@ -65,6 +65,21 @@ final class EditableDocumentEditCoordinator {
     }
 
     @discardableResult
+    func setSamplePanning(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, panning: UInt8) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
+              document.selection.selectedSample == zeroBasedSampleIndex + 1,
+              document.setSamplePanning(
+                  instrumentAt: zeroBasedInstrumentIndex,
+                  sampleAt: zeroBasedSampleIndex,
+                  panning: panning
+              ) else {
+            return false
+        }
+        return applyEdit(label: "Change Sample Panning", updatedDocument: document)
+    }
+
+    @discardableResult
     func undo() -> Bool {
         guard canUndo else { return false }
         let before = contextProvider().editableDocument

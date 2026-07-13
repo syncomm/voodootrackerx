@@ -222,6 +222,35 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertEqual(recorder.count, 1)
     }
 
+    func testPanSliderNonContinuousTrackingCommitsOnceOnMouseUp() throws {
+        let slider = VTXEditorControlFactory.makePanSliderControl()
+        slider.frame = NSRect(x: 0, y: 0, width: 170, height: 32)
+        slider.isContinuous = false
+        let recorder = EditorControlActionRecorder()
+        slider.target = recorder
+        slider.action = #selector(EditorControlActionRecorder.record(_:))
+        let event: (NSEvent.EventType, CGFloat) throws -> NSEvent = { type, x in
+            try XCTUnwrap(NSEvent.mouseEvent(
+                with: type,
+                location: NSPoint(x: x, y: 16),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ))
+        }
+
+        slider.mouseDown(with: try event(.leftMouseDown, 30))
+        slider.mouseDragged(with: try event(.leftMouseDragged, 90))
+        slider.mouseDragged(with: try event(.leftMouseDragged, 150))
+        XCTAssertEqual(recorder.count, 0)
+        slider.mouseUp(with: try event(.leftMouseUp, 150))
+        XCTAssertEqual(recorder.count, 1)
+    }
+
     private func assertColor(
         _ actual: NSColor?,
         matches expected: NSColor,

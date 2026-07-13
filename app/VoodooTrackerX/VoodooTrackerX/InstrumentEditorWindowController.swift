@@ -16,6 +16,8 @@ enum InstrumentEditorViewIdentifier {
     static let keyboardPlaceholder = "instrumentEditor.keyboardPlaceholder"
     static let readOnlyBadge = "instrumentEditor.readOnlyBadge"
     static let instrumentNameField = "instrumentEditor.instrumentNameField"
+    static let samplePanningControl = "instrumentEditor.samplePanningControl"
+    static let samplePanningReadout = "instrumentEditor.samplePanningReadout"
     static let instrumentRowPrefix = "instrumentEditor.instrumentRow."
     static let sampleRowPrefix = "instrumentEditor.sampleRow."
     static let futureControlPrefix = "instrumentEditor.futureControl."
@@ -179,6 +181,13 @@ struct InstrumentEditorDisplayState: Equatable {
             }
             return Double(Int(panning) - 128) / 127.0
         }
+        static func panningByte(forPanSliderValue value: Double) -> UInt8 {
+            let safeValue = value.isFinite ? min(1, max(-1, value)) : 0
+            let byte = safeValue <= 0
+                ? 128 + Int((safeValue * 128).rounded())
+                : 128 + Int((safeValue * 127).rounded())
+            return UInt8(min(255, max(0, byte)))
+        }
         var relativeNoteDisplay: String { Self.signed(relativeNote) }
         var finetuneDisplay: String { Self.signed(finetune) }
 
@@ -229,6 +238,7 @@ struct InstrumentEditorDisplayState: Equatable {
         instrumentName: "No instrument available",
         instrumentNameEditValue: "",
         isInstrumentNameEditable: false,
+        isSamplePanningEditable: false,
         sampleCount: 0,
         selectedSampleSlot: nil,
         sampleSlots: [],
@@ -245,6 +255,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let instrumentName: String
     let instrumentNameEditValue: String
     let isInstrumentNameEditable: Bool
+    let isSamplePanningEditable: Bool
     let sampleCount: Int
     let selectedSampleSlot: Int?
     let sampleSlots: [SampleSlot]
@@ -253,7 +264,7 @@ struct InstrumentEditorDisplayState: Equatable {
     let autoVibrato: PlaybackInstrumentAutoVibrato?
     let keymapRanges: [KeymapRange]
     let emptyMessage: String
-    var isReadOnly: Bool { !isInstrumentNameEditable }
+    var isReadOnly: Bool { !isInstrumentNameEditable && !isSamplePanningEditable }
 
     var selectedSample: SampleSlot? {
         sampleSlots.first(where: \.isSelected)
@@ -329,6 +340,7 @@ struct InstrumentEditorDisplayState: Equatable {
                 instrumentName: "No instrument available",
                 instrumentNameEditValue: "",
                 isInstrumentNameEditable: false,
+                isSamplePanningEditable: false,
                 sampleCount: 0,
                 selectedSampleSlot: nil,
                 sampleSlots: [],
@@ -344,6 +356,7 @@ struct InstrumentEditorDisplayState: Equatable {
             .map { SampleSlot(sample: $0, selectedSampleSlot: selection.selectedSample) }
             .sorted { ($0.slot, $0.name) < ($1.slot, $1.name) }
         let selectedSampleSlot = slots.contains(where: \.isSelected) ? selection.selectedSample : nil
+        let selectedRepresentedSample = instrument.sample(selectedSampleSlot: selection.selectedSample)
         return InstrumentEditorDisplayState(
             source: source,
             instrumentSlots: instrumentSlots,
@@ -351,6 +364,8 @@ struct InstrumentEditorDisplayState: Equatable {
             instrumentName: normalizedName(instrument.name, fallback: "(unnamed instrument)"),
             instrumentNameEditValue: instrument.name ?? "",
             isInstrumentNameEditable: allowsInstrumentNameEditing,
+            isSamplePanningEditable: allowsInstrumentNameEditing &&
+                selectedRepresentedSample.map { $0.sampleLength > 0 && !$0.pcm.isEmpty } == true,
             sampleCount: instrument.samples.count,
             selectedSampleSlot: selectedSampleSlot,
             sampleSlots: slots,
@@ -402,6 +417,8 @@ struct InstrumentEditorDisplayState: Equatable {
 }
 
 typealias InstrumentNameEditHandler = (_ zeroBasedInstrumentIndex: Int, _ name: String) -> Bool
+typealias SamplePanningEditHandler =
+    (_ zeroBasedInstrumentIndex: Int, _ zeroBasedSampleIndex: Int, _ panning: UInt8) -> Bool
 
 @MainActor
 final class InstrumentEditorWindowPresenter {
@@ -410,10 +427,12 @@ final class InstrumentEditorWindowPresenter {
     @discardableResult
     func show(
         displayState: InstrumentEditorDisplayState,
-        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) -> InstrumentEditorWindowController {
         if let windowController {
             windowController.instrumentNameEditHandler = instrumentNameEditHandler
+            windowController.samplePanningEditHandler = samplePanningEditHandler
             windowController.apply(displayState: displayState)
             windowController.showWindowAndActivate()
             return windowController
@@ -421,7 +440,8 @@ final class InstrumentEditorWindowPresenter {
 
         let controller = InstrumentEditorWindowController(
             displayState: displayState,
-            instrumentNameEditHandler: instrumentNameEditHandler
+            instrumentNameEditHandler: instrumentNameEditHandler,
+            samplePanningEditHandler: samplePanningEditHandler
         )
         controller.closeHandler = { [weak self, weak controller] in
             guard let self, let controller, self.windowController === controller else { return }
@@ -446,16 +466,24 @@ final class InstrumentEditorWindowController: NSWindowController, NSWindowDelega
             (window?.contentView as? InstrumentEditorView)?.instrumentNameEditHandler = instrumentNameEditHandler
         }
     }
+    var samplePanningEditHandler: SamplePanningEditHandler? {
+        didSet {
+            (window?.contentView as? InstrumentEditorView)?.samplePanningEditHandler = samplePanningEditHandler
+        }
+    }
 
     init(
         displayState: InstrumentEditorDisplayState = .empty,
-        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.instrumentNameEditHandler = instrumentNameEditHandler
+        self.samplePanningEditHandler = samplePanningEditHandler
         let contentView = InstrumentEditorView(
             frame: NSRect(origin: .zero, size: Self.contentSize),
             displayState: displayState,
-            instrumentNameEditHandler: instrumentNameEditHandler
+            instrumentNameEditHandler: instrumentNameEditHandler,
+            samplePanningEditHandler: samplePanningEditHandler
         )
         let panel = NSPanel(
             contentRect: contentView.frame,
@@ -509,14 +537,17 @@ final class InstrumentEditorView: FlippedEditorView {
     private(set) var rebuildCount = 0
     private var envelopePanelView: NSView?
     var instrumentNameEditHandler: InstrumentNameEditHandler?
+    var samplePanningEditHandler: SamplePanningEditHandler?
 
     init(
         frame frameRect: NSRect,
         displayState: InstrumentEditorDisplayState = .empty,
-        instrumentNameEditHandler: InstrumentNameEditHandler? = nil
+        instrumentNameEditHandler: InstrumentNameEditHandler? = nil,
+        samplePanningEditHandler: SamplePanningEditHandler? = nil
     ) {
         self.displayState = displayState
         self.instrumentNameEditHandler = instrumentNameEditHandler
+        self.samplePanningEditHandler = samplePanningEditHandler
         super.init(frame: frameRect)
         identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.contentView)
         style(background: VTXEditorControlTheme.windowBackground)
@@ -617,14 +648,21 @@ final class InstrumentEditorView: FlippedEditorView {
         addDisabledButton("▶", id: "audition", to: panel, frame: NSRect(x: 710, y: 12, width: 32, height: 25), role: .activePlay)
         addControl(VTXEditorControlFactory.makeIndicatorLED(state: .off, diameter: 8), to: panel, frame: NSRect(x: 750, y: 21, width: 8, height: 8))
 
+        let editableFields = [
+            displayState.isInstrumentNameEditable ? "NAME" : nil,
+            displayState.isSamplePanningEditable ? "PAN" : nil,
+        ].compactMap { $0 }
+        let editStatus = editableFields.count == 2
+            ? "NAME + PAN"
+            : editableFields.first.map { "\($0) EDITABLE" } ?? "READ-ONLY"
         let readOnly = VTXEditorControlFactory.makeSegmentReadout(
-            value: displayState.isInstrumentNameEditable ? "NAME EDITABLE" : "READ-ONLY",
+            value: editStatus,
             fixedWidth: 112
         )
         readOnly.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.readOnlyBadge)
         addControl(readOnly, to: panel, frame: NSRect(x: 774, y: 5, width: 112, height: 23))
         addLabel(
-            displayState.isInstrumentNameEditable ? "OTHER FIELDS READ-ONLY" : "EDITING UNAVAILABLE",
+            editableFields.isEmpty ? "EDITING UNAVAILABLE" : "OTHER FIELDS READ-ONLY",
             to: panel,
             frame: NSRect(x: 765, y: 31, width: 130, height: 10),
             color: VTXEditorControlTheme.panelLabelText,
@@ -822,12 +860,34 @@ final class InstrumentEditorView: FlippedEditorView {
             snapsToCenter: false,
             showsCenteredIndicator: sample?.panning == PlaybackSample.xmCenterPanning
         )
-        pan.isEnabled = false
-        pan.target = nil
-        pan.action = nil
-        pan.identifier = futureControlIdentifier("defaultPan")
+        pan.isEnabled = displayState.isSamplePanningEditable
+        pan.isContinuous = false
+        pan.target = displayState.isSamplePanningEditable ? self : nil
+        pan.action = displayState.isSamplePanningEditable ? #selector(commitSamplePanning(_:)) : nil
+        pan.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.samplePanningControl)
+        pan.toolTip = displayState.isSamplePanningEditable
+            ? "Change the selected sample panning"
+            : "Sample panning is editable only for represented samples in stopped editable documents"
         addControl(pan, to: panel, frame: NSRect(x: 52, y: 142, width: 170, height: 32))
-        addLabel(sample?.panningDisplay ?? "— NO SAMPLE", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 7.5, alignment: .center)
+        let readout = addLabel(sample?.panningDisplay ?? "— NO SAMPLE", to: panel, frame: NSRect(x: 52, y: 174, width: 170, height: 10), color: VTXEditorControlTheme.warmValueText.withAlphaComponent(0.42), size: 7.5, alignment: .center)
+        readout.identifier = NSUserInterfaceItemIdentifier(InstrumentEditorViewIdentifier.samplePanningReadout)
+    }
+
+    @objc
+    private func commitSamplePanning(_ sender: VTXEditorPanSliderControl) {
+        guard displayState.isSamplePanningEditable,
+              let instrumentSlot = displayState.selectedInstrumentSlot,
+              let sampleSlot = displayState.selectedSampleSlot,
+              instrumentSlot > 0,
+              sampleSlot > 0,
+              samplePanningEditHandler?(
+                  instrumentSlot - 1,
+                  sampleSlot - 1,
+                  InstrumentEditorDisplayState.SampleSlot.panningByte(forPanSliderValue: sender.value)
+              ) == true else {
+            sender.setValue(displayState.selectedSample?.panSliderValue ?? 0, applyCenterDetent: false)
+            return
+        }
     }
 
     private func buildKeymap(_ panel: NSView) {
@@ -1014,6 +1074,7 @@ final class InstrumentEditorView: FlippedEditorView {
         addControl(VTXEditorControlFactory.makePanelLabel(title), to: parent, frame: frame)
     }
 
+    @discardableResult
     private func addLabel(
         _ text: String,
         to parent: NSView,
@@ -1022,13 +1083,14 @@ final class InstrumentEditorView: FlippedEditorView {
         size: CGFloat,
         weight: NSFont.Weight = .regular,
         alignment: NSTextAlignment = .left
-    ) {
+    ) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
         label.textColor = color
         label.alignment = alignment
         label.lineBreakMode = .byTruncatingTail
         addControl(label, to: parent, frame: frame)
+        return label
     }
 
     @discardableResult

@@ -14,6 +14,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(noDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(noDocument.sampleSlots.isEmpty)
         XCTAssertNil(noDocument.volumeEnvelope)
+        XCTAssertNil(noDocument.panningEnvelope)
         XCTAssertNil(noDocument.autoVibrato)
         XCTAssertTrue(noDocument.keymapRanges.isEmpty)
         XCTAssertEqual(noDocument.emptyMessage, "No document instrument palette is available.")
@@ -25,6 +26,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(blankDocument.instrumentSlots.isEmpty)
         XCTAssertTrue(blankDocument.sampleSlots.isEmpty)
         XCTAssertNil(blankDocument.volumeEnvelope)
+        XCTAssertNil(blankDocument.panningEnvelope)
         XCTAssertNil(blankDocument.autoVibrato)
         XCTAssertTrue(blankDocument.keymapRanges.isEmpty)
         XCTAssertEqual(blankDocument.emptyMessage, "No represented instruments are available.")
@@ -109,11 +111,151 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertEqual(envelope.loopStartPointIndex, 1)
         XCTAssertEqual(envelope.loopEndPointIndex, 2)
         XCTAssertEqual(envelope.fadeout, 128)
+        XCTAssertEqual(state.panningEnvelope, makeInstrumentEditorPanningEnvelope())
+        XCTAssertEqual(state.envelope(for: .volume)?.pointCount, 3)
+        XCTAssertEqual(state.envelope(for: .volume)?.fadeout, 128)
+        XCTAssertEqual(state.envelope(for: .panning)?.pointCount, 4)
+        XCTAssertEqual(state.envelope(for: .panning)?.enabled, true)
+        XCTAssertNil(state.envelope(for: .panning)?.fadeout)
         XCTAssertEqual(state.keymapRanges.map(\.startNote), [1, 49])
         XCTAssertEqual(state.keymapRanges.map(\.endNote), [48, 96])
         XCTAssertEqual(state.keymapRanges.map(\.sampleDisplay), ["S01", "S02"])
         XCTAssertEqual(state.keymapRanges.map(\.isSelected), [false, true])
         XCTAssertEqual(song, before)
+    }
+
+    func testEnvelopeSelectorDefaultsToVolumeAndSwitchesDisplayWithoutMutationOrUndo() throws {
+        let document = makeEditableDocument(palette: makeInstrumentPalette())
+        let before = document
+        var currentDocument = document
+        let undoManager = UndoManager()
+        let coordinator = EditableDocumentEditCoordinator(
+            undoManager: undoManager,
+            contextProvider: { .editable(document: currentDocument, isPlaybackActive: false) },
+            documentApplyHandler: { currentDocument = $0 }
+        )
+        let controller = InstrumentEditorWindowController(
+            displayState: .editableDocument(document),
+            instrumentNameEditHandler: { coordinator.renameInstrument(at: $0, name: $1) }
+        )
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        let nameField = try XCTUnwrap(view.instrumentEditorNameField)
+        nameField.stringValue = "Uncommitted draft"
+
+        XCTAssertEqual(view.envelopeDisplayMode, .volume)
+        XCTAssertEqual(try view.envelopeSelector(.volume).editorRole, .selected)
+        XCTAssertEqual(try view.envelopeSelector(.panning).editorRole, .normal)
+
+        try view.envelopeSelector(.panning).performClick(nil)
+
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
+        XCTAssertEqual(try view.envelopeSelector(.volume).editorRole, .normal)
+        XCTAssertEqual(try view.envelopeSelector(.panning).editorRole, .selected)
+        XCTAssertEqual(view.displayState, .editableDocument(document))
+        XCTAssertEqual(currentDocument, before)
+        XCTAssertFalse(undoManager.canUndo)
+        XCTAssertTrue(nameField === view.instrumentEditorNameField)
+        XCTAssertEqual(nameField.stringValue, "Uncommitted draft")
+
+        try view.envelopeSelector(.volume).performClick(nil)
+
+        XCTAssertEqual(view.envelopeDisplayMode, .volume)
+        XCTAssertEqual(try view.envelopeGraph().displayMode, .volume)
+        XCTAssertEqual(try view.envelopeReadout(.pointCount).stringValue, "03")
+        XCTAssertEqual(try view.envelopeReadout(.fadeout).stringValue, "0080")
+        XCTAssertEqual(currentDocument, before)
+        XCTAssertFalse(undoManager.canUndo)
+    }
+
+    func testPanningSelectionDisplaysRepresentedReadoutsAndKeepsEditingInert() throws {
+        let palette = makeInstrumentPalette()
+        let selection = TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        let states = [
+            InstrumentEditorDisplayState.loadedModule(
+                playbackSong: makePlaybackSong(instruments: palette),
+                selection: selection
+            ),
+            InstrumentEditorDisplayState.editableDocument(makeEditableDocument(palette: palette)),
+        ]
+
+        for state in states {
+            let controller = InstrumentEditorWindowController(displayState: state)
+            let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+            try view.envelopeSelector(.panning).performClick(nil)
+            let envelopePanel = try view.identifiedView(InstrumentEditorViewIdentifier.envelopePanel)
+            let graph = try view.envelopeGraph()
+
+            XCTAssertEqual(graph.displayMode, .panning)
+            XCTAssertEqual(graph.envelope?.points, makeInstrumentEditorPanningEnvelope().points)
+            XCTAssertNil(graph.emptyStateMessage)
+            XCTAssertNil(graph.hitTest(.zero))
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.pointCount).stringValue, "04")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.sustainState).stringValue, "ON")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.sustainPoint).stringValue, "03")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.loopState).stringValue, "ON")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.loopStart).stringValue, "01")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.loopEnd).stringValue, "04")
+            XCTAssertEqual(try envelopePanel.envelopeReadout(.fadeout).stringValue, "—")
+
+            let editingControls = envelopePanel.instrumentEditorDescendants.compactMap { $0 as? NSControl }.filter {
+                $0.identifier?.rawValue.hasPrefix(InstrumentEditorViewIdentifier.futureControlPrefix) == true
+            }
+            XCTAssertEqual(Set(editingControls.compactMap { ($0 as? NSButton)?.title }), ["+ ADD PT", "DEL PT", "ON"])
+            XCTAssertTrue(editingControls.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
+        }
+    }
+
+    func testPanningSelectionShowsCleanNoInstrumentAndDisabledEmptyStates() throws {
+        let noInstrumentController = InstrumentEditorWindowController(displayState: .empty)
+        let noInstrumentView = try XCTUnwrap(noInstrumentController.window?.contentView as? InstrumentEditorView)
+        try noInstrumentView.envelopeSelector(.panning).performClick(nil)
+        let noInstrumentGraph = try noInstrumentView.envelopeGraph()
+
+        XCTAssertNil(noInstrumentGraph.envelope)
+        XCTAssertEqual(noInstrumentGraph.emptyStateMessage, "NO PANNING ENVELOPE REPRESENTED")
+        XCTAssertEqual(try noInstrumentView.envelopeReadout(.pointCount).stringValue, "00")
+
+        let disabledState = InstrumentEditorDisplayState.loadedModule(
+            playbackSong: makePlaybackSong(instruments: makeInstrumentPalette()),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        )
+        let disabledController = InstrumentEditorWindowController(displayState: disabledState)
+        let disabledView = try XCTUnwrap(disabledController.window?.contentView as? InstrumentEditorView)
+        try disabledView.envelopeSelector(.panning).performClick(nil)
+        let disabledGraph = try disabledView.envelopeGraph()
+
+        XCTAssertEqual(disabledGraph.envelope?.enabled, false)
+        XCTAssertTrue(disabledGraph.envelope?.points.isEmpty == true)
+        XCTAssertEqual(disabledGraph.emptyStateMessage, "PANNING ENVELOPE DISABLED / EMPTY")
+        XCTAssertEqual(try disabledView.envelopeReadout(.pointCount).stringValue, "00")
+    }
+
+    func testPanningModePersistsAcrossSelectionAndDocumentRefreshTransitions() throws {
+        let palette = makeInstrumentPalette()
+        let controller = InstrumentEditorWindowController(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1)
+        ))
+        let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        try view.envelopeSelector(.panning).performClick(nil)
+
+        XCTAssertEqual(try view.envelopeGraph().emptyStateMessage, "PANNING ENVELOPE DISABLED / EMPTY")
+
+        XCTAssertTrue(controller.apply(displayState: .loadedModule(
+            playbackSong: makePlaybackSong(instruments: palette),
+            selection: TrackerEditorSelection(selectedInstrument: 2, selectedSample: 2)
+        )))
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
+        XCTAssertEqual(try view.envelopeGraph().envelope?.points.count, 4)
+
+        XCTAssertTrue(controller.apply(displayState: .empty))
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
+        XCTAssertEqual(try view.envelopeGraph().emptyStateMessage, "NO PANNING ENVELOPE REPRESENTED")
+
+        XCTAssertTrue(controller.apply(displayState: .editableDocument(makeEditableDocument(palette: palette))))
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
+        XCTAssertEqual(try view.envelopeGraph().envelope?.points.count, 4)
+        XCTAssertTrue(view.displayState.isInstrumentNameEditable)
     }
 
     func testKeymapRangeColorIdentityFollowsSampleSlotAcrossDisjointRanges() {
@@ -326,7 +468,7 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         XCTAssertTrue(futureControls.allSatisfy { !$0.isEnabled && $0.target == nil && $0.action == nil })
         XCTAssertEqual(
             Set(futureControls.compactMap { ($0 as? NSButton)?.title }),
-            ["IMPORT XI", "EXPORT XI", "▶", "VOL", "PAN", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺", "◀ C-2", "C-4 ▶"]
+            ["IMPORT XI", "EXPORT XI", "▶", "+ ADD PT", "DEL PT", "ON", "∿", "⊓", "⊿", "◺", "◀ C-2", "C-4 ▶"]
         )
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorKnobControl }.count, 5)
         XCTAssertEqual(futureControls.compactMap { $0 as? VTXEditorPanSliderControl }.count, 1)
@@ -339,6 +481,8 @@ final class InstrumentEditorWindowControllerTests: XCTestCase {
         })
         XCTAssertNil(envelopeGraph.hitTest(.zero))
         XCTAssertNil(keyboard.hitTest(.zero))
+        XCTAssertTrue(try contentView.envelopeSelector(.volume).isEnabled)
+        XCTAssertTrue(try contentView.envelopeSelector(.panning).isEnabled)
     }
 
     func testLoadedModuleNameFieldRemainsDisabledAndReadOnly() throws {
@@ -477,6 +621,7 @@ private func makeInstrumentPalette() -> [Int: PlaybackInstrument] {
             typeFlags: 0x07,
             fadeout: 128
         ),
+        panningEnvelope: makeInstrumentEditorPanningEnvelope(),
         autoVibrato: PlaybackInstrumentAutoVibrato(
             waveformType: 3,
             sweep: 17,
@@ -486,6 +631,22 @@ private func makeInstrumentPalette() -> [Int: PlaybackInstrument] {
         noteSampleMap: Array(repeating: 0, count: 48) + Array(repeating: 1, count: 48)
     )
     return [1: bass, 2: lead]
+}
+
+private func makeInstrumentEditorPanningEnvelope() -> PlaybackPanningEnvelope {
+    PlaybackPanningEnvelope(
+        enabled: true,
+        points: [
+            PlaybackEnvelopePoint(tick: 0, value: 32),
+            PlaybackEnvelopePoint(tick: 8, value: 48),
+            PlaybackEnvelopePoint(tick: 20, value: 12),
+            PlaybackEnvelopePoint(tick: 32, value: 40),
+        ],
+        sustainPointIndex: 2,
+        loopStartPointIndex: 0,
+        loopEndPointIndex: 3,
+        typeFlags: 0x07
+    )
 }
 
 private func makeInstrumentEditorSample(
@@ -554,5 +715,28 @@ private extension NSView {
         instrumentEditorDescendants.compactMap { $0 as? NSTextField }.first {
             $0.identifier?.rawValue == InstrumentEditorViewIdentifier.instrumentNameField
         }
+    }
+
+    func identifiedView(_ identifier: String) throws -> NSView {
+        try XCTUnwrap(instrumentEditorDescendants.first { $0.identifier?.rawValue == identifier })
+    }
+
+    func envelopeSelector(_ mode: InstrumentEnvelopeDisplayMode) throws -> VTXEditorButton {
+        let identifier = mode == .volume
+            ? InstrumentEditorViewIdentifier.volumeEnvelopeTab
+            : InstrumentEditorViewIdentifier.panningEnvelopeTab
+        return try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? VTXEditorButton }.first {
+            $0.identifier?.rawValue == identifier
+        })
+    }
+
+    func envelopeReadout(_ readout: InstrumentEnvelopeReadout) throws -> VTXEditorSegmentReadout {
+        try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? VTXEditorSegmentReadout }.first {
+            $0.identifier?.rawValue == readout.identifier
+        })
+    }
+
+    func envelopeGraph() throws -> InstrumentEditorEnvelopeGraphView {
+        try XCTUnwrap(instrumentEditorDescendants.compactMap { $0 as? InstrumentEditorEnvelopeGraphView }.first)
     }
 }

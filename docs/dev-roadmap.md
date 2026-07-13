@@ -95,7 +95,7 @@ Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
 Recommended next PR:
-`instrument: expose represented panning envelopes read-only`.
+`instrument: add editable sample panning mutation behind applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
    file-writing implementation. Done; see
@@ -110,8 +110,8 @@ Recommended next PR:
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
 7. Instrument NAME editing plus sample-panning, panning-envelope, and
-   autovibrato round-trip support are done; next expose the represented panning
-   envelope read-only or continue palette/sample foundations in a narrow slice.
+   autovibrato round-trip support are done; represented panning envelopes now
+   have a read-only VOL/PAN display. Continue with a narrow mutation foundation.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -680,13 +680,13 @@ Implemented foundation:
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
 - exact XM panning-envelope point/count/index/flag preservation through loaded
-  state, editable copy, snapshots, undo/redo, and Export XM; adapter plans,
-  voice pan, and render output remain unchanged
+  state, editable copy, snapshots, undo/redo, and Export XM, plus a local
+  read-only VOL/PAN graph/readout selector; playback and render output are unchanged
 
 Remaining VTX 1.0 scope:
 
-- read-only panning-envelope display, envelope playback/editing, and broader
-  instrument metadata/editing behind applyEdit
+- envelope playback/editing and broader instrument metadata/editing behind
+  applyEdit
 - sample editor foundation
 - WAV/AIFF sample import
 - XI instrument import target

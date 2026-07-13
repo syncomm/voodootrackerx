@@ -75,6 +75,7 @@ final class EditorControlPrimitivesTests: XCTestCase {
 
     func testEditorButtonFactoryCreatesExpectedRolesAndChrome() {
         let normal = VTXEditorControlFactory.makeButton(title: "insert", role: .normal, fixedWidth: 64)
+        let selected = VTXEditorControlFactory.makeButton(title: "vol", role: .selected)
         let active = VTXEditorControlFactory.makeButton(title: "play", role: .activePlay)
         let danger = VTXEditorControlFactory.makeButton(title: "clear", role: .danger)
 
@@ -84,6 +85,11 @@ final class EditorControlPrimitivesTests: XCTestCase {
         XCTAssertFalse(normal.isBordered)
         assertColor(normal.layer?.backgroundColor, matches: VTXEditorButtonRole.normal.backgroundColor)
         assertColor(normal.layer?.borderColor, matches: VTXEditorButtonRole.normal.borderColor)
+
+        XCTAssertEqual(selected.title, "VOL")
+        XCTAssertEqual(selected.editorRole, .selected)
+        assertColor(selected.layer?.backgroundColor, matches: VTXEditorButtonRole.selected.backgroundColor)
+        assertColor(selected.layer?.borderColor, matches: VTXEditorButtonRole.selected.borderColor)
 
         XCTAssertEqual(active.title, "PLAY")
         XCTAssertEqual(active.editorRole, .activePlay)

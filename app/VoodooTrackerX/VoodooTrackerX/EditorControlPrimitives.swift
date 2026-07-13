@@ -172,6 +172,7 @@ final class VTXEditorSegmentReadout: NSTextField {
 
 enum VTXEditorButtonRole: Equatable {
     case normal
+    case selected
     case activePlay
     case danger
 
@@ -179,6 +180,8 @@ enum VTXEditorButtonRole: Equatable {
         switch self {
         case .normal:
             return VTXEditorControlTheme.interactiveFieldBackground
+        case .selected:
+            return VTXEditorControlTheme.indigoSelection
         case .activePlay:
             return NSColor(srgbRed: 0x15 / 255.0, green: 0x2A / 255.0, blue: 0x1A / 255.0, alpha: 1.0)
         case .danger:
@@ -190,6 +193,8 @@ enum VTXEditorButtonRole: Equatable {
         switch self {
         case .normal:
             return VTXEditorControlTheme.warmValueText
+        case .selected:
+            return VTXEditorControlTheme.accentGold
         case .activePlay:
             return VTXEditorControlTheme.playActiveGreen
         case .danger:
@@ -201,6 +206,8 @@ enum VTXEditorButtonRole: Equatable {
         switch self {
         case .normal:
             return VTXEditorControlTheme.mutedGoldBorderMedium
+        case .selected:
+            return VTXEditorControlTheme.accentGold.withAlphaComponent(0.60)
         case .activePlay:
             return VTXEditorControlTheme.playActiveGreen.withAlphaComponent(0.55)
         case .danger:

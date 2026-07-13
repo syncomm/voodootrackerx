@@ -34,12 +34,12 @@ the preferred high-quality and export-diagnostic format; M4A is intended for
 convenient sharing. Export XM remains scoped to the current editable subset,
 not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
 parity claim. `Window > Instrument Editor` follows the v1 mockup hierarchy for
-the current palette selection, represented sample metadata, volume-envelope
+the current palette selection, represented sample metadata, read-only VOL/PAN envelope
 preview, and note-map ranges. Its NAME field is the first editable metadata
 slice: a represented instrument can be renamed only in a stopped editable
 document or editable copy, with XM-compatible sanitization and labeled
 whole-document `applyEdit` undo/redo. Loaded modules, playing documents, and
-all other Instrument Editor controls remain read-only/inert. XM sample-header
+all mutation controls remain read-only/inert. XM sample-header
 panning is represented as its exact `0...255` byte, preserved through loaded
 state, editable copies, snapshots, and Export XM, and shown for the selected
 sample on the disabled PAN control. Sample panning remains runtime-inert and
@@ -48,8 +48,9 @@ autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
 copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
 runtime/audition-inert. XM instrument panning-envelope points, counts, sustain/
 loop indices, and supported flags are now preserved through the same loaded,
-editable-copy, snapshot, and Export XM paths. They remain runtime-inert and are
-not yet exposed by the volume-only Instrument Editor envelope preview. These
+editable-copy, snapshot, and Export XM paths. The local display-only VOL/PAN
+selector exposes their graph, point count, enabled, sustain, and loop state;
+they remain runtime-inert and create no document or undo mutation. These
 metadata slices add no sample/envelope/vibrato mutation, XI behavior,
 envelope/keymap editing, or waveform display. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
@@ -223,8 +224,8 @@ Recently completed narrow targets:
   same exact preservation for the four XM autovibrato bytes and read-only
   VIBRATO display. `PlaybackPanningEnvelope` preserves up to 12 XM panning-
   envelope points plus count, sustain/loop indices, and supported type flags
-  through the same value paths and writer, while the Instrument Editor remains
-  volume-envelope-only. Playback/audition behavior, scheduling, render PCM, C
+  through the same value paths and writer; the Instrument Editor displays them
+  read-only through its local VOL/PAN selector. Playback/audition behavior, scheduling, render PCM, C
   mixer DSP, parser architecture, and loaded-module read-only rules are
   unchanged.
 - `EditableDocumentEditCoordinator` now applies labeled whole-document value

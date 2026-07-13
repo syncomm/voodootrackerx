@@ -58,6 +58,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         let before = documentWithInstrumentName("Snapshot")
         let controller = InstrumentEditorWindowController(displayState: .editableDocument(before))
         let view = try XCTUnwrap(controller.window?.contentView as? InstrumentEditorView)
+        XCTAssertTrue(view.selectEnvelopeDisplayMode(.panning))
         let harness = EditHarness(
             context: .editable(document: before, isPlaybackActive: false),
             onApply: { controller.apply(displayState: .editableDocument($0)) }
@@ -68,6 +69,7 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Renamed")
         XCTAssertEqual(view.displayState.instrumentName, "Renamed")
         XCTAssertTrue(view.displayState.isInstrumentNameEditable)
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
         XCTAssertEqual(samplePCMBaseAddress(in: before), samplePCMBaseAddress(in: try XCTUnwrap(harness.editableDocument)))
         XCTAssertEqual(harness.coordinator.undoMenuItemTitle, "Undo Rename Instrument")
 
@@ -75,12 +77,14 @@ final class EditableDocumentEditCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Snapshot")
         XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Snapshot")
         XCTAssertEqual(view.displayState.instrumentName, "Snapshot")
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
         XCTAssertEqual(harness.coordinator.redoMenuItemTitle, "Redo Rename Instrument")
 
         XCTAssertTrue(harness.coordinator.redo())
         XCTAssertEqual(harness.editableDocument?.instrumentPalette[1]?.name, "Renamed")
         XCTAssertEqual(harness.editableDocument?.controlPanelMetadata.selectedInstrumentDisplay, "I01 Renamed")
         XCTAssertEqual(view.displayState.instrumentName, "Renamed")
+        XCTAssertEqual(view.envelopeDisplayMode, .panning)
         XCTAssertEqual(harness.appliedDocuments.count, 3)
     }
 

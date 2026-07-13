@@ -8,10 +8,10 @@
 NAME is editable only in stopped editable documents and routes through applyEdit/whole-snapshot
 undo. The selected represented sample's exact XM panning byte is shown on the disabled PAN surface.
 Represented XM autovibrato bytes are shown on the disabled VIBRATO controls. Loaded modules,
-playing documents, and every other control remain read-only. Sample/XI, envelope/keymap, waveform,
-autovibrato playback, and audition work remains future scope. Represented XM panning-envelope data
-now survives editable copy and Export XM but is not yet shown; the envelope panel remains a
-volume-only preview with PAN disabled. Parser architecture,
+playing documents, and every mutation control remain read-only. Sample/XI, envelope/keymap, waveform,
+autovibrato playback, and audition work remains future scope. Represented XM panning-envelope data is
+shown through a local display-only VOL/PAN selector using the shared graph and readouts, while
+document/undo and playback state remain untouched. Parser architecture,
 broad writer/export behavior, tracker viewport, and audio backend behavior are unchanged.
 
 See `docs/design/editor-window-design-overview.md` and `docs/design/editor-control-vocabulary.md`.
@@ -24,13 +24,13 @@ keymap hierarchy. It follows the current loaded module, editable document, or ed
 main control-panel instrument and sample selection. The shell shows represented instrument
 number/name/sample count, sample slot/name/length/loop mode and range/volume/panning/relative
 note/finetune,
-an immutable volume-envelope preview, and represented note-to-sample ranges. Missing data has an
+an immutable selected volume/panning-envelope preview, and represented note-to-sample ranges. Missing data has an
 explicit empty state. NAME is inline-editable only for represented instruments in stopped editable
 documents; it uses XM's 22-byte constraint and one labeled `Rename Instrument` undo step. Undo/redo
 refresh this window and the main control panel. Represented sample panning and instrument
 autovibrato are display-only and runtime-inert. Panning-envelope metadata is preserved but not yet
-displayed or applied to playback. Its display/mutation plus XI, keymap, and audition controls remain
-disabled/inert, including loaded-module NAME.
+applied to playback; its VOL/PAN selector changes only local display mode, and every envelope edit
+control remains disabled/inert alongside XI, keymap, audition, and loaded-module NAME.
 
 ---
 
@@ -164,8 +164,8 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 - Fixed-size window, single shared instance, menu-toggled.
 - **Lists:** view-based tables for instruments and sample slots; custom cell drawing; indigo
   selection; lists fill their panels.
-- **Envelope canvas:** the current custom view draws represented volume points and sustain/loop
-  context but returns no hit target. Future editing may add point hit-testing/drag without creating
+- **Envelope canvas:** the current custom view draws selected represented volume or panning points,
+  enabled/sustain/loop context, and returns no hit target. Future editing may add drag without creating
   per-point subviews.
 - **Knobs / pan slider / LEDs / switches / segments:** reuse the shared control library
   (`docs/design/editor-control-vocabulary.md`).
@@ -186,7 +186,7 @@ name → sample slots → envelope → vibrato → defaults → keymap.
 4. Done: sample panning model/load/editable-copy/Export XM round-trip plus read-only PAN display.
 5. Done: autovibrato round-trip plus read-only display.
 6. Done: runtime-inert panning-envelope model/load/editable-copy/Export XM round-trip.
-7. Read-only VOL/PAN switch + represented panning-envelope preview.
+7. Done: read-only VOL/PAN switch + represented panning-envelope preview.
 8. Complete any shared editing-control primitives still needed for later mutation.
 9. Envelope editing (points, sustain, loop, add/del) wired.
 10. Vibrato + defaults clusters wired.
@@ -203,9 +203,9 @@ editable document; and confirm edit/undo/redo refresh both the window and contro
 supported represented instrument to a temporary XM and reload its name. For sample panning, confirm
 a non-center value displays exactly in loaded and editable-copy states, PAN stays disabled, and the
 value survives Export XM/reopen. Verify autovibrato likewise survives while VIBRATO remains disabled
-and playback/audition output is unchanged. Verify represented panning-envelope data survives the
-same round trip while PAN remains disabled, the graph stays volume-only, and playback output is
-unchanged. Keep screenshots/exports local and untracked.
+and playback/audition output is unchanged. Verify panning-envelope graph/readouts in loaded and
+editable-copy states, clean disabled/empty states, local VOL/PAN switching across undo/redo, and
+unchanged playback. Keep screenshots/exports local and untracked.
 
 For later interactive slices, screenshot before/after per PR and verify the surface reads as calm at
 fixed size. Envelope: points

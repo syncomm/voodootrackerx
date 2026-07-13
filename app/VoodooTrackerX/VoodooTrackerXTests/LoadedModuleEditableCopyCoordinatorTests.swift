@@ -247,19 +247,33 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(document.instrumentPalette[1]?.samples.first?.panning, 37)
 
+        var editedDocument = document
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: editedDocument, isPlaybackActive: false) },
+            documentApplyHandler: { editedDocument = $0 }
+        )
+        XCTAssertTrue(coordinator.setSamplePanning(instrumentAt: 0, sampleAt: 0, panning: 201))
+        XCTAssertEqual(editedDocument.selection, document.selection)
+        let sourceSample = try XCTUnwrap(loadedSong.instrumentsByIndex[1]?.samples.first)
+        let editedSample = try XCTUnwrap(editedDocument.instrumentPalette[1]?.samples.first)
+        XCTAssertEqual(editedSample.panning, 201)
+        XCTAssertEqual(editedSample.withPanning(37), sourceSample)
+
         let destination = try temporaryDestination(filename: "sample-panning-export.xm")
         let result = ExportXMCoordinator(
             destinationProvider: FakeEditableCopyExportXMDestinationProvider(destination: destination)
         ).beginExport(context: .editable(
-            document: document,
-            displayName: document.title,
+            document: editedDocument,
+            displayName: editedDocument.title,
             isPlaybackActive: false
         ))
         XCTAssertEqual(result, .exported(destination: destination))
 
         let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
         let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
-        XCTAssertEqual(reopenedSong.instrumentsByIndex[1]?.samples.first?.panning, 37)
+        let reopenedSample = try XCTUnwrap(reopenedSong.instrumentsByIndex[1]?.samples.first)
+        XCTAssertEqual(reopenedSample.panning, 201)
+        XCTAssertEqual(reopenedSample.withPanning(37), sourceSample)
         XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
         XCTAssertFalse(ExportXMCoordinator.canExport(context: .loadedReadOnly(isPlaybackActive: false)))
     }

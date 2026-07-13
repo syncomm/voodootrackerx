@@ -41,8 +41,8 @@ VoodooTracker X currently has:
   temporary-file reload/header smoke tests through existing parser/render
   paths, plus a reusable `Window > Instrument Editor` shell bound to the
   current palette and selected instrument/sample, with represented instrument
-  NAME editing for stopped editable documents only and exact XM sample panning
-  plus instrument autovibrato shown read-only, exact runtime-inert XM panning-
+  NAME and selected-sample PAN editing for stopped editable documents only,
+  exact XM sample panning plus instrument autovibrato preservation, exact runtime-inert XM panning-
   envelope metadata preserved through editable copy and Export XM, plus a capped
   whole-document applyEdit/undo funnel used by Clear Current Pattern and
   instrument rename
@@ -94,7 +94,7 @@ backend, and tracker viewport work unless a freeze-exit blocker is promoted.
 Recommended next work should return to GUI/editor and product milestones while
 preserving the backend freeze:
 
-Recommended next PR:
+Recently completed target:
 `instrument: add editable sample panning mutation behind applyEdit`.
 
 1. Define editable-document ownership and save/export semantics before any
@@ -109,9 +109,9 @@ Recommended next PR:
 5. Build an Instrument Editor shell/read-only binding. Done.
 6. Add the document `applyEdit`/undo funnel for future instrument/sample edits.
    Done.
-7. Instrument NAME editing plus sample-panning, panning-envelope, and
-   autovibrato round-trip support are done; represented panning envelopes now
-   have a read-only VOL/PAN display. Continue with a narrow mutation foundation.
+7. Instrument NAME and selected-sample PAN editing behind `applyEdit` are done;
+   sample panning is the first editable sample metadata field. Loaded modules
+   and playback remain read-only, and panning remains runtime-inert.
 8. Pattern editor completion for instrument, volume-column, and effect-column
    entry.
 9. Sample/instrument editing foundations plus WAV/AIFF sample import and XI
@@ -671,12 +671,12 @@ Implemented foundation:
   Current Pattern and represented instrument rename routed through it
 - v1-mockup-aligned Instrument Editor shell bound to loaded modules,
   editable documents, editable copies, and the current instrument/sample
-  selection; only the represented instrument NAME field is editable in stopped
-  editable documents, with future sample/import/envelope/keymap/audition
-  controls inert
+  selection; represented instrument NAME and selected-sample PAN are editable
+  in stopped editable documents through applyEdit/undo, with future broader
+  sample/import/envelope/keymap/audition controls inert
 - exact XM sample panning byte representation, loaded/editable-copy/snapshot/
-  Export XM preservation, and disabled Instrument Editor PAN display; runtime
-  playback and render output remain unchanged
+  Export XM preservation, and eligible Instrument Editor PAN mutation; loaded
+  modules stay read-only and runtime playback/render output remain unchanged
 - exact XM autovibrato byte preservation and disabled VIBRATO display;
   playback, audition, adapter plans, and render output remain unchanged
 - exact XM panning-envelope point/count/index/flag preservation through loaded

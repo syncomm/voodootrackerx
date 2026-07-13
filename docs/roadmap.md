@@ -158,9 +158,9 @@ Recommended next PR sequence:
 1. Done: build an Instrument Editor shell/read-only binding.
 2. Done: add the document `applyEdit`/undo funnel needed before instrument and
    sample mutation.
-3. Represented instrument NAME editing plus sample-panning, panning-envelope,
-   and autovibrato round-trip preservation are done; the read-only VOL/PAN
-   envelope display is also done. Continue with narrow palette/sample slices.
+3. Represented instrument NAME and selected-sample PAN editing through
+   `applyEdit` are done, along with panning-envelope/autovibrato preservation
+   and the read-only VOL/PAN envelope display. Continue with narrow slices.
 4. Continue explicit loaded-module copy/import flows before broader
    loaded-module editing or Save/Save As work.
 5. Design a weekly codebase review harness as a docs/tooling plan before
@@ -182,11 +182,12 @@ Parked parity-watch items:
 
 Recently completed:
 
-- XM sample-header panning is now a first-class `UInt8` sample field with
-  center (`128`) defaults, exact loader/writer preservation through editable
-  copy and Export XM, snapshot/undo coverage, and a disabled Instrument Editor
-  PAN display. Adapter plans, voice pan, rendered PCM, and loaded-module
-  read-only behavior are unchanged.
+- XM sample-header panning is the first editable sample metadata field. The
+  selected represented sample's exact `UInt8` value can change only in stopped
+  editable documents/copies, through one labeled `applyEdit` undo action; the
+  PAN control stays disabled for loaded modules, playback, and empty slots.
+  Export XM/reopen preserves edits, while adapter plans, voice pan, rendered
+  PCM, audition, and loaded-source read-only behavior remain unchanged.
 - XM instrument panning envelopes now preserve up to 12 points, point ticks/
   values, counts, sustain/loop indices, and supported flags through loading,
   editable copy, snapshots, undo/redo, and Export XM. The Instrument Editor's
@@ -413,8 +414,9 @@ Recommended next product PR:
   export, public-safe writer/reload smoke tests, explicit loaded-module
   editable-copy UI, Instrument Editor shell, instrument NAME editing, and
   document applyEdit/undo funnel, plus sample-panning, panning-envelope, and
-  autovibrato round-trip support and read-only envelope display are in place.
-  Continue with editable sample panning mutation behind `applyEdit`.
+  autovibrato round-trip support, read-only envelope display, and editable
+  selected-sample panning behind `applyEdit` are in place. Continue with a
+  separately scoped sample/instrument slice.
 - Module TIME/headroom work should follow
   `docs/design/module-analysis-lifecycle.md`: loaded-module TIME now comes
   from the cached/prewarmed adapter plan; do not add synchronous full-song
@@ -677,8 +679,8 @@ Current implemented foundation:
 - capped whole-document applyEdit/undo foundation for stopped editable
   documents, including Edit > Undo/Redo, instrument rename, and existing
   editor/control-panel refresh paths
-- exact XM sample panning preservation through load, editable copy, snapshots,
-  undo/redo, and Export XM, with read-only Instrument Editor display
+- exact XM sample panning preservation plus stopped editable-document mutation
+  through applyEdit/undo/redo; loaded modules and runtime behavior stay unchanged
 - exact XM instrument autovibrato preservation through the same paths, with
   disabled VIBRATO display and no playback, audition, scheduling, or PCM change
 - exact XM instrument panning-envelope preservation through the same paths,
@@ -687,8 +689,7 @@ Current implemented foundation:
 
 Next composition targets after backend foundation freeze:
 
-- envelope playback/editing and broader instrument metadata behind applyEdit,
-  beginning with editable sample panning mutation
+- envelope playback/editing and broader instrument/sample metadata behind applyEdit
 - sample editor foundations behind applyEdit
 - editable palette/sample workflow foundations
 - instrument, volume-column, and effect-column entry

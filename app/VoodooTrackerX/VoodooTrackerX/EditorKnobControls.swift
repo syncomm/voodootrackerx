@@ -337,6 +337,7 @@ final class VTXEditorPanSliderControl: NSControl {
     }
 
     private var storedValue: Double
+    private var didChangeDuringTracking = false
 
     init(
         value: Double = 0,
@@ -388,12 +389,21 @@ final class VTXEditorPanSliderControl: NSControl {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        updateValue(from: event, sendAction: true)
+        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isEnabled else { return }
-        updateValue(from: event, sendAction: true)
+        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous) || didChangeDuringTracking
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isEnabled else { return }
+        didChangeDuringTracking = updateValue(from: event, sendAction: isContinuous) || didChangeDuringTracking
+        if !isContinuous, didChangeDuringTracking {
+            sendAction(action, to: target)
+        }
+        didChangeDuringTracking = false
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -427,13 +437,14 @@ final class VTXEditorPanSliderControl: NSControl {
         heightAnchor.constraint(equalToConstant: VTXEditorControlMetrics.panSliderControlSize.height).isActive = true
     }
 
-    private func updateValue(from event: NSEvent, sendAction: Bool) {
+    @discardableResult
+    private func updateValue(from event: NSEvent, sendAction: Bool) -> Bool {
         let point = convert(event.locationInWindow, from: nil)
         let trackRect = sliderTrackRect(in: bounds)
-        guard trackRect.width > 0 else { return }
+        guard trackRect.width > 0 else { return false }
 
         let normalized = min(max((point.x - trackRect.minX) / trackRect.width, 0), 1)
-        setValue((Double(normalized) * 2) - 1, sendAction: sendAction)
+        return setValue((Double(normalized) * 2) - 1, sendAction: sendAction)
     }
 
     private func clamped(_ candidate: Double, applyCenterDetent: Bool) -> Double {

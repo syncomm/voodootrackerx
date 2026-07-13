@@ -9,16 +9,17 @@ modules. The Instrument Editor shell and represented instrument-name editing
 are implemented outside this save/export design. The active sample model,
 loader, editable-copy/snapshot path, and writer now preserve exact XM sample
 panning bytes, exact instrument panning-envelope fields, and exact instrument
-autovibrato bytes; the Instrument Editor displays sample panning and autovibrato
-read-only but remains volume-envelope-only. Panning envelopes and autovibrato
+autovibrato bytes. The Instrument Editor edits selected-sample panning only in
+stopped editable documents/copies through applyEdit/undo; loaded modules remain
+read-only, and panning stays runtime-inert. Autovibrato and panning envelopes
 remain playback/audition-inert. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
 behavior, runtime playback changes, parser architecture changes, and tracker
 viewport changes remain unimplemented by this note.
 
-The implemented rename and all future instrument/sample mutations submit new
-editable-document values through that funnel. Its context carries no source
+The implemented rename and sample-panning edits, plus all future instrument/sample
+mutations, submit new editable-document values through that funnel. Its context carries no source
 URL, rejects loaded read-only and playback-active states, and does not turn
 undo, redo, or export destinations into source-path ownership.
 
@@ -152,8 +153,8 @@ First-writer limitations:
 - no full Instrument Editor state beyond fields currently represented by the
   editable document and playback/palette models
 - no full Sample Editor or sample-import pipeline yet
-- no panning-envelope playback/editing, vibrato playback/editing, editable
-  sample-panning controls, WAV/AIFF import, XI import, or arbitrary non-XM-
+- no panning-envelope playback/editing, vibrato playback/editing, broader
+  sample metadata/PCM/waveform editing, WAV/AIFF import, XI import, or arbitrary non-XM-
   derived payload support in the current writer
 - no private corpus dependency
 - no generated XM/WAV artifacts committed outside explicit reviewed fixture PRs
@@ -229,7 +230,8 @@ Keep future PRs narrow and testable:
 10. Done: `instrument: add editable instrument metadata foundation behind applyEdit` (NAME only)
 11. Done: `instrument: add sample panning model round-trip foundation`
 12. Done: `instrument: add panning envelope model round-trip foundation`
-13. `sample: build Sample Editor shell/import foundation`
+13. Done: `instrument: add editable sample panning mutation behind applyEdit`
+14. `sample: build Sample Editor shell/import foundation`
 
 Save and Save As should remain disabled until the owned-path/native-format
 decision is ready. Export XM can move first because it has clearer source

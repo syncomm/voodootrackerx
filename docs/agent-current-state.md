@@ -35,14 +35,13 @@ convenient sharing. Export XM remains scoped to the current editable subset,
 not an arbitrary-XM round-trip guarantee or full FT2/OpenMPT/MilkyTracker
 parity claim. `Window > Instrument Editor` follows the v1 mockup hierarchy for
 the current palette selection, represented sample metadata, read-only VOL/PAN envelope
-preview, and note-map ranges. Its NAME field is the first editable metadata
-slice: a represented instrument can be renamed only in a stopped editable
-document or editable copy, with XM-compatible sanitization and labeled
-whole-document `applyEdit` undo/redo. Loaded modules, playing documents, and
-all mutation controls remain read-only/inert. XM sample-header
-panning is represented as its exact `0...255` byte, preserved through loaded
-state, editable copies, snapshots, and Export XM, and shown for the selected
-sample on the disabled PAN control. Sample panning remains runtime-inert and
+preview, and note-map ranges. Represented instrument NAME and selected-sample
+PAN are editable only in stopped editable documents or editable copies; both
+use labeled whole-document `applyEdit` undo/redo. Sample panning is the first
+editable sample metadata field and preserves the exact XM `0...255` byte
+through snapshots and Export XM. Loaded modules, playing documents, missing or
+empty sample slots, and all other mutation controls remain read-only/inert.
+Sample panning remains runtime-inert and
 does not change adapter plans, voice pan, or render output. XM instrument
 autovibrato type/sweep/depth/rate bytes are likewise preserved through editable
 copy, snapshots, and Export XM, shown on disabled VIBRATO controls, and remain
@@ -51,8 +50,8 @@ loop indices, and supported flags are now preserved through the same loaded,
 editable-copy, snapshot, and Export XM paths. The local display-only VOL/PAN
 selector exposes their graph, point count, enabled, sustain, and loop state;
 they remain runtime-inert and create no document or undo mutation. These
-metadata slices add no sample/envelope/vibrato mutation, XI behavior,
-envelope/keymap editing, or waveform display. Save/Save As,
+metadata slices add no broader sample, PCM, envelope, or vibrato mutation, XI
+behavior, envelope/keymap editing, waveform display, or sample import. Save/Save As,
 loaded-module direct editing, broader Instrument Editor editing, Sample Editor, PCM16 product export,
 pattern/order ranges, channel/stem export, diagnostic comparison
 profile UI, and user-selectable gain/headroom remain future work.
@@ -216,11 +215,13 @@ Parked parity-watch items:
 
 Recently completed narrow targets:
 
-- `PlaybackSample` represents the exact XM sample-header panning byte with
-  center (`128`) as the generated/default value. The Swift loader and
-  `EditableXMWriter` preserve it through loaded modules, editable copies,
-  snapshots, undo/redo, and Export XM; the Instrument Editor displays it on
-  its disabled PAN surface. `PlaybackInstrumentAutoVibrato` now provides the
+- The selected represented sample's exact XM panning byte is the first editable
+  sample metadata field. Its Instrument Editor PAN control is enabled only for
+  stopped editable documents/copies, commits one `Change Sample Panning`
+  `applyEdit` action with undo/redo, and remains disabled for loaded modules,
+  playback, or empty slots. Export XM/reopen preserves the edited byte while
+  adapter plans, voice pan, render PCM, and audition remain unchanged.
+  `PlaybackInstrumentAutoVibrato` provides
   same exact preservation for the four XM autovibrato bytes and read-only
   VIBRATO display. `PlaybackPanningEnvelope` preserves up to 12 XM panning-
   envelope points plus count, sustain/loop indices, and supported type flags

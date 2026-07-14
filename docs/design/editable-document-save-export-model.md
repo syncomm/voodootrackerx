@@ -13,6 +13,9 @@ autovibrato bytes. The Instrument Editor edits selected-sample panning only in
 stopped editable documents/copies through applyEdit/undo; loaded modules remain
 read-only, and panning stays runtime-inert. Autovibrato and panning envelopes
 remain playback/audition-inert. A
+selected represented sample's exact XM `0...64` volume is also editable only while stopped through
+the same applyEdit/undo funnel, survives Export XM/reopen, and reaches subsequent playback through
+the existing gain mapping without runtime engine, DSP, or scheduling changes. A
 document-level applyEdit/whole-snapshot undo funnel owns replacement. Save, Save As,
 loaded-module direct editing, broader instrument/sample mutation, Sample Editor
 behavior, runtime playback changes, parser architecture changes, and tracker

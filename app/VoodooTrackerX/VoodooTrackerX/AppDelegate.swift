@@ -595,6 +595,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             instrumentNameEditHandler: { [weak self] index, name in
                 self?.editableDocumentEditCoordinator.renameInstrument(at: index, name: name) ?? false
             },
+            sampleVolumeEditHandler: { [weak self] instrumentIndex, sampleIndex, volume in
+                self?.editableDocumentEditCoordinator.setSampleVolume(
+                    instrumentAt: instrumentIndex,
+                    sampleAt: sampleIndex,
+                    volume: volume
+                ) ?? false
+            },
             samplePanningEditHandler: { [weak self] instrumentIndex, sampleIndex, panning in
                 self?.editableDocumentEditCoordinator.setSamplePanning(
                     instrumentAt: instrumentIndex,

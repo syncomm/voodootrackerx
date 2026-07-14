@@ -9,6 +9,8 @@ struct PlaybackCell: Equatable {
 }
 
 struct PlaybackSample: Equatable {
+    static let xmMaximumVolume: UInt8 = 64
+    static let xmDefaultVolume: UInt8 = xmMaximumVolume
     /// XM sample-header center/default panning byte.
     static let xmCenterPanning: UInt8 = 128
 
@@ -64,6 +66,35 @@ struct PlaybackSample: Equatable {
         self.sourceBitDepthBits = sourceBitDepthBits
         self.sourceIsSignedPCM = sourceIsSignedPCM
         self.sourceIsDeltaEncoded = sourceIsDeltaEncoded
+    }
+
+    /// Exact XM sample-header volume represented by the normalized playback value.
+    var xmVolume: UInt8 {
+        let finiteVolume = volume.isFinite ? volume : 0
+        let scaled = Int((finiteVolume * Float(Self.xmMaximumVolume)).rounded())
+        return UInt8(min(Int(Self.xmMaximumVolume), max(0, scaled)))
+    }
+
+    func withVolume(_ volume: UInt8) -> PlaybackSample {
+        let clampedVolume = min(volume, Self.xmMaximumVolume)
+        return PlaybackSample(
+            instrumentIndex: instrumentIndex,
+            sampleIndex: sampleIndex,
+            name: name,
+            pcm: pcm,
+            volume: Float(clampedVolume) / Float(Self.xmMaximumVolume),
+            panning: panning,
+            relativeNote: relativeNote,
+            finetune: finetune,
+            baseSampleRate: baseSampleRate,
+            sampleLength: sampleLength,
+            loopStart: loopStart,
+            loopLength: loopLength,
+            loopType: loopType,
+            sourceBitDepthBits: sourceBitDepthBits,
+            sourceIsSignedPCM: sourceIsSignedPCM,
+            sourceIsDeltaEncoded: sourceIsDeltaEncoded
+        )
     }
 
     func withPanning(_ panning: UInt8) -> PlaybackSample {

@@ -279,6 +279,57 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testEditedSampleVolumeSurvivesLoadedCopyExportAndReopenRoundTrip() throws {
+        let sourceURL = try temporaryDestination(filename: "sample-volume-source.xm")
+        let sourceData = try EditableXMWriter().data(from: samplePanningSourceDocument(panning: 37, volume: 48))
+        try sourceData.write(to: sourceURL, options: .atomic)
+        let metadata = try ModuleMetadataLoader().load(fromPath: sourceURL.path)
+        let loadedSong = try PlaybackSongBuilder.build(from: metadata, modulePath: sourceURL.path)
+        let context = LoadedModuleEditableCopyContext.loadedReadOnly(
+            metadata: metadata,
+            playbackSong: loadedSong,
+            selection: TrackerEditorSelection(selectedInstrument: 1, selectedSample: 1),
+            currentPatternIndex: 0,
+            isPlaybackActive: false
+        )
+
+        guard case let .copied(document) = LoadedModuleEditableCopyCoordinator().makeEditableCopy(context: context) else {
+            return XCTFail("expected generated public-safe XM to become an editable copy")
+        }
+        let sourceSample = try XCTUnwrap(loadedSong.instrumentsByIndex[1]?.samples.first)
+        XCTAssertEqual(sourceSample.xmVolume, 48)
+        XCTAssertEqual(document.instrumentPalette[1]?.samples.first?.xmVolume, 48)
+
+        var editedDocument = document
+        let coordinator = EditableDocumentEditCoordinator(
+            contextProvider: { .editable(document: editedDocument, isPlaybackActive: false) },
+            documentApplyHandler: { editedDocument = $0 }
+        )
+        XCTAssertTrue(coordinator.setSampleVolume(instrumentAt: 0, sampleAt: 0, volume: 17))
+        let editedSample = try XCTUnwrap(editedDocument.instrumentPalette[1]?.samples.first)
+        XCTAssertEqual(editedSample.xmVolume, 17)
+        XCTAssertEqual(editedSample.withVolume(48), sourceSample)
+        XCTAssertEqual(editedDocument.selection, document.selection)
+
+        let destination = try temporaryDestination(filename: "sample-volume-export.xm")
+        let result = ExportXMCoordinator(
+            destinationProvider: FakeEditableCopyExportXMDestinationProvider(destination: destination)
+        ).beginExport(context: .editable(
+            document: editedDocument,
+            displayName: editedDocument.title,
+            isPlaybackActive: false
+        ))
+        XCTAssertEqual(result, .exported(destination: destination))
+
+        let reopenedMetadata = try ModuleMetadataLoader().load(fromPath: destination.path)
+        let reopenedSong = try PlaybackSongBuilder.build(from: reopenedMetadata, modulePath: destination.path)
+        let reopenedSample = try XCTUnwrap(reopenedSong.instrumentsByIndex[1]?.samples.first)
+        XCTAssertEqual(reopenedSample.xmVolume, 17)
+        XCTAssertEqual(reopenedSample.withVolume(48), sourceSample)
+        XCTAssertEqual(try Data(contentsOf: sourceURL), sourceData)
+    }
+
+    @MainActor
     func testInstrumentPanningEnvelopeAndAutoVibratoSurviveLoadedCopyExportAndReopenRoundTrip() throws {
         let panningEnvelope = PlaybackPanningEnvelope(
             enabled: true,
@@ -373,6 +424,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
 
     private func samplePanningSourceDocument(
         panning: UInt8,
+        volume: UInt8 = 64,
         panningEnvelope: PlaybackPanningEnvelope = .disabled,
         autoVibrato: PlaybackInstrumentAutoVibrato = .disabled
     ) -> BlankTrackerDocument {
@@ -389,7 +441,7 @@ final class LoadedModuleEditableCopyCoordinatorTests: XCTestCase {
             sampleIndex: 0,
             name: "Panning Sample",
             pcm: [0, 0.5, -0.5, 0.25],
-            volume: 1,
+            volume: Float(volume) / 64.0,
             panning: panning,
             relativeNote: 0,
             finetune: 0,

@@ -65,6 +65,21 @@ final class EditableDocumentEditCoordinator {
     }
 
     @discardableResult
+    func setSampleVolume(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, volume: UInt8) -> Bool {
+        guard var document = contextProvider().documentAvailableForMutation,
+              document.selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
+              document.selection.selectedSample == zeroBasedSampleIndex + 1,
+              document.setSampleVolume(
+                  instrumentAt: zeroBasedInstrumentIndex,
+                  sampleAt: zeroBasedSampleIndex,
+                  volume: volume
+              ) else {
+            return false
+        }
+        return applyEdit(label: "Change Sample Volume", updatedDocument: document)
+    }
+
+    @discardableResult
     func setSamplePanning(instrumentAt zeroBasedInstrumentIndex: Int, sampleAt zeroBasedSampleIndex: Int, panning: UInt8) -> Bool {
         guard var document = contextProvider().documentAvailableForMutation,
               document.selection.selectedInstrument == zeroBasedInstrumentIndex + 1,
